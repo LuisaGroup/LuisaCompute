@@ -3,7 +3,6 @@ _config_project({
 	project_kind = "shared"
 })
 add_deps("lc-runtime", "lc-vstl", "lc-backend-common")
-set_values("vk_path", LCVulkanPath)
 add_rules("lc_vulkan")
 add_files("**.cpp")
 -- TODO: use dxc for vulkan, only windows temporarily

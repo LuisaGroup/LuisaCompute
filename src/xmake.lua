@@ -1,4 +1,4 @@
-if LCUseMimalloc then
+if get_config("enable_mimalloc") then
 	_configs.enable_mimalloc = true
 end
 table.insert(_config_rules, "lc-rename-ext")
@@ -11,25 +11,25 @@ includes("core")
 includes("vstl")
 includes("ast")
 includes("runtime")
-if LCEnableDSL then
+if get_config("enable_dsl") then
 	includes("dsl")
 end
-if LCEnableGUI then
+if get_config("enable_gui") then
 	includes("gui")
 end
-if LCEnablePython then
+if get_config("_lc_enable_py") then
 	includes("py")
 end
 includes("backends")
-if LCEnableTest then
+if get_config("enable_tests") then
 	includes("tests")
 end
-if LCEnableRust then
+if get_config("_lc_enable_rust") then
 	includes("rust")
 end
-if LCEnableIR then
+if get_config("enable_ir") then
 	includes("ir")
 end
-if LCEnableAPI then
+if get_config("enable_api") then
 	includes("api")
 end

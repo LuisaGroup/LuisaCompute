@@ -4,10 +4,15 @@ import sys
 from subprocess import Popen, call, DEVNULL
 from typing import List
 
+ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
 
-def get_default_features() -> List[str]:
+
+def get_default_features():
     # CPU and Remote are always enabled
-    features = ['cpu', 'remote']
+    features = ['dsl', 'python', 'gui']
+    if call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        features.append('cpu')
+        features.append('remote')
     # enable DirectX on Windows by default
     if sys.platform == 'win32':
         features.append('dx')
@@ -18,6 +23,11 @@ def get_default_features() -> List[str]:
     try:
         if 'CUDA_PATH' in os.environ or call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
             features.append('cuda')
+    except FileNotFoundError:
+        pass
+    try:
+        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or call(['vulkaninfo'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+            features.append('vulkan')
     except FileNotFoundError:
         pass
     return features
@@ -75,15 +85,20 @@ def print_help():
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
-    print('  --config | -c          Configure build system')
+    print('  --config   | -c        Configure build system')
     print('  --features | -f [[no-]features]  Add/remove features')
     print('      Features:')
+    print('          all                Enable all features listed below that are detected available')
+    print('          [no-]dsl           Enable (disable) C++ DSL support')
+    print('          [no-]python        Enable (disable) Python support')
+    print('          [no-]gui           Enable (disable) GUI support')
     print('          [no-]cuda          Enable (disable) CUDA backend')
     print('          [no-]cpu           Enable (disable) CPU backend')
     print('          [no-]remote        Enable (disable) remote backend')
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
-    print('  --mode | -m [node]     Build mode')
+    print('          [no-]vulkan        Enable (disable) Vulkan backend')
+    print('  --mode    | -m [node]  Build mode')
     print('      Modes:')
     print('          debug              Debug mode')
     print('          release            Release mode')
@@ -98,40 +113,61 @@ def print_help():
     print('  -- [args]              Pass arguments to build system')
 
 
-def dump_build_system_args(config: dict):
-    args = build_system_args(config)
-    with open(f"options.{config['build_system']}.cli", 'w') as f:
-        print('\n'.join(args), file=f)
+def dump_cmake_options(config: dict):
+    with open("options.cmake.template") as f:
+        options = f.read()
+    for feature in config['features']:
+        options = options.replace(f'[[feature_{feature}]]', 'ON')
+    for feature in ALL_FEATURES:
+        if feature not in config['features']:
+            options = options.replace(f'[[feature_{feature}]]', 'OFF')
+    with open("options.cmake", 'w') as f:
+        f.write(options)
 
 
-def build_system_args_cmake(config: dict) -> List[str]:
+def dump_xmake_options(config: dict):
+    # TODO: @Maxwell help pls
+    pass
+
+
+def dump_build_system_options(config: dict):
+    build_sys = config['build_system']
+    if build_sys == 'cmake':
+        dump_cmake_options(config)
+    elif build_sys == 'xmake':
+        dump_xmake_options(config)
+    else:
+        raise ValueError(f'Unknown build system: {build_sys}')
+
+
+def build_system_args_cmake(config: dict, mode: str) -> List[str]:
     args = config['cmake_args']
-    if 'cuda' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_CUDA=ON')
-    if 'cpu' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_CPU=ON')
-    if 'remote' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_REMOTE=ON')
-    if 'dx' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_DX=ON')
-    if 'metal' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_METAL=ON')
+    cmake_mode = {
+        'debug': 'Debug',
+        'release': 'Release',
+        'reldbg': 'RelWithDebInfo'
+    }
+    args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
     return args
 
 
-def build_system_args_xmake(config: dict) -> List[str]:
+def build_system_args_xmake(config: dict, mode: str) -> List[str]:
     args = config['xmake_args']
-    if 'cuda' in config['features']:
-        args.append('-c')
-    # TODO: Maxwell handle this pls
+    xmake_mode = {
+        'debug': 'debug',
+        'release': 'release',
+        'reldbg': 'releasedbg'
+    }
+    args.append(f'-m {xmake_mode[mode]}')
+    # TODO: @Maxwell help pls
     return args
 
 
-def build_system_args(config) -> List[str]:
+def build_system_args(config, mode) -> List[str]:
     if config['build_system'] == 'cmake':
-        return build_system_args_cmake(config)
+        return build_system_args_cmake(config, mode)
     elif config['build_system'] == 'xmake':
-        return build_system_args_xmake(config)
+        return build_system_args_xmake(config, mode)
     else:
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
@@ -177,7 +213,7 @@ def main(args: List[str]):
     build_jobs = multiprocessing.cpu_count()
     while i < len(args):
         opt = args[i]
-        if opt == '--clean':
+        if opt == '--clean' or opt == '-C':
             if os.path.exists(config['output']):
                 import shutil
                 shutil.rmtree(config['output'])
@@ -202,7 +238,9 @@ def main(args: List[str]):
             i += 1
             while i < len(args) and not args[i].startswith('-'):
                 f = args[i].lower()
-                if f.startswith('no-'):
+                if f == 'all':
+                    config['features'] = get_default_features()
+                elif f.startswith('no-'):
                     f = f[3:]
                     if f in config['features']:
                         config['features'].remove(f)
@@ -238,30 +276,23 @@ def main(args: List[str]):
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4)
 
-    output = config['output']
-    if not os.path.exists(output):
-        os.mkdir(output)
-    dump_build_system_args(config)
+    # dump build system options, e.g., options.cmake and options.lua
+    dump_build_system_options(config)
+
+    # config and build
+    if run_config or run_build:
+        output = config['output']
+        if not os.path.exists(output):
+            run_config = True
+            os.mkdir(output)
+
     # config build system
     if run_config:
-        args = build_system_args(config)
-
+        args = build_system_args(config, mode)
         if config['build_system'] == 'cmake':
-            cmake_mode = {
-                'debug': 'Debug',
-                'release': 'Release',
-                'reldbg': 'RelWithDebInfo'
-            }
-            args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
             p = Popen(['cmake', '..'] + args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
-            xmake_mode = {
-                'debug': 'debug',
-                'release': 'release',
-                'reldbg': 'releasedbg'
-            }
-            args.append(f'-m {xmake_mode[mode]}')
             p = Popen(['xmake', 'f'] + args)
             p.wait()
         else:

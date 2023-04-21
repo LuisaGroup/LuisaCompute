@@ -24,7 +24,7 @@ add_files("**.cpp")
 -- 						public = true
 -- 					})
 -- end
-if LCEnableDSL then
+if get_config("enable_dsl") then
     add_defines("LUISA_ENABLE_DSL", {
         public = true
     })

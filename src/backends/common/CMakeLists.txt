@@ -9,6 +9,7 @@ if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE OR LUISA_COMPUTE_COM
     target_link_libraries(luisa-compute-vulkan-swapchain PRIVATE Vulkan::Vulkan ${X11_LIBRARIES})
 
     if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        enable_language(OBJC)
         enable_language(OBJCXX)
         target_sources(luisa-compute-vulkan-swapchain PRIVATE moltenvk_surface.mm)
         target_link_libraries(luisa-compute-vulkan-swapchain PRIVATE "-framework QuartzCore")
