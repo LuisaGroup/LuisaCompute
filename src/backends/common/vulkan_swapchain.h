@@ -25,12 +25,20 @@
             }                                            \
         }                                                \
     } while (false)
-
+#ifdef _MSC_VER
+#ifdef LC_VK_SWAPCHAIN_EXPORT
+#define LC_VK_SWAPCHAIN_API __declspec(dllexport)
+#else
+#define LC_VK_SWAPCHAIN_API __declspec(dllimport)
+#endif
+#else
+#define LC_VK_SWAPCHAIN_API
+#endif
 namespace luisa::compute {
 
-[[nodiscard]] luisa::string to_string(VkResult x) noexcept;
+[[nodiscard]] LC_VK_SWAPCHAIN_API  luisa::string to_string(VkResult x) noexcept;
 
-class VulkanSwapchain {
+class LC_VK_SWAPCHAIN_API VulkanSwapchain {
 
 public:
     class Impl;

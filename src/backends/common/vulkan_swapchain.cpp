@@ -1450,7 +1450,7 @@ LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const
     static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
 }
 
-luisa::string to_string(VkResult x) noexcept {
+LC_VK_SWAPCHAIN_API luisa::string to_string(VkResult x) noexcept {
     switch (x) {
         case VK_ERROR_DEVICE_LOST:
             return "VK_ERROR_DEVICE_LOST";
