@@ -14,6 +14,7 @@ use crate::{
 
 use super::{sha256, CodeGen};
 
+use crate::codegen::decode_const_data;
 use std::fmt::Write;
 
 pub(crate) struct TypeGen {
@@ -22,7 +23,7 @@ pub(crate) struct TypeGen {
 }
 
 impl TypeGen {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cache: HashMap::new(),
             struct_typedefs: String::new(),
@@ -138,7 +139,7 @@ impl TypeGen {
             }
         }
     }
-    fn to_c_type(&mut self, t: &CArc<Type>) -> String {
+    pub(crate) fn to_c_type(&mut self, t: &CArc<Type>) -> String {
         if let Some(t) = self.cache.get(t) {
             return t.clone();
         } else {
@@ -1043,7 +1044,7 @@ impl GenericCppCodeGen {
                     "const {0} {1} = lc_bit_cast<{0}>(lc_trace_closest({2}, lc_bit_cast<Ray>({3}), {4}));",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingInstanceTransform => {
@@ -1130,38 +1131,47 @@ impl GenericCppCodeGen {
                 .unwrap();
             }
             Const::Generic(bytes, t) => {
-                let gen_def = |dst: &mut String, qualifier| {
-                    writeln!(
-                        dst,
-                        "    {0} uint8_t {2}_bytes[{1}] = {{ {3} }};",
-                        qualifier,
-                        t.size(),
-                        var,
-                        bytes
-                            .as_ref()
-                            .iter()
-                            .map(|b| format!("{}", b))
-                            .collect::<Vec<String>>()
-                            .join(", ")
-                    )
-                    .unwrap();
-                };
-                match t.as_ref() {
-                    Type::Array(_) => {
-                        if !self.generated_globals.contains(var) {
-                            gen_def(&mut self.fwd_defs, "__constant__ constexpr const");
-                            self.generated_globals.insert(var.clone());
-                        }
-                    }
-                    _ => gen_def(&mut self.body, "constexpr const"),
-                }
                 self.write_ident();
                 writeln!(
                     &mut self.body,
-                    "const {0} {1} = *reinterpret_cast<const {0}*>({1}_bytes);",
-                    node_ty_s, var
+                    "const {0} {1} = {2}",
+                    node_ty_s,
+                    var,
+                    decode_const_data(bytes.as_ref(), t)
                 )
                 .unwrap();
+                // let gen_def = |dst: &mut String, qualifier| {
+                //     writeln!(
+                //         dst,
+                //         "    {0} uint8_t {2}_bytes[{1}] = {{ {3} }};",
+                //         qualifier,
+                //         t.size(),
+                //         var,
+                //         bytes
+                //             .as_ref()
+                //             .iter()
+                //             .map(|b| format!("{}", b))
+                //             .collect::<Vec<String>>()
+                //             .join(", ")
+                //     )
+                //         .unwrap();
+                // };
+                // match t.as_ref() {
+                //     Type::Array(_) => {
+                //         if !self.generated_globals.contains(var) {
+                //             gen_def(&mut self.fwd_defs, "__constant__ constexpr const");
+                //             self.generated_globals.insert(var.clone());
+                //         }
+                //     }
+                //     _ => gen_def(&mut self.body, "constexpr const"),
+                // }
+                // self.write_ident();
+                // writeln!(
+                //     &mut self.body,
+                //     "const {0} {1} = *reinterpret_cast<const {0}*>({1}_bytes);",
+                //     node_ty_s, var
+                // )
+                //     .unwrap();
             }
         }
     }
@@ -1539,6 +1549,7 @@ pub const CPU_LIBM_DEF: &str = include_str!("cpu_libm_def.h");
 pub const CPU_KERNEL_DEFS: &str =
     include_str!("../../../luisa_compute_cpu_kernel_defs/cpu_kernel_defs.h");
 pub const CPU_TEXTURE: &str = include_str!("cpu_texture.h");
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_codegen_cpp(module: KernelModule) -> CBoxedSlice<u8> {
     let src = CpuCodeGen::run(&module);

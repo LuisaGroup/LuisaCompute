@@ -183,7 +183,7 @@ pub enum SerializedFunc {
     RayQueryTerminate,
 
     RasterDiscard,
-    
+
     IndirectClearDispatchBuffer,
     IndirectEmplaceDispatchKernel,
 

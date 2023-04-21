@@ -3,6 +3,7 @@ use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 use luisa_compute_ir::codegen::sha256;
 
+use crate::rust::llvm::LLVM_PATH;
 use std::{
     env::{self, current_exe},
     fs::{canonicalize, File},
@@ -11,7 +12,6 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
 };
-use crate::rust::llvm::LLVM_PATH;
 
 use super::llvm;
 fn canonicalize_and_fix_windows_path(path: PathBuf) -> std::io::Result<PathBuf> {

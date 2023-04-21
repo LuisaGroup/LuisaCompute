@@ -1200,10 +1200,14 @@ impl Backward {
                     Func::Abs => {
                         // abs(x) = x >= 0 ? x : -x
                         let zero = builder.const_(Const::Zero(type_.clone()));
-                        let cond = builder.call(Func::Ge, &[args[0], zero], Type::bool(type_.clone()));
+                        let cond =
+                            builder.call(Func::Ge, &[args[0], zero], Type::bool(type_.clone()));
                         let neg_out_grad = builder.call(Func::Neg, &[out_grad], type_.clone());
-                        let x_grad =
-                            builder.call(Func::Select, &[cond, out_grad, neg_out_grad], type_.clone());
+                        let x_grad = builder.call(
+                            Func::Select,
+                            &[cond, out_grad, neg_out_grad],
+                            type_.clone(),
+                        );
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Min => {
@@ -1356,7 +1360,8 @@ impl Backward {
                     Func::Tanh => {
                         let cosh_x = builder.call(Func::Cosh, &[args[0]], type_.clone());
                         let sqr_cosh_x = builder.call(Func::Mul, &[cosh_x, cosh_x], type_.clone());
-                        let x_grad = builder.call(Func::Div, &[out_grad, sqr_cosh_x], type_.clone());
+                        let x_grad =
+                            builder.call(Func::Div, &[out_grad, sqr_cosh_x], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Exp => {
@@ -1421,11 +1426,17 @@ impl Backward {
                             builder.call(Func::Lt, &[args[0], zero], Type::bool(type_.clone()));
                         let y_negative =
                             builder.call(Func::Lt, &[args[1], zero], Type::bool(type_.clone()));
-                        let same_sign =
-                            builder.call(Func::Eq, &[x_negative, y_negative], Type::bool(type_.clone()));
+                        let same_sign = builder.call(
+                            Func::Eq,
+                            &[x_negative, y_negative],
+                            Type::bool(type_.clone()),
+                        );
                         let neg_out_grad = builder.call(Func::Neg, &[out_grad], type_.clone());
-                        let x_grad =
-                            builder.call(Func::Select, &[same_sign, out_grad, neg_out_grad], type_.clone());
+                        let x_grad = builder.call(
+                            Func::Select,
+                            &[same_sign, out_grad, neg_out_grad],
+                            type_.clone(),
+                        );
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
 
@@ -1556,7 +1567,7 @@ impl Backward {
                         let x_grad = builder.call(
                             Func::ExtractElement,
                             &[out_grad, original_args[2]],
-                            args[1].type_().clone()
+                            args[1].type_().clone(),
                         );
                         self.accumulate_grad(args[0], v_grad, builder);
                         self.accumulate_grad(args[1], x_grad, builder);
@@ -1569,8 +1580,11 @@ impl Backward {
                         let mut sum = builder.const_(Const::Zero(args[0].type_().clone()));
                         for i in 0..out_grad.type_().dimension() {
                             let idx = builder.const_(Const::Uint32(i as u32));
-                            let col =
-                                builder.call(Func::ExtractElement, &[out_grad, idx], col_type.clone());
+                            let col = builder.call(
+                                Func::ExtractElement,
+                                &[out_grad, idx],
+                                col_type.clone(),
+                            );
                             let col_sum = builder.call(Func::ReduceSum, &[col], col_type.element());
                             sum = builder.call(Func::Add, &[sum, col_sum], sum.type_().clone());
                         }
@@ -1585,8 +1599,11 @@ impl Backward {
                         };
                         for i in 0..n {
                             let col = builder.const_(Const::Uint32(i as u32));
-                            let col_grad =
-                                builder.call(Func::ExtractElement, &[out_grad, col], col_type.clone());
+                            let col_grad = builder.call(
+                                Func::ExtractElement,
+                                &[out_grad, col],
+                                col_type.clone(),
+                            );
                             // for j in 0..n {
                             //     let row = builder.const_(Const::Uint32(j as u32));
                             //     let elem_grad = builder.call(

@@ -1,5 +1,5 @@
 use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer, Deserialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::usage_detect::detect_usage;
 use crate::*;
@@ -478,7 +478,7 @@ pub enum Func {
     RayQueryTerminate,
 
     RasterDiscard,
-    
+
     IndirectClearDispatchBuffer,
     IndirectEmplaceDispatchKernel,
 

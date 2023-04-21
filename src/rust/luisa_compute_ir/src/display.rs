@@ -1,4 +1,7 @@
-use crate::{ir::{Instruction, Module, NodeRef, SwitchCase, Type}, context::is_type_equal};
+use crate::{
+    context::is_type_equal,
+    ir::{Instruction, Module, NodeRef, SwitchCase, Type},
+};
 use std::collections::HashMap;
 
 pub struct DisplayIR {
