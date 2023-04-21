@@ -49,7 +49,7 @@ def get_default_mode():
     return 'release'
 
 
-def default_config():
+def get_default_config():
     return {
         'cmake_args': [],
         'xmake_args': [],
@@ -75,7 +75,7 @@ def install_dep(dep: str):
 
 
 def get_config():
-    config = default_config()
+    config = get_default_config()
     # check if config.json exists
     if os.path.exists('config.json'):
         import json
@@ -95,7 +95,7 @@ def print_help():
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
     print('  --config    | -c       Configure build system')
-    print('  --toolchain | -t       Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
+    print('  --toolchain | -t [toolchain]      Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
     print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
@@ -112,7 +112,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --mode    | -m [node]  Build mode')
+    print('  --mode    | -m [mode]  Build mode')
     print('      Modes:')
     print('          debug              Debug mode')
     print('          release            Release mode')
@@ -123,7 +123,7 @@ def print_help():
     print('      Dependencies:')
     print('          all                Install all dependencies as listed below')
     print('          rust               Install Rust toolchain')
-    print('  --output  | -o         Path to output directory')
+    print('  --output  | -o [folder]    Path to output directory (default: build)')
     print('  -- [args]              Pass arguments to build system')
 
 
@@ -169,6 +169,8 @@ def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str
     if toolchain == 'msvc':
         pass
     elif toolchain == 'clang':
+        args.append("-DCMAKE_C_COMPILER=clang")
+        args.append("-DCMAKE_CXX_COMPILER=clang++")
         pass
     elif toolchain == 'gcc':
         pass
