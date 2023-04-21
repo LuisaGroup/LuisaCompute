@@ -54,26 +54,36 @@
 ### XMake Build Commands
 
 ```bash
-xmake f -p <platform> -a <arch> -m <debug/release> --<option>=<option value> --<option>=<option value>
+xmake f -c
 xmake
 ```
 
 ### XMake Options
 
-- enable_mimalloc: Enable Mimalloc (Default: true)
-- enable_unity_build: Enable Unity(Jumbo) Build to boost compile (Default: true)
-- enable_simd: Enable SSE and SSE2 SIMD (Default: true)
-- dx_backend: Enable Direct-X backend (Default: true, Windows platform only)
-- cuda_backend: Enable CUDA backend (Default: true, CUDA toolchain required)
-- metal_backend: Enable Metal backend (Default: true, Mac-OS platform only)
-- vk_backend: Enable Vulkan backend (Default: true)
-- cpu_backend: Enable CPU backend (Default: true)
-- enable_tests: Enable Tests (Default: false)
-- py_path: Python's path for Python Module (Default: empty string, example: --py_path=C:/python)
-- enable_rust: Rust module, auto enable if required (Default: false)
-- enable_dsl: C++ DSL module (Default: false)
-- enable_gui: Backend-native window and GUI support (Default: false)
-- bin_dir: set binary output directory (Default: xmake's default directory)
+All xmake options declared in ./xmake.lua clearly, you can create ./options.lua to save a default config for your local environment. An example of options.lua is:
+
+```lua
+-- for xmake internal arguments
+lc_config = {
+	toolchain = "llvm",
+	sdk = "D:/LLVM"
+}
+-- for LC's custom options
+function get_options()
+	return {
+		enable_tests = true,
+		enable_api = true,
+	}
+end
+```
+Options in options.lua can be covered by command-line config, for example:
+
+```bash
+xmake f --enable_tests=false --enable_api=false -c
+xmake
+```
+
+Now both "enable_tests" and "enable_api" are false value.
 
 ### XMake Config
 

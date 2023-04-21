@@ -1,4 +1,4 @@
-if LCDxBackend or LCVkBackend then
+if get_config("dx_backend") or get_config("vk_backend") then
 	target("lc-copy-dxc")
 	set_kind("phony")
 	after_build(function(target)
@@ -10,41 +10,42 @@ if LCDxBackend or LCVkBackend then
 	target_end()
 end
 includes("common")
-if LCDxBackend then
+if get_config("dx_backend") then
 	includes("dx")
 end
-if LCCudaBackend then
+if get_config("cuda_backend") then
 	includes("cuda")
 end
-if LCMetalBackend then
+
+if get_config("metal_backend") then
 	includes("metal")
 end
-if LCCpuBackend then
+if get_config("cpu_backend") then
 	includes("cpu")
 end
 if LCRemoteBackend then
 	includes("remote")
 end
-if LCVkBackend then
+if get_config("vk_backend") then
 	includes("vk")
 end
 includes("validation")
 target("lc-backends-dummy")
 set_kind("phony")
 add_deps("lc-validation-layer", {inherit = false})
-if LCDxBackend then
+if get_config("dx_backend") then
 	add_deps("lc-backend-dx", {inherit = false})
 end
-if LCMetalBackend then
+if get_config("metal_backend") then
 	add_deps("lc-backend-metal", {inherit = false})
 end
-if LCVkBackend then
+if get_config("vk_backend") then
 	add_deps("lc-backend-vk", {inherit = false})
 end
-if LCVkBackend or LCDxBackend then
+if get_config("vk_backend") or get_config("dx_backend") then
 	add_deps("lc-hlsl-builtin", {inherit = false})
 end
-if LCCpuBackend then
+if get_config("cpu_backend") then
 	add_deps("lc-backend-cpu", {inherit = false})
 end
 target_end()

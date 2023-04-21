@@ -3,9 +3,8 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 4
 })
-if LCVulkanPath then
+if get_config("_lc_vk_path") then
 	add_defines("LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN")
-	set_values("vk_path", LCVulkanPath)
 	add_rules("lc_vulkan")
 end
 add_deps("lc-runtime", "lc-backend-common")
