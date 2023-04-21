@@ -280,10 +280,9 @@ def main(args: List[str]):
     dump_build_system_options(config)
 
     # config and build
+    output = config['output']
     if run_config or run_build:
-        output = config['output']
         if not os.path.exists(output):
-            run_config = True
             os.mkdir(output)
 
     # config build system
