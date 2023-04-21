@@ -111,18 +111,29 @@ def install_ninja():
 
 
 def install_xmake():
+    ps_file = download_file("https://fastly.jsdelivr.net/gh/xmake-io/xmake@master/scripts/get.ps1", "get_xmake.ps1")
+    with open(ps_file, 'r') as f:
+        ps_script = f.read()
+    # find the latest version $LastRelease = "value"
+    last_release = ps_script.split('$LastRelease = "')[1].split('"')[0]
     if sys.platform == 'win32':
-        ps_file = download_file("https://fastly.jsdelivr.net/gh/xmake-io/xmake@master/scripts/get.ps1", "get_xmake.ps1")
-        with open(ps_file, 'r') as f:
-            ps_script = f.read()
-        # find the latest version $LastRelease = "value"
-        last_release = ps_script.split('$LastRelease = "')[1].split('"')[0]
         file_name = "xmake-master.win64.zip"
         xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/{file_name}"
         xmake_file = download_file(xmake_url, file_name)
         unzip_file(xmake_file, DEPS_DIR)
+        with open(f"{DEPS_DIR}/xmake_bin", "w") as f:
+            f.write(f"{DEPS_DIR}/xmake/xmake.exe")
     else:
-        os.system('curl -fsSL https://xmake.io/shget.text | bash')
+        file_name = f"xmake-master.tar.gz"
+        xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/{file_name}"
+        xmake_file = download_file(xmake_url, file_name)
+        unzip_file(xmake_file, DEPS_DIR)
+        output_dir = f'{DEPS_DIR}/xmake-{last_release.replace("v", "")}'
+        call(['sh', './configure'], cwd=output_dir)
+        call(['make', f'-j{multiprocessing.cpu_count()}'], cwd=output_dir)
+        call(['make', 'install', 'PREFIX=.'], cwd=output_dir)
+        with open(f"{DEPS_DIR}/xmake_bin", "w") as f:
+            f.write(f"{output_dir}/bin/xmake")
 
 
 def install_cmake():
