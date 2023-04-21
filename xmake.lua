@@ -101,18 +101,17 @@ option("bin_dir")
 set_default("bin")
 set_showmenu(true)
 option_end()
+-- pre-defined options end
 
+-- try options.lua
 includes("options.lua")
 if lc_config then
 	for k, v in pairs(lc_config) do
 		set_config(k, v)
 	end
 end
--- options lua
--- pre-defined options end
+
 if is_arch("x64", "x86_64", "arm64") then
-	-- test require dsl
-	-- get_config("dx_backend") = get_config("dx_backend") and is_plat("windows")
 	includes("xmake_func.lua")
 	local bin_dir = get_config("bin_dir")
 	if (bin_dir) then
