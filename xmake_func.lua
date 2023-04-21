@@ -48,8 +48,8 @@ after_check(function(option)
 		enable_py:enable(true)
 	end
 	local is_win = is_plat("windows")
-	if not is_win then
-		local dx_backend = option:dep("dx_backend")
+	local dx_backend = option:dep("dx_backend")
+	if dx_backend:enabled() and not is_win then
 		try {function()
 			dx_backend:set_value(false)
 		end, catch {function()
@@ -59,8 +59,8 @@ after_check(function(option)
 			})
 		end}}
 	end
-	if not is_plat("macosx") then
-		local metal_backend = option:dep("metal_backend")
+	local metal_backend = option:dep("metal_backend")
+	if metal_backend:enabled() and not is_plat("macosx") then
 		try {function()
 			metal_backend:set_value(false)
 		end, catch {function()
@@ -70,8 +70,8 @@ after_check(function(option)
 			})
 		end}}
 	end
-	if not (is_win or is_plat("linux")) then
-		local cuda_backend = option:dep("cuda_backend")
+	local cuda_backend = option:dep("cuda_backend")
+	if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
 		try {function()
 			cuda_backend:set_value(false)
 		end, catch {function()
@@ -109,14 +109,16 @@ after_check(function(option)
 	if not vk_path then
 		vk_path = os.getenv("VK_SDK_PATH")
 		local vk_backend = option:dep("vk_backend")
-		try {function()
-			vk_backend:set_value(false)
-		end, catch {function()
-			utils.error("VK backend not supported in this platform, force disabled.")
-			vk_backend:enable(false, {
-				force = true
-			})
-		end}}
+		if vk_backend:enabled() then
+			try {function()
+				vk_backend:set_value(false)
+			end, catch {function()
+				utils.error("VK backend not supported in this platform, force disabled.")
+				vk_backend:enable(false, {
+					force = true
+				})
+			end}}
+		end
 	else
 		option:dep("_lc_vk_path"):set_value(vk_path)
 	end

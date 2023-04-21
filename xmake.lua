@@ -87,7 +87,7 @@ option_end()
 -- enable C++ DSL module
 option("enable_dsl")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- enable GUI module
