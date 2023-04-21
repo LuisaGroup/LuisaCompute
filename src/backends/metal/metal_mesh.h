@@ -14,6 +14,9 @@ class MetalCommandEncoder;
 class MetalMesh : public MetalPrimitive {
 
 private:
+    MTL::PrimitiveAccelerationStructureDescriptor *_descriptor{nullptr};
+
+private:
     void _do_add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept override;
 
 public:

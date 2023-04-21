@@ -10,6 +10,8 @@
 
 namespace luisa::compute::metal {
 
+class MetalCommandEncoder;
+
 class MetalPrimitive {
 
 private:
@@ -19,6 +21,10 @@ private:
 
 private:
     virtual void _do_add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept = 0;
+
+protected:
+    void _do_build(MetalCommandEncoder &encoder, MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept;
+    void _do_update(MetalCommandEncoder &encoder, MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept;
 
 public:
     MetalPrimitive(MTL::Device *device, const AccelOption &option) noexcept;

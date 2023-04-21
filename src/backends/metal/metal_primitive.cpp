@@ -17,4 +17,12 @@ void MetalPrimitive::add_resources(luisa::vector<MTL::Resource *> &resources) co
     _do_add_resources(resources);
 }
 
+void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
+                               MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept {
+}
+
+void MetalPrimitive::_do_update(MetalCommandEncoder &encoder,
+                                MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept {
+}
+
 }// namespace luisa::compute::metal
