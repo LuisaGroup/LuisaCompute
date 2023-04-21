@@ -25,7 +25,7 @@ end)
 after_build(function(target)
 	if is_plat("windows") then
 		local bin_dir = target:targetdir()
-		os.cp(path.join(os.scriptdir(), "dx/dx_support/*.dll"), bin_dir)
+		os.cp(path.join(os.scriptdir(), "dx_support/*.dll"), bin_dir)
 	end
 end)
 target_end()
