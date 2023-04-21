@@ -9,8 +9,6 @@
 
 namespace luisa::compute::metal {
 
-class MetalCommandEncoder;
-
 class MetalMesh : public MetalPrimitive {
 
 private:

@@ -71,21 +71,12 @@ void MetalMesh::build(MetalCommandEncoder &encoder, MeshBuildCommand *command) n
         geom_desc->setTriangleCount(triangle_buffer_size / triangle_stride);
         geom_desc->setOpaque(true);
         geom_desc->setAllowDuplicateIntersectionFunctionInvocation(true);
+        geom_desc->setIntersectionFunctionTableOffset(0u);
         auto geom_desc_object = static_cast<NS::Object *>(geom_desc);
         auto geom_desc_array = NS::Array::array(&geom_desc_object, 1u);
         _descriptor = MTL::PrimitiveAccelerationStructureDescriptor::alloc()->init();
         _descriptor->setGeometryDescriptors(geom_desc_array);
-        auto usage = 0u;
-        switch (option().hint) {
-            case AccelOption::UsageHint::FAST_TRACE:
-                usage |= MTL::AccelerationStructureUsageNone;
-                break;
-            case AccelOption::UsageHint::FAST_BUILD:
-                usage |= MTL::AccelerationStructureUsagePreferFastBuild;
-                break;
-        }
-        if (option().allow_update) { usage |= MTL::AccelerationStructureUsageRefit; }
-        _descriptor->setUsage(usage);
+        _descriptor->setUsage(usage());
         _do_build(encoder, _descriptor);
     } else {
         _do_update(encoder, _descriptor);

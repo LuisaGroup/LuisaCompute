@@ -6,12 +6,27 @@
 
 namespace luisa::compute::metal {
 
-MetalPrimitive::MetalPrimitive(MTL::Device *device, const AccelOption &option) noexcept {
-}
+MetalPrimitive::MetalPrimitive(MTL::Device *device [[maybe_unused]],
+                               const AccelOption &option) noexcept
+    : _option{option} {}
 
 MetalPrimitive::~MetalPrimitive() noexcept {
     if (_handle) { _handle->release(); }
     if (_update_buffer) { _update_buffer->release(); }
+}
+
+MTL::AccelerationStructureUsage MetalPrimitive::usage() const noexcept {
+    auto u = 0u;
+    switch (option().hint) {
+        case AccelOption::UsageHint::FAST_TRACE:
+            u |= MTL::AccelerationStructureUsageNone;
+            break;
+        case AccelOption::UsageHint::FAST_BUILD:
+            u |= MTL::AccelerationStructureUsagePreferFastBuild;
+            break;
+    }
+    if (option().allow_update) { u |= MTL::AccelerationStructureUsageRefit; }
+    return static_cast<MTL::AccelerationStructureUsage>(u);
 }
 
 void MetalPrimitive::add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept {

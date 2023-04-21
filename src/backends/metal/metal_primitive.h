@@ -32,6 +32,7 @@ public:
     virtual ~MetalPrimitive() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto option() const noexcept { return _option; }
+    [[nodiscard]] MTL::AccelerationStructureUsage usage() const noexcept;
     void set_name(luisa::string_view name) noexcept { _name = name; }
     void add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept;
 };
