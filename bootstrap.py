@@ -5,6 +5,7 @@ from subprocess import Popen, call, DEVNULL
 from typing import List
 
 ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
+ALL_DEPENDENCIES = ['rust']
 
 
 def get_default_features():
@@ -33,8 +34,19 @@ def get_default_features():
     return features
 
 
-def get_all_dependencies() -> List[str]:
-    return ['rust']
+def get_default_toolchain():
+    if sys.platform == 'win32':
+        return 'msvc'
+    elif sys.platform == 'darwin':
+        return 'clang'
+    elif sys.platform == 'linux':
+        return 'gcc'
+    else:
+        raise ValueError(f'Unknown platform: {sys.platform}')
+
+
+def get_default_mode():
+    return 'release'
 
 
 def default_config():
@@ -47,20 +59,17 @@ def default_config():
     }
 
 
-platform = sys.platform
-
-
 def install_dep(dep: str):
     if dep == 'rust':
-        if platform == 'win32':
+        if sys.platform == 'win32':
             # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
             os.system(
                 'curl -sSf https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe -o rustup-init.exe')
             os.system('rustup-init.exe -y')
-        elif platform == 'linux' or platform == 'darwin':
+        elif sys.platform == 'linux' or sys.platform == 'darwin':
             os.system('curl https://sh.rustup.rs -sSf | sh -s -- -y')
         else:
-            raise ValueError(f'Unknown platform: {platform}')
+            raise ValueError(f'Unknown platform: {sys.platform}')
     else:
         raise ValueError(f'Unknown dependency: {dep}')
 
@@ -80,13 +89,18 @@ def print_help():
     print('Build system:')
     print('  cmake                  Use CMake')
     print('  xmake                  Use xmake')
-    print('Mode:')
+    print('Mode (effective only when "--config | -c" or "--build | -b" is specified):')
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
-    print('  --config   | -c        Configure build system')
-    print('  --features | -f [[no-]features]  Add/remove features')
+    print('  --config    | -c       Configure build system')
+    print('  --toolchain | -t       Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
+    print('      Toolchains:')
+    print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
+    print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
+    print('          gcc[-version]      Use GCC toolchain (default on Linux; available on Linux only)')
+    print('  --features  | -f [[no-]features]  Add/remove features')
     print('      Features:')
     print('          all                Enable all features listed below that are detected available')
     print('          [no-]dsl           Enable (disable) C++ DSL support')
@@ -140,7 +154,7 @@ def dump_build_system_options(config: dict):
         raise ValueError(f'Unknown build system: {build_sys}')
 
 
-def build_system_args_cmake(config: dict, mode: str) -> List[str]:
+def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str]:
     args = config['cmake_args']
     cmake_mode = {
         'debug': 'Debug',
@@ -148,10 +162,20 @@ def build_system_args_cmake(config: dict, mode: str) -> List[str]:
         'reldbg': 'RelWithDebInfo'
     }
     args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
+    toolchain_version = 0
+    if '-' in toolchain:
+        toolchain, toolchain_version = toolchain.split('-')
+        toolchain_version = int(toolchain_version)
+    if toolchain == 'msvc':
+        pass
+    elif toolchain == 'clang':
+        pass
+    elif toolchain == 'gcc':
+        pass
     return args
 
 
-def build_system_args_xmake(config: dict, mode: str) -> List[str]:
+def build_system_args_xmake(config: dict, mode: str, toolchain: str) -> List[str]:
     args = config['xmake_args']
     xmake_mode = {
         'debug': 'debug',
@@ -163,11 +187,11 @@ def build_system_args_xmake(config: dict, mode: str) -> List[str]:
     return args
 
 
-def build_system_args(config, mode) -> List[str]:
+def build_system_args(config, mode, toolchain) -> List[str]:
     if config['build_system'] == 'cmake':
-        return build_system_args_cmake(config, mode)
+        return build_system_args_cmake(config, mode, toolchain)
     elif config['build_system'] == 'xmake':
-        return build_system_args_xmake(config, mode)
+        return build_system_args_xmake(config, mode, toolchain)
     else:
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
@@ -201,7 +225,8 @@ def main(args: List[str]):
             config['build_system'] = arg.lower()
             args.pop(i)
             break
-    mode = "release"
+    mode = get_default_mode()
+    toolchain = get_default_toolchain()
     for i, arg in enumerate(args):
         if arg.lower() in ('debug', 'release', 'reldbg'):
             mode = arg.lower()
@@ -255,11 +280,14 @@ def main(args: List[str]):
                 deps.append(args[i].lower())
                 i += 1
             if "all" in deps:
-                deps = get_all_dependencies()
+                deps = ALL_DEPENDENCIES
             for d in deps:
                 install_dep(d)
         elif opt == '--output' or opt == '-o':
             config['output'] = args[i + 1]
+            i += 2
+        elif opt == '--toolchain' or opt == '-t':
+            toolchain = args[i + 1].lower()
             i += 2
         elif opt == "--":
             if config['build_system'] == 'cmake':
@@ -287,7 +315,7 @@ def main(args: List[str]):
 
     # config build system
     if run_config:
-        args = build_system_args(config, mode)
+        args = build_system_args(config, mode, toolchain)
         if config['build_system'] == 'cmake':
             p = Popen(['cmake', '..'] + args, cwd=output)
             p.wait()

@@ -7,6 +7,9 @@
 #include <runtime/rhi/pixel.h>
 #include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
+#include <backends/metal/metal_accel.h>
+#include <backends/metal/metal_mesh.h>
+#include <backends/metal/metal_procedural_primitive.h>
 #include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_command_encoder.h>
 
@@ -104,9 +107,7 @@ void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
         add_callback(FunctionCallbackContext::create([download_buffer, data, size] {
-            auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
-                     download_buffer->offset();
-            std::memcpy(data, p, size);
+            std::memcpy(data, download_buffer->data(), size);
         }));
     });
 }
@@ -188,9 +189,7 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
         add_callback(FunctionCallbackContext::create([download_buffer, data, total_size] {
-            auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
-                     download_buffer->offset();
-            std::memcpy(data, p, total_size);
+            std::memcpy(data, download_buffer->data(), total_size);
         }));
     });
 }
@@ -232,14 +231,20 @@ void MetalCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(AccelBuildCommand *command) noexcept {
     _prepare_command_buffer();
+    auto accel = reinterpret_cast<MetalAccel *>(command->handle());
+    accel->build(*this, command);
 }
 
 void MetalCommandEncoder::visit(MeshBuildCommand *command) noexcept {
     _prepare_command_buffer();
+    auto mesh = reinterpret_cast<MetalMesh *>(command->handle());
+    mesh->build(*this, command);
 }
 
 void MetalCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
     _prepare_command_buffer();
+    auto prim = reinterpret_cast<MetalProceduralPrimitive *>(command->handle());
+    prim->build(*this, command);
 }
 
 void MetalCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {

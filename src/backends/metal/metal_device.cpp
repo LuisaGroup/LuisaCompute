@@ -18,7 +18,8 @@
 #include <backends/metal/metal_swapchain.h>
 #include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_accel.h>
-#include <backends/metal/metal_primitive.h>
+#include <backends/metal/metal_mesh.h>
+#include <backends/metal/metal_procedural_primitive.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
@@ -353,25 +354,35 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
 
 ResourceCreationInfo MetalDevice::create_mesh(const AccelOption &option) noexcept {
     return with_autorelease_pool([=, this] {
-        return ResourceCreationInfo();
+        auto mesh = new_with_allocator<MetalMesh>(_handle, option);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(mesh);
+        info.native_handle = mesh;
+        return info;
     });
 }
 
 void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        // TODO
+        auto mesh = reinterpret_cast<MetalMesh *>(handle);
+        delete_with_allocator(mesh);
     });
 }
 
 ResourceCreationInfo MetalDevice::create_procedural_primitive(const AccelOption &option) noexcept {
     return with_autorelease_pool([=, this] {
-        return ResourceCreationInfo();
+        auto primitive = new_with_allocator<MetalProceduralPrimitive>(_handle, option);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(primitive);
+        info.native_handle = primitive;
+        return info;
     });
 }
 
 void MetalDevice::destroy_procedural_primitive(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        // TODO
+        auto primitive = reinterpret_cast<MetalProceduralPrimitive *>(handle);
+        delete_with_allocator(primitive);
     });
 }
 
@@ -417,10 +428,26 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 texture->set_name(name);
                 break;
             }
-            case Resource::Tag::BINDLESS_ARRAY: break;
-            case Resource::Tag::MESH: break;
-            case Resource::Tag::PROCEDURAL_PRIMITIVE: break;
-            case Resource::Tag::ACCEL: break;
+            case Resource::Tag::BINDLESS_ARRAY: {
+                auto bindless_array = reinterpret_cast<MetalBindlessArray *>(resource_handle);
+                bindless_array->set_name(name);
+                break;
+            }
+            case Resource::Tag::MESH: {
+                auto mesh = reinterpret_cast<MetalMesh *>(resource_handle);
+                mesh->set_name(name);
+                break;
+            }
+            case Resource::Tag::PROCEDURAL_PRIMITIVE: {
+                auto prim = reinterpret_cast<MetalProceduralPrimitive *>(resource_handle);
+                prim->set_name(name);
+                break;
+            }
+            case Resource::Tag::ACCEL: {
+                auto accel = reinterpret_cast<MetalAccel *>(resource_handle);
+                accel->set_name(name);
+                break;
+            }
             case Resource::Tag::STREAM: {
                 auto stream = reinterpret_cast<MetalStream *>(resource_handle);
                 stream->set_name(name);

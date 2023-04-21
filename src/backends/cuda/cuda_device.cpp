@@ -213,7 +213,7 @@ void CUDADevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
-#ifndef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifndef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     if (stream_tag == StreamTag::GRAPHICS) {
         LUISA_WARNING_WITH_LOCATION("Swapchains are not enabled on CUDA backend, "
                                     "Graphics streams might not work properly.");
@@ -251,7 +251,7 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
                                                     uint width, uint height,
                                                     bool allow_hdr, bool vsync,
                                                     uint back_buffer_size) noexcept {
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     auto chain = with_handle([&] {
         return new_with_allocator<CUDASwapchain>(
             this, window_handle, width, height,
@@ -270,7 +270,7 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
 }
 
 void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     with_handle([chain = reinterpret_cast<CUDASwapchain *>(handle)] {
         delete_with_allocator(chain);
     });
@@ -282,7 +282,7 @@ void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
 }
 
 void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
                  chain = reinterpret_cast<CUDASwapchain *>(swapchain_handle),
                  image = reinterpret_cast<CUDATexture *>(image_handle)] {
@@ -863,7 +863,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 break;
             case Resource::Tag::RASTER_SHADER: break;
             case Resource::Tag::SWAP_CHAIN:
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
                 reinterpret_cast<CUDASwapchain *>(handle)->set_name(std::move(name));
 #endif
                 break;

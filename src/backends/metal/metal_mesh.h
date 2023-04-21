@@ -2,10 +2,25 @@
 // Created by Mike Smith on 2023/4/20.
 //
 
-#ifndef LUISACOMPUTE_METAL_MESH_H
-#define LUISACOMPUTE_METAL_MESH_H
+#pragma once
 
-class metal_mesh {
+#include <runtime/rhi/command.h>
+#include <backends/metal/metal_primitive.h>
+
+namespace luisa::compute::metal {
+
+class MetalMesh : public MetalPrimitive {
+
+private:
+    MTL::PrimitiveAccelerationStructureDescriptor *_descriptor{nullptr};
+
+private:
+    void _do_add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept override;
+
+public:
+    MetalMesh(MTL::Device *device, const AccelOption &option) noexcept;
+    ~MetalMesh() noexcept override;
+    void build(MetalCommandEncoder &encoder, MeshBuildCommand *command) noexcept;
 };
 
-#endif//LUISACOMPUTE_METAL_MESH_H
+}// namespace luisa::compute::metal
