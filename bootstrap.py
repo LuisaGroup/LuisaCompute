@@ -272,7 +272,7 @@ def main(args: List[str]):
                         config['features'].append(f)
                 i += 1
             if "all" in config['features']:
-                config['features'] = ALL_FEATURES
+                config['features'] = get_default_features()
         elif opt == '--install' or opt == '-i':
             i += 1
             deps = []
