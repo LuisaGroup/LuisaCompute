@@ -4,7 +4,7 @@ _config_project({
 	batch_size = 4
 })
 if get_config("_lc_vk_path") then
-	add_defines("LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN")
+	add_defines("LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
 	add_rules("lc_vulkan")
 end
 add_deps("lc-runtime", "lc-backend-common")
