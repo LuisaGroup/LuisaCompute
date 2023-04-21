@@ -7,6 +7,9 @@ from typing import List
 ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
 ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
 
+DEPS_DIR = '.deps'
+DOWNLOAD_DIR = f'{DEPS_DIR}/downloads'
+
 
 def get_default_features():
     # CPU and Remote are always enabled
@@ -60,29 +63,81 @@ def get_default_config():
 
 
 def download_file(url: str, name: str):
-    download_dir = '.deps/downloads'
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)
-    output_path = f'{download_dir}/{name}'
-    if os.path.exists(output_path):
-        return output_path
+    if not os.path.exists(DOWNLOAD_DIR):
+        os.makedirs(DOWNLOAD_DIR)
+    output_path = f'{DOWNLOAD_DIR}/{name}'
     import urllib.request
     print(f'Downloading "{url}" to "{output_path}"...')
     urllib.request.urlretrieve(url, output_path)
     return output_path
 
 
-def install_ninja():
+def unzip_file(in_path: str, out_path: str):
+    if in_path.lower().endswith('.zip'):
+        import zipfile
+        print(f'Unzipping "{in_path}" to "{out_path}"...')
+        with zipfile.ZipFile(in_path, 'r') as zip_ref:
+            zip_ref.extractall(out_path)
+    elif in_path.lower().endswith('.tar.gz'):
+        import tarfile
+        print(f'Unzipping "{in_path}" to "{out_path}"...')
+        with tarfile.open(in_path, 'r:gz') as tar_ref:
+            tar_ref.extractall(out_path)
+    else:
+        raise ValueError(f'Unknown file type: {in_path}')
 
-    pass
+
+def install_ninja():
+    if sys.platform == 'win32':
+        ninja_platform = 'win'
+    elif sys.platform == 'linux':
+        ninja_platform = 'linux'
+    elif sys.platform == 'darwin':
+        ninja_platform = 'mac'
+    else:
+        raise ValueError(f'Unknown platform: {sys.platform}')
+    ninja_version = "1.11.1"
+    ninja_file = f"ninja-{ninja_platform}.zip"
+    ninja_url = f"https://github.com/ninja-build/ninja/releases/download/v{ninja_version}/{ninja_file}"
+    zip_path = download_file(ninja_url, ninja_file)
+    unzip_file(zip_path, DEPS_DIR)
 
 
 def install_xmake():
-    pass
+    if sys.platform == 'win32':
+        ps_file = download_file("https://fastly.jsdelivr.net/gh/xmake-io/xmake@master/scripts/get.ps1", "get_xmake.ps1")
+        with open(ps_file, 'r') as f:
+            ps_script = f.read()
+        # find the latest version $LastRelease = "value"
+        last_release = ps_script.split('$LastRelease = "')[1].split('"')[0]
+        xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/xmake-master.win64.exe"
+        xmake_file = download_file(xmake_url, "xmake-master.win64.exe")
+        # run the installer
+        os.system(f'"{xmake_file}" /S /D={DEPS_DIR}/xmake')
+    else:
+        os.system('curl -fsSL https://xmake.io/shget.text | bash')
 
 
 def install_cmake():
-    pass
+    if sys.platform == 'win32':
+        cmake_platform = 'windows'
+        cmake_suffix = 'zip'
+        cmake_arch = 'x86_64'
+    elif sys.platform == 'linux':
+        cmake_platform = 'linux'
+        cmake_suffix = 'tar.gz'
+        cmake_arch = 'x86_64'
+    elif sys.platform == 'darwin':
+        cmake_platform = 'macos'
+        cmake_suffix = 'tar.gz'
+        cmake_arch = 'universal'
+    else:
+        raise ValueError(f'Unknown platform: {sys.platform}')
+    cmake_version = "3.26.3"
+    cmake_file = f"cmake-{cmake_version}-{cmake_platform}-{cmake_arch}.{cmake_suffix}"
+    cmake_url = f"https://github.com/Kitware/CMake/releases/download/v{cmake_version}/{cmake_file}"
+    zip_path = download_file(cmake_url, cmake_file)
+    unzip_file(zip_path, DEPS_DIR)
 
 
 def install_rust():
@@ -320,7 +375,7 @@ def main(args: List[str]):
             if "all" in deps:
                 deps = ALL_DEPENDENCIES
             for d in deps:
-                install_dep(d)
+                install_dep(config['build_system'], d)
         elif opt == '--output' or opt == '-o':
             config['output'] = args[i + 1]
             i += 2
