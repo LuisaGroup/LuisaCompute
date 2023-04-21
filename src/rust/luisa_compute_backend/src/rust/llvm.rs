@@ -1,28 +1,51 @@
 #![allow(dead_code)]
+
+use libloading::Symbol;
+use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     collections::HashMap,
     ffi::{CStr, CString},
+    path::{Path, PathBuf},
 };
+use std::env::{current_dir, var};
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::ops::Deref;
+use lazy_static::lazy_static;
 
-use libloading::Symbol;
 enum LLVMContext {}
+
 enum LLVMModule {}
+
 enum LLVMExecutionEngine {}
 
 enum LLVMMemoryBuffer {}
+
 enum LLVMOrcOpaqueThreadSafeModule {}
+
 enum LLVMOrcOpaqueThreadSafeContext {}
+
 enum LLVMOrcOpaqueLLJIT {}
+
 enum LLVMOrcOpaqueLLJITBuilder {}
+
 enum LLVMOrcOpaqueJITDylib {}
+
 enum LLVMOpaqueError {}
+
 enum LLVMOrcOpaqueDumpObjects {}
+
 enum LLVMPassManager {}
+
 enum LLVMOrcOpaqueObjectTransformLayer {}
+
 enum LLVMOpaquePassBuilderOptions {}
+
 enum LLVMOpaqueTargetMachine {}
+
 enum LLVMTarget {}
+
 type LLVMBool = i32;
 type LLVMTargetRef = *mut LLVMTarget;
 type LLVMMemoryBufferRef = *mut LLVMMemoryBuffer;
@@ -39,32 +62,41 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
+
 pub enum LLVMOrcOpaqueSymbolStringPoolEntry {}
+
 pub type LLVMOrcSymbolStringPoolEntryRef = *mut LLVMOrcOpaqueSymbolStringPoolEntry;
+
 #[repr(C)]
 pub struct LLVMJITSymbolFlags {
     pub GenericFlags: u8,
     pub TargetFlags: u8,
 }
+
 #[repr(C)]
 pub struct LLVMOrcCSymbolMapPair {
     pub Name: LLVMOrcSymbolStringPoolEntryRef,
     pub Sym: LLVMJITEvaluatedSymbol,
 }
+
 #[repr(C)]
 pub struct LLVMJITEvaluatedSymbol {
     pub Address: LLVMOrcExecutorAddress,
     pub Flags: LLVMJITSymbolFlags,
 }
+
 pub type LLVMOrcCSymbolMapPairs = *mut LLVMOrcCSymbolMapPair;
+
 pub enum LLVMOrcOpaqueMaterializationUnit {}
+
 pub type LLVMOrcMaterializationUnitRef = *mut LLVMOrcOpaqueMaterializationUnit;
+
 use libc::{c_char, c_void, size_t};
-use parking_lot::ReentrantMutex;
+use parking_lot::{ReentrantMutex, Mutex};
 
 use super::shader::KernelFn;
 
@@ -76,6 +108,7 @@ pub enum LLVMCodeGenOptLevel {
     LLVMCodeGenLevelDefault,
     LLVMCodeGenLevelAggressive,
 }
+
 #[repr(C)]
 #[allow(non_camel_case_types)]
 pub enum LLVMRelocMode {
@@ -87,6 +120,7 @@ pub enum LLVMRelocMode {
     LLVMRelocRWPI,
     LLVMRelocROPI_RWPI,
 }
+
 #[repr(C)]
 pub enum LLVMCodeModel {
     LLVMCodeModelDefault,
@@ -97,6 +131,7 @@ pub enum LLVMCodeModel {
     LLVMCodeModelMedium,
     LLVMCodeModelLarge,
 }
+
 #[allow(non_snake_case)]
 struct LibLLVM {
     lib: libloading::Library,
@@ -140,7 +175,7 @@ struct LibLLVM {
             OutMessage: *mut *mut i8,
         ) -> LLVMBool,
     >,
-    LLVMGetBitcodeModuleInContext2: Symbol<
+    LLVMParseBitcodeInContext2: Symbol<
         'static,
         unsafe extern "C" fn(
             ContextRef: LLVMContextRef,
@@ -169,9 +204,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -180,9 +215,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -192,7 +227,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -227,7 +262,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -237,7 +272,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -260,27 +295,130 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LLVMPaths {
+    pub clang: String,
+    pub llvm: String,
+}
+
+const PATH_CACHE_FILE: &str = "llvm_paths.json";
+
+impl LLVMPaths {
+    fn override_from_env(&mut self) {
+        match var("LUISA_LLVM_PATH") {
+            Ok(s) => {
+                self.llvm = s;
+            }
+            Err(_) => {}
+        }
+        match var("LUISA_CLANG_PATH") {
+            Ok(s) => {
+                self.clang = s;
+            }
+            Err(_) => {}
+        }
+    }
+    pub fn get() -> LLVMPaths {
+        let cur = current_dir().unwrap().join(PATH_CACHE_FILE);
+        let paths = if cur.exists() {
+            let file = File::open(&cur).unwrap();
+            let reader = BufReader::new(file);
+            let mut paths: LLVMPaths = serde_json::from_reader(reader).unwrap();
+            paths.override_from_env();
+            paths
+        } else {
+            let mut paths = LLVMPaths {
+                clang: find_clang().map(|s| {
+                    log::info!("Found clang: {}", s);
+                    s
+                }).unwrap_or_else(|| {
+                    match var("LUISA_CLANG_PATH") {
+                        Ok(s) => s,
+                        Err(_) => {
+                            panic!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++");
+                        }
+                    }
+                }),
+                llvm: find_llvm().map(|s| {
+                    log::info!("Found LLVM: {}", s);
+                    s
+                }).unwrap_or_else(|| {
+                    match var("LUISA_LLVM_PATH") {
+                        Ok(s) => s,
+                        Err(_) => {
+                            panic!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of LLVM");
+                        }
+                    }
+                }),
+            };
+            paths.override_from_env();
+            paths
+        };
+        let file = File::create(cur).unwrap();
+        let writer = BufWriter::new(file);
+        serde_json::to_writer(writer, &paths).unwrap();
+        paths
+    }
+}
+lazy_static! {
+    pub(crate) static ref LLVM_PATH: LLVMPaths = LLVMPaths::get();
+}
+fn try_exists(s: &str) -> Option<String> {
+    let path = Path::new(s);
+    if path.exists() {
+        Some(s.to_string())
+    } else {
+        None
+    }
+}
+
+const MAX_LLVM_VERSION: u32 = 17;
+
+fn find_clang() -> Option<String> {
+    if cfg!(target_os = "windows") {
+        try_exists(r"C:\Program Files\LLVM\bin\clang++.exe")
+    } else if cfg!(target_os = "linux") {
+        for version in 14..=MAX_LLVM_VERSION {
+            let path = format!("/usr/bin/clang++-{}", version);
+            if let Some(path) = try_exists(&path) {
+                return Some(path);
+            }
+        }
+        None
+    } else {
+        None
+    }
+}
+
+fn find_llvm() -> Option<String> {
+    if cfg!(target_os = "windows") {
+        try_exists(r"C:\Program Files\LLVM\bin\LLVM-C.dll")
+    } else if cfg!(target_os = "linux") {
+        for version in 14..=MAX_LLVM_VERSION {
+            let path = format!("/usr/lib/llvm-{}/lib/libLLVM.so", version);
+            if let Some(path) = try_exists(&path) {
+                return Some(path);
+            }
+        }
+        None
+    } else {
+        None
+    }
 }
 
 fn lift<'a, T>(t: Symbol<'a, T>) -> Symbol<'static, T> {
     unsafe { std::mem::transmute(t) }
 }
-fn llvm_lib_path() -> String {
-    if let Ok(path) = std::env::var("NAGISA_LLVM_PATH") {
-        return path;
-    }
-    if cfg!(target_os = "windows") {
-        r"C:/Program Files/LLVM/bin/LLVM-C.dll".to_string()
-    } else if cfg!(target_os = "linux") {
-        r"/usr/lib/llvm-14/lib/libLLVM-14.so".to_string()
-    } else {
-        panic!("unsupported platform");
-    }
+
+fn llvm_lib_path() -> &'static str {
+    &LLVM_PATH.llvm
 }
 
 #[allow(non_snake_case)]
@@ -295,8 +433,7 @@ impl LibLLVM {
             let LLVMParseIRInContext = lift(lib.get(b"LLVMParseIRInContext").unwrap());
             let LLVMCreateMemoryBufferWithMemoryRange =
                 lift(lib.get(b"LLVMCreateMemoryBufferWithMemoryRange").unwrap());
-            let LLVMGetBitcodeModuleInContext2 =
-                lift(lib.get(b"LLVMGetBitcodeModuleInContext2").unwrap());
+            let LLVMParseBitcodeInContext2 = lift(lib.get(b"LLVMParseBitcodeInContext2").unwrap());
             let LLVMDumpModule = lift(lib.get(b"LLVMDumpModule").unwrap());
             let LLVMLinkInMCJIT = lift(lib.get(b"LLVMLinkInMCJIT").unwrap());
             let LLVMInitializeNativeTarget = lift(lib.get(b"LLVMInitializeX86Target").unwrap());
@@ -356,7 +493,7 @@ impl LibLLVM {
                 LLVMOrcAbsoluteSymbols,
                 LLVMContextCreate,
                 LLVMCreateMemoryBufferWithMemoryRange,
-                LLVMGetBitcodeModuleInContext2,
+                LLVMParseBitcodeInContext2,
                 LLVMDumpModule,
                 LLVMLinkInMCJIT,
                 LLVMInitializeNativeTarget,
@@ -401,7 +538,10 @@ impl LibLLVM {
             (self.LLVMDisposeErrorMessage)(error_message);
             msg
         };
-        panic!("LLVMError: {}", error_message);
+        eprintln!("LLVMError: {}", error_message);
+        eprintln!("Pleas check clang++ version matches llvm version");
+        let paths = LLVM_PATH.deref();
+        eprintln!("clang++: {}, llvm: {}", paths.clang, paths.llvm);
     }
 }
 
@@ -424,47 +564,43 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             let ctx = (lib.LLVMOrcThreadSafeContextGetContext)(tsctx);
             let name = CString::new(name.clone()).unwrap();
             // let path = CString::new(path_.clone()).unwrap();
-            // let bitcode = {
-            //     let mut bc_file = std::fs::File::open(path_).unwrap();
-            //     let mut buf = vec![];
-            //     use std::io::Read;
-            //     bc_file.read_to_end(&mut buf).unwrap();
-            //     dbg!(buf.len());
-            //     buf
-            // };
-            // let bc_buffer = (lib.LLVMCreateMemoryBufferWithMemoryRange)(
-            //     bitcode.as_ptr() as *const i8,
-            //     bitcode.len(),
-            //     name.as_ptr() as *const i8,
-            //     0,
-            // );
-            let ll_src = std::fs::read_to_string(path_).unwrap();
-            let ll_src = CString::new(ll_src).unwrap();
-            let ll_buffer = (lib.LLVMCreateMemoryBufferWithMemoryRange)(
-                ll_src.as_ptr() as *const i8,
-                ll_src.as_bytes().len(),
+            let bitcode = {
+                let mut bc_file = std::fs::File::open(path_).unwrap();
+                let mut buf = vec![];
+                use std::io::Read;
+                bc_file.read_to_end(&mut buf).unwrap();
+                buf
+            };
+            let bc_buffer = (lib.LLVMCreateMemoryBufferWithMemoryRange)(
+                bitcode.as_ptr() as *const i8,
+                bitcode.len(),
                 name.as_ptr() as *const i8,
                 0,
             );
+            // let ll_src = std::fs::read_to_string(path_).unwrap();
+            // let ll_src = CString::new(ll_src).unwrap();
+            // let ll_buffer = (lib.LLVMCreateMemoryBufferWithMemoryRange)(
+            //     ll_src.as_ptr() as *const i8,
+            //     ll_src.as_bytes().len(),
+            //     name.as_ptr() as *const i8,
+            //     0,
+            // );
             let mut module: LLVMModuleRef = std::ptr::null_mut();
-            // if (lib.LLVMGetBitcodeModuleInContext2)(
+            if (lib.LLVMParseBitcodeInContext2)(ctx, bc_buffer, &mut module as *mut LLVMModuleRef)
+                != 0
+            {
+                panic!("LLVMParseBitcodeInContext2 failed");
+            }
+            // let mut msg: *mut i8 = std::ptr::null_mut();
+            // if (lib.LLVMParseIRInContext)(
             //     ctx,
-            //     bc_buffer,
+            //     ll_buffer,
             //     &mut module as *mut LLVMModuleRef,
+            //     &mut msg as *mut *mut i8,
             // ) != 0
             // {
-            //     panic!("LLVMGetBitcodeModuleInContext2 failed");
+            //     panic!("LLVMParseIRInContext failed");
             // }
-            let mut msg: *mut i8 = std::ptr::null_mut();
-            if (lib.LLVMParseIRInContext)(
-                ctx,
-                ll_buffer,
-                &mut module as *mut LLVMModuleRef,
-                &mut msg as *mut *mut i8,
-            ) != 0
-            {
-                panic!("LLVMParseIRInContext failed");
-            }
             // let pass = CString::new("default<O3>").unwrap();
             // let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
             // let err = (lib.LLVMRunPasses)(
@@ -501,7 +637,9 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
         record
     }
 }
+
 static CONTEXT: ReentrantMutex<RefCell<Option<Context>>> = ReentrantMutex::new(RefCell::new(None));
+
 fn init_llvm() {
     let c = CONTEXT.lock();
     let inited = c.borrow().is_some();
@@ -509,6 +647,7 @@ fn init_llvm() {
         *c.borrow_mut() = Some(Context::new());
     }
 }
+
 struct Context {
     lib: LibLLVM,
     context: LLVMContextRef,
@@ -518,8 +657,11 @@ struct Context {
     target: LLVMTargetRef,
     target_machine: LLVMTargetMachineRef,
 }
+
 unsafe impl Send for Context {}
+
 unsafe impl Sync for Context {}
+
 impl Context {
     fn new() -> Self {
         let lib = LibLLVM::new();
@@ -580,10 +722,10 @@ impl Context {
                     (lib.LLVMOrcJITDylibDefine)(jd, syms);
                 }};
             }
-            add_symbol!(abort, libc::abort);
-            add_symbol!(fprintf, libc::fprintf);
-            add_symbol!(fwrite, libc::fwrite);
-            add_symbol!(stderr, libc::STDERR_FILENO);
+            add_symbol!(lc_abort, libc::abort);
+            add_symbol!(lc_fprintf, libc::fprintf);
+            add_symbol!(lc_fwrite, libc::fwrite);
+            add_symbol!(lc_stderr, libc::STDERR_FILENO);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
             //cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
             //log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
@@ -645,6 +787,7 @@ impl Context {
 fn target_name() -> String {
     "x86-64".to_string()
 }
+
 fn cpu_features() -> Vec<String> {
     // "+avx,+avx2,+fma,+popcnt,+sse4.1,+sse4.2,+sse4a".to_string()
     vec![
@@ -657,6 +800,7 @@ fn cpu_features() -> Vec<String> {
         "sse4a".into(),
     ]
 }
+
 fn target_triple() -> String {
     if cfg!(target_os = "windows") {
         "x86_64-pc-windows-msvc".to_string()
@@ -668,6 +812,7 @@ fn target_triple() -> String {
         panic!("unsupported target");
     }
 }
+
 extern "C" fn dump_objects(_: *mut c_void, obj_in_out: *mut LLVMMemoryBufferRef) -> LLVMErrorRef {
     let c = CONTEXT.lock();
     let c = c.borrow();

@@ -2,13 +2,16 @@ use fs2::FileExt;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 use luisa_compute_ir::codegen::sha256;
+
 use std::{
     env::{self, current_exe},
     fs::{canonicalize, File},
+    io::Write,
     mem::transmute,
     path::PathBuf,
     process::{Command, Stdio},
 };
+use crate::rust::llvm::LLVM_PATH;
 
 use super::llvm;
 fn canonicalize_and_fix_windows_path(path: PathBuf) -> std::io::Result<PathBuf> {
@@ -20,14 +23,15 @@ fn canonicalize_and_fix_windows_path(path: PathBuf) -> std::io::Result<PathBuf> 
     }
     Ok(PathBuf::from(s))
 }
-fn with_file_lock<T>(file: &str, f: impl FnOnce() -> T) -> T {
-    let file = File::create(file).unwrap();
-    file.lock_exclusive().unwrap();
-    let ret = f();
-    file.unlock().unwrap();
-    ret
-}
-pub(super) fn compile(target:String, source: String) -> std::io::Result<PathBuf> {
+// fn with_file_lock<T>(file: &str, f: impl FnOnce() -> T) -> T {
+//     let file = File::create(file).unwrap();
+//     file.lock_exclusive().unwrap();
+//     let ret = f();
+//     file.unlock().unwrap();
+//     ret
+// }
+
+pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf> {
     let self_path = current_exe().map_err(|e| {
         eprintln!("current_exe() failed");
         e
@@ -38,8 +42,7 @@ pub(super) fn compile(target:String, source: String) -> std::io::Result<PathBuf>
         .into();
     let mut build_dir = self_path.clone();
     build_dir.push(".cache/");
-    build_dir.push(format!("{}/", target));
-    // build_dir.push("build/");
+
     if !build_dir.exists() {
         std::fs::create_dir_all(&build_dir).map_err(|e| {
             eprintln!("fs::create_dir_all({}) failed", build_dir.display());
@@ -47,19 +50,25 @@ pub(super) fn compile(target:String, source: String) -> std::io::Result<PathBuf>
         })?;
     }
 
-    let target_lib = format!("{}.ll", target);
+    let target_lib = format!("{}.bc", target);
     let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
     if lib_path.exists() {
         log::info!("loading cached LLVM IR {}", target_lib);
         return Ok(lib_path);
     }
-    let source_file = format!("{}/{}.cc", build_dir.display(), target);
-    std::fs::write(&source_file, source).map_err(|e| {
-        eprintln!("fs::write({}) failed", source_file);
-        e
-    })?;
+    let dump_src = match env::var("LUISA_DUMP_SOURCE") {
+        Ok(s) => s == "1",
+        Err(_) => false,
+    };
+    if dump_src {
+        let source_file = format!("{}/{}.cc", build_dir.display(), target);
+        std::fs::write(&source_file, &source).map_err(|e| {
+            eprintln!("fs::write({}) failed", source_file);
+            e
+        })?;
+    }
     // log::info!("compiling kernel {}", source_file);
-    with_file_lock(&format!("{}/lock", build_dir.display()), || {
+    {
         let mut args: Vec<&str> = vec![];
         if env::var("LUISA_DEBUG").is_ok() {
             args.push("-g");
@@ -77,22 +86,29 @@ pub(super) fn compile(target:String, source: String) -> std::io::Result<PathBuf>
         } else {
             panic!("unsupported target architecture");
         }
-        args.push("-S");
+        args.push("-c");
         args.push("-emit-llvm");
-        args.push(&source_file);
+        args.push("-x");
+        args.push("c++");
+        args.push("-");
         args.push("-o");
         args.push(&target_lib);
-
+        let clang = &LLVM_PATH.clang;
         let tic = std::time::Instant::now();
-        match Command::new("clang++")
+        let mut child = Command::new(clang)
             .args(args)
             .current_dir(&build_dir)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
-            .expect("clang++ failed to start")
-            .wait_with_output()
-            .expect("clang++ failed")
+            .expect("clang++ failed to start");
         {
+            let mut stdin = child.stdin.take().expect("failed to open stdin");
+            stdin
+                .write_all(source.as_bytes())
+                .expect("failed to write to stdin");
+        }
+        match child.wait_with_output().expect("clang++ failed") {
             output @ _ => match output.status.success() {
                 true => {
                     log::info!(
@@ -111,7 +127,7 @@ pub(super) fn compile(target:String, source: String) -> std::io::Result<PathBuf>
         }
 
         Ok(lib_path)
-    })
+    }
 }
 
 pub(crate) type KernelFn = unsafe extern "C" fn(*const KernelFnArgs);

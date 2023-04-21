@@ -1,3 +1,14 @@
+template<class A, class B>
+struct lc_is_same {
+    static constexpr bool value = false;
+};
+template<class T>
+struct lc_is_same<T, T> {
+    static constexpr bool value = true;
+};
+template<class A, class B>
+inline constexpr bool lc_is_same_v = lc_is_same<A, B>::value;
+
 constexpr float one_minus_epsilon = 0x1.fffffep-1f;
 typedef enum LCPixelStorage {
     LC_PIXEL_STORAGE_BYTE1,
@@ -32,20 +43,20 @@ typedef enum LCSamplerFilter {
 } LCSamplerFilter;
 
 
-#if defined(LUISA_ARCH_ARM64)
-#include <arm_neon.h>
-
-using float16_t = ::float16_t;
-
-#else
-#ifdef LUISA_ARCH_X86_64
-#include <immintrin.h>
-#include <xmmintrin.h>
-#endif
+//#if defined(LUISA_ARCH_ARM64)
+////#include <arm_neon.h>
+//
+//using float16_t = ::float16_t;
+//
+//#else
+//#ifdef LUISA_ARCH_X86_64
+////#include <immintrin.h>
+////#include <xmmintrin.h>
+//#endif
 
 using float16_t = int16_t;
-
-#endif
+//
+//#endif
 namespace detail {
 template<class A, class B>
 struct lc_pair {
@@ -58,13 +69,13 @@ lc_pair<A, B> lc_make_pair(A a, B b) noexcept {
 }
 
 inline float16_t float_to_half(float f) noexcept {
-#if defined(LUISA_ARCH_ARM64)
-    return static_cast<float16_t>(f);
-#elif defined(LUISA_ARCH_X86_64)
-    auto ss = _mm_set_ss(f);
-    auto ph = _mm_cvtps_ph(ss, 0);
-    return static_cast<float16_t>(_mm_cvtsi128_si32(ph));
-#else
+//#if defined(LUISA_ARCH_ARM64)
+//    return static_cast<float16_t>(f);
+//#elif defined(LUISA_ARCH_X86_64)
+//    auto ss = _mm_set_ss(f);
+//    auto ph = _mm_cvtps_ph(ss, 0);
+//    return static_cast<float16_t>(_mm_cvtsi128_si32(ph));
+//#else
     auto bits = lc_bit_cast<lc_uint>(f);
     auto fp32_sign = bits >> 31u;
     auto fp32_exponent = (bits >> 23u) & 0xffu;
@@ -97,19 +108,19 @@ inline float16_t float_to_half(float f) noexcept {
     auto fp16 = make_fp16(fp32_sign, newexp, fp32_mantissa >> 13u);
     if (fp32_mantissa & 0x1000u) { fp16++; }// Check for rounding
     return fp16;
-#endif
+//#endif
 }
 
 inline float half_to_float(float16_t half) noexcept {
-#if defined(LUISA_ARCH_ARM64)
-    return static_cast<float>(half);
-#elif defined(LUISA_ARCH_X86_64)
-    auto si = _mm_cvtsi32_si128(half);
-    auto ps = _mm_cvtph_ps(si);
-    return _mm_cvtss_f32(ps);
-#else
-    static_assert(std::endian::native == std::endian::little,
-                  "Only little endian is supported");
+//#if defined(LUISA_ARCH_ARM64)
+//    return static_cast<float>(half);
+//#elif defined(LUISA_ARCH_X86_64)
+//    auto si = _mm_cvtsi32_si128(half);
+//    auto ps = _mm_cvtph_ps(si);
+//    return _mm_cvtss_f32(ps);
+//#else
+//    static_assert(std::endian::native == std::endian::little,
+//                  "Only little endian is supported");
     auto h = static_cast<lc_uint>(half);
     union FP32 {
         unsigned int u;
@@ -135,19 +146,19 @@ inline float half_to_float(float16_t half) noexcept {
     }
     o.u |= (h & 0x8000u) << 16u;// sign bit
     return o.f;
-#endif
+//#endif
 }
 
 
 template<typename T>
 [[nodiscard]] inline float scalar_to_float(T x) noexcept {
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (lc_is_same_v<T, float>) {
         return x;
-    } else if constexpr (std::is_same_v<T, uint8_t>) {
+    } else if constexpr (lc_is_same_v<T, uint8_t>) {
         return x / 255.f;
-    } else if constexpr (std::is_same_v<T, uint16_t>) {
+    } else if constexpr (lc_is_same_v<T, uint16_t>) {
         return x / 65535.f;
-    } else if constexpr (std::is_same_v<T, float16_t>) {
+    } else if constexpr (lc_is_same_v<T, float16_t>) {
         return half_to_float(x);
     } else {
         return 0.f;
@@ -156,13 +167,13 @@ template<typename T>
 
 template<typename T>
 [[nodiscard]] inline T float_to_scalar(float x) noexcept {
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (lc_is_same_v<T, float>) {
         return x;
-    } else if constexpr (std::is_same_v<T, uint8_t>) {
-        return static_cast<T>(lc_clamp(std::round(x * 255.f), 0.f, 255.f));
-    } else if constexpr (std::is_same_v<T, uint16_t>) {
-        return static_cast<T>(lc_clamp(std::round(x * 65535.f), 0.f, 65535.f));
-    } else if constexpr (std::is_same_v<T, float16_t>) {
+    } else if constexpr (lc_is_same_v<T, uint8_t>) {
+        return static_cast<T>(lc_clamp(roundf(x * 255.f), 0.f, 255.f));
+    } else if constexpr (lc_is_same_v<T, uint16_t>) {
+        return static_cast<T>(lc_clamp(roundf(x * 65535.f), 0.f, 65535.f));
+    } else if constexpr (lc_is_same_v<T, float16_t>) {
         return static_cast<T>(float_to_half(x));
     } else {
         return static_cast<T>(0);
@@ -259,11 +270,11 @@ inline void int4_to_pixel(uint8_t *pixel, lc_uint4 v) noexcept {
 
 template<class V, typename Dst, typename Src, lc_uint dim>
 [[nodiscard]] inline auto read_pixel(const uint8_t *p) noexcept {
-    if constexpr (std::is_same_v<Dst, float>) {
+    if constexpr (lc_is_same_v<Dst, float>) {
         return pixel_to_float4<Src, dim>(p);
     } else {
-        static_assert(std::is_same_v<Dst, int> ||
-                      std::is_same_v<Dst, lc_uint>);
+        static_assert(lc_is_same_v<Dst, int> ||
+                      lc_is_same_v<Dst, lc_uint>);
         return lc_bit_cast<V>(
             pixel_to_int4<Src, dim>(p));
     }
@@ -271,11 +282,11 @@ template<class V, typename Dst, typename Src, lc_uint dim>
 
 template<typename V, typename Dst, typename Src, lc_uint dim>
 [[nodiscard]] inline auto write_pixel(uint8_t *p, V value) noexcept {
-    if constexpr (std::is_same_v<Dst, float>) {
+    if constexpr (lc_is_same_v<Dst, float>) {
         float4_to_pixel<Src, dim>(p, value);
     } else {
-        static_assert(std::is_same_v<Dst, int> ||
-                      std::is_same_v<Dst, lc_uint>);
+        static_assert(lc_is_same_v<Dst, int> ||
+                      lc_is_same_v<Dst, lc_uint>);
         int4_to_pixel<Src, dim>(
             p, lc_bit_cast<lc_uint4>(value));
     }
@@ -616,17 +627,17 @@ inline void lc_texture3d_write(const Texture3D& tex,  lc_uint3 uv, V value) noex
 }
 [[nodiscard]] inline const Texture& lc_bindless_texture_2d(const BindlessArray&array, size_t index) noexcept {
     if (index >= array.texture2ds_count) {
-        fprintf(stderr, "Bindless texture2d index out of bounds: %zu >= %zu\n", index, array.texture2ds_count);
+        lc_fprintf(lc_stderr, "Bindless texture2d index out of bounds: %zu >= %zu\n", index, array.texture2ds_count);
         print_backtrace_hint();
-        abort();
+        lc_abort();
     }
     return array.texture2ds[index];
 }
 [[nodiscard]] inline const Texture& lc_bindless_texture_3d(const BindlessArray&array, size_t index) noexcept {
     if (index >= array.texture3ds_count) {
-        fprintf(stderr, "Bindless texture3d index out of bounds: %zu >= %zu\n", index, array.texture3ds_count);
+        lc_fprintf(lc_stderr, "Bindless texture3d index out of bounds: %zu >= %zu\n", index, array.texture3ds_count);
         print_backtrace_hint();
-        abort();
+        lc_abort();
     }
     return array.texture3ds[index];
 }

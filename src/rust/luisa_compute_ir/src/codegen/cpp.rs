@@ -1504,15 +1504,20 @@ impl CodeGen for CpuCodeGen {
     fn run(module: &ir::KernelModule) -> String {
         let mut codegen = GenericCppCodeGen::new();
         codegen.gen_module(module);
+        let defs = r#"using uint8_t = unsigned char;
+using uint16_t = unsigned short;
+using uint32_t = unsigned int;
+using uint64_t = unsigned long long;
+using int8_t = signed char;
+using int16_t = signed short;
+using int32_t = signed int;
+using int64_t = signed long long;
+using size_t = unsigned long long;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
-        let includes = r#"#include <cmath>
-#include <cstdlib>
-#include <cstdio>
-#include <cstdint>
-using namespace std;"#;
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-            includes,
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            defs,
+            CPU_LIBM_DEF,
             CPU_KERNEL_DEFS,
             CPU_PRELUDE,
             DEVICE_MATH_SRC,
@@ -1530,6 +1535,7 @@ using namespace std;"#;
 pub const CPU_PRELUDE: &str = include_str!("cpu_prelude.h");
 pub const CPU_RESOURCE: &str = include_str!("cpu_resource.h");
 pub const DEVICE_MATH_SRC: &str = include_str!("device_math.h");
+pub const CPU_LIBM_DEF: &str = include_str!("cpu_libm_def.h");
 pub const CPU_KERNEL_DEFS: &str =
     include_str!("../../../luisa_compute_cpu_kernel_defs/cpu_kernel_defs.h");
 pub const CPU_TEXTURE: &str = include_str!("cpu_texture.h");
