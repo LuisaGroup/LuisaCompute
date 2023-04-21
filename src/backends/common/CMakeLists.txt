@@ -18,18 +18,19 @@ if (LUISA_COMPUTE_COMPILED_BY_RUST_FRONTEND OR
         add_library(luisa-compute-vulkan-swapchain SHARED
                 ${LUISA_COMPUTE_VULKAN_SWAPCHAIN_SOURCES})
 
-        target_link_libraries(luisa-compute-vulkan-swapchain PRIVATE
+        target_link_libraries(luisa-compute-vulkan-swapchain PUBLIC
                 luisa-compute-runtime
                 Vulkan::Vulkan
                 ${X11_LIBRARIES})
-        target_compile_definitions(luisa-compute-vulkan-swapchain PUBLIC
-                LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN=1)
+        target_compile_definitions(luisa-compute-vulkan-swapchain
+                PUBLIC LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN=1
+                PRIVATE LC_BACKEND_EXPORT_DLL)
 
         if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             enable_language(OBJC)
             enable_language(OBJCXX)
-            target_sources(luisa-compute-vulkan-swapchain PRIVATE moltenvk_surface.mm)
-            target_link_libraries(luisa-compute-vulkan-swapchain PRIVATE "-framework QuartzCore")
+            target_sources(luisa-compute-vulkan-swapchain PUBLIC moltenvk_surface.mm)
+            target_link_libraries(luisa-compute-vulkan-swapchain PUBLIC "-framework QuartzCore")
         endif ()
 
         set_target_properties(luisa-compute-vulkan-swapchain PROPERTIES

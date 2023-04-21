@@ -9,6 +9,7 @@
 #include <core/basic_types.h>
 #include <core/stl/memory.h>
 #include <core/stl/string.h>
+#include <core/magic_enum.h>
 
 #define LUISA_CHECK_VULKAN(x)                            \
     do {                                                 \
@@ -17,20 +18,18 @@
             if (ret > 0) [[likely]] {                    \
                 LUISA_WARNING_WITH_LOCATION(             \
                     "Vulkan call `" #x "` returned {}.", \
-                    ::luisa::compute::to_string(ret));   \
+                    ::luisa::to_string(ret));            \
             } else [[unlikely]] {                        \
                 LUISA_ERROR_WITH_LOCATION(               \
                     "Vulkan call `" #x "` failed: {}.",  \
-                    ::luisa::compute::to_string(ret));   \
+                    ::luisa::to_string(ret));            \
             }                                            \
         }                                                \
     } while (false)
 
 namespace luisa::compute {
 
-[[nodiscard]] luisa::string to_string(VkResult x) noexcept;
-
-class VulkanSwapchain {
+class LC_BACKEND_API VulkanSwapchain {
 
 public:
     class Impl;
