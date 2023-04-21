@@ -321,3 +321,4 @@ config.json
 options.cli
 options.*.cli
 options.lua
+options.cmake

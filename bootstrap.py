@@ -4,10 +4,15 @@ import sys
 from subprocess import Popen, call, DEVNULL
 from typing import List
 
+ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
 
-def get_default_features() -> List[str]:
+
+def get_default_features():
     # CPU and Remote are always enabled
-    features = ['cpu', 'remote']
+    features = ['dsl', 'python', 'gui']
+    if call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        features.append('cpu')
+        features.append('remote')
     # enable DirectX on Windows by default
     if sys.platform == 'win32':
         features.append('dx')
@@ -18,6 +23,11 @@ def get_default_features() -> List[str]:
     try:
         if 'CUDA_PATH' in os.environ or call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
             features.append('cuda')
+    except FileNotFoundError:
+        pass
+    try:
+        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or call(['vulkaninfo'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+            features.append('vulkan')
     except FileNotFoundError:
         pass
     return features
@@ -78,11 +88,16 @@ def print_help():
     print('  --config | -c          Configure build system')
     print('  --features | -f [[no-]features]  Add/remove features')
     print('      Features:')
+    print('          all                Enable all features listed below that are detected available')
+    print('          [no-]dsl           Enable (disable) C++ DSL support')
+    print('          [no-]python        Enable (disable) Python support')
+    print('          [no-]gui           Enable (disable) GUI support')
     print('          [no-]cuda          Enable (disable) CUDA backend')
     print('          [no-]cpu           Enable (disable) CPU backend')
     print('          [no-]remote        Enable (disable) remote backend')
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
+    print('          [no-]vulkan        Enable (disable) Vulkan backend')
     print('  --mode | -m [node]     Build mode')
     print('      Modes:')
     print('          debug              Debug mode')
@@ -99,7 +114,15 @@ def print_help():
 
 
 def dump_cmake_options(config: dict):
-    pass
+    with open("options.cmake.template") as f:
+        options = f.read()
+    for feature in config['features']:
+        options = options.replace(f'[[feature_{feature}]]', 'ON')
+    for feature in ALL_FEATURES:
+        if feature not in config['features']:
+            options = options.replace(f'[[feature_{feature}]]', 'OFF')
+    with open("options.cmake", 'w') as f:
+        f.write(options)
 
 
 def dump_xmake_options(config: dict):
@@ -118,6 +141,12 @@ def dump_build_system_options(config: dict):
 
 def build_system_args_cmake(config: dict) -> List[str]:
     args = config['cmake_args']
+    if 'dsl' in config['features']:
+        args.append('-DLUISA_ENABLE_DSL=ON')
+    if 'python' in config['features']:
+        args.append('-DLUISA_ENABLE_PYTHON=ON')
+    if 'gui' in config['features']:
+        args.append('-DLUISA_ENABLE_GUI=ON')
     if 'cuda' in config['features']:
         args.append('-DLUISA_COMPUTE_ENABLE_CUDA=ON')
     if 'cpu' in config['features']:
@@ -128,6 +157,8 @@ def build_system_args_cmake(config: dict) -> List[str]:
         args.append('-DLUISA_COMPUTE_ENABLE_DX=ON')
     if 'metal' in config['features']:
         args.append('-DLUISA_COMPUTE_ENABLE_METAL=ON')
+    if 'vulkan' in config['features']:
+        args.append('-DLUISA_COMPUTE_ENABLE_VULKAN=ON')
     return args
 
 
@@ -214,7 +245,9 @@ def main(args: List[str]):
             i += 1
             while i < len(args) and not args[i].startswith('-'):
                 f = args[i].lower()
-                if f.startswith('no-'):
+                if f == 'all':
+                    config['features'] = get_default_features()
+                elif f.startswith('no-'):
                     f = f[3:]
                     if f in config['features']:
                         config['features'].remove(f)

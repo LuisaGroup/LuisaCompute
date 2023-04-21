@@ -61,11 +61,6 @@ target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
 luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
-    add_subdirectory(glad)
-    target_link_libraries(luisa-compute-ext INTERFACE glad)
-    set_target_properties(glad PROPERTIES OUTPUT_NAME lc-ext-glad)
-    luisa_compute_install_extension(glad INCLUDE glad)
-
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -86,6 +81,10 @@ set_target_properties(EASTL PROPERTIES
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
+        CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0)
+    target_compile_options(EASTL PUBLIC -Wno-deprecated-builtins)
+endif ()
 
 add_library(unordered_dense INTERFACE)
 target_include_directories(unordered_dense INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense/include>)

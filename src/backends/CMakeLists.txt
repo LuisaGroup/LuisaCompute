@@ -41,6 +41,7 @@ function(luisa_compute_add_backend name)
 endfunction()
 
 add_subdirectory(common)
+add_subdirectory(validation)
 
 if (LUISA_COMPUTE_ENABLE_DX)
     add_subdirectory(dx)
@@ -52,10 +53,6 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_VALIDATION)
-    add_subdirectory(validation)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_RUST)
