@@ -39,6 +39,7 @@ public:
     void dispatch(CommandList &&list) noexcept;
     void present(MetalSwapchain *swapchain, MetalTexture *image) noexcept;
     void set_name(luisa::string_view name) noexcept;
+    [[nodiscard]] auto device() const noexcept { return _queue->device(); }
     [[nodiscard]] auto queue() const noexcept { return _queue; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }

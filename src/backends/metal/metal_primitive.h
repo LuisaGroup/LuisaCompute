@@ -16,6 +16,7 @@ class MetalPrimitive {
 
 private:
     MTL::AccelerationStructure *_handle{nullptr};
+    MTL::Buffer *_update_buffer{nullptr};
     luisa::string _name;
     AccelOption _option;
 
@@ -31,7 +32,6 @@ public:
     virtual ~MetalPrimitive() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto option() const noexcept { return _option; }
-    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
     void set_name(luisa::string_view name) noexcept { _name = name; }
     void add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept;
 };

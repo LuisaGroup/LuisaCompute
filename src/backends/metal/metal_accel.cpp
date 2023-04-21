@@ -181,8 +181,8 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     auto command_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
     _descriptor->retain();
     _handle->retain();
-    build_buffer->retain();
     command_encoder->buildAccelerationStructure(_handle, _descriptor, build_buffer, 0u);
+    command_encoder->endEncoding();
     encoder.add_callback(FunctionCallbackContext::create([descriptor = _descriptor,
                                                           handle = _handle,
                                                           build_buffer] {
@@ -190,25 +190,32 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
         handle->release();
         build_buffer->release();
     }));
-    command_encoder->endEncoding();
+
+    // update the resources used by the acceleration structure
+    _resources.clear();
+    _resources.emplace_back(_instance_buffer);
+    for (auto prim : _primitives) { prim->add_resources(_resources); }
+    std::sort(_resources.begin(), _resources.end());
+    _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.cend());
 
     // do compaction if required
     auto compacted_size = 0u;
     if (_option.allow_compaction) {
-        // read back the size of the compacted acceleration structure
-        auto compaction_size_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
         encoder.with_download_buffer(sizeof(uint), [&](MetalStageBufferPool::Allocation *size_buffer) noexcept {
+            // read back the size of the compacted acceleration structure
+            auto compaction_size_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
             compaction_size_encoder->writeCompactedAccelerationStructureSize(
-                _handle, size_buffer->buffer(), size_buffer->offset());
+                _handle, size_buffer->buffer(), size_buffer->offset(), MTL::DataTypeUInt);
+            compaction_size_encoder->endEncoding();
             encoder.add_callback(FunctionCallbackContext::create([size_buffer, &compacted_size] {
                 compacted_size = *reinterpret_cast<uint *>(size_buffer->data());
             }));
         });
-        compaction_size_encoder->endEncoding();
+        auto submitted_command_buffer = encoder.submit({});
         // compact the acceleration structure
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
         compacted_handle->setLabel(name);
-        encoder.submit({})->waitUntilCompleted();
+        submitted_command_buffer->waitUntilCompleted();
         auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
@@ -219,13 +226,6 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
         }));
         _handle = compacted_handle;
     }
-    // update the resources used by the acceleration structure
-    _resources.clear();
-    _resources.emplace_back(_handle);
-    _resources.emplace_back(_instance_buffer);
-    for (auto prim : _primitives) { prim->add_resources(_resources); }
-    std::sort(_resources.begin(), _resources.end());
-    _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.cend());
 }
 
 void MetalAccel::set_name(luisa::string_view name) noexcept { _name = name; }
@@ -242,6 +242,7 @@ void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
         handle->release();
         instance_buffer->release();
     }));
+    command_encoder->useResource(_handle, MTL::ResourceUsageRead);
     command_encoder->useResources(_resources.data(), _resources.size(), MTL::ResourceUsageRead);
 }
 

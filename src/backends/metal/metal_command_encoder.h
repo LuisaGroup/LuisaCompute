@@ -24,6 +24,7 @@ private:
 public:
     explicit MetalCommandEncoder(MetalStream *stream) noexcept;
     ~MetalCommandEncoder() noexcept override = default;
+    [[nodiscard]] auto device() const noexcept { return _stream->device(); }
     [[nodiscard]] MTL::CommandBuffer *command_buffer() noexcept;
     void visit(BufferUploadCommand *command) noexcept override;
     void visit(BufferDownloadCommand *command) noexcept override;

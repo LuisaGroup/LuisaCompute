@@ -107,9 +107,7 @@ void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
         add_callback(FunctionCallbackContext::create([download_buffer, data, size] {
-            auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
-                     download_buffer->offset();
-            std::memcpy(data, p, size);
+            std::memcpy(data, download_buffer->data(), size);
         }));
     });
 }
@@ -191,9 +189,7 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
         add_callback(FunctionCallbackContext::create([download_buffer, data, total_size] {
-            auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
-                     download_buffer->offset();
-            std::memcpy(data, p, total_size);
+            std::memcpy(data, download_buffer->data(), total_size);
         }));
     });
 }
