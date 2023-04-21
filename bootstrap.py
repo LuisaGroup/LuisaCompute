@@ -5,7 +5,7 @@ from subprocess import Popen, call, DEVNULL
 from typing import List
 
 ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
-ALL_DEPENDENCIES = ['rust']
+ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
 
 
 def get_default_features():
@@ -49,7 +49,7 @@ def get_default_mode():
     return 'release'
 
 
-def default_config():
+def get_default_config():
     return {
         'cmake_args': [],
         'xmake_args': [],
@@ -59,23 +59,59 @@ def default_config():
     }
 
 
-def install_dep(dep: str):
-    if dep == 'rust':
-        if sys.platform == 'win32':
-            # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
-            os.system(
-                'curl -sSf https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe -o rustup-init.exe')
-            os.system('rustup-init.exe -y')
-        elif sys.platform == 'linux' or sys.platform == 'darwin':
-            os.system('curl https://sh.rustup.rs -sSf | sh -s -- -y')
-        else:
-            raise ValueError(f'Unknown platform: {sys.platform}')
+def download_file(url: str, name: str):
+    download_dir = '.deps/downloads'
+    if not os.path.exists(download_dir):
+        os.makedirs(download_dir)
+    output_path = f'{download_dir}/{name}'
+    if os.path.exists(output_path):
+        return output_path
+    import urllib.request
+    print(f'Downloading "{url}" to "{output_path}"...')
+    urllib.request.urlretrieve(url, output_path)
+    return output_path
+
+
+def install_ninja():
+
+    pass
+
+
+def install_xmake():
+    pass
+
+
+def install_cmake():
+    pass
+
+
+def install_rust():
+    if sys.platform == 'win32':
+        # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
+        rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe', 'rustup-init.exe')
+        os.system(f'{rustup_init_exe} -y')
+    elif sys.platform == 'linux' or sys.platform == 'darwin':
+        os.system('curl https://sh.rustup.rs -sSf | sh -s -- -y')
     else:
-        raise ValueError(f'Unknown dependency: {dep}')
+        raise ValueError(f'Unknown platform: {sys.platform}')
+
+
+def install_dep(build_sys: str, dep: str):
+    if dep == 'rust':
+        install_rust()
+    elif build_sys == 'cmake':
+        if dep == 'ninja':
+            install_ninja()
+        elif dep == 'cmake':
+            install_cmake()
+    elif build_sys == 'xmake' and dep == 'xmake':
+        install_xmake()
+    else:
+        print(f'The specified dependency "{dep}" is ignored.', file=sys.stderr)
 
 
 def get_config():
-    config = default_config()
+    config = get_default_config()
     # check if config.json exists
     if os.path.exists('config.json'):
         import json
@@ -95,7 +131,7 @@ def print_help():
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
     print('  --config    | -c       Configure build system')
-    print('  --toolchain | -t       Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
+    print('  --toolchain | -t [toolchain]      Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
     print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
@@ -112,7 +148,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --mode    | -m [node]  Build mode')
+    print('  --mode    | -m [mode]  Build mode')
     print('      Modes:')
     print('          debug              Debug mode')
     print('          release            Release mode')
@@ -123,7 +159,7 @@ def print_help():
     print('      Dependencies:')
     print('          all                Install all dependencies as listed below')
     print('          rust               Install Rust toolchain')
-    print('  --output  | -o         Path to output directory')
+    print('  --output  | -o [folder]    Path to output directory (default: build)')
     print('  -- [args]              Pass arguments to build system')
 
 
@@ -169,6 +205,8 @@ def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str
     if toolchain == 'msvc':
         pass
     elif toolchain == 'clang':
+        args.append("-DCMAKE_C_COMPILER=clang")
+        args.append("-DCMAKE_CXX_COMPILER=clang++")
         pass
     elif toolchain == 'gcc':
         pass
@@ -299,6 +337,18 @@ def main(args: List[str]):
             break
         else:
             raise ValueError(f'Unknown option: {opt}')
+
+    # print bootstrap information
+    print(f'Build System: {config["build_system"]}')
+    print(f'Run Configuration: {run_config}')
+    if run_config:
+        print(f'  Mode: {mode}')
+        print(f'  Toolchain: {toolchain}')
+        print(f'  Output: {config["output"]}')
+    print(f'Run Build: {run_build}')
+    if run_build:
+        print(f'  Build Jobs: {build_jobs}')
+
     # write config.json
     import json
     with open('config.json', 'w') as f:
@@ -317,19 +367,26 @@ def main(args: List[str]):
     if run_config:
         args = build_system_args(config, mode, toolchain)
         if config['build_system'] == 'cmake':
-            p = Popen(['cmake', '..'] + args, cwd=output)
+            args = ['cmake', '..'] + args
+            print(f'Configuring the project: {" ".join(args)}')
+            p = Popen(args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
-            p = Popen(['xmake', 'f'] + args)
+            args = ['xmake', 'f'] + args
+            print(f'Configuring the project: {" ".join(args)}')
+            p = Popen(args)
             p.wait()
         else:
             raise ValueError(f'Unknown build system: {config["build_system"]}')
     if run_build:
         if config['build_system'] == 'cmake':
-            p = Popen(['cmake', '--build', '.', '-j', str(build_jobs)], cwd=output)
+            args = ['cmake', '--build', '.', '-j', str(build_jobs)]
+            print(f'Building the project: {" ".join(args)}')
+            p = Popen(args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
-            os.system('xmake build')
+            print(f'Building the project: xmake')
+            os.system('xmake')
         else:
             raise ValueError(f'Unknown build system: {config["build_system"]}')
 
