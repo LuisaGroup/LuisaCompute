@@ -20,7 +20,7 @@ set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
 				"metal_backend", "cpu_backend", "enable_tests", "py_include", "py_linkdir", "py_libs", "enable_ir", "enable_api",
 				"enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path")
-after_check(function(option)
+before_check(function(option)
 	local v = import("options", {
 		try = true,
 		anonymous = true
@@ -50,36 +50,30 @@ after_check(function(option)
 	local is_win = is_plat("windows")
 	local dx_backend = option:dep("dx_backend")
 	if dx_backend:enabled() and not is_win then
-		try {function()
-			dx_backend:set_value(false)
-		end, catch {function()
+		dx_backend:enable(false, {
+			force = true
+		})
+		if dx_backend:enabled() then
 			utils.error("DX backend not supported in this platform, force disabled.")
-			dx_backend:enable(false, {
-				force = true
-			})
-		end}}
+		end
 	end
 	local metal_backend = option:dep("metal_backend")
 	if metal_backend:enabled() and not is_plat("macosx") then
-		try {function()
-			metal_backend:set_value(false)
-		end, catch {function()
+		metal_backend:enable(false, {
+			force = true
+		})
+		if metal_backend:enabled() then
 			utils.error("Metal backend not supported in this platform, force disabled.")
-			metal_backend:enable(false, {
-				force = true
-			})
-		end}}
+		end
 	end
 	local cuda_backend = option:dep("cuda_backend")
 	if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
-		try {function()
-			cuda_backend:set_value(false)
-		end, catch {function()
+		cuda_backend:enable(false, {
+			force = true
+		})
+		if cuda_backend:enabled() then
 			utils.error("CUDA backend not supported in this platform, force disabled.")
-			cuda_backend:enable(false, {
-				force = true
-			})
-		end}}
+		end
 	end
 	if enable_tests:enabled() or enable_py:enabled() then
 		option:dep("enable_gui"):enable(true, {
@@ -99,7 +93,6 @@ after_check(function(option)
 		bin_option:enable(bin_dir, {
 			force = true
 		})
-		os.mkdir(bin_dir)
 	else
 		bin_option:enable(false, {
 			force = true
@@ -110,14 +103,12 @@ after_check(function(option)
 		vk_path = os.getenv("VK_SDK_PATH")
 		local vk_backend = option:dep("vk_backend")
 		if vk_backend:enabled() then
-			try {function()
-				vk_backend:set_value(false)
-			end, catch {function()
+			vk_backend:enable(false, {
+				force = true
+			})
+			if vk_backend:enabled() then
 				utils.error("VK backend not supported in this platform, force disabled.")
-				vk_backend:enable(false, {
-					force = true
-				})
-			end}}
+			end
 		end
 	else
 		option:dep("_lc_vk_path"):set_value(vk_path)

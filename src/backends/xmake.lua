@@ -1,14 +1,3 @@
-if get_config("dx_backend") or get_config("vk_backend") then
-	target("lc-copy-dxc")
-	set_kind("phony")
-	after_build(function(target)
-		if is_plat("windows") then
-			local bin_dir = target:targetdir()
-			os.cp(path.join(os.scriptdir(), "dx/dx_support/*.dll"), bin_dir)
-		end
-	end)
-	target_end()
-end
 includes("common")
 if get_config("dx_backend") then
 	includes("dx")
