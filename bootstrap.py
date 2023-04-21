@@ -1,6 +1,7 @@
 import multiprocessing
 import os
 import sys
+import shutil
 from subprocess import Popen, call, DEVNULL
 from typing import List
 
@@ -30,7 +31,8 @@ def get_default_features():
     except FileNotFoundError:
         pass
     try:
-        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or call(['vulkaninfo'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or call(['vulkaninfo'], stdout=DEVNULL,
+                                                                             stderr=DEVNULL) == 0:
             features.append('vulkan')
     except FileNotFoundError:
         pass
@@ -68,8 +70,13 @@ def download_file(url: str, name: str):
     output_path = f'{DOWNLOAD_DIR}/{name}'
     import urllib.request
     print(f'Downloading "{url}" to "{output_path}"...')
-    urllib.request.urlretrieve(url, output_path)
-    return output_path
+    max_tries = 3
+    for i in range(max_tries):
+        try:
+            urllib.request.urlretrieve(url, output_path)
+            return output_path
+        except Exception as e:
+            print(f'Failed to download "{url}": {e}. Retrying ({i + 2}/{max_tries})...')
 
 
 def unzip_file(in_path: str, out_path: str):
@@ -110,10 +117,10 @@ def install_xmake():
             ps_script = f.read()
         # find the latest version $LastRelease = "value"
         last_release = ps_script.split('$LastRelease = "')[1].split('"')[0]
-        xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/xmake-master.win64.exe"
-        xmake_file = download_file(xmake_url, "xmake-master.win64.exe")
-        # run the installer
-        os.system(f'"{xmake_file}" /S /D={DEPS_DIR}/xmake')
+        file_name = "xmake-master.win64.zip"
+        xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/{file_name}"
+        xmake_file = download_file(xmake_url, file_name)
+        unzip_file(xmake_file, DEPS_DIR)
     else:
         os.system('curl -fsSL https://xmake.io/shget.text | bash')
 
@@ -134,17 +141,26 @@ def install_cmake():
     else:
         raise ValueError(f'Unknown platform: {sys.platform}')
     cmake_version = "3.26.3"
-    cmake_file = f"cmake-{cmake_version}-{cmake_platform}-{cmake_arch}.{cmake_suffix}"
-    cmake_url = f"https://github.com/Kitware/CMake/releases/download/v{cmake_version}/{cmake_file}"
-    zip_path = download_file(cmake_url, cmake_file)
+    cmake_file = f"cmake-{cmake_version}-{cmake_platform}-{cmake_arch}"
+    cmake_url = f"https://github.com/Kitware/CMake/releases/download/v{cmake_version}/{cmake_file}.{cmake_suffix}"
+    zip_path = download_file(cmake_url, f"{cmake_file}.{cmake_suffix}")
     unzip_file(zip_path, DEPS_DIR)
+    # symlink the executable
+    with open(f'{DEPS_DIR}/cmake_bin', 'w') as f:
+        if sys.platform == 'win32':
+            f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake.exe")
+        elif sys.platform == 'darwin':
+            f.write(f"{DEPS_DIR}/{cmake_file}/CMake.app/Contents/bin/cmake")
+        else:  # linux
+            f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake")
 
 
 def install_rust():
     if sys.platform == 'win32':
         # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
-        rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe', 'rustup-init.exe')
-        os.system(f'{rustup_init_exe} -y')
+        rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe',
+                                        'rustup-init.exe')
+        call([rustup_init_exe, '-y'])
     elif sys.platform == 'linux' or sys.platform == 'darwin':
         os.system('curl https://sh.rustup.rs -sSf | sh -s -- -y')
     else:
@@ -186,7 +202,8 @@ def print_help():
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
     print('  --config    | -c       Configure build system')
-    print('  --toolchain | -t [toolchain]      Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
+    print(
+        '  --toolchain | -t [toolchain]      Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
     print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
