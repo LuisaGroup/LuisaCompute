@@ -1,7 +1,7 @@
 import multiprocessing
 import os
 import sys
-from subprocess import Popen, call, DEVNULL
+from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
 ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
@@ -127,7 +127,7 @@ def get_default_toolchain():
     if sys.platform == 'win32':
         return 'msvc'
     elif sys.platform == 'darwin':
-        return 'clang'
+        return 'llvm'
     elif sys.platform == 'linux':
         return 'gcc'
     else:
@@ -337,7 +337,7 @@ def print_help():
           'when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
-    print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
+    print('          llvm[-version]     Use LLVM toolchain (default on macOS; available on Windows, macOS, and Linux)')
     print('          gcc[-version]      Use GCC toolchain (default on Linux; available on Linux only)')
     print('  --features  | -f [[no-]features]  Add/remove features')
     print('      Features:')
@@ -396,6 +396,37 @@ def dump_build_system_options(config: dict):
         raise ValueError(f'Unknown build system: {build_sys}')
 
 
+def find_msvc(version):
+    if os.path.exists(f'{DEPS_DIR}/vswhere_bin'):
+        with open(f'{DEPS_DIR}/vswhere_bin', 'r') as f:
+            vswhere_exe = f.read().strip()
+    else:
+        vswhere_version = '3.1.1'
+        vswhere_url = f'https://github.com/microsoft/vswhere/releases/download/{vswhere_version}/vswhere.exe'
+        vswhere_exe = download_file(vswhere_url, 'vswhere.exe')
+        with open(f'{DEPS_DIR}/vswhere_bin', 'w') as f:
+            f.write(vswhere_exe)
+    if version == 2019 or version == 16:
+        version_args = ['-version', '[16.0,17.0)']
+    elif version == 2022 or version == 17:
+        version_args = ['-version', '[17.0,18.0)']
+    else:
+        print_red(f'Unsupported MSVC version: {version}. Using latest version.')
+        version_args = ['-latest']
+
+    vswhere_args = [vswhere_exe, '-format', 'json', '-utf8', '-products', '*',
+                    '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x64.x64'] + version_args
+
+    try:
+        output = check_output(vswhere_args)
+    except Exception as e:
+        print_red(f'Failed to find MSVC: {e}')
+        return None
+
+    print(output)
+
+
+
 def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str]:
     args = config['cmake_args']
     cmake_mode = {
@@ -410,7 +441,7 @@ def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str
         toolchain_version = int(toolchain_version)
     if toolchain == 'msvc':
         pass
-    elif toolchain == 'clang':
+    elif toolchain == 'llvm':
         args.append("-DCMAKE_C_COMPILER=clang")
         args.append("-DCMAKE_CXX_COMPILER=clang++")
         pass
@@ -611,7 +642,7 @@ def parse_cli_args(args):
             print_help()
             return None
         toolchain = toolchain[0].lower()
-        if not toolchain.startswith('msvc') and not toolchain.startswith('gcc') and not toolchain.startswith('clang'):
+        if not toolchain.startswith('msvc') and not toolchain.startswith('gcc') and not toolchain.startswith('llvm'):
             print_red(f'Unknown toolchain: {toolchain}')
             print_help()
             return None
