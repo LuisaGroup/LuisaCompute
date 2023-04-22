@@ -788,7 +788,7 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
                 f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{}}", file=file)
         print(
             "struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};", file=file)
-        print('''template<class T> struct element_type_;
+        print('''template<class T> struct element_type_{using type = void;};
 template<class T> using element_type = typename element_type_<T>::type;
 ''', file=file)
 

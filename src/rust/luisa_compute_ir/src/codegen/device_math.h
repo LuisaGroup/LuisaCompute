@@ -4658,7 +4658,7 @@ __device__ inline void lc_accumulate_grad(lc_bool2 *dst, lc_bool2 grad) noexcept
 __device__ inline void lc_accumulate_grad(lc_bool3 *dst, lc_bool3 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_bool4 *dst, lc_bool4 grad) noexcept {}
 struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};
-template<class T> struct element_type_;
+template<class T> struct element_type_{using type = void;};
 template<class T> using element_type = typename element_type_<T>::type;
 
 template<> struct element_type_<lc_float2> { using type = lc_float; };

@@ -90,6 +90,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_bool{}({})",
                         len,
                         data.iter()
+                            .take(len as usize)
                             .map(|x| if *x == 0 { "false" } else { "true" })
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -100,6 +101,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_short{}({})",
                         len,
                         data.chunks(2)
+                            .take(len as usize)
                             .map(|x| format!("{}", i16::from_le_bytes([x[0], x[1]])))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -110,6 +112,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_ushort{}({})",
                         len,
                         data.chunks(2)
+                            .take(len as usize)
                             .map(|x| format!("{}", u16::from_le_bytes([x[0], x[1]])))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -120,6 +123,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_int{}({})",
                         len,
                         data.chunks(4)
+                            .take(len as usize)
                             .map(|x| format!("{}", i32::from_le_bytes([x[0], x[1], x[2], x[3]])))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -130,6 +134,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_uint{}({})",
                         len,
                         data.chunks(4)
+                            .take(len as usize)
                             .map(|x| format!("{}", u32::from_le_bytes([x[0], x[1], x[2], x[3]])))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -140,6 +145,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_longlong{}({})",
                         len,
                         data.chunks(8)
+                            .take(len as usize)
                             .map(|x| format!(
                                 "{}",
                                 i64::from_le_bytes([
@@ -155,6 +161,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_ulonglong{}({})",
                         len,
                         data.chunks(8)
+                            .take(len as usize)
                             .map(|x| format!(
                                 "{}",
                                 u64::from_le_bytes([
@@ -170,6 +177,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_float{}({})",
                         len,
                         data.chunks(4)
+                            .take(len as usize)
                             .map(|x| format!("{}", f32::from_le_bytes([x[0], x[1], x[2], x[3]])))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -180,6 +188,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                         "lc_double{}({})",
                         len,
                         data.chunks(8)
+                            .take(len as usize)
                             .map(|x| format!(
                                 "{}",
                                 f64::from_le_bytes([
@@ -226,6 +235,15 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
             );
             assert_eq!(offset, data.len());
             out
+        }
+        Type::Array(at) => {
+            format!(
+                "{{ {} }}",
+                data.chunks(at.element.size())
+                    .map(|data| decode_const_data(data, &at.element))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
         _ => {
             todo!()

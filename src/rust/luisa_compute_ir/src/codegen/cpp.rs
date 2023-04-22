@@ -1134,7 +1134,7 @@ impl GenericCppCodeGen {
                 self.write_ident();
                 writeln!(
                     &mut self.body,
-                    "const {0} {1} = {2}",
+                    "const {0} {1} = {2};",
                     node_ty_s,
                     var,
                     decode_const_data(bytes.as_ref(), t)

@@ -590,6 +590,7 @@ struct LCSampler {
 };
 using Texture2D = KernelFnArg::Texture_Body;
 using Texture3D = KernelFnArg::Texture_Body;
+
 template<class V>
 [[nodiscard]] inline V lc_texture2d_read(
     const Texture2D& tex, lc_uint2 uv) noexcept {
