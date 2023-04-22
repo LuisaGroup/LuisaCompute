@@ -79,7 +79,7 @@ def missing_rust_warning():
     print_red("Warning: Rust is required for future releases.", file=sys.stderr)
     print_red('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
     print_red("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
-    print_red('Features requires Rust:', file=sys.stderr)
+    print_red('Features require Rust:', file=sys.stderr)
     print_red('  - CPU backend', file=sys.stderr)
     print_red('  - Remote backend', file=sys.stderr)
     print_red('  - IR module', file=sys.stderr)
