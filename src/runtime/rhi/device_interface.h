@@ -11,14 +11,19 @@
 #include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
 #include <runtime/depth_format.h>
+
 namespace luisa {
 class BinaryIO;
 }// namespace luisa
+
 namespace luisa::compute {
+
 class Context;
+
 namespace detail {
 class ContextImpl;
 }// namespace detail
+
 namespace ir {
 struct KernelModule;
 struct Type;
@@ -28,6 +33,7 @@ struct CArc;
 
 class Type;
 struct AccelOption;
+
 class DeviceConfigExt {
 public:
     virtual ~DeviceConfigExt() noexcept = default;
@@ -47,6 +53,7 @@ protected:
 };
 
 class LC_RUNTIME_API DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {
+
 protected:
     friend class Context;
     luisa::string _backend_name;
