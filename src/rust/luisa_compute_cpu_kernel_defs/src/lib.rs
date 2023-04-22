@@ -50,7 +50,7 @@ pub struct Ray {
     pub dir_z: f32,
     pub tmax: f32,
 }
-#[repr(C, align(16))]
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Hit {
     pub inst_id: u32,

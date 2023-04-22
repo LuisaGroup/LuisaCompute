@@ -11,7 +11,7 @@ struct alignas(16) Ray {
     float tmax;
 };
 
-struct alignas(16) Hit {
+struct Hit {
     uint32_t inst_id;
     uint32_t prim_id;
     float u;
