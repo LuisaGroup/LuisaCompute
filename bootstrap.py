@@ -26,7 +26,14 @@ def check_rust():
         ret = call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
         return ret == 0
     except FileNotFoundError:
-        return False
+        # try the default install location
+        # %USERPROFILE%\.cargo\bin
+        try:
+            ret = call([os.path.expanduser('~/.cargo/bin/rustc'), '--version'], stdout=DEVNULL, stderr=DEVNULL)
+            return ret == 0
+        except FileNotFoundError:
+            pass
+    return False
 
 
 def check_cmake(cmake_exe):
@@ -320,14 +327,14 @@ def print_help():
     print('Build system:')
     print('  cmake                  Use CMake')
     print('  xmake                  Use xmake')
-    print('Mode (effective only when "--config | -c" or "--build | -b" is specified):')
+    print('Mode (required only when "--config | -c" or "--build | -b" is specified):')
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
     print('  --config    | -c       Configure build system')
-    print(
-        '  --toolchain | -t [toolchain]      Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
+    print('  --toolchain | -t [toolchain]      Configure toolchain (effective only',
+          'when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
     print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
@@ -348,9 +355,12 @@ def print_help():
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
     print('      Dependencies:')
-    print('          all                Install all dependencies required by CMake and XMake builds (' + ', '.join(ALL_DEPENDENCIES) + ')')
-    print('          all-cmake          Install all dependencies required by CMake builds (' + ', '.join(ALL_CMAKE_DEPENDENCIES) + ')')
-    print('          all-xmake          Install all dependencies required by XMake builds (' + ', '.join(ALL_XMAKE_DEPENDENCIES) + ')')
+    print('          all                Install all dependencies required by CMake and XMake builds',
+          '(' + ', '.join(ALL_DEPENDENCIES) + ')')
+    print('          all-cmake          Install all dependencies required by CMake builds',
+          '(' + ', '.join(ALL_CMAKE_DEPENDENCIES) + ')')
+    print('          all-xmake          Install all dependencies required by XMake builds',
+          '(' + ', '.join(ALL_XMAKE_DEPENDENCIES) + ')')
     print('          rust               Install Rust toolchain')
     print('          cmake              Install CMake')
     print('          xmake              Install xmake')
@@ -596,7 +606,8 @@ def parse_cli_args(args):
             print_help()
             return None
         if len(toolchain) > 1:
-            print_red(f'"--toolchain | -t" is specified on the command line but has more than one arguments: {toolchain}.')
+            print_red(
+                f'"--toolchain | -t" is specified on the command line but has more than one arguments: {toolchain}.')
             print_help()
             return None
         toolchain = toolchain[0].lower()
@@ -614,19 +625,22 @@ def parse_cli_args(args):
         elif len(build_jobs) == 1 and build_jobs[0].isdigit():
             jobs = int(build_jobs[0]) or multiprocessing.cpu_count()
         else:
-            print_red(f'"--build | -b" requires none or one integral argument. The specified value(s) {keyword_args["build"]} will be ignored.')
+            print_red(
+                f'"--build | -b" requires none or one integral argument. The specified value(s) {keyword_args["build"]} will be ignored.')
             jobs = multiprocessing.cpu_count()
         parsed_args['build'] = max(jobs, 1)
 
     # bool options
     if 'clean' in keyword_args:
         if keyword_args['clean']:
-            print_red(f'"--clean | -C" requires no arguments. The specified value(s) {keyword_args["clean"]} will be ignored.')
+            print_red(
+                f'"--clean | -C" requires no arguments. The specified value(s) {keyword_args["clean"]} will be ignored.')
         parsed_args['clean'] = True
 
     if 'config' in keyword_args:
         if keyword_args['config']:
-            print_red(f'"--config | -C" requires no arguments. The specified value(s) {keyword_args["config"]} will be ignored.')
+            print_red(
+                f'"--config | -C" requires no arguments. The specified value(s) {keyword_args["config"]} will be ignored.')
         parsed_args['config'] = True
 
     # additional args
@@ -700,8 +714,8 @@ def main(args: List[str]):
     if run_config:
         args = build_system_args(config, mode, toolchain)
         if config['build_system'] == 'cmake':
-            cmake_exe = os.path.abspath(config['cmake_exe'])
-            ninja_exe = os.path.abspath(config['ninja_exe'])
+            cmake_exe = config['cmake_exe']
+            ninja_exe = config['ninja_exe']
             if not check_cmake(cmake_exe):
                 print_red('CMake not found. Please install CMake first.')
                 print_red('CMake can be installed by running `python3 bootstrap.py -i cmake`.')
@@ -714,7 +728,7 @@ def main(args: List[str]):
             print(f'Configuring the project: {" ".join(args)}')
             call(args)
         elif config['build_system'] == 'xmake':
-            xmake_exe = os.path.abspath(config['xmake_exe'])
+            xmake_exe = config['xmake_exe']
             if not check_xmake(xmake_exe):
                 print_red('xmake not found. Please install xmake first.')
                 print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
@@ -727,12 +741,12 @@ def main(args: List[str]):
             return 1
     if run_build:
         if config['build_system'] == 'cmake':
-            cmake_exe = os.path.abspath(config['cmake_exe'])
+            cmake_exe = config['cmake_exe']
             args = [cmake_exe, '--build', output, '-j', str(build_jobs)]
             print(f'Building the project: {" ".join(args)}')
             call(args)
         elif config['build_system'] == 'xmake':
-            xmake_exe = os.path.abspath(config['xmake_exe'])
+            xmake_exe = config['xmake_exe']
             print(f'Building the project: xmake')
             call([xmake_exe, "-v"])
         else:
@@ -742,6 +756,8 @@ def main(args: List[str]):
 
 
 if __name__ == '__main__':
+    script_path = os.path.dirname(os.path.realpath(__file__))
+    os.chdir(script_path)
     ec = main(sys.argv)
     if print_missing_rust_warning:
         missing_rust_warning()
