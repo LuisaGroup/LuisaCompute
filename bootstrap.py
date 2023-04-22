@@ -16,8 +16,17 @@ def get_default_features():
     # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui']
     if call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        print("Warning: Rust is required for future releases.", file=sys.stderr)
+        print('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
+        print("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
+        print('Features requires Rust:', file=sys.stderr)
+        print('  - CPU backend', file=sys.stderr)
+        print('  - Remote backend', file=sys.stderr)
+        print('  - IR module', file=sys.stderr)
+        print('  - Automatic differentiation', file=sys.stderr)
         features.append('cpu')
         features.append('remote')
+
     # enable DirectX on Windows by default
     if sys.platform == 'win32':
         features.append('dx')
@@ -231,11 +240,6 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --mode    | -m [mode]  Build mode')
-    print('      Modes:')
-    print('          debug              Debug mode')
-    print('          release            Release mode')
-    print('          relwithdebuginfo   Release with debug infomation mode')
     print('  --build   | -b [N]     Build (N = number of jobs)')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
