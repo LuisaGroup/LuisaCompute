@@ -12,6 +12,14 @@ DEPS_DIR = '.deps'
 DOWNLOAD_DIR = f'{DEPS_DIR}/downloads'
 
 
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BOLD = '\033[1m'
+    END = '\033[0m'
+
+
 def check_rust():
     try:
         ret = call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
@@ -20,18 +28,22 @@ def check_rust():
         return False
 
 
+def print_red(msg, *args, **kwargs):
+    print(Colors.RED + msg.format(*args, **kwargs) + Colors.END, *args, **kwargs)
+
+
 def get_default_features():
     # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui']
     if not check_rust():
-        print("Warning: Rust is required for future releases.", file=sys.stderr)
-        print('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
-        print("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
-        print('Features requires Rust:', file=sys.stderr)
-        print('  - CPU backend', file=sys.stderr)
-        print('  - Remote backend', file=sys.stderr)
-        print('  - IR module', file=sys.stderr)
-        print('  - Automatic differentiation', file=sys.stderr)
+        print_red("Warning: Rust is required for future releases.", file=sys.stderr)
+        print_red('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
+        print_red("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
+        print_red('Features requires Rust:', file=sys.stderr)
+        print_red('  - CPU backend', file=sys.stderr)
+        print_red('  - Remote backend', file=sys.stderr)
+        print_red('  - IR module', file=sys.stderr)
+        print_red('  - Automatic differentiation', file=sys.stderr)
         features.append('cpu')
         features.append('remote')
 
