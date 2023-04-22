@@ -166,12 +166,14 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 call_op, luisa::span{converted_args});
             return nullptr;
         } else {
+            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
+                auto ret = _ctx->function_builder->call(
+                    Type::of<TriangleHit>(), call_op, converted_args);
+                return _ctx->function_builder->cast(
+                    type, CastOp::BITWISE, ret);
+            }
             auto ret = _ctx->function_builder->call(
                 type, call_op, luisa::span{converted_args});
-            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
-                return _ctx->function_builder->cast(
-                    Type::of<TriangleHit>(), CastOp::BITWISE, ret);
-            }
             return ret;
         }
     };
