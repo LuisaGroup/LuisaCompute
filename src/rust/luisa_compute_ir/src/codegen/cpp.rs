@@ -885,7 +885,7 @@ impl GenericCppCodeGen {
             Func::Bitcast => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bitcast<{1}>({2});",
+                    "const {0} {1} = lc_bit_cast<{0}>({2});",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
