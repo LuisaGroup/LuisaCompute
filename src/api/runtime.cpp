@@ -330,7 +330,7 @@ inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT { free(cs); }
 
 LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(LCContext ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().runtime_directory());
+    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->runtime_directory());
 }
 
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,

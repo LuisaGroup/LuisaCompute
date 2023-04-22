@@ -8,6 +8,7 @@
 #include <core/stl/string.h>
 #include <core/stl/hash.h>
 #include <core/stl/vector.h>
+#include <core/stl/filesystem.h>
 
 namespace luisa {
 class DynamicModule;
@@ -18,11 +19,8 @@ namespace luisa::compute {
 
 class Device;
 struct DeviceConfig;
-class ContextPaths;
 
 class LC_RUNTIME_API Context {
-
-    friend class ContextPaths;
 
 private:
     struct Impl;
@@ -39,8 +37,10 @@ public:
     Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
-    // relative paths
-    [[nodiscard]] ContextPaths paths() const noexcept;
+    // runtime directory
+    [[nodiscard]] const luisa::filesystem::path &runtime_directory() const noexcept;
+    // create subdirectories under the runtime directory
+    [[nodiscard]] const luisa::filesystem::path &create_runtime_subdir(luisa::string_view folder_name) const noexcept;
     // Create a virtual device
     // backend "metal", "dx", "cuda" is supported currently
     [[nodiscard]] Device create_device(

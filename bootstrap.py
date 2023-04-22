@@ -262,7 +262,7 @@ def install_rust():
 
 def install_deps(deps):
     if deps:
-        print(f'Installing dependencies: {deps}')
+        print(f'Installing dependencies: {", ".join(deps)}')
         for dep in deps:
             if dep == 'rust':
                 install_rust()
