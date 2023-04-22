@@ -28,6 +28,46 @@ def check_rust():
         return False
 
 
+def check_cmake():
+    try:
+        ret = call(['cmake', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_xmake():
+    try:
+        ret = call(['xmake', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_nvcc():
+    try:
+        ret = call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_ninja():
+    try:
+        ret = call(['ninja', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_vk():
+    try:
+        ret = call(['vulkaninfo'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
 def print_red(msg, *args, **kwargs):
     print(Colors.RED + msg.format(*args, **kwargs) + Colors.END, *args, **kwargs)
 
@@ -55,13 +95,12 @@ def get_default_features():
         features.append('metal')
     # enable CUDA if available
     try:
-        if 'CUDA_PATH' in os.environ or call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        if 'CUDA_PATH' in os.environ or check_nvcc():
             features.append('cuda')
     except FileNotFoundError:
         pass
     try:
-        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or call(['vulkaninfo'], stdout=DEVNULL,
-                                                                             stderr=DEVNULL) == 0:
+        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or check_vk():
             features.append('vulkan')
     except FileNotFoundError:
         pass
@@ -373,6 +412,7 @@ def main(args: List[str]):
             config['build_system'] = arg.lower()
             args.pop(i)
             break
+
     mode = get_default_mode()
     toolchain = get_default_toolchain()
     for i, arg in enumerate(args):
@@ -477,11 +517,19 @@ def main(args: List[str]):
     if run_config:
         args = build_system_args(config, mode, toolchain)
         if config['build_system'] == 'cmake':
+            if not check_cmake():
+                print_red('CMake not found. Please install CMake first.')
+                print_red('CMake can be installed by running `python3 bootstrap.py -i cmake`.')
+                exit(1)
             args = ['cmake', '..'] + args
             print(f'Configuring the project: {" ".join(args)}')
             p = Popen(args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
+            if not check_xmake():
+                print_red('xmake not found. Please install xmake first.')
+                print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
+                exit(1)
             args = ['xmake', 'f'] + args
             print(f'Configuring the project: {" ".join(args)}')
             p = Popen(args)
