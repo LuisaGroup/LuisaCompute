@@ -72,18 +72,26 @@ def print_red(msg, *args, **kwargs):
     print(Colors.RED + msg.format(*args, **kwargs) + Colors.END, *args, **kwargs)
 
 
+print_missing_rust_warning = False
+
+
+def missing_rust_warning():
+    print_red("Warning: Rust is required for future releases.", file=sys.stderr)
+    print_red('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
+    print_red("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
+    print_red('Features requires Rust:', file=sys.stderr)
+    print_red('  - CPU backend', file=sys.stderr)
+    print_red('  - Remote backend', file=sys.stderr)
+    print_red('  - IR module', file=sys.stderr)
+    print_red('  - Automatic differentiation', file=sys.stderr)
+
+
 def get_default_features():
+    global print_missing_rust_warning
     # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui']
     if not check_rust():
-        print_red("Warning: Rust is required for future releases.", file=sys.stderr)
-        print_red('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
-        print_red("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
-        print_red('Features requires Rust:', file=sys.stderr)
-        print_red('  - CPU backend', file=sys.stderr)
-        print_red('  - Remote backend', file=sys.stderr)
-        print_red('  - IR module', file=sys.stderr)
-        print_red('  - Automatic differentiation', file=sys.stderr)
+        print_missing_rust_warning = True
         features.append('cpu')
         features.append('remote')
 
@@ -483,10 +491,12 @@ def main(args: List[str]):
             elif config['build_system'] == 'xmake':
                 config['xmake_args'] = args[i + 1:]
             else:
-                raise ValueError(f'Unknown build system: {config["build_system"]}')
+                print_red(f'Unknown build system: {config["build_system"]}')
+                return 1
             break
         else:
-            raise ValueError(f'Unknown option: {opt}')
+            print_red(f'Unknown option: {opt}')
+            return 1
 
     # print bootstrap information
     print(f'Build System: {config["build_system"]}')
@@ -520,7 +530,7 @@ def main(args: List[str]):
             if not check_cmake():
                 print_red('CMake not found. Please install CMake first.')
                 print_red('CMake can be installed by running `python3 bootstrap.py -i cmake`.')
-                exit(1)
+                return 1
             args = ['cmake', '..'] + args
             print(f'Configuring the project: {" ".join(args)}')
             p = Popen(args, cwd=output)
@@ -529,13 +539,14 @@ def main(args: List[str]):
             if not check_xmake():
                 print_red('xmake not found. Please install xmake first.')
                 print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
-                exit(1)
+                return 1
             args = ['xmake', 'f'] + args
             print(f'Configuring the project: {" ".join(args)}')
             p = Popen(args)
             p.wait()
         else:
-            raise ValueError(f'Unknown build system: {config["build_system"]}')
+            print_red(f'Unknown build system: {config["build_system"]}')
+            return 1
     if run_build:
         if config['build_system'] == 'cmake':
             args = ['cmake', '--build', '.', '-j', str(build_jobs)]
@@ -546,8 +557,13 @@ def main(args: List[str]):
             print(f'Building the project: xmake')
             os.system('xmake')
         else:
-            raise ValueError(f'Unknown build system: {config["build_system"]}')
+            print_red(f'Unknown build system: {config["build_system"]}')
+            return 1
+    return 0
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    ec = main(sys.argv)
+    if print_missing_rust_warning:
+        missing_rust_warning()
+    sys.exit(ec)
