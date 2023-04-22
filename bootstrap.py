@@ -12,10 +12,18 @@ DEPS_DIR = '.deps'
 DOWNLOAD_DIR = f'{DEPS_DIR}/downloads'
 
 
+def check_rust():
+    try:
+        ret = call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
 def get_default_features():
     # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui']
-    if call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+    if not check_rust():
         print("Warning: Rust is required for future releases.", file=sys.stderr)
         print('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
         print("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
