@@ -25,6 +25,8 @@ private:
     const Context &_ctx;
     mutable std::mutex _global_mtx;
     mutable MutexMap _mutex_map;
+    std::filesystem::path _cache_dir;
+    std::filesystem::path _data_dir;
 
 private:
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;

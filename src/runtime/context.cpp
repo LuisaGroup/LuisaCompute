@@ -31,9 +31,7 @@ struct ValidationLayer {
 
 // Make context global, so dynamic modules cannot be redundantly loaded
 struct Context::Impl {
-    std::filesystem::path runtime_directory;
-    std::filesystem::path cache_directory;
-    std::filesystem::path data_directory;
+    std::filesystem::path   runtime_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
     ValidationLayer validation_layer;
@@ -75,10 +73,6 @@ Context::Context(string_view program_path) noexcept
     _impl->runtime_directory = detail::runtime_directory(program);
     LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
     LUISA_INFO("Runtime directory: {}.", to_string(_impl->runtime_directory));
-    _impl->cache_directory = _impl->runtime_directory / ".cache";
-    _impl->data_directory = _impl->runtime_directory / ".data";
-    LUISA_INFO("Cache directory: {}.", to_string(_impl->cache_directory));
-    LUISA_INFO("Data directory: {}.", to_string(_impl->data_directory));
     DynamicModule::add_search_path(_impl->runtime_directory);
     for (auto &&p : std::filesystem::directory_iterator{_impl->runtime_directory}) {
         if (auto &&path = p.path();
@@ -111,14 +105,6 @@ Context::Context(string_view program_path) noexcept
 
 const std::filesystem::path &ContextPaths::runtime_directory() const noexcept {
     return static_cast<const Context::Impl *>(_impl)->runtime_directory;
-}
-
-const std::filesystem::path &ContextPaths::cache_directory() const noexcept {
-    return static_cast<const Context::Impl *>(_impl)->cache_directory;
-}
-
-const std::filesystem::path &ContextPaths::data_directory() const noexcept {
-    return static_cast<const Context::Impl *>(_impl)->data_directory;
 }
 
 ContextPaths Context::paths() const noexcept {
@@ -177,5 +163,17 @@ luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view ba
     m.backend_device_names(names);
     return names;
 }
-
+[[nodiscard]] std::filesystem::path ContextPaths::get_local_dir(luisa::string_view folder_name) const noexcept {
+    std::lock_guard lck{_path_mtx};
+    auto iter = _cached_paths.try_emplace(
+        folder_name,
+        luisa::lazy_construct([&]() {
+            auto dir = static_cast<const Context::Impl *>(_impl)->runtime_directory / folder_name;
+            if (!std::filesystem::exists(dir)) {
+                std::filesystem::create_directory(dir);
+            }
+            return dir;
+        }));
+    return iter.first->second;
+}
 }// namespace luisa::compute
