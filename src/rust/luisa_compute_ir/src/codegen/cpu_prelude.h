@@ -1,4 +1,4 @@
-extern int lc_stderr;
+extern "C" int lc_stderr;
 extern "C" int lc_fprintf(int, const char*, ...) noexcept;
 extern "C" void lc_abort(void) noexcept;
 inline float rsqrtf(float x) { return 1.0f / sqrtf(x); }

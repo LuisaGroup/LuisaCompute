@@ -39,14 +39,14 @@ impl Context {
         unsafe {
             let lib_path = path.as_ref().to_path_buf();
             let api_dll = if cfg!(target_os = "windows") {
-                lib_path.join("liblc-api.dll")
+                lib_path.join("lc-api.dll")
             } else if cfg!(target_os = "linux") {
                 lib_path.join("liblc-api.so")
             } else {
                 todo!()
             };
             let swapchain_dll = if cfg!(target_os = "windows") {
-                "liblc-vulkan-swapchain.dll"
+                "lc-vulkan-swapchain.dll"
             } else if cfg!(target_os = "linux") {
                 "liblc-vulkan-swapchain.so"
             } else {
