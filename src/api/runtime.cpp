@@ -7,6 +7,7 @@
 #include "runtime/rhi/resource.h"
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
+#include <runtime/rhi/command_encoder.h>
 #include <api/api.h>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
@@ -177,17 +178,53 @@ private:
                     modifications);
             }
             case LC_COMMAND_SHADER_DISPATCH: {
-                // TODO: this is incorrect
-                auto c = cmd.shader_dispatch;
-                auto first = (std::byte *)c.args;
-                auto buffer = luisa::vector<std::byte>(first, first + sizeof(api::Argument) * c.args_count);
-                auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
 
-                return luisa::make_unique<ShaderDispatchCommand>(
-                    c.shader._0,
-                    std::move(buffer),
-                    c.args_count,
-                    ShaderDispatchCommand::DispatchSize{dispatch_size});
+                auto c = cmd.shader_dispatch;
+                auto uniform_size = 0ull;
+                for (auto i = 0u; i < c.args_count; i++) {
+                    if (c.args[i].tag == LC_ARGUMENT_UNIFORM) {
+                        uniform_size += c.args[i].uniform.size;
+                    }
+                }
+                ComputeDispatchCmdEncoder encoder{c.shader._0, c.args_count, uniform_size};
+                for (auto i = 0u; i < c.args_count; i++) {
+                    auto arg = c.args[i];
+                    switch (arg.tag) {
+                        case LC_ARGUMENT_BUFFER:
+                            encoder.encode_buffer(arg.buffer.buffer._0,
+                                                  arg.buffer.offset,
+                                                  arg.buffer.size);
+                            break;
+                        case LC_ARGUMENT_TEXTURE:
+                            encoder.encode_texture(arg.texture.texture._0,
+                                                   arg.texture.level);
+                            break;
+                        case LC_ARGUMENT_UNIFORM:
+                            encoder.encode_uniform(arg.uniform.data,
+                                                   arg.uniform.size);
+                            break;
+                        case LC_ARGUMENT_BINDLESS_ARRAY:
+                            encoder.encode_bindless_array(arg.bindless_array._0);
+                            break;
+                        case LC_ARGUMENT_ACCEL:
+                            encoder.encode_accel(arg.accel._0);
+                            break;
+                    }
+                }
+                encoder.set_dispatch_size(make_uint3(c.dispatch_size[0],
+                                                     c.dispatch_size[1],
+                                                     c.dispatch_size[2]));
+                return std::move(encoder).build();
+
+                // auto first = (std::byte *)c.args;
+                // auto buffer = luisa::vector<std::byte>(first, first + sizeof(api::Argument) * c.args_count);
+                // auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
+                //
+                // return luisa::make_unique<ShaderDispatchCommand>(
+                //     c.shader._0,
+                //     std::move(buffer),
+                //     c.args_count,
+                //     ShaderDispatchCommand::DispatchSize{dispatch_size});
             }
             case LC_COMMAND_BUFFER_TO_TEXTURE_COPY: {
                 auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.buffer_to_texture_copy;
