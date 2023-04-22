@@ -1,5 +1,5 @@
 template<class T>
-inline T lc_cpu_custom_op(const KernelFnArgs* k_args, size_t i, T value) {
+inline T lc_cpu_custom_op(const KernelFnArgs* k_args, size_t i, T value) noexcept {
     if (i >= k_args->custom_ops_count) {
         lc_fprintf(lc_stderr, "Custom op out of bounds: %zu >= %zu\n", i, k_args->custom_ops_count);
         print_backtrace_hint();
@@ -180,20 +180,20 @@ inline T lc_atomic_fetch_max(T *ptr, T value) noexcept {
     }
 }
 
-inline Hit lc_trace_closest(const Accel &accel, const Ray & ray, uint8_t mask) {
+inline Hit lc_trace_closest(const Accel &accel, const Ray & ray, uint8_t mask) noexcept {
     return accel.trace_closest(accel.handle, &ray, mask);
 }
-inline bool lc_trace_any(const Accel &accel, const Ray & ray, uint8_t mask) {
+inline bool lc_trace_any(const Accel &accel, const Ray & ray, uint8_t mask) noexcept {
     return accel.trace_any(accel.handle, &ray, mask);
 }
-inline lc_float4x4 lc_accel_instance_transform(const Accel &accel, lc_uint inst_id) {
+inline lc_float4x4 lc_accel_instance_transform(const Accel &accel, lc_uint inst_id)noexcept  {
     auto m4 = accel.instance_transform(accel.handle, inst_id);
     return lc_bit_cast<lc_float4x4>(m4);
 }
-inline void set_instance_visibility(const Accel &accel, lc_uint inst_id, bool visible) {
+inline void set_instance_visibility(const Accel &accel, lc_uint inst_id, bool visible) noexcept {
     accel.set_instance_visibility(accel.handle, inst_id, visible);
 }
-inline void set_instance_transform(const Accel &accel, lc_uint inst_id, const lc_float4x4 &transform) {
+inline void set_instance_transform(const Accel &accel, lc_uint inst_id, const lc_float4x4 &transform) noexcept {
     auto m4 = lc_bit_cast<Mat4>(transform);
     accel.set_instance_transform(accel.handle, inst_id, &m4);
 }

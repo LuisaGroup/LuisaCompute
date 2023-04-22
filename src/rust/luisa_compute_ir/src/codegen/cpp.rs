@@ -1105,10 +1105,10 @@ impl GenericCppCodeGen {
                 writeln!(&mut self.body, "const uint32_t {} = {};", var, *v).unwrap();
             }
             Const::Int64(v) => {
-                writeln!(&mut self.body, "const int64_t {} = {};", var, *v).unwrap();
+                writeln!(&mut self.body, "const int64_t {} = {}ll;", var, *v).unwrap();
             }
             Const::Uint64(v) => {
-                writeln!(&mut self.body, "const uint64_t {} = {};", var, *v).unwrap();
+                writeln!(&mut self.body, "const uint64_t {} = {}ull;", var, *v).unwrap();
             }
             Const::Float32(v) => {
                 writeln!(

@@ -86,6 +86,8 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         } else {
             panic!("unsupported target architecture");
         }
+        args.push("-fno-rtti");
+        args.push("-fno-exceptions");
         args.push("-c");
         args.push("-emit-llvm");
         args.push("-x");
