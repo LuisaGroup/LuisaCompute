@@ -10,6 +10,7 @@
 #include <core/logging.h>
 #include <runtime/context.h>
 #include <ext_settings.h>
+
 namespace lc::dx {
 static std::mutex gDxcMutex;
 static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
