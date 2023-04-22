@@ -31,7 +31,7 @@ struct ValidationLayer {
 
 // Make context global, so dynamic modules cannot be redundantly loaded
 struct Context::Impl {
-    std::filesystem::path   runtime_directory;
+    std::filesystem::path runtime_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
     ValidationLayer validation_layer;
