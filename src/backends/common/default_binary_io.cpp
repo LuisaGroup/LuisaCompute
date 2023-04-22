@@ -1,11 +1,14 @@
 #include <core/stl/filesystem.h>
 #include <backends/common/default_binary_io.h>
 #include <runtime/context.h>
-#include <runtime/context_paths.h>
 #include <core/logging.h>
+
 namespace luisa::compute {
 
-LockedBinaryFileStream::LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
+LockedBinaryFileStream::LockedBinaryFileStream(DefaultBinaryIO const *binary_io,
+                                               ::FILE *file, size_t length,
+                                               const luisa::string &path,
+                                               DefaultBinaryIO::MapIndex &&idx) noexcept
     : _stream{file, length},
       _binary_io{binary_io},
       _idx{std::move(idx)} {}
@@ -81,15 +84,10 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
     }
 }
 
-DefaultBinaryIO::DefaultBinaryIO(const Context &ctx) noexcept : _ctx(ctx) {
-    if (!std::filesystem::exists(_ctx.paths().cache_directory())) {
-        LUISA_INFO("Created cache directory.");
-        std::filesystem::create_directories(_ctx.paths().cache_directory());
-    }
-    if (!std::filesystem::exists(_ctx.paths().data_directory())) {
-        LUISA_INFO("Created data directory.");
-        std::filesystem::create_directories(_ctx.paths().data_directory());
-    }
+DefaultBinaryIO::DefaultBinaryIO(const Context &ctx) noexcept
+    : _ctx(ctx),
+      _cache_dir{ctx.create_runtime_subdir(".cache"sv)},
+      _data_dir{ctx.create_runtime_subdir(".data"sv)} {
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::string_view name) const noexcept {
@@ -97,17 +95,17 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::str
     if (local_path.is_absolute()) {
         return _read(luisa::to_string(name));
     }
-    auto file_path = luisa::to_string(_ctx.paths().runtime_directory() / name);
+    auto file_path = luisa::to_string(_ctx.runtime_directory() / name);
     return _read(file_path);
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_cache(luisa::string_view name) const noexcept {
-    auto file_path = luisa::to_string(_ctx.paths().cache_directory() / name);
+    auto file_path = luisa::to_string(_cache_dir / name);
     return _read(file_path);
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::string_view name) const noexcept {
-    auto file_path = luisa::to_string(_ctx.paths().data_directory() / name);
+    auto file_path = luisa::to_string(_data_dir / name);
     return _read(file_path);
 }
 
@@ -117,17 +115,17 @@ void DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span
         _write(luisa::to_string(name), data);
         return;
     }
-    auto file_path = luisa::to_string(_ctx.paths().runtime_directory() / name);
+    auto file_path = luisa::to_string(_ctx.runtime_directory() / name);
     _write(file_path, data);
 }
 
 void DefaultBinaryIO::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    auto file_path = luisa::to_string(_ctx.paths().cache_directory() / name);
+    auto file_path = luisa::to_string(_cache_dir / name);
     _write(file_path, data);
 }
 
 void DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    auto file_path = luisa::to_string(_ctx.paths().data_directory() / name);
+    auto file_path = luisa::to_string(_data_dir / name);
     _write(file_path, data);
 }
 

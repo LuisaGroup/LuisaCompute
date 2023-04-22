@@ -77,7 +77,7 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
         fileIo = settings->binary_io;
     }
     if (fileIo == nullptr) {
-        serVisitor = vstd::make_unique<luisa::compute::DefaultBinaryIO>(ctx);
+        serVisitor = vstd::make_unique<DefaultBinaryIO>(ctx);
         fileIo = serVisitor.get();
     }
     auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {

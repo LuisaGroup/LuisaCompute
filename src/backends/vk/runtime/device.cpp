@@ -232,8 +232,7 @@ void Device::destroy_accel(uint64_t handle) noexcept {
 }
 //////////////// Not implemented area
 Device::Device(Context &&ctx, DeviceConfig const *configs)
-    : DeviceInterface{std::move(ctx)},
-      _default_file_io{_ctx} {
+    : DeviceInterface{std::move(ctx)} {
     bool headless = false;
     uint device_idx = 0;
     if (configs) {
@@ -261,7 +260,8 @@ Device::Device(Context &&ctx, DeviceConfig const *configs)
     //     LUISA_INFO("{}", i.extensionName);
     // }
     if (!_binary_io) {
-        _binary_io = &_default_file_io;
+        _default_file_io = vstd::make_unique<DefaultBinaryIO>(ctx);
+        _binary_io = _default_file_io.get();
     }
     {
         std::lock_guard lck(gDxcMutex);

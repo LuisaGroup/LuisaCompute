@@ -322,3 +322,5 @@ options.cli
 options.*.cli
 options.lua
 options.cmake
+
+.deps/**

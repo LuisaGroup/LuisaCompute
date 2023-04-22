@@ -6,14 +6,103 @@ from typing import List
 
 ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
 ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
+ALL_CMAKE_DEPENDENCIES = ['ninja', 'cmake', 'rust']
+ALL_XMAKE_DEPENDENCIES = ['xmake', 'rust']
+
+DEPS_DIR = '.deps'
+DOWNLOAD_DIR = f'{DEPS_DIR}/downloads'
 
 
-def get_default_features():
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BOLD = '\033[1m'
+    END = '\033[0m'
+
+
+def check_rust():
+    try:
+        ret = call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        # try the default install location
+        # %USERPROFILE%\.cargo\bin
+        try:
+            ret = call([os.path.expanduser('~/.cargo/bin/rustc'), '--version'], stdout=DEVNULL, stderr=DEVNULL)
+            return ret == 0
+        except FileNotFoundError:
+            pass
+    return False
+
+
+def check_cmake(cmake_exe):
+    try:
+        ret = call([cmake_exe, '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_xmake(xmake_exe):
+    try:
+        ret = call([xmake_exe, '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_nvcc():
+    try:
+        ret = call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_ninja(ninja_exe):
+    try:
+        ret = call([ninja_exe, '--version'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def check_vk():
+    try:
+        ret = call(['vulkaninfo'], stdout=DEVNULL, stderr=DEVNULL)
+        return ret == 0
+    except FileNotFoundError:
+        return False
+
+
+def print_red(msg, *args, **kwargs):
+    print(Colors.RED + msg.format(*args, **kwargs) + Colors.END, *args, **kwargs)
+
+
+print_missing_rust_warning = False
+
+
+def missing_rust_warning():
+    print_red("Warning: Rust is required for future releases.", file=sys.stderr)
+    print_red('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
+    print_red("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
+    print_red('Features require Rust:', file=sys.stderr)
+    print_red('  - CPU backend', file=sys.stderr)
+    print_red('  - Remote backend', file=sys.stderr)
+    print_red('  - IR module', file=sys.stderr)
+    print_red('  - Automatic differentiation', file=sys.stderr)
+
+
+def get_available_features():
+    global print_missing_rust_warning
     # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui']
-    if call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+    if not check_rust():
+        print_missing_rust_warning = True
         features.append('cpu')
         features.append('remote')
+
     # enable DirectX on Windows by default
     if sys.platform == 'win32':
         features.append('dx')
@@ -22,12 +111,12 @@ def get_default_features():
         features.append('metal')
     # enable CUDA if available
     try:
-        if 'CUDA_PATH' in os.environ or call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        if 'CUDA_PATH' in os.environ or check_nvcc():
             features.append('cuda')
     except FileNotFoundError:
         pass
     try:
-        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or call(['vulkaninfo'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+        if 'VULKAN_SDK' in os.environ or 'VK_SDK_PATH' in os.environ or check_vk():
             features.append('vulkan')
     except FileNotFoundError:
         pass
@@ -49,74 +138,187 @@ def get_default_mode():
     return 'release'
 
 
-def get_default_config():
-    return {
-        'cmake_args': [],
-        'xmake_args': [],
-        'build_system': 'cmake',
-        'features': get_default_features(),
-        'output': 'build',
-    }
-
-
 def download_file(url: str, name: str):
-    download_dir = '.deps/downloads'
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)
-    output_path = f'{download_dir}/{name}'
-    if os.path.exists(output_path):
-        return output_path
+    if not os.path.exists(DOWNLOAD_DIR):
+        os.makedirs(DOWNLOAD_DIR)
+    output_path = f'{DOWNLOAD_DIR}/{name}'
     import urllib.request
     print(f'Downloading "{url}" to "{output_path}"...')
-    urllib.request.urlretrieve(url, output_path)
-    return output_path
+    max_tries = 3
+    for i in range(max_tries):
+        try:
+            urllib.request.urlretrieve(url, output_path)
+            return output_path
+        except Exception as e:
+            print(f'Failed to download "{url}": {e}. Retrying ({i + 2}/{max_tries})...')
+
+
+def unzip_file(in_path: str, out_path: str):
+    if in_path.lower().endswith('.zip'):
+        import zipfile
+        print(f'Unzipping "{in_path}" to "{out_path}"...')
+        with zipfile.ZipFile(in_path, 'r') as zip_ref:
+            zip_ref.extractall(out_path)
+    elif in_path.lower().endswith('.tar.gz'):
+        import tarfile
+        print(f'Unzipping "{in_path}" to "{out_path}"...')
+        with tarfile.open(in_path, 'r:gz') as tar_ref:
+            tar_ref.extractall(out_path)
+    else:
+        raise ValueError(f'Unknown file type: {in_path}')
 
 
 def install_ninja():
-
-    pass
+    if sys.platform == 'win32':
+        ninja_platform = 'win'
+    elif sys.platform == 'linux':
+        ninja_platform = 'linux'
+    elif sys.platform == 'darwin':
+        ninja_platform = 'mac'
+    else:
+        raise ValueError(f'Unknown platform: {sys.platform}')
+    ninja_version = "1.11.1"
+    ninja_file = f"ninja-{ninja_platform}.zip"
+    ninja_url = f"https://github.com/ninja-build/ninja/releases/download/v{ninja_version}/{ninja_file}"
+    zip_path = download_file(ninja_url, ninja_file)
+    unzip_file(zip_path, DEPS_DIR)
+    if sys.platform == 'win32':
+        ninja_bin = f"{DEPS_DIR}/ninja.exe"
+    else:
+        ninja_bin = f"{DEPS_DIR}/ninja"
+        call(['chmod', '+x', ninja_bin])
+    with open(f"{DEPS_DIR}/ninja_bin", 'w') as f:
+        f.write(ninja_bin)
 
 
 def install_xmake():
-    pass
+    ps_file = download_file("https://fastly.jsdelivr.net/gh/xmake-io/xmake@master/scripts/get.ps1", "get_xmake.ps1")
+    with open(ps_file, 'r') as f:
+        ps_script = f.read()
+    # find the latest version $LastRelease = "value"
+    last_release = ps_script.split('$LastRelease = "')[1].split('"')[0]
+    if sys.platform == 'win32':
+        file_name = "xmake-master.win64.zip"
+        xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/{file_name}"
+        xmake_file = download_file(xmake_url, file_name)
+        unzip_file(xmake_file, DEPS_DIR)
+        with open(f"{DEPS_DIR}/xmake_bin", "w") as f:
+            f.write(f"{DEPS_DIR}/xmake/xmake.exe")
+    else:
+        file_name = f"xmake-master.tar.gz"
+        xmake_url = f"https://github.com/xmake-io/xmake/releases/download/{last_release}/{file_name}"
+        xmake_file = download_file(xmake_url, file_name)
+        unzip_file(xmake_file, DEPS_DIR)
+        output_dir = f'{DEPS_DIR}/xmake-{last_release.replace("v", "")}'
+        call(['sh', './configure'], cwd=output_dir)
+        call(['make', f'-j{multiprocessing.cpu_count()}'], cwd=output_dir)
+        call(['make', 'install', 'PREFIX=.'], cwd=output_dir)
+        with open(f"{DEPS_DIR}/xmake_bin", "w") as f:
+            f.write(f"{output_dir}/bin/xmake")
 
 
 def install_cmake():
-    pass
+    if sys.platform == 'win32':
+        cmake_platform = 'windows'
+        cmake_suffix = 'zip'
+        cmake_arch = 'x86_64'
+    elif sys.platform == 'linux':
+        cmake_platform = 'linux'
+        cmake_suffix = 'tar.gz'
+        cmake_arch = 'x86_64'
+    elif sys.platform == 'darwin':
+        cmake_platform = 'macos'
+        cmake_suffix = 'tar.gz'
+        cmake_arch = 'universal'
+    else:
+        raise ValueError(f'Unknown platform: {sys.platform}')
+    cmake_version = "3.26.3"
+    cmake_file = f"cmake-{cmake_version}-{cmake_platform}-{cmake_arch}"
+    cmake_url = f"https://github.com/Kitware/CMake/releases/download/v{cmake_version}/{cmake_file}.{cmake_suffix}"
+    zip_path = download_file(cmake_url, f"{cmake_file}.{cmake_suffix}")
+    unzip_file(zip_path, DEPS_DIR)
+    # symlink the executable
+    with open(f'{DEPS_DIR}/cmake_bin', 'w') as f:
+        if sys.platform == 'win32':
+            f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake.exe")
+        elif sys.platform == 'darwin':
+            f.write(f"{DEPS_DIR}/{cmake_file}/CMake.app/Contents/bin/cmake")
+        else:  # linux
+            call(['chmod', '+x', f"{DEPS_DIR}/{cmake_file}/bin/cmake"])
+            f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake")
 
 
 def install_rust():
     if sys.platform == 'win32':
         # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
-        rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe', 'rustup-init.exe')
-        os.system(f'{rustup_init_exe} -y')
+        rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe',
+                                        'rustup-init.exe')
+        call([rustup_init_exe, '-y'])
     elif sys.platform == 'linux' or sys.platform == 'darwin':
         os.system('curl https://sh.rustup.rs -sSf | sh -s -- -y')
     else:
         raise ValueError(f'Unknown platform: {sys.platform}')
 
 
-def install_dep(build_sys: str, dep: str):
-    if dep == 'rust':
-        install_rust()
-    elif build_sys == 'cmake':
-        if dep == 'ninja':
-            install_ninja()
-        elif dep == 'cmake':
-            install_cmake()
-    elif build_sys == 'xmake' and dep == 'xmake':
-        install_xmake()
-    else:
-        print(f'The specified dependency "{dep}" is ignored.', file=sys.stderr)
+def install_deps(deps):
+    if deps:
+        print(f'Installing dependencies: {", ".join(deps)}')
+        for dep in deps:
+            if dep == 'rust':
+                install_rust()
+            elif dep == 'ninja':
+                install_ninja()
+            elif dep == 'cmake':
+                install_cmake()
+            elif dep == 'xmake':
+                install_xmake()
 
 
-def get_config():
-    config = get_default_config()
+def get_config(parsed_args):
+    config = {
+        'cmake_args': [],
+        'xmake_args': [],
+        'build_system': 'cmake',
+        'output': 'build',
+    }
     # check if config.json exists
     if os.path.exists('config.json'):
         import json
         with open('config.json', 'r') as f:
             config.update(json.load(f))
+    if "build_system" in parsed_args:
+        config['build_system'] = parsed_args['build_system']
+    if "output" in parsed_args:
+        config['output'] = parsed_args['output']
+    if "features" in parsed_args:
+        config['features'] = parsed_args['features']
+
+    def find_program(name):
+        if os.path.exists(f'{DEPS_DIR}/{name}_bin'):
+            with open(f'{DEPS_DIR}/{name}_bin', 'r') as f:
+                return os.path.abspath(f.read().strip())
+        else:
+            return name
+
+    if config["build_system"] == "cmake":
+        if "additional_args" in parsed_args:
+            config['cmake_args'] += parsed_args['additional_args']
+        if "cmake_exe" not in config or config["cmake_exe"] == "cmake":
+            config['cmake_exe'] = find_program("cmake")
+        if "ninja_exe" not in config or config["ninja_exe"] == "ninja":
+            config['ninja_exe'] = find_program("ninja")
+    elif config["build_system"] == "xmake":
+        if "additional_args" in parsed_args:
+            config['xmake_args'] += parsed_args['additional_args']
+        if "xmake_exe" not in config or config["xmake_exe"] == "xmake":
+            config['xmake_exe'] = find_program("xmake")
+
+    available_features = get_available_features()
+    if "features" not in config:
+        config['features'] = available_features
+    else:
+        config['features'] = [f for f in config['features'] if f in available_features]
+
     return config
 
 
@@ -125,13 +327,14 @@ def print_help():
     print('Build system:')
     print('  cmake                  Use CMake')
     print('  xmake                  Use xmake')
-    print('Mode (effective only when "--config | -c" or "--build | -b" is specified):')
+    print('Mode (required only when "--config | -c" or "--build | -b" is specified):')
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
     print('  --config    | -c       Configure build system')
-    print('  --toolchain | -t [toolchain]      Configure toolchain (effective only when "--config | -c" or "--build | -b" is specified)')
+    print('  --toolchain | -t [toolchain]      Configure toolchain (effective only',
+          'when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
     print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
@@ -148,17 +351,20 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --mode    | -m [mode]  Build mode')
-    print('      Modes:')
-    print('          debug              Debug mode')
-    print('          release            Release mode')
-    print('          relwithdebuginfo   Release with debug infomation mode')
     print('  --build   | -b [N]     Build (N = number of jobs)')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
     print('      Dependencies:')
-    print('          all                Install all dependencies as listed below')
+    print('          all                Install all dependencies required by CMake and XMake builds',
+          '(' + ', '.join(ALL_DEPENDENCIES) + ')')
+    print('          all-cmake          Install all dependencies required by CMake builds',
+          '(' + ', '.join(ALL_CMAKE_DEPENDENCIES) + ')')
+    print('          all-xmake          Install all dependencies required by XMake builds',
+          '(' + ', '.join(ALL_XMAKE_DEPENDENCIES) + ')')
     print('          rust               Install Rust toolchain')
+    print('          cmake              Install CMake')
+    print('          xmake              Install xmake')
+    print('          ninja              Install Ninja')
     print('  --output  | -o [folder]    Path to output directory (default: build)')
     print('  -- [args]              Pass arguments to build system')
 
@@ -252,91 +458,226 @@ def init_submodule():
                 sys.exit(1)
 
 
-def main(args: List[str]):
-    init_submodule()
-    if len(args) == 1:
+def parse_cli_args(args):
+    if len(args) == 1 or '--help' in args or '-h' in args:
         print_help()
-        return
-    config = get_config()
-    for i, arg in enumerate(args):
-        if arg.lower() in ('cmake', 'xmake'):
-            config['build_system'] = arg.lower()
-            args.pop(i)
+        return None
+
+    args = args[1:]
+
+    # find the first '--' and treat everything after it as additional arguments
+    additional_args = []
+    if '--' in args:
+        index = args.index('--')
+        additional_args = args[index + 1:]
+        args = args[:index]
+
+    # find the first argument that starts with '-'
+    index = 0
+    while index < len(args):
+        if args[index].startswith('-'):
             break
-    mode = get_default_mode()
-    toolchain = get_default_toolchain()
-    for i, arg in enumerate(args):
-        if arg.lower() in ('debug', 'release', 'reldbg'):
-            mode = arg.lower()
-            args.pop(i)
-            break
-    i = 1
-    run_config = False
-    run_build = False
-    build_jobs = multiprocessing.cpu_count()
+        index += 1
+    positional_args = args[:index]
+    args = args[index:]
+
+    arg_keys = {
+        '-b': 'build',
+        '-c': 'config',
+        '-C': 'clean',
+        '-o': 'output',
+        '-i': 'install',
+        '-t': 'toolchain',
+        '-f': "features",
+        '--build': 'build',
+        '--config': 'config',
+        '--clean': 'clean',
+        '--output': 'output',
+        '--install': '-i',
+        '--toolchain': '-t',
+        '--features': '-f',
+    }
+
+    # parse keyword arguments
+    keyword_args = {}
+    i = 0
     while i < len(args):
-        opt = args[i]
-        if opt == '--clean' or opt == '-C':
-            if os.path.exists(config['output']):
-                import shutil
-                shutil.rmtree(config['output'])
-            if os.path.exists('options.cmake.cli'):
-                os.remove('options.cmake.cli')
-            if os.path.exists('options.xmake.cli'):
-                os.remove('options.xmake.cli')
-            return
-        elif opt == '--help' or opt == '-h':
-            print_help()
-            return
-        elif opt == '--config' or opt == '-c':
-            run_config = True
+        arg = args[i]
+        values = []
+        assert arg.startswith('-')
+        i += 1
+        while i < len(args) and not args[i].startswith('-'):
+            values.append(args[i])
             i += 1
-        elif opt == '--build' or opt == '-b':
-            run_build = run_config = True
-            i += 1
-            if i < len(args) and not args[i].startswith('-'):
-                build_jobs = int(args[i])
-                i += 1
-        elif opt == '--features' or opt == '-f':
-            i += 1
-            while i < len(args) and not args[i].startswith('-'):
-                f = args[i].lower()
-                if f == 'all':
-                    config['features'] = get_default_features()
-                elif f.startswith('no-'):
-                    f = f[3:]
-                    if f in config['features']:
-                        config['features'].remove(f)
-                else:
-                    if f not in config['features']:
-                        config['features'].append(f)
-                i += 1
-        elif opt == '--install' or opt == '-i':
-            i += 1
-            deps = []
-            while i < len(args) and not args[i].startswith('-'):
-                deps.append(args[i].lower())
-                i += 1
-            if "all" in deps:
-                deps = ALL_DEPENDENCIES
-            for d in deps:
-                install_dep(d)
-        elif opt == '--output' or opt == '-o':
-            config['output'] = args[i + 1]
-            i += 2
-        elif opt == '--toolchain' or opt == '-t':
-            toolchain = args[i + 1].lower()
-            i += 2
-        elif opt == "--":
-            if config['build_system'] == 'cmake':
-                config['cmake_args'] = args[i + 1:]
-            elif config['build_system'] == 'xmake':
-                config['xmake_args'] = args[i + 1:]
+        if arg in arg_keys:
+            arg = arg_keys[arg]
+            if arg not in keyword_args:
+                keyword_args[arg] = values
             else:
-                raise ValueError(f'Unknown build system: {config["build_system"]}')
-            break
+                keyword_args[arg].extend(values)
         else:
-            raise ValueError(f'Unknown option: {opt}')
+            print_red(f'Ignoring invalid keyword argument: {arg} {" ".join(values)}')
+
+    parsed_args = {}
+
+    # build system
+    if 'xmake' in positional_args:
+        parsed_args['build_system'] = 'xmake'
+        positional_args.remove('xmake')
+    elif 'cmake' in positional_args:
+        parsed_args['build_system'] = 'cmake'
+        positional_args.remove('cmake')
+
+    # build mode
+    if 'debug' in positional_args:
+        parsed_args['mode'] = 'debug'
+        positional_args.remove('debug')
+    elif 'release' in positional_args:
+        parsed_args['mode'] = 'release'
+        positional_args.remove('release')
+    elif 'reldbg' in positional_args:
+        parsed_args['mode'] = 'reldbg'
+        positional_args.remove('reldbg')
+
+    if positional_args:
+        print_red(f'Invalid positional arguments: {positional_args}')
+        print_help()
+        return None
+
+    # features
+    if 'features' in keyword_args:
+        features = keyword_args['features']
+        if not keyword_args['features']:
+            print_red('"--feature | -f" is specified on the command line butn o features specified.')
+            print_help()
+            return None
+        valid_features = set()
+        for f in features:
+            f = f.lower()
+            if f == 'all':
+                valid_features.update(ALL_FEATURES)
+            elif f in ALL_FEATURES:
+                valid_features.add(f)
+            elif f.startswith('no-'):
+                valid_features.remove(f[3:])
+            else:
+                print_red(f'Ignoring invalid feature "{f}"')
+        parsed_args['features'] = list(valid_features)
+
+    # deps
+    if 'install' in keyword_args:
+        if not keyword_args['install']:
+            print_red('"--install | -i" is specified on the command line but no dependencies specified.')
+            print_help()
+            return None
+        valid_deps = set()
+        for dep in keyword_args['install']:
+            dep = dep.lower()
+            if dep == 'all':
+                valid_deps.update(ALL_DEPENDENCIES)
+            elif dep == 'all-cmake':
+                valid_deps.update(ALL_CMAKE_DEPENDENCIES)
+            elif dep == 'all-xmake':
+                valid_deps.update(ALL_XMAKE_DEPENDENCIES)
+            elif dep in ALL_DEPENDENCIES:
+                valid_deps.add(dep)
+            else:
+                print_red(f'Ignoring invalid dependency "{dep}"')
+        parsed_args['install'] = list(valid_deps)
+
+    # output
+    if 'output' in keyword_args:
+        output = keyword_args['output']
+        if not output:
+            print_red('"--output | -o" is specified on the command line but no output specified.')
+            print_help()
+            return None
+        if len(output) > 1:
+            print_red(f'"--output | -o" is specified on the command line but has more than one arguments: {output}.')
+            print_help()
+            return None
+        parsed_args['output'] = output[0]
+
+    # toolchain
+    if 'toolchain' in keyword_args:
+        toolchain = keyword_args['toolchain']
+        if not toolchain:
+            print_red('"--toolchain | -t" is specified on the command line but no toolchain specified.')
+            print_help()
+            return None
+        if len(toolchain) > 1:
+            print_red(
+                f'"--toolchain | -t" is specified on the command line but has more than one arguments: {toolchain}.')
+            print_help()
+            return None
+        toolchain = toolchain[0].lower()
+        if not toolchain.startswith('msvc') and not toolchain.startswith('gcc') and not toolchain.startswith('clang'):
+            print_red(f'Unknown toolchain: {toolchain}')
+            print_help()
+            return None
+        parsed_args['toolchain'] = toolchain
+
+    # build jobs
+    if 'build' in keyword_args:
+        build_jobs = keyword_args['build']
+        if not build_jobs:
+            jobs = multiprocessing.cpu_count()
+        elif len(build_jobs) == 1 and build_jobs[0].isdigit():
+            jobs = int(build_jobs[0]) or multiprocessing.cpu_count()
+        else:
+            print_red(
+                f'"--build | -b" requires none or one integral argument. The specified value(s) {keyword_args["build"]} will be ignored.')
+            jobs = multiprocessing.cpu_count()
+        parsed_args['build'] = max(jobs, 1)
+
+    # bool options
+    if 'clean' in keyword_args:
+        if keyword_args['clean']:
+            print_red(
+                f'"--clean | -C" requires no arguments. The specified value(s) {keyword_args["clean"]} will be ignored.')
+        parsed_args['clean'] = True
+
+    if 'config' in keyword_args:
+        if keyword_args['config']:
+            print_red(
+                f'"--config | -C" requires no arguments. The specified value(s) {keyword_args["config"]} will be ignored.')
+        parsed_args['config'] = True
+
+    # additional args
+    parsed_args['additional_args'] = additional_args
+
+    return parsed_args
+
+
+def main(args: List[str]):
+    parsed_args = parse_cli_args(args)
+    if parsed_args is None:
+        return
+
+    print(parsed_args)
+
+    init_submodule()
+
+    # install deps: this is done before config because feature detection may require deps
+    if 'install' in parsed_args:
+        install_deps(parsed_args['install'])
+
+    mode = get_default_mode()
+    if 'mode' in parsed_args:
+        mode = parsed_args['mode']
+
+    toolchain = get_default_toolchain()
+    if 'toolchain' in parsed_args:
+        toolchain = parsed_args['toolchain']
+
+    run_build = 'build' in parsed_args and parsed_args['build']
+    run_config = run_build or ('config' in parsed_args and parsed_args['config'])
+
+    build_jobs = multiprocessing.cpu_count()
+    if "build" in parsed_args:
+        build_jobs = parsed_args["build"]
+
+    config = get_config(parsed_args)
 
     # print bootstrap information
     print(f'Build System: {config["build_system"]}')
@@ -359,6 +700,12 @@ def main(args: List[str]):
 
     # config and build
     output = config['output']
+    if "clean" in parsed_args:
+        if os.path.exists(output):
+            print(f'Cleaning {output}...')
+            import shutil
+            shutil.rmtree(output)
+
     if run_config or run_build:
         if not os.path.exists(output):
             os.mkdir(output)
@@ -367,29 +714,51 @@ def main(args: List[str]):
     if run_config:
         args = build_system_args(config, mode, toolchain)
         if config['build_system'] == 'cmake':
-            args = ['cmake', '..'] + args
+            cmake_exe = config['cmake_exe']
+            ninja_exe = config['ninja_exe']
+            if not check_cmake(cmake_exe):
+                print_red('CMake not found. Please install CMake first.')
+                print_red('CMake can be installed by running `python3 bootstrap.py -i cmake`.')
+                return 1
+            if not check_ninja(ninja_exe):
+                print_red('Ninja not found. Please install Ninja first.')
+                print_red('Ninja can be installed by running `python3 bootstrap.py -i ninja`.')
+                return 1
+            args = [cmake_exe, '-S', '.', '-B', output, '-G', 'Ninja', f'-DCMAKE_MAKE_PROGRAM={ninja_exe}'] + args
             print(f'Configuring the project: {" ".join(args)}')
-            p = Popen(args, cwd=output)
-            p.wait()
+            call(args)
         elif config['build_system'] == 'xmake':
-            args = ['xmake', 'f'] + args
+            xmake_exe = config['xmake_exe']
+            if not check_xmake(xmake_exe):
+                print_red('xmake not found. Please install xmake first.')
+                print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
+                return 1
+            args = [xmake_exe, 'f'] + args
             print(f'Configuring the project: {" ".join(args)}')
-            p = Popen(args)
-            p.wait()
+            call(args)
         else:
-            raise ValueError(f'Unknown build system: {config["build_system"]}')
+            print_red(f'Unknown build system: {config["build_system"]}')
+            return 1
     if run_build:
         if config['build_system'] == 'cmake':
-            args = ['cmake', '--build', '.', '-j', str(build_jobs)]
+            cmake_exe = config['cmake_exe']
+            args = [cmake_exe, '--build', output, '-j', str(build_jobs)]
             print(f'Building the project: {" ".join(args)}')
-            p = Popen(args, cwd=output)
-            p.wait()
+            call(args)
         elif config['build_system'] == 'xmake':
+            xmake_exe = config['xmake_exe']
             print(f'Building the project: xmake')
-            os.system('xmake')
+            call([xmake_exe, "-v"])
         else:
-            raise ValueError(f'Unknown build system: {config["build_system"]}')
+            print_red(f'Unknown build system: {config["build_system"]}')
+            return 1
+    return 0
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    script_path = os.path.dirname(os.path.realpath(__file__))
+    os.chdir(script_path)
+    ec = main(sys.argv)
+    if print_missing_rust_warning:
+        missing_rust_warning()
+    sys.exit(ec)

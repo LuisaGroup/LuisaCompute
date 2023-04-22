@@ -25,6 +25,8 @@ private:
     const Context &_ctx;
     mutable std::mutex _global_mtx;
     mutable MutexMap _mutex_map;
+    std::filesystem::path _cache_dir;
+    std::filesystem::path _data_dir;
 
 private:
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;
@@ -46,11 +48,11 @@ class LockedBinaryFileStream : public BinaryStream {
 
 private:
     BinaryFileStream _stream;
-    DefaultBinaryIO const* _binary_io;
+    DefaultBinaryIO const *_binary_io;
     DefaultBinaryIO::MapIndex _idx;
 
 public:
-    explicit LockedBinaryFileStream(DefaultBinaryIO const* binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept;
+    explicit LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept;
     ~LockedBinaryFileStream() noexcept override;
     [[nodiscard]] size_t length() const noexcept override { return _stream.length(); }
     [[nodiscard]] size_t pos() const noexcept override { return _stream.pos(); }

@@ -6,7 +6,6 @@
 #include <core/logging.h>
 #include <core/platform.h>
 #include <runtime/context.h>
-#include <runtime/context_paths.h>
 #include <runtime/device.h>
 #include <core/binary_io.h>
 #include <vstl/pdqsort.h>
@@ -32,11 +31,11 @@ struct ValidationLayer {
 // Make context global, so dynamic modules cannot be redundantly loaded
 struct Context::Impl {
     std::filesystem::path runtime_directory;
-    std::filesystem::path cache_directory;
-    std::filesystem::path data_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
     ValidationLayer validation_layer;
+    luisa::unordered_map<luisa::string, luisa::unique_ptr<std::filesystem::path>> runtime_subdir_paths;
+    std::mutex runtime_subdir_mutex;
     const BackendModule &create_module(const luisa::string &backend_name) noexcept {
         auto create_new = [&]() {
             if (std::find(installed_backends.cbegin(),
@@ -75,10 +74,6 @@ Context::Context(string_view program_path) noexcept
     _impl->runtime_directory = detail::runtime_directory(program);
     LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
     LUISA_INFO("Runtime directory: {}.", to_string(_impl->runtime_directory));
-    _impl->cache_directory = _impl->runtime_directory / ".cache";
-    _impl->data_directory = _impl->runtime_directory / ".data";
-    LUISA_INFO("Cache directory: {}.", to_string(_impl->cache_directory));
-    LUISA_INFO("Data directory: {}.", to_string(_impl->data_directory));
     DynamicModule::add_search_path(_impl->runtime_directory);
     for (auto &&p : std::filesystem::directory_iterator{_impl->runtime_directory}) {
         if (auto &&path = p.path();
@@ -107,22 +102,6 @@ Context::Context(string_view program_path) noexcept
     _impl->installed_backends.erase(
         std::unique(_impl->installed_backends.begin(), _impl->installed_backends.end()),
         _impl->installed_backends.end());
-}
-
-const std::filesystem::path &ContextPaths::runtime_directory() const noexcept {
-    return static_cast<const Context::Impl *>(_impl)->runtime_directory;
-}
-
-const std::filesystem::path &ContextPaths::cache_directory() const noexcept {
-    return static_cast<const Context::Impl *>(_impl)->cache_directory;
-}
-
-const std::filesystem::path &ContextPaths::data_directory() const noexcept {
-    return static_cast<const Context::Impl *>(_impl)->data_directory;
-}
-
-ContextPaths Context::paths() const noexcept {
-    return ContextPaths{_impl.get()};
 }
 
 Device Context::create_device(luisa::string_view backend_name_in, const DeviceConfig *settings, bool enable_validation) noexcept {
@@ -176,6 +155,28 @@ luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view ba
     luisa::vector<luisa::string> names;
     m.backend_device_names(names);
     return names;
+}
+
+const luisa::filesystem::path &Context::runtime_directory() const noexcept {
+    return _impl->runtime_directory;
+}
+
+const luisa::filesystem::path &Context::create_runtime_subdir(luisa::string_view folder_name) const noexcept {
+    std::lock_guard lock{_impl->runtime_subdir_mutex};
+    auto iter = _impl->runtime_subdir_paths.try_emplace(
+        folder_name,
+        luisa::lazy_construct([&]() {
+            auto dir = runtime_directory() / folder_name;
+            std::error_code ec;
+            luisa::filesystem::create_directories(dir, ec);
+            if (ec) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to create runtime sub-directory '{}': {}.",
+                    to_string(dir), ec.message());
+            }
+            return luisa::make_unique<std::filesystem::path>(std::move(dir));
+        }));
+    return *iter.first->second;
 }
 
 }// namespace luisa::compute
