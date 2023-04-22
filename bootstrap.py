@@ -254,6 +254,9 @@ def print_help():
     print('      Dependencies:')
     print('          all                Install all dependencies as listed below')
     print('          rust               Install Rust toolchain')
+    print('          cmake              Install CMake')
+    print('          xmake              Install xmake')
+    print('          ninja              Install Ninja')
     print('  --output  | -o [folder]    Path to output directory (default: build)')
     print('  -- [args]              Pass arguments to build system')
 
