@@ -448,8 +448,34 @@ def find_msvc(version, pattern):
     return sorted(output, key=lambda x: parse_msvc_version(x))[-1].replace('\\', '/')
 
 
+def prepare_msvc_environment(toolchain_version: int):
+    vcvars_bat = find_msvc(toolchain_version, '**/Auxiliary/Build/vcvars64.bat')
+    if not vcvars_bat:
+        return None
+    try:
+        env_vars = check_output([vcvars_bat, '&&', sys.executable, '-c',
+                                 'import os; import json; print("[[ENVIRON]] =", json.dumps(dict(os.environ)))'])
+    except Exception as e:
+        print_red(f'Failed to dump environment variables: {e}')
+        return None
+    env_vars = env_vars.decode('utf-8').split('[[ENVIRON]] = ')[1]
+    import json
+    env_vars = json.loads(env_vars)
+    os.environ.update(env_vars)
+
+
+def prepare_toolchain_environment(toolchain, version):
+    if toolchain == 'msvc':
+        prepare_msvc_environment(version)
+    elif toolchain == 'llvm':
+        pass
+    elif toolchain == 'gcc':
+        pass
+    else:
+        raise ValueError(f'Unknown toolchain: {toolchain}-{version}')
+
+
 def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, toolchain_version: int):
-    prelude = []
     args = config['cmake_args']
     cmake_mode = {
         'debug': 'Debug',
@@ -458,11 +484,6 @@ def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, tool
     }
     args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
     if toolchain == 'msvc':
-        # cl_exe = find_msvc(toolchain_version, '**/bin/HostX64/x64/cl.exe')
-        vcvars_bat = find_msvc(toolchain_version, '**/Auxiliary/Build/vcvars64.bat')
-        if not vcvars_bat:
-            return None
-        prelude = [vcvars_bat, '&&']
         args.append(f'-DCMAKE_C_COMPILER=cl.exe')
         args.append(f'-DCMAKE_CXX_COMPILER=cl.exe')
     elif toolchain == 'llvm':
@@ -471,11 +492,10 @@ def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, tool
         pass
     elif toolchain == 'gcc':
         pass
-    return prelude, args
+    return args
 
 
 def build_system_config_args_xmake(config: dict, mode: str, toolchain: str, toolchain_version: int):
-    prelude = []
     args = config['xmake_args']
     xmake_mode = {
         'debug': 'debug',
@@ -484,14 +504,10 @@ def build_system_config_args_xmake(config: dict, mode: str, toolchain: str, tool
     }
     args.append(f'-m {xmake_mode[mode]}')
     # TODO: @Maxwell help pls
-    return prelude, args
+    return args
 
 
-def build_system_config_args(config, mode, toolchain):
-    toolchain_version = 0
-    if '-' in toolchain:
-        toolchain, toolchain_version = toolchain.split('-')
-        toolchain_version = int(toolchain_version)
+def build_system_config_args(config, mode, toolchain, toolchain_version):
     if config['build_system'] == 'cmake':
         return build_system_config_args_cmake(config, mode, toolchain, toolchain_version)
     elif config['build_system'] == 'xmake':
@@ -738,8 +754,12 @@ def main(args: List[str]):
     toolchain = get_default_toolchain()
     if 'toolchain' in parsed_args:
         toolchain = parsed_args['toolchain']
+    toolchain_version = 0
+    if '-' in toolchain:
+        toolchain, toolchain_version = toolchain.split('-')
+        toolchain_version = int(toolchain_version)
 
-    run_build = 'build' in parsed_args and parsed_args['build']
+    run_build = 'build' in parsed_args
     run_config = run_build or ('config' in parsed_args and parsed_args['config'])
 
     build_jobs = multiprocessing.cpu_count()
@@ -768,7 +788,7 @@ def main(args: List[str]):
     dump_build_system_options(config)
 
     # config and build
-    output = config['output']
+    output = config['output'].replace('\\', '/')
     if "clean" in parsed_args:
         if os.path.exists(output):
             print(f'Cleaning {output}...')
@@ -778,15 +798,14 @@ def main(args: List[str]):
     if run_config or run_build:
         if not os.path.exists(output):
             os.mkdir(output)
+        prepare_toolchain_environment(toolchain, toolchain_version)
 
     # config build system
-    prelude_args = []
     if run_config:
-        prelude_and_args = build_system_config_args(config, mode, toolchain)
-        if prelude_and_args is None:
+        args = build_system_config_args(config, mode, toolchain, toolchain_version)
+        if args is None:
             print_red('Failed to generate build system arguments.')
             return 1
-        prelude_args, args = prelude_and_args
         if config['build_system'] == 'cmake':
             cmake_exe = config['cmake_exe']
             ninja_exe = config['ninja_exe']
@@ -799,8 +818,8 @@ def main(args: List[str]):
                 print_red('Ninja can be installed by running `python3 bootstrap.py -i ninja`.')
                 return 1
             ninja_exe = ninja_exe.replace('\\', '/')
-            args = prelude_args + [cmake_exe, '-S', '.', '-B', output, '-G', 'Ninja',
-                                   f'-DCMAKE_MAKE_PROGRAM={ninja_exe}'] + args
+            args = [cmake_exe, '-S', '.', '-B', output, '-G', 'Ninja',
+                    f'-DCMAKE_MAKE_PROGRAM={ninja_exe}'] + args
             print(f'Configuring the project: {" ".join(args)}')
             if call(args) != 0:
                 print_red('Failed to configure the project.')
@@ -811,7 +830,7 @@ def main(args: List[str]):
                 print_red('xmake not found. Please install xmake first.')
                 print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
                 return 1
-            args = prelude_args + [xmake_exe, 'f'] + args
+            args = [xmake_exe, 'f'] + args
             print(f'Configuring the project: {" ".join(args)}')
             if call(args) != 0:
                 print_red('Failed to configure the project.')
@@ -822,7 +841,7 @@ def main(args: List[str]):
     if run_build:
         if config['build_system'] == 'cmake':
             cmake_exe = config['cmake_exe']
-            args = prelude_args + [cmake_exe, '--build', output, '-j', str(build_jobs)]
+            args = [cmake_exe, '--build', output, '-j', str(build_jobs)]
             print(f'Building the project: {" ".join(args)}')
             if call(args) != 0:
                 print_red('Failed to build the project.')
@@ -830,7 +849,7 @@ def main(args: List[str]):
         elif config['build_system'] == 'xmake':
             xmake_exe = config['xmake_exe']
             print(f'Building the project: xmake')
-            args = prelude_args + [xmake_exe, '-v', '-j', str(build_jobs)]
+            args = [xmake_exe, '-v', '-j', str(build_jobs)]
             if call(args) != 0:
                 print_red('Failed to build the project.')
                 return 1
