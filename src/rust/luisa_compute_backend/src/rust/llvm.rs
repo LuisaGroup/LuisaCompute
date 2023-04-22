@@ -725,7 +725,7 @@ impl Context {
             add_symbol!(lc_abort, libc::abort);
             add_symbol!(lc_fprintf, libc::fprintf);
             add_symbol!(lc_fwrite, libc::fwrite);
-            add_symbol!(lc_stderr, libc::STDERR_FILENO);
+            add_symbol!(lc_stderr, 2);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
             //cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
             //log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
