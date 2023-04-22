@@ -6,15 +6,19 @@
 
 #include <core/basic_types.h>
 #include <ast/function.h>
-#include <runtime/context.h>
 #include <runtime/rhi/resource.h>
 #include <runtime/rhi/stream_tag.h>
 #include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
 #include <runtime/depth_format.h>
-
+namespace luisa {
+class BinaryIO;
+}// namespace luisa
 namespace luisa::compute {
-
+class Context;
+namespace detail {
+class ContextImpl;
+}// namespace detail
 namespace ir {
 struct KernelModule;
 struct Type;
@@ -24,7 +28,6 @@ struct CArc;
 
 class Type;
 struct AccelOption;
-
 class DeviceConfigExt {
 public:
     virtual ~DeviceConfigExt() noexcept = default;
@@ -43,18 +46,19 @@ protected:
     ~DeviceExtension() noexcept = default;
 };
 
-class DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {
-
+class LC_RUNTIME_API DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {
 protected:
-    Context _ctx;
     friend class Context;
     luisa::string _backend_name;
+    luisa::shared_ptr<detail::ContextImpl> _ctx_impl;
 
 public:
-    explicit DeviceInterface(Context &&ctx) noexcept : _ctx{std::move(ctx)}{}
-    virtual ~DeviceInterface() noexcept = default;
+    explicit DeviceInterface(Context &&ctx) noexcept;
+    virtual ~DeviceInterface() noexcept;
+    DeviceInterface(DeviceInterface &&) = delete;
+    DeviceInterface(DeviceInterface const &) = delete;
 
-    [[nodiscard]] const Context &context() const noexcept { return _ctx; }
+    [[nodiscard]] Context context() const noexcept;
     [[nodiscard]] auto backend_name() const noexcept { return luisa::string_view{_backend_name}; }
 
     // native handle

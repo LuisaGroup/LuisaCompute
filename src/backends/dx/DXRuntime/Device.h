@@ -12,10 +12,10 @@
 
 namespace luisa {
 class BinaryIO;
-}
-namespace lc::hlsl{
+}// namespace luisa
+namespace lc::hlsl {
 class ShaderCompiler;
-}
+}// namespace lc::hlsl
 namespace luisa::compute {
 class Context;
 }// namespace luisa::compute
@@ -44,7 +44,6 @@ public:
         bool Check(Device *self);
         ~LazyLoadShader();
     };
-    luisa::compute::Context & ctx;
     vstd::unique_ptr<luisa::compute::DefaultBinaryIO> serVisitor;
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
@@ -73,7 +72,7 @@ public:
     vstd::unique_ptr<ComputeShader> bc7_1;
     vstd::unique_ptr<ComputeShader> bc7_2;
     vstd::unique_ptr<ComputeShader> bc7_3;*/
-    Device(luisa::compute::Context &ctx, luisa::compute::DeviceConfig const *settings);
+    Device(luisa::compute::Context &&ctx, luisa::compute::DeviceConfig const *settings);
     Device(Device const &) = delete;
     Device(Device &&) = delete;
     ~Device();

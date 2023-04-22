@@ -10,6 +10,7 @@
 #include <runtime/raster/raster_state.h>
 #include <gui/window.h>
 #include <core/clock.h>
+#include <runtime/context.h>
 using namespace luisa;
 using namespace luisa::compute;
 struct v2p {

@@ -14,6 +14,7 @@
 #include <runtime/raster/raster_state.h>
 #include <ast/atomic_ref_node.h>
 #include <core/logging.h>
+#include <runtime/context.h>
 
 namespace py = pybind11;
 using namespace luisa;

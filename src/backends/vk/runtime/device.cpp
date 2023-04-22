@@ -6,8 +6,8 @@
 #include "compute_shader.h"
 #include <backends/common/hlsl/hlsl_codegen.h>
 #include "serde_type.h"
-#include <runtime/context_paths.h>
 #include <backends/common/hlsl/binding_to_arg.h>
+#include <runtime/context.h>
 #include <backends/common/hlsl/shader_compiler.h>
 
 namespace lc::vk {
@@ -259,15 +259,17 @@ Device::Device(Context &&ctx, DeviceConfig const *configs)
     // for(auto&& i : exts){
     //     LUISA_INFO("{}", i.extensionName);
     // }
-    if (!_binary_io) {
-        _default_file_io = vstd::make_unique<DefaultBinaryIO>(ctx);
-        _binary_io = _default_file_io.get();
-    }
+    auto ctx_inst = context();
     {
         std::lock_guard lck(gDxcMutex);
-        if (gDxcRefCount == 0)
-            gDxcCompiler.create(_ctx.paths().runtime_directory());
+        if (gDxcRefCount == 0) {
+            gDxcCompiler.create(ctx.runtime_directory());
+        }
         gDxcRefCount++;
+    }
+    if (!_binary_io) {
+        _default_file_io = vstd::make_unique<DefaultBinaryIO>(std::move(ctx_inst));
+        _binary_io = _default_file_io.get();
     }
 }
 void Device::_init_device(uint32_t selectedDevice) {

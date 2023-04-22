@@ -7,6 +7,7 @@
 #include <backends/ext/tex_compress_ext.h>
 #include <core/clock.h>
 #include <core/logging.h>
+#include <runtime/context.h>
 using namespace luisa;
 using namespace luisa::compute;
 

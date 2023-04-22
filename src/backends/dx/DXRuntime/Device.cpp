@@ -10,7 +10,6 @@
 #include <core/logging.h>
 #include <runtime/context.h>
 #include <ext_settings.h>
-#include <runtime/context_paths.h>
 namespace lc::dx {
 static std::mutex gDxcMutex;
 static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
@@ -57,7 +56,7 @@ bool Device::LazyLoadShader::Check(Device *self) {
 hlsl::ShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
-Device::Device(Context &ctx, DeviceConfig const *settings)
+Device::Device(Context &&ctx, DeviceConfig const *settings)
     : setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
       bc6TryModeG10(BuiltinKernel::LoadBC6TryModeG10CSKernel),
       bc6TryModeLE10(BuiltinKernel::LoadBC6TryModeLE10CSKernel),
@@ -65,11 +64,16 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
       bc7TryMode456(BuiltinKernel::LoadBC7TryMode456CSKernel),
       bc7TryMode137(BuiltinKernel::LoadBC7TryMode137CSKernel),
       bc7TryMode02(BuiltinKernel::LoadBC7TryMode02CSKernel),
-      bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel),
-      ctx(ctx) {
+      bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel) {
     using Microsoft::WRL::ComPtr;
     size_t index = 0;
     bool useRuntime = true;
+    {
+        std::lock_guard lck(gDxcMutex);
+        if (gDxcRefCount == 0)
+            gDxcCompiler.create(ctx.runtime_directory());
+        gDxcRefCount++;
+    }
     if (settings) {
         index = settings->device_index;
         useRuntime = !settings->headless;
@@ -77,26 +81,26 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
         fileIo = settings->binary_io;
     }
     if (fileIo == nullptr) {
-        serVisitor = vstd::make_unique<DefaultBinaryIO>(ctx);
+        serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx));
         fileIo = serVisitor.get();
     }
-    auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
-        struct AdapterInfo {
-            WCHAR Description[128];
-            UINT VendorId;
-            UINT DeviceId;
-            UINT SubSysId;
-            UINT Revision;
-        };
-        AdapterInfo info;
-        memcpy(info.Description, desc.Description, sizeof(WCHAR) * 128);
-        info.VendorId = desc.VendorId;
-        info.DeviceId = desc.DeviceId;
-        info.SubSysId = desc.SubSysId;
-        info.Revision = desc.Revision;
-        return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
-    };
     if (useRuntime) {
+        auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
+            struct AdapterInfo {
+                WCHAR Description[128];
+                UINT VendorId;
+                UINT DeviceId;
+                UINT SubSysId;
+                UINT Revision;
+            };
+            AdapterInfo info;
+            memcpy(info.Description, desc.Description, sizeof(WCHAR) * 128);
+            info.VendorId = desc.VendorId;
+            info.DeviceId = desc.DeviceId;
+            info.SubSysId = desc.SubSysId;
+            info.Revision = desc.Revision;
+            return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
+        };
         if (settings && settings->extension) {
             deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
         }
@@ -163,12 +167,6 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
             samplerHeap->CreateSampler(
                 samplers[i], i);
         }
-    }
-    {
-        std::lock_guard lck(gDxcMutex);
-        if (gDxcRefCount == 0)
-            gDxcCompiler.create(ctx.paths().runtime_directory());
-        gDxcRefCount++;
     }
 }
 bool Device::SupportMeshShader() const {

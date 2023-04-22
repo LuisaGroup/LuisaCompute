@@ -13,6 +13,7 @@
 #include <core/logging.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
+#include <runtime/context.h>
 
 int main(int argc, char *argv[]) {
 

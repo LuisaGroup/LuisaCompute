@@ -29,7 +29,9 @@ struct ValidationLayer {
 };
 
 // Make context global, so dynamic modules cannot be redundantly loaded
-struct Context::Impl {
+namespace detail {
+class ContextImpl {
+public:
     std::filesystem::path runtime_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
@@ -56,8 +58,11 @@ struct Context::Impl {
             .try_emplace(backend_name, luisa::lazy_construct(std::move(create_new)))
             .first->second;
     }
+    ~ContextImpl() {
+        DynamicModule::remove_search_path(runtime_directory);
+    }
 };
-
+}// namespace detail
 namespace detail {
 
 auto runtime_directory(const std::filesystem::path &p) noexcept {
@@ -69,7 +74,7 @@ auto runtime_directory(const std::filesystem::path &p) noexcept {
 }// namespace detail
 
 Context::Context(string_view program_path) noexcept
-    : _impl{luisa::make_shared<Impl>()} {
+    : _impl{luisa::make_shared<detail::ContextImpl>()} {
     std::filesystem::path program{program_path};
     _impl->runtime_directory = detail::runtime_directory(program);
     LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
@@ -128,15 +133,10 @@ Device Context::create_device(luisa::string_view backend_name_in, const DeviceCo
     }
 }
 
-Context::Context(luisa::shared_ptr<Impl> impl) noexcept
+Context::Context(luisa::shared_ptr<detail::ContextImpl> impl) noexcept
     : _impl{std::move(impl)} {}
 
-Context::~Context() noexcept {
-    if (_impl != nullptr) {
-        DynamicModule::remove_search_path(
-            _impl->runtime_directory);
-    }
-}
+Context::~Context() noexcept {}
 
 luisa::span<const luisa::string> Context::installed_backends() const noexcept {
     return _impl->installed_backends;
