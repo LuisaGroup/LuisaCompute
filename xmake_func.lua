@@ -19,7 +19,7 @@ set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
 				"metal_backend", "cpu_backend", "enable_tests", "py_include", "py_linkdir", "py_libs", "enable_ir", "enable_api",
-				"enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path")
+				"enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path", "_lc_enable_rust")
 before_check(function(option)
 	local v = import("options", {
 		try = true,
@@ -38,16 +38,21 @@ before_check(function(option)
 	end
 
 	local enable_tests = option:dep("enable_tests")
-	local enable_py = option:dep("_lc_enable_py")
 	if enable_tests:enabled() then
 		option:dep("enable_dsl"):enable(true, {
 			force = true
 		})
 	end
-	if type(option:dep("py_include"):enabled()) == "string" then
+	-- checking python
+	local enable_py = option:dep("_lc_enable_py")
+	local function non_empty_str(s)
+		return type(s) == "string" and s:len() > 0
+	end
+	if non_empty_str(option:dep("py_include"):enabled()) then
 		enable_py:enable(true)
 	end
 	local is_win = is_plat("windows")
+	-- checking dx
 	local dx_backend = option:dep("dx_backend")
 	if dx_backend:enabled() and not is_win then
 		dx_backend:enable(false, {
@@ -57,6 +62,7 @@ before_check(function(option)
 			utils.error("DX backend not supported in this platform, force disabled.")
 		end
 	end
+	-- checking metal
 	local metal_backend = option:dep("metal_backend")
 	if metal_backend:enabled() and not is_plat("macosx") then
 		metal_backend:enable(false, {
@@ -66,6 +72,7 @@ before_check(function(option)
 			utils.error("Metal backend not supported in this platform, force disabled.")
 		end
 	end
+	-- checking cuda
 	local cuda_backend = option:dep("cuda_backend")
 	if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
 		cuda_backend:enable(false, {
@@ -98,6 +105,26 @@ before_check(function(option)
 			force = true
 		})
 	end
+	-- checking rust
+	import("lib.detect.find_tool")
+	local enable_ir = option:dep("enable_ir")
+	if not enable_ir:enabled() then
+		option:dep("_lc_enable_rust"):set_value(false)
+	else
+		local rust_cargo = find_tool("cargo") ~= nil
+		option:dep("_lc_enable_rust"):set_value(rust_cargo)
+		if not rust_cargo then
+			enable_ir:enable(false)
+			if enable_ir:enabled() then
+				utils.error("Rust not installed, IR module force disabled.")
+				enable_ir:enable(false, {
+					force = true
+				})
+			end
+		end
+	end
+
+	-- checking vulkan
 	local vk_path = os.getenv("VULKAN_SDK")
 	if not vk_path then
 		vk_path = os.getenv("VK_SDK_PATH")

@@ -23,7 +23,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     VkPipelineCacheHeaderVersionOne _pso_header{};
     vstd::optional<VkAllocator> _allocator;
     BinaryIO const *_binary_io{};
-    DefaultBinaryIO _default_file_io;
+    vstd::unique_ptr<DefaultBinaryIO> _default_file_io;
     void _init_device(uint32_t selectedDevice);
 
 public:

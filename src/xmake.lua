@@ -1,10 +1,7 @@
-if get_config("enable_mimalloc") then
-	_configs.enable_mimalloc = true
-end
+enable_mimalloc = get_config("enable_mimalloc")
 table.insert(_config_rules, "lc-rename-ext")
 local rename_rule_idx = table.getn(_config_rules)
 includes("ext/EASTL")
-_configs.enable_mimalloc = nil
 includes("ext/spdlog")
 table.remove(_config_rules, rename_rule_idx)
 includes("core")
