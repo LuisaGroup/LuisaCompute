@@ -16,6 +16,7 @@ struct alignas(16) Hit {
     uint32_t prim_id;
     float u;
     float v;
+    float t;
 };
 
 struct alignas(16) Mat4 {

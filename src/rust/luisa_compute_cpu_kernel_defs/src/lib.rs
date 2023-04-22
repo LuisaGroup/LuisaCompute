@@ -57,6 +57,7 @@ pub struct Hit {
     pub prim_id: u32,
     pub u: f32,
     pub v: f32,
+    pub t: f32,
 }
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]

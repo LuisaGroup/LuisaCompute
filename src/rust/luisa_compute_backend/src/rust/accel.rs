@@ -269,6 +269,7 @@ impl AccelImpl {
                 prim_id: rayhit.hit.primID,
                 u: rayhit.hit.u,
                 v: rayhit.hit.v,
+                t: rayhit.ray.tfar,
             }
         } else {
             defs::Hit {
@@ -276,6 +277,7 @@ impl AccelImpl {
                 prim_id: u32::MAX,
                 u: 0.0,
                 v: 0.0,
+                t: ray.tmax,
             }
         }
     }
