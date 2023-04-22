@@ -333,10 +333,6 @@ LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(LCContext ctx) LU
     return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().runtime_directory());
 }
 
-LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().cache_directory());
-}
-
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
                                                       const char *name,
                                                       const char *properties) LUISA_NOEXCEPT {
