@@ -2,6 +2,8 @@
 #include <ast/variable.h>
 #include <core/logging.h>
 #include <core/magic_enum.h>
+#include <runtime/rtx/ray.h>
+#include <runtime/rtx/hit.h>
 #include <luisa_compute_ir/bindings.hpp>
 #include <ir/ir2ast.h>
 
@@ -85,14 +87,21 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
     }();
     if (!_ctx->zero_init) {
-        _ctx->node_to_exprs.emplace(node, expr);
+        if (expr != nullptr && !_ctx->node_to_exprs.contains(node)) {
+            auto local = _ctx->function_builder->local(type);
+            _ctx->function_builder->assign(local, expr);
+            _ctx->node_to_exprs.emplace(node, local);
+        }
     }
     return expr;
 }
 
 void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
     auto init = _convert_node(node->instruction->local.init);
-    auto expr = _ctx->node_to_exprs[node];
+    auto iter = _ctx->node_to_exprs.find(node);
+    LUISA_ASSERT(iter != _ctx->node_to_exprs.end(),
+                 "Local variable not found in node_to_exprs.");
+    auto expr = iter->second;
     if (_ctx->zero_init) {
         _ctx->zero_init = false;
     } else {
@@ -102,7 +111,7 @@ void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
 
     // Remark: About zero_init
     // AST variables are zero initialized by default, which is not the case for IR variables.
-    // So a local defninition in AST will be translated into a ZeroInitializer call + a local definition in IR
+    // So a local definition in AST will be translated into a ZeroInitializer call + a local definition in IR
     //
     // When we translate IR back to AST, we hope that we can remove useless ZeroInitializer calls
     // As ZeroInitializer calls all come right before the following local definition, we simply record them with a bool
@@ -139,16 +148,31 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                                     arg_num == 1 ?
                                         "1 argument" :
                                         luisa::format("{} arguments", arg_num);
-        LUISA_ASSERT(args.size() == arg_num, "`{}` takes {}, got {}.", function_name, argument_information, args.size());
+        LUISA_ASSERT(args.size() == arg_num, "`{}` takes {}, got {}.",
+                     function_name, argument_information, args.size());
         auto converted_args = luisa::vector<const Expression *>{};
         for (const auto &arg : args) {
             converted_args.push_back(_convert_node(arg));
         }
+        if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST ||
+            call_op == CallOp::RAY_TRACING_TRACE_ANY ||
+            call_op == CallOp::RAY_TRACING_QUERY_ALL ||
+            call_op == CallOp::RAY_TRACING_QUERY_ANY) {
+            converted_args[1] = _ctx->function_builder->cast(
+                Type::of<Ray>(), CastOp::BITWISE, converted_args[1]);
+        }
         if (type == nullptr) {
-            _ctx->function_builder->call(call_op, luisa::span{converted_args});
+            _ctx->function_builder->call(
+                call_op, luisa::span{converted_args});
             return nullptr;
         } else {
-            return _ctx->function_builder->call(type, call_op, luisa::span{converted_args});
+            auto ret = _ctx->function_builder->call(
+                type, call_op, luisa::span{converted_args});
+            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
+                return _ctx->function_builder->cast(
+                    Type::of<TriangleHit>(), CastOp::BITWISE, ret);
+            }
+            return ret;
         }
     };
     auto unary_op = [&](UnaryOp un_op) -> const Expression * {
@@ -876,7 +900,7 @@ const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept 
         case ir::Primitive::Int64: [[fallthrough]];
         case ir::Primitive::Uint64: LUISA_ERROR_WITH_LOCATION("64-bit primitive types are not yet supported.");
         default: LUISA_ERROR_WITH_LOCATION("Invalid primitive type.");
-    };
+    }
 }
 
 const Type *IR2AST::_convert_type(const ir::Type *type) noexcept {
@@ -964,11 +988,67 @@ void IR2AST::_collect_phis(const ir::BasicBlock *bb) noexcept {
 }
 
 void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
-    _iterate(bb, [this](const ir::Node *node) {
-        if (node->instruction.get()->tag == ir::Instruction::Tag::Local) {
-            auto type = _convert_type(node->type_.get());
-            auto variable = _ctx->function_builder->local(type);
-            _ctx->node_to_exprs.emplace(node, variable);
+    if (bb == nullptr) { return; }
+    _iterate(bb, [this](const ir::Node *node) noexcept {
+        switch (auto instr = node->instruction.get(); instr->tag) {
+            case ir::Instruction::Tag::Buffer: break;
+            case ir::Instruction::Tag::Bindless: break;
+            case ir::Instruction::Tag::Texture2D: break;
+            case ir::Instruction::Tag::Texture3D: break;
+            case ir::Instruction::Tag::Accel: break;
+            case ir::Instruction::Tag::Shared: break;
+            case ir::Instruction::Tag::Uniform: break;
+            case ir::Instruction::Tag::Local: {
+                auto type = _convert_type(node->type_.get());
+                auto variable = _ctx->function_builder->local(type);
+                _ctx->node_to_exprs.emplace(node, variable);
+                break;
+            }
+            case ir::Instruction::Tag::Argument: break;
+            case ir::Instruction::Tag::UserData: break;
+            case ir::Instruction::Tag::Invalid: break;
+            case ir::Instruction::Tag::Const: break;
+            case ir::Instruction::Tag::Update: break;
+            case ir::Instruction::Tag::Call: break;
+            case ir::Instruction::Tag::Phi: break;
+            case ir::Instruction::Tag::Return: break;
+            case ir::Instruction::Tag::Loop: {
+                _process_local_declarations(instr->loop.body.get());
+                break;
+            }
+            case ir::Instruction::Tag::GenericLoop: {
+                _process_local_declarations(instr->generic_loop.prepare.get());
+                _process_local_declarations(instr->generic_loop.body.get());
+                _process_local_declarations(instr->generic_loop.update.get());
+                break;
+            }
+            case ir::Instruction::Tag::Break: break;
+            case ir::Instruction::Tag::Continue: break;
+            case ir::Instruction::Tag::If: {
+                _process_local_declarations(instr->if_.true_branch.get());
+                _process_local_declarations(instr->if_.false_branch.get());
+                break;
+            }
+            case ir::Instruction::Tag::Switch: {
+                auto &&s = instr->switch_.cases;
+                for (auto i = 0u; i < s.len; i++) {
+                    _process_local_declarations(s.ptr[i].block.get());
+                }
+                _process_local_declarations(instr->switch_.default_.get());
+                break;
+            }
+            case ir::Instruction::Tag::AdScope: {
+                _process_local_declarations(instr->ad_scope.forward.get());
+                _process_local_declarations(instr->ad_scope.backward.get());
+                _process_local_declarations(instr->ad_scope.epilogue.get());
+                break;
+            }
+            case ir::Instruction::Tag::AdDetach: {
+                _process_local_declarations(instr->ad_detach._0.get());
+                break;
+            }
+            case ir::Instruction::Tag::Comment: break;
+            case ir::Instruction::Tag::Debug: break;
         }
     });
 }
@@ -1160,7 +1240,7 @@ const Type *IR2AST::get_type(const ir::Type *type) noexcept {
 }
 
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::build(const ir::KernelModule *kernel) noexcept {
-    IR2AST builder;
+    IR2AST builder{};
     return builder.convert_kernel(kernel);
 }
 

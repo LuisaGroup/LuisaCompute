@@ -519,8 +519,11 @@ const Type *Type::buffer(const Type *elem) noexcept {
 }
 
 const Type *Type::texture(const Type *elem, size_t dimension) noexcept {
-    LUISA_ASSERT(elem->is_arithmetic(), "Texture element must be an arithmetic.");
-    LUISA_ASSERT(dimension >= 2 && dimension <= 4, "Texture dimension must 2, 3 or 4");
+    if (elem->is_vector()) { elem = elem->element(); }
+    LUISA_ASSERT(elem->is_arithmetic(),
+                 "Texture element must be an arithmetic, but got {}.",
+                 elem->description());
+    LUISA_ASSERT(dimension == 2u || dimension == 3u, "Texture dimension must be 2 or 3");
     return from(luisa::format("texture<{},{}>", dimension, elem->description()));
 }
 
