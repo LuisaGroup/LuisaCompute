@@ -21,11 +21,11 @@
 #include <core/clock.h>
 #include <core/stl/filesystem.h>
 #include <Resource/ExternalBuffer.h>
-#include <runtime/context_paths.h>
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
 #include <ext.h>
 #include <backends/common/hlsl/binding_to_arg.h>
+#include <runtime/context.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -36,7 +36,7 @@ using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
-      nativeDevice(_ctx, settings) {
+      nativeDevice(Context{_ctx_impl}, settings) {
     exts.try_emplace(
         TexCompressExt::name,
         [](LCDevice *device) -> DeviceExtension * {

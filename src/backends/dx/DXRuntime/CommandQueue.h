@@ -1,7 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <vstl/lockfree_array_queue.h>
-#include <DxRuntime/DxPtr.h>
+#include <DXRuntime/DxPtr.h>
 namespace lc::dx {
 class CommandBuffer;
 class CommandAllocator;

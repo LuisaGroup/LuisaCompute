@@ -6,7 +6,6 @@
 
 #include <core/clock.h>
 #include <core/binary_io.h>
-#include <runtime/context_paths.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/optix_api.h>

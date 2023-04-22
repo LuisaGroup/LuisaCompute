@@ -1,3 +1,4 @@
+#include <runtime/context.h>
 #include <runtime/stream.h>
 #include <runtime/image.h>
 #include <runtime/shader.h>

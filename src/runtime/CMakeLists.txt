@@ -24,7 +24,7 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
 set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
         rhi/command.cpp rhi/command.h
         rhi/command_encoder.cpp rhi/command_encoder.h
-        rhi/device_interface.h
+        rhi/device_interface.cpp rhi/device_interface.h
         rhi/pixel.cpp rhi/pixel.h
         rhi/resource.cpp rhi/resource.h
         rhi/sampler.h

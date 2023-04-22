@@ -12,7 +12,7 @@
 #include <runtime/device.h>
 #include <ast/interface.h>
 #include <dsl/syntax.h>
-
+#include <runtime/context.h>
 using namespace luisa;
 using namespace luisa::compute;
 

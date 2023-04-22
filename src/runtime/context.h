@@ -20,14 +20,17 @@ namespace luisa::compute {
 class Device;
 struct DeviceConfig;
 
+namespace detail {
+class ContextImpl;
+}// namespace detail
+
 class LC_RUNTIME_API Context {
 
 private:
-    struct Impl;
-    luisa::shared_ptr<Impl> _impl;
-    explicit Context(luisa::shared_ptr<Impl> impl) noexcept;
+    luisa::shared_ptr<detail::ContextImpl> _impl;
 
 public:
+    explicit Context(luisa::shared_ptr<detail::ContextImpl> impl) noexcept;
     // program_path can be first arg from main entry
     explicit Context(string_view program_path) noexcept;
     explicit Context(const char *program_path) noexcept
@@ -37,6 +40,8 @@ public:
     Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
+    [[nodiscard]] const auto &impl() const & noexcept { return _impl; }
+    [[nodiscard]] auto &&impl() && noexcept { return std::move(_impl); }
     // runtime directory
     [[nodiscard]] const luisa::filesystem::path &runtime_directory() const noexcept;
     // create subdirectories under the runtime directory

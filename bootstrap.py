@@ -1,7 +1,7 @@
 import multiprocessing
 import os
 import sys
-from subprocess import Popen, call, DEVNULL
+from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
 ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
@@ -127,7 +127,7 @@ def get_default_toolchain():
     if sys.platform == 'win32':
         return 'msvc'
     elif sys.platform == 'darwin':
-        return 'clang'
+        return 'llvm'
     elif sys.platform == 'linux':
         return 'gcc'
     else:
@@ -337,7 +337,7 @@ def print_help():
           'when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
     print('          msvc[-version]     Use MSVC toolchain (default on Windows; available on Windows only)')
-    print('          clang[-version]    Use Clang toolchain (default on macOS; available on Windows, macOS, and Linux)')
+    print('          llvm[-version]     Use LLVM toolchain (default on macOS; available on Windows, macOS, and Linux)')
     print('          gcc[-version]      Use GCC toolchain (default on Linux; available on Linux only)')
     print('  --features  | -f [[no-]features]  Add/remove features')
     print('      Features:')
@@ -396,7 +396,53 @@ def dump_build_system_options(config: dict):
         raise ValueError(f'Unknown build system: {build_sys}')
 
 
-def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str]:
+def find_msvc(version, pattern):
+    if os.path.exists(f'{DEPS_DIR}/vswhere_bin'):
+        with open(f'{DEPS_DIR}/vswhere_bin', 'r') as f:
+            vswhere_exe = f.read().strip()
+    else:
+        vswhere_version = '3.1.1'
+        vswhere_url = f'https://github.com/microsoft/vswhere/releases/download/{vswhere_version}/vswhere.exe'
+        vswhere_exe = download_file(vswhere_url, 'vswhere.exe')
+        with open(f'{DEPS_DIR}/vswhere_bin', 'w') as f:
+            f.write(vswhere_exe)
+    if version == 2019 or version == 16:
+        version_args = ['-version', '[16.0,17.0)']
+    elif version == 2022 or version == 17:
+        version_args = ['-version', '[17.0,18.0)']
+    else:
+        if version != 0:
+            print_red(f'Unsupported MSVC version: {version}. Using latest version.')
+        version_args = ['-latest']
+
+    vswhere_args = [vswhere_exe, '-format', 'json', '-utf8',
+                    '-nologo', '-sort', '-products', '*', '-find', pattern,
+                    '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'] + version_args
+
+    try:
+        output = check_output(vswhere_args)
+    except Exception as e:
+        print_red(f'Failed to find MSVC: {e}')
+        return None
+
+    def parse_msvc_version(path):
+        try:
+            path = path.replace('\\', '/').lower().replace(pattern, '').split('/')[-1]
+            return [int(x) for x in path.split('.')]
+        except:
+            return [0, 0, 0]
+
+    import json
+    output = json.loads(output.decode('utf-8'))
+    if not output:
+        print_red('Failed to find MSVC')
+        return None
+
+    return sorted(output, key=lambda x: parse_msvc_version(x))[-1].replace('\\', '/')
+
+
+def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, toolchain_version: int):
+    prelude = []
     args = config['cmake_args']
     cmake_mode = {
         'debug': 'Debug',
@@ -404,22 +450,25 @@ def build_system_args_cmake(config: dict, mode: str, toolchain: str) -> List[str
         'reldbg': 'RelWithDebInfo'
     }
     args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
-    toolchain_version = 0
-    if '-' in toolchain:
-        toolchain, toolchain_version = toolchain.split('-')
-        toolchain_version = int(toolchain_version)
     if toolchain == 'msvc':
-        pass
-    elif toolchain == 'clang':
+        # cl_exe = find_msvc(toolchain_version, '**/bin/HostX64/x64/cl.exe')
+        vcvars_bat = find_msvc(toolchain_version, '**/Auxiliary/Build/vcvars64.bat')
+        if not vcvars_bat:
+            return None
+        prelude = [vcvars_bat, '&&']
+        args.append(f'-DCMAKE_C_COMPILER=cl.exe')
+        args.append(f'-DCMAKE_CXX_COMPILER=cl.exe')
+    elif toolchain == 'llvm':
         args.append("-DCMAKE_C_COMPILER=clang")
         args.append("-DCMAKE_CXX_COMPILER=clang++")
         pass
     elif toolchain == 'gcc':
         pass
-    return args
+    return prelude, args
 
 
-def build_system_args_xmake(config: dict, mode: str, toolchain: str) -> List[str]:
+def build_system_config_args_xmake(config: dict, mode: str, toolchain: str, toolchain_version: int):
+    prelude = []
     args = config['xmake_args']
     xmake_mode = {
         'debug': 'debug',
@@ -428,14 +477,18 @@ def build_system_args_xmake(config: dict, mode: str, toolchain: str) -> List[str
     }
     args.append(f'-m {xmake_mode[mode]}')
     # TODO: @Maxwell help pls
-    return args
+    return prelude, args
 
 
-def build_system_args(config, mode, toolchain) -> List[str]:
+def build_system_config_args(config, mode, toolchain):
+    toolchain_version = 0
+    if '-' in toolchain:
+        toolchain, toolchain_version = toolchain.split('-')
+        toolchain_version = int(toolchain_version)
     if config['build_system'] == 'cmake':
-        return build_system_args_cmake(config, mode, toolchain)
+        return build_system_config_args_cmake(config, mode, toolchain, toolchain_version)
     elif config['build_system'] == 'xmake':
-        return build_system_args_xmake(config, mode, toolchain)
+        return build_system_config_args_xmake(config, mode, toolchain, toolchain_version)
     else:
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
@@ -611,7 +664,7 @@ def parse_cli_args(args):
             print_help()
             return None
         toolchain = toolchain[0].lower()
-        if not toolchain.startswith('msvc') and not toolchain.startswith('gcc') and not toolchain.startswith('clang'):
+        if not toolchain.startswith('msvc') and not toolchain.startswith('gcc') and not toolchain.startswith('llvm'):
             print_red(f'Unknown toolchain: {toolchain}')
             print_help()
             return None
@@ -711,8 +764,13 @@ def main(args: List[str]):
             os.mkdir(output)
 
     # config build system
+    prelude_args = []
     if run_config:
-        args = build_system_args(config, mode, toolchain)
+        prelude_and_args = build_system_config_args(config, mode, toolchain)
+        if prelude_and_args is None:
+            print_red('Failed to generate build system arguments.')
+            return 1
+        prelude_args, args = prelude_and_args
         if config['build_system'] == 'cmake':
             cmake_exe = config['cmake_exe']
             ninja_exe = config['ninja_exe']
@@ -724,31 +782,42 @@ def main(args: List[str]):
                 print_red('Ninja not found. Please install Ninja first.')
                 print_red('Ninja can be installed by running `python3 bootstrap.py -i ninja`.')
                 return 1
-            args = [cmake_exe, '-S', '.', '-B', output, '-G', 'Ninja', f'-DCMAKE_MAKE_PROGRAM={ninja_exe}'] + args
+            ninja_exe = ninja_exe.replace('\\', '/')
+            args = prelude_args + [cmake_exe, '-S', '.', '-B', output, '-G', 'Ninja',
+                                   f'-DCMAKE_MAKE_PROGRAM={ninja_exe}'] + args
             print(f'Configuring the project: {" ".join(args)}')
-            call(args)
+            if call(args) != 0:
+                print_red('Failed to configure the project.')
+                return 1
         elif config['build_system'] == 'xmake':
             xmake_exe = config['xmake_exe']
             if not check_xmake(xmake_exe):
                 print_red('xmake not found. Please install xmake first.')
                 print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
                 return 1
-            args = [xmake_exe, 'f'] + args
+            args = prelude_args + [xmake_exe, 'f'] + args
             print(f'Configuring the project: {" ".join(args)}')
-            call(args)
+            if call(args) != 0:
+                print_red('Failed to configure the project.')
+                return 1
         else:
             print_red(f'Unknown build system: {config["build_system"]}')
             return 1
     if run_build:
         if config['build_system'] == 'cmake':
             cmake_exe = config['cmake_exe']
-            args = [cmake_exe, '--build', output, '-j', str(build_jobs)]
+            args = prelude_args + [cmake_exe, '--build', output, '-j', str(build_jobs)]
             print(f'Building the project: {" ".join(args)}')
-            call(args)
+            if call(args) != 0:
+                print_red('Failed to build the project.')
+                return 1
         elif config['build_system'] == 'xmake':
             xmake_exe = config['xmake_exe']
             print(f'Building the project: xmake')
-            call([xmake_exe, "-v"])
+            args = prelude_args + [xmake_exe, '-v', '-j', str(build_jobs)]
+            if call(args) != 0:
+                print_red('Failed to build the project.')
+                return 1
         else:
             print_red(f'Unknown build system: {config["build_system"]}')
             return 1

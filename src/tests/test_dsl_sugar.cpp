@@ -7,6 +7,7 @@
 #include <core/logging.h>
 #include <runtime/device.h>
 #include <dsl/sugar.h>
+#include <runtime/context.h>
 
 using namespace luisa;
 using namespace luisa::compute;

@@ -1,6 +1,5 @@
 #include <core/stl/filesystem.h>
 #include <backends/common/default_binary_io.h>
-#include <runtime/context.h>
 #include <core/logging.h>
 
 namespace luisa::compute {
@@ -84,10 +83,10 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
     }
 }
 
-DefaultBinaryIO::DefaultBinaryIO(const Context &ctx) noexcept
-    : _ctx(ctx),
-      _cache_dir{ctx.create_runtime_subdir(".cache"sv)},
-      _data_dir{ctx.create_runtime_subdir(".data"sv)} {
+DefaultBinaryIO::DefaultBinaryIO(Context &&ctx) noexcept
+    : _ctx(std::move(ctx)),
+      _cache_dir{_ctx.create_runtime_subdir(".cache"sv)},
+      _data_dir{_ctx.create_runtime_subdir(".data"sv)} {
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::string_view name) const noexcept {

@@ -5,13 +5,10 @@
 #include <vstl/common.h>
 #include <shared_mutex>
 #include <core/binary_file_stream.h>
+#include <runtime/context.h>
 
 namespace luisa::compute {
-
-class Context;
-
 class DefaultBinaryIO final : public BinaryIO {
-
 public:
     friend class LockedBinaryFileStream;
     struct FileMutex {
@@ -22,7 +19,7 @@ public:
     using MapIndex = MutexMap::Index;
 
 private:
-    const Context &_ctx;
+    Context _ctx;
     mutable std::mutex _global_mtx;
     mutable MutexMap _mutex_map;
     std::filesystem::path _cache_dir;
@@ -35,7 +32,7 @@ private:
     void _unlock(MapIndex const &idx, bool is_write) const noexcept;
 
 public:
-    DefaultBinaryIO(const Context &ctx) noexcept;
+    DefaultBinaryIO(Context &&ctx) noexcept;
     luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override;
