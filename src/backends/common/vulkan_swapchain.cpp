@@ -1076,10 +1076,13 @@ public:
         wait_for_fence();
 
         // acquire next image
-        uint32_t image_index;
-        LUISA_CHECK_VULKAN(vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
-                                                 _image_available_semaphores[_current_frame],
-                                                 VK_NULL_HANDLE, &image_index));
+        auto image_index = 0u;
+        if (vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
+                                  _image_available_semaphores[_current_frame],
+                                  VK_NULL_HANDLE, &image_index) < 0) {
+            LUISA_WARNING_WITH_LOCATION("Failed to acquire swapchain image.");
+            return;
+        }
         LUISA_CHECK_VULKAN(vkResetFences(_device, 1, &_in_flight_fences[_current_frame]));
 
         // update descriptor set if necessary
