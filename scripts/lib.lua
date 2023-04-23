@@ -6,7 +6,8 @@ function string_split(str, chr)
 	return map
 end
 function string_replace(str, from, to)
-	return str:gsub(from, to)
+	local s, _ = str:gsub(from, to)
+	return s
 end
 
 function string_contains(str, sub_str)

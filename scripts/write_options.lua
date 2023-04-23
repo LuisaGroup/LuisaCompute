@@ -1,8 +1,25 @@
 local lib = import("lib")
-
+local function find_process_path(process)
+	local cut
+	local is_win = os.is_host("windows")
+	if is_win then
+		cut = ";"
+	else
+		cut = ":"
+	end
+	local path_str = os.getenv("PATH")
+	if path_str then
+		local paths = lib.string_split(path_str, cut)
+		for i, pth in ipairs(paths) do
+			if os.isfile(path.join(pth, process)) then
+				return pth
+			end
+		end
+	end
+	return nil
+end
 local function find_llvm()
 	local clang_name = "clang"
-	local path_split = ":"
 	if os.is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
 		return "/usr"
 	elseif os.is_host("macosx") then
@@ -13,19 +30,10 @@ local function find_llvm()
 		end
 	else
 		clang_name = "clang.exe"
-		path_split = ";"
 	end
-	local path_str = os.getenv("PATH")
-	if path_str then
-		local paths = lib.string_split(path_str, path_split)
-		for i, pth in ipairs(paths) do
-			if os.is_host("windows") then
-				pth = lib.string_replace(pth, "\\", "/")
-			end
-			if os.isfile(path.join(pth, clang_name)) then
-				return path.directory(pth)
-			end
-		end
+	local clang_bin = find_process_path(clang_name)
+	if clang_bin then
+		return lib.string_replace(path.directory(clang_bin), "\\", "/")
 	end
 	return nil
 end
@@ -76,7 +84,34 @@ function main(...)
 		option_file:write(v)
 		option_file:write(',\n')
 	end
-
+	-- python
+	if args["py_include"] == nil and os.is_host("windows") then
+		local py_path = find_process_path("python.exe")
+		if py_path then
+			option_file:write("\t\tpy_include = \"")
+			option_file:write(lib.string_replace(path.join(py_path, "include"), "\\", "/"))
+			option_file:write("\",\n")
+			option_file:write("\t\tpy_linkdir = \"")
+			local py_linkdir = path.join(py_path, "libs")
+			option_file:write(lib.string_replace(py_linkdir, "\\", "/"))
+			local py = "python"
+			option_file:write("\",\n")
+			local files = {}
+			for _, filepath in ipairs(os.files(path.join(py_linkdir, "*.lib"))) do
+				local lib_name = path.basename(filepath)
+				if #lib_name >= #py and lib_name:sub(1, #py):lower() == py then
+					table.insert(files, lib_name)
+				end
+			end
+			if #files > 0 then
+				option_file:write("\t\tpy_libs = \"")
+				for i, v in ipairs(files) do
+					option_file:write(v .. ";")
+				end
+				option_file:write("\",\n")
+			end
+		end
+	end
 	option_file:write("\t}\nend\n")
 	option_file:close()
 end
