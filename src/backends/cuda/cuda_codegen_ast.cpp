@@ -780,6 +780,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::LENGTH_SQUARED: _scratch << "lc_length_squared"; break;
         case CallOp::NORMALIZE: _scratch << "lc_normalize"; break;
         case CallOp::FACEFORWARD: _scratch << "lc_faceforward"; break;
+        case CallOp::REFLECT: _scratch << "lc_reflect"; break;
         case CallOp::DETERMINANT: _scratch << "lc_determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
@@ -795,6 +796,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "lc_atomic_fetch_max"; break;
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
+        case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
         case CallOp::TEXTURE_READ:
             _scratch << "lc_surf"
                      << expr->arguments().front()->type()->dimension() << "d_read<"
@@ -819,25 +821,44 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "lc_bindless_texture_size3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "lc_bindless_texture_size2d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "lc_bindless_texture_size3d_level"; break;
-        case CallOp::BINDLESS_BUFFER_READ:
+        case CallOp::BINDLESS_BUFFER_READ: {
             _scratch << "lc_bindless_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
+        }
+        case CallOp::BINDLESS_BUFFER_SIZE: {
+            _scratch << "lc_bindless_buffer_size<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
+        case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
     case CallOp::MAKE_##tag##2: _scratch << "lc_make_" << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << "lc_make_" << #type "3"; break; \
     case CallOp::MAKE_##tag##4: _scratch << "lc_make_" << #type "4"; break;
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(short, SHORT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ushort, USHORT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(int, INT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(long, LONG)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
 #undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
+        case CallOp::ZERO: {
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
@@ -853,7 +874,20 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "LC_RAY_QUERY_COMMIT_TRIANGLE"; break;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "LC_RAY_QUERY_COMMIT_PROCEDURAL"; break;
         case CallOp::RAY_QUERY_TERMINATE: _scratch << "LC_RAY_QUERY_TERMINATE"; break;
-        default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        case CallOp::REDUCE_SUM: _scratch << "lc_reduce_sum"; break;
+        case CallOp::REDUCE_PRODUCT: _scratch << "lc_reduce_prod"; break;
+        case CallOp::REDUCE_MIN: _scratch << "lc_reduce_min"; break;
+        case CallOp::REDUCE_MAX: _scratch << "lc_reduce_max"; break;
+        case CallOp::OUTER_PRODUCT: _scratch << "lc_outer_product"; break;
+        case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: _scratch << "lc_mat_comp_mul"; break;
+        case CallOp::REQUIRES_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
@@ -1284,9 +1318,14 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
 
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
+        case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
         case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
+        case Type::Tag::INT16: _scratch << "lc_short"; break;
+        case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
         case Type::Tag::UINT32: _scratch << "lc_uint"; break;
+        case Type::Tag::INT64: _scratch << "lc_long"; break;
+        case Type::Tag::UINT64: _scratch << "lc_ulong"; break;
         case Type::Tag::VECTOR:
             _emit_type_name(type->element());
             _scratch << type->dimension();

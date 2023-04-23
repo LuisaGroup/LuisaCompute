@@ -65,10 +65,8 @@ int main(int argc, char *argv[]) {
     luisa::vector<float3> vertices;
     vertices.reserve(p.size() / 3u);
     for (uint i = 0u; i < p.size(); i += 3u) {
-        vertices.emplace_back(float3{
-            p[i + 0u],
-            p[i + 1u],
-            p[i + 2u]});
+        vertices.emplace_back(make_float3(
+            p[i + 0u], p[i + 1u], p[i + 2u]));
     }
     LUISA_INFO(
         "Loaded mesh with {} shape(s) and {} vertices.",

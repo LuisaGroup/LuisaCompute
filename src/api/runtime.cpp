@@ -154,6 +154,7 @@ private:
             case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
                 auto c = cmd.bindless_array_update;
                 auto modifications = luisa::vector<BindlessArrayUpdateCommand::Modification>{};
+                modifications.reserve(c.modifications_count);
                 for (auto i = 0u; i < c.modifications_count; i++) {
                     auto &&[slot, api_buffer, api_tex2d, api_tex3d] = c.modifications[i];
                     auto convert_op = [](LCBindlessArrayUpdateOperation op) noexcept {
@@ -215,16 +216,6 @@ private:
                                                      c.dispatch_size[1],
                                                      c.dispatch_size[2]));
                 return std::move(encoder).build();
-
-                // auto first = (std::byte *)c.args;
-                // auto buffer = luisa::vector<std::byte>(first, first + sizeof(api::Argument) * c.args_count);
-                // auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
-                //
-                // return luisa::make_unique<ShaderDispatchCommand>(
-                //     c.shader._0,
-                //     std::move(buffer),
-                //     c.args_count,
-                //     ShaderDispatchCommand::DispatchSize{dispatch_size});
             }
             case LC_COMMAND_BUFFER_TO_TEXTURE_COPY: {
                 auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.buffer_to_texture_copy;
@@ -297,7 +288,8 @@ private:
             }
             case LC_COMMAND_ACCEL_BUILD: {
                 auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
-                auto modifications = luisa::vector<AccelBuildCommand::Modification>();
+                auto modifications = luisa::vector<AccelBuildCommand::Modification>{};
+                modifications.reserve(modifications_count);
                 for (auto i = 0u; i < modifications_count; i++) {
                     auto [index, flags, visibility, mesh, affine] = api_modifications[i];
                     auto modification = AccelBuildCommand::Modification(index);

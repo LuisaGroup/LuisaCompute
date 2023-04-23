@@ -255,6 +255,8 @@ public:
         FLOAT32,
         INT32,
         UINT32,
+        INT64,
+        UINT64,
         FLOAT16,
         INT16,
         UINT16,
@@ -381,6 +383,8 @@ public:
     [[nodiscard]] bool is_bool() const noexcept;
     [[nodiscard]] bool is_int32() const noexcept;
     [[nodiscard]] bool is_uint32() const noexcept;
+    [[nodiscard]] bool is_int64() const noexcept;
+    [[nodiscard]] bool is_uint64() const noexcept;
     [[nodiscard]] bool is_float32() const noexcept;
     [[nodiscard]] bool is_int16() const noexcept;
     [[nodiscard]] bool is_uint16() const noexcept;
@@ -398,6 +402,8 @@ public:
     [[nodiscard]] bool is_float32_vector() const noexcept;
     [[nodiscard]] bool is_int16_vector() const noexcept;
     [[nodiscard]] bool is_uint16_vector() const noexcept;
+    [[nodiscard]] bool is_int64_vector() const noexcept;
+    [[nodiscard]] bool is_uint64_vector() const noexcept;
     [[nodiscard]] bool is_float16_vector() const noexcept;
     [[nodiscard]] bool is_matrix() const noexcept;
     [[nodiscard]] bool is_structure() const noexcept;

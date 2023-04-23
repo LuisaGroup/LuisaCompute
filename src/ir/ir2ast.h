@@ -38,7 +38,6 @@ public:
         luisa::shared_ptr<detail::FunctionBuilder> function_builder;
         luisa::unordered_map<const ir::Node *, const Expression *> node_to_exprs;
         luisa::unordered_map<const ir::BasicBlock *, luisa::vector<PhiAssignment>> block_to_phis;
-        bool zero_init;
     };
 
 private:

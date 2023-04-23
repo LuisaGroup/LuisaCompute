@@ -1,6 +1,25 @@
 local lib = import("lib")
-
-local function find_llvm(envs)
+local function find_process_path(process)
+	local cut
+	local is_win = os.is_host("windows")
+	if is_win then
+		cut = ";"
+	else
+		cut = ":"
+	end
+	local path_str = os.getenv("PATH")
+	if path_str then
+		local paths = lib.string_split(path_str, cut)
+		for i, pth in ipairs(paths) do
+			if os.isfile(path.join(pth, process)) then
+				return pth
+			end
+		end
+	end
+	return nil
+end
+local function find_llvm()
+	local clang_name = "clang"
 	if os.is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
 		return "/usr"
 	elseif os.is_host("macosx") then
@@ -9,68 +28,90 @@ local function find_llvm(envs)
 		if bindir then
 			return path.directory(bindir)
 		end
+	else
+		clang_name = "clang.exe"
 	end
-
-	local path_str = envs["PATH"]
-	if path_str then
-		local paths = lib.string_split(path_str, ";")
-		for i, path in ipairs(paths) do
-			if os.is_host("windows") then
-				path = lib.string_replace(path, "\\", "/")
-			end
-			local path_parts = lib.string_split(path, "/")
-			local is_llvm = false
-			local result = ""
-			for i, v in ipairs(path_parts) do
-				result = result .. v .. "/"
-				if lib.string_contains(v:lower(), "llvm") then
-					is_llvm = true
-					break
-				end
-			end
-			if is_llvm then
-				return result
-			end
-		end
+	local clang_bin = find_process_path(clang_name)
+	if clang_bin then
+		return lib.string_replace(path.directory(clang_bin), "\\", "/")
 	end
-	local llvm_dirs = {
-		LLVM_SDK = true,
-		LLVM_DIR = true
-	}
-	for k, v in pairs(envs) do
-		if llvm_dirs[k] then
-			return v
-		end
-	end
-
+	return nil
 end
 function main(...)
-	local envs = os.getenvs()
-	local llvm_path = find_llvm(envs)
+	local args = {}
+	for i, v in ipairs({...}) do
+		local kv = lib.string_split(v, "=")
+		if table.getn(kv) == 2 then
+			args[kv[1]] = kv[2]
+		end
+	end
 	local option_file = io.open(path.join(os.projectdir(), "scripts/options.lua"), "w")
 	option_file:write("lc_config = {\n")
-	if llvm_path then
-		option_file:write("\ttoolchain = \"llvm\",\n\tsdk = \"" .. llvm_path .. "\"\n}\n")
-	elseif os.is_host("linux") then
-		option_file:write("\ttoolchain = \"gcc\"\n}\n")
-	elseif os.is_host("windows") then
-		option_file:write("\ttoolchain = \"msvc\"\n}\n")
+	local toolchain = args["toolchain"]
+	local sdk_path
+	if toolchain then
+		args["toolchain"] = nil
+		if toolchain == "llvm" then
+			sdk_path = find_llvm()
+		end
 	else
-		option_file:write("}\n")
+		sdk_path = find_llvm()
+		if sdk_path then
+			toolchain = "llvm"
+		elseif os.is_host("windows") then
+			toolchain = "msvc"
+		else
+			toolchain = "gcc"
+		end
 	end
+	option_file:write("\ttoolchain = \"")
+	option_file:write(toolchain)
+	option_file:write("\",\n")
+	if sdk_path then
+		option_file:write("\tsdk = \"")
+		option_file:write(sdk_path)
+		option_file:write("\",\n")
+	end
+	option_file:write("}\n")
 	option_file:write("function get_options()\n\treturn {\n")
-	local args = {...}
-    for i,v in ipairs(args) do
-        local kv = lib.string_split(v, "=")
-        if table.getn(kv) == 2 then
-            local v = kv[2]
-            if not (v == "true" or v == "false") then
-                v = '"' .. v .. '"'
-            end
-            option_file:write("\t\t" .. kv[1] .. " = " .. v .. ',\n')
-        end
-    end
-
+	for k, v in pairs(args) do
+		if not (v == "true" or v == "false") then
+			v = '"' .. v .. '"'
+		end
+		option_file:write("\t\t")
+		option_file:write(k)
+		option_file:write(" = ")
+		option_file:write(v)
+		option_file:write(',\n')
+	end
+	-- python
+	if args["py_include"] == nil and os.is_host("windows") then
+		local py_path = find_process_path("python.exe")
+		if py_path then
+			option_file:write("\t\tpy_include = \"")
+			option_file:write(lib.string_replace(path.join(py_path, "include"), "\\", "/"))
+			option_file:write("\",\n")
+			option_file:write("\t\tpy_linkdir = \"")
+			local py_linkdir = path.join(py_path, "libs")
+			option_file:write(lib.string_replace(py_linkdir, "\\", "/"))
+			local py = "python"
+			option_file:write("\",\n")
+			local files = {}
+			for _, filepath in ipairs(os.files(path.join(py_linkdir, "*.lib"))) do
+				local lib_name = path.basename(filepath)
+				if #lib_name >= #py and lib_name:sub(1, #py):lower() == py then
+					table.insert(files, lib_name)
+				end
+			end
+			if #files > 0 then
+				option_file:write("\t\tpy_libs = \"")
+				for i, v in ipairs(files) do
+					option_file:write(v .. ";")
+				end
+				option_file:write("\",\n")
+			end
+		end
+	end
 	option_file:write("\t}\nend\n")
 	option_file:close()
 end

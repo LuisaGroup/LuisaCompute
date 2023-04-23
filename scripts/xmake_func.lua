@@ -88,7 +88,7 @@ before_check(function(option)
 		})
 	end
 	local bin_option = option:dep("bin_dir")
-	if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) then
+	if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
 		local bin_dir = bin_option:enabled()
 		if is_mode("debug") then
 			bin_dir = path.join(bin_dir, "debug")

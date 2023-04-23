@@ -152,8 +152,8 @@ private:
             for (auto layer : validation_layers) {
                 if (!std::any_of(available_layers.cbegin(), available_layers.cend(),
                                  [layer = luisa::string_view{layer}](auto available) noexcept {
-                                     return layer == available.layerName;
-                                 })) {
+                    return layer == available.layerName;
+                    })) {
                     return false;
                 }
             }
@@ -330,9 +330,7 @@ private:
     }
 
     [[nodiscard]] static auto _is_hdr_colorspace(VkColorSpaceKHR colorspace) noexcept {
-        return colorspace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
-               colorspace == VK_COLOR_SPACE_DOLBYVISION_EXT ||
-               colorspace == VK_COLOR_SPACE_HDR10_HLG_EXT;
+        return colorspace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
     }
 
     [[nodiscard]] static auto _colorspace_name(VkColorSpaceKHR colorspace) noexcept {
@@ -542,14 +540,22 @@ private:
         back_buffers = std::clamp(back_buffers, support.capabilities.minImageCount, support.capabilities.maxImageCount);
 
         _swapchain_format = [&formats = support.formats, allow_hdr] {
+            for (auto f : formats) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "Supported swapchain format: "
+                    "colorspace = {}, format = {}",
+                    luisa::to_string(f.colorSpace),
+                    luisa::to_string(f.format));
+            }
             if (allow_hdr) {
                 for (auto format : formats) {
-                    if (format.colorSpace == VK_COLOR_SPACE_DOLBYVISION_EXT) { return format; }
+                    if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
                 }
-                for (auto format : formats) {
-                    if (format.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
-                        format.colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT) { return format; }
-                }
+            }
+            for (auto format : formats) {
+                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+                    (format.format == VK_FORMAT_R8G8B8A8_SRGB ||
+                     format.format == VK_FORMAT_B8G8R8A8_SRGB)) { return format; }
             }
             for (auto format : formats) {
                 if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
@@ -558,12 +564,17 @@ private:
         }();
 
         _swapchain_extent = [&capabilities = support.capabilities, width, height] {
-            if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+            if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() &&
+                capabilities.currentExtent.height != std::numeric_limits<uint32_t>::max()) {
                 return capabilities.currentExtent;
             }
             VkExtent2D actual_extent{width, height};
-            actual_extent.width = std::clamp(actual_extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-            actual_extent.height = std::clamp(actual_extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+            actual_extent.width = std::clamp(actual_extent.width,
+                                             capabilities.minImageExtent.width,
+                                             capabilities.maxImageExtent.width);
+            actual_extent.height = std::clamp(actual_extent.height,
+                                              capabilities.minImageExtent.height,
+                                              capabilities.maxImageExtent.height);
             return actual_extent;
         }();
 
@@ -618,9 +629,10 @@ private:
             image_view_create_info.subresourceRange.layerCount = 1u;
             LUISA_CHECK_VULKAN(vkCreateImageView(_device, &image_view_create_info, nullptr, &_swapchain_image_views[i]));
         }
-        LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {}.",
+        LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {} (format = {}).",
                    _swapchain_extent.width, _swapchain_extent.height, back_buffers,
-                   _colorspace_name(_swapchain_format.colorSpace));
+                   _colorspace_name(_swapchain_format.colorSpace),
+                   luisa::to_string(_swapchain_format.format));
     }
 
     void _create_render_pass() noexcept {
@@ -830,8 +842,8 @@ private:
             framebuffer_create_info.renderPass = _render_pass;
             framebuffer_create_info.attachmentCount = 1u;
             framebuffer_create_info.pAttachments = attachments;
-            framebuffer_create_info.width = _swapchain_extent.width;
-            framebuffer_create_info.height = _swapchain_extent.height;
+            framebuffer_create_info.width = std::max(1u, _swapchain_extent.width);
+            framebuffer_create_info.height = std::max(1u, _swapchain_extent.height);
             framebuffer_create_info.layers = 1u;
             LUISA_CHECK_VULKAN(vkCreateFramebuffer(_device, &framebuffer_create_info, nullptr, &_swapchain_framebuffers[i]));
         }
@@ -991,8 +1003,8 @@ private:
         VkViewport viewport{};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
-        viewport.width = static_cast<float>(_swapchain_extent.width);
-        viewport.height = static_cast<float>(_swapchain_extent.height);
+        viewport.width = std::max(1.f, static_cast<float>(_swapchain_extent.width));
+        viewport.height = std::max(1.f, static_cast<float>(_swapchain_extent.height));
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(command_buffer, 0, 1, &viewport);
@@ -1013,6 +1025,31 @@ private:
         LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
     }
 
+private:
+    uint2 _requested_size{};
+    uint _requested_back_buffers{0u};
+    bool _requested_hdr{false};
+    bool _requested_vsync{false};
+
+private:
+    void _destroy_swapchain() noexcept {
+        for (auto i = 0u; i < _swapchain_images.size(); i++) {
+            vkDestroyFramebuffer(_device, _swapchain_framebuffers[i], nullptr);
+            vkDestroyImageView(_device, _swapchain_image_views[i], nullptr);
+        }
+        _swapchain_images.clear();
+        vkDestroySwapchainKHR(_device, _swapchain, nullptr);
+    }
+
+    void _recreate_swapchain() noexcept {
+        vkDeviceWaitIdle(_device);
+        _destroy_swapchain();
+        _create_swapchain(_requested_size.x, _requested_size.y,
+                          _requested_back_buffers,
+                          _requested_hdr, _requested_vsync);
+        _create_framebuffers();
+    }
+
 public:
     Impl(VulkanSwapchain::DeviceUUID device_uuid,
          uint64_t window_handle,
@@ -1020,7 +1057,11 @@ public:
          bool allow_hdr, bool vsync,
          uint back_buffer_count,
          luisa::span<const char *const> required_device_extensions) noexcept
-        : _instance{VulkanInstance::retain()} {
+        : _instance{VulkanInstance::retain()},
+          _requested_size{width, height},
+          _requested_back_buffers{back_buffer_count},
+          _requested_hdr{allow_hdr},
+          _requested_vsync{vsync} {
         _create_surface(window_handle);
         _create_device(device_uuid, required_device_extensions, allow_hdr);
         _create_swapchain(width, height, back_buffer_count, allow_hdr, vsync);
@@ -1038,13 +1079,11 @@ public:
     ~Impl() noexcept {
         vkDeviceWaitIdle(_device);
         for (auto i = 0u; i < _swapchain_images.size(); i++) {
-            vkDestroyFramebuffer(_device, _swapchain_framebuffers[i], nullptr);
-            vkDestroyImageView(_device, _swapchain_image_views[i], nullptr);
             vkDestroyFence(_device, _in_flight_fences[i], nullptr);
             vkDestroySemaphore(_device, _image_available_semaphores[i], nullptr);
             vkDestroySemaphore(_device, _render_finished_semaphores[i], nullptr);
         }
-        vkDestroySwapchainKHR(_device, _swapchain, nullptr);
+        _destroy_swapchain();
         vkDestroyPipeline(_device, _graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(_device, _pipeline_layout, nullptr);
         vkDestroyRenderPass(_device, _render_pass, nullptr);
@@ -1060,7 +1099,9 @@ public:
 
     void wait_for_fence() noexcept {
         // wait for command buffer to finish
-        LUISA_CHECK_VULKAN(vkWaitForFences(_device, 1, &_in_flight_fences[_current_frame], VK_TRUE, UINT64_MAX));
+        LUISA_CHECK_VULKAN(vkWaitForFences(
+            _device, 1, &_in_flight_fences[_current_frame],
+            VK_TRUE, UINT64_MAX));
     }
 
     void present(VkSemaphore wait, VkSemaphore signal,
@@ -1069,10 +1110,19 @@ public:
         wait_for_fence();
 
         // acquire next image
-        uint32_t image_index;
-        LUISA_CHECK_VULKAN(vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
-                                                 _image_available_semaphores[_current_frame],
-                                                 VK_NULL_HANDLE, &image_index));
+        auto image_index = 0u;
+        if (auto ret = vkAcquireNextImageKHR(
+                _device, _swapchain, UINT64_MAX,
+                _image_available_semaphores[_current_frame],
+                VK_NULL_HANDLE, &image_index);
+            ret == VK_ERROR_OUT_OF_DATE_KHR) {
+            _recreate_swapchain();
+            return;
+        } else if (ret != VK_SUCCESS && ret != VK_SUBOPTIMAL_KHR) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to acquire swapchain image: {}.",
+                luisa::to_string(ret));
+        }
         LUISA_CHECK_VULKAN(vkResetFences(_device, 1, &_in_flight_fences[_current_frame]));
 
         // update descriptor set if necessary
@@ -1174,7 +1224,6 @@ private:
     VkImageView _image_view{nullptr};
     luisa::vector<VkCommandBuffer> _command_buffers;
     uint _current_frame{0u};
-    uint8_t _pad[64];
     VkExtent2D _image_extent;
 
 private:
@@ -1192,7 +1241,9 @@ private:
     void _create_image() noexcept {
 
         // choose format
-        _image_format = _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_SRGB;
+        _image_format = _base.is_hdr() ?
+                            VK_FORMAT_R16G16B16A16_SFLOAT :
+                            VK_FORMAT_R8G8B8A8_SRGB;
 
         // create image
         VkImageCreateInfo image_info{};
