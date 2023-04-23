@@ -152,8 +152,8 @@ private:
             for (auto layer : validation_layers) {
                 if (!std::any_of(available_layers.cbegin(), available_layers.cend(),
                                  [layer = luisa::string_view{layer}](auto available) noexcept {
-                                     return layer == available.layerName;
-                                 })) {
+                    return layer == available.layerName;
+                    })) {
                     return false;
                 }
             }
@@ -330,9 +330,7 @@ private:
     }
 
     [[nodiscard]] static auto _is_hdr_colorspace(VkColorSpaceKHR colorspace) noexcept {
-        return colorspace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
-               colorspace == VK_COLOR_SPACE_DOLBYVISION_EXT ||
-               colorspace == VK_COLOR_SPACE_HDR10_HLG_EXT;
+        return colorspace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
     }
 
     [[nodiscard]] static auto _colorspace_name(VkColorSpaceKHR colorspace) noexcept {
@@ -542,13 +540,17 @@ private:
         back_buffers = std::clamp(back_buffers, support.capabilities.minImageCount, support.capabilities.maxImageCount);
 
         _swapchain_format = [&formats = support.formats, allow_hdr] {
+            for (auto f : formats) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "Supported swapchain format: "
+                    "colorspace = {}, format = {}",
+                    luisa::to_string(f.colorSpace),
+                    luisa::to_string(f.format));
+            }
+
             if (allow_hdr) {
                 for (auto format : formats) {
-                    if (format.colorSpace == VK_COLOR_SPACE_DOLBYVISION_EXT) { return format; }
-                }
-                for (auto format : formats) {
-                    if (format.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
-                        format.colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT) { return format; }
+                    if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
                 }
             }
             for (auto format : formats) {

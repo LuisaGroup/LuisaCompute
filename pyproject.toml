@@ -28,7 +28,7 @@ dependencies = [
 license = { file = "LICENSE" }
 
 [tool.scikit-build]
-cmake.minimum-version = "3.20"
+cmake.minimum-version = "3.23"
 ninja.minimum-version = "1.10"
 cmake.args = [
     "-DCMAKE_INSTALL_BINDIR=.",

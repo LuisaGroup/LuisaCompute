@@ -65,10 +65,8 @@ int main(int argc, char *argv[]) {
     luisa::vector<float3> vertices;
     vertices.reserve(p.size() / 3u);
     for (uint i = 0u; i < p.size(); i += 3u) {
-        vertices.emplace_back(float3{
-            p[i + 0u],
-            p[i + 1u],
-            p[i + 2u]});
+        vertices.emplace_back(make_float3(
+            p[i + 0u], p[i + 1u], p[i + 2u]));
     }
     LUISA_INFO(
         "Loaded mesh with {} shape(s) and {} vertices.",
@@ -316,7 +314,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         resolution,
-        false, false, 3)};
+        true, false, 3)};
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
