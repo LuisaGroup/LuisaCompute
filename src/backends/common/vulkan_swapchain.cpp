@@ -547,14 +547,14 @@ private:
                     luisa::to_string(f.colorSpace),
                     luisa::to_string(f.format));
             }
-
             if (allow_hdr) {
                 for (auto format : formats) {
                     if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
                 }
             }
             for (auto format : formats) {
-                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
+                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+                    format.format == VK_FORMAT_R8G8B8A8_UNORM) { return format; }
             }
             return formats.front();
         }();
@@ -620,9 +620,10 @@ private:
             image_view_create_info.subresourceRange.layerCount = 1u;
             LUISA_CHECK_VULKAN(vkCreateImageView(_device, &image_view_create_info, nullptr, &_swapchain_image_views[i]));
         }
-        LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {}.",
+        LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {} (format = {}).",
                    _swapchain_extent.width, _swapchain_extent.height, back_buffers,
-                   _colorspace_name(_swapchain_format.colorSpace));
+                   _colorspace_name(_swapchain_format.colorSpace),
+                   luisa::to_string(_swapchain_format.format));
     }
 
     void _create_render_pass() noexcept {
@@ -1194,7 +1195,9 @@ private:
     void _create_image() noexcept {
 
         // choose format
-        _image_format = _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_SRGB;
+        _image_format = _base.is_hdr() ?
+                            VK_FORMAT_R16G16B16A16_SFLOAT :
+                            VK_FORMAT_R8G8B8A8_UNORM;
 
         // create image
         VkImageCreateInfo image_info{};
@@ -1301,6 +1304,7 @@ private:
         auto pixel_size = [this] {
             switch (_image_format) {
                 case VK_FORMAT_R8G8B8A8_SRGB:
+                case VK_FORMAT_R8G8B8A8_UNORM:
                     return 4u;
                 case VK_FORMAT_R16G16B16A16_SFLOAT:
                     return 8u;
@@ -1383,9 +1387,11 @@ public:
 
     [[nodiscard]] auto pixel_storage() const noexcept {
         LUISA_ASSERT(_image_format == VK_FORMAT_R8G8B8A8_SRGB ||
+                         _image_format == VK_FORMAT_R8G8B8A8_UNORM ||
                          _image_format == VK_FORMAT_R16G16B16A16_SFLOAT,
                      "Unsupported image format.");
-        return _image_format == VK_FORMAT_R8G8B8A8_SRGB ?
+        return _image_format == VK_FORMAT_R8G8B8A8_SRGB ||
+                       _image_format == VK_FORMAT_R8G8B8A8_UNORM ?
                    PixelStorage::BYTE4 :
                    PixelStorage::HALF4;
     }

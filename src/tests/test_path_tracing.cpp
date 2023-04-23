@@ -314,7 +314,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         resolution,
-        true, false, 3)};
+        false, false, 3)};
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
