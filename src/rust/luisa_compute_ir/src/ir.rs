@@ -361,6 +361,12 @@ impl Type {
             _ => false,
         }
     }
+    pub fn is_struct(&self) -> bool {
+        match self {
+            Type::Struct(_) => true,
+            _ => false,
+        }
+    }
     pub fn is_float(&self) -> bool {
         match self {
             Type::Primitive(p) => match p {

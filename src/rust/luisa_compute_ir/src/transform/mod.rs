@@ -3,6 +3,7 @@ pub mod lower_control_flow;
 pub mod ssa;
 pub mod validate;
 pub mod vectorize;
+pub mod eval;
 use crate::ir;
 
 pub trait Transform {

@@ -125,6 +125,9 @@ impl<K: Hash + Eq, V> NestedHashMap<K, V> {
             inner: Rc::new(NestedHashMapInner::from_parent(parent.inner.clone())),
         }
     }
+    pub(crate) fn contains_key(&self, k: &K) -> bool {
+        self.inner.get(k).is_some()
+    }
 }
 #[allow(dead_code)]
 pub(crate) struct NestedHashSet<K: Hash + Eq> {
