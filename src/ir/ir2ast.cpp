@@ -86,12 +86,10 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
         }
         LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
     }();
-    if (!_ctx->zero_init) {
-        if (expr != nullptr && !_ctx->node_to_exprs.contains(node)) {
-            auto local = _ctx->function_builder->local(type);
-            _ctx->function_builder->assign(local, expr);
-            _ctx->node_to_exprs.emplace(node, local);
-        }
+    if (expr != nullptr && !_ctx->node_to_exprs.contains(node)) {
+        auto local = _ctx->function_builder->local(type);
+        _ctx->function_builder->assign(local, expr);
+        _ctx->node_to_exprs.emplace(node, local);
     }
     return expr;
 }
@@ -102,21 +100,9 @@ void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
     LUISA_ASSERT(iter != _ctx->node_to_exprs.end(),
                  "Local variable not found in node_to_exprs.");
     auto expr = iter->second;
-    if (_ctx->zero_init) {
-        _ctx->zero_init = false;
-    } else {
-        _ctx->function_builder->assign(expr, init);
-        // assign the init value to the variable
-    }
 
-    // Remark: About zero_init
-    // AST variables are zero initialized by default, which is not the case for IR variables.
-    // So a local definition in AST will be translated into a ZeroInitializer call + a local definition in IR
-    //
-    // When we translate IR back to AST, we hope that we can remove useless ZeroInitializer calls
-    // As ZeroInitializer calls all come right before the following local definition, we simply record them with a bool
-    // _ctx->zero_init is true  => we no longer insert the assign (use default zero initialized instead)
-    // _ctx->zero_init is false => we need to assign the value to the new defined variable.
+    // assign the init value to the variable
+    _ctx->function_builder->assign(expr, init);
 }
 
 void IR2AST::_convert_instr_user_data(const ir::Node *user_data) noexcept {
@@ -272,11 +258,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid index.");
     };
     switch (func.tag) {
-        case ir::Func::Tag::ZeroInitializer: {
-            LUISA_ASSERT(args.empty(), "`ZeroInitializer` takes no arguments.");
-            _ctx->zero_init = true;
-            return nullptr;
-        }
+        case ir::Func::Tag::ZeroInitializer: return builtin_func(0, CallOp::ZERO);
         case ir::Func::Tag::Assume: return builtin_func(1, CallOp::ASSUME);
         case ir::Func::Tag::Unreachable: return builtin_func(0, CallOp::UNREACHABLE);
         case ir::Func::Tag::Assert: {
@@ -366,7 +348,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BitNot: {
             if (type->is_bool()) {
                 return unary_op(UnaryOp::NOT);
-            }else {
+            } else {
                 return unary_op(UnaryOp::BIT_NOT);
             }
         };
@@ -1209,8 +1191,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
     IR2ASTContext ctx{
         .module = callable->module,
-        .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE),
-        .zero_init = false};
+        .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE)};
     auto old_ctx = _ctx;
     _ctx = &ctx;
 
@@ -1220,7 +1201,6 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             auto arg = ir::luisa_compute_ir_node_get(callable->args.ptr[i]);
             _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
         }
-
         auto entry = callable->module.entry.get();
         _collect_phis(entry);
         _process_local_declarations(entry);

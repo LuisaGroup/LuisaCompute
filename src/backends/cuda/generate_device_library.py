@@ -27,16 +27,16 @@ if __name__ == "__main__":
                 print(
                     f"""struct alignas({align}) lc_{type}{i} {{
     lc_{type} {', '.join(elements[:i + 1])};
-    __device__ constexpr lc_{type}{i}() noexcept
+    __device__ inline constexpr lc_{type}{i}() noexcept
         : {', '.join(f"{m}{{}}" for m in elements)} {{}}
-    __device__ constexpr static auto zero() noexcept {{ return lc_{type}{i}{{}}; }}
-    __device__ constexpr static auto one() noexcept {{ return lc_{type}{i}{{{', '.join('1' for _ in elements)}}}; }}
-    __device__ explicit constexpr lc_{type}{i}(lc_{type} s) noexcept
+    __device__ inline constexpr static auto zero() noexcept {{ return lc_{type}{i}{{}}; }}
+    __device__ inline constexpr static auto one() noexcept {{ return lc_{type}{i}{{{', '.join('1' for _ in elements)}}}; }}
+    __device__ inline explicit constexpr lc_{type}{i}(lc_{type} s) noexcept
         : {', '.join(f"{m}{{s}}" for m in elements)} {{}}
-    __device__ constexpr lc_{type}{i}({', '.join(f"lc_{type} {m}" for m in elements)}) noexcept
+    __device__ inline constexpr lc_{type}{i}({', '.join(f"lc_{type} {m}" for m in elements)}) noexcept
         : {', '.join(f"{m}{{{m}}}" for m in elements)} {{}}
-    __device__ constexpr auto &operator[](lc_uint i) noexcept {{ return (&x)[i]; }}
-    __device__ constexpr auto operator[](lc_uint i) const noexcept {{ return (&x)[i]; }}
+    __device__ inline constexpr auto &operator[](lc_uint i) noexcept {{ return (&x)[i]; }}
+    __device__ inline constexpr auto operator[](lc_uint i) const noexcept {{ return (&x)[i]; }}
 }};
 """, file=file)
 
@@ -44,20 +44,20 @@ if __name__ == "__main__":
         for type in scalar_types:
             # make type2
             print(
-                f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{type} s = 0) noexcept {{ return lc_{type}2{{s, s}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{type} x, lc_{type} y) noexcept {{ return lc_{type}2{{x, y}}; }}""",
+                f"""[[nodiscard]] __device__ inline constexpr auto lc_make_{type}2(lc_{type} s = 0) noexcept {{ return lc_{type}2{{s, s}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}2(lc_{type} x, lc_{type} y) noexcept {{ return lc_{type}2{{x, y}}; }}""",
                 file=file)
             for t in scalar_types:
                 for l in range(2, 5):
                     print(
-                        f"[[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{t}{l} v) noexcept {{ return lc_{type}2{{static_cast<lc_{type}>(v.x), static_cast<lc_{type}>(v.y)}}; }}",
+                        f"[[nodiscard]] __device__ inline constexpr auto lc_make_{type}2(lc_{t}{l} v) noexcept {{ return lc_{type}2{{static_cast<lc_{type}>(v.x), static_cast<lc_{type}>(v.y)}}; }}",
                         file=file)
             # make type3
             print(
-                f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} s = 0) noexcept {{ return lc_{type}3{{s, s, s}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} x, lc_{type} y, lc_{type} z) noexcept {{ return lc_{type}3{{x, y, z}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} x, lc_{type}2 yz) noexcept {{ return lc_{type}3{{x, yz.x, yz.y}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type}2 xy, lc_{type} z) noexcept {{ return lc_{type}3{{xy.x, xy.y, z}}; }}""",
+                f"""[[nodiscard]] inline __device__ constexpr auto lc_make_{type}3(lc_{type} s = 0) noexcept {{ return lc_{type}3{{s, s, s}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}3(lc_{type} x, lc_{type} y, lc_{type} z) noexcept {{ return lc_{type}3{{x, y, z}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}3(lc_{type} x, lc_{type}2 yz) noexcept {{ return lc_{type}3{{x, yz.x, yz.y}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}3(lc_{type}2 xy, lc_{type} z) noexcept {{ return lc_{type}3{{xy.x, xy.y, z}}; }}""",
                 file=file)
             for t in scalar_types:
                 for l in range(3, 5):
@@ -66,18 +66,18 @@ if __name__ == "__main__":
                         file=file)
             # make type4
             print(
-                f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} s = 0) noexcept {{ return lc_{type}4{{s, s, s, s}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type} y, lc_{type} z, lc_{type} w) noexcept {{ return lc_{type}4{{x, y, z, w}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type} y, lc_{type}2 zw) noexcept {{ return lc_{type}4{{x, y, zw.x, zw.y}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type}2 yz, lc_{type} w) noexcept {{ return lc_{type}4{{x, yz.x, yz.y, w}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type}2 xy, lc_{type} z, lc_{type} w) noexcept {{ return lc_{type}4{{xy.x, xy.y, z, w}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type}2 xy, lc_{type}2 zw) noexcept {{ return lc_{type}4{{xy.x, xy.y, zw.x, zw.y}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type}3 yzw) noexcept {{ return lc_{type}4{{x, yzw.x, yzw.y, yzw.z}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type}3 xyz, lc_{type} w) noexcept {{ return lc_{type}4{{xyz.x, xyz.y, xyz.z, w}}; }}""",
+                f"""[[nodiscard]] inline __device__ constexpr auto lc_make_{type}4(lc_{type} s = 0) noexcept {{ return lc_{type}4{{s, s, s, s}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type} x, lc_{type} y, lc_{type} z, lc_{type} w) noexcept {{ return lc_{type}4{{x, y, z, w}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type} x, lc_{type} y, lc_{type}2 zw) noexcept {{ return lc_{type}4{{x, y, zw.x, zw.y}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type} x, lc_{type}2 yz, lc_{type} w) noexcept {{ return lc_{type}4{{x, yz.x, yz.y, w}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type}2 xy, lc_{type} z, lc_{type} w) noexcept {{ return lc_{type}4{{xy.x, xy.y, z, w}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type}2 xy, lc_{type}2 zw) noexcept {{ return lc_{type}4{{xy.x, xy.y, zw.x, zw.y}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type} x, lc_{type}3 yzw) noexcept {{ return lc_{type}4{{x, yzw.x, yzw.y, yzw.z}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_{type}4(lc_{type}3 xyz, lc_{type} w) noexcept {{ return lc_{type}4{{xyz.x, xyz.y, xyz.z, w}}; }}""",
                 file=file)
             for t in scalar_types:
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{t}4 v) noexcept {{ return lc_{type}4{{static_cast<lc_{type}>(v.x), static_cast<lc_{type}>(v.y), static_cast<lc_{type}>(v.z), static_cast<lc_{type}>(v.w)}}; }}",
+                    f"[[nodiscard]] inline __device__ constexpr auto lc_make_{type}4(lc_{t}4 v) noexcept {{ return lc_{type}4{{static_cast<lc_{type}>(v.x), static_cast<lc_{type}>(v.y), static_cast<lc_{type}>(v.z), static_cast<lc_{type}>(v.w)}}; }}",
                     file=file)
             print(file=file)
 
@@ -86,18 +86,18 @@ if __name__ == "__main__":
             for i in range(2, 5):
                 elements = ["x", "y", "z", "w"][:i]
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto operator!(lc_{type}{i} v) noexcept {{ return lc_make_bool{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
+                    f"[[nodiscard]] inline __device__ constexpr auto operator!(lc_{type}{i} v) noexcept {{ return lc_make_bool{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
                     file=file)
                 if type != "bool":
                     print(
-                        f"[[nodiscard]] __device__ constexpr auto operator+(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'+v.{m}' for m in elements)}); }}",
+                        f"[[nodiscard]] inline __device__ constexpr auto operator+(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'+v.{m}' for m in elements)}); }}",
                         file=file)
                     print(
-                        f"[[nodiscard]] __device__ constexpr auto operator-(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'-v.{m}' for m in elements)}); }}",
+                        f"[[nodiscard]] inline __device__ constexpr auto operator-(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'-v.{m}' for m in elements)}); }}",
                         file=file)
                     if type != "float":
                         print(
-                            f"[[nodiscard]] __device__ constexpr auto operator~(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'~v.{m}' for m in elements)}); }}",
+                            f"[[nodiscard]] inline  __device__ constexpr auto operator~(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'~v.{m}' for m in elements)}); }}",
                             file=file)
             print(file=file)
 
@@ -107,17 +107,17 @@ if __name__ == "__main__":
                 elements = ["x", "y", "z", "w"][:i]
                 # vector-vector
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
+                    f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
                     file=file)
                 # vector-scalar
                 operation = ", ".join(f"lhs.{e} {op} rhs" for e in "xyzw"[:i])
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
+                    f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
                 # scalar-vector
                 operation = ", ".join(f"lhs {op} rhs.{e}" for e in "xyzw"[:i])
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
+                    f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
 
 
@@ -153,12 +153,12 @@ if __name__ == "__main__":
                 elements = ["x", "y", "z", "w"][:i]
                 fast_op = "*= 1.0f /" if op == "/=" else op
                 print(
-                    f"""__device__ void operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t}{i} rhs) noexcept {{
+                    f"""__device__ inline void operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t}{i} rhs) noexcept {{
 {newline.join(f'    lhs.{m} {fast_op} rhs.{m};' for m in elements)}
 }}""", file=file)
                 elems = "\n".join(f"    lhs.{e} {op} rhs;" for e in "xyzw"[:i])
                 print(
-                    f"__device__ void operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t} rhs) noexcept {{{newline}{elems} }}",
+                    f"__device__ inline void operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t} rhs) noexcept {{{newline}{elems} }}",
                     file=file)
 
 
@@ -181,7 +181,7 @@ if __name__ == "__main__":
             for i in range(2, 5):
                 elements = ["x", "y", "z", "w"][:i]
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto lc_{f}(lc_bool{i} v) noexcept {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
+                    f"[[nodiscard]] __device__ inline constexpr auto lc_{f}(lc_bool{i} v) noexcept {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
                     file=file)
 
         # matrix types
@@ -193,30 +193,30 @@ if __name__ == "__main__":
             print(f"""
 struct lc_float{i}x{i} {{
     lc_float{i} cols[{i}];
-    __device__ constexpr lc_float{i}x{i}() noexcept : cols{{}} {{}}
-    __device__ explicit constexpr lc_float{i}x{i}(lc_float s) noexcept
+    __device__ inline constexpr lc_float{i}x{i}() noexcept : cols{{}} {{}}
+    __device__ inline explicit constexpr lc_float{i}x{i}(lc_float s) noexcept
         : cols{{{", ".join(f"lc_make_float{i}({init(j)})" for j in range(i))}}} {{}}
-    __device__ constexpr static auto full(lc_float s) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_float{i}(s)" for j in range(i))}}}; }}
-    __device__ constexpr static auto zero() noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_float{i}::zero()" for j in range(i))}}}; }}
-    __device__ constexpr static auto one() noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_float{i}::one()" for j in range(i))}}}; }}
-    __device__ constexpr lc_float{i}x{i}({", ".join(f"lc_float{i} c{j}" for j in range(i))}) noexcept
+    __device__ inline constexpr static auto full(lc_float s) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_float{i}(s)" for j in range(i))}}}; }}
+    __device__ inline constexpr static auto zero() noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_float{i}::zero()" for j in range(i))}}}; }}
+    __device__ inline constexpr static auto one() noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_float{i}::one()" for j in range(i))}}}; }}
+    __device__ inline constexpr lc_float{i}x{i}({", ".join(f"lc_float{i} c{j}" for j in range(i))}) noexcept
         : cols{{{", ".join(f"c{j}" for j in range(i))}}} {{}}
-    [[nodiscard]] __device__ constexpr auto &operator[](lc_uint i) noexcept {{ return cols[i]; }}
-    [[nodiscard]] __device__ constexpr auto operator[](lc_uint i) const noexcept {{ return cols[i]; }}
-    [[nodiscard]] __device__ constexpr auto comp_mul(const lc_float{i}x{i} &rhs) const noexcept {{ return lc_float{i}x{i}{{{", ".join(f"cols[{j}] * rhs[{j}]" for j in range(i))}}}; }}
+    [[nodiscard]] __device__ inline constexpr auto &operator[](lc_uint i) noexcept {{ return cols[i]; }}
+    [[nodiscard]] __device__ inline constexpr auto operator[](lc_uint i) const noexcept {{ return cols[i]; }}
+    [[nodiscard]] __device__ inline constexpr auto comp_mul(const lc_float{i}x{i} &rhs) const noexcept {{ return lc_float{i}x{i}{{{", ".join(f"cols[{j}] * rhs[{j}]" for j in range(i))}}}; }}
 }};""", file=file)
 
         for i in range(2, 5):
             elements = ["x", "y", "z", "w"][:i]
             print(f"""
-[[nodiscard]] __device__ constexpr auto operator*(const lc_float{i}x{i} m, lc_float s) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"m[{j}] * s" for j in range(i))}}}; }}
-[[nodiscard]] __device__ constexpr auto operator*(lc_float s, const lc_float{i}x{i} m) noexcept {{ return m * s; }}
-[[nodiscard]] __device__ constexpr auto operator/(const lc_float{i}x{i} m, lc_float s) noexcept {{ return m * (1.0f / s); }}
-[[nodiscard]] __device__ constexpr auto operator*(const lc_float{i}x{i} m, const lc_float{i} v) noexcept {{ return {' + '.join(f"v.{e} * m[{j}]" for j, e in enumerate(elements))}; }}
-[[nodiscard]] __device__ constexpr auto operator*(const lc_float{i}x{i} lhs, const lc_float{i}x{i} rhs) noexcept {{ return lc_float{i}x{i}{{{', '.join(f"lhs * rhs[{j}]" for j in range(i))}}}; }}
-[[nodiscard]] __device__ constexpr auto operator+(const lc_float{i}x{i} lhs, const lc_float{i}x{i} rhs) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lhs[{j}] + rhs[{j}]" for j in range(i))}}}; }}
-[[nodiscard]] __device__ constexpr auto operator-(const lc_float{i}x{i} lhs, const lc_float{i}x{i} rhs) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lhs[{j}] - rhs[{j}]" for j in range(i))}}}; }}
-__device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}& rhs) noexcept {{ {''.join(f'lhs.cols[{j}] += rhs.cols[{j}];' for j in range(i))} }}""",
+[[nodiscard]] __device__ inline constexpr auto operator*(const lc_float{i}x{i} m, lc_float s) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"m[{j}] * s" for j in range(i))}}}; }}
+[[nodiscard]] __device__ inline constexpr auto operator*(lc_float s, const lc_float{i}x{i} m) noexcept {{ return m * s; }}
+[[nodiscard]] __device__ inline constexpr auto operator/(const lc_float{i}x{i} m, lc_float s) noexcept {{ return m * (1.0f / s); }}
+[[nodiscard]] __device__ inline constexpr auto operator*(const lc_float{i}x{i} m, const lc_float{i} v) noexcept {{ return {' + '.join(f"v.{e} * m[{j}]" for j, e in enumerate(elements))}; }}
+[[nodiscard]] __device__ inline constexpr auto operator*(const lc_float{i}x{i} lhs, const lc_float{i}x{i} rhs) noexcept {{ return lc_float{i}x{i}{{{', '.join(f"lhs * rhs[{j}]" for j in range(i))}}}; }}
+[[nodiscard]] __device__ inline constexpr auto operator+(const lc_float{i}x{i} lhs, const lc_float{i}x{i} rhs) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lhs[{j}] + rhs[{j}]" for j in range(i))}}}; }}
+[[nodiscard]] __device__ inline constexpr auto operator-(const lc_float{i}x{i} lhs, const lc_float{i}x{i} rhs) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lhs[{j}] - rhs[{j}]" for j in range(i))}}}; }}
+__device__ inline constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}& rhs) noexcept {{ {''.join(f'lhs.cols[{j}] += rhs.cols[{j}];' for j in range(i))} }}""",
                   file=file)
 
         for i in range(2, 5):
@@ -225,27 +225,27 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
 
 
             print(f"""
-[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}(lc_float s = 1.0f) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_make_float{i}({init(j)})" for j in range(i))}}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}({', '.join(', '.join(f"lc_float m{j}{k}" for k in range(i)) for j in range(i))}) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_make_float{i}({', '.join(f'm{j}{k}' for k in range(i))})" for j in range(i))}}}; }}
-[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}({", ".join(f"lc_float{i} c{j}" for j in range(i))}) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"c{j}" for j in range(i))}}}; }}""",
+[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}(lc_float s = 1.0f) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_make_float{i}({init(j)})" for j in range(i))}}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}({', '.join(', '.join(f"lc_float m{j}{k}" for k in range(i)) for j in range(i))}) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"lc_make_float{i}({', '.join(f'm{j}{k}' for k in range(i))})" for j in range(i))}}}; }}
+[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}({", ".join(f"lc_float{i} c{j}" for j in range(i))}) noexcept {{ return lc_float{i}x{i}{{{", ".join(f"c{j}" for j in range(i))}}}; }}""",
                   file=file)
             if i == 3:
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}(lc_float2x2 m) noexcept {{ return lc_float3x3{{lc_make_float3(m[0], 0.0f), lc_make_float3(m[1], 0.0f), lc_make_float3(0.0f, 0.0f, 1.0f)}}; }}",
+                    f"[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}(lc_float2x2 m) noexcept {{ return lc_float3x3{{lc_make_float3(m[0], 0.0f), lc_make_float3(m[1], 0.0f), lc_make_float3(0.0f, 0.0f, 1.0f)}}; }}",
                     file=file)
             if i == 4:
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}(lc_float2x2 m) noexcept {{ return lc_float4x4{{lc_make_float4(m[0], 0.0f, 0.0f), lc_make_float4(m[1], 0.0f, 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}",
+                    f"[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}(lc_float2x2 m) noexcept {{ return lc_float4x4{{lc_make_float4(m[0], 0.0f, 0.0f), lc_make_float4(m[1], 0.0f, 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}",
                     file=file)
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}(lc_float3x3 m) noexcept {{ return lc_float4x4{{lc_make_float4(m[0], 0.0f), lc_make_float4(m[1], 0.0f), lc_make_float4(m[2], 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}",
+                    f"[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}(lc_float3x3 m) noexcept {{ return lc_float4x4{{lc_make_float4(m[0], 0.0f), lc_make_float4(m[1], 0.0f), lc_make_float4(m[2], 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}",
                     file=file)
             print(
-                f"[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}(lc_float{i}x{i} m) noexcept {{ return m; }}",
+                f"[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}(lc_float{i}x{i} m) noexcept {{ return m; }}",
                 file=file)
             for t in range(i + 1, 5):
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto lc_make_float{i}x{i}(lc_float{t}x{t} m) noexcept {{ return lc_float{i}x{i}{{{', '.join(f'lc_make_float{i}(m[{j}])' for j in range(i))}}}; }}",
+                    f"[[nodiscard]] __device__ inline constexpr auto lc_make_float{i}x{i}(lc_float{t}x{t} m) noexcept {{ return lc_float{i}x{i}{{{', '.join(f'lc_make_float{i}(m[{j}])' for j in range(i))}}}; }}",
                     file=file)
         print(file=file)
 
@@ -446,7 +446,7 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
         generate_vector_call("ctz", "lc_ctz_impl", "u", ["x"])
 
         # cross
-        print("""[[nodiscard]] __device__ constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept {
+        print("""[[nodiscard]] __device__ inline constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept {
     return lc_make_float3(u.y * v.z - v.y * u.z,
                           u.z * v.x - v.z * u.x,
                           u.x * v.y - v.x * u.y);
@@ -515,13 +515,13 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
         print(file=file)
 
         # transpose
-        print("""[[nodiscard]] __device__ constexpr auto lc_transpose(const lc_float2x2 m) noexcept { return lc_make_float2x2(m[0].x, m[1].x, m[0].y, m[1].y); }
-[[nodiscard]] __device__ constexpr auto lc_transpose(const lc_float3x3 m) noexcept { return lc_make_float3x3(m[0].x, m[1].x, m[2].x, m[0].y, m[1].y, m[2].y, m[0].z, m[1].z, m[2].z); }
-[[nodiscard]] __device__ constexpr auto lc_transpose(const lc_float4x4 m) noexcept { return lc_make_float4x4(m[0].x, m[1].x, m[2].x, m[3].x, m[0].y, m[1].y, m[2].y, m[3].y, m[0].z, m[1].z, m[2].z, m[3].z, m[0].w, m[1].w, m[2].w, m[3].w); }
+        print("""[[nodiscard]] __device__ inline constexpr auto lc_transpose(const lc_float2x2 m) noexcept { return lc_make_float2x2(m[0].x, m[1].x, m[0].y, m[1].y); }
+[[nodiscard]] __device__ inline constexpr auto lc_transpose(const lc_float3x3 m) noexcept { return lc_make_float3x3(m[0].x, m[1].x, m[2].x, m[0].y, m[1].y, m[2].y, m[0].z, m[1].z, m[2].z); }
+[[nodiscard]] __device__ inline constexpr auto lc_transpose(const lc_float4x4 m) noexcept { return lc_make_float4x4(m[0].x, m[1].x, m[2].x, m[3].x, m[0].y, m[1].y, m[2].y, m[3].y, m[0].z, m[1].z, m[2].z, m[3].z, m[0].w, m[1].w, m[2].w, m[3].w); }
 """, file=file)
 
         # determinant/inverse
-        print("""[[nodiscard]] __device__ constexpr auto lc_determinant(const lc_float2x2 m) noexcept {
+        print("""[[nodiscard]] __device__ inline constexpr auto lc_determinant(const lc_float2x2 m) noexcept {
     return m[0][0] * m[1][1] - m[1][0] * m[0][1];
 }
 
@@ -531,7 +531,7 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
          + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
 }
 
-[[nodiscard]] __device__ constexpr auto lc_determinant(const lc_float4x4 m) noexcept {// from GLM
+[[nodiscard]] __device__ inline constexpr auto lc_determinant(const lc_float4x4 m) noexcept {// from GLM
     const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
     const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
     const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
@@ -574,7 +574,7 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
     return dot0.x + dot0.y + dot0.z + dot0.w;
 }
 
-[[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float2x2 m) noexcept {
+[[nodiscard]] __device__ inline constexpr auto lc_inverse(const lc_float2x2 m) noexcept {
     const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
     return lc_make_float2x2(m[1][1] * one_over_determinant,
                           - m[0][1] * one_over_determinant,
@@ -582,7 +582,7 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
                           + m[0][0] * one_over_determinant);
 }
 
-[[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float3x3 m) noexcept {// from GLM
+[[nodiscard]] __device__ inline constexpr auto lc_inverse(const lc_float3x3 m) noexcept {// from GLM
     const auto one_over_determinant = 1.0f
                                       / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
                                        - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
@@ -599,7 +599,7 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
         (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant);
 }
 
-[[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float4x4 m) noexcept {// from GLM
+[[nodiscard]] __device__ inline constexpr auto lc_inverse(const lc_float4x4 m) noexcept {// from GLM
     const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
     const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
     const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
@@ -645,6 +645,10 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
                             inv_1 * one_over_determinant,
                             inv_2 * one_over_determinant,
                             inv_3 * one_over_determinant);
+}
+
+[[nodiscard]] __device__ inline auto lc_reflect(const lc_float3 v, const lc_float3 n) noexcept {
+    return v - 2.0f * lc_dot(v, n) * n;
 }
 
 template<typename D, typename S>
@@ -788,7 +792,7 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
                 f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{}}", file=file)
         print(
             "struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};", file=file)
-        print('''template<class T> struct element_type_;
+        print('''template<class T> struct element_type_{using type = void;};
 template<class T> using element_type = typename element_type_<T>::type;
 ''', file=file)
 

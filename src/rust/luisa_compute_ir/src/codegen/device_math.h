@@ -4506,6 +4506,10 @@ template<typename T>
                             inv_3 * one_over_determinant);
 }
 
+[[nodiscard]] __device__ inline auto lc_reflect(const lc_float3 v, const lc_float3 n) noexcept {
+    return v - 2.0f * lc_dot(v, n) * n;
+}
+
 template<typename D, typename S>
 [[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
     static_assert(sizeof(D) == sizeof(S));
