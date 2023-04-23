@@ -554,7 +554,11 @@ private:
             }
             for (auto format : formats) {
                 if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
-                    format.format == VK_FORMAT_R8G8B8A8_UNORM) { return format; }
+                    (format.format == VK_FORMAT_R8G8B8A8_SRGB ||
+                     format.format == VK_FORMAT_B8G8R8A8_SRGB)) { return format; }
+            }
+            for (auto format : formats) {
+                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
             }
             return formats.front();
         }();
@@ -1197,7 +1201,7 @@ private:
         // choose format
         _image_format = _base.is_hdr() ?
                             VK_FORMAT_R16G16B16A16_SFLOAT :
-                            VK_FORMAT_R8G8B8A8_UNORM;
+                            VK_FORMAT_R8G8B8A8_SRGB;
 
         // create image
         VkImageCreateInfo image_info{};
@@ -1304,7 +1308,6 @@ private:
         auto pixel_size = [this] {
             switch (_image_format) {
                 case VK_FORMAT_R8G8B8A8_SRGB:
-                case VK_FORMAT_R8G8B8A8_UNORM:
                     return 4u;
                 case VK_FORMAT_R16G16B16A16_SFLOAT:
                     return 8u;
@@ -1387,11 +1390,9 @@ public:
 
     [[nodiscard]] auto pixel_storage() const noexcept {
         LUISA_ASSERT(_image_format == VK_FORMAT_R8G8B8A8_SRGB ||
-                         _image_format == VK_FORMAT_R8G8B8A8_UNORM ||
                          _image_format == VK_FORMAT_R16G16B16A16_SFLOAT,
                      "Unsupported image format.");
-        return _image_format == VK_FORMAT_R8G8B8A8_SRGB ||
-                       _image_format == VK_FORMAT_R8G8B8A8_UNORM ?
+        return _image_format == VK_FORMAT_R8G8B8A8_SRGB ?
                    PixelStorage::BYTE4 :
                    PixelStorage::HALF4;
     }

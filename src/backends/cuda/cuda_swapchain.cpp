@@ -123,7 +123,7 @@ private:
     [[nodiscard]] auto _choose_image_format() const noexcept {
         return _base.is_hdr() ?
                    VK_FORMAT_R16G16B16A16_SFLOAT :
-                   VK_FORMAT_R8G8B8A8_UNORM;
+                   VK_FORMAT_R8G8B8A8_SRGB;
     }
 
     void _create_image() noexcept {
