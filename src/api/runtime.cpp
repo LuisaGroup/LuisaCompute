@@ -296,8 +296,8 @@ private:
                     aabb_count);
             }
             case LC_COMMAND_ACCEL_BUILD: {
-                auto [accel, request, instance_count, api_modifications, modifications_count, build_accel] = cmd.accel_build;
-                auto modifications = luisa::vector<AccelBuildCommand::Modification>(modifications_count);
+                auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
+                auto modifications = luisa::vector<AccelBuildCommand::Modification>();
                 for (auto i = 0u; i < modifications_count; i++) {
                     auto [index, flags, visibility, mesh, affine] = api_modifications[i];
                     auto modification = AccelBuildCommand::Modification(index);
@@ -305,15 +305,15 @@ private:
                     modification.set_visibility(visibility);
                     modification.set_primitive(mesh);
                     std::memcpy(modification.affine, affine, sizeof(float) * 12);
-
-                    modifications.emplace_back(std::move(modification));
+                    modifications.emplace_back(modification);
                 }
+                LUISA_ASSERT(modifications_count == modifications.size(), "modifications size mismatch");
                 return luisa::make_unique<AccelBuildCommand>(
                     accel._0,
                     instance_count,
                     convert_accel_request(request),
                     modifications,
-                    build_accel);
+                    update_instance_buffer_only);
             }
             default: LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
         }

@@ -138,7 +138,7 @@ impl Instance {
 impl Default for Instance {
     fn default() -> Self {
         Self {
-            affine: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+            affine: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
             dirty: false,
             visible: u8::MAX,
             geometry: std::ptr::null_mut(),
@@ -201,7 +201,7 @@ impl AccelImpl {
                 sys::rtcSetGeometryTransform(
                     geometry,
                     0,
-                    sys::RTC_FORMAT_FLOAT3X4_COLUMN_MAJOR,
+                    sys::RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
                     affine.as_ptr() as *const c_void,
                 );
                 instance.affine = affine;

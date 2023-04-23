@@ -363,7 +363,13 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::MatCompMul: return builtin_func(2, CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION);
         case ir::Func::Tag::Neg: return unary_op(UnaryOp::MINUS);
         case ir::Func::Tag::Not: return unary_op(UnaryOp::NOT);
-        case ir::Func::Tag::BitNot: return unary_op(UnaryOp::BIT_NOT);
+        case ir::Func::Tag::BitNot: {
+            if (type->is_bool()) {
+                return unary_op(UnaryOp::NOT);
+            }else {
+                return unary_op(UnaryOp::BIT_NOT);
+            }
+        };
         case ir::Func::Tag::All: return builtin_func(1, CallOp::ALL);
         case ir::Func::Tag::Any: return builtin_func(1, CallOp::ANY);
         case ir::Func::Tag::Select: {

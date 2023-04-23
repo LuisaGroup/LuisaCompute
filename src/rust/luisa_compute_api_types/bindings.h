@@ -312,7 +312,7 @@ typedef struct LCAccelBuildCommand {
     uint32_t instance_count;
     const struct LCAccelBuildModification *modifications;
     size_t modifications_count;
-    bool build_accel;
+    bool update_instance_buffer_only;
 } LCAccelBuildCommand;
 
 typedef struct LCBindlessArrayUpdateBuffer {

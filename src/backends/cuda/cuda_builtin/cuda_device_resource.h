@@ -1097,7 +1097,7 @@ struct alignas(16) LCRay {
     float m3;             // t_max
 };
 
-struct LCTriangleHit {
+struct alignas(8) LCTriangleHit {
     lc_uint m0;  // instance index
     lc_uint m1;  // primitive index
     lc_float2 m2;// barycentric coordinates

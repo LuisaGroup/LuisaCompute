@@ -532,7 +532,7 @@ pub struct AccelBuildCommand {
     pub instance_count: u32,
     pub modifications: *const AccelBuildModification,
     pub modifications_count: usize,
-    pub build_accel: bool,
+    pub update_instance_buffer_only: bool,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
