@@ -39,11 +39,11 @@ def read_texture(bindless, display_tex):
 
 bindless_array = BindlessArray()
 res = 1024, 1024
-input_tex = Image2D(*res, 4, float, storage="BYTE")
+input_tex = Image2D(16, 16, 4, float, storage="BYTE")
 display_tex = Image2D(*res, 4, float, storage="BYTE")
 address = lcapi.Address.MIRROR
 bindless_array.emplace(
-    55, input_tex, filter=lcapi.Filter.LINEAR_POINT, address=address)
+    55, input_tex, filter=lcapi.Filter.POINT, address=address)
 useless_buffer = Buffer(1, float4)
 bindless_array.emplace(55, useless_buffer)
 
@@ -51,7 +51,7 @@ gui = GUI("Test Bindless", res)
 while gui.running():
     # 更新bindless到GPU
     bindless_array.update()
-    write_texture(input_tex, dispatch_size=(*res, 1))
+    write_texture(input_tex, dispatch_size=(16, 16, 1))
     read_texture(bindless_array, display_tex, dispatch_size=(*res, 1))
     gui.set_image(display_tex)
     gui.show()

@@ -305,7 +305,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: {
-            str << "BINDLESS_ARRAY"sv;
+            str << "ByteAddressBuffer"sv;
         } break;
         case Type::Tag::ACCEL: {
             str << "RaytracingAccelerationStructure"sv;
@@ -1385,47 +1385,34 @@ void CodegenUtility::GenerateBindless(
         table_idx++;
     }
     if (opt->useTex2DBindless) {
-        str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
+        str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << R"(template<typename Idx>
-float4 SampleTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp2D)];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].SampleLevel(samp,uv,level);}
-template<typename Idx>
-float4 SampleTex2D(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){return SampleTex2DLevel(arr,index,uv,0);}
-template<typename Idx>
-float4 SampleTex2DGrad(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float2 ddx,const float2 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp2D)];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].SampleGrad(samp,uv,ddx,ddy);}
+        str << R"(
+float4 SampleTex2DLevel(const ByteAddressBuffer arr,const uint index,const float2 uv,const float level){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp2D(arr,index))];return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].SampleLevel(samp,uv,level);}
+float4 SampleTex2D(const ByteAddressBuffer arr,const uint index,const float2 uv){return SampleTex2DLevel(arr,index,uv,0);}
+float4 SampleTex2DGrad(const ByteAddressBuffer arr,const uint index,const float2 uv,const float2 ddx,const float2 ddy){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp2D(arr,index))];return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].SampleGrad(samp,uv,ddx,ddy);}
 #ifdef PS
-template<typename Idx>
-float4 SampleTex2DPixel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp2D)];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].Sample(samp,uv);}
+float4 SampleTex2DPixel(const ByteAddressBuffer arr,const uint index,const float2 uv){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp2D(arr,index))];return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].Sample(samp,uv);}
 #endif
-template<typename Idx,typename Lvl,typename Coord>
-float4 ReadTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].Load(uint3(coord,level));}
-template<typename Idx,typename Coord>
-float4 ReadTex2D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex2DLevel(arr,index,coord,0);}
-template<typename Idx>
-uint2 Tex2DSize(const BINDLESS_ARRAY arr,const Idx index){BdlsStruct s=arr[index];return uint2(s.tex2DX,s.tex2DY);}
-template<typename Idx,typename Lvl>
-uint2 Tex2DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex2DSize(arr,index)>>level,1u);}
+float4 ReadTex2DLevel(const ByteAddressBuffer arr,const uint index,const uint2 coord,const uint level){return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].Load(uint3(coord,level));}
+float4 ReadTex2D(const ByteAddressBuffer arr,const uint index,const uint2 coord){return ReadTex2DLevel(arr,index,coord,0);}
+uint2 Tex2DSize(const ByteAddressBuffer arr,const uint index){return ReadBdlsTex2DXY(arr,index);}
+uint2 Tex2DSizeLevel(const ByteAddressBuffer arr,const uint index,const uint level){return max(Tex2DSize(arr,index)>>level,1u);}
 )"sv;
     }
     if (opt->useTex3DBindless) {
-        str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
+        str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << R"(template<typename Idx>
-float4 SampleTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp3D)];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].SampleLevel(samp,uv,level);}
-template<typename Idx>
-float4 SampleTex3D(const BINDLESS_ARRAY arr,const Idx index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
-template<typename Idx>
-float4 SampleTex3DGrad(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float3 ddx,const float3 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp3D)];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].SampleGrad(samp,uv,ddx,ddy);}
-template<typename Idx,typename Lvl,typename Coord>
-float4 ReadTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].Load(uint4(coord,level));}
-template<typename Idx,typename Coord>
-float4 ReadTex3D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex3DLevel(arr,index,coord,0);}
-template<typename Idx>
-uint3 Tex3DSize(const BINDLESS_ARRAY arr,const Idx index){BdlsStruct s=arr[index];return uint3(s.tex3DX,s.tex3DY,s.tex3DZ);}
-template<typename Idx,typename Lvl>
-uint3 Tex3DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex3DSize(arr,index)>>level,1u);}
+        str << R"(
+float4 SampleTex3DLevel(const ByteAddressBuffer arr,const uint index,const float3 uv,const float level){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp3D(arr,index))];return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].SampleLevel(samp,uv,level);}
+float4 SampleTex3D(const ByteAddressBuffer arr,const uint index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
+float4 SampleTex3DGrad(const ByteAddressBuffer arr,const uint index,const float3 uv,const float3 ddx,const float3 ddy){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp3D(arr,index))];return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].SampleGrad(samp,uv,ddx,ddy);}
+float4 ReadTex3DLevel(const ByteAddressBuffer arr,const uint index,const uint3 coord,const Lvl level){return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].Load(uint4(coord,level));}
+float4 ReadTex3D(const ByteAddressBuffer arr,const uint index,const uint3 coord){return ReadTex3DLevel(arr,index,coord,0);}
+uint3 Tex3DSize(const ByteAddressBuffer arr,const uint index){return ReadBdlsTex3DXYZ(arr,index);}
+uint3 Tex3DSizeLevel(const ByteAddressBuffer arr,const uint index,const uint level){return max(Tex3DSize(arr,index)>>level,1u);}
 )"sv;
     }
 }

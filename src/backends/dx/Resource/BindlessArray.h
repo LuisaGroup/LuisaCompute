@@ -13,17 +13,26 @@ public:
     using Map = vstd::HashMap<size_t, size_t>;
     using MapIndex = typename Map::Index;
     struct BindlessStruct {
-        static constexpr auto n_pos = std::numeric_limits<uint32_t>::max();
-        uint32_t buffer = n_pos;
-        uint32_t tex2D = n_pos;
-        uint32_t tex3D = n_pos;
-        uint16_t tex2DX;
-        uint16_t tex2DY;
-        uint16_t tex3DX;
-        uint16_t tex3DY;
-        uint16_t tex3DZ;
-        uint8_t samp2D;
-        uint8_t samp3D;
+        static constexpr auto n_pos = std::numeric_limits<uint>::max();
+        uint buffer = n_pos;
+        uint tex2D = n_pos;
+        uint tex3D = n_pos;
+        uint tex2DXY;
+        uint tex3DXY;
+        uint tex3DZAndSamp;
+        void write_tex2d(uint x, uint y) {
+            tex2DXY = (x << 16u) | y;
+        }
+        void write_tex3d(uint x, uint y, uint z) {
+            tex3DXY = (x << 16u) | y;
+            tex3DZAndSamp = (tex3DZAndSamp & 65535u) | (z << 16u);
+        }
+        void write_samp2d(uint s) {
+            tex3DZAndSamp = (tex3DZAndSamp & ~255u) | s;
+        }
+        void write_samp3d(uint s) {
+            tex3DZAndSamp = (tex3DZAndSamp & ~65535u) | (tex3DZAndSamp & 255u) | (s << 8u);
+        }
     };
     struct MapIndicies {
         MapIndex buffer;
@@ -36,7 +45,7 @@ private:
     Map ptrMap;
     mutable std::mutex mtx;
     DefaultBuffer buffer;
-    void TryReturnIndex(MapIndex &index, uint32_t &originValue);
+    void TryReturnIndex(MapIndex &index, uint &originValue);
     MapIndex AddIndex(size_t ptr);
     mutable vstd::vector<int> freeQueue;
 

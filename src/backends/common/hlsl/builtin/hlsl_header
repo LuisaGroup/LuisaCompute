@@ -188,24 +188,43 @@ row_major float4x4 m;
 #define bfwrite(bf,idx,value) bf[idx]=value
 #define bfwriteVec3(bf,idx,value) bf[idx]=float4(value,0)
 #define bfwriteMat(bf,idx,value) bf[idx].m=value
-struct BdlsStruct {
-uint buffer;
-uint tex2D;
-uint tex3D;
-uint tex2DX:16;
-uint tex2DY:16;
-uint tex3DX:16;
-uint tex3DY:16;
-uint tex3DZ:16;
-uint samp2D:8;
-uint samp3D:8;
-};
 #define Smptx(tex,uv) tex[uv]
 #define Writetx(tex,uv,value) tex[uv]=value
-#define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
+uint ReadBdlsBuffer(const ByteAddressBuffer s,const uint idx){
+return s.Load(24*idx);
+}
+uint ReadBdlsTex2D(const ByteAddressBuffer s,const uint idx){
+return s.Load(24*idx+4);
+}
+uint ReadBdlsTex3D(const ByteAddressBuffer s,const uint idx){
+return s.Load(24*idx+8);
+}
+uint2 ReadBdlsTex2DXY(const ByteAddressBuffer s,const uint idx){
+uint xy=s.Load(24*idx+12);
+uint x=(xy>>16);
+uint y=(xy&65535);
+return uint2(x,y);
+}
+uint3 ReadBdlsTex3DXYZ(const ByteAddressBuffer s,const uint idx){
+uint xy=s.Load(24*idx+16);
+uint smp=s.Load(24*idx+20);
+uint x=(xy>>16);
+uint y=(xy&65535);
+uint z=(smp>>16);
+return uint3(x,y,z);
+}
+uint ReadBdlsSmp3D(const ByteAddressBuffer s,const uint idx){
+uint smp=s.Load(24*idx+20);
+smp=(smp>>8);
+return smp&255;
+}
+uint ReadBdlsSmp2D(const ByteAddressBuffer s,const uint idx){
+uint smp=s.Load(24*idx+20);
+return smp&255;
+}
 template<typename T>
 T fract(const T x){return x-floor(x);}
-#define READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(arr[arrIdx].buffer)].Load<type>(size*idx)
+#define READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(ReadBdlsBuffer(arr,arrIdx))].Load<type>(size*idx)
 struct MeshInst {
 float4 p0;
 float4 p1;
