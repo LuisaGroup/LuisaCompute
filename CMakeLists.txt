@@ -13,9 +13,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(LuisaCompute LANGUAGES C CXX VERSION 0.4.0)
 
-if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/options.cmake")
-    message(STATUS "Loading bootstrap options from \"options.cmake\"")
-    include(options.cmake)
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/options.cmake")
+    message(STATUS "Loading bootstrap options from \"scripts/options.cmake\"")
+    include(scripts/options.cmake)
 else ()
     option(LUISA_COMPUTE_ENABLE_DSL "Enable C++ DSL" ON)
     option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)

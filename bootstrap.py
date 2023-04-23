@@ -370,14 +370,14 @@ def print_help():
 
 
 def dump_cmake_options(config: dict):
-    with open("options.cmake.template") as f:
+    with open("scripts/options.cmake.template") as f:
         options = f.read()
     for feature in config['features']:
         options = options.replace(f'[[feature_{feature}]]', 'ON')
     for feature in ALL_FEATURES:
         if feature not in config['features']:
             options = options.replace(f'[[feature_{feature}]]', 'OFF')
-    with open("options.cmake", 'w') as f:
+    with open("scripts/options.cmake", 'w') as f:
         f.write(options)
 
 
