@@ -274,7 +274,6 @@ def get_config(parsed_args):
     config = {
         'cmake_args': [],
         'xmake_args': [],
-        'build_system': 'cmake',
         'output': 'build',
     }
     # check if config.json exists
@@ -282,8 +281,12 @@ def get_config(parsed_args):
         import json
         with open('config.json', 'r') as f:
             config.update(json.load(f))
-    if "build_system" in parsed_args:
-        config['build_system'] = parsed_args['build_system']
+    config['build_system'] = parsed_args['build_system']
+    if not config['build_system']:
+        # TODO: need raise
+        pass
+    if "toolchain" in parsed_args:
+        config['toolchain'] = parsed_args['toolchain']
     if "output" in parsed_args:
         config['output'] = parsed_args['output']
     if "features" in parsed_args:
@@ -380,12 +383,12 @@ def dump_cmake_options(config: dict):
 
 
 def dump_xmake_options(config: dict):
-    print(config)
     xmake_var = config.get("xmake_exe")
     if xmake_var == None:
         xmake_var = "xmake"
     cmd = f"{xmake_var} lua scripts/write_options.lua"
-    # TODO: arguments
+    if "toolchain" in config:
+        cmd += " toolchain=" + config["toolchain"]
     os.system(cmd)
 
 
@@ -500,8 +503,9 @@ def build_system_config_args_xmake(config: dict, mode: str, toolchain: str, tool
         'release': 'release',
         'reldbg': 'releasedbg'
     }
-    args.append(f'-m {xmake_mode[mode]}')
-    # TODO: @Maxwell help pls
+    args.append('-m')
+    args.append(xmake_mode[mode])
+    args.append("-c")
     return args
 
 
@@ -824,7 +828,7 @@ def build_project(config, build_config):
     elif build_system == 'xmake':
         xmake_exe = config['xmake_exe']
         print(f'Building the project: xmake')
-        args = [xmake_exe, '-v', '-j', str(build_jobs)]
+        args = [xmake_exe, '-w', '-j', str(build_jobs)]
         return call(args)
     else:
         print_red(f'Unknown build system: {config["build_system"]}')

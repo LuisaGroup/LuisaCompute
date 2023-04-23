@@ -30,29 +30,51 @@ local function find_llvm()
 	return nil
 end
 function main(...)
-	local llvm_path = find_llvm()
-	local option_file = io.open(path.join(os.projectdir(), "scripts/options.lua"), "w")
-	option_file:write("lc_config = {\n")
-	if llvm_path then
-		option_file:write("\ttoolchain = \"llvm\",\n\tsdk = \"" .. llvm_path .. "\"\n}\n")
-	elseif os.is_host("linux") then
-		option_file:write("\ttoolchain = \"gcc\"\n}\n")
-	elseif os.is_host("windows") then
-		option_file:write("\ttoolchain = \"msvc\"\n}\n")
-	else
-		option_file:write("}\n")
-	end
-	option_file:write("function get_options()\n\treturn {\n")
-	local args = {...}
-	for i, v in ipairs(args) do
+	local args = {}
+	for i, v in ipairs({...}) do
 		local kv = lib.string_split(v, "=")
 		if table.getn(kv) == 2 then
-			local v = kv[2]
-			if not (v == "true" or v == "false") then
-				v = '"' .. v .. '"'
-			end
-			option_file:write("\t\t" .. kv[1] .. " = " .. v .. ',\n')
+			args[kv[1]] = kv[2]
 		end
+	end
+	local option_file = io.open(path.join(os.projectdir(), "scripts/options.lua"), "w")
+	option_file:write("lc_config = {\n")
+	local toolchain = args["toolchain"]
+	local sdk_path
+	if toolchain then
+		args["toolchain"] = nil
+		if toolchain == "llvm" then
+			sdk_path = find_llvm()
+		end
+	else
+		sdk_path = find_llvm()
+		if sdk_path then
+			toolchain = "llvm"
+		elseif os.is_host("windows") then
+			toolchain = "msvc"
+		else
+			toolchain = "gcc"
+		end
+	end
+	option_file:write("\ttoolchain = \"")
+	option_file:write(toolchain)
+	option_file:write("\",\n")
+	if sdk_path then
+		option_file:write("\tsdk = \"")
+		option_file:write(sdk_path)
+		option_file:write("\",\n")
+	end
+	option_file:write("}\n")
+	option_file:write("function get_options()\n\treturn {\n")
+	for k, v in pairs(args) do
+		if not (v == "true" or v == "false") then
+			v = '"' .. v .. '"'
+		end
+		option_file:write("\t\t")
+		option_file:write(k)
+		option_file:write(" = ")
+		option_file:write(v)
+		option_file:write(',\n')
 	end
 
 	option_file:write("\t}\nend\n")
