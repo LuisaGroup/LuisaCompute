@@ -1192,7 +1192,7 @@ private:
     void _create_image() noexcept {
 
         // choose format
-        _image_format = _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        _image_format = _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_SRGB;
 
         // create image
         VkImageCreateInfo image_info{};
@@ -1298,7 +1298,7 @@ private:
         // compute stage buffer size
         auto pixel_size = [this] {
             switch (_image_format) {
-                case VK_FORMAT_R8G8B8A8_UNORM:
+                case VK_FORMAT_R8G8B8A8_SRGB:
                     return 4u;
                 case VK_FORMAT_R16G16B16A16_SFLOAT:
                     return 8u;
@@ -1380,10 +1380,10 @@ public:
     [[nodiscard]] auto format() const noexcept { return _image_format; }
 
     [[nodiscard]] auto pixel_storage() const noexcept {
-        LUISA_ASSERT(_image_format == VK_FORMAT_R8G8B8A8_UNORM ||
+        LUISA_ASSERT(_image_format == VK_FORMAT_R8G8B8A8_SRGB ||
                          _image_format == VK_FORMAT_R16G16B16A16_SFLOAT,
                      "Unsupported image format.");
-        return _image_format == VK_FORMAT_R8G8B8A8_UNORM ?
+        return _image_format == VK_FORMAT_R8G8B8A8_SRGB ?
                    PixelStorage::BYTE4 :
                    PixelStorage::HALF4;
     }
