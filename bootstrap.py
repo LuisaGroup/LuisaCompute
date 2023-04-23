@@ -327,7 +327,7 @@ def print_help():
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
-    print ('Git options: ')
+    print('Git options: ')
     print('  ignore_submod          ignore submodule clone')
     print('Options:')
     print('  --config    | -c       Configure build system')
@@ -648,13 +648,12 @@ def parse_cli_args(args):
     elif 'reldbg' in positional_args:
         parsed_args['mode'] = 'reldbg'
         positional_args.remove('reldbg')
-    
+
     if 'ignore_submod' in positional_args:
         parsed_args['ignore_submod'] = True
         positional_args.remove('ignore_submod')
     else:
         parsed_args['ignore_submod'] = False
-
 
     if positional_args:
         print_red(f'Invalid positional arguments: {positional_args}')
@@ -863,10 +862,17 @@ def main(args: List[str]):
     build_config = get_build_config(output, parsed_args)
 
     if "clean" in parsed_args:
+        import shutil
         if os.path.exists(output):
             print(f'Cleaning {output}...')
-            import shutil
             shutil.rmtree(output)
+        if config['build_system'] == 'xmake':
+            if os.path.exists('.xmake'):
+                print(f'Cleaning .xmake...')
+                shutil.rmtree('.xmake')
+            if os.path.exists('bin'):
+                print(f'Cleaning bin...')
+                shutil.rmtree('bin')
 
     if run_config or run_build:
         if not os.path.exists(output):

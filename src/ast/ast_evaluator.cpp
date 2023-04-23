@@ -23,6 +23,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(Expression const *expr) {
             return try_eval(static_cast<CallExpr const *>(expr));
         case Expression::Tag::CAST:
             return try_eval(static_cast<CastExpr const *>(expr));
+        default:
+            break;
     }
     return monostate{};
 }
@@ -1427,6 +1429,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                 },
                 a);
         } break;
+        default: break;
     }
     return monostate{};
 }
