@@ -331,6 +331,8 @@ def print_help():
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
+    print ('Git options: ')
+    print('  ignore_submod          ignore submodule clone')
     print('Options:')
     print('  --config    | -c       Configure build system')
     print('  --toolchain | -t [toolchain]      Configure toolchain (effective only',
@@ -382,8 +384,13 @@ def dump_cmake_options(config: dict):
 
 
 def dump_xmake_options(config: dict):
-    # TODO: @Maxwell help pls
-    pass
+    print(config)
+    xmake_var = config.get("xmake_exe")
+    if xmake_var == None:
+        xmake_var = "xmake"
+    cmd = f"{xmake_var} lua scripts/write_options.lua"
+    # TODO: arguments
+    os.system(cmd)
 
 
 def dump_build_system_options(config: dict):
@@ -502,7 +509,9 @@ submods = [
 
 def init_submodule():
     if os.path.exists('.git'):
-        os.system('git submodule update --init --recursive')
+        for i in range(3):
+            if os.system('git submodule update --init --recursive') == 0:
+                break
     else:
         for s in submods:
             if not os.path.exists(f'src/ext/{s}'):
@@ -591,6 +600,13 @@ def parse_cli_args(args):
     elif 'reldbg' in positional_args:
         parsed_args['mode'] = 'reldbg'
         positional_args.remove('reldbg')
+    
+    if 'ignore_submod' in positional_args:
+        parsed_args['ignore_submod'] = True
+        positional_args.remove('ignore_submod')
+    else:
+        parsed_args['ignore_submod'] = False
+
 
     if positional_args:
         print_red(f'Invalid positional arguments: {positional_args}')
@@ -708,8 +724,8 @@ def main(args: List[str]):
         return
 
     print(parsed_args)
-
-    init_submodule()
+    if not parsed_args.get("ignore_submod"):
+        init_submodule()
 
     # install deps: this is done before config because feature detection may require deps
     if 'install' in parsed_args:
