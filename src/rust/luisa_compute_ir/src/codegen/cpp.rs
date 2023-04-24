@@ -735,7 +735,7 @@ impl GenericCppCodeGen {
                 }
                 true
             }
-            Func::Struct => {
+            Func::Struct | Func::Array => {
                 writeln!(
                     &mut self.body,
                     "const {} {} = {{ {} }};",

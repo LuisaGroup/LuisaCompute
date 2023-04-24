@@ -86,6 +86,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         } else {
             panic!("unsupported target architecture");
         }
+        args.push("-ffast-math");
         args.push("-fno-rtti");
         args.push("-fno-exceptions");
         args.push("-c");
