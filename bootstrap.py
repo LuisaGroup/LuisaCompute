@@ -647,7 +647,7 @@ def init_submodule():
         print_red('We will try to fix the missing submodules but we strongly')
         print_red('recommend that you **clone** the repository with --recursive option.')
         for path, url in git_submodules.items():
-            if not os.path.exists(path):
+            if not os.path.exists(f'{path}/.git'):
                 print(f'Cloning submodule {path} from {url}')
                 for i in range(3):
                     if os.system(f'git clone --recursive {url} {path}') == 0:
