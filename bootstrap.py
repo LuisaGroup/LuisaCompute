@@ -740,7 +740,7 @@ def parse_cli_args(args):
     if 'features' in keyword_args:
         features = keyword_args['features']
         if not keyword_args['features']:
-            print_red('"--feature | -f" is specified on the command line butn o features specified.')
+            print_red('"--feature | -f" is specified on the command line but no features specified.')
             print_help()
             return None
         valid_features = set()
