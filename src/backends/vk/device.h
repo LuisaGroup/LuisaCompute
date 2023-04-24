@@ -1,13 +1,13 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <runtime/device.h>
-#include "../vks/VulkanDevice.h"
+#include "VulkanDevice.h"
 #include <vstl/common.h>
 #include <backends/common/default_binary_io.h>
-#include "../allocator/vk_allocator.h"
+#include "vk_allocator.h"
 namespace lc::hlsl {
 class ShaderCompiler;
-}
+}// namespace lc::hlsl
 namespace lc::vk {
 using namespace luisa;
 using namespace luisa::compute;
@@ -36,6 +36,9 @@ public:
     bool is_pso_same(VkPipelineCacheHeaderVersionOne const &pso);
     auto const &properties() const { return _vk_device->properties; }
     auto const &features() const { return _vk_device->features; }
+    auto graphics_queue_index() const { return _vk_device->queueFamilyIndices.graphics; }
+    auto compute_queue_index() const { return _vk_device->queueFamilyIndices.compute; }
+    auto copy_queue_index() const { return _vk_device->queueFamilyIndices.transfer; }
     Device(Context &&ctx, DeviceConfig const *configs);
     ~Device();
     void *native_handle() const noexcept override;

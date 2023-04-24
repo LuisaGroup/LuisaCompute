@@ -1,7 +1,7 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <core/logging.h>
-#include "vks/VulkanTools.h"
+#include "VulkanTools.h"
 
 namespace lc::vk {
 #ifdef NDEBUG

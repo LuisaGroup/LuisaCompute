@@ -1,4 +1,7 @@
 local lib = import("lib")
+local function is_host(p)
+	return os.host() == p
+end
 local function find_process_path(process)
 	local cut
 	local is_win = is_host("windows")

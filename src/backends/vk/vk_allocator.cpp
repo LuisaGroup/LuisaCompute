@@ -1,8 +1,8 @@
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 #include "vk_allocator.h"
-#include "../runtime/device.h"
-#include "../log.h"
+#include "device.h"
+#include "log.h"
 namespace lc::vk {
 AllocatedBuffer VkAllocator::allocate_buffer(size_t byte_size, VkBufferUsageFlagBits usage, AccessType access) {
     VkBufferCreateInfo bufferInfo = {

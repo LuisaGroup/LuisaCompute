@@ -1,6 +1,6 @@
 #include "compute_shader.h"
 #include "device.h"
-#include "../log.h"
+#include "log.h"
 #include <backends/common/hlsl/hlsl_codegen.h>
 #include <core/stl/filesystem.h>
 #include "shader_serializer.h"
