@@ -166,7 +166,9 @@ def unzip_file(in_path: str, out_path: str):
         raise ValueError(f'Unknown file type: {in_path}')
 
 
-def install_ninja():
+def install_ninja(skip_installed):
+    if skip_installed and os.path.exists(f'{DEPS_DIR}/ninja_bin'):
+        pass
     if sys.platform == 'win32':
         ninja_platform = 'win'
     elif sys.platform == 'linux':
@@ -189,7 +191,9 @@ def install_ninja():
         f.write(ninja_bin)
 
 
-def install_xmake():
+def install_xmake(skip_installed):
+    if skip_installed and os.path.exists(f"{DEPS_DIR}/xmake_bin"):
+        return
     ps_file = download_file("https://fastly.jsdelivr.net/gh/xmake-io/xmake@master/scripts/get.ps1", "get_xmake.ps1")
     with open(ps_file, 'r') as f:
         ps_script = f.read()
@@ -215,7 +219,9 @@ def install_xmake():
             f.write(f"{output_dir}/bin/xmake")
 
 
-def install_cmake():
+def install_cmake(skip_installed):
+    if skip_installed and os.path.exists(f'{DEPS_DIR}/cmake_bin'):
+        return
     if sys.platform == 'win32':
         cmake_platform = 'windows'
         cmake_suffix = 'zip'
@@ -246,7 +252,9 @@ def install_cmake():
             f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake")
 
 
-def install_rust():
+def install_rust(skip_installed):
+    if skip_installed and check_rust():
+        return
     if sys.platform == 'win32':
         # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
         rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe',
@@ -258,18 +266,18 @@ def install_rust():
         raise ValueError(f'Unknown platform: {sys.platform}')
 
 
-def install_deps(deps):
+def install_deps(deps, skip_installed):
     if deps:
         print(f'Installing dependencies: {", ".join(deps)}')
         for dep in deps:
             if dep == 'rust':
-                install_rust()
+                install_rust(skip_installed)
             elif dep == 'ninja':
-                install_ninja()
+                install_ninja(skip_installed)
             elif dep == 'cmake':
-                install_cmake()
+                install_cmake(skip_installed)
             elif dep == 'xmake':
-                install_xmake()
+                install_xmake(skip_installed)
 
 
 def get_config(parsed_args):
@@ -329,7 +337,7 @@ def print_help():
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
-    print('  --ignore-submod        Skip the submodule integrity check')
+    print('  --ignore-submodules    Skip the submodule integrity check')
     print('  --config    | -c       Configure build system')
     print(
         '  --build     | -b [N]   Build with N threads (default: number of CPU cores; this options implies "--config | -c")')
@@ -365,6 +373,7 @@ def print_help():
     print('          cmake              Install CMake')
     print('          xmake              Install xmake')
     print('          ninja              Install Ninja')
+    print('  --skip-installed | -s      Skip installing dependencies that are already installed')
     print('  --output  | -o [folder]    Path to output directory (default: build)')
     print('  -- [args]              Pass arguments to build system')
 
@@ -690,13 +699,16 @@ def parse_cli_args(args):
         '-i': 'install',
         '-t': 'toolchain',
         '-f': "features",
+        '-s': 'skip-installed',
         '--build': 'build',
         '--config': 'config',
         '--clean': 'clean',
         '--output': 'output',
-        '--install': '-i',
-        '--toolchain': '-t',
-        '--features': '-f',
+        '--install': 'install',
+        '--toolchain': 'toolchain',
+        '--features': 'features',
+        '--skip-installed': 'skip-installed',
+        '--ignore-submodules': 'ignore-submodules',
     }
 
     # parse keyword arguments
@@ -850,6 +862,18 @@ def parse_cli_args(args):
                 f'"--config | -C" requires no arguments. The specified value(s) {keyword_args["config"]} will be ignored.')
         parsed_args['config'] = True
 
+    if 'ignore-submodules' in keyword_args:
+        if keyword_args['ignore-submodules']:
+            print_red(
+                f'"--ignore-submodules" requires no arguments. The specified value(s) {keyword_args["ignore-submodules"]} will be ignored.')
+        parsed_args['ignore_submodules'] = True
+
+    if 'skip-installed' in keyword_args:
+        if keyword_args['skip-installed']:
+            print_red(
+                f'"--skip-installed" requires no arguments. The specified value(s) {keyword_args["skip-installed"]} will be ignored.')
+        parsed_args['skip_installed'] = True
+
     # additional args
     parsed_args['additional_args'] = additional_args
 
@@ -932,12 +956,12 @@ def main(args: List[str]):
         return
 
     print(parsed_args)
-    if not parsed_args.get("ignore_submod"):
+    if not parsed_args.get("ignore-submodules"):
         init_submodule()
 
     # install deps: this is done before config because feature detection may require deps
     if 'install' in parsed_args:
-        install_deps(parsed_args['install'])
+        install_deps(parsed_args['install'], parsed_args.get('skip-installed', False))
 
     run_build = 'build' in parsed_args
     run_config = run_build or ('config' in parsed_args and parsed_args['config'])
