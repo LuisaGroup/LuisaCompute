@@ -185,7 +185,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBui
     uint64 varCount = 1;
     luisa::visit(
         [&](auto &&arr) {
-            varCount = arr.size();
+        varCount = arr.size();
         },
         data.view());
     str << "{\n";
@@ -203,11 +203,11 @@ void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuild
     str << "={{";
     luisa::visit(
         [&](auto &&arr) {
-            for (auto const &ele : arr) {
-                PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
-                prt(ele, str);
-                str << ',';
-            }
+        for (auto const &ele : arr) {
+            PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
+            prt(ele, str);
+            str << ',';
+        }
         },
         view);
     auto last = str.end() - 1;
@@ -240,6 +240,12 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             return;
         case Type::Tag::UINT16:
             str << "uint16_t"sv;
+            return;
+        case Type::Tag::INT64:
+            str << "int64_t"sv;
+            return;
+        case Type::Tag::UINT64:
+            str << "uint64_t"sv;
             return;
         case Type::Tag::MATRIX: {
             GetTypeName(*type.element(), str, usage);
@@ -350,12 +356,6 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &funcDec
                 if (i.tag() == Variable::Tag::REFERENCE) {
                     if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) != 0) {
                         data += "inout "sv;
-                    } else {
-                        data += "const "sv;
-                    }
-                } else {
-                    if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) == 0) {
-                        data += "const "sv;
                     }
                 }
                 RegistStructType(i.type());
@@ -941,91 +941,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     PrintArgs();
     str << ')';
 }
-size_t CodegenUtility::GetTypeSize(Type const &t) {
-    switch (t.tag()) {
-        case Type::Tag::BOOL:
-            return 1;
-        case Type::Tag::FLOAT16:
-        case Type::Tag::INT16:
-        case Type::Tag::UINT16:
-            return 2;
-        case Type::Tag::FLOAT32:
-        case Type::Tag::INT32:
-        case Type::Tag::UINT32:
-            return 4;
-        case Type::Tag::VECTOR:
-            switch (t.dimension()) {
-                case 1:
-                    return 4;
-                case 2:
-                    return 8;
-                default:
-                    return 16;
-            }
-        case Type::Tag::MATRIX: {
-            return 4 * t.dimension() * sizeof(float);
-        }
-        case Type::Tag::STRUCTURE: {
-            size_t v = 0;
-            size_t maxAlign = 0;
-            for (auto &&i : t.members()) {
-                auto align = GetTypeAlign(*i);
-                v = detail::CalcAlign(v, align);
-                maxAlign = std::max(align, align);
-                v += GetTypeSize(*i);
-            }
-            v = detail::CalcAlign(v, maxAlign);
-            return v;
-        }
-        case Type::Tag::ARRAY: {
-            return GetTypeSize(*t.element()) * t.dimension();
-        }
-        default:
-            return 0;
-    }
-}
-
-size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
-    switch (t.tag()) {
-        case Type::Tag::BOOL:
-            return 1;
-        case Type::Tag::FLOAT16:
-        case Type::Tag::INT16:
-        case Type::Tag::UINT16:
-            return 2;
-        case Type::Tag::FLOAT32:
-        case Type::Tag::INT32:
-        case Type::Tag::UINT32:
-            return 4;
-            // TODO: incorrect
-        case Type::Tag::VECTOR:
-            switch (t.dimension()) {
-                case 1:
-                    return 4;
-                case 2:
-                    return 8;
-                default:
-                    return 16;
-            }
-        case Type::Tag::MATRIX: {
-            return 16;
-        }
-        case Type::Tag::ARRAY: {
-            return GetTypeAlign(*t.element());
-        }
-        case Type::Tag::STRUCTURE: {
-            return 16;
-        }
-        case Type::Tag::BUFFER:
-        case Type::Tag::TEXTURE:
-        case Type::Tag::ACCEL:
-        case Type::Tag::BINDLESS_ARRAY:
-            return 8;
-        default:
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid type: {}.", t.description());
-    }
-}
 
 template<typename T>
 struct TypeNameStruct {
@@ -1069,7 +984,7 @@ struct TypeNameStruct<luisa::Matrix<t>> {
 void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str) {
     vstd::VariantVisitor_t<basic_types>()(
         [&]<typename T>() {
-            TypeNameStruct<T>()(str);
+        TypeNameStruct<T>()(str);
         },
         typeIndex);
 }
@@ -1088,13 +1003,13 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             auto &&dataView = i.data.view();
             luisa::visit(
                 [&]<typename T>(vstd::span<T> const &sp) {
-                    for (auto i : vstd::range(sp.size())) {
-                        auto &&value = sp[i];
-                        PrintValue<std::remove_cvref_t<T>>()(value, result);
-                        if (i != (sp.size() - 1)) {
-                            result << ',';
-                        }
+                for (auto i : vstd::range(sp.size())) {
+                    auto &&value = sp[i];
+                    PrintValue<std::remove_cvref_t<T>>()(value, result);
+                    if (i != (sp.size() - 1)) {
+                        result << ',';
                     }
+                }
                 },
                 dataView);
             result << "};\n"sv;

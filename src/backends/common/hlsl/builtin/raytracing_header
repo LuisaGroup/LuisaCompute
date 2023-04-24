@@ -46,7 +46,7 @@ q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,mask,ray);
 return q;
 }
 template<typename T, typename Q>
-T RayQueryGetWorldRay(const Q q) {
+T RayQueryGetWorldRay(Q q) {
 float3 o=q.WorldRayOrigin();
 float3 d=q.WorldRayDirection();
 T ray;
@@ -61,7 +61,7 @@ ray.v3=q.CommittedRayT();
 return ray;
 }
 template<typename Q>
-Hit0 GetCommitedHit(const Q q){
+Hit0 GetCommitedHit(Q q){
 Hit0 pl;
 switch(q.CommittedStatus()){
 case COMMITTED_TRIANGLE_HIT:
@@ -85,7 +85,7 @@ break;
 return pl;
 }
 template<typename Q>
-Hit1 GetTriangleCandidateHit(const Q q){
+Hit1 GetTriangleCandidateHit(Q q){
 Hit1 pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
@@ -94,7 +94,7 @@ pl.v3=q.CandidateTriangleRayT();
 return pl;
 }
 template<typename Q>
-Hit2 GetProceduralCandidateHit(const Q q){
+Hit2 GetProceduralCandidateHit(Q q){
 Hit2 pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();

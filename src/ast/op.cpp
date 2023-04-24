@@ -68,9 +68,11 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
                 case Type::Tag::FLOAT16:
                 case Type::Tag::FLOAT32: return lhs;
                 case Type::Tag::INT16:
-                case Type::Tag::INT32: return rhs->tag() == Type::Tag::BOOL ? lhs : rhs;
+                case Type::Tag::INT32:
+                case Type::Tag::INT64: return rhs->tag() == Type::Tag::BOOL ? lhs : rhs;
                 case Type::Tag::UINT16:
-                case Type::Tag::UINT32: return rhs->tag() == Type::Tag::FLOAT32 ? rhs : lhs;
+                case Type::Tag::UINT32:
+                case Type::Tag::UINT64: return rhs->tag() == Type::Tag::FLOAT32 ? rhs : lhs;
                 default: LUISA_ERROR_WITH_LOCATION(
                     "Invalid operand types '{}' and '{}'.",
                     lhs->description(), rhs->description());
