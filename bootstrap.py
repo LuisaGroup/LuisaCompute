@@ -473,7 +473,10 @@ def find_llvm(version):
     found_clang = {}
     candidate_paths = os.environ.get('PATH', '')
     if sys.platform == 'win32':
-        candidate_paths = [p.strip() for p in candidate_paths.split(';') if p.strip()]
+        candidate_paths = [p.replace('\\', '/').strip() for p in candidate_paths.split(';') if p.strip()]
+        clang_from_prog = 'C:/Program Files/LLVM/bin'
+        if os.path.exists(clang_from_prog) and clang_from_prog not in candidate_paths:
+            candidate_paths.append(clang_from_prog)
         clang_from_vs = find_msvc(None, '**/VC/Tools/Llvm/x64/bin/clang.exe')
         if clang_from_vs:
             candidate_paths += [os.path.dirname(x) for x in clang_from_vs]
@@ -491,7 +494,7 @@ def find_llvm(version):
             return None
 
     for path in candidate_paths:
-        clang_exe = os.path.join(path, 'clang')
+        clang_exe = f'{path}/clang'
         clang_version = get_llvm_version(clang_exe)
         if clang_version:
             found_clang[clang_exe] = clang_version
