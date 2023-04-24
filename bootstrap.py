@@ -4,7 +4,7 @@ import sys
 from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
-ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
+ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan', 'tests']
 ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
 ALL_CMAKE_DEPENDENCIES = ['ninja', 'cmake', 'rust']
 ALL_XMAKE_DEPENDENCIES = ['xmake', 'rust']
@@ -97,7 +97,7 @@ def missing_rust_warning():
 def get_available_features():
     global print_missing_rust_warning
     # CPU and Remote are always enabled
-    features = ['dsl', 'python', 'gui']
+    features = ['dsl', 'python', 'gui', 'tests']
     if not check_rust():
         print_missing_rust_warning = True
         features.append('cpu')
@@ -282,9 +282,6 @@ def get_config(parsed_args):
         with open('config.json', 'r') as f:
             config.update(json.load(f))
     config['build_system'] = parsed_args['build_system']
-    if not config['build_system']:
-        # TODO: need raise
-        pass
     if "toolchain" in parsed_args:
         config['toolchain'] = parsed_args['toolchain']
     if "output" in parsed_args:
@@ -330,10 +327,11 @@ def print_help():
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
-    print('Git options: ')
-    print('  ignore_submod          ignore submodule clone')
     print('Options:')
+    print('  --ignore-submod        Skip the submodule integrity check')
     print('  --config    | -c       Configure build system')
+    print(
+        '  --build     | -b [N]   Build with N threads (default: number of CPU cores; this options implies "--config | -c")')
     print('  --toolchain | -t [toolchain]      Configure toolchain (effective only',
           'when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
@@ -352,7 +350,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --build   | -b [N]     Build (N = number of jobs)')
+    print('          [no-]tests         Enable (disable) tests')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
     print('      Dependencies:')
@@ -797,13 +795,17 @@ def config_project(config, build_config):
     print(f'Build System: {build_system}')
     print(f'Configuration')
     print(f'  Mode: {mode}')
-    print(f'  Toolchain: {toolchain}-{toolchain_version}')
+    print(f'  Toolchain: {toolchain}-{toolchain_version if toolchain_version else "default"}')
     print(f'  Output: {output}')
 
     args = build_system_config_args(config, mode, toolchain, toolchain_version)
     if args is None:
         print_red('Failed to generate build system arguments.')
         return 1
+
+    if "additional_args" in config:
+        args += config["additional_args"]
+
     if config['build_system'] == 'cmake':
         cmake_exe = config['cmake_exe']
         ninja_exe = config['ninja_exe']
@@ -876,6 +878,10 @@ def main(args: List[str]):
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4)
 
+    if "build_system" not in config:
+        print_red('Build system not specified. No config, build, or clean will be performed.')
+        return
+
     # dump build system options, e.g., options.cmake and options.lua
     dump_build_system_options(config)
 
@@ -897,13 +903,22 @@ def main(args: List[str]):
                 shutil.rmtree('bin')
 
     if run_config or run_build:
+
         if not os.path.exists(output):
             os.mkdir(output)
+
+        # get toolchain environment
+        environ_backup = dict(os.environ)
+        prepare_toolchain_environment(build_config)
+        build_config["environment"] = {
+            k: v for k, v in os.environ.items()
+            if k not in environ_backup or environ_backup[k] != v
+        }
+
+        # dump build config
         with open(os.path.join(output, 'build_config.json'), 'w') as f:
             json.dump(build_config, f, indent=4)
 
-        # print bootstrap information
-        prepare_toolchain_environment(build_config)
         if config_project(config, build_config) != 0:
             print_red('Failed to configure the project.')
             return 1
@@ -911,7 +926,6 @@ def main(args: List[str]):
             if build_project(config, build_config) != 0:
                 print_red('Failed to build the project.')
                 return 1
-    return 0
 
 
 if __name__ == '__main__':

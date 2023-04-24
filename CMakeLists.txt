@@ -13,6 +13,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(LuisaCompute LANGUAGES C CXX VERSION 0.4.0)
 
+if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(LUISA_COMPUTE_MASTER_PROJECT ON INTERNAL)
+else ()
+    set(LUISA_COMPUTE_MASTER_PROJECT OFF INTERNAL)
+endif ()
+
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/options.cmake")
     message(STATUS "Loading bootstrap options from \"scripts/options.cmake\"")
     include(scripts/options.cmake)
@@ -26,6 +32,14 @@ else ()
     option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" ON)
     option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
+    option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
+endif ()
+
+if (LUISA_COMPUTE_BUILD_TESTS)
+    if (NOT LUISA_COMPUTE_ENABLE_DSL)
+        message(WARNING "DSL is required for tests. The DSL will be enabled.")
+        set(LUISA_COMPUTE_ENABLE_DSL ON CACHE BOOL "Enable C++ DSL" FORCE)
+    endif ()
 endif ()
 
 # check Rust support
@@ -128,14 +142,6 @@ if (NOT CMAKE_INSTALL_PREFIX)
     set(CMAKE_INSTALL_PREFIX "dist")
 endif ()
 
-if (NOT DEFINED LUISA_COMPUTE_MASTER_PROJECT)
-    if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-        set(LUISA_COMPUTE_MASTER_PROJECT ON)
-    else ()
-        set(LUISA_COMPUTE_MASTER_PROJECT OFF)
-    endif ()
-endif ()
-
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -176,7 +182,6 @@ if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     endif ()
 endif ()
 
-option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
 option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build" ON)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -188,7 +193,7 @@ set(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
 include(GNUInstallDirs)
 
-install(FILES README.md README_Python_en.md README_Python_zh.md LICENSE
+install(FILES README.md LICENSE
         TYPE DATA)
 
 add_subdirectory(src)
