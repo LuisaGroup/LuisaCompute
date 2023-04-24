@@ -429,7 +429,10 @@ def find_msvc(version, pattern):
         vswhere_exe = download_file(vswhere_url, 'vswhere.exe')
         with open(f'{DEPS_DIR}/vswhere_bin', 'w') as f:
             f.write(vswhere_exe)
-    if version == 2019 or version == 16:
+
+    if version is None:
+        version_args = []
+    elif version == 2019 or version == 16:
         version_args = ['-version', '[16.0,17.0)']
     elif version == 2022 or version == 17:
         version_args = ['-version', '[17.0,18.0)']
@@ -459,16 +462,23 @@ def find_msvc(version, pattern):
         print_red('Failed to find MSVC')
         return None
 
-    return sorted(output, key=lambda x: parse_msvc_version(x))[-1].replace('\\', '/')
+    sorted_output = [x.replace('\\', '/') for x in sorted(output, key=lambda x: parse_msvc_version(x))]
+    if version is None:
+        return sorted_output
+    else:
+        return sorted_output[-1]
 
 
 def find_llvm(version):
     found_clang = {}
-    env_path = os.environ.get('PATH', '')
+    candidate_paths = os.environ.get('PATH', '')
     if sys.platform == 'win32':
-        env_path = [p.strip() for p in env_path.split(';') if p.strip()]
+        candidate_paths = [p.strip() for p in candidate_paths.split(';') if p.strip()]
+        clang_from_vs = find_msvc(None, '**/VC/Tools/Llvm/x64/bin/clang.exe')
+        if clang_from_vs:
+            candidate_paths += [os.path.dirname(x) for x in clang_from_vs]
     else:
-        env_path = [p.strip() for p in env_path.split(':') if p.strip()]
+        candidate_paths = [p.strip() for p in candidate_paths.split(':') if p.strip()]
 
     def get_llvm_version(clang_exe):
         try:
@@ -480,18 +490,11 @@ def find_llvm(version):
         except:
             return None
 
-    for path in env_path:
+    for path in candidate_paths:
         clang_exe = os.path.join(path, 'clang')
         clang_version = get_llvm_version(clang_exe)
         if clang_version:
             found_clang[clang_exe] = clang_version
-
-    if sys.platform == 'win32':
-        clang_from_vs = find_msvc(0, '**/VC/Tools/Llvm/x64/bin/clang.exe')
-        if clang_from_vs:
-            clang_version = get_llvm_version(clang_from_vs)
-            if clang_version:
-                found_clang[clang_from_vs] = clang_version
 
     if not found_clang:
         print_red('Failed to find LLVM')
