@@ -54,7 +54,7 @@ option_end()
 -- enable tests module
 option("enable_tests")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- python include path

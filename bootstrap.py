@@ -389,6 +389,24 @@ def dump_xmake_options(config: dict):
     cmd = f"{xmake_var} lua scripts/write_options.lua"
     if "toolchain" in config:
         cmd += " toolchain=" + config["toolchain"]
+    features = config['features']
+    if features:
+        if "dsl" in features:
+            cmd += " enable_dsl=true"
+        if "python" in features:
+            cmd += " python=true"
+        if "gui" in features:
+            cmd += " enable_gui=true"
+        if not ("dx" in features):
+            cmd += " dx_backend=false"
+        if not ("vulkan" in features):
+            cmd += " vk_backend=false"
+        if not ("cuda" in features):
+            cmd += " cuda_backend=false"
+        if not ("cpu" in features):
+            cmd += " cpu_backend=false"
+        if not ("metal" in features):
+            cmd += " metal_backend=false"
     os.system(cmd)
 
 

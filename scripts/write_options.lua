@@ -74,6 +74,10 @@ function main(...)
 	end
 	option_file:write("}\n")
 	option_file:write("function get_options()\n\treturn {\n")
+	local py = args["python"] ~= nil
+	if py then
+		args["python"] = nil
+	end
 	for k, v in pairs(args) do
 		if not (v == "true" or v == "false") then
 			v = '"' .. v .. '"'
@@ -85,7 +89,8 @@ function main(...)
 		option_file:write(',\n')
 	end
 	-- python
-	if args["py_include"] == nil and is_host("windows") then
+
+	if py and args["py_include"] == nil and is_host("windows") then
 		local py_path = find_process_path("python.exe")
 		if py_path then
 			option_file:write("\t\tpy_include = \"")
