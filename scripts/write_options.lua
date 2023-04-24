@@ -1,7 +1,7 @@
 local lib = import("lib")
 local function find_process_path(process)
 	local cut
-	local is_win = os.is_host("windows")
+	local is_win = is_host("windows")
 	if is_win then
 		cut = ";"
 	else
@@ -20,9 +20,9 @@ local function find_process_path(process)
 end
 local function find_llvm()
 	local clang_name = "clang"
-	if os.is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
+	if is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
 		return "/usr"
-	elseif os.is_host("macosx") then
+	elseif is_host("macosx") then
 		import("lib.detect.find_tool")
 		local bindir = find_path("llvm-ar", "/usr/local/Cellar/llvm/*/bin")
 		if bindir then
@@ -58,7 +58,7 @@ function main(...)
 		sdk_path = find_llvm()
 		if sdk_path then
 			toolchain = "llvm"
-		elseif os.is_host("windows") then
+		elseif is_host("windows") then
 			toolchain = "msvc"
 		else
 			toolchain = "gcc"
@@ -85,7 +85,7 @@ function main(...)
 		option_file:write(',\n')
 	end
 	-- python
-	if args["py_include"] == nil and os.is_host("windows") then
+	if args["py_include"] == nil and is_host("windows") then
 		local py_path = find_process_path("python.exe")
 		if py_path then
 			option_file:write("\t\tpy_include = \"")
