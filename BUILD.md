@@ -64,7 +64,7 @@ All xmake options declared in ./xmake.lua clearly, you can create ./options.lua 
 
 ```lua
 -- for xmake internal arguments
-lc_config = {
+lc_toolchain = {
 	toolchain = "llvm",
 	sdk = "D:/LLVM"
 }

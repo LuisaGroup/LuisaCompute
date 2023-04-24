@@ -140,9 +140,11 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
                 case Type::Tag::FLOAT16:
                 case Type::Tag::FLOAT32: return float(x);
                 case Type::Tag::INT16:
-                case Type::Tag::INT32: return int(x);
+                case Type::Tag::INT32: 
+                case Type::Tag::INT64: return int(x);
                 case Type::Tag::UINT16:
-                case Type::Tag::UINT32: return uint(x);
+                case Type::Tag::UINT32:
+                case Type::Tag::UINT64: return uint(x);
                 default: LUISA_ERROR_WITH_LOCATION("Invalid type for LiteralExpr: {}", type->description());
             }
         } else {

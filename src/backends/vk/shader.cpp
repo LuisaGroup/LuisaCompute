@@ -1,5 +1,5 @@
 #include "shader.h"
-#include "../log.h"
+#include "log.h"
 #include "device.h"
 namespace lc::vk {
 Shader::Shader(

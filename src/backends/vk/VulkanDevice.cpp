@@ -14,7 +14,7 @@
 #endif
 #include "VulkanDevice.h"
 #include <core/logging.h>
-#include "../log.h"
+#include "log.h"
 namespace vks {
 /**
 	* Default constructor

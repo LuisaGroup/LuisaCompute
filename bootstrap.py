@@ -1,10 +1,12 @@
 import multiprocessing
 import os
 import sys
+import json
+import shutil
 from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
-ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan']
+ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan', 'tests']
 ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
 ALL_CMAKE_DEPENDENCIES = ['ninja', 'cmake', 'rust']
 ALL_XMAKE_DEPENDENCIES = ['xmake', 'rust']
@@ -97,7 +99,7 @@ def missing_rust_warning():
 def get_available_features():
     global print_missing_rust_warning
     # CPU and Remote are always enabled
-    features = ['dsl', 'python', 'gui']
+    features = ['dsl', 'python', 'gui', 'tests']
     if not check_rust():
         print_missing_rust_warning = True
         features.append('cpu')
@@ -278,13 +280,9 @@ def get_config(parsed_args):
     }
     # check if config.json exists
     if os.path.exists('config.json'):
-        import json
         with open('config.json', 'r') as f:
             config.update(json.load(f))
     config['build_system'] = parsed_args['build_system']
-    if not config['build_system']:
-        # TODO: need raise
-        pass
     if "toolchain" in parsed_args:
         config['toolchain'] = parsed_args['toolchain']
     if "output" in parsed_args:
@@ -330,10 +328,11 @@ def print_help():
     print('  release                Release mode (default)')
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
-    print('Git options: ')
-    print('  ignore_submod          ignore submodule clone')
     print('Options:')
+    print('  --ignore-submod        Skip the submodule integrity check')
     print('  --config    | -c       Configure build system')
+    print(
+        '  --build     | -b [N]   Build with N threads (default: number of CPU cores; this options implies "--config | -c")')
     print('  --toolchain | -t [toolchain]      Configure toolchain (effective only',
           'when "--config | -c" or "--build | -b" is specified)')
     print('      Toolchains:')
@@ -352,7 +351,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --build   | -b [N]     Build (N = number of jobs)')
+    print('          [no-]tests         Enable (disable) tests')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
     print('      Dependencies:')
@@ -389,6 +388,24 @@ def dump_xmake_options(config: dict):
     cmd = f"{xmake_var} lua scripts/write_options.lua"
     if "toolchain" in config:
         cmd += " toolchain=" + config["toolchain"]
+    features = config['features']
+    if features:
+        if "dsl" in features:
+            cmd += " enable_dsl=true"
+        if "python" in features:
+            cmd += " python=true"
+        if "gui" in features:
+            cmd += " enable_gui=true"
+        if not ("dx" in features):
+            cmd += " dx_backend=false"
+        if not ("vulkan" in features):
+            cmd += " vk_backend=false"
+        if not ("cuda" in features):
+            cmd += " cuda_backend=false"
+        if not ("cpu" in features):
+            cmd += " cpu_backend=false"
+        if not ("metal" in features):
+            cmd += " metal_backend=false"
     os.system(cmd)
 
 
@@ -422,8 +439,7 @@ def find_msvc(version, pattern):
         version_args = ['-latest']
 
     vswhere_args = [vswhere_exe, '-format', 'json', '-utf8',
-                    '-nologo', '-sort', '-products', '*', '-find', pattern,
-                    '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'] + version_args
+                    '-nologo', '-sort', '-products', '*', '-find', pattern] + version_args
 
     try:
         output = check_output(vswhere_args)
@@ -438,13 +454,53 @@ def find_msvc(version, pattern):
         except:
             return [0, 0, 0]
 
-    import json
     output = json.loads(output.decode('utf-8'))
     if not output:
         print_red('Failed to find MSVC')
         return None
 
     return sorted(output, key=lambda x: parse_msvc_version(x))[-1].replace('\\', '/')
+
+
+def find_llvm(version):
+    found_clang = {}
+    env_path = os.environ.get('PATH', '')
+    if sys.platform == 'win32':
+        env_path = [p.strip() for p in env_path.split(';') if p.strip()]
+    else:
+        env_path = [p.strip() for p in env_path.split(':') if p.strip()]
+
+    def get_llvm_version(clang_exe):
+        try:
+            output = check_output([clang_exe, '--version']).decode('utf-8')
+            index = output.index('clang version')
+            output = output[index:].split('\n')[0].strip()
+            v = [int(x) for x in output.split(' ')[2].split('.')]
+            return v if v[0] == version or version == 0 else None
+        except:
+            return None
+
+    for path in env_path:
+        clang_exe = os.path.join(path, 'clang')
+        clang_version = get_llvm_version(clang_exe)
+        if clang_version:
+            found_clang[clang_exe] = clang_version
+
+    if sys.platform == 'win32':
+        clang_from_vs = find_msvc(0, '**/VC/Tools/Llvm/x64/bin/clang.exe')
+        if clang_from_vs:
+            clang_version = get_llvm_version(clang_from_vs)
+            if clang_version:
+                found_clang[clang_from_vs] = clang_version
+
+    if not found_clang:
+        print_red('Failed to find LLVM')
+        return None
+
+    clang_exe = sorted(found_clang, key=lambda x: found_clang[x])
+    for c in clang_exe:
+        print(f'Found LLVM: {c} (version = {".".join([str(x) for x in found_clang[c]])})')
+    return os.path.dirname(clang_exe[-1])
 
 
 def prepare_msvc_environment(toolchain_version: int):
@@ -458,7 +514,6 @@ def prepare_msvc_environment(toolchain_version: int):
         print_red(f'Failed to dump environment variables: {e}')
         return None
     env_vars = env_vars.decode('utf-8').split('[[ENVIRON]] = ')[1]
-    import json
     env_vars = json.loads(env_vars)
     os.environ.update(env_vars)
 
@@ -488,11 +543,28 @@ def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, tool
         args.append(f'-DCMAKE_C_COMPILER=cl.exe')
         args.append(f'-DCMAKE_CXX_COMPILER=cl.exe')
     elif toolchain == 'llvm':
-        args.append("-DCMAKE_C_COMPILER=clang")
-        args.append("-DCMAKE_CXX_COMPILER=clang++")
-        pass
+        llvm_bin = find_llvm(toolchain_version).replace('\\', '/')
+        if sys.platform == 'win32':
+            args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang.exe")
+            args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang++.exe")
+        else:
+            args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang")
+            args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang++")
     elif toolchain == 'gcc':
-        pass
+        if toolchain_version == 0:
+            gcc_exe = "gcc"
+            gxx_exe = "g++"
+        else:
+            gcc_exe = f"gcc-{toolchain_version}"
+            gxx_exe = f"g++-{toolchain_version}"
+        try:
+            check_output([gcc_exe, '--version'])
+            check_output([gxx_exe, '--version'])
+        except:
+            print_red(f'Failed to find GCC-{toolchain_version}')
+            return None
+        args.append(f"-DCMAKE_C_COMPILER={gcc_exe}")
+        args.append(f"-DCMAKE_CXX_COMPILER={gxx_exe}")
     return args
 
 
@@ -533,7 +605,6 @@ def get_build_config(build_dir, parsed_args):
     }
 
     if os.path.exists(os.path.join(build_dir, 'build_config.json')):
-        import json
         with open(os.path.join(build_dir, 'build_config.json')) as f:
             build_config.update(json.load(f))
 
@@ -545,6 +616,7 @@ def get_build_config(build_dir, parsed_args):
     toolchain = get_default_toolchain()
     if 'toolchain' in parsed_args:
         toolchain = parsed_args['toolchain']
+        build_config.pop('toolchain_version')
     elif 'toolchain' in build_config:
         toolchain = build_config['toolchain']
     toolchain_version = 0
@@ -668,7 +740,7 @@ def parse_cli_args(args):
     if 'features' in keyword_args:
         features = keyword_args['features']
         if not keyword_args['features']:
-            print_red('"--feature | -f" is specified on the command line butn o features specified.')
+            print_red('"--feature | -f" is specified on the command line but no features specified.')
             print_help()
             return None
         valid_features = set()
@@ -779,13 +851,17 @@ def config_project(config, build_config):
     print(f'Build System: {build_system}')
     print(f'Configuration')
     print(f'  Mode: {mode}')
-    print(f'  Toolchain: {toolchain}-{toolchain_version}')
+    print(f'  Toolchain: {toolchain}-{toolchain_version if toolchain_version else "default"}')
     print(f'  Output: {output}')
 
     args = build_system_config_args(config, mode, toolchain, toolchain_version)
     if args is None:
         print_red('Failed to generate build system arguments.')
         return 1
+
+    if "additional_args" in config:
+        args += config["additional_args"]
+
     if config['build_system'] == 'cmake':
         cmake_exe = config['cmake_exe']
         ninja_exe = config['ninja_exe']
@@ -854,9 +930,12 @@ def main(args: List[str]):
     config = get_config(parsed_args)
 
     # write config.json
-    import json
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4)
+
+    if "build_system" not in config:
+        print_red('Build system not specified. No config, build, or clean will be performed.')
+        return
 
     # dump build system options, e.g., options.cmake and options.lua
     dump_build_system_options(config)
@@ -866,7 +945,6 @@ def main(args: List[str]):
     build_config = get_build_config(output, parsed_args)
 
     if "clean" in parsed_args:
-        import shutil
         if os.path.exists(output):
             print(f'Cleaning {output}...')
             shutil.rmtree(output)
@@ -879,13 +957,22 @@ def main(args: List[str]):
                 shutil.rmtree('bin')
 
     if run_config or run_build:
+
         if not os.path.exists(output):
             os.mkdir(output)
+
+        # get toolchain environment
+        environ_backup = dict(os.environ)
+        prepare_toolchain_environment(build_config)
+        build_config["environment"] = {
+            k: v for k, v in os.environ.items()
+            if k not in environ_backup or environ_backup[k] != v
+        }
+
+        # dump build config
         with open(os.path.join(output, 'build_config.json'), 'w') as f:
             json.dump(build_config, f, indent=4)
 
-        # print bootstrap information
-        prepare_toolchain_environment(build_config)
         if config_project(config, build_config) != 0:
             print_red('Failed to configure the project.')
             return 1
@@ -893,7 +980,6 @@ def main(args: List[str]):
             if build_project(config, build_config) != 0:
                 print_red('Failed to build the project.')
                 return 1
-    return 0
 
 
 if __name__ == '__main__':

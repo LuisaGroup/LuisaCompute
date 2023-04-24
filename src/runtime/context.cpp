@@ -21,6 +21,7 @@ struct BackendModule {
     Device::Deleter *deleter;
     BackendDeviceNames *backend_device_names;
 };
+
 struct ValidationLayer {
     using Creator = DeviceInterface *(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native);
     DynamicModule module;
@@ -30,7 +31,9 @@ struct ValidationLayer {
 
 // Make context global, so dynamic modules cannot be redundantly loaded
 namespace detail {
+
 class ContextImpl {
+
 public:
     std::filesystem::path runtime_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
@@ -38,6 +41,7 @@ public:
     ValidationLayer validation_layer;
     luisa::unordered_map<luisa::string, luisa::unique_ptr<std::filesystem::path>> runtime_subdir_paths;
     std::mutex runtime_subdir_mutex;
+
     const BackendModule &create_module(const luisa::string &backend_name) noexcept {
         auto create_new = [&]() {
             if (std::find(installed_backends.cbegin(),
@@ -58,55 +62,53 @@ public:
             .try_emplace(backend_name, luisa::lazy_construct(std::move(create_new)))
             .first->second;
     }
-    ~ContextImpl() {
+    ContextImpl(luisa::string_view program_path) noexcept {
+        std::filesystem::path program{program_path};
+        {
+            auto cp = std::filesystem::canonical(program);
+            if (std::filesystem::is_directory(cp)) { runtime_directory = std::move(cp); }
+            runtime_directory = std::filesystem::canonical(cp.parent_path());
+        }
+        LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
+        LUISA_INFO("Runtime directory: {}.", to_string(runtime_directory));
+        DynamicModule::add_search_path(runtime_directory);
+        for (auto &&p : std::filesystem::directory_iterator{runtime_directory}) {
+            if (auto &&path = p.path();
+                p.is_regular_file() &&
+                (path.extension() == ".so" ||
+                 path.extension() == ".dll" ||
+                 path.extension() == ".dylib")) {
+                using namespace std::string_view_literals;
+                constexpr std::array possible_prefixes{
+                    "lc-backend-"sv,
+                    // Make Mingw happy
+                    "liblc-backend-"sv};
+                auto filename = to_string(path.stem());
+                for (auto prefix : possible_prefixes) {
+                    if (filename.starts_with(prefix)) {
+                        auto name = filename.substr(prefix.size());
+                        for (auto &c : name) { c = static_cast<char>(std::tolower(c)); }
+                        LUISA_INFO_WITH_LOCATION("Found backend: {}.", name);
+                        installed_backends.emplace_back(std::move(name));
+                        break;
+                    }
+                }
+            }
+        }
+        pdqsort(installed_backends.begin(), installed_backends.end());
+        installed_backends.erase(
+            std::unique(installed_backends.begin(), installed_backends.end()),
+            installed_backends.end());
+    }
+    ~ContextImpl() noexcept {
         DynamicModule::remove_search_path(runtime_directory);
     }
 };
-}// namespace detail
-namespace detail {
-
-auto runtime_directory(const std::filesystem::path &p) noexcept {
-    auto cp = std::filesystem::canonical(p);
-    if (std::filesystem::is_directory(cp)) { return cp; }
-    return std::filesystem::canonical(cp.parent_path());
-}
 
 }// namespace detail
 
 Context::Context(string_view program_path) noexcept
-    : _impl{luisa::make_shared<detail::ContextImpl>()} {
-    std::filesystem::path program{program_path};
-    _impl->runtime_directory = detail::runtime_directory(program);
-    LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
-    LUISA_INFO("Runtime directory: {}.", to_string(_impl->runtime_directory));
-    DynamicModule::add_search_path(_impl->runtime_directory);
-    for (auto &&p : std::filesystem::directory_iterator{_impl->runtime_directory}) {
-        if (auto &&path = p.path();
-            p.is_regular_file() &&
-            (path.extension() == ".so" ||
-             path.extension() == ".dll" ||
-             path.extension() == ".dylib")) {
-            using namespace std::string_view_literals;
-            constexpr std::array possible_prefixes{
-                "lc-backend-"sv,
-                // Make Mingw happy
-                "liblc-backend-"sv};
-            auto filename = to_string(path.stem());
-            for (auto prefix : possible_prefixes) {
-                if (filename.starts_with(prefix)) {
-                    auto name = filename.substr(prefix.size());
-                    for (auto &c : name) { c = static_cast<char>(std::tolower(c)); }
-                    LUISA_INFO_WITH_LOCATION("Found backend: {}.", name);
-                    _impl->installed_backends.emplace_back(std::move(name));
-                    break;
-                }
-            }
-        }
-    }
-    pdqsort(_impl->installed_backends.begin(), _impl->installed_backends.end());
-    _impl->installed_backends.erase(
-        std::unique(_impl->installed_backends.begin(), _impl->installed_backends.end()),
-        _impl->installed_backends.end());
+    : _impl{luisa::make_shared<detail::ContextImpl>(program_path)} {
 }
 
 Device Context::create_device(luisa::string_view backend_name_in, const DeviceConfig *settings, bool enable_validation) noexcept {

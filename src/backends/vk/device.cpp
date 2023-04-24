@@ -1,6 +1,6 @@
 #include "device.h"
 #include <core/logging.h>
-#include "../log.h"
+#include "log.h"
 #include <vstl/config.h>
 #include <core/binary_file_stream.h>
 #include "compute_shader.h"

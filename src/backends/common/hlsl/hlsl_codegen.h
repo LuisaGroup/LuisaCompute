@@ -56,8 +56,6 @@ public:
     void GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str);
     // void
     void GetConstantData(ConstantData const &data, vstd::StringBuilder &str);
-    size_t GetTypeAlign(Type const &t);
-    size_t GetTypeSize(Type const &t);
     vstd::StringBuilder GetBasicTypeName(uint64 typeIndex) {
         vstd::StringBuilder s;
         GetBasicTypeName(typeIndex, s);

@@ -32,9 +32,9 @@ private:
 public:
     explicit Context(luisa::shared_ptr<detail::ContextImpl> impl) noexcept;
     // program_path can be first arg from main entry
-    explicit Context(string_view program_path) noexcept;
+    explicit Context(luisa::string_view program_path) noexcept;
     explicit Context(const char *program_path) noexcept
-        : Context{string_view{program_path}} {}
+        : Context{luisa::string_view{program_path}} {}
     ~Context() noexcept;
     Context(Context &&) noexcept = default;
     Context(const Context &) noexcept = default;

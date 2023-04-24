@@ -1,6 +1,6 @@
 #pragma once
 #include "buffer.h"
-#include "../allocator/vk_allocator.h"
+#include "vk_allocator.h"
 namespace lc::vk {
 class ReadbackBuffer : public Buffer {
     AllocatedBuffer _res;

@@ -1448,9 +1448,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                         return static_cast<float>(t);
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
+                    case Type::Tag::INT64:
                         return static_cast<int>(t);
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
+                    case Type::Tag::UINT64:
                         return static_cast<uint>(t);
                     default: return monostate{};
                 }
@@ -1470,9 +1472,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                         return cast_ele.template operator()<float>();
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
+                    case Type::Tag::INT64:
                         return cast_ele.template operator()<int>();
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
+                    case Type::Tag::UINT64:
                         return cast_ele.template operator()<uint>();
                     default: return monostate{};
                 }
@@ -1495,9 +1499,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                             return temp_func.template operator()<dim, float>();
                         case Type::Tag::INT16:
                         case Type::Tag::INT32:
+                        case Type::Tag::INT64:
                             return temp_func.template operator()<dim, int>();
                         case Type::Tag::UINT16:
                         case Type::Tag::UINT32:
+                        case Type::Tag::UINT64:
                             return temp_func.template operator()<dim, uint>();
                         default: return monostate{};
                     }
@@ -1537,9 +1543,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                         return cast_func.template operator()<dim, float>();
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
+                    case Type::Tag::INT64:
                         return cast_func.template operator()<dim, int>();
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
+                    case Type::Tag::UINT64:
                         return cast_func.template operator()<dim, uint>();
                     default: return monostate{};
                 }

@@ -2,7 +2,7 @@
 #include "readback_buffer.h"
 #include "default_buffer.h"
 #include "device.h"
-#include "../log.h"
+#include "log.h"
 namespace lc::vk {
 UploadBuffer::UploadBuffer(Device *device, size_t size_bytes)
     : Buffer{device, size_bytes},

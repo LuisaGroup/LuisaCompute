@@ -32,14 +32,16 @@ function main()
 		for idx = 1, #ss do
 			local i = ss:sub(idx, idx)
 			local d = special_map[i]
+			local str
 			if d ~= nil then
-				f:write("'" .. d .. "'")
+				str = "'" .. d .. "'"
 			else
-				f:write("'" .. i .. "'")
+				str = "'" .. i .. "'"
 			end
 			if idx ~= #ss then
-				f:write(",")
+				str = str .. ","
 			end
+			f:write(str)
 		end
 		f:write("};\nLC_HLSL_EXTERN char *get_")
 		f:write(file)

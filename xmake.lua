@@ -54,7 +54,7 @@ option_end()
 -- enable tests module
 option("enable_tests")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- python include path
@@ -105,14 +105,14 @@ option_end()
 
 -- try options.lua
 includes("scripts/options.lua")
-if lc_config then
-	for k, v in pairs(lc_config) do
+if lc_toolchain then
+	for k, v in pairs(lc_toolchain) do
 		set_config(k, v)
 	end
 end
+includes("scripts/xmake_func.lua")
 
 if is_arch("x64", "x86_64", "arm64") then
-	includes("scripts/xmake_func.lua")
 	local bin_dir = get_config("bin_dir")
 	if (bin_dir) then
 		set_targetdir(bin_dir)

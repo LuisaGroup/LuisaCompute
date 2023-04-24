@@ -82,7 +82,7 @@ before_check(function(option)
 			utils.error("CUDA backend not supported in this platform, force disabled.")
 		end
 	end
-	if enable_tests:enabled() or enable_py:enabled() then
+	if enable_py:enabled() then
 		option:dep("enable_gui"):enable(true, {
 			force = true
 		})

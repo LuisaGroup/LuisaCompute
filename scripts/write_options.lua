@@ -1,7 +1,8 @@
 local lib = import("lib")
+local my_is_host
 local function find_process_path(process)
 	local cut
-	local is_win = os.is_host("windows")
+	local is_win = my_is_host("windows")
 	if is_win then
 		cut = ";"
 	else
@@ -18,11 +19,23 @@ local function find_process_path(process)
 	end
 	return nil
 end
+
+local function sort_key(map, func)
+	local keys = {}
+	for k, v in pairs(map) do
+		table.insert(keys, k)
+	end
+	table.sort(keys)
+	for i, v in ipairs(keys) do
+		func(v, map[v])
+	end
+end
+
 local function find_llvm()
 	local clang_name = "clang"
-	if os.is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
+	if my_is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
 		return "/usr"
-	elseif os.is_host("macosx") then
+	elseif my_is_host("macosx") then
 		import("lib.detect.find_tool")
 		local bindir = find_path("llvm-ar", "/usr/local/Cellar/llvm/*/bin")
 		if bindir then
@@ -38,6 +51,16 @@ local function find_llvm()
 	return nil
 end
 function main(...)
+	-- workaround xmake
+	if type(os.is_host) == "function" then
+		my_is_host = os.is_host
+	elseif type(os.host) == "function" then
+		my_is_host = function(p)
+			return os.host() == p
+		end
+	else
+		my_is_host = is_host
+	end
 	local args = {}
 	for i, v in ipairs({...}) do
 		local kv = lib.string_split(v, "=")
@@ -45,8 +68,8 @@ function main(...)
 			args[kv[1]] = kv[2]
 		end
 	end
-	local option_file = io.open(path.join(os.projectdir(), "scripts/options.lua"), "w")
-	option_file:write("lc_config = {\n")
+	local option_file = io.open(path.join(os.scriptdir(), "options.lua"), "w")
+	option_file:write("lc_toolchain = {\n")
 	local toolchain = args["toolchain"]
 	local sdk_path
 	if toolchain then
@@ -58,7 +81,7 @@ function main(...)
 		sdk_path = find_llvm()
 		if sdk_path then
 			toolchain = "llvm"
-		elseif os.is_host("windows") then
+		elseif my_is_host("windows") then
 			toolchain = "msvc"
 		else
 			toolchain = "gcc"
@@ -72,26 +95,27 @@ function main(...)
 		option_file:write(sdk_path)
 		option_file:write("\",\n")
 	end
-	option_file:write("}\n")
-	option_file:write("function get_options()\n\treturn {\n")
-	for k, v in pairs(args) do
+	option_file:write("}\nfunction get_options()\n\treturn {\n")
+	local py = args["python"] ~= nil
+	if py then
+		args["python"] = nil
+	end
+	sort_key(args, function(k, v)
 		if not (v == "true" or v == "false") then
 			v = '"' .. v .. '"'
 		end
 		option_file:write("\t\t")
-		option_file:write(k)
-		option_file:write(" = ")
-		option_file:write(v)
+		option_file:write(k .. " = " .. v)
 		option_file:write(',\n')
-	end
+	end)
 	-- python
-	if args["py_include"] == nil and os.is_host("windows") then
+
+	if py and args["py_include"] == nil and my_is_host("windows") then
 		local py_path = find_process_path("python.exe")
 		if py_path then
 			option_file:write("\t\tpy_include = \"")
 			option_file:write(lib.string_replace(path.join(py_path, "include"), "\\", "/"))
-			option_file:write("\",\n")
-			option_file:write("\t\tpy_linkdir = \"")
+			option_file:write("\",\n\t\tpy_linkdir = \"")
 			local py_linkdir = path.join(py_path, "libs")
 			option_file:write(lib.string_replace(py_linkdir, "\\", "/"))
 			local py = "python"
