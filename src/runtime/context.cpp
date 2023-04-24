@@ -21,6 +21,7 @@ struct BackendModule {
     Device::Deleter *deleter;
     BackendDeviceNames *backend_device_names;
 };
+
 struct ValidationLayer {
     using Creator = DeviceInterface *(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native);
     DynamicModule module;
@@ -30,7 +31,9 @@ struct ValidationLayer {
 
 // Make context global, so dynamic modules cannot be redundantly loaded
 namespace detail {
+
 class ContextImpl {
+
 public:
     std::filesystem::path runtime_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
@@ -38,6 +41,7 @@ public:
     ValidationLayer validation_layer;
     luisa::unordered_map<luisa::string, luisa::unique_ptr<std::filesystem::path>> runtime_subdir_paths;
     std::mutex runtime_subdir_mutex;
+
     const BackendModule &create_module(const luisa::string &backend_name) noexcept {
         auto create_new = [&]() {
             if (std::find(installed_backends.cbegin(),
@@ -100,6 +104,7 @@ public:
         DynamicModule::remove_search_path(runtime_directory);
     }
 };
+
 }// namespace detail
 
 Context::Context(string_view program_path) noexcept

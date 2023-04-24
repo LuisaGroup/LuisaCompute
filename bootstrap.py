@@ -1,6 +1,8 @@
 import multiprocessing
 import os
 import sys
+import json
+import shutil
 from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
@@ -278,7 +280,6 @@ def get_config(parsed_args):
     }
     # check if config.json exists
     if os.path.exists('config.json'):
-        import json
         with open('config.json', 'r') as f:
             config.update(json.load(f))
     config['build_system'] = parsed_args['build_system']
@@ -438,8 +439,7 @@ def find_msvc(version, pattern):
         version_args = ['-latest']
 
     vswhere_args = [vswhere_exe, '-format', 'json', '-utf8',
-                    '-nologo', '-sort', '-products', '*', '-find', pattern,
-                    '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'] + version_args
+                    '-nologo', '-sort', '-products', '*', '-find', pattern] + version_args
 
     try:
         output = check_output(vswhere_args)
@@ -454,13 +454,53 @@ def find_msvc(version, pattern):
         except:
             return [0, 0, 0]
 
-    import json
     output = json.loads(output.decode('utf-8'))
     if not output:
         print_red('Failed to find MSVC')
         return None
 
     return sorted(output, key=lambda x: parse_msvc_version(x))[-1].replace('\\', '/')
+
+
+def find_llvm(version):
+    found_clang = {}
+    env_path = os.environ.get('PATH', '')
+    if sys.platform == 'win32':
+        env_path = [p.strip() for p in env_path.split(';') if p.strip()]
+    else:
+        env_path = [p.strip() for p in env_path.split(':') if p.strip()]
+
+    def get_llvm_version(clang_exe):
+        try:
+            output = check_output([clang_exe, '--version']).decode('utf-8')
+            index = output.index('clang version')
+            output = output[index:].split('\n')[0].strip()
+            v = [int(x) for x in output.split(' ')[2].split('.')]
+            return v if v[0] == version or version == 0 else None
+        except:
+            return None
+
+    for path in env_path:
+        clang_exe = os.path.join(path, 'clang')
+        clang_version = get_llvm_version(clang_exe)
+        if clang_version:
+            found_clang[clang_exe] = clang_version
+
+    if sys.platform == 'win32':
+        clang_from_vs = find_msvc(0, '**/VC/Tools/Llvm/x64/bin/clang.exe')
+        if clang_from_vs:
+            clang_version = get_llvm_version(clang_from_vs)
+            if clang_version:
+                found_clang[clang_from_vs] = clang_version
+
+    if not found_clang:
+        print_red('Failed to find LLVM')
+        return None
+
+    clang_exe = sorted(found_clang, key=lambda x: found_clang[x])
+    for c in clang_exe:
+        print(f'Found LLVM: {c} (version = {".".join([str(x) for x in found_clang[c]])})')
+    return os.path.dirname(clang_exe[-1])
 
 
 def prepare_msvc_environment(toolchain_version: int):
@@ -474,7 +514,6 @@ def prepare_msvc_environment(toolchain_version: int):
         print_red(f'Failed to dump environment variables: {e}')
         return None
     env_vars = env_vars.decode('utf-8').split('[[ENVIRON]] = ')[1]
-    import json
     env_vars = json.loads(env_vars)
     os.environ.update(env_vars)
 
@@ -504,11 +543,28 @@ def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, tool
         args.append(f'-DCMAKE_C_COMPILER=cl.exe')
         args.append(f'-DCMAKE_CXX_COMPILER=cl.exe')
     elif toolchain == 'llvm':
-        args.append("-DCMAKE_C_COMPILER=clang")
-        args.append("-DCMAKE_CXX_COMPILER=clang++")
-        pass
+        llvm_bin = find_llvm(toolchain_version).replace('\\', '/')
+        if sys.platform == 'win32':
+            args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang.exe")
+            args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang++.exe")
+        else:
+            args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang")
+            args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang++")
     elif toolchain == 'gcc':
-        pass
+        if toolchain_version == 0:
+            gcc_exe = "gcc"
+            gxx_exe = "g++"
+        else:
+            gcc_exe = f"gcc-{toolchain_version}"
+            gxx_exe = f"g++-{toolchain_version}"
+        try:
+            check_output([gcc_exe, '--version'])
+            check_output([gxx_exe, '--version'])
+        except:
+            print_red(f'Failed to find GCC-{toolchain_version}')
+            return None
+        args.append(f"-DCMAKE_C_COMPILER={gcc_exe}")
+        args.append(f"-DCMAKE_CXX_COMPILER={gxx_exe}")
     return args
 
 
@@ -549,7 +605,6 @@ def get_build_config(build_dir, parsed_args):
     }
 
     if os.path.exists(os.path.join(build_dir, 'build_config.json')):
-        import json
         with open(os.path.join(build_dir, 'build_config.json')) as f:
             build_config.update(json.load(f))
 
@@ -561,6 +616,7 @@ def get_build_config(build_dir, parsed_args):
     toolchain = get_default_toolchain()
     if 'toolchain' in parsed_args:
         toolchain = parsed_args['toolchain']
+        build_config.pop('toolchain_version')
     elif 'toolchain' in build_config:
         toolchain = build_config['toolchain']
     toolchain_version = 0
@@ -874,7 +930,6 @@ def main(args: List[str]):
     config = get_config(parsed_args)
 
     # write config.json
-    import json
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4)
 
@@ -890,7 +945,6 @@ def main(args: List[str]):
     build_config = get_build_config(output, parsed_args)
 
     if "clean" in parsed_args:
-        import shutil
         if os.path.exists(output):
             print(f'Cleaning {output}...')
             shutil.rmtree(output)
