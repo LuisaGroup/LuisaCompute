@@ -660,6 +660,7 @@ def init_submodule():
                 print(f'Cloning submodule {path} from {url}')
                 for i in range(3):
                     if os.system(f'git clone --recursive {url} {path}') == 0:
+                        call(['git', 'submodule', 'update', '--init', '--recursive'], cwd=path)
                         break
     for s in git_submodules:
         if not os.path.exists(s):
