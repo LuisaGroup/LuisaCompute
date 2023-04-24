@@ -596,13 +596,6 @@ def build_system_config_args(config, mode, toolchain, toolchain_version):
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
 
-submods = [
-    'corrosion',
-    'EASTL',
-    ## TODO: add more submodules here
-]
-
-
 def get_build_config(build_dir, parsed_args):
     build_config = {
         'mode': 'release',
@@ -638,16 +631,32 @@ def get_build_config(build_dir, parsed_args):
 
 
 def init_submodule():
+    import configparser
+    git_submodules = configparser.ConfigParser()
+    git_submodules.read(".gitmodules")
+    git_submodules = {git_submodules[sec]['path']: git_submodules[sec]['url']
+                      for sec in git_submodules.sections()}
+
     if os.path.exists('.git'):
         for i in range(3):
             if os.system('git submodule update --init --recursive') == 0:
                 break
     else:
-        for s in submods:
-            if not os.path.exists(f'src/ext/{s}'):
-                print(f'Fatal error: submodule in src/ext/{s} not found.', file=sys.stderr)
-                print('Please clone the repository with --recursive option.', file=sys.stderr)
-                sys.exit(1)
+        print_red('Warning: this repository seems not to be a git repository.')
+        print_red('It is likely you have download the zip file from GitHub.')
+        print_red('We will try to fix the missing submodules but we strongly')
+        print_red('recommend that you **clone** the repository with --recursive option.')
+        for path, url in git_submodules.items():
+            if not os.path.exists(path):
+                print(f'Cloning submodule {path} from {url}')
+                for i in range(3):
+                    if os.system(f'git clone --recursive {url} {path}') == 0:
+                        break
+    for s in git_submodules:
+        if not os.path.exists(s):
+            print_red(f'Fatal error: submodule in {s} not found.')
+            print_red('Please clone the repository with --recursive option.')
+            sys.exit(1)
 
 
 def parse_cli_args(args):
