@@ -105,8 +105,8 @@ option_end()
 
 -- try options.lua
 includes("scripts/options.lua")
-if lc_config then
-	for k, v in pairs(lc_config) do
+if lc_toolchain then
+	for k, v in pairs(lc_toolchain) do
 		set_config(k, v)
 	end
 end
