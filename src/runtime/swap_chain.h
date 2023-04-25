@@ -14,7 +14,7 @@ class LC_RUNTIME_API SwapChain final : public Resource {
 
 public:
     struct Present {
-        const SwapChain *chain;
+        const SwapChain *chain{nullptr};
         ImageView<float> frame;
     };
 
