@@ -147,7 +147,6 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
     LUISA_ASSERT(instance_count > 0u, "Instance count must be greater than 0.");
-    printf("instance count: %d\n", instance_count);
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
         auto old_instance_buffer = _instance_buffer;
         auto new_instance_buffer_size = next_pow2(size);

@@ -3,7 +3,8 @@ luisa_compute_add_executable(test_main
         common/config.h
         common/doctest.h
         common/cornell_box.h
-        common/tiny_obj_loader.h)
+        common/tiny_obj_loader.h
+        common/tinyexr.h)
 
 function(luisa_compute_add_test name)
     target_sources(test_main PRIVATE test_${name}.cpp)
@@ -33,6 +34,7 @@ luisa_compute_add_executable(test_runtime test_runtime.cpp)
 luisa_compute_add_executable(test_printer test_printer.cpp)
 luisa_compute_add_executable(test_callable test_callable.cpp)
 luisa_compute_add_executable(test_texture_io test_texture_io.cpp)
+luisa_compute_add_executable(test_texture_compress test_texture_compress.cpp)
 luisa_compute_add_executable(test_atomic test_atomic.cpp)
 luisa_compute_add_executable(test_bindless test_bindless.cpp)
 luisa_compute_add_executable(test_sampler test_sampler.cpp)
@@ -53,6 +55,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_shader_toy test_shader_toy.cpp)
     luisa_compute_add_executable(test_path_tracing test_path_tracing.cpp)
     luisa_compute_add_executable(test_path_tracing_camera test_path_tracing_camera.cpp)
+    luisa_compute_add_executable(test_denoiser test_denoiser.cpp)
     luisa_compute_add_executable(test_path_tracing_cutout test_path_tracing_cutout.cpp)
     luisa_compute_add_executable(test_normal_encoding test_normal_encoding.cpp)
     luisa_compute_add_executable(test_mpm88 test_mpm88.cpp)

@@ -166,7 +166,9 @@ def unzip_file(in_path: str, out_path: str):
         raise ValueError(f'Unknown file type: {in_path}')
 
 
-def install_ninja():
+def install_ninja(skip_installed):
+    if skip_installed and os.path.exists(f'{DEPS_DIR}/ninja_bin'):
+        pass
     if sys.platform == 'win32':
         ninja_platform = 'win'
     elif sys.platform == 'linux':
@@ -189,7 +191,9 @@ def install_ninja():
         f.write(ninja_bin)
 
 
-def install_xmake():
+def install_xmake(skip_installed):
+    if skip_installed and os.path.exists(f"{DEPS_DIR}/xmake_bin"):
+        return
     ps_file = download_file("https://fastly.jsdelivr.net/gh/xmake-io/xmake@master/scripts/get.ps1", "get_xmake.ps1")
     with open(ps_file, 'r') as f:
         ps_script = f.read()
@@ -215,7 +219,9 @@ def install_xmake():
             f.write(f"{output_dir}/bin/xmake")
 
 
-def install_cmake():
+def install_cmake(skip_installed):
+    if skip_installed and os.path.exists(f'{DEPS_DIR}/cmake_bin'):
+        return
     if sys.platform == 'win32':
         cmake_platform = 'windows'
         cmake_suffix = 'zip'
@@ -246,7 +252,9 @@ def install_cmake():
             f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake")
 
 
-def install_rust():
+def install_rust(skip_installed):
+    if skip_installed and check_rust():
+        return
     if sys.platform == 'win32':
         # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
         rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe',
@@ -258,18 +266,18 @@ def install_rust():
         raise ValueError(f'Unknown platform: {sys.platform}')
 
 
-def install_deps(deps):
+def install_deps(deps, skip_installed):
     if deps:
         print(f'Installing dependencies: {", ".join(deps)}')
         for dep in deps:
             if dep == 'rust':
-                install_rust()
+                install_rust(skip_installed)
             elif dep == 'ninja':
-                install_ninja()
+                install_ninja(skip_installed)
             elif dep == 'cmake':
-                install_cmake()
+                install_cmake(skip_installed)
             elif dep == 'xmake':
-                install_xmake()
+                install_xmake(skip_installed)
 
 
 def get_config(parsed_args):
@@ -329,7 +337,7 @@ def print_help():
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
-    print('  --ignore-submod        Skip the submodule integrity check')
+    print('  --ignore-submodules    Skip the submodule integrity check')
     print('  --config    | -c       Configure build system')
     print(
         '  --build     | -b [N]   Build with N threads (default: number of CPU cores; this options implies "--config | -c")')
@@ -365,6 +373,7 @@ def print_help():
     print('          cmake              Install CMake')
     print('          xmake              Install xmake')
     print('          ninja              Install Ninja')
+    print('  --skip-installed | -s      Skip installing dependencies that are already installed')
     print('  --output  | -o [folder]    Path to output directory (default: build)')
     print('  -- [args]              Pass arguments to build system')
 
@@ -429,7 +438,10 @@ def find_msvc(version, pattern):
         vswhere_exe = download_file(vswhere_url, 'vswhere.exe')
         with open(f'{DEPS_DIR}/vswhere_bin', 'w') as f:
             f.write(vswhere_exe)
-    if version == 2019 or version == 16:
+
+    if version is None:
+        version_args = []
+    elif version == 2019 or version == 16:
         version_args = ['-version', '[16.0,17.0)']
     elif version == 2022 or version == 17:
         version_args = ['-version', '[17.0,18.0)']
@@ -459,16 +471,26 @@ def find_msvc(version, pattern):
         print_red('Failed to find MSVC')
         return None
 
-    return sorted(output, key=lambda x: parse_msvc_version(x))[-1].replace('\\', '/')
+    sorted_output = [x.replace('\\', '/') for x in sorted(output, key=lambda x: parse_msvc_version(x))]
+    if version is None:
+        return sorted_output
+    else:
+        return sorted_output[-1]
 
 
 def find_llvm(version):
     found_clang = {}
-    env_path = os.environ.get('PATH', '')
+    candidate_paths = os.environ.get('PATH', '')
     if sys.platform == 'win32':
-        env_path = [p.strip() for p in env_path.split(';') if p.strip()]
+        candidate_paths = [p.replace('\\', '/').strip() for p in candidate_paths.split(';') if p.strip()]
+        clang_from_prog = 'C:/Program Files/LLVM/bin'
+        if os.path.exists(clang_from_prog) and clang_from_prog not in candidate_paths:
+            candidate_paths.append(clang_from_prog)
+        clang_from_vs = find_msvc(None, '**/VC/Tools/Llvm/x64/bin/clang.exe')
+        if clang_from_vs:
+            candidate_paths += [os.path.dirname(x) for x in clang_from_vs]
     else:
-        env_path = [p.strip() for p in env_path.split(':') if p.strip()]
+        candidate_paths = [p.strip() for p in candidate_paths.split(':') if p.strip()]
 
     def get_llvm_version(clang_exe):
         try:
@@ -480,18 +502,11 @@ def find_llvm(version):
         except:
             return None
 
-    for path in env_path:
-        clang_exe = os.path.join(path, 'clang')
+    for path in candidate_paths:
+        clang_exe = f'{path}/clang'
         clang_version = get_llvm_version(clang_exe)
         if clang_version:
             found_clang[clang_exe] = clang_version
-
-    if sys.platform == 'win32':
-        clang_from_vs = find_msvc(0, '**/VC/Tools/Llvm/x64/bin/clang.exe')
-        if clang_from_vs:
-            clang_version = get_llvm_version(clang_from_vs)
-            if clang_version:
-                found_clang[clang_from_vs] = clang_version
 
     if not found_clang:
         print_red('Failed to find LLVM')
@@ -590,13 +605,6 @@ def build_system_config_args(config, mode, toolchain, toolchain_version):
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
 
-submods = [
-    'corrosion',
-    'EASTL',
-    ## TODO: add more submodules here
-]
-
-
 def get_build_config(build_dir, parsed_args):
     build_config = {
         'mode': 'release',
@@ -632,16 +640,40 @@ def get_build_config(build_dir, parsed_args):
 
 
 def init_submodule():
+    import configparser
+    git_submodules = configparser.ConfigParser()
+    git_submodules.read(".gitmodules")
+    git_submodules = {git_submodules[sec]['path']: git_submodules[sec]['url']
+                      for sec in git_submodules.sections()}
+
     if os.path.exists('.git'):
         for i in range(3):
             if os.system('git submodule update --init --recursive') == 0:
                 break
     else:
-        for s in submods:
-            if not os.path.exists(f'src/ext/{s}'):
-                print(f'Fatal error: submodule in src/ext/{s} not found.', file=sys.stderr)
-                print('Please clone the repository with --recursive option.', file=sys.stderr)
-                sys.exit(1)
+        print_red('Warning: this repository seems not to be a git repository.')
+        print_red('It is likely you have download the zip file from GitHub.')
+        print_red('We will try to fix the missing submodules but we strongly')
+        print_red('recommend that you **clone** the repository with --recursive option.')
+        for path, url in git_submodules.items():
+            if not os.path.exists(f'{path}/.git'):
+                print(f'Cloning submodule {path} from {url}')
+                for i in range(3):
+                    if os.system(f'git clone --recursive {url} {path}') == 0:
+                        break
+            else:
+                print(f'Updating submodule {path}')
+                for i in range(3):
+                    if call(['git', 'pull'], cwd=path) == 0:
+                        break
+                for i in range(3):
+                    if call(['git', 'submodule', 'update', '--init', '--recursive'], cwd=path) == 0:
+                        break
+    for s in git_submodules:
+        if not os.path.exists(s):
+            print_red(f'Fatal error: submodule in {s} not found.')
+            print_red('Please clone the repository with --recursive option.')
+            sys.exit(1)
 
 
 def parse_cli_args(args):
@@ -675,13 +707,16 @@ def parse_cli_args(args):
         '-i': 'install',
         '-t': 'toolchain',
         '-f': "features",
+        '-s': 'skip-installed',
         '--build': 'build',
         '--config': 'config',
         '--clean': 'clean',
         '--output': 'output',
-        '--install': '-i',
-        '--toolchain': '-t',
-        '--features': '-f',
+        '--install': 'install',
+        '--toolchain': 'toolchain',
+        '--features': 'features',
+        '--skip-installed': 'skip-installed',
+        '--ignore-submodules': 'ignore-submodules',
     }
 
     # parse keyword arguments
@@ -835,6 +870,18 @@ def parse_cli_args(args):
                 f'"--config | -C" requires no arguments. The specified value(s) {keyword_args["config"]} will be ignored.')
         parsed_args['config'] = True
 
+    if 'ignore-submodules' in keyword_args:
+        if keyword_args['ignore-submodules']:
+            print_red(
+                f'"--ignore-submodules" requires no arguments. The specified value(s) {keyword_args["ignore-submodules"]} will be ignored.')
+        parsed_args['ignore_submodules'] = True
+
+    if 'skip-installed' in keyword_args:
+        if keyword_args['skip-installed']:
+            print_red(
+                f'"--skip-installed" requires no arguments. The specified value(s) {keyword_args["skip-installed"]} will be ignored.')
+        parsed_args['skip_installed'] = True
+
     # additional args
     parsed_args['additional_args'] = additional_args
 
@@ -917,12 +964,12 @@ def main(args: List[str]):
         return
 
     print(parsed_args)
-    if not parsed_args.get("ignore_submod"):
+    if not parsed_args.get("ignore-submodules"):
         init_submodule()
 
     # install deps: this is done before config because feature detection may require deps
     if 'install' in parsed_args:
-        install_deps(parsed_args['install'])
+        install_deps(parsed_args['install'], parsed_args.get('skip-installed', False))
 
     run_build = 'build' in parsed_args
     run_config = run_build or ('config' in parsed_args and parsed_args['config'])

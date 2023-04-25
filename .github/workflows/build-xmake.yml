@@ -22,8 +22,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
-      - name: "Setup XMake"
-        run: curl -fsSL https://xmake.io/shget.text | bash
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
       - name: "Setup CUDA"
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
@@ -32,48 +33,38 @@ jobs:
           sudo apt-get -y install cuda
       - name: "Configure and Build"
         run: |
-          if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            export LUISA_CC=gcc-${{ matrix.gcc }}
-            export LUISA_CXX=g++-${{ matrix.gcc }}
-            export LUISA_FLAGS=""
-          else
-            export LUISA_CC=clang-${{ matrix.llvm }}
-            export LUISA_CXX=clang++-${{ matrix.llvm }}
-            export LUISA_FLAGS="-stdlib=libc++"
-          fi
-          curl -fsSL https://xmake.io/shget.text | bash
           xmake f -p linux -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
 
-#  build-macos:
-#    strategy:
-#      fail-fast: false
-#      matrix:
-#        os: [ macos-11, macos-12 ]
-#        compiler: [ homebrew-clang, system-clang ]
-#        config: [ Release, Debug ]
-#        exclude:
-#          - os: macos-11
-#            compiler: system-clang
-#    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-#    runs-on: ${{ matrix.os }}
-#    steps:
-#      - uses: actions/checkout@v3
-#        with:
-#          submodules: recursive
-#      - name: "Install Dependencies"
-#        run: |
-#          brew install cmake ninja opencv llvm sccache glfw
-#      - name: "Configure and Build"
-#        run: |
-#          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
-#            export PATH=/usr/local/opt/llvm/bin:$PATH
-#          fi
-#          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
-#          cmake --build build
-#      - name: "Install"
-#        run: |
-#          sudo cmake --install build --prefix dist -v
+  #  build-macos:
+  #    strategy:
+  #      fail-fast: false
+  #      matrix:
+  #        os: [ macos-11, macos-12 ]
+  #        compiler: [ homebrew-clang, system-clang ]
+  #        config: [ Release, Debug ]
+  #        exclude:
+  #          - os: macos-11
+  #            compiler: system-clang
+  #    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+  #    runs-on: ${{ matrix.os }}
+  #    steps:
+  #      - uses: actions/checkout@v3
+  #        with:
+  #          submodules: recursive
+  #      - name: "Install Dependencies"
+  #        run: |
+  #          brew install cmake ninja opencv llvm sccache glfw
+  #      - name: "Configure and Build"
+  #        run: |
+  #          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
+  #            export PATH=/usr/local/opt/llvm/bin:$PATH
+  #          fi
+  #          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
+  #          cmake --build build
+  #      - name: "Install"
+  #        run: |
+  #          sudo cmake --install build --prefix dist -v
 
   build-windows:
     strategy:
@@ -88,12 +79,13 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
       - name: "Configure and Build"
         shell: powershell
         run: |
-          Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
-          xmake update
           xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true
           xmake

@@ -25,6 +25,7 @@ if (CUDAToolkit_FOUND)
             cuda_shader_metadata.cpp cuda_shader_metadata.h
             cuda_shader_native.cpp cuda_shader_native.h
             cuda_shader_optix.cpp cuda_shader_optix.h
+            cuda_ext.cpp cuda_ext.h
             cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h

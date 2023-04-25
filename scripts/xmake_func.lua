@@ -162,6 +162,9 @@ on_config(function(target)
 			target:add("cxflags", "-stdlib=libc++", {
 				force = true
 			})
+			target:add("syslinks", "c++", {
+				force = true
+			})
 		end
 	end
 end)
@@ -219,7 +222,10 @@ on_load(function(target)
 			tools = {"clang_cl", "cl"}
 		})
 		target:add("cxflags", "-fno-rtti", "-fno-rtti-data", {
-			tools = {"clang", "gcc"}
+			tools = {"clang"}
+		})
+		target:add("cxflags", "-fno-rtti", {
+			tools = {"gcc"}
 		})
 	end
 end)
