@@ -35,6 +35,7 @@
 #include <backends/cuda/cuda_shader_native.h>
 #include <backends/cuda/cuda_shader_optix.h>
 #include <backends/cuda/cuda_shader_metadata.h>
+#include <backends/cuda/cuda_ext.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_swapchain.h>
 
@@ -90,7 +91,14 @@ CUDADevice::CUDADevice(Context &&ctx,
                        const BinaryIO *io) noexcept
     : DeviceInterface{std::move(ctx)},
       _handle{device_id}, _io{io} {
-
+    exts.try_emplace(
+        DenoiserExt::name,
+        [](CUDADevice *device) -> DeviceExtension * {
+            return new CUDADenoiserExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<CUDADenoiserExt *>(ext);
+        });
     // provide a default binary IO
     if (_io == nullptr) {
         _default_io = luisa::make_unique<DefaultBinaryIO>(context(), "cuda");
@@ -726,8 +734,17 @@ string CUDADevice::query(luisa::string_view property) noexcept {
 }
 
 DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
-    LUISA_WARNING_WITH_LOCATION("Device extension '{}' is not implemented.", name);
-    return nullptr;
+    
+   auto ite = exts.find(name);
+    if (ite == exts.end()) return nullptr;
+    auto &v = ite->second;
+    {
+        std::lock_guard lck{extMtx};
+        if (v.ext == nullptr) {
+            v.ext = v.ctor(this);
+        }
+    }
+    return v.ext;
 }
 
 CUDADevice::Handle::Handle(size_t index) noexcept {
