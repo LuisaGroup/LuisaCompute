@@ -219,7 +219,10 @@ on_load(function(target)
 			tools = {"clang_cl", "cl"}
 		})
 		target:add("cxflags", "-fno-rtti", "-fno-rtti-data", {
-			tools = {"clang", "gcc"}
+			tools = {"clang"}
+		})
+		target:add("cxflags", "-fno-rtti", {
+			tools = {"gcc"}
 		})
 	end
 end)
