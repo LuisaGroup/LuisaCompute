@@ -1,16 +1,4 @@
-target("lc-backend-common")
-_config_project({
-	project_kind = "static",
-	batch_size = 4
-})
-add_deps("lc-core")
-add_files("string_scratch.cpp", "default_binary_io.cpp")
-if get_config("cpu_backend") then
-	add_deps("lc-rust")
-	add_files("rust_device_common.cpp")
-end
 if get_config("vk_backend") or get_config("dx_backend") then
-	add_files("hlsl/*.cpp")
 	includes("hlsl/builtin")
 end
 

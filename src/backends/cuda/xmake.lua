@@ -8,8 +8,8 @@ if get_config("_lc_vk_path") then
 	add_rules("lc_vulkan")
 	add_deps("lc-vk-swapchain")
 end
-add_deps("lc-runtime", "lc-backend-common")
-add_files("**.cpp")
+add_deps("lc-runtime")
+add_files("**.cpp","../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)
 	local cuda_path = os.getenv("CUDA_PATH")
 	if cuda_path then

@@ -3,8 +3,8 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 8
 })
-add_deps("lc-runtime", "lc-vstl", "lc-backend-common")
-add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp")
+add_deps("lc-runtime", "lc-vstl")
+add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp", "../common/default_binary_io.cpp", "../common/hlsl/*.cpp")
 add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
 if is_plat("windows") then
