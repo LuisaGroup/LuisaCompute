@@ -531,7 +531,7 @@ int main(int argc, char *argv[]) {
                        << denoised_image.copy_to(host_image.data())
                        << synchronize();
                 stream << cmd_list.commit() << swap_chain.present(ldr_image);
-                window.pool_event();
+                window.poll_events();
                 Sleep(400);
 
                 luisa::string output_file = "soane-output-";
@@ -601,7 +601,7 @@ int main(int argc, char *argv[]) {
                        << denoised_image.copy_to(host_image.data())
                        << synchronize();
                 stream << cmd_list.commit() << swap_chain.present(ldr_image);
-                window.pool_event();
+                window.poll_events();
                 Sleep(400);
                 SaveEXR(
                     reinterpret_cast<float *>(host_image.data()),
@@ -627,7 +627,7 @@ int main(int argc, char *argv[]) {
                    << accum_image.copy_to(host_image.data())
                    << synchronize();
             stream << cmd_list.commit() << swap_chain.present(ldr_image);
-            window.pool_event();
+            window.poll_events();
             Sleep(400);
             SaveEXR(
                 reinterpret_cast<float *>(host_image.data()),
@@ -699,7 +699,7 @@ int main(int argc, char *argv[]) {
         cmd_list << combine_shader(hdr_image, denoised_image, combined_image).dispatch(resolution);
         cmd_list << hdr2ldr_shader(combined_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
         stream << cmd_list.commit() << swap_chain.present(ldr_image);
-        window.pool_event();
+        window.poll_events();
         auto dt = clock.toc() - last_time;
         frame_count += spp_per_dispatch;
         Sleep(400);
@@ -730,3 +730,4 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_denoiser.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
+ 
