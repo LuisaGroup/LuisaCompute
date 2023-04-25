@@ -1,0 +1,11 @@
+//
+// Created by Mike Smith on 2023/4/8.
+//
+
+#define NS_PRIVATE_IMPLEMENTATION
+#define MTL_PRIVATE_IMPLEMENTATION
+#define CA_PRIVATE_IMPLEMENTATION
+#include <backends/metal/metal_api.h>
+#undef NS_PRIVATE_IMPLEMENTATION
+#undef MTL_PRIVATE_IMPLEMENTATION
+#undef CA_PRIVATE_IMPLEMENTATION

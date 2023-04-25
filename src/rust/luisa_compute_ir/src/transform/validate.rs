@@ -1,6 +1,9 @@
-
 use super::Transform;
-use crate::{context::{self, is_type_equal}, ir::*, TypeOf, CArc};
+use crate::{
+    context::{self, is_type_equal},
+    ir::*,
+    CArc, TypeOf,
+};
 struct Validator {}
 fn check_types_equal(types: &[&CArc<Type>]) -> bool {
     let mut iter = types.iter();
@@ -178,7 +181,7 @@ impl Validator {
                         assert_eq!(args.len(), 2);
                         // assert!(grad_type_of(args[0].type_()).is_some());
                     }
-                    Func::Detach=>{}
+                    Func::Detach => {}
                     Func::AccGrad => {
                         assert_eq!(args.len(), 2);
                         assert!(args[0].is_local());
@@ -460,7 +463,7 @@ impl Validator {
                     Func::Mat4 => todo!(),
                     Func::Callable(_) => todo!(),
                     Func::CpuCustomOp(_) => todo!(),
-                    _=>todo!(),
+                    _ => todo!(),
                 }
             }
             Instruction::Phi(incomings) => {

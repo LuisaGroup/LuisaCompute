@@ -1,4 +1,5 @@
 
+#include <core/magic_enum.h>
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>
 #include <DXRuntime/CommandBuffer.h>
@@ -35,14 +36,14 @@ SavedArgument::SavedArgument(Type const *type) {
 }
 
 Shader::Shader(
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig)
     : rootSig(std::move(rootSig)), properties(std::move(prop)), kernelArguments(std::move(args)) {
 }
 
 Shader::Shader(
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ID3D12Device *device,
     bool isRaster) : properties(std::move(prop)), kernelArguments(std::move(args)) {
@@ -63,22 +64,28 @@ void Shader::SetComputeResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::ConstantBuffer: {
+        case hlsl::ShaderVariableType::ConstantBuffer: {
             cmdList->SetComputeRootConstantBufferView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::StructuredBuffer: {
+        case hlsl::ShaderVariableType::StructuredBuffer: {
             cmdList->SetComputeRootShaderResourceView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::RWStructuredBuffer: {
+        case hlsl::ShaderVariableType::RWStructuredBuffer: {
             cmdList->SetComputeRootUnorderedAccessView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        default: assert(false); break;
+        default:
+            LUISA_ERROR("Invalid shader resource type {}.\n\n"
+                        "This might be due to the change of shader cache.\n"
+                        "Please try delete the cache folder (default: build_dir/bin/.cache) "
+                        "and re-run the program.\n"
+                        "If the problem persists, please report this issue to the developers.\n",
+                        to_string(var.type));
     }
 }
 void Shader::SetComputeResource(
@@ -88,10 +95,12 @@ void Shader::SetComputeResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::UAVDescriptorHeap:
-        case ShaderVariableType::CBVDescriptorHeap:
-        case ShaderVariableType::SampDescriptorHeap:
-        case ShaderVariableType::SRVDescriptorHeap: {
+        case hlsl::ShaderVariableType::UAVBufferHeap:
+        case hlsl::ShaderVariableType::UAVTextureHeap:
+        case hlsl::ShaderVariableType::CBVBufferHeap:
+        case hlsl::ShaderVariableType::SampHeap:
+        case hlsl::ShaderVariableType::SRVBufferHeap:
+        case hlsl::ShaderVariableType::SRVTextureHeap: {
             cmdList->SetComputeRootDescriptorTable(
                 propertyName,
                 view.heap->hGPU(view.index));
@@ -104,7 +113,7 @@ void Shader::SetComputeResource(
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
     auto cmdList = cb->GetCB()->CmdList();
-    assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
+    assert(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
     cmdList->SetComputeRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SetComputeResource(
@@ -123,17 +132,17 @@ void Shader::SetRasterResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::ConstantBuffer: {
+        case hlsl::ShaderVariableType::ConstantBuffer: {
             cmdList->SetGraphicsRootConstantBufferView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::StructuredBuffer: {
+        case hlsl::ShaderVariableType::StructuredBuffer: {
             cmdList->SetGraphicsRootShaderResourceView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::RWStructuredBuffer: {
+        case hlsl::ShaderVariableType::RWStructuredBuffer: {
             cmdList->SetGraphicsRootUnorderedAccessView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
@@ -148,10 +157,12 @@ void Shader::SetRasterResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::UAVDescriptorHeap:
-        case ShaderVariableType::CBVDescriptorHeap:
-        case ShaderVariableType::SampDescriptorHeap:
-        case ShaderVariableType::SRVDescriptorHeap: {
+        case hlsl::ShaderVariableType::UAVBufferHeap:
+        case hlsl::ShaderVariableType::UAVTextureHeap:
+        case hlsl::ShaderVariableType::CBVBufferHeap:
+        case hlsl::ShaderVariableType::SampHeap:
+        case hlsl::ShaderVariableType::SRVBufferHeap:
+        case hlsl::ShaderVariableType::SRVTextureHeap: {
             cmdList->SetGraphicsRootDescriptorTable(
                 propertyName,
                 view.heap->hGPU(view.index));
@@ -173,7 +184,7 @@ void Shader::SetRasterResource(
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
     auto cmdList = cb->GetCB()->CmdList();
-    assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
+    assert(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
     cmdList->SetGraphicsRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SavePSO(ID3D12PipelineState *pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const {
@@ -191,33 +202,4 @@ vstd::string Shader::PSOName(Device const *device, vstd::string_view fileName) {
     return hash.to_string(false);
 }
 
-vstd::vector<Argument> Shader::BindingToArg(vstd::span<const Function::Binding> bindings) {
-    vstd::vector<Argument> r;
-    vstd::push_back_func(
-        r, bindings.size(),
-        [&](size_t i) {
-            return luisa::visit(
-                [&]<typename T>(T const &a) -> Argument {
-                    Argument arg;
-                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                        arg.tag = Argument::Tag::BUFFER;
-                        arg.buffer = a;
-                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                        arg.tag = Argument::Tag::TEXTURE;
-                        arg.texture = a;
-                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                        arg.tag = Argument::Tag::BINDLESS_ARRAY;
-                        arg.bindless_array = a;
-                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                        arg.tag = Argument::Tag::ACCEL;
-                        arg.accel = a;
-                    } else {
-                        LUISA_ERROR("Binding Contain unwanted variable.");
-                    }
-                    return arg;
-                },
-                bindings[i]);
-        });
-    return r;
-}
 }// namespace lc::dx

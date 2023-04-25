@@ -12,7 +12,10 @@
 
 namespace luisa {
 class BinaryIO;
-}
+}// namespace luisa
+namespace lc::hlsl {
+class ShaderCompiler;
+}// namespace lc::hlsl
 namespace luisa::compute {
 class Context;
 }// namespace luisa::compute
@@ -23,7 +26,6 @@ class GpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
-class ShaderCompiler;
 class Device {
 public:
     size_t maxAllocatorCount = 2;
@@ -42,7 +44,6 @@ public:
         bool Check(Device *self);
         ~LazyLoadShader();
     };
-    luisa::compute::Context & ctx;
     vstd::unique_ptr<luisa::compute::DefaultBinaryIO> serVisitor;
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
@@ -71,11 +72,11 @@ public:
     vstd::unique_ptr<ComputeShader> bc7_1;
     vstd::unique_ptr<ComputeShader> bc7_2;
     vstd::unique_ptr<ComputeShader> bc7_3;*/
-    Device(luisa::compute::Context &ctx, luisa::compute::DeviceConfig const *settings);
+    Device(luisa::compute::Context &&ctx, luisa::compute::DeviceConfig const *settings);
     Device(Device const &) = delete;
     Device(Device &&) = delete;
     ~Device();
     void WaitFence(ID3D12Fence *fence, uint64 fenceIndex);
-    static ShaderCompiler *Compiler();
+    static hlsl::ShaderCompiler *Compiler();
 };
 }// namespace lc::dx

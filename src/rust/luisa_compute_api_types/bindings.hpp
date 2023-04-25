@@ -353,7 +353,7 @@ struct AccelBuildCommand {
     uint32_t instance_count;
     const AccelBuildModification *modifications;
     size_t modifications_count;
-    bool build_accel;
+    bool update_instance_buffer_only;
 };
 
 struct BindlessArrayUpdateBuffer {

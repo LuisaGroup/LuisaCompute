@@ -6,8 +6,8 @@ pub mod codegen;
 use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
 pub mod context;
 mod display;
-pub mod transform;
 pub mod serialize;
+pub mod transform;
 mod usage_detect;
 
 use ir::{ArrayType, Primitive, Type};
@@ -124,6 +124,9 @@ impl<K: Hash + Eq, V> NestedHashMap<K, V> {
         Self {
             inner: Rc::new(NestedHashMapInner::from_parent(parent.inner.clone())),
         }
+    }
+    pub(crate) fn contains_key(&self, k: &K) -> bool {
+        self.inner.get(k).is_some()
     }
 }
 #[allow(dead_code)]

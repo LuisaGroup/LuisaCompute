@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     Callable linear_to_srgb = [](Float4 linear) noexcept {
         auto x = linear.xyz();
@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
     std::vector<std::byte> download_image(1024u * 1024u * 4u);
 
-    auto stream = device.create_stream();
+    Stream stream = device.create_stream();
     stream << fill_image(device_image.view(0)).dispatch(1024u, 1024u)
            << change_color(device_image.view(0)).dispatch(512u, 512u)
            << device_image.copy_to(download_image.data())

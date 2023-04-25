@@ -7,6 +7,7 @@
 #include "runtime/rhi/resource.h"
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
+#include <runtime/rhi/command_encoder.h>
 #include <api/api.h>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
@@ -153,6 +154,7 @@ private:
             case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
                 auto c = cmd.bindless_array_update;
                 auto modifications = luisa::vector<BindlessArrayUpdateCommand::Modification>{};
+                modifications.reserve(c.modifications_count);
                 for (auto i = 0u; i < c.modifications_count; i++) {
                     auto &&[slot, api_buffer, api_tex2d, api_tex3d] = c.modifications[i];
                     auto convert_op = [](LCBindlessArrayUpdateOperation op) noexcept {
@@ -177,17 +179,43 @@ private:
                     modifications);
             }
             case LC_COMMAND_SHADER_DISPATCH: {
-                // TODO: this is incorrect
-                auto c = cmd.shader_dispatch;
-                auto first = (std::byte *)c.args;
-                auto buffer = luisa::vector<std::byte>(first, first + sizeof(api::Argument) * c.args_count);
-                auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
 
-                return luisa::make_unique<ShaderDispatchCommand>(
-                    c.shader._0,
-                    std::move(buffer),
-                    c.args_count,
-                    ShaderDispatchCommand::DispatchSize{dispatch_size});
+                auto c = cmd.shader_dispatch;
+                auto uniform_size = 0ull;
+                for (auto i = 0u; i < c.args_count; i++) {
+                    if (c.args[i].tag == LC_ARGUMENT_UNIFORM) {
+                        uniform_size += c.args[i].uniform.size;
+                    }
+                }
+                ComputeDispatchCmdEncoder encoder{c.shader._0, c.args_count, uniform_size};
+                for (auto i = 0u; i < c.args_count; i++) {
+                    auto arg = c.args[i];
+                    switch (arg.tag) {
+                        case LC_ARGUMENT_BUFFER:
+                            encoder.encode_buffer(arg.buffer.buffer._0,
+                                                  arg.buffer.offset,
+                                                  arg.buffer.size);
+                            break;
+                        case LC_ARGUMENT_TEXTURE:
+                            encoder.encode_texture(arg.texture.texture._0,
+                                                   arg.texture.level);
+                            break;
+                        case LC_ARGUMENT_UNIFORM:
+                            encoder.encode_uniform(arg.uniform.data,
+                                                   arg.uniform.size);
+                            break;
+                        case LC_ARGUMENT_BINDLESS_ARRAY:
+                            encoder.encode_bindless_array(arg.bindless_array._0);
+                            break;
+                        case LC_ARGUMENT_ACCEL:
+                            encoder.encode_accel(arg.accel._0);
+                            break;
+                    }
+                }
+                encoder.set_dispatch_size(make_uint3(c.dispatch_size[0],
+                                                     c.dispatch_size[1],
+                                                     c.dispatch_size[2]));
+                return std::move(encoder).build();
             }
             case LC_COMMAND_BUFFER_TO_TEXTURE_COPY: {
                 auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.buffer_to_texture_copy;
@@ -259,8 +287,9 @@ private:
                     aabb_count);
             }
             case LC_COMMAND_ACCEL_BUILD: {
-                auto [accel, request, instance_count, api_modifications, modifications_count, build_accel] = cmd.accel_build;
-                auto modifications = luisa::vector<AccelBuildCommand::Modification>(modifications_count);
+                auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
+                auto modifications = luisa::vector<AccelBuildCommand::Modification>{};
+                modifications.reserve(modifications_count);
                 for (auto i = 0u; i < modifications_count; i++) {
                     auto [index, flags, visibility, mesh, affine] = api_modifications[i];
                     auto modification = AccelBuildCommand::Modification(index);
@@ -268,15 +297,15 @@ private:
                     modification.set_visibility(visibility);
                     modification.set_primitive(mesh);
                     std::memcpy(modification.affine, affine, sizeof(float) * 12);
-
-                    modifications.emplace_back(std::move(modification));
+                    modifications.emplace_back(modification);
                 }
+                LUISA_ASSERT(modifications_count == modifications.size(), "modifications size mismatch");
                 return luisa::make_unique<AccelBuildCommand>(
                     accel._0,
                     instance_count,
                     convert_accel_request(request),
                     modifications,
-                    build_accel);
+                    update_instance_buffer_only);
             }
             default: LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
         }
@@ -330,11 +359,7 @@ inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT { free(cs); }
 
 LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(LCContext ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().runtime_directory());
-}
-
-LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().cache_directory());
+    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->runtime_directory());
 }
 
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,

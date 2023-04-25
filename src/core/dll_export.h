@@ -11,13 +11,11 @@
 #ifdef _MSC_VER
 #define LUISA_FORCE_INLINE inline
 #define LUISA_NEVER_INLINE __declspec(noinline)
-#define LUISA_DLL
 #define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllexport)
 #define LUISA_IMPORT_API LUISA_EXTERN_C __declspec(dllimport)
 #else
 #define LUISA_FORCE_INLINE __attribute__((always_inline, hot)) inline
 #define LUISA_NEVER_INLINE __attribute__((noinline))
-#define LUISA_DLL
 #define LUISA_EXPORT_API LUISA_EXTERN_C __attribute__((visibility("default")))
 #define LUISA_IMPORT_API LUISA_EXTERN_C
 #endif
@@ -78,6 +76,12 @@
 #define LC_REMOTE_API __declspec(dllimport)
 #endif
 
+#ifdef LC_BACKEND_EXPORT_DLL
+#define LC_BACKEND_API __declspec(dllexport)
+#else
+#define LC_BACKEND_API __declspec(dllimport)
+#endif
+
 #else
 #define LC_CORE_API
 #define LC_VSTL_API
@@ -89,4 +93,5 @@
 #define LC_SHADER_GRAPH_LIB_API
 #define LC_REMOTE_API
 #define LC_GUI_API
+#define LC_BACKEND_API
 #endif

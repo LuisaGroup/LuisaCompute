@@ -2,6 +2,8 @@
 // Created by Mike on 3/14/2023.
 //
 
+#pragma once
+
 #include <core/stl/vector.h>
 #include <core/stl/unordered_map.h>
 
@@ -46,6 +48,10 @@ public:
             }
         }
         _remove_list.clear();
+    }
+
+    void commit() noexcept {
+        commit([](auto) noexcept {});
     }
 
     template<typename F>

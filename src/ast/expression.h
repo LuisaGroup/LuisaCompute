@@ -274,7 +274,6 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 
 }// namespace detail
 
-/// TODO
 class LC_AST_API LiteralExpr final : public Expression {
 
 public:
@@ -456,5 +455,55 @@ protected:
 };
 
 #undef LUISA_EXPRESSION_COMMON
+
+// helper function for easy traversal over the ASTs
+template<typename Enter, typename Exit>
+void traverse_subexpressions(const Expression *expr,
+                             const Enter &enter,
+                             const Exit &exit) noexcept {
+    enter(expr);
+    switch (expr->tag()) {
+        case Expression::Tag::UNARY: {
+            auto unary_expr = static_cast<const UnaryExpr *>(expr);
+            traverse_subexpressions(unary_expr->operand(), enter, exit);
+            break;
+        }
+        case Expression::Tag::BINARY: {
+            auto binary_expr = static_cast<const BinaryExpr *>(expr);
+            traverse_subexpressions(binary_expr->lhs(), enter, exit);
+            traverse_subexpressions(binary_expr->rhs(), enter, exit);
+            break;
+        }
+        case Expression::Tag::MEMBER: {
+            auto member_expr = static_cast<const MemberExpr *>(expr);
+            traverse_subexpressions(member_expr->self(), enter, exit);
+            break;
+        }
+        case Expression::Tag::ACCESS: {
+            auto access_expr = static_cast<const AccessExpr *>(expr);
+            traverse_subexpressions(access_expr->range(), enter, exit);
+            traverse_subexpressions(access_expr->index(), enter, exit);
+            break;
+        }
+        case Expression::Tag::LITERAL: break;
+        case Expression::Tag::REF: break;
+        case Expression::Tag::CONSTANT: break;
+        case Expression::Tag::CALL: {
+            auto call_expr = static_cast<const CallExpr *>(expr);
+            for (auto arg : call_expr->arguments()) {
+                traverse_subexpressions(arg, enter, exit);
+            }
+            break;
+        }
+        case Expression::Tag::CAST: {
+            auto cast_expr = static_cast<const CastExpr *>(expr);
+            traverse_subexpressions(cast_expr->expression(), enter, exit);
+            break;
+        }
+        case Expression::Tag::CPUCUSTOM: break;
+        case Expression::Tag::GPUCUSTOM: break;
+    }
+    exit(expr);
+}
 
 }// namespace luisa::compute

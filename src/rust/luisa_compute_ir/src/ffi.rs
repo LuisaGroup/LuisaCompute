@@ -2,10 +2,10 @@ use std::ffi::CString;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::Index;
+use std::ops::{Deref, Index};
 use std::sync::atomic::AtomicUsize;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -330,6 +330,12 @@ unsafe impl<T: Send> Send for CBoxedSlice<T> {}
 unsafe impl<T: Sync> Sync for CBoxedSlice<T> {}
 impl<T> AsRef<[T]> for CBoxedSlice<T> {
     fn as_ref(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+impl<T> Deref for CBoxedSlice<T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 }

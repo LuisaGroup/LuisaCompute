@@ -23,6 +23,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(Expression const *expr) {
             return try_eval(static_cast<CallExpr const *>(expr));
         case Expression::Tag::CAST:
             return try_eval(static_cast<CastExpr const *>(expr));
+        default:
+            break;
     }
     return monostate{};
 }
@@ -193,7 +195,6 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                     using TT = ScalarType<A>;
                     using TScalar = ScalarType_t<A>;
                     auto b = analyzer_detail::force_get<A>(rr);
-                    // TODO
                     switch (expr->op()) {
                         case BinaryOp::ADD:
                             if constexpr (std::is_same_v<TScalar, bool>) {
@@ -1428,6 +1429,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                 },
                 a);
         } break;
+        default: break;
     }
     return monostate{};
 }
@@ -1446,9 +1448,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                         return static_cast<float>(t);
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
+                    case Type::Tag::INT64:
                         return static_cast<int>(t);
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
+                    case Type::Tag::UINT64:
                         return static_cast<uint>(t);
                     default: return monostate{};
                 }
@@ -1468,9 +1472,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                         return cast_ele.template operator()<float>();
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
+                    case Type::Tag::INT64:
                         return cast_ele.template operator()<int>();
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
+                    case Type::Tag::UINT64:
                         return cast_ele.template operator()<uint>();
                     default: return monostate{};
                 }
@@ -1493,9 +1499,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                             return temp_func.template operator()<dim, float>();
                         case Type::Tag::INT16:
                         case Type::Tag::INT32:
+                        case Type::Tag::INT64:
                             return temp_func.template operator()<dim, int>();
                         case Type::Tag::UINT16:
                         case Type::Tag::UINT32:
+                        case Type::Tag::UINT64:
                             return temp_func.template operator()<dim, uint>();
                         default: return monostate{};
                     }
@@ -1513,6 +1521,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                 return monostate{};
             }
         }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
 
     auto cast_vector = [&]<typename T>(T const &t) -> Result {
@@ -1534,9 +1543,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                         return cast_func.template operator()<dim, float>();
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
+                    case Type::Tag::INT64:
                         return cast_func.template operator()<dim, int>();
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
+                    case Type::Tag::UINT64:
                         return cast_func.template operator()<dim, uint>();
                     default: return monostate{};
                 }

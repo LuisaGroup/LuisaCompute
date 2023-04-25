@@ -1,5 +1,5 @@
-set_xmakever("2.7.7")
-add_rules("mode.release", "mode.debug")
+set_xmakever("2.7.8")
+add_rules("mode.release", "mode.debug", "mode.releasedbg")
 -- disable ccache in-case error
 set_policy("build.ccache", false)
 -- pre-defined options
@@ -27,6 +27,12 @@ set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
+-- enable Vulkan backend
+option("vk_backend")
+set_values(true, false)
+set_default(true)
+set_showmenu(true)
+option_end()
 -- enable NVIDIA-CUDA backend
 option("cuda_backend")
 set_values(true, false)
@@ -45,26 +51,25 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- enable tools module
-option("enable_tools")
-set_values(true, false)
-set_default(false)
-set_showmenu(true)
-option_end()
 -- enable tests module
 option("enable_tests")
 set_values(true, false)
+set_default(true)
+set_showmenu(true)
+option_end()
+-- python include path
+option("py_include")
 set_default(false)
 set_showmenu(true)
 option_end()
--- python runtime path
-option("py_path")
-set_default("")
+-- python include path
+option("py_linkdir")
+set_default(false)
 set_showmenu(true)
 option_end()
--- python version, depends on python runtime, for instance --py_version=3.10
-option("py_version")
-set_default("")
+-- python include path
+option("py_libs")
+set_default(false)
 set_showmenu(true)
 option_end()
 -- enable intermediate representation module (rust required)
@@ -82,7 +87,7 @@ option_end()
 -- enable C++ DSL module
 option("enable_dsl")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- enable GUI module
@@ -91,38 +96,27 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- enable Unity3D plugin module
-option("enable_unity3d_plugin")
-set_values(true, false)
-set_default(false)
+-- custom bin dir
+option("bin_dir")
+set_default("bin")
 set_showmenu(true)
 option_end()
 -- pre-defined options end
-if is_arch("x64", "x86_64", "arm64") then
-	UseMimalloc = get_config("enable_mimalloc")
-	UseSIMD = get_config("enable_simd")
-	-- test require dsl
-	EnableTest = get_config("enable_tests")
-	EnableDSL = get_config("enable_dsl") or EnableTest
-	DxBackend = get_config("dx_backend") and is_plat("windows")
-	-- TODO: require environment check
-	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
-	MetalBackend = get_config("metal_backend") and is_plat("macosx")
-	CpuBackend = get_config("cpu_backend")
-	RemoteBackend = get_config("remote_backend")
-	EnableIR = get_config("enable_ir") or MetalBackend or CpuBackend or RemoteBackend
-	EnableAPI = get_config("enable_api")
-	-- TODO: rust condition
-	EnableRust = EnableIR or EnableAPI
-	EnableGUI = get_config("enable_gui") or EnableTest or EnablePython
 
-	if is_mode("debug") then
-		set_targetdir("bin/debug")
-	else
-		set_targetdir("bin/release")
+-- try options.lua
+includes("scripts/options.lua")
+if lc_toolchain then
+	for k, v in pairs(lc_toolchain) do
+		set_config(k, v)
 	end
+end
+includes("scripts/xmake_func.lua")
 
-	includes("xmake_func.lua")
+if is_arch("x64", "x86_64", "arm64") then
+	local bin_dir = get_config("bin_dir")
+	if (bin_dir) then
+		set_targetdir(bin_dir)
+	end
 	includes("src")
 else
 	target("_lc_illegal_env")
@@ -130,4 +124,5 @@ else
 	on_load(function(target)
 		utils.error("Illegal environment. Please check your compiler, architecture or platform.")
 	end)
+	target_end()
 end

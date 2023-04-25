@@ -9,29 +9,27 @@
 #include <core/basic_types.h>
 #include <core/stl/memory.h>
 #include <core/stl/string.h>
+#include <core/magic_enum.h>
 
-#define LUISA_CHECK_VULKAN(x)                            \
-    do {                                                 \
-        auto ret = x;                                    \
-        if (ret != VK_SUCCESS) [[unlikely]] {            \
-            if (ret > 0) [[likely]] {                    \
-                LUISA_WARNING_WITH_LOCATION(             \
-                    "Vulkan call `" #x "` returned {}.", \
-                    ::luisa::compute::to_string(ret));   \
-            } else [[unlikely]] {                        \
-                LUISA_ERROR_WITH_LOCATION(               \
-                    "Vulkan call `" #x "` failed: {}.",  \
-                    ::luisa::compute::to_string(ret));   \
-            }                                            \
-        }                                                \
+#define LUISA_CHECK_VULKAN(x)                                            \
+    do {                                                                 \
+        auto ret = x;                                                    \
+        if (ret != VK_SUCCESS) [[unlikely]] {                            \
+            if (ret > 0 || ret == VK_ERROR_OUT_OF_DATE_KHR) [[likely]] { \
+                LUISA_WARNING_WITH_LOCATION(                             \
+                    "Vulkan call `" #x "` returned {}.",                 \
+                    ::luisa::to_string(ret));                            \
+            } else [[unlikely]] {                                        \
+                LUISA_ERROR_WITH_LOCATION(                               \
+                    "Vulkan call `" #x "` failed: {}.",                  \
+                    ::luisa::to_string(ret));                            \
+            }                                                            \
+        }                                                                \
     } while (false)
 
 namespace luisa::compute {
 
-[[nodiscard]] luisa::string to_string(VkResult x) noexcept;
-
-class VulkanSwapchain {
-
+class LC_BACKEND_API VulkanSwapchain {
 public:
     class Impl;
     struct DeviceUUID {
@@ -63,5 +61,9 @@ public:
     void present(VkSemaphore wait, VkSemaphore signal,
                  VkImageView image, VkImageLayout image_layout) noexcept;
 };
+
+#ifdef LUISA_PLATFORM_APPLE
+void *cocoa_window_content_view(uint64_t window_handle) noexcept;
+#endif
 
 }// namespace luisa::compute

@@ -6,11 +6,11 @@
 
 #include <core/clock.h>
 #include <core/binary_io.h>
-#include <runtime/context_paths.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/optix_api.h>
+#include <backends/cuda/cuda_builtin_embedded.h>
+#include <backends/cuda/cuda_compiler.h>
 
 namespace luisa::compute::cuda {
 
@@ -80,23 +80,20 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
           LUISA_CHECK_NVRTC(nvrtcVersion(&ver_major, &ver_minor));
           return static_cast<uint>(ver_major * 10000 + ver_minor * 100);
       }()},
-      _device_library{[device] {
+      _device_library{[] {
           luisa::string device_library;
-          auto device_math_stream = device->io()->read_internal_shader("cuda_device_math.h");
-          auto device_resource_stream = device->io()->read_internal_shader("cuda_device_resource.h");
-          device_library.resize(device_math_stream->length() +
-                                device_resource_stream->length());
-          device_math_stream->read(luisa::span{
-              reinterpret_cast<std::byte *>(device_library.data()),
-              device_math_stream->length()});
-          device_resource_stream->read(luisa::span{
-              reinterpret_cast<std::byte *>(device_library.data() +
-                                            device_math_stream->length()),
-              device_resource_stream->length()});
-#ifndef NDEBUG
-          LUISA_ASSERT(device_library.size() == std::strlen(device_library.c_str()),
-                       "Device library contains null characters.");
-#endif
+          auto device_math = luisa::string_view{
+              luisa_cuda_builtin_cuda_device_math,
+              sizeof(luisa_cuda_builtin_cuda_device_math)};
+          auto device_resource = luisa::string_view{
+              luisa_cuda_builtin_cuda_device_resource,
+              sizeof(luisa_cuda_builtin_cuda_device_resource)};
+
+          device_library.resize(device_math.size() + device_resource.size());
+          std::memcpy(device_library.data(),
+                      device_math.data(), device_math.size());
+          std::memcpy(device_library.data() + device_math.size(),
+                      device_resource.data(), device_resource.size());
           return device_library;
       }()},
       _library_hash{hash_value(_device_library)},

@@ -1,8 +1,10 @@
 #pragma once
 #include <Shader/Shader.h>
 #include <core/binary_io.h>
-namespace lc::dx {
+namespace lc::hlsl {
 struct CodegenResult;
+}
+namespace lc::dx {
 class ShaderSerializer;
 class ComputeShader final : public Shader {
     friend class ShaderSerializer;
@@ -15,7 +17,7 @@ private:
     ComputeShader(
         uint3 blockSize,
         Device *device,
-        vstd::vector<Property> &&prop,
+        vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         vstd::vector<luisa::compute::Argument> &&bindings,
         ComPtr<ID3D12RootSignature> &&rootSig,
@@ -35,7 +37,7 @@ public:
         luisa::BinaryIO const *fileIo,
         Device *device,
         Function kernel,
-        vstd::function<CodegenResult()> const &codegen,
+        vstd::function<hlsl::CodegenResult()> const &codegen,
         vstd::optional<vstd::MD5> const &md5,
         vstd::vector<luisa::compute::Argument> &&bindings,
         uint3 blockSize,
@@ -46,7 +48,7 @@ public:
     static void SaveCompute(
         luisa::BinaryIO const *fileIo,
         Function kernel,
-        CodegenResult &codegen,
+        hlsl::CodegenResult &codegen,
         uint3 blockSize,
         uint shaderModel,
         vstd::string_view fileName,
@@ -58,7 +60,7 @@ public:
         vstd::string_view fileName);
     ComputeShader(
         uint3 blockSize,
-        vstd::vector<Property> &&properties,
+        vstd::vector<hlsl::Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         vstd::span<std::byte const> binData,
         vstd::vector<luisa::compute::Argument> &&bindings,

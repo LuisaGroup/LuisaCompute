@@ -63,7 +63,8 @@ target_link_libraries(luisa-compute-core PUBLIC
         $<$<PLATFORM_ID:Windows>:dbghelp>)
 
 set_target_properties(luisa-compute-core PROPERTIES
-        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+        OUTPUT_NAME lc-core)
 add_dependencies(luisa-compute-core luisa-compute-ext-copy)
 
 luisa_compute_install(core SOURCES ${LUISA_COMPUTE_CORE_SOURCES})

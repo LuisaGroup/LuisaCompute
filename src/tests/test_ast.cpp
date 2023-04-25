@@ -16,8 +16,8 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
-    auto stream = device.create_stream();
+    Device device = context.create_device(argv[1]);
+    Stream stream = device.create_stream();
 
     // auto _builder = FunctionBuilder::define_kernel([] {
     //     // auto a = def(2);
@@ -27,12 +27,12 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("Buffer<int> description: {}", Type::of<Buffer<int>>()->description());
 
-    auto buf = device.create_buffer<int>(100);
+    Buffer<int> buf = device.create_buffer<int>(100);
 
     Kernel1D k1 = [&] {
         buf->write(1, 42);
     };
-    auto s = device.compile(k1);
+    Shader1D<> s = device.compile(k1);
     stream << s().dispatch(1u);
     stream << synchronize();
 }

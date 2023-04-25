@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::ffi::c_void;
 pub const INVALID_RESOURCE_HANDLE: u64 = u64::MAX;
 pub type DispatchCallback = extern "C" fn(*mut u8);
@@ -330,7 +330,9 @@ pub enum SamplerAddress {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default, Serialize, Deserialize,
+)]
 pub struct Sampler {
     pub filter: SamplerFilter,
     pub address: SamplerAddress,
@@ -530,7 +532,7 @@ pub struct AccelBuildCommand {
     pub instance_count: u32,
     pub modifications: *const AccelBuildModification,
     pub modifications_count: usize,
-    pub build_accel: bool,
+    pub update_instance_buffer_only: bool,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]

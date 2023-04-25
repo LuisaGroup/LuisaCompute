@@ -2,7 +2,7 @@
 // Created by Mike on 3/24/2023.
 //
 
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 
 #include <vulkan/vulkan.h>
 
@@ -121,7 +121,9 @@ private:
     }
 
     [[nodiscard]] auto _choose_image_format() const noexcept {
-        return _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        return _base.is_hdr() ?
+                   VK_FORMAT_R16G16B16A16_SFLOAT :
+                   VK_FORMAT_R8G8B8A8_SRGB;
     }
 
     void _create_image() noexcept {

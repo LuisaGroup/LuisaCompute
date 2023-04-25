@@ -1,4 +1,3 @@
-from turtle import width
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device

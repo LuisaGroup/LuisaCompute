@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2023/1/13.
 //
 
+#include <core/magic_enum.h>
 #include <core/logging.h>
 #include <ir/codegen.h>
 
@@ -527,7 +528,7 @@ void CppSourceBuilder::_generate_instr_const(const ir::Node *node, uint indent) 
 
 void CppSourceBuilder::_generate_instr_update(const ir::Node *node, uint indent) noexcept {
     _generate_indent(indent);
-    _generate_node(node->instruction->update.var);
+    static_cast<void>(_generate_node(node->instruction->update.var));
     _ctx->body.append(luisa::format(
         "{} = {};\n",
         _generate_node(node->instruction->update.var),
@@ -559,7 +560,7 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
                     _generate_node(node)));
             }
         }
-       
+
         auto constant_index = [](ir::NodeRef index) noexcept -> uint64_t {
             auto index_node = ir::luisa_compute_ir_node_get(index);
             LUISA_ASSERT(index_node->instruction->tag == ir::Instruction::Tag::Const,
@@ -1348,6 +1349,8 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
             case ir::Func::Tag::CpuCustomOp:
                 LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
         }
+        LUISA_ERROR_WITH_LOCATION("Not implemented IR function '{}'.",
+                                  to_string(func.tag));
     }();
     _ctx->body.append(call).append("\n");
 }

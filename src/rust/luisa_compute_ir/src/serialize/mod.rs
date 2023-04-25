@@ -183,7 +183,7 @@ pub enum SerializedFunc {
     RayQueryTerminate,
 
     RasterDiscard,
-    
+
     IndirectClearDispatchBuffer,
     IndirectEmplaceDispatchKernel,
 
@@ -388,6 +388,7 @@ pub enum SerializedFunc {
     GetElementPtr,
     // (fields, ...) -> struct
     Struct,
+    Array,
 
     // scalar -> matrix, all elements are set to the scalar
     Mat,

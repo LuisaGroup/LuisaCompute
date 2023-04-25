@@ -132,7 +132,7 @@ void Device::destroy_swap_chain(uint64_t handle) noexcept {
     delete chain;
 }
 void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-    std::lock_guard lck{g_global_mtx};//TODO
+    std::lock_guard lck{g_global_mtx};
     auto stream = reinterpret_cast<Stream *>(stream_handle);
     stream->dispatch();
     reinterpret_cast<Texture *>(image_handle)->set(stream, Usage::READ, Range{});

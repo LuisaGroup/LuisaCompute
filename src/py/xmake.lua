@@ -3,50 +3,38 @@ local my_table = {
 	project_kind = "shared",
 	enable_exception = true
 }
-on_load(
-	function(target)
-		local py_version = get_config("py_version")
-		local py_path = get_config("py_path")
-		if type(py_path) ~= "string" or string.len(py_path) == 0 or type(py_version) ~= "string" or string.len(py_version) == 0 then
-			target:set("enabled", false)
-			return
-		end
-		local version_table = {}
-		for str in string.gmatch(py_version, "([^.]+)") do
-			table.insert(version_table, str)
-		end
-		local legal_version = (table.getn(version_table) == 2) and version_table[1] == "3"
-		if legal_version then
-			local num = tonumber(version_table[2])
-			if num == nil then
-				legal_version = false
-			end
-		end
-		if legal_version then
-			local py_name = "python" .. version_table[1] .. version_table[2]
-			local py_path = get_config("py_path")
-			target:add("linkdirs", path.join(py_path, "libs"))
-			target:add("links", "python3", py_name)
-			target:add("includedirs", path.join(py_path, "include"))
-		else
-			target:set("enabled", false)
-			utils.error(
-				"Illegal python version argument. please use argument like 3.9 (for python 3.9) or 3.10 (for python 3.10)"
-			)
-			return
+on_load(function(target)
+	local function split_str(str, chr, func)
+		for part in string.gmatch(str, "([^" .. chr .. "]+)") do
+			func(part)
 		end
 	end
-)
+	local py_include = get_config("py_include")
+	split_str(py_include, ';', function(v)
+		target:add("includedirs", v)
+	end)
+	local py_linkdir = get_config("py_linkdir")
+	local py_libs = get_config("py_libs")
+	if type(py_linkdir) == "string" then
+		split_str(py_linkdir, ';', function(v)
+			target:add("linkdirs", v)
+		end)
+	end
+	if type(py_libs) == "string" then
+		split_str(py_libs, ';', function(v)
+			target:add("links", v)
+		end)
+	end
+end)
 
 _config_project(my_table)
 add_files("*.cpp")
 add_includedirs("../ext/stb/", "../ext/pybind11/include")
 add_deps("lc-runtime", "lc-gui")
-after_build(
-	function(target)
+after_build(function(target)
+	if is_plat("windows") then
 		local bdPath = target:targetdir()
-		if is_plat("windows") then
-			os.cp(path.join(bdPath, "lcapi.dll"), path.join(bdPath, "lcapi.pyd"))
-		end
+		os.cp(path.join(bdPath, "lcapi.dll"), path.join(bdPath, "lcapi.pyd"))
 	end
-)
+end)
+target_end()

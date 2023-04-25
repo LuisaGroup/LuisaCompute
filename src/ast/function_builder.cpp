@@ -140,9 +140,11 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
                 case Type::Tag::FLOAT16:
                 case Type::Tag::FLOAT32: return float(x);
                 case Type::Tag::INT16:
-                case Type::Tag::INT32: return int(x);
+                case Type::Tag::INT32: 
+                case Type::Tag::INT64: return int(x);
                 case Type::Tag::UINT16:
-                case Type::Tag::UINT32: return uint(x);
+                case Type::Tag::UINT32:
+                case Type::Tag::UINT64: return uint(x);
                 default: LUISA_ERROR_WITH_LOCATION("Invalid type for LiteralExpr: {}", type->description());
             }
         } else {
@@ -171,24 +173,24 @@ uint32_t FunctionBuilder::_next_variable_uid() noexcept {
     return uid;
 }
 
-const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
-const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
-const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
-const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::DISPATCH_SIZE); }
-const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Variable::Tag::KERNEL_ID); }
-const RefExpr *FunctionBuilder::object_id() noexcept { return _builtin(Variable::Tag::OBJECT_ID); }
+const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::THREAD_ID); }
+const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::BLOCK_ID); }
+const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::DISPATCH_ID); }
+const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::DISPATCH_SIZE); }
+const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::KERNEL_ID); }
+const RefExpr *FunctionBuilder::object_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::OBJECT_ID); }
 
-inline const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
+inline const RefExpr *FunctionBuilder::_builtin(Type const *type, Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
             _builtin_variables.cbegin(), _builtin_variables.cend(),
             [tag](auto &&v) noexcept { return v.tag() == tag; });
         iter != _builtin_variables.cend()) {
         return _ref(*iter);
     }
-    Variable v{Type::of<uint3>(), tag, _next_variable_uid()};
+    Variable v{type, tag, _next_variable_uid()};
     _builtin_variables.emplace_back(v);
     // for callables, builtin variables are treated like arguments
-    if (_tag != Function::Tag::KERNEL) [[unlikely]] {
+    if (_tag == Function::Tag::CALLABLE) [[unlikely]] {
         _arguments.emplace_back(v);
         _bound_arguments.emplace_back();
     }
@@ -510,7 +512,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
         if (auto arg = f->_arguments[i]; arg.is_builtin()) {
-            call_args[i] = _builtin(arg.tag());
+            call_args[i] = _builtin(Type::of<uint3>(), arg.tag());
         } else {
             call_args[i] = luisa::visit(
                 [&]<typename T>(T binding) noexcept -> const Expression * {

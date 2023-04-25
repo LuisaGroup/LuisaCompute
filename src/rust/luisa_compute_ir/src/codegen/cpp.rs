@@ -14,6 +14,7 @@ use crate::{
 
 use super::{sha256, CodeGen};
 
+use crate::codegen::decode_const_data;
 use std::fmt::Write;
 
 pub(crate) struct TypeGen {
@@ -22,7 +23,7 @@ pub(crate) struct TypeGen {
 }
 
 impl TypeGen {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cache: HashMap::new(),
             struct_typedefs: String::new(),
@@ -138,7 +139,7 @@ impl TypeGen {
             }
         }
     }
-    fn to_c_type(&mut self, t: &CArc<Type>) -> String {
+    pub(crate) fn to_c_type(&mut self, t: &CArc<Type>) -> String {
         if let Some(t) = self.cache.get(t) {
             return t.clone();
         } else {
@@ -229,9 +230,6 @@ pub struct GenericCppCodeGen {
     generated_globals: HashSet<String>,
     indent: usize,
     visited: HashSet<NodeRef>,
-    signature: Vec<String>,
-    cpu_kernel_parameters: Vec<String>,
-    cpu_kernel_unpack_parameters: Vec<String>,
 }
 
 impl GenericCppCodeGen {
@@ -249,9 +247,6 @@ impl GenericCppCodeGen {
             generated_globals: HashSet::new(),
             indent: 1,
             visited: HashSet::new(),
-            signature: Vec::new(),
-            cpu_kernel_parameters: Vec::new(),
-            cpu_kernel_unpack_parameters: Vec::new(),
         }
     }
     fn write_ident(&mut self) {
@@ -419,7 +414,7 @@ impl GenericCppCodeGen {
             Func::Max => Some("lc_max"),
             Func::Clamp => Some("lc_clamp"),
 
-            Func::Lerp=> Some("lc_lerp"),
+            Func::Lerp => Some("lc_lerp"),
             _ => None,
         };
         if let Some(func) = func {
@@ -740,7 +735,7 @@ impl GenericCppCodeGen {
                 }
                 true
             }
-            Func::Struct => {
+            Func::Struct | Func::Array => {
                 writeln!(
                     &mut self.body,
                     "const {} {} = {{ {} }};",
@@ -890,7 +885,7 @@ impl GenericCppCodeGen {
             Func::Bitcast => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bitcast<{1}>({2});",
+                    "const {0} {1} = lc_bit_cast<{0}>({2});",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
@@ -1049,7 +1044,7 @@ impl GenericCppCodeGen {
                     "const {0} {1} = lc_bit_cast<{0}>(lc_trace_closest({2}, lc_bit_cast<Ray>({3}), {4}));",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingInstanceTransform => {
@@ -1110,10 +1105,10 @@ impl GenericCppCodeGen {
                 writeln!(&mut self.body, "const uint32_t {} = {};", var, *v).unwrap();
             }
             Const::Int64(v) => {
-                writeln!(&mut self.body, "const int64_t {} = {};", var, *v).unwrap();
+                writeln!(&mut self.body, "const int64_t {} = {}ll;", var, *v).unwrap();
             }
             Const::Uint64(v) => {
-                writeln!(&mut self.body, "const uint64_t {} = {};", var, *v).unwrap();
+                writeln!(&mut self.body, "const uint64_t {} = {}ull;", var, *v).unwrap();
             }
             Const::Float32(v) => {
                 writeln!(
@@ -1136,38 +1131,47 @@ impl GenericCppCodeGen {
                 .unwrap();
             }
             Const::Generic(bytes, t) => {
-                let gen_def = |dst: &mut String, qualifier| {
-                    writeln!(
-                        dst,
-                        "{0} uint8_t {2}_bytes[{1}] = {{ {3} }};",
-                        qualifier,
-                        t.size(),
-                        var,
-                        bytes
-                            .as_ref()
-                            .iter()
-                            .map(|b| format!("{}", b))
-                            .collect::<Vec<String>>()
-                            .join(", ")
-                    )
-                    .unwrap();
-                };
-                match t.as_ref() {
-                    Type::Array(_) => {
-                        if !self.generated_globals.contains(var) {
-                            gen_def(&mut self.fwd_defs, "__constant__ constexpr const");
-                            self.generated_globals.insert(var.clone());
-                        }
-                    }
-                    _ => gen_def(&mut self.body, "constexpr const"),
-                }
                 self.write_ident();
                 writeln!(
                     &mut self.body,
-                    "const {0} {1} = *reinterpret_cast<const {0}*>({1}_bytes);",
-                    node_ty_s, var
+                    "const {0} {1} = {2};",
+                    node_ty_s,
+                    var,
+                    decode_const_data(bytes.as_ref(), t)
                 )
                 .unwrap();
+                // let gen_def = |dst: &mut String, qualifier| {
+                //     writeln!(
+                //         dst,
+                //         "    {0} uint8_t {2}_bytes[{1}] = {{ {3} }};",
+                //         qualifier,
+                //         t.size(),
+                //         var,
+                //         bytes
+                //             .as_ref()
+                //             .iter()
+                //             .map(|b| format!("{}", b))
+                //             .collect::<Vec<String>>()
+                //             .join(", ")
+                //     )
+                //         .unwrap();
+                // };
+                // match t.as_ref() {
+                //     Type::Array(_) => {
+                //         if !self.generated_globals.contains(var) {
+                //             gen_def(&mut self.fwd_defs, "__constant__ constexpr const");
+                //             self.generated_globals.insert(var.clone());
+                //         }
+                //     }
+                //     _ => gen_def(&mut self.body, "constexpr const"),
+                // }
+                // self.write_ident();
+                // writeln!(
+                //     &mut self.body,
+                //     "const {0} {1} = *reinterpret_cast<const {0}*>({1}_bytes);",
+                //     node_ty_s, var
+                // )
+                //     .unwrap();
             }
         }
     }
@@ -1238,7 +1242,7 @@ impl GenericCppCodeGen {
             Instruction::Phi(_) => {
                 self.write_ident();
                 let var = self.gen_node(node);
-                writeln!(&mut self.fwd_defs, "{0} {1} = {0}{{}};", node_ty_s, var).unwrap();
+                writeln!(&mut self.fwd_defs, "    {0} {1} = {0}{{}};", node_ty_s, var).unwrap();
             }
             Instruction::Return(v) => {
                 self.write_ident();
@@ -1424,48 +1428,53 @@ impl GenericCppCodeGen {
         };
         match node.get().instruction.as_ref() {
             Instruction::Accel => {
-                self.signature.push(format!("const Accel& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Accel& {} = {}[{}].accel._0;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const Accel& {} = {}[{}].accel._0;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Bindless => {
-                self.signature
-                    .push(format!("const BindlessArray& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const BindlessArray& {} = {}[{}].bindless_array._0;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const BindlessArray& {} = {}[{}].bindless_array._0;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Buffer => {
-                self.signature
-                    .push(format!("const BufferView& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const BufferView& {} = {}[{}].buffer._0;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const BufferView& {} = {}[{}].buffer._0;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Texture2D => {
-                self.signature
-                    .push(format!("const Texture2D& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture2D& {} = {}[{}].texture;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const Texture2D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Texture3D => {
-                self.signature
-                    .push(format!("const Texture3D& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture3D& {} = {}[{}].texture;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const Texture3D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
+            }
+            Instruction::Uniform => {
+                let ty = self.type_gen.to_c_type(node.type_());
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const {0}& {1} = *reinterpret_cast<const {0}*>({2}[{3}].uniform._0);",
+                    ty, arg_name, arg_array, index
+                )
+                .unwrap();
             }
             _ => unreachable!(),
         }
@@ -1505,36 +1514,30 @@ impl CodeGen for CpuCodeGen {
     fn run(module: &ir::KernelModule) -> String {
         let mut codegen = GenericCppCodeGen::new();
         codegen.gen_module(module);
-        let kernel_fn_decl = r#"lc_kernel void kernel_fn(const KernelFnArgs* k_args) {"#;
-        let kernel_fn = format!(
-            "{}\n{}\nkernel_(k_args, {});\n}}\n",
-            kernel_fn_decl,
-            codegen.cpu_kernel_unpack_parameters.join("\n"),
-            codegen.cpu_kernel_parameters.join(", "),
-        );
-        let kernel_wrapper_decl = format!(
-            "void kernel_(const KernelFnArgs* k_args, {}) {{",
-            codegen.signature.join(", ")
-        );
-        let includes = r#"#include <cmath>
-#include <cstdlib>
-#include <cstdio>
-#include <cstdint>
-using namespace std;"#;
+        let defs = r#"using uint8_t = unsigned char;
+using uint16_t = unsigned short;
+using uint32_t = unsigned int;
+using uint64_t = unsigned long long;
+using int8_t = signed char;
+using int16_t = signed short;
+using int32_t = signed int;
+using int64_t = signed long long;
+using size_t = unsigned long long;"#;
+        let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         format!(
             "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-            includes,
+            defs,
+            CPU_LIBM_DEF,
             CPU_KERNEL_DEFS,
             CPU_PRELUDE,
             DEVICE_MATH_SRC,
             CPU_RESOURCE,
             CPU_TEXTURE,
             codegen.type_gen.struct_typedefs,
-            kernel_wrapper_decl,
+            kernel_fn_decl,
             codegen.fwd_defs,
             codegen.body,
             "}",
-            kernel_fn
         )
     }
 }
@@ -1542,9 +1545,11 @@ using namespace std;"#;
 pub const CPU_PRELUDE: &str = include_str!("cpu_prelude.h");
 pub const CPU_RESOURCE: &str = include_str!("cpu_resource.h");
 pub const DEVICE_MATH_SRC: &str = include_str!("device_math.h");
+pub const CPU_LIBM_DEF: &str = include_str!("cpu_libm_def.h");
 pub const CPU_KERNEL_DEFS: &str =
     include_str!("../../../luisa_compute_cpu_kernel_defs/cpu_kernel_defs.h");
 pub const CPU_TEXTURE: &str = include_str!("cpu_texture.h");
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_codegen_cpp(module: KernelModule) -> CBoxedSlice<u8> {
     let src = CpuCodeGen::run(&module);

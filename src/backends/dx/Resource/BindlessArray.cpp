@@ -31,7 +31,7 @@ BindlessArray::~BindlessArray() {
         device->globalHeap->ReturnIndex(i);
     }
 }
-void BindlessArray::TryReturnIndex(MapIndex &index, uint32_t &originValue) {
+void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
         freeQueue.push_back(originValue);
         originValue = BindlessStruct::n_pos;
@@ -66,16 +66,13 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         if constexpr (isTex2D) {
             indices.tex2D = AddIndex(handle);
             bindGrp.tex2D = texIdx;
-            bindGrp.tex2DX = tex->Width();
-            bindGrp.tex2DY = tex->Height();
-            bindGrp.samp2D = smpIdx;
+            bindGrp.write_tex2d(tex->Width(), tex->Height());
+            bindGrp.write_samp2d(smpIdx);
         } else {
             indices.tex3D = AddIndex(handle);
             bindGrp.tex3D = texIdx;
-            bindGrp.tex3DX = tex->Width();
-            bindGrp.tex3DY = tex->Height();
-            bindGrp.tex3DZ = tex->Depth();
-            bindGrp.samp3D = smpIdx;
+            bindGrp.write_tex3d(tex->Width(), tex->Height(), tex->Depth());
+            bindGrp.write_samp3d(smpIdx);
         }
     };
     for (auto &&mod : mods) {

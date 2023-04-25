@@ -146,12 +146,14 @@ public:
     }
     // reinterpret cast buffer to another type U
     template<typename U>
-        requires(!is_custom_struct_v<U>())
+        requires(!is_custom_struct_v<U>)
     [[nodiscard]] auto as() const noexcept {
         if (this->size_bytes() < sizeof(U)) [[unlikely]] {
             detail::error_buffer_reinterpret_size_too_small(sizeof(U), this->size_bytes());
         }
-        return BufferView<U>{_device, _handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
+        auto total_size_bytes = _total_size * _element_stride;
+        return BufferView<U>{_device, _handle, alignof(U), _offset_bytes,
+                             this->size_bytes() / sizeof(U), total_size_bytes / sizeof(U)};
     }
     // commands
     // copy buffer's data to pointer

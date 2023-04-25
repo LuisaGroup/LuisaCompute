@@ -28,28 +28,16 @@ if (CUDAToolkit_FOUND)
             cuda_ext.cpp cuda_ext.h
             cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
+            cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h)
 
-    add_library(lc-backend-cuda-dependency INTERFACE)
-    find_package(Vulkan)
-    if (Vulkan_FOUND AND Vulkan_VERSION VERSION_GREATER_EQUAL 1.1)
-        message(STATUS "Build CUDA backend with Vulkan Swapchain: ${Vulkan_VERSION}")
-        list(APPEND LUISA_COMPUTE_CUDA_SOURCES
-                ../common/vulkan_swapchain.cpp ../common/vulkan_swapchain.h)
-        target_link_libraries(lc-backend-cuda-dependency INTERFACE Vulkan::Vulkan)
-        target_compile_definitions(lc-backend-cuda-dependency INTERFACE LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN)
-    endif ()
-
-    set(LUISA_COMPUTE_CUDA_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda_builtin")
-    luisa_compute_add_backend(cuda
-            SOURCES ${LUISA_COMPUTE_CUDA_SOURCES}
-            BUILTIN_DIR ${LUISA_COMPUTE_CUDA_BUILTIN_DIR})
-    target_link_libraries(lc-backend-cuda PRIVATE
+    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+    target_link_libraries(luisa-compute-cuda PRIVATE
             CUDA::cuda_driver
             CUDA::nvrtc
-            lc-backend-cuda-dependency)
+            luisa-compute-vulkan-swapchain)
     if (WIN32)
-        target_link_libraries(lc-backend-cuda PRIVATE cfgmgr32)
+        target_link_libraries(luisa-compute-cuda PRIVATE cfgmgr32)
     endif ()
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "CUDA not found. The CUDA backend will not be built.")

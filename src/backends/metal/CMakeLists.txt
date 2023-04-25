@@ -1,29 +1,53 @@
 if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
+    enable_language(OBJC)
+    enable_language(OBJCXX)
+
     message(STATUS "Build with Metal backend")
 
     set(METAL_SOURCES
-            metal_device.mm metal_device.h
-            metal_command_encoder.mm metal_command_encoder.h
-            metal_compiler.mm metal_compiler.h
-            metal_codegen.mm metal_codegen.h
-            metal_event.h
-            metal_stream.h metal_stream.mm
-            metal_buffer_view.h
-            metal_host_buffer_pool.mm metal_host_buffer_pool.h
-            metal_bindless_array.mm metal_bindless_array.h
-            metal_shader.h
-            metal_mesh.mm metal_mesh.h
-            metal_accel.mm metal_accel.h)
+
+            # common
+            ../common/default_binary_io.cpp ../common/default_binary_io.h
+            ../common/resource_tracker.h
+            ../common/string_scratch.cpp ../common/string_scratch.h
+
+            # metal-cpp
+            metal-cpp/SingleHeader/Metal.hpp
+
+            # metal
+            metal_api.cpp metal_api.h
+            metal_builtin_embedded.cpp metal_builtin_embedded.h
+            metal_device.cpp metal_device.h
+            metal_compiler.cpp metal_compiler.h
+            metal_codegen_ast.cpp metal_codegen_ast.h
+            metal_texture.cpp metal_texture.h
+            metal_stream.cpp metal_stream.h
+            metal_event.cpp metal_event.h
+            metal_bindless_array.cpp metal_bindless_array.h
+            metal_swapchain.cpp metal_swapchain.h metal_swapchain.mm
+            metal_command_encoder.cpp metal_command_encoder.h
+            metal_stage_buffer_pool.cpp metal_stage_buffer_pool.h
+            metal_callback_context.cpp metal_callback_context.h
+            metal_primitive.cpp metal_primitive.h
+            metal_procedural_primitive.cpp metal_procedural_primitive.h
+            metal_mesh.cpp metal_mesh.h
+            metal_accel.cpp metal_accel.h
+            metal_buffer.cpp metal_buffer.h
+            )
+
+    if (LUISA_COMPUTE_ENABLE_RUST)
+        list(APPEND METAL_SOURCES metal_codegen_ir.cpp metal_codegen_ir.h)
+    endif ()
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
-    target_compile_options(lc-backend-metal PRIVATE -fobjc-arc)
-    target_link_libraries(lc-backend-metal PRIVATE
+    target_link_libraries(luisa-compute-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"
             "-framework QuartzCore")
+
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
-    message(FATAL_ERROR "Metal backend requires clang.")
+    message(FATAL_ERROR "Metal backend requires Apple platforms with clang.")
 else ()
-    message(WARNING "Metal backend requires clang but LuisaCompute is using ${CMAKE_CXX_COMPILER_ID}. The backend will be disabled.")
+    message(WARNING "Metal backend requires Apple platforms with clang. The backend will be disabled.")
 endif ()

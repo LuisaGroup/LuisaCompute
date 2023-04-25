@@ -8,6 +8,7 @@
 #include <core/stl/string.h>
 #include <core/stl/hash.h>
 #include <core/stl/vector.h>
+#include <core/stl/filesystem.h>
 
 namespace luisa {
 class DynamicModule;
@@ -18,29 +19,33 @@ namespace luisa::compute {
 
 class Device;
 struct DeviceConfig;
-class ContextPaths;
+
+namespace detail {
+class ContextImpl;
+}// namespace detail
 
 class LC_RUNTIME_API Context {
 
-    friend class ContextPaths;
-
 private:
-    struct Impl;
-    luisa::shared_ptr<Impl> _impl;
-    explicit Context(luisa::shared_ptr<Impl> impl) noexcept;
+    luisa::shared_ptr<detail::ContextImpl> _impl;
 
 public:
+    explicit Context(luisa::shared_ptr<detail::ContextImpl> impl) noexcept;
     // program_path can be first arg from main entry
-    explicit Context(string_view program_path) noexcept;
+    explicit Context(luisa::string_view program_path) noexcept;
     explicit Context(const char *program_path) noexcept
-        : Context{string_view{program_path}} {}
+        : Context{luisa::string_view{program_path}} {}
     ~Context() noexcept;
     Context(Context &&) noexcept = default;
     Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
-    // relative paths
-    [[nodiscard]] ContextPaths paths() const noexcept;
+    [[nodiscard]] const auto &impl() const & noexcept { return _impl; }
+    [[nodiscard]] auto &&impl() && noexcept { return std::move(_impl); }
+    // runtime directory
+    [[nodiscard]] const luisa::filesystem::path &runtime_directory() const noexcept;
+    // create subdirectories under the runtime directory
+    [[nodiscard]] const luisa::filesystem::path &create_runtime_subdir(luisa::string_view folder_name) const noexcept;
     // Create a virtual device
     // backend "metal", "dx", "cuda" is supported currently
     [[nodiscard]] Device create_device(

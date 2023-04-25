@@ -93,10 +93,6 @@ struct Ref
     }
 };
 
-// error reporters for Ref<DynamicStruct>
-void ref_dynamic_struct_error_member_out_of_range(size_t member_count, size_t index) noexcept;
-void ref_dynamic_struct_error_member_type_mismatched(const Type *requested, const Type *actual) noexcept;
-void ref_dynamic_struct_error_member_not_found(luisa::string_view name) noexcept;
 /// Ref<std::array<T, N>>
 template<typename T, size_t N>
 struct Ref<std::array<T, N>>

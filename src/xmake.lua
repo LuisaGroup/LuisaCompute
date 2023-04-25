@@ -1,52 +1,32 @@
-includes("build_proj.lua")
-if UseMimalloc then
-	_configs.enable_mimalloc = true
-end
+enable_mimalloc = get_config("enable_mimalloc")
+table.insert(_config_rules, "lc-rename-ext")
+local rename_rule_idx = table.getn(_config_rules)
 includes("ext/EASTL")
-_configs.enable_mimalloc = nil
 includes("ext/spdlog")
+table.remove(_config_rules, rename_rule_idx)
 includes("core")
 includes("vstl")
 includes("ast")
 includes("runtime")
-if EnableDSL then
+if get_config("enable_dsl") then
 	includes("dsl")
 end
-if EnableGUI then
+if get_config("enable_gui") then
 	includes("gui")
 end
-includes("py")
-includes("backends/validation")
-if DxBackend then
-	includes("backends/dx")
+if get_config("_lc_enable_py") then
+	includes("py")
 end
-if CudaBackend then
-	includes("backends/cuda")
-end
-if MetalBackend then
-	includes("backends/metal")
-end
-if CpuBackend then
-	includes("backends/cpu")
-end
-if RemoteBackend then
-	includes("backends/remote")
-end
-if EnableTest then
+includes("backends")
+if get_config("enable_tests") then
 	includes("tests")
 end
-if get_config("enable_tools") then
-	includes("tools")
-end
-if EnableRust then
+if get_config("_lc_enable_rust") then
 	includes("rust")
 end
-if EnableIR then
+if get_config("enable_ir") then
 	includes("ir")
 end
-if EnableAPI then
+if get_config("enable_api") then
 	includes("api")
-end
-if get_config("enable_unity3d_plugin") then
-	includes("unity3d")
 end

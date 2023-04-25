@@ -97,6 +97,7 @@ private:
     Handle _handle;
     CUmodule _builtin_kernel_module{nullptr};
     CUfunction _accel_update_function{nullptr};
+    CUfunction _instance_handle_update_function{nullptr};
     CUfunction _bindless_array_update_function{nullptr};
     luisa::unique_ptr<CUDACompiler> _compiler;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
@@ -124,6 +125,7 @@ public:
     }
     void *native_handle() const noexcept override { return _handle.context(); }
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
+    [[nodiscard]] auto instance_handle_update_function() const noexcept { return _instance_handle_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }

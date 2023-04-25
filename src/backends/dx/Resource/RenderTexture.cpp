@@ -74,6 +74,7 @@ GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
         case PixelFormat::BC4UNorm:
             return GFXFormat_BC4_UNorm;
     }
+    LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
 
 RenderTexture::RenderTexture(

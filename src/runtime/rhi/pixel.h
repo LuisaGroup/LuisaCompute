@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <algorithm>// for std::max
+
 #include <core/dll_export.h>
 #include <core/basic_types.h>
 

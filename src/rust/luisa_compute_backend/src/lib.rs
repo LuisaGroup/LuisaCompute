@@ -1,3 +1,4 @@
+use std::ffi::{CStr, CString};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -5,23 +6,26 @@ use std::{
 
 use api::{CreatedSwapchainInfo, PixelFormat};
 use binding::Binding;
-use libc::c_void;
+use libc::{c_char, c_void};
 use libloading::Library;
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
     ir::{self, KernelModule},
     CArc,
 };
+
+#[cfg(feature = "remote")]
+pub mod api_message;
 pub mod binding;
 pub mod cpp_proxy_backend;
 #[cfg(feature = "remote")]
 pub mod remote;
-#[cfg(feature = "remote")]
-pub mod api_message;
-#[cfg(feature = "cpu")]
+#[cfg(any(feature = "cpu", feature = "remote"))]
 pub mod rust;
+
 #[derive(Debug)]
 pub struct BackendError {}
+
 pub type Result<T> = std::result::Result<T, BackendError>;
 
 pub struct Context {
@@ -29,26 +33,42 @@ pub struct Context {
     pub(crate) swapchain: Option<Arc<SwapChainForCpuContext>>,
     pub(crate) context: Option<api::Context>,
 }
+
 impl Context {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         unsafe {
             let lib_path = path.as_ref().to_path_buf();
             let api_dll = if cfg!(target_os = "windows") {
-                lib_path.join("libluisa-compute-api.dll")
+                lib_path.join("lc-api.dll")
             } else if cfg!(target_os = "linux") {
-                lib_path.join("libluisa-compute-api.so")
+                lib_path.join("liblc-api.so")
             } else {
                 todo!()
             };
             let swapchain_dll = if cfg!(target_os = "windows") {
-                "libluisa-compute-vulkan-swapchain.dll"
+                "lc-vulkan-swapchain.dll"
             } else if cfg!(target_os = "linux") {
-                "libluisa-compute-vulkan-swapchain.so"
+                "liblc-vulkan-swapchain.so"
             } else {
                 todo!()
             };
             let swapchain = lib_path.join(swapchain_dll);
             let binding = Binding::new(&api_dll).ok().map(Arc::new);
+            if let Some(binding) = &binding {
+                unsafe extern "C" fn callback(info: *const c_char, msg: *const c_char) {
+                    let info = CStr::from_ptr(info as *mut c_char).to_str().unwrap();
+                    let msg = CStr::from_ptr(msg as *mut c_char).to_str().unwrap();
+                    match info {
+                        "I" => log::log!(target: "lc-cpp", log::Level::Info, "{}", msg),
+                        "W" => log::log!(target: "lc-cpp", log::Level::Warn, "{}", msg),
+                        "E" | "C" => log::log!(target: "lc-cpp", log::Level::Error, "{}", msg),
+                        "D" => log::log!(target: "lc-cpp", log::Level::Debug, "{}", msg),
+                        "T" => log::log!(target: "lc-cpp", log::Level::Trace, "{}", msg),
+                        _ => panic!("unknown log level: {}", info),
+                    }
+                }
+                (binding.luisa_compute_set_logger_callback)(callback);
+            }
             let swapchain = SwapChainForCpuContext::new(swapchain)
                 .ok()
                 .map(|x| Arc::new(x));
@@ -67,13 +87,20 @@ impl Context {
     pub fn create_device(&self, device: &str) -> crate::Result<Arc<dyn Backend>> {
         let backend: Arc<dyn Backend> = match device {
             "cpu" => {
-                let device = rust::RustBackend::new();
-                unsafe {
-                    if let Some(swapchain) = &self.swapchain {
-                        device.set_swapchain_contex(swapchain.clone());
+                #[cfg(feature = "cpu")]
+                {
+                    let device = rust::RustBackend::new();
+                    unsafe {
+                        if let Some(swapchain) = &self.swapchain {
+                            device.set_swapchain_contex(swapchain.clone());
+                        }
                     }
+                    device
                 }
-                device
+                #[cfg(not(feature = "cpu"))]
+                {
+                    panic!("cpu backend is not enabled")
+                }
             }
             "remote" => {
                 todo!()
@@ -101,7 +128,9 @@ pub struct SwapChainForCpuContext {
     pub cpu_swapchain_present:
         unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
 }
+
 unsafe impl Send for SwapChainForCpuContext {}
+
 unsafe impl Sync for SwapChainForCpuContext {}
 
 impl SwapChainForCpuContext {
@@ -120,6 +149,7 @@ impl SwapChainForCpuContext {
         })
     }
 }
+
 pub trait Backend: Sync + Send {
     unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>);
     fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> Result<api::CreatedBufferInfo>;
@@ -224,6 +254,7 @@ pub extern "C" fn lc_rs_destroy_buffer(backend: *mut c_void, buffer: api::Buffer
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_buffer(buffer)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_texture(
     backend: *mut c_void,
@@ -239,11 +270,13 @@ pub extern "C" fn lc_rs_create_texture(
         .create_texture(format, dimension, width, height, depth, mipmap_levels)
         .unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_texture(backend: *mut c_void, texture: api::Texture) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_texture(texture)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_bindless_array(
     backend: *mut c_void,
@@ -252,11 +285,13 @@ pub extern "C" fn lc_rs_create_bindless_array(
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_bindless_array(size).unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_bindless_array(backend: *mut c_void, array: api::BindlessArray) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_bindless_array(array)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_stream(
     backend: *mut c_void,
@@ -265,21 +300,25 @@ pub extern "C" fn lc_rs_create_stream(
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_stream(tag).unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_stream(backend: *mut c_void, stream: api::Stream) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_stream(stream)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_synchronize_stream(backend: *mut c_void, stream: api::Stream) -> bool {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.synchronize_stream(stream).is_ok()
 }
+
 #[repr(C)]
 pub struct LCDispatchCallback {
     callback: extern "C" fn(*mut u8),
     user_data: *mut u8,
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_dispatch(
     backend: *mut c_void,
@@ -298,6 +337,7 @@ pub extern "C" fn lc_rs_dispatch(
         )
         .is_ok()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_shader(
     backend: *mut c_void,
@@ -307,21 +347,25 @@ pub extern "C" fn lc_rs_create_shader(
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_shader(kernel, option).unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_shader(backend: *mut c_void, shader: api::Shader) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_shader(shader)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_event(backend: *mut c_void) -> api::CreatedResourceInfo {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_event().unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_event(backend: *mut c_void, event: api::Event) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_event(event)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_accel(
     backend: *mut c_void,
@@ -330,11 +374,13 @@ pub extern "C" fn lc_rs_create_accel(
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_accel(option).unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_accel(backend: *mut c_void, accel: api::Accel) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_accel(accel)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_mesh(
     backend: *mut c_void,
@@ -343,11 +389,13 @@ pub extern "C" fn lc_rs_create_mesh(
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_mesh(option).unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_mesh(backend: *mut c_void, mesh: api::Mesh) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_mesh(mesh)
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_create_procedural_primitive(
     backend: *mut c_void,
@@ -356,6 +404,7 @@ pub extern "C" fn lc_rs_create_procedural_primitive(
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.create_procedural_primitive(option).unwrap()
 }
+
 #[no_mangle]
 pub extern "C" fn lc_rs_query(
     backend: *mut c_void,

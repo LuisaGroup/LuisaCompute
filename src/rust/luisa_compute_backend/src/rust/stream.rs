@@ -378,7 +378,9 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 level as u8,
             )
         }
-        luisa_compute_api_types::Argument::Uniform(_) => todo!(),
+        luisa_compute_api_types::Argument::Uniform(uniform) => {
+            defs::KernelFnArg::Uniform(uniform.data)
+        }
         luisa_compute_api_types::Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
             defs::KernelFnArg::Accel(defs::Accel {
@@ -459,13 +461,17 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
     }
 }
 
-extern "C" fn trace_closest(accel: *const std::ffi::c_void, ray: &defs::Ray, mask:u8) -> defs::Hit {
+extern "C" fn trace_closest(
+    accel: *const std::ffi::c_void,
+    ray: &defs::Ray,
+    mask: u8,
+) -> defs::Hit {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.trace_closest(ray, mask)
     }
 }
-extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask:u8) -> bool {
+extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u8) -> bool {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.trace_any(ray, mask)

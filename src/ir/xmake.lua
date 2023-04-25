@@ -20,3 +20,4 @@ if is_mode("debug") then
 else
 	add_rs_link("release")
 end
+target_end()

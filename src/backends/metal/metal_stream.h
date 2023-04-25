@@ -1,41 +1,49 @@
 //
-// Created by Mike Smith on 2021/4/13.
+// Created by Mike Smith on 2023/4/15.
 //
 
 #pragma once
 
-#import <mutex>
+#include <core/stl/queue.h>
+#include <core/stl/string.h>
 
-#import <Metal/Metal.h>
-#import <MetalKit/MetalKit.h>
-
-#import <core/logging.h>
-#import <core/spin_mutex.h>
-#import <backends/metal/metal_host_buffer_pool.h>
+#include <runtime/rhi/stream_tag.h>
+#include <runtime/command_list.h>
+#include <backends/metal/metal_api.h>
+#include <backends/metal/metal_stage_buffer_pool.h>
 
 namespace luisa::compute::metal {
+
+class MetalEvent;
+class MetalTexture;
+class MetalSwapchain;
 
 class MetalStream {
 
 public:
-    static constexpr auto host_buffer_size = 64u * 1024u * 1024u;
+    using CallbackContainer = luisa::vector<MetalCallbackContext *>;
 
 private:
-    id<MTLCommandQueue> _handle;
-    __weak id<MTLCommandBuffer> _last{nullptr};
-    MetalHostBufferPool _upload_host_buffer_pool;
-    MetalHostBufferPool _download_host_buffer_pool;
-    dispatch_semaphore_t _sem;
+    MTL::CommandQueue *_queue;
+    MetalStageBufferPool _upload_pool;
+    MetalStageBufferPool _download_pool;
+    luisa::queue<CallbackContainer> _callback_lists;
+    spin_mutex _callback_mutex;
 
 public:
-    explicit MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcept;
+    MetalStream(MTL::Device *device, StreamTag tag, size_t max_commands) noexcept;
     ~MetalStream() noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] id<MTLCommandBuffer> command_buffer() noexcept;
-    void dispatch(id<MTLCommandBuffer> command_buffer) noexcept;
+    void signal(MetalEvent *event) noexcept;
+    void wait(MetalEvent *event) noexcept;
     void synchronize() noexcept;
-    [[nodiscard]] auto &upload_host_buffer_pool() noexcept { return _upload_host_buffer_pool; }
-    [[nodiscard]] auto &download_host_buffer_pool() noexcept { return _download_host_buffer_pool; }
+    void dispatch(CommandList &&list) noexcept;
+    void present(MetalSwapchain *swapchain, MetalTexture *image) noexcept;
+    void set_name(luisa::string_view name) noexcept;
+    [[nodiscard]] auto device() const noexcept { return _queue->device(); }
+    [[nodiscard]] auto queue() const noexcept { return _queue; }
+    [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
+    [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
+    void submit(MTL::CommandBuffer *command_buffer, CallbackContainer &&callbacks) noexcept;
 };
 
 }// namespace luisa::compute::metal

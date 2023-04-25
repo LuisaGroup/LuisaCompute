@@ -50,13 +50,14 @@ pub struct Ray {
     pub dir_z: f32,
     pub tmax: f32,
 }
-#[repr(C, align(16))]
+#[repr(C, align(8))]
 #[derive(Copy, Clone)]
 pub struct Hit {
     pub inst_id: u32,
     pub prim_id: u32,
     pub u: f32,
     pub v: f32,
+    pub t: f32,
 }
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]
@@ -119,4 +120,5 @@ pub enum KernelFnArg {
     BindlessArray(BindlessArray),
     Accel(Accel),
     Texture(Texture, u8),
+    Uniform(*const u8),
 }

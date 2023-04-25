@@ -1,10 +1,15 @@
 #pragma once
+
 #include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
+
 namespace lc::validation {
+
 using namespace luisa;
 using namespace luisa::compute;
+
 namespace detail {
+
 template<typename T>
 class ext_deleter {
     vstd::func_ptr_t<void(T *)> _deleter;
@@ -15,8 +20,12 @@ public:
         _deleter(ptr);
     }
 };
+
 }// namespace detail
+
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
+
+private:
     luisa::shared_ptr<DeviceInterface> _native;
     using ExtPtr = vstd::unique_ptr<DeviceExtension, detail::ext_deleter<DeviceExtension>>;
     vstd::unordered_map<vstd::string, ExtPtr> exts;
@@ -83,8 +92,9 @@ public:
     void destroy_accel(uint64_t handle) noexcept override;
 
     // query
-    luisa::string query(luisa::string_view property) noexcept;
-    DeviceExtension *extension(luisa::string_view name) noexcept;
+    luisa::string query(luisa::string_view property) noexcept override;
+    DeviceExtension *extension(luisa::string_view name) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 };
+
 }// namespace lc::validation

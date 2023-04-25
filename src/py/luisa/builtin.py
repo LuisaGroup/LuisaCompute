@@ -367,26 +367,27 @@ for _func in 'kernel_id', 'object_id':
     _func_map[_func] = _custom_xx_id
 # e.g. make_float4(...)
 def _make_vec(name, *args):
-    for T in 'uint', 'int', 'float', 'bool':
-        for N in 2, 3, 4:
-            if name == f'make_{T}{N}':
-                if sum([length_of(x.dtype) for x in args]) not in {1, N}:
-                    raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
-                op = getattr(lcapi.CallOp, name.upper())
-                dtype = getattr(lcapi, f'{T}{N}')
-                return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+    N = int(name[len(name)-1:len(name)])
+    T = name[5:len(name)-1]
+    if sum([length_of(x.dtype) for x in args]) not in {1, N}:
+        raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
+    op = getattr(lcapi.CallOp, name.upper())
+    dtype = getattr(lcapi, f'{T}{N}')
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
 for T in 'uint', 'int', 'float', 'bool':
     for N in 2, 3, 4:
         _func_map[f'make_{T}{N}'] = _make_vec
 def _make_vec_16(name, *args):
-    for T in ushort2, short2, half2, ushort3, short3, half3, ushort4, short4, half4:
-        if name == f'make_{T.__name__}':
-            N = length_of(T)
-            if sum([length_of(x.dtype) for x in args]) not in {1, N}:
-                raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
-            upper_name = name.upper()
-            op = getattr(lcapi.CallOp, upper_name)
-            return T, lcapi.builder().call(to_lctype(T), op, [x.expr for x in args])
+    N = int(name[len(name)-1:len(name)])
+    T = name[5:len(name)]
+    if sum([length_of(x.dtype) for x in args]) not in {1, N}:
+        raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
+    dtype = eval(T)
+    upper_name = name.upper()
+    op = getattr(lcapi.CallOp, upper_name)
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+    
 for T in 'ushort', 'short', 'half':
     for N in 2, 3, 4:
         _func_map[f'make_{T}{N}'] = _make_vec_16
@@ -620,7 +621,7 @@ def callable_call(func, *args):
     arg_list = tuple(a.dtype for a in args)
     if func is globalvars.current_context.func and arg_list == globalvars.current_context.argtypes:
         raise Exception("Recursion is not supported")
-    f = func.get_compiled(call_from_host=False, allow_ref=True, argtypes=arg_list, arg_info=shared_dict)
+    f = func.get_compiled(func_type=1, allow_ref=True, argtypes=arg_list, arg_info=shared_dict)
     globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument
     # call

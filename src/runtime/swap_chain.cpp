@@ -27,10 +27,11 @@ SwapChain::SwapChain(DeviceInterface *device, uint64_t window_handle, uint64_t s
     : SwapChain{device,
                 device->create_swap_chain(
                     window_handle, stream_handle, width, height,
-                    allow_hdr, vsync, back_buffer_size)} {
-}
+                    allow_hdr, vsync, back_buffer_size)} {}
 
 SwapChain::Present SwapChain::present(ImageView<float> frame) const noexcept {
+    LUISA_ASSERT(frame.level() == 0u,
+                 "Only the base-level image is presentable in a swapchain.");
     return {this, frame};
 }
 

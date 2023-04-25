@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     auto width = 1920u, height = 1080u;
 
@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     auto buffer1 = device.create_buffer<float>(width * height);
     auto buffer2 = device.create_buffer<float>(width * height);
 
-    auto stream = device.create_stream();
+    Stream stream = device.create_stream();
 
     Kernel1D kernel = [](BufferFloat buffer) noexcept {
         buffer.write(dispatch_x(), 1.f);

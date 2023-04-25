@@ -151,5 +151,11 @@ template<size_t N>
 using ArrayBool3 = ArrayVar<bool3, N>;
 template<size_t N>
 using ArrayBool4 = ArrayVar<bool4, N>;
+template<size_t N>
+using ArrayFloat2x2 = ArrayVar<float2x2, N>;
+template<size_t N>
+using ArrayFloat3x3 = ArrayVar<float3x3, N>;
+template<size_t N>
+using ArrayFloat4x4 = ArrayVar<float4x4, N>;
 
 }// namespace luisa::compute

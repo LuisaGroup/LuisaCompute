@@ -13,9 +13,9 @@ from lcapi import PixelStorage
 from .gui import GUI
 
 from .printer import Printer
-from .accel import Ray, Accel, make_ray, inf_ray, offset_ray_origin
+from .accel import Accel, make_ray, inf_ray, offset_ray_origin
 from .hit import TriangleHit, CommittedHit, ProceduralHit
-from .rayquery import RayQueryAllType, RayQueryAnyType, is_triangle, is_procedural
+from .rayquery import RayQueryAllType, RayQueryAnyType, is_triangle, is_procedural, Ray
 from .bindless import bindless_array, BindlessArray
 from .util import RandomSampler
 from .meshformat import MeshFormat

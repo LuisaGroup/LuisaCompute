@@ -11,11 +11,12 @@ struct alignas(16) Ray {
     float tmax;
 };
 
-struct alignas(16) Hit {
+struct alignas(8) Hit {
     uint32_t inst_id;
     uint32_t prim_id;
     float u;
     float v;
+    float t;
 };
 
 struct alignas(16) Mat4 {
@@ -65,6 +66,7 @@ struct KernelFnArg {
         BindlessArray,
         Accel,
         Texture,
+        Uniform,
     };
 
     struct Buffer_Body {
@@ -84,12 +86,17 @@ struct KernelFnArg {
         uint8_t _1;
     };
 
+    struct Uniform_Body {
+        const uint8_t *_0;
+    };
+
     Tag tag;
     union {
         Buffer_Body buffer;
         BindlessArray_Body bindless_array;
         Accel_Body accel;
         Texture_Body texture;
+        Uniform_Body uniform;
     };
 };
 

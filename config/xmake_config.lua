@@ -8,24 +8,11 @@ function add_lc_includedirs(lc_dir, is_public)
 	--[[eastl]]
 		path.join(lc_dir, "src/ext/EASTL/include"), path.join(lc_dir, "src/ext/EASTL/packages/EABase/include/Common"),
 	--[[lc-core]]
-		path.join(lc_dir, "src"), path.join(lc_dir, "src/ext/xxHash"), path.join(lc_dir, "src/ext/parallel-hashmap"), 
+		path.join(lc_dir, "src"), path.join(lc_dir, "src/ext/xxHash"), path.join(lc_dir, "src/ext/magic_enum/include"), path.join(lc_dir, "src/ext/parallel-hashmap"), 
 		
 	{
 		public = is_public
 	})
-end
-
--- Add project's link dir
-function add_lc_linkdirs(lc_dir, is_public)
-	if is_mode("debug") then
-		add_linkdirs(path.join(lc_dir, "bin/debug"), {
-			public = true
-		})
-	else
-		add_linkdirs(path.join(lc_dir, "bin/release"), {
-			public = true
-		})
-	end
 end
 
 -- Add project's defines
@@ -33,7 +20,7 @@ function add_lc_defines(lc_dir, is_public)
 	add_defines(
 	--[[spdlog]]
 		"SPDLOG_NO_EXCEPTIONS", "SPDLOG_NO_THREAD_ID", "SPDLOG_DISABLE_DEFAULT_LOGGER",
-		"SPDLOG_COMPILED_LIB", "FMT_SHARED", "SPDLOG_SHARED_LIB", "FMT_CONSTEVAL=constexpr", "FMT_USE_CONSTEXPR=1",
+		"FMT_SHARED", "SPDLOG_SHARED_LIB", "FMT_CONSTEVAL=constexpr", "FMT_USE_CONSTEXPR=1",
 		"FMT_EXCEPTIONS=0", 
 	--[[mimallo]]
 		"MI_SHARED_LIB",

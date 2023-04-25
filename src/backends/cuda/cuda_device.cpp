@@ -38,9 +38,11 @@
 #include <backends/cuda/cuda_ext.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_swapchain.h>
+#include <backends/cuda/cuda_builtin_embedded.h>
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_DUMP_SOURCE 1
+#define LUISA_CUDA_KERNEL_DEBUG 1
 
 namespace luisa::compute::cuda {
 
@@ -101,19 +103,10 @@ CUDADevice::CUDADevice(Context &&ctx,
         });
     // provide a default binary IO
     if (_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context(), "cuda");
+        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
         _io = _default_io.get();
     }
     _compiler = luisa::make_unique<CUDACompiler>(this);
-
-    luisa::string builtin_kernel_src;
-    {
-        auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.cu");
-        builtin_kernel_src.resize(builtin_kernel_stream->length());
-        builtin_kernel_stream->read(luisa::span{
-            reinterpret_cast<std::byte *>(builtin_kernel_src.data()),
-            builtin_kernel_src.size()});
-    }
 
     auto sm_option = luisa::format("-arch=sm_{}", handle().compute_capability());
     std::array options{sm_option.c_str(),
@@ -125,6 +118,9 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-dw",
                        "-w",
                        "-ewp"};
+    luisa::string builtin_kernel_src{
+        luisa_cuda_builtin_cuda_builtin_kernels,
+        sizeof(luisa_cuda_builtin_cuda_builtin_kernels)};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
 
     // prepare default shaders
@@ -139,6 +135,9 @@ CUDADevice::CUDADevice(Context &&ctx,
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_bindless_array_update_function, _builtin_kernel_module,
             "update_bindless_array"));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(
+            &_instance_handle_update_function, _builtin_kernel_module,
+            "update_accel_instance_handles"));
     });
 }
 
@@ -222,7 +221,7 @@ void CUDADevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
-#ifndef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifndef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     if (stream_tag == StreamTag::GRAPHICS) {
         LUISA_WARNING_WITH_LOCATION("Swapchains are not enabled on CUDA backend, "
                                     "Graphics streams might not work properly.");
@@ -260,7 +259,7 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
                                                     uint width, uint height,
                                                     bool allow_hdr, bool vsync,
                                                     uint back_buffer_size) noexcept {
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     auto chain = with_handle([&] {
         return new_with_allocator<CUDASwapchain>(
             this, window_handle, width, height,
@@ -279,7 +278,7 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
 }
 
 void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     with_handle([chain = reinterpret_cast<CUDASwapchain *>(handle)] {
         delete_with_allocator(chain);
     });
@@ -291,7 +290,7 @@ void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
 }
 
 void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
                  chain = reinterpret_cast<CUDASwapchain *>(swapchain_handle),
                  image = reinterpret_cast<CUDATexture *>(image_handle)] {
@@ -489,26 +488,26 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     for (auto &&arg : kernel.bound_arguments()) {
         luisa::visit(
             [&bound_arguments]<typename T>(T binding) noexcept {
-                ShaderDispatchCommand::Argument argument{};
-                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
-                    argument.buffer.handle = binding.handle;
-                    argument.buffer.offset = binding.offset;
-                    argument.buffer.size = binding.size;
-                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
-                    argument.texture.handle = binding.handle;
-                    argument.texture.level = binding.level;
-                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
-                    argument.bindless_array.handle = binding.handle;
-                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
-                    argument.accel.handle = binding.handle;
-                } else {
-                    LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
-                }
-                bound_arguments.emplace_back(argument);
+            ShaderDispatchCommand::Argument argument{};
+            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
+                argument.buffer.handle = binding.handle;
+                argument.buffer.offset = binding.offset;
+                argument.buffer.size = binding.size;
+            } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
+                argument.texture.handle = binding.handle;
+                argument.texture.level = binding.level;
+            } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
+                argument.bindless_array.handle = binding.handle;
+            } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
+                argument.accel.handle = binding.handle;
+            } else {
+                LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
+            }
+            bound_arguments.emplace_back(argument);
             },
             arg);
     }
@@ -517,19 +516,27 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options{sm_option.c_str(),
-                                              nvrtc_version_option.c_str(),
-                                              optix_version_option.c_str(),
-                                              "--std=c++17",
-                                              "-default-device",
-                                              "-restrict",
-                                              "-extra-device-vectorization",
-                                              "-dw",
-                                              "-w",
-                                              "-ewp"};
+    luisa::vector<const char *> nvrtc_options {
+        sm_option.c_str(),
+            nvrtc_version_option.c_str(),
+            optix_version_option.c_str(),
+            "--std=c++17",
+            "-default-device",
+            "-restrict",
+            "-extra-device-vectorization",
+            "-dw",
+            "-w",
+            "-ewp",
+#if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
+            "-DLUISA_DEBUG=1",
+#endif
+    };
+
     if (option.enable_debug_info) {
         nvrtc_options.emplace_back("-line-info");
-        nvrtc_options.emplace_back("-DLUISA_DEBUG");
+#if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG
+        nvrtc_options.emplace_back("-DLUISA_DEBUG=1");
+#endif
     }
     if (option.enable_fast_math) {
         nvrtc_options.emplace_back("-use_fast_math");
@@ -873,7 +880,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 break;
             case Resource::Tag::RASTER_SHADER: break;
             case Resource::Tag::SWAP_CHAIN:
-#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
                 reinterpret_cast<CUDASwapchain *>(handle)->set_name(std::move(name));
 #endif
                 break;
@@ -905,6 +912,7 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
 }
 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
+    names.clear();
     auto device_count = 0;
     LUISA_CHECK_CUDA(cuDeviceGetCount(&device_count));
     if (device_count > 0) {

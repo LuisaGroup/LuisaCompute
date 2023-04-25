@@ -26,6 +26,7 @@
 #include <core/stl.h>
 #include <core/thread_pool.h>
 #include <core/thread_safety.h>
+#include <core/magic_enum.h>
 
 #include <ast/ast_evaluator.h>
 #include <ast/constant_data.h>
@@ -45,7 +46,6 @@
 #include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
 #include <runtime/context.h>
-#include <runtime/context_paths.h>
 #include <runtime/device.h>
 #include <runtime/event.h>
 #include <runtime/image.h>

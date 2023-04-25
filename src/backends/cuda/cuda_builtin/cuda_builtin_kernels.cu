@@ -25,6 +25,11 @@ struct alignas(16) InstanceModification {
     float4 affine[3];
 };
 
+struct alignas(16) InstanceHandleMidification {
+    unsigned long long index;
+    unsigned long long handle;
+};
+
 enum InstanceFlags : unsigned int {
     INSTANCE_FLAG_NONE = 0u,
     INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
@@ -35,6 +40,16 @@ enum InstanceFlags : unsigned int {
 
 static_assert(sizeof(Instance) == 80, "");
 static_assert(sizeof(InstanceModification) == 64, "");
+
+extern "C" __global__ void update_accel_instance_handles(Instance *__restrict__ instances,
+                                                         const InstanceHandleMidification *__restrict__ mods,
+                                                         unsigned int n) {
+    auto tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid < n) [[likely]] {
+        auto m = mods[tid];
+        instances[m.index].property.traversable = m.handle;
+    }
+}
 
 extern "C" __global__ void update_accel(Instance *__restrict__ instances,
                                         const InstanceModification *__restrict__ mods,

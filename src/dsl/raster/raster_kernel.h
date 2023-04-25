@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ast/function.h>
-#include <dsl/func.h>
+#include <dsl/raster/raster_func.h>
 #include <dsl/struct.h>
 #include <runtime/raster/app_data.h>
 LUISA_STRUCT(luisa::compute::AppData, position, normal, tangent, color, uv, vertex_id, instance_id){};
@@ -11,11 +11,11 @@ template<typename VertCallable, typename PixelCallable>
 class RasterKernel;
 LC_DSL_API void check_vert_ret_type(Type const *type);
 template<typename VertRet, typename... VertArgs, typename PixelRet, typename... PixelArgs>
-class RasterKernel<Callable<VertRet(AppData, VertArgs...)>, Callable<PixelRet(VertRet, PixelArgs...)>> {
+class RasterKernel<RasterStageKernel<VertRet(AppData, VertArgs...)>, RasterStageKernel<PixelRet(VertRet, PixelArgs...)>> {
 
 public:
-    using VertexKernel = Callable<VertRet(AppData, VertArgs...)>;
-    using PixelKernel = Callable<PixelRet(VertRet, PixelArgs...)>;
+    using VertexKernel = RasterStageKernel<VertRet(AppData, VertArgs...)>;
+    using PixelKernel = RasterStageKernel<PixelRet(VertRet, PixelArgs...)>;
     using RasterShaderType = RasterShader<VertArgs..., PixelArgs...>;
 
 private:
@@ -29,10 +29,10 @@ public:
         // Structure's first element must be float4 as position
         check_vert_ret_type(Type::template of<VertRet>());
     }
-    RasterKernel(RasterKernel const &) = delete;
+    RasterKernel(RasterKernel const &) = default;
     RasterKernel(RasterKernel &&) = default;
-    RasterKernel &operator=(RasterKernel const &) = delete;
-    RasterKernel &operator=(RasterKernel &&) = delete;
+    RasterKernel &operator=(RasterKernel const &) = default;
+    RasterKernel &operator=(RasterKernel &&) = default;
     [[nodiscard]] auto vert() const noexcept { return Function{_vert.get()}; }
     [[nodiscard]] auto pixel() const noexcept { return Function{_pixel.get()}; }
 };

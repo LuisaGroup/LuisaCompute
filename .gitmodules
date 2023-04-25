@@ -28,3 +28,6 @@
 [submodule "src/unity3d"]
 	path = src/unity3d
 	url = https://github.com/LuisaGroup/LuisaCompute_Unity3D
+[submodule "src/ext/magic_enum"]
+	path = src/ext/magic_enum
+	url = https://github.com/Neargye/magic_enum

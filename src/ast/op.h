@@ -209,15 +209,21 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT3,// (scalar, vec3)
     MAKE_FLOAT4,// (scalar, vec4)
 
-    MAKE_INT16_2,  // (scalar, vec2)
-    MAKE_INT16_3,  // (scalar, vec3)
-    MAKE_INT16_4,  // (scalar, vec4)
-    MAKE_UINT16_2, // (scalar, vec2)
-    MAKE_UINT16_3, // (scalar, vec3)
-    MAKE_UINT16_4, // (scalar, vec4)
-    MAKE_FLOAT16_2,// (scalar, vec2)
-    MAKE_FLOAT16_3,// (scalar, vec3)
-    MAKE_FLOAT16_4,// (scalar, vec4)
+    MAKE_SHORT2,  // (scalar, vec2)
+    MAKE_SHORT3,  // (scalar, vec3)
+    MAKE_SHORT4,  // (scalar, vec4)
+    MAKE_USHORT2, // (scalar, vec2)
+    MAKE_USHORT3, // (scalar, vec3)
+    MAKE_USHORT4, // (scalar, vec4)
+    MAKE_LONG2,  // (scalar, vec2)
+    MAKE_LONG3,  // (scalar, vec3)
+    MAKE_LONG4,  // (scalar, vec4)
+    MAKE_ULONG2, // (scalar, vec2)
+    MAKE_ULONG3, // (scalar, vec3)
+    MAKE_ULONG4, // (scalar, vec4)
+    MAKE_HALF2,// (scalar, vec2)
+    MAKE_HALF3,// (scalar, vec3)
+    MAKE_HALF4,// (scalar, vec4)
 
     MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
@@ -226,6 +232,9 @@ enum struct CallOp : uint32_t {
     // optimization hints
     ASSUME,     // ()
     UNREACHABLE,// ()
+
+    // used by the IR module
+    ZERO,
 
     // autodiff ops
     REQUIRES_GRADIENT,
@@ -242,9 +251,10 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): TriangleHit
     RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
     RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY,
+    RAY_TRACING_QUERY_ANY,              // (Accel, ray, mask: uint): RayQuery
 
     // ray query
+    RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
     RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
     RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
     RAY_QUERY_COMMITTED_HIT,           // (RayQuery): CommittedHit

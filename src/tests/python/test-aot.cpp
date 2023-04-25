@@ -16,8 +16,8 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
-    auto stream = device.create_stream();
+    Device device = context.create_device(argv[1]);
+    Stream stream = device.create_stream();
     auto shader = device.load_shader<2, Image<float>>("out_kernel.bytes");
     static constexpr auto width = 512u;
     static constexpr auto height = 512u;

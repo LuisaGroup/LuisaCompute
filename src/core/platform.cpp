@@ -9,12 +9,8 @@
 #include <core/logging.h>
 #include <core/stl/filesystem.h>
 
-// Don't do this
-// #if (!defined __clang__) && (!defined _MSC_VER) && (!defined __GNUC__) && (!defined __MINGW64__)
-// static_assert(false, "Unsupported compiler.");
-// #endif
-
-static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1, "legal environment test");
+static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
+              "illegal pointer and integer sizes.");
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #ifndef UNICODE
@@ -66,7 +62,7 @@ size_t pagesize() noexcept {
 }
 namespace win_detail {
 template<typename PathChar>
-void set_dll_directory(PathChar const *path) {
+void set_dll_directory(PathChar const *path) noexcept {
     if constexpr (sizeof(PathChar) == 1) {
         SetDllDirectoryA(path);
     } else {
@@ -114,6 +110,7 @@ luisa::string dynamic_module_name(luisa::string_view name) noexcept {
     s.append(".dll");
     return s;
 }
+
 #ifndef NDEBUG
 luisa::string demangle(const char *name) noexcept {
     char buffer[256u];
@@ -162,6 +159,7 @@ luisa::vector<TraceItem> backtrace() noexcept {
 #else
 luisa::vector<TraceItem> backtrace() noexcept { return {}; }
 #endif
+
 }// namespace luisa
 
 #elif defined(LUISA_PLATFORM_UNIX)

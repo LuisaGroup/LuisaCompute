@@ -419,6 +419,7 @@ impl KernelSerializer {
             Func::ExtractElement => SerializedFunc::ExtractElement,
             Func::GetElementPtr => SerializedFunc::GetElementPtr,
             Func::Struct => SerializedFunc::Struct,
+            Func::Array=> SerializedFunc::Array,
             Func::Mat => SerializedFunc::Mat,
             Func::Mat2 => SerializedFunc::Mat2,
             Func::Mat3 => SerializedFunc::Mat3,

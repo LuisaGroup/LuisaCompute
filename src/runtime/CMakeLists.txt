@@ -24,7 +24,7 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
 set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
         rhi/command.cpp rhi/command.h
         rhi/command_encoder.cpp rhi/command_encoder.h
-        rhi/device_interface.h
+        rhi/device_interface.cpp rhi/device_interface.h
         rhi/pixel.cpp rhi/pixel.h
         rhi/resource.cpp rhi/resource.h
         rhi/sampler.h
@@ -36,7 +36,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         buffer_arena.h
         command_list.cpp command_list.h
         context.cpp context.h
-        context_paths.h
         depth_format.h
         device.cpp device.h
         dispatch_buffer.cpp dispatch_buffer.h
@@ -56,6 +55,7 @@ target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compu
 
 target_compile_definitions(luisa-compute-runtime PRIVATE LC_RUNTIME_EXPORT_DLL=1)
 set_target_properties(luisa-compute-runtime PROPERTIES
-        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+        OUTPUT_NAME lc-runtime)
 
 luisa_compute_install(runtime SOURCES ${LUISA_COMPUTE_RUNTIME_SOURCES})

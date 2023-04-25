@@ -64,8 +64,8 @@ private:
     void visit(const GpuCustomOpExpr *expr) override;
 
 private:
-    void _emit_type_decl() noexcept;
-    void _emit_variable_decl(Variable v, bool force_const) noexcept;
+    void _emit_type_decl(Function f) noexcept;
+    void _emit_variable_decl(Function f, Variable v, bool force_const) noexcept;
     void _emit_type_name(const Type *type) noexcept;
     void _emit_function(Function f) noexcept;
     void _emit_variable_name(Variable v) noexcept;
@@ -74,6 +74,7 @@ private:
     void _emit_constant(Function::Constant c) noexcept;
     void _emit_variable_declarations(Function f) noexcept;
     void _emit_builtin_variables() noexcept;
+    void _emit_access_chain(luisa::span<const Expression *const> chain) noexcept;
 
 public:
     explicit CUDACodegenAST(StringScratch &scratch) noexcept;

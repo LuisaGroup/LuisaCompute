@@ -12,6 +12,10 @@
 #include <py/managed_bindless.h>
 #include <core/thread_pool.h>
 #include <runtime/raster/raster_state.h>
+#include <ast/atomic_ref_node.h>
+#include <core/logging.h>
+#include <runtime/context.h>
+
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -64,7 +68,10 @@ struct VertexData {
     uint32_t vertex_id;
     uint32_t instance_id;
 };
-
+struct AtomicAccessChain {
+    using Node = luisa::compute::detail::AtomicRefNode;
+    Node const *node{};
+};
 void export_runtime(py::module &m) {
     py::class_<ManagedMeshFormat>(m, "MeshFormat")
         .def(py::init<>())
@@ -177,13 +184,8 @@ void export_runtime(py::module &m) {
     //     });
 
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
-        .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
-            ShaderOption option{
-                .enable_fast_math = true,
-                .enable_debug_info = false,
-                .compile_only = false,
-                .name = luisa::string{str}};
-            return self.create_shader(option, kernel).handle;
+        .def("create_shader", [](DeviceInterface &self, Function kernel) {
+            return self.create_shader({}, kernel).handle;
         })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;
@@ -233,7 +235,7 @@ void export_runtime(py::module &m) {
         */
 
         .def("check_raster_shader", [](DeviceInterface &self, Function vertex, Function pixel) -> int {
-            if (vertex.tag() != Function::Tag::CALLABLE || pixel.tag() != Function::Tag::CALLABLE) return 5;
+            if (vertex.tag() != Function::Tag::RASTER_STAGE || pixel.tag() != Function::Tag::RASTER_STAGE) return 5;
             auto v2p = vertex.return_type();
             auto vert_args = vertex.arguments();
             if (vert_args.empty() || vert_args[0].type() != Type::of<VertexData>()) {
@@ -411,6 +413,7 @@ void export_runtime(py::module &m) {
     py::class_<FunctionBuilder, luisa::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
+        .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
             auto eval = analyzer.back().try_eval(expr);
@@ -509,4 +512,26 @@ void export_runtime(py::module &m) {
             pyref)
         // .def("meta") // unused
         .def("function", &FunctionBuilder::function);// returning object
+
+    py::class_<AtomicAccessChain>(m, "AtomicAccessChain")
+        .def(py::init<>())
+        .def(
+            "create", [&](AtomicAccessChain &self, RefExpr const *buffer_expr) {
+                LUISA_ASSERT(self.node == nullptr, "Re-create chain not allowed");
+                self.node = AtomicAccessChain::Node::create(buffer_expr);
+            },
+            pyref)
+        .def(
+            "access", [&](AtomicAccessChain &self, Expression const *expr) {
+                self.node = self.node->access(expr);
+            },
+            pyref)
+        .def(
+            "member", [&](AtomicAccessChain &self, size_t member_index) {
+                self.node = self.node->access(member_index);
+            },
+            pyref)
+        .def("operate", [&](AtomicAccessChain &self, CallOp op, const luisa::vector<const Expression *> &args) -> Expression const * {
+            return self.node->operate(op, luisa::span<Expression const *const>{args});
+        });
 }

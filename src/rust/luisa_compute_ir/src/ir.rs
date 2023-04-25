@@ -1,5 +1,5 @@
 use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer, Deserialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::usage_detect::detect_usage;
 use crate::*;
@@ -233,6 +233,12 @@ impl VectorType {
         };
         el_sz * len as usize
     }
+    pub fn element(&self) -> Primitive {
+        match self.element {
+            VectorElementType::Scalar(s) => s,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl MatrixType {
@@ -260,6 +266,12 @@ impl MatrixType {
             VectorElementType::Vector(t) => Type::vector_vector(t.clone(), self.dimension),
         }
     }
+    pub fn element(&self) -> Primitive {
+        match self.element {
+            VectorElementType::Scalar(s) => s,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Type {
@@ -268,6 +280,15 @@ impl Type {
     }
     pub fn userdata() -> CArc<Type> {
         context::register_type(Type::UserData)
+    }
+    pub fn extract(&self, i: usize) -> CArc<Type> {
+        match self {
+            Self::Void | Self::Primitive(_) | Self::UserData => unreachable!(),
+            Self::Vector(_) => self.element(),
+            Self::Matrix(mt) => mt.column(),
+            Self::Array(arr) => arr.element.clone(),
+            Self::Struct(s) => s.fields[i].clone(),
+        }
     }
     pub fn size(&self) -> usize {
         match self {
@@ -358,6 +379,12 @@ impl Type {
     pub fn is_primitive(&self) -> bool {
         match self {
             Type::Primitive(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_struct(&self) -> bool {
+        match self {
+            Type::Struct(_) => true,
             _ => false,
         }
     }
@@ -478,7 +505,7 @@ pub enum Func {
     RayQueryTerminate,
 
     RasterDiscard,
-    
+
     IndirectClearDispatchBuffer,
     IndirectEmplaceDispatchKernel,
 
@@ -683,6 +710,9 @@ pub enum Func {
     GetElementPtr,
     // (fields, ...) -> struct
     Struct,
+
+    // (fields, ...) -> array
+    Array,
 
     // scalar -> matrix, all elements are set to the scalar
     Mat,
@@ -895,6 +925,11 @@ pub enum Instruction {
         backward: Pooled<BasicBlock>,
         epilogue: Pooled<BasicBlock>,
     },
+    // RayQuery{
+    //     ray: NodeRef,
+    //     on_triangle_hit:Pooled<BasicBlock>,
+    //     on_procedural_hit:Pooled<BasicBlock>,
+    // },
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
     Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed
@@ -1558,6 +1593,14 @@ impl IrBuilder {
         let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
         let node = new_node(&self.pools, node);
         self.append(node);
+    }
+    pub fn extract(&mut self, node: NodeRef, index: usize, ret_type: CArc<Type>) -> NodeRef {
+        let c = self.const_(Const::Int32(index as i32));
+        self.call(
+            Func::ExtractElement,
+            &[node, c],
+            ret_type,
+        )
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
         let node = Node::new(

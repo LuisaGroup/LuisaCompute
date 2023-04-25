@@ -5,13 +5,10 @@
 #include <vstl/common.h>
 #include <shared_mutex>
 #include <core/binary_file_stream.h>
+#include <runtime/context.h>
 
 namespace luisa::compute {
-
-class Context;
-
 class DefaultBinaryIO final : public BinaryIO {
-
 public:
     friend class LockedBinaryFileStream;
     struct FileMutex {
@@ -22,10 +19,11 @@ public:
     using MapIndex = MutexMap::Index;
 
 private:
-    const Context &_ctx;
-    std::filesystem::path _data_path;
+    Context _ctx;
     mutable std::mutex _global_mtx;
     mutable MutexMap _mutex_map;
+    std::filesystem::path _cache_dir;
+    std::filesystem::path _data_dir;
 
 private:
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;
@@ -34,7 +32,7 @@ private:
     void _unlock(MapIndex const &idx, bool is_write) const noexcept;
 
 public:
-    DefaultBinaryIO(const Context &ctx, luisa::string_view backend_name) noexcept;
+    DefaultBinaryIO(Context &&ctx) noexcept;
     luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override;
@@ -47,11 +45,11 @@ class LockedBinaryFileStream : public BinaryStream {
 
 private:
     BinaryFileStream _stream;
-    DefaultBinaryIO const* _binary_io;
+    DefaultBinaryIO const *_binary_io;
     DefaultBinaryIO::MapIndex _idx;
 
 public:
-    explicit LockedBinaryFileStream(DefaultBinaryIO const* binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept;
+    explicit LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept;
     ~LockedBinaryFileStream() noexcept override;
     [[nodiscard]] size_t length() const noexcept override { return _stream.length(); }
     [[nodiscard]] size_t pos() const noexcept override { return _stream.pos(); }

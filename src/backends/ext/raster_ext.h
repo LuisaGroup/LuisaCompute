@@ -20,7 +20,7 @@ public:
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept = 0;
 
-    [[nodiscard]] virtual void warm_up_pipeline_cache(
+    virtual void warm_up_pipeline_cache(
         uint64_t shader_handle,
         luisa::span<PixelFormat const> render_target_formats,
         DepthFormat depth_format,

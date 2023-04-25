@@ -37,6 +37,7 @@ target_compile_definitions(spdlog PUBLIC
         FMT_EXCEPTIONS=0
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
+set_target_properties(spdlog PROPERTIES EXCLUDE_FROM_ALL ON)
 target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog_header_only)
 luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include/spdlog)
 
@@ -44,35 +45,44 @@ add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>)
 target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 set_target_properties(xxhash PROPERTIES
-        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+        OUTPUT_NAME lc-ext-xxhash)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)
 luisa_compute_install_extension(xxhash INCLUDE xxHash)
 
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext INTERFACE stb)
+set_target_properties(stb PROPERTIES OUTPUT_NAME lc-ext-stb)
 luisa_compute_install_extension(stb INCLUDE stb)
 
-if (LUISA_COMPUTE_ENABLE_GUI)
-    add_subdirectory(glad)
-    target_link_libraries(luisa-compute-ext INTERFACE glad)
-    luisa_compute_install_extension(glad INCLUDE glad)
+add_library(magic_enum INTERFACE)
+target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
+target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
+luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
 
+if (LUISA_COMPUTE_ENABLE_GUI)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
     set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "" FORCE)
     add_subdirectory(glfw)
-    set_target_properties(glfw PROPERTIES
-            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+    set_target_properties(glfw PROPERTIES OUTPUT_NAME lc-ext-glfw)
     target_link_libraries(luisa-compute-ext INTERFACE glfw)
     luisa_compute_install_extension(glfw INCLUDE glfw/include)
 endif ()
 
 add_subdirectory(EASTL)
+set_target_properties(EASTL PROPERTIES
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+        OUTPUT_NAME lc-ext-eastl)
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
+        CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0)
+    target_compile_options(EASTL PUBLIC -Wno-deprecated-builtins)
+endif ()
 
 add_library(unordered_dense INTERFACE)
 target_include_directories(unordered_dense INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense/include>)
