@@ -13,13 +13,14 @@
 #include <ast/expression.h>
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
+
 namespace lc::validation {
 class Device;
-}
+}// namespace lc::validation
+
 namespace luisa::compute {
 class Statement;
 class Expression;
-class AstSerializer;
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -30,8 +31,8 @@ namespace luisa::compute::detail {
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
+
     friend class lc::validation::Device;
-    friend class compute::AstSerializer;
 
 public:
     /**
@@ -95,6 +96,7 @@ private:
     uint3 _block_size;
     Tag _tag;
     bool _requires_atomic_float{false};
+    bool _requires_autodiff{false};
 
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
@@ -102,7 +104,7 @@ protected:
 
     void _append(const Statement *statement) noexcept;
 
-    [[nodiscard]] const RefExpr *_builtin(Type const* type, Variable::Tag tag) noexcept;
+    [[nodiscard]] const RefExpr *_builtin(Type const *type, Variable::Tag tag) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
     void _void_expr(const Expression *expr) noexcept;
     void _compute_hash() noexcept;
@@ -207,6 +209,8 @@ public:
     [[nodiscard]] bool requires_atomic() const noexcept;
     /// Return if uses atomic floats.
     [[nodiscard]] bool requires_atomic_float() const noexcept;
+    /// Return if uses automatic differentiation.
+    [[nodiscard]] bool requires_autodiff() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
@@ -333,6 +337,8 @@ public:
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
     /// Add ray query statement
     [[nodiscard]] RayQueryStmt *ray_query_(const RefExpr *query) noexcept;
+    /// Add auto diff statement
+    [[nodiscard]] AutoDiffStmt *autodiff_() noexcept;
 
     // For autodiff use only
     [[nodiscard]] const Statement *pop_stmt() noexcept;

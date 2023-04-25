@@ -884,6 +884,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
@@ -1218,6 +1219,7 @@ void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
+        default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 }
 

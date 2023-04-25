@@ -12,7 +12,6 @@
 namespace luisa::compute {
 
 class Type;
-class AstSerializer;
 
 /**
  * @brief Enum of unary operations.
@@ -241,6 +240,7 @@ enum struct CallOp : uint32_t {
     GRADIENT,
     GRADIENT_MARKER,
     ACCUMULATE_GRADIENT,
+    BACKWARD,
     DETACH,
 
     // ray tracing

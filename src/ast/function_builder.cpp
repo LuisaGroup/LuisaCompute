@@ -104,6 +104,11 @@ RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
     return _create_and_append_statement<RayQueryStmt>(query);
 }
 
+AutoDiffStmt *FunctionBuilder::autodiff_() noexcept {
+    _requires_autodiff = true;
+    return _create_and_append_statement<AutoDiffStmt>();
+}
+
 IfStmt *FunctionBuilder::if_(const Expression *cond) noexcept {
     return _create_and_append_statement<IfStmt>(cond);
 }
@@ -140,7 +145,7 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
                 case Type::Tag::FLOAT16:
                 case Type::Tag::FLOAT32: return float(x);
                 case Type::Tag::INT16:
-                case Type::Tag::INT32: 
+                case Type::Tag::INT32:
                 case Type::Tag::INT64: return int(x);
                 case Type::Tag::UINT16:
                 case Type::Tag::UINT32:
@@ -216,13 +221,13 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                        return *_arguments[i].type() == *type &&
-                               binding.handle == handle &&
-                               binding.offset == offset_bytes;
-                    } else {
-                        return false;
-                    }
+            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                return *_arguments[i].type() == *type &&
+                       binding.handle == handle &&
+                       binding.offset == offset_bytes;
+            } else {
+                return false;
+            }
                 },
                 _bound_arguments[i])) {
             auto &binding = luisa::get<Function::BufferBinding>(_bound_arguments[i]);
@@ -365,13 +370,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                        return *_arguments[i].type() == *type &&
-                               binding.handle == handle &&
-                               binding.level == level;
-                    } else {
-                        return false;
-                    }
+            if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                return *_arguments[i].type() == *type &&
+                       binding.handle == handle &&
+                       binding.level == level;
+            } else {
+                return false;
+            }
                 },
                 _bound_arguments[i])) {
             return _ref(_arguments[i]);
@@ -427,11 +432,11 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                        return binding.handle == handle;
-                    } else {
-                        return false;
-                    }
+            if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                return binding.handle == handle;
+            } else {
+                return false;
+            }
                 },
                 _bound_arguments[i])) {
             return _ref(_arguments[i]);
@@ -454,11 +459,11 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                        return binding.handle == handle;
-                    } else {
-                        return false;
-                    }
+            if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                return binding.handle == handle;
+            } else {
+                return false;
+            }
                 },
                 _bound_arguments[i])) {
             return _ref(_arguments[i]);
@@ -545,6 +550,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         // propagate used builtin/custom callables and constants
         _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
         _requires_atomic_float |= f->_requires_atomic_float;
+        _requires_autodiff |= f->_requires_autodiff;
     }
     if (type == nullptr) {
         _void_expr(expr);
@@ -598,6 +604,10 @@ bool FunctionBuilder::requires_atomic() const noexcept {
 
 bool FunctionBuilder::requires_atomic_float() const noexcept {
     return _requires_atomic_float;
+}
+
+bool FunctionBuilder::requires_autodiff() const noexcept {
+    return _requires_autodiff;
 }
 
 void FunctionBuilder::sort_bindings() noexcept {

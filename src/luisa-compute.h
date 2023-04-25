@@ -60,7 +60,6 @@
 #include <runtime/volume.h>
 
 #include <dsl/arg.h>
-#include <dsl/autodiff.h>
 #include <dsl/builtin.h>
 #include <dsl/constant.h>
 #include <dsl/dispatch_indirect.h>

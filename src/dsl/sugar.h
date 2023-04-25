@@ -73,11 +73,13 @@
     $if(!(__VA_ARGS__)) { $break; };                                               \
 } % [&]() noexcept
 
+#define $autodiff ::luisa::compute::detail::AutoDiffStmtBuilder{} % [&]() noexcept
+
 #define $switch(...) ::luisa::compute::detail::SwitchStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $case(...) ::luisa::compute::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $default ::luisa::compute::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
 
-#define $for(x, ...)                                    \
+#define $for(x, ...)                                            \
     for (auto x : ::luisa::compute::dynamic_range(__VA_ARGS__)) \
     ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
 

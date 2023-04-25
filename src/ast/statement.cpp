@@ -92,4 +92,14 @@ uint64_t RayQueryStmt::_compute_hash() const noexcept {
                          _on_procedural_candidate.hash()});
 }
 
+uint64_t AutoDiffStmt::_compute_hash() const noexcept {
+    return _body.hash();
+}
+
+void StmtVisitor::visit(const AutoDiffStmt *stmt) {
+    // reports error by default since it should be
+    // handled by the IR when reaching the backend
+    LUISA_ERROR_WITH_LOCATION("AutoDiffStmt is not supported.");
+}
+
 }// namespace luisa::compute

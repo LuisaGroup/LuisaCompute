@@ -17,7 +17,6 @@ namespace luisa::compute {
 class Statement;
 class Function;
 struct ExprVisitor;
-class AstSerializer;
 
 namespace detail {
 class FunctionBuilder;
@@ -101,7 +100,6 @@ struct LC_AST_API ExprVisitor {
 };
 
 #define LUISA_EXPRESSION_COMMON() \
-    friend class AstSerializer;   \
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
 
 /// Unary expression

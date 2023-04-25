@@ -1521,6 +1521,46 @@ template<typename Tm>
             {LUISA_EXPR(m)}));
 }
 
+/// Mark that a variable requires gradient
+template<typename... T>
+    requires any_dsl_v<T...>
+void requires_grad(T &&...args) noexcept {
+    auto builder = detail::FunctionBuilder::current();
+    auto do_requires_grad = [builder]<typename X>(X &&x) noexcept {
+        builder->call(CallOp::REQUIRES_GRADIENT, {LUISA_EXPR(x)});
+    };
+    (do_requires_grad(std::forward<T>(args)), ...);
+}
+
+/// Mark that a variable does not require gradient
+template<typename... T>
+    requires any_dsl_v<T...>
+void detach(T &&...args) noexcept {
+    auto builder = detail::FunctionBuilder::current();
+    auto do_detach = [builder]<typename X>(X &&x) noexcept {
+        builder->call(CallOp::DETACH, {LUISA_EXPR(x)});
+    };
+    (do_detach(std::forward<T>(args)), ...);
+}
+
+/// Back-propagate gradient from the variable
+template<typename T>
+    requires is_dsl_v<T>
+void backward(T &&x) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::BACKWARD, {LUISA_EXPR(x)});
+}
+
+/// Get the back-propagated gradient of the variable
+template<typename T>
+    requires is_dsl_v<T>
+[[nodiscard]] inline auto gradient(T &&x) noexcept {
+    return def<expr_value_t<T>>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<expr_value_t<T>>(), CallOp::GRADIENT,
+            {LUISA_EXPR(x)}));
+}
+
 // barriers
 /// Synchronize thread block.
 inline void sync_block() noexcept {
