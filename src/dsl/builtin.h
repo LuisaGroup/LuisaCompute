@@ -1561,6 +1561,13 @@ template<typename T>
             {LUISA_EXPR(x)}));
 }
 
+/// Get the back-propagated gradients of the variables (returned in a tuple)
+template<typename... T>
+    requires any_dsl_v<T...>
+[[nodiscard]] inline auto gradients(T &&...args) noexcept {
+    return std::make_tuple(gradient(std::forward<T>(args))...);
+}
+
 // barriers
 /// Synchronize thread block.
 inline void sync_block() noexcept {
