@@ -21,9 +21,8 @@ int main(int argc, char *argv[]) {
             auto t = x * y;
             auto z = t / (x + y);
             backward(z);
-            auto [dx, dy] = gradients(x, y);
-            x_grad_buffer.write(i, dx);
-            y_grad_buffer.write(i, dy);
+            x_grad_buffer.write(i, grad(x));
+            y_grad_buffer.write(i, grad(y));
         };
     };
 }

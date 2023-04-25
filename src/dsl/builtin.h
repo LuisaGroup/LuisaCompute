@@ -1554,18 +1554,11 @@ void backward(T &&x) noexcept {
 /// Get the back-propagated gradient of the variable
 template<typename T>
     requires is_dsl_v<T>
-[[nodiscard]] inline auto gradient(T &&x) noexcept {
+[[nodiscard]] inline auto grad(T &&x) noexcept {
     return def<expr_value_t<T>>(
         detail::FunctionBuilder::current()->call(
             Type::of<expr_value_t<T>>(), CallOp::GRADIENT,
             {LUISA_EXPR(x)}));
-}
-
-/// Get the back-propagated gradients of the variables (returned in a tuple)
-template<typename... T>
-    requires any_dsl_v<T...>
-[[nodiscard]] inline auto gradients(T &&...args) noexcept {
-    return std::make_tuple(gradient(std::forward<T>(args))...);
 }
 
 // barriers
