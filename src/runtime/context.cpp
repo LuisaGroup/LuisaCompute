@@ -66,8 +66,11 @@ public:
         std::filesystem::path program{program_path};
         {
             auto cp = std::filesystem::canonical(program);
-            if (std::filesystem::is_directory(cp)) { runtime_directory = std::move(cp); }
-            runtime_directory = std::filesystem::canonical(cp.parent_path());
+            if (std::filesystem::is_directory(cp)) {
+                runtime_directory = std::move(cp);
+            } else {
+                runtime_directory = std::filesystem::canonical(cp.parent_path());
+            }
         }
         LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
         LUISA_INFO("Runtime directory: {}.", to_string(runtime_directory));
