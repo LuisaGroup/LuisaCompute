@@ -480,8 +480,13 @@ impl Backward {
     ) -> (NodeRef, NodeRef) {
         assert!(is_type_equal(out_grad.type_(), lhs.type_()));
         assert!(is_type_equal(out_grad.type_(), rhs.type_()));
-        let lhs_grad = builder.call(Func::Mul, &[out_grad, rhs], out_grad.type_().clone());
-        let rhs_grad = builder.call(Func::Mul, &[out_grad, lhs], out_grad.type_().clone());
+        let func = if lhs.type_().is_matrix() {
+            Func::MatCompMul
+        } else {
+            Func::Mul
+        };
+        let lhs_grad = builder.call(func.clone(), &[out_grad, rhs], out_grad.type_().clone());
+        let rhs_grad = builder.call(func.clone(), &[out_grad, lhs], out_grad.type_().clone());
         return (lhs_grad, rhs_grad);
     }
 
