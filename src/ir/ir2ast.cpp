@@ -79,18 +79,24 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
             case ir::Instruction::Tag::UserData: LUISA_ERROR_WITH_LOCATION("Instruction 'UserData' is not implemented.");
             case ir::Instruction::Tag::Const: return _convert_constant(node->instruction->const_._0);
             case ir::Instruction::Tag::Call: {
-                LUISA_ASSERT(node->type_->tag != ir::Type::Tag::Void, "Cannot assign Void to variables.");
-                return _convert_instr_call(node);
+                auto ret = _convert_instr_call(node);
+                if (node->instruction->call._0.tag == ir::Func::Tag::GetElementPtr) {
+                    // we should not make a local copy for GEP, as
+                    // it might appear in the LHS in assignment.
+                    return ret;
+                }
+                if (ret != nullptr) {
+                    auto local = _ctx->function_builder->local(type);
+                    _ctx->function_builder->assign(local, ret);
+                    _ctx->node_to_exprs.emplace(node, local);
+                    ret = local;
+                }
+                return ret;
             }
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
     }();
-    if (expr != nullptr && !_ctx->node_to_exprs.contains(node)) {
-        auto local = _ctx->function_builder->local(type);
-        _ctx->function_builder->assign(local, expr);
-        _ctx->node_to_exprs.emplace(node, local);
-    }
     return expr;
 }
 
