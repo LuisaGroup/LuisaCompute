@@ -19,7 +19,7 @@ local _string_builder = {}
 function _string_builder:to_string()
 	return libc.strndup(self._ptr + 1, self._size)
 end
-function _string_builder:add_capacity(s)
+local function _add_capacity(self, s)
 	local size = s + self._size
 	local capa = self._capacity
 	if capa >= size then
@@ -57,14 +57,14 @@ function _string_builder:add(str)
 	if #str == 0 then
 		return
 	end
-	self:add_capacity(#str)
+	_add_capacity(self, #str)
 	local ptr = self._ptr + self._size + 1
 	libc.memcpy(ptr, libc.dataptr(str), #str)
 	self._size = self._size + #str
 	return self
 end
 function _string_builder:add_char(c)
-	self:add_capacity(1)
+	_add_capacity(self, 1)
 	self._size = self._size + 1
 	libc.setbyte(self._ptr, self._size, c)
 	return self
