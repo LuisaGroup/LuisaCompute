@@ -1,12 +1,12 @@
 [package]
 name = "luisa_compute_backend_impl"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-luisa_compute_backend = { path = "../luisa_compute_backend" }
+luisa_compute_backend = { path = "../luisa_compute_backend", version = "0.1.0-alpha.1" }
 lazy_static = "1.4.0"
 libc = "0.2"
 libloading = "0.8"
@@ -20,9 +20,9 @@ sha2 = "0.10"
 libm = "0.2.6"
 base64ct = { version = "1.5.0", features = ["alloc"] }
 indexmap = "1.9.2"
-luisa_compute_api_types = {path = "../luisa_compute_api_types"}
-luisa_compute_cpu_kernel_defs = {path = "../luisa_compute_cpu_kernel_defs"}
-luisa_compute_ir = {path = "../luisa_compute_ir"}
+luisa_compute_api_types = { path = "../luisa_compute_api_types" }
+luisa_compute_cpu_kernel_defs = { path = "../luisa_compute_cpu_kernel_defs" }
+luisa_compute_ir = { path = "../luisa_compute_ir" }
 
 [features]
 
