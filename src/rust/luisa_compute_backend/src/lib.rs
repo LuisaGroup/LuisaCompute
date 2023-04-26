@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use std::fmt::Debug;
 
 use api::{CreatedSwapchainInfo, PixelFormat};
 use binding::Binding;
@@ -28,10 +29,19 @@ pub enum BackendErrorKind {
     Network,
     Other,
 }
-#[derive(Debug, Clone)]
-pub struct  BackendError {
+#[derive(Clone)]
+pub struct BackendError {
     pub kind: BackendErrorKind,
     pub message: String,
+}
+impl Debug for BackendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // f.debug_struct("BackendError")
+        //     .field("kind", &self.kind)
+        //     .field("message", &self.message)
+        //     .finish()
+        writeln!(f, "BackendError: {:?}, message:\n {}", self.kind, self.message)
+    }
 }
 
 pub type Result<T> = std::result::Result<T, BackendError>;
