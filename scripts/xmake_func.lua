@@ -162,9 +162,7 @@ on_config(function(target)
 			target:add("cxflags", "-stdlib=libc++", {
 				force = true
 			})
-			target:add("syslinks", "c++", {
-				force = true
-			})
+			target:add("syslinks", "c++")
 		end
 	end
 end)
