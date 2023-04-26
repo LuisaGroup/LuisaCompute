@@ -34,7 +34,7 @@ else ()
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
     option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
 endif ()
-
+option(LUISA_COMPUTE_COMPILED_BY_RUST "Whether LuisaCompute is compiled by Rust" OFF)
 if (LUISA_COMPUTE_BUILD_TESTS)
     if (NOT LUISA_COMPUTE_ENABLE_DSL)
         message(WARNING "DSL is required for tests. The DSL will be enabled.")
