@@ -859,6 +859,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
+        case CallOp::ONE: {
+            _scratch << "lc_one<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
@@ -1313,6 +1319,36 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
             _scratch << " m" << i << "{};\n";
         }
         _scratch << "};\n\n";
+    }
+    if (type->is_structure()) {
+        // lc_zero and lc_one
+        auto lc_make_value = [&](luisa::string_view name) noexcept {
+            _scratch << "template<> __device__ inline auto " << name << "<";
+            _emit_type_name(type);
+            _scratch << ">() noexcept {\n"
+                     << "  return ";
+            _emit_type_name(type);
+            _scratch << "{\n";
+            for (auto i = 0u; i < type->members().size(); i++) {
+                _scratch << "    " << name << "<";
+                _emit_type_name(type->members()[i]);
+                _scratch << ">(),\n";
+            }
+            _scratch << "  };\n"
+                     << "}\n\n";
+        };
+        lc_make_value("lc_zero");
+        lc_make_value("lc_one");
+        // lc_accumulate_grad
+        _scratch << "__device__ inline void lc_accumulate_grad(";
+        _emit_type_name(type);
+        _scratch << " *dst, ";
+        _emit_type_name(type);
+        _scratch << " grad) noexcept {\n";
+        for (auto i = 0u; i < type->members().size(); i++) {
+            _scratch << "  lc_accumulate_grad(&dst->m" << i << ", grad.m" << i << ");\n";
+        }
+        _scratch << "}\n\n";
     }
 }
 

@@ -234,6 +234,7 @@ enum struct CallOp : uint32_t {
 
     // used by the IR module
     ZERO,
+    ONE,
 
     // autodiff ops
     REQUIRES_GRADIENT,

@@ -1521,6 +1521,20 @@ template<typename Tm>
             {LUISA_EXPR(m)}));
 }
 
+template<typename T>
+[[nodiscard]] auto zero() noexcept {
+    using X = expr_value_t<T>;
+    return def<X>(detail::FunctionBuilder::current()->call(
+        Type::of<X>(), CallOp::ZERO, {}));
+}
+
+template<typename T>
+[[nodiscard]] auto one() noexcept {
+    using X = expr_value_t<T>;
+    return def<X>(detail::FunctionBuilder::current()->call(
+        Type::of<X>(), CallOp::ONE, {}));
+}
+
 /// Mark that a variable requires gradient
 template<typename... T>
     requires any_dsl_v<T...>
@@ -1543,12 +1557,21 @@ void detach(T &&...args) noexcept {
     (do_detach(std::forward<T>(args)), ...);
 }
 
+/// Back-propagate gradient from the variable with the given gradient
+template<typename T, typename G>
+    requires is_dsl_v<T> && is_dsl_v<G> && is_same_expr_v<T, G>
+void backward(T &&x, G &&grad) noexcept {
+    auto b = detail::FunctionBuilder::current();
+    auto expr_x = LUISA_EXPR(x);
+    b->call(CallOp::GRADIENT_MARKER, {expr_x, LUISA_EXPR(grad)});
+    b->call(CallOp::BACKWARD, {expr_x});
+}
+
 /// Back-propagate gradient from the variable
 template<typename T>
     requires is_dsl_v<T>
 void backward(T &&x) noexcept {
-    detail::FunctionBuilder::current()->call(
-        CallOp::BACKWARD, {LUISA_EXPR(x)});
+    backward(std::forward<T>(x), dsl::one<T>());
 }
 
 /// Get the back-propagated gradient of the variable

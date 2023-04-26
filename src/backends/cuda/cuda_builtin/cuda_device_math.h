@@ -4572,12 +4572,6 @@ public:
     }
 };
 
-template<typename T, size_t N>
-__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
-    #pragma unroll
-    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
-}
-
 [[nodiscard]] __device__ inline auto lc_mat_comp_mul(lc_float2x2 lhs, lc_float2x2 rhs) noexcept {
     return lc_make_float2x2(lhs[0] * rhs[0],
                             lhs[1] * rhs[1]);
@@ -4686,6 +4680,12 @@ template<> struct element_type_<lc_long4> { using type = lc_long; };
 template<> struct element_type_<lc_ulong2> { using type = lc_ulong; };
 template<> struct element_type_<lc_ulong3> { using type = lc_ulong; };
 template<> struct element_type_<lc_ulong4> { using type = lc_ulong; };
+
+template<typename T, size_t N>
+__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
+    #pragma unroll
+    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
+}
 
 template<typename T, size_t N>
 [[nodiscard]] __device__ inline lc_array<T, N> operator+(lc_array<T, N> arg) noexcept {
