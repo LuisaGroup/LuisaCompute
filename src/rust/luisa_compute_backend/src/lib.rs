@@ -1,9 +1,9 @@
 use std::ffi::{CStr, CString};
+use std::fmt::Debug;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use std::fmt::Debug;
 
 use api::{CreatedSwapchainInfo, PixelFormat};
 use binding::Binding;
@@ -15,17 +15,15 @@ use luisa_compute_ir::{
     CArc,
 };
 
-#[cfg(feature = "remote")]
 pub mod api_message;
+
 pub mod binding;
 pub mod cpp_proxy_backend;
-#[cfg(feature = "remote")]
-pub mod remote;
-#[cfg(any(feature = "cpu", feature = "remote"))]
-pub mod rust;
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum BackendErrorKind {
+    BackendNotFound,
     KernelExecution,
+    KernelCompilation,
     Network,
     Other,
 }
@@ -40,7 +38,11 @@ impl Debug for BackendError {
         //     .field("kind", &self.kind)
         //     .field("message", &self.message)
         //     .finish()
-        writeln!(f, "BackendError: {:?}, message:\n {}", self.kind, self.message)
+        writeln!(
+            f,
+            "BackendError: {:?}, message:\n {}",
+            self.kind, self.message
+        )
     }
 }
 
@@ -49,6 +51,7 @@ pub type Result<T> = std::result::Result<T, BackendError>;
 pub struct Context {
     pub(crate) binding: Option<Arc<Binding>>,
     pub(crate) swapchain: Option<Arc<SwapChainForCpuContext>>,
+    pub(crate) backends: Option<Arc<RustBackendInterface>>,
     pub(crate) context: Option<api::Context>,
 }
 
@@ -71,7 +74,21 @@ impl Context {
                 todo!()
             };
             let swapchain = lib_path.join(swapchain_dll);
-            let binding = Binding::new(&api_dll).ok().map(Arc::new);
+            let backends_dll = if cfg!(target_os = "windows") {
+                "luisa_compute_backend_impl.dll"
+            } else if cfg!(target_os = "linux") {
+                "libluisa_compute_backend_impl.so"
+            } else {
+                todo!()
+            };
+            let backends = lib_path.join(backends_dll);
+            let binding = Binding::new(&api_dll)
+                .map_err(|e| {
+                    log::warn!("failed to load lc-api: {}", e);
+                    e
+                })
+                .ok()
+                .map(Arc::new);
             if let Some(binding) = &binding {
                 unsafe extern "C" fn callback(info: *const c_char, msg: *const c_char) {
                     let info = CStr::from_ptr(info as *mut c_char).to_str().unwrap();
@@ -88,6 +105,17 @@ impl Context {
                 (binding.luisa_compute_set_logger_callback)(callback);
             }
             let swapchain = SwapChainForCpuContext::new(swapchain)
+                .map_err(|e| {
+                    log::warn!("failed to load swapchain: {}", e);
+                    e
+                })
+                .ok()
+                .map(|x| Arc::new(x));
+            let backends = RustBackendInterface::new(backends)
+                .map_err(|e| {
+                    log::warn!("failed to load Rust backends: {}", e);
+                    e
+                })
                 .ok()
                 .map(|x| Arc::new(x));
             let lib_path_c_str = std::ffi::CString::new(lib_path.to_str().unwrap()).unwrap();
@@ -98,38 +126,53 @@ impl Context {
                 binding,
                 swapchain,
                 context,
+                backends,
             }
         }
     }
 
     pub fn create_device(&self, device: &str) -> crate::Result<Arc<dyn Backend>> {
-        let backend: Arc<dyn Backend> = match device {
-            "cpu" => {
-                #[cfg(feature = "cpu")]
-                {
-                    let device = rust::RustBackend::new();
-                    unsafe {
-                        if let Some(swapchain) = &self.swapchain {
-                            device.set_swapchain_contex(swapchain.clone());
-                        }
+        match device {
+            "cpu" | "remote" => unsafe {
+                if let Some(backends) = &self.backends {
+                    let device = (backends.create_device)(device)?;
+                    if let Some(swapchain) = &self.swapchain {
+                        device.set_swapchain_contex(swapchain.clone());
                     }
-                    device
+                    Ok(device)
+                } else {
+                    let libname = if cfg!(target_os = "windows") {
+                        "luisa_compute_backend_impl.dll"
+                    } else {
+                        "libluisa_compute_backend_impl.so"
+                    };
+
+                    Err(BackendError{
+                        kind: BackendErrorKind::BackendNotFound,
+                        message: format!("device {0} not found. {0} device may not be enabled or {1} is not found", device, libname),
+                    })
                 }
-                #[cfg(not(feature = "cpu"))]
-                {
-                    panic!("cpu backend is not enabled")
-                }
-            }
-            "remote" => {
-                todo!()
-            }
-            "cuda" | "dx" | "metal" => cpp_proxy_backend::CppProxyBackend::new(self, device),
+            },
+            "cuda" | "dx" | "metal" => Ok(cpp_proxy_backend::CppProxyBackend::new(self, device)),
             _ => panic!("unsupported device: {}", device),
-        };
-        Ok(backend)
+        }
     }
 }
+pub struct RustBackendInterface {
+    #[allow(dead_code)]
+    lib: Library,
+    pub create_device: unsafe extern "C" fn(name: &str) -> crate::Result<Arc<dyn Backend>>,
+}
+unsafe impl Send for RustBackendInterface {}
 
+unsafe impl Sync for RustBackendInterface {}
+impl RustBackendInterface {
+    pub unsafe fn new(libpath: impl AsRef<Path>) -> std::result::Result<Self, libloading::Error> {
+        let lib = Library::new(libpath.as_ref())?;
+        let create_device = *lib.get(b"luisa_compute_create_device_rust_interface\0")?;
+        Ok(Self { lib, create_device })
+    }
+}
 pub struct SwapChainForCpuContext {
     #[allow(dead_code)]
     lib: Library,

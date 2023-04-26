@@ -1,5 +1,5 @@
 // A Rust implementation of LuisaCompute backend.
-
+#![allow(non_snake_case)]
 use std::{cell::RefCell, sync::Arc};
 
 use crate::SwapChainForCpuContext;
