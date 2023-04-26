@@ -746,7 +746,11 @@ impl Context {
                 }
                 panic!("kernel execution aborted");
             }
+            unsafe extern "C" fn lc_stack_check_fail() {
+                panic!("stack check failed");
+            }
             add_symbol!(lc_abort, lc_abort);
+            add_symbol!(__stack_chk_fail, lc_stack_check_fail);
             unsafe extern "C" fn lc_abort_and_print_sll(
                 ctx: *const c_void,
                 msg: *const c_char,
