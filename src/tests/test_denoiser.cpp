@@ -604,7 +604,8 @@ int main(int argc, char *argv[]) {
                        << synchronize();
                 stream << cmd_list.commit() << swap_chain.present(ldr_image);
                 window.poll_events();
-                Sleep(400);
+                using namespace std::chrono_literals;
+                std::this_thread::sleep_for(400ms);
                 SaveEXR(
                     reinterpret_cast<float *>(host_image.data()),
                     resolution.x,
@@ -630,7 +631,8 @@ int main(int argc, char *argv[]) {
                    << synchronize();
             stream << cmd_list.commit() << swap_chain.present(ldr_image);
             window.poll_events();
-            Sleep(400);
+            using namespace std::chrono_literals;
+            std::this_thread::sleep_for(400ms);
             SaveEXR(
                 reinterpret_cast<float *>(host_image.data()),
                 resolution.x,
@@ -704,7 +706,8 @@ int main(int argc, char *argv[]) {
         window.poll_events();
         auto dt = clock.toc() - last_time;
         frame_count += spp_per_dispatch;
-        Sleep(400);
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(400ms);
         LUISA_INFO("time: {} ms", dt);
         last_time = clock.toc();
         if (temporal) {
