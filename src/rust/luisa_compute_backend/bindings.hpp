@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <ostream>
 #include <new>
+#include "luisa_compute_ir/common.h"
 
 
 namespace luisa::compute::backend {
@@ -15,6 +16,7 @@ struct LCDispatchCallback {
     uint8_t *user_data;
 };
 
+using namespace luisa::compute::ir;
 
 extern "C" {
 
