@@ -61,6 +61,7 @@ int main(int argc, char *argv[]) {
     bool temporal = 1;// 1: add camera movement, 0: static camera and accumulate samples
     bool flow_validation = 0;// use when temporal on: 1: validation for the flow calculation, 0: normal
     auto channel_count = 4;//processing buffer channel, for testing.
+    // TODO: do not hard code the path
     luisa::string optix_path = "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.4.0";//your optix sdk path, for finding the examples
 
     if (optix_examples) {
