@@ -20,9 +20,9 @@ pragma_once = true
 include_version = false
 namespace = "luisa::compute::backend"
 namespaces = []
-using_namespaces = []
+using_namespaces = ["luisa::compute::ir"]
 sys_includes = []
-includes = []
+includes = ["luisa_compute_ir/common.h"]
 no_includes = false
 after_includes = ""
 

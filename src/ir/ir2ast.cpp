@@ -334,7 +334,18 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Sub: return binary_op(BinaryOp::SUB);
         case ir::Func::Tag::Mul: return binary_op(BinaryOp::MUL);
         case ir::Func::Tag::Div: return binary_op(BinaryOp::DIV);
-        case ir::Func::Tag::Rem: return binary_op(BinaryOp::MOD);
+        case ir::Func::Tag::Rem: {
+            if (type->is_float32() || type->is_float32_vector()) {
+                // implemented as x - y * trunc(x / y)
+                auto x = _convert_node(args[0]);
+                auto y = _convert_node(args[1]);
+                auto div = _ctx->function_builder->binary(type, BinaryOp::DIV, x, y);
+                auto trunc = _ctx->function_builder->call(type, CallOp::TRUNC, {div});
+                auto mul = _ctx->function_builder->binary(type, BinaryOp::MUL, y, trunc);
+                return _ctx->function_builder->binary(type, BinaryOp::SUB, x, mul);
+            }
+            return binary_op(BinaryOp::MOD);
+        }
         case ir::Func::Tag::BitAnd: return binary_op(BinaryOp::BIT_AND);
         case ir::Func::Tag::BitOr: return binary_op(BinaryOp::BIT_OR);
         case ir::Func::Tag::BitXor: return binary_op(BinaryOp::BIT_XOR);
@@ -449,17 +460,17 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture3dSample: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SAMPLE);
         case ir::Func::Tag::BindlessTexture3dSampleLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL);
         case ir::Func::Tag::BindlessTexture3dSampleGrad: return builtin_func(5, CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD);
-        case ir::Func::Tag::BindlessTexture2dRead: return builtin_func(2, CallOp::BINDLESS_TEXTURE2D_READ);
-        case ir::Func::Tag::BindlessTexture3dRead: return builtin_func(2, CallOp::BINDLESS_TEXTURE3D_READ);
-        case ir::Func::Tag::BindlessTexture2dReadLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_READ_LEVEL);
-        case ir::Func::Tag::BindlessTexture3dReadLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_READ_LEVEL);
-        case ir::Func::Tag::BindlessTexture2dSize: return builtin_func(1, CallOp::BINDLESS_TEXTURE2D_SIZE);
-        case ir::Func::Tag::BindlessTexture3dSize: return builtin_func(1, CallOp::BINDLESS_TEXTURE3D_SIZE);
-        case ir::Func::Tag::BindlessTexture2dSizeLevel: return builtin_func(2, CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL);
-        case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(2, CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
+        case ir::Func::Tag::BindlessTexture2dRead: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_READ);
+        case ir::Func::Tag::BindlessTexture3dRead: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_READ);
+        case ir::Func::Tag::BindlessTexture2dReadLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE2D_READ_LEVEL);
+        case ir::Func::Tag::BindlessTexture3dReadLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE3D_READ_LEVEL);
+        case ir::Func::Tag::BindlessTexture2dSize: return builtin_func(2, CallOp::BINDLESS_TEXTURE2D_SIZE);
+        case ir::Func::Tag::BindlessTexture3dSize: return builtin_func(2, CallOp::BINDLESS_TEXTURE3D_SIZE);
+        case ir::Func::Tag::BindlessTexture2dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL);
+        case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessBufferRead: return builtin_func(3, CallOp::BINDLESS_BUFFER_READ);
-        case ir::Func::Tag::BindlessBufferSize: return builtin_func(1, CallOp::BINDLESS_BUFFER_SIZE);
-        case ir::Func::Tag::BindlessBufferType: return builtin_func(1, CallOp::BINDLESS_BUFFER_TYPE);
+        case ir::Func::Tag::BindlessBufferSize: return builtin_func(2, CallOp::BINDLESS_BUFFER_SIZE);
+        case ir::Func::Tag::BindlessBufferType: return builtin_func(2, CallOp::BINDLESS_BUFFER_TYPE);
         case ir::Func::Tag::Vec: return make_vector(1);
         case ir::Func::Tag::Vec2: return make_vector(2);
         case ir::Func::Tag::Vec3: return make_vector(3);
