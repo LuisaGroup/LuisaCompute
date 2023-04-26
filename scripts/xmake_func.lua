@@ -17,9 +17,9 @@ option_end()
 option("_lc_set_all")
 set_default(false)
 set_showmenu(false)
-add_deps("dx_backend", "vk_backend", "cuda_backend", "metal_backend", "cpu_backend", "enable_tests", "py_include",
-				"py_linkdir", "py_libs", "enable_ir", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path",
-				"_lc_enable_rust")
+add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
+				"metal_backend", "cpu_backend", "enable_tests", "py_include", "py_linkdir", "py_libs", "enable_ir", "enable_api",
+				"enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path", "_lc_enable_rust")
 before_check(function(option)
 	local v = import("options", {
 		try = true,
@@ -238,11 +238,12 @@ if _config_rules == nil then
 	_config_rules = {"lc_basic_settings"}
 end
 if _disable_unity_build == nil then
-	local enable_unity = get_config("enable_unity_build")
-	if enable_unity ~= nil then
-		_disable_unity_build = not enable_unity
+	local unity_build = get_config("enable_unity_build")
+	if unity_build ~= nil then
+		_disable_unity_build = not unity_build
 	end
 end
+
 if _configs == nil then
 	_configs = {}
 end
