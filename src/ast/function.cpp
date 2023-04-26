@@ -119,4 +119,8 @@ luisa::span<const Variable> Function::unbound_arguments() const noexcept {
     return _builder->unbound_arguments();
 }
 
+bool Function::requires_autodiff() const noexcept {
+    return _builder->requires_autodiff();
+}
+
 }// namespace luisa::compute

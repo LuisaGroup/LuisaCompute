@@ -25,36 +25,26 @@ public:
 
     /// Add statement to false branch. f is a function.
     template<typename False>
-    void else_(False &&f) &&noexcept {
+    void else_(False &&f) && noexcept {
         FunctionBuilder::current()->with(_stmt->false_branch(), std::forward<False>(f));
     }
 
     /// Add statement to true branch. t is a function. Return this.
     template<typename True>
-    auto operator%(True &&t) &&noexcept {
+    auto operator%(True &&t) && noexcept {
         FunctionBuilder::current()->with(_stmt->true_branch(), std::forward<True>(t));
         return *this;
     }
 
-    //    template<typename Body>
-    //    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
-    //        return FunctionBuilder::current()->with(
-    //                   _stmt->false_branch(),
-    //                   [condition] {
-    //                       return IfStmtBuilder{condition};
-    //                   }) %
-    //               std::forward<Body>(body);
-    //    }
-
     /// Add statement to false branch. Same as else_ but no return.
     template<typename False>
-    void operator/(False &&f) &&noexcept {
+    void operator/(False &&f) && noexcept {
         IfStmtBuilder{*this}.else_(std::forward<False>(f));
     }
 
     /// Add else-if branch. Return builder of else-if statement.
     template<typename LazyElIfCond>
-    [[nodiscard]] auto operator*(LazyElIfCond &&elif_cond) &&noexcept {
+    [[nodiscard]] auto operator*(LazyElIfCond &&elif_cond) && noexcept {
         return FunctionBuilder::current()->with(_stmt->false_branch(), [&elif_cond] {
             return IfStmtBuilder{elif_cond()};
         });
@@ -72,7 +62,7 @@ public:
 
     /// Add body statement. body is a function. Return this.
     template<typename Body>
-    auto operator/(Body &&body) &&noexcept {
+    auto operator/(Body &&body) && noexcept {
         FunctionBuilder::current()->with(
             _stmt->body(), std::forward<Body>(body));
         return *this;
@@ -80,8 +70,26 @@ public:
 
     /// Add body statement. Same as operator/, but no return.
     template<typename Body>
-    void operator%(Body &&body) &&noexcept {
+    void operator%(Body &&body) && noexcept {
         LoopStmtBuilder{*this} / std::forward<Body>(body);
+    }
+};
+
+/// Build AutoDiff statement
+class AutoDiffStmtBuilder {
+
+private:
+    AutoDiffStmt *_stmt;
+
+public:
+    AutoDiffStmtBuilder() noexcept
+        : _stmt{FunctionBuilder::current()->autodiff_()} {}
+
+    /// Add body statement
+    template<typename Body>
+    void operator%(Body &&body) && noexcept {
+        FunctionBuilder::current()->with(
+            _stmt->body(), std::forward<Body>(body));
     }
 };
 
@@ -99,7 +107,7 @@ public:
 
     /// Add body of case statement. Will automatically add break at the end.
     template<typename Body>
-    void operator%(Body &&body) &&noexcept {
+    void operator%(Body &&body) && noexcept {
         FunctionBuilder::current()->with(_stmt->body(), [&body] {
             body();
             FunctionBuilder::current()->break_();
@@ -119,7 +127,7 @@ public:
 
     /// Add body of default statement. Will automatically add break at the end.
     template<typename Body>
-    void operator%(Body &&body) &&noexcept {
+    void operator%(Body &&body) && noexcept {
         FunctionBuilder::current()->with(_stmt->body(), [&body] {
             body();
             FunctionBuilder::current()->break_();
@@ -143,7 +151,7 @@ public:
 
     /// Add case statement. Return this
     template<typename T, typename Body>
-    auto case_(T &&case_cond, Body &&case_body) &&noexcept {
+    auto case_(T &&case_cond, Body &&case_body) && noexcept {
         FunctionBuilder::current()->with(_stmt->body(), [&case_cond, &case_body] {
             SwitchCaseStmtBuilder{case_cond} % std::forward<Body>(case_body);
         });
@@ -152,7 +160,7 @@ public:
 
     /// Add default statement.
     template<typename Default>
-    auto default_(Default &&d) &&noexcept {
+    auto default_(Default &&d) && noexcept {
         FunctionBuilder::current()->with(_stmt->body(), [&d] {
             SwitchDefaultStmtBuilder{} % std::forward<Default>(d);
         });
@@ -160,7 +168,7 @@ public:
 
     /// Set body
     template<typename Body>
-    void operator%(Body &&body) &&noexcept {
+    void operator%(Body &&body) && noexcept {
         FunctionBuilder::current()->with(_stmt->body(), std::forward<Body>(body));
     }
 };
@@ -168,7 +176,7 @@ public:
 /// Invoke for statement body
 struct ForStmtBodyInvoke {
     template<typename F>
-    void operator%(F &&body) &&noexcept {
+    void operator%(F &&body) && noexcept {
         std::invoke(std::forward<F>(body));
     }
 };
@@ -288,10 +296,16 @@ inline auto if_(Expr<bool> condition, True &&t) noexcept {
     return detail::IfStmtBuilder{condition} % std::forward<True>(t);
 }
 
-/// while(1) body
+/// unconditioned loop like `for (;;)`
 template<typename Body>
 inline void loop(Body &&body) noexcept {
     detail::LoopStmtBuilder{} % std::forward<Body>(body);
+}
+
+/// automatic differentiation block
+template<typename Body>
+inline void autodiff(Body &&body) noexcept {
+    detail::AutoDiffStmtBuilder{} % std::forward<Body>(body);
 }
 
 /// switch(expr). Return SwitchStmtBuilder
@@ -410,4 +424,5 @@ inline void return_() noexcept {
 }
 
 }// namespace dsl
+
 }// namespace luisa::compute

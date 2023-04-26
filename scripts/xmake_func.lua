@@ -14,7 +14,7 @@ set_default(false)
 set_showmenu(false)
 option_end()
 
-option("_lc_set_all")
+option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
@@ -87,9 +87,8 @@ before_check(function(option)
 			force = true
 		})
 	end
-	local bin_option = option:dep("bin_dir")
 	if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
-		local bin_dir = bin_option:enabled()
+		local bin_dir = option:dep("bin_dir"):enabled()
 		if is_mode("debug") then
 			bin_dir = path.join(bin_dir, "debug")
 		elseif is_mode("releasedbg") then
@@ -97,11 +96,11 @@ before_check(function(option)
 		else
 			bin_dir = path.join(bin_dir, "release")
 		end
-		bin_option:enable(bin_dir, {
+		option:enable(bin_dir, {
 			force = true
 		})
 	else
-		bin_option:enable(false, {
+		option:enable(false, {
 			force = true
 		})
 	end
@@ -162,9 +161,7 @@ on_config(function(target)
 			target:add("cxflags", "-stdlib=libc++", {
 				force = true
 			})
-			target:add("syslinks", "c++", {
-				force = true
-			})
+			target:add("syslinks", "c++")
 		end
 	end
 end)
@@ -240,7 +237,10 @@ if _config_rules == nil then
 	_config_rules = {"lc_basic_settings"}
 end
 if _disable_unity_build == nil then
-	_disable_unity_build = not get_config("enable_unity_build")
+	local unity_build = get_config("enable_unity_build")
+	if unity_build ~= nil then
+		_disable_unity_build = not unity_build
+	end
 end
 
 if _configs == nil then

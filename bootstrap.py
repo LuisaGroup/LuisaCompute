@@ -533,11 +533,12 @@ def prepare_msvc_environment(toolchain_version: int):
     os.environ.update(env_vars)
 
 
-def prepare_toolchain_environment(build_config):
+def prepare_toolchain_environment(build_config, build_system):
     toolchain = build_config['toolchain']
     version = build_config['toolchain_version']
     if toolchain == 'msvc':
-        prepare_msvc_environment(version)
+        if build_system == "cmake":
+            prepare_msvc_environment(version)
     elif toolchain == 'llvm':
         pass
     elif toolchain == 'gcc':
@@ -635,7 +636,6 @@ def get_build_config(build_dir, parsed_args):
         toolchain_version = int(toolchain_version)
     build_config['toolchain'] = toolchain
     build_config['toolchain_version'] = toolchain_version
-
     return build_config
 
 
@@ -1010,7 +1010,7 @@ def main(args: List[str]):
 
         # get toolchain environment
         environ_backup = dict(os.environ)
-        prepare_toolchain_environment(build_config)
+        prepare_toolchain_environment(build_config, config["build_system"])
         build_config["environment"] = {
             k: v for k, v in os.environ.items()
             if k not in environ_backup or environ_backup[k] != v

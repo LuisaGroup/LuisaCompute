@@ -17,7 +17,6 @@ class FunctionBuilder;
 
 class ScopeStmt;
 class Expression;
-class AstSerializer;
 
 /**
  * @brief Function class
@@ -154,6 +153,8 @@ public:
     [[nodiscard]] bool requires_atomic() const noexcept;
     /// Return whether the function requires atomic float operations
     [[nodiscard]] bool requires_atomic_float() const noexcept;
+    /// Return whether the function requires automatic differentiation
+    [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return function builder
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     /// Return shared pointer to function builder

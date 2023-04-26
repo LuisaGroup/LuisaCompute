@@ -12,7 +12,6 @@
 namespace luisa::compute {
 
 class Type;
-class AstSerializer;
 
 /**
  * @brief Enum of unary operations.
@@ -235,12 +234,14 @@ enum struct CallOp : uint32_t {
 
     // used by the IR module
     ZERO,
+    ONE,
 
     // autodiff ops
     REQUIRES_GRADIENT,
     GRADIENT,
     GRADIENT_MARKER,
     ACCUMULATE_GRADIENT,
+    BACKWARD,
     DETACH,
 
     // ray tracing

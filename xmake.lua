@@ -113,8 +113,8 @@ end
 includes("scripts/xmake_func.lua")
 
 if is_arch("x64", "x86_64", "arm64") then
-	local bin_dir = get_config("bin_dir")
-	if (bin_dir) then
+	local bin_dir = get_config("_lc_bin_dir")
+	if bin_dir then
 		set_targetdir(bin_dir)
 	end
 	includes("src")

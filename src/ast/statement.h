@@ -11,7 +11,6 @@
 
 namespace luisa::compute {
 
-class AstSerializer;
 struct StmtVisitor;
 
 /**
@@ -36,7 +35,8 @@ public:
         ASSIGN,
         FOR,
         COMMENT,
-        RAY_QUERY
+        RAY_QUERY,
+        AUTO_DIFF
     };
 
 private:
@@ -71,8 +71,9 @@ class AssignStmt;
 class ForStmt;
 class CommentStmt;
 class RayQueryStmt;
+class AutoDiffStmt;
 
-struct StmtVisitor {
+struct LC_AST_API StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
     virtual void visit(const ContinueStmt *) = 0;
     virtual void visit(const ReturnStmt *) = 0;
@@ -87,11 +88,11 @@ struct StmtVisitor {
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
     virtual void visit(const RayQueryStmt *) = 0;
+    virtual void visit(const AutoDiffStmt *stmt);
     virtual ~StmtVisitor() noexcept = default;
 };
 
 #define LUISA_STATEMENT_COMMON() \
-    friend class AstSerializer;  \
     void accept(StmtVisitor &visitor) const override { visitor.visit(this); }
 
 /// Break statement
@@ -451,6 +452,21 @@ public:
     LUISA_STATEMENT_COMMON()
 };
 
+class AutoDiffStmt : public Statement {
+
+private:
+    ScopeStmt _body;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit AutoDiffStmt() noexcept : Statement{Tag::AUTO_DIFF} {}
+    [[nodiscard]] auto body() noexcept { return &_body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
+    LUISA_STATEMENT_COMMON()
+};
+
 #undef LUISA_STATEMENT_COMMON
 
 // helper function for easy traversal over the ASTs
@@ -550,6 +566,12 @@ void traverse_expressions(
                 rq_stmt->on_triangle_candidate(), visit, enter_stmt, exit_stmt);
             traverse_expressions<recurse_subexpr>(
                 rq_stmt->on_procedural_candidate(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::AUTO_DIFF: {
+            auto ad_stmt = static_cast<const AutoDiffStmt *>(stmt);
+            traverse_expressions<recurse_subexpr>(
+                ad_stmt->body(), visit, enter_stmt, exit_stmt);
             break;
         }
     }

@@ -11,8 +11,6 @@
 
 namespace luisa::compute {
 
-class AstSerializer;
-
 template<typename T>
 struct array_dimension {
     static constexpr size_t value = 0u;

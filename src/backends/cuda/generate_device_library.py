@@ -713,12 +713,6 @@ public:
     }
 };
 
-template<typename T, size_t N>
-__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
-    #pragma unroll
-    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
-}
-
 [[nodiscard]] __device__ inline auto lc_mat_comp_mul(lc_float2x2 lhs, lc_float2x2 rhs) noexcept {
     return lc_make_float2x2(lhs[0] * rhs[0],
                             lhs[1] * rhs[1]);
@@ -815,6 +809,13 @@ template<class T> using element_type = typename element_type_<T>::type;
             gen_element_type(vt, 'lc_long')
         for vt in ['lc_ulong2', 'lc_ulong3', 'lc_ulong4']:
             gen_element_type(vt, 'lc_ulong')
+
+        print('''
+template<typename T, size_t N>
+__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
+    #pragma unroll
+    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
+}''', file=file)
 
 
         def define_array_unary():
