@@ -2,7 +2,6 @@ pub mod ffi;
 pub mod ir;
 pub use ffi::*;
 use serde::Serialize;
-pub mod codegen;
 use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
 pub mod context;
 mod display;

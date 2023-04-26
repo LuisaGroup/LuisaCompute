@@ -169,7 +169,6 @@ impl ToSSA {
             Instruction::AdScope { .. } => todo!(),
             Instruction::AdDetach(_) => todo!(),
             Instruction::Comment(_) => return node,
-            Instruction::Debug(_) => return node,
             Instruction::Return(_) => {
                 panic!("call LowerControlFlow before ToSSA");
             }

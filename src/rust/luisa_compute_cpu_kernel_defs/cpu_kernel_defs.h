@@ -117,4 +117,5 @@ struct KernelFnArgs {
     uint32_t block_id[3];
     const CpuCustomOp *custom_ops;
     size_t custom_ops_count;
+    const void *internal_data;
 };

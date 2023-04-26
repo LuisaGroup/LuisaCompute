@@ -487,7 +487,7 @@ void CppSourceBuilder::_generate_block(const ir::BasicBlock *bb, uint indent) no
             case ir::Instruction::Tag::AdScope: _generate_instr_ad_scope(node, indent); break;
             case ir::Instruction::Tag::AdDetach: _generate_instr_ad_detach(node, indent); break;
             case ir::Instruction::Tag::Comment: _generate_instr_comment(node, indent); break;
-            case ir::Instruction::Tag::Debug: _generate_instr_debug(node, indent); break;
+//            case ir::Instruction::Tag::Debug: _generate_instr_debug(node, indent); break;
             default: LUISA_ERROR_WITH_LOCATION("Invalid instruction in body.");
         }
     });
@@ -1540,12 +1540,12 @@ void CppSourceBuilder::_generate_instr_comment(const ir::Node *node, uint indent
 }
 
 void CppSourceBuilder::_generate_instr_debug(const ir::Node *node, uint indent) noexcept {
-    LUISA_WARNING_WITH_LOCATION("Instruction 'Debug' is not implemented.");
-    _generate_indent(indent);
-    auto s = node->instruction->debug._0;
-    _ctx->body.append(luisa::format(
-        "/* Debug: {} */\n",
-        luisa::string_view{reinterpret_cast<const char *>(s.ptr), s.len}));
+//    LUISA_WARNING_WITH_LOCATION("Instruction 'Debug' is not implemented.");
+//    _generate_indent(indent);
+//    auto s = node->instruction->debug._0;
+//    _ctx->body.append(luisa::format(
+//        "/* Debug: {} */\n",
+//        luisa::string_view{reinterpret_cast<const char *>(s.ptr), s.len}));
     //    auto s = node->instruction->debug._0;
     //    _generate_indent(indent);
     //    _ctx->body.append(luisa::format(

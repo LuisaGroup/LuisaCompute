@@ -1,3 +1,4 @@
+use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::{
     collections::VecDeque,
     sync::{atomic::AtomicUsize, Arc},
@@ -9,9 +10,10 @@ use luisa_compute_ir::{
     context::type_hash,
     ir::{Binding, Capture},
 };
-use parking_lot::{Condvar, Mutex};
+use parking_lot::{Condvar, Mutex, RwLock};
 use rayon;
 
+use crate::BackendError;
 use luisa_compute_cpu_kernel_defs as defs;
 
 use super::{
@@ -34,6 +36,7 @@ struct StreamContext {
     sync: Condvar,
     work_count: AtomicUsize,
     finished_count: AtomicUsize,
+    error: Mutex<Option<BackendError>>,
 }
 pub(super) struct StreamImpl {
     shared_pool: Arc<rayon::ThreadPool>,
@@ -50,6 +53,7 @@ impl StreamImpl {
             sync: Condvar::new(),
             work_count: AtomicUsize::new(0),
             finished_count: AtomicUsize::new(0),
+            error: Mutex::new(None),
         });
         let private_thread = {
             let ctx = ctx.clone();
@@ -84,7 +88,7 @@ impl StreamImpl {
             ctx,
         }
     }
-    pub(super) fn synchronize(&self) {
+    pub(super) fn synchronize(&self) -> crate::Result<()>{
         let mut guard = self.ctx.queue.lock();
         while self
             .ctx
@@ -96,6 +100,13 @@ impl StreamImpl {
                 .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.ctx.sync.wait(&mut guard);
+        }
+        let mut error = self.ctx.error.lock();
+        if error.is_some() {
+            let error = error.take().unwrap();
+            Err(error)
+        } else {
+            Ok(())
         }
     }
     pub(super) fn enqueue(
@@ -115,7 +126,7 @@ impl StreamImpl {
     }
     pub(super) fn parallel_for(
         &self,
-        kernel: impl Fn(usize) + Send + Sync + 'static,
+        kernel: impl Fn(usize) + Send + Sync + 'static + RefUnwindSafe,
         block: usize,
         count: usize,
     ) {
@@ -125,16 +136,25 @@ impl StreamImpl {
         let nthreads = pool.current_num_threads();
         pool.scope(|s| {
             for _ in 0..nthreads {
-                s.spawn(|_| loop {
-                    let index = counter.fetch_add(block, std::sync::atomic::Ordering::Relaxed);
-                    if index >= count {
-                        break;
-                    }
+                s.spawn(|_| {
+                    let result = std::panic::catch_unwind(|| {
+                        // let counter = unsafe { &*(p_counter as *const AtomicUsize) };
+                        loop {
+                            let index =
+                                counter.fetch_add(block, std::sync::atomic::Ordering::Relaxed);
+                            if index >= count {
+                                break;
+                            }
 
-                    for i in index..(index + block).min(count) {
-                        kernel(i);
+                            for i in index..(index + block).min(count) {
+                                kernel(i);
+                            }
+                        }
+                    });
+                    if let Err(e) = result {
+                        log::error!("kernel panicked");
                     }
-                })
+                });
             }
         });
     }
@@ -277,6 +297,10 @@ impl StreamImpl {
                             args.push(convert_arg(arg));
                         }
                         let args = Arc::new(args);
+                        let ctx = Arc::new(ShaderDispatchContext {
+                            shader: shader as *const _,
+                            error: &self.ctx.error,
+                        });
                         let kernel_args = defs::KernelFnArgs {
                             captured: shader.captures.as_ptr(),
                             captured_count: shader.captures.len(),
@@ -288,6 +312,7 @@ impl StreamImpl {
                             args_count: args.len(),
                             custom_ops: shader.custom_ops.as_ptr(),
                             custom_ops_count: shader.custom_ops.len(),
+                            internal_data: Arc::as_ptr(&ctx) as *const _ as *const _,
                         };
 
                         self.parallel_for(
@@ -520,4 +545,8 @@ extern "C" fn set_instance_visibility(
         let accel = &*(accel as *const AccelImpl);
         accel.set_instance_visibility(instance_id, visible);
     }
+}
+pub(crate) struct ShaderDispatchContext {
+    pub(crate) shader: *const ShaderImpl,
+    pub(crate) error: *const Mutex<Option<BackendError>>,
 }

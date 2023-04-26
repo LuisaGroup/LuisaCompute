@@ -1,6 +1,5 @@
-extern "C" int lc_stderr;
-extern "C" int lc_fprintf(int, const char*, ...) noexcept;
-extern "C" void lc_abort(void) noexcept;
+extern "C" [[noreturn]] void lc_abort(const void *, int msg) noexcept;
+extern "C" [[noreturn]] void lc_abort_and_print_sll(const void *, const char *, unsigned int, unsigned int) noexcept;
 inline float rsqrtf(float x) { return 1.0f / sqrtf(x); }
 inline float exp10f(float x) { return powf(10.0f, x); }
 inline int __clz (unsigned int x) {
@@ -27,11 +26,10 @@ inline int __float_as_int(float x) {
     return u.i;
 }
 
-#define print_backtrace_hint()   lc_fprintf(lc_stderr, "set LUISA_BACKTRACE=1 for more information\n")
 
 #define __device__
-#define lc_assert(cond)  do { if (!(cond)) { lc_fprintf(lc_stderr, "Assertion failed: %s at %s:%d\n", #cond, __FILE__, __LINE__); print_backtrace_hint(); lc_abort(); } } while (false)
-#define lc_unreachable() { lc_fprintf(lc_stderr, "Unreachable code at %s:%d\n", __FILE__, __LINE__); print_backtrace_hint(); lc_abort(); }
+#define lc_assert(cond, msg)  do { if (!(cond)) { lc_abort(k_args->internal_data, msg); } } while (false)
+#define lc_unreachable(msg) { lc_abort(k_args->internal_data, msg); }
 #define lc_assume(cond)
 #define lc_dispatch_id() lc_make_uint3(k_args->dispatch_id[0], k_args->dispatch_id[1], k_args->dispatch_id[2])
 #define lc_dispatch_size() lc_make_uint3(k_args->dispatch_size[0], k_args->dispatch_size[1], k_args->dispatch_size[2])

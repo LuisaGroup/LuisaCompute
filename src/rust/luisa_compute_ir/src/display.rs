@@ -3,6 +3,7 @@ use crate::{
     ir::{Instruction, Module, NodeRef, SwitchCase, Type},
 };
 use std::collections::HashMap;
+use std::ffi::CString;
 
 pub struct DisplayIR {
     output: String,
@@ -236,7 +237,6 @@ impl DisplayIR {
                 self.output += "}";
             }
             Instruction::Comment(_) => todo!(),
-            Instruction::Debug(_) => todo!(),
             Instruction::Return(_) => todo!(),
         }
         if !no_new_line {

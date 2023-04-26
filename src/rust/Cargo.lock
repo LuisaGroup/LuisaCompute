@@ -442,9 +442,11 @@ dependencies = [
 name = "luisa_compute_backend"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "cbindgen",
  "embree_sys",
  "fs2",
+ "indexmap",
  "lazy_static",
  "libc",
  "libloading",

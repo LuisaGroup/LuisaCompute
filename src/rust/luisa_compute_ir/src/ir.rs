@@ -469,8 +469,8 @@ pub enum Func {
     ZeroInitializer,
 
     Assume,
-    Unreachable,
-    Assert, // Assert(condition, message*) message is of Instruction::Debug
+    Unreachable(CBoxedSlice<u8>),
+    Assert(CBoxedSlice<u8>),
 
     ThreadId,
     BlockId,
@@ -932,7 +932,6 @@ pub enum Instruction {
     // },
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
-    Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed
 }
 extern "C" fn eq_impl<T: UserNodeData>(a: *const u8, b: *const u8) -> bool {
     let a = unsafe { &*(a as *const T) };

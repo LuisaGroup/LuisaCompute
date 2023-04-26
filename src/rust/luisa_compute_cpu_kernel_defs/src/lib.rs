@@ -13,6 +13,7 @@ pub struct KernelFnArgs {
     pub block_id: [u32; 3],
     pub custom_ops: *const CpuCustomOp,
     pub custom_ops_count: usize,
+    pub internal_data: *const c_void,
 }
 #[repr(C)]
 pub struct CpuCustomOp {

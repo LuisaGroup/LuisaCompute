@@ -1682,7 +1682,6 @@ impl Backward {
                 builder.switch(value, &cases, default);
             }
             crate::ir::Instruction::Comment { .. } => {}
-            crate::ir::Instruction::Debug { .. } => {}
             crate::ir::Instruction::Return(_) => {
                 panic!("should not have return in autodiff section")
             }

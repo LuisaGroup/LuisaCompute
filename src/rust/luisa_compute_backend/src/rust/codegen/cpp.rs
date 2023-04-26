@@ -5,16 +5,16 @@ use std::{
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::{
+use luisa_compute_ir::{
     context::is_type_equal,
     ir::{self, *},
     transform::autodiff::grad_type_of,
     CArc, CBoxedSlice, Pooled,
 };
 
-use super::{sha256, CodeGen};
+use super::sha256;
 
-use crate::codegen::decode_const_data;
+use super::decode_const_data;
 use std::fmt::Write;
 
 pub(crate) struct TypeGen {
@@ -230,6 +230,7 @@ pub struct GenericCppCodeGen {
     generated_globals: HashSet<String>,
     indent: usize,
     visited: HashSet<NodeRef>,
+    message: Vec<String>,
 }
 
 impl GenericCppCodeGen {
@@ -247,6 +248,7 @@ impl GenericCppCodeGen {
             generated_globals: HashSet::new(),
             indent: 1,
             visited: HashSet::new(),
+            message: vec![],
         }
     }
     fn write_ident(&mut self) {
@@ -445,7 +447,7 @@ impl GenericCppCodeGen {
                 let buffer_ty = self.type_gen.to_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
-                    "const auto {1} = lc_buffer_read<{0}>({2}, {3});",
+                    "const auto {1} = lc_buffer_read<{0}>(k_args, {2}, {3});",
                     buffer_ty, var, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -455,7 +457,7 @@ impl GenericCppCodeGen {
                 let buffer_ty = self.type_gen.to_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
-                    "lc_buffer_write<{}>({}, {}, {});",
+                    "lc_buffer_write<{}>(k_args, {}, {}, {});",
                     buffer_ty, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -465,7 +467,7 @@ impl GenericCppCodeGen {
                 let buffer_ty = self.type_gen.to_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
-                    "const {} {} = lc_buffer_size<{}>({});",
+                    "const {} {} = lc_buffer_size<{}>(k_args, {});",
                     node_ty_s, var, buffer_ty, args_v[0]
                 )
                 .unwrap();
@@ -474,7 +476,7 @@ impl GenericCppCodeGen {
             Func::BindlessBufferRead => {
                 writeln!(
                     &mut self.body,
-                    "const auto {1} = lc_bindless_buffer_read<{0}>({2}, {3}, {4});",
+                    "const auto {1} = lc_bindless_buffer_read<{0}>(k_args, {2}, {3}, {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -484,7 +486,7 @@ impl GenericCppCodeGen {
                 let buffer_ty = self.type_gen.to_c_type(t);
                 writeln!(
                     &mut self.body,
-                    "const {} {} = lc_bindless_buffer_size<{}>({}, {});",
+                    "const {} {} = lc_bindless_buffer_size<{}>(k_args, {}, {});",
                     node_ty_s, var, buffer_ty, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -493,7 +495,7 @@ impl GenericCppCodeGen {
             Func::BindlessBufferType => {
                 writeln!(
                     &mut self.body,
-                    "const {} {} = lc_bindless_buffer_type({}, {});",
+                    "const {} {} = lc_bindless_buffer_type(k_args, {}, {});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -502,7 +504,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dRead => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture2d_read({}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture2d_read(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -511,7 +513,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dRead => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture3d_read({}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture3d_read(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -520,7 +522,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dReadLevel => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture2d_read_level({}, {}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture2d_read_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
                 .unwrap();
@@ -529,7 +531,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dReadLevel => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture3d_read_level({}, {}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture3d_read_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
                 .unwrap();
@@ -538,7 +540,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dSample => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture2d_sample({}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture2d_sample(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2],
                 )
                 .unwrap();
@@ -547,7 +549,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dSample => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture3d_sample({}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture3d_sample(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -556,7 +558,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dSampleLevel => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture2d_sample_level({}, {}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture2d_sample_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
                 .unwrap();
@@ -565,7 +567,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dSampleLevel => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture3d_sample_level({}, {}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture3d_sample_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
                 .unwrap();
@@ -574,7 +576,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dSampleGrad => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture2d_sample_grad({}, {}, {}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture2d_sample_grad(k_args, {}, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3], args_v[4]
                 )
                 .unwrap();
@@ -583,7 +585,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dSampleGrad => {
                 writeln!(
                     &mut self.body,
-                    "const lc_float4 {} = lc_bindless_texture3d_sample_grad({}, {}, {}, {}, {});",
+                    "const lc_float4 {} = lc_bindless_texture3d_sample_grad(k_args, {}, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3], args_v[4]
                 )
                 .unwrap();
@@ -592,7 +594,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dSize => {
                 writeln!(
                     &mut self.body,
-                    "const lc_uint2 {} = lc_bindless_texture2d_size({}, {});",
+                    "const lc_uint2 {} = lc_bindless_texture2d_size(k_args, {}, {});",
                     var, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -601,7 +603,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dSize => {
                 writeln!(
                     &mut self.body,
-                    "const lc_uint3 {} = lc_bindless_texture3d_size({}, {});",
+                    "const lc_uint3 {} = lc_bindless_texture3d_size(k_args, {}, {});",
                     var, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -610,7 +612,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture2dSizeLevel => {
                 writeln!(
                     &mut self.body,
-                    "const lc_uint2 {} = lc_bindless_texture2d_size_level({}, {}, {});",
+                    "const lc_uint2 {} = lc_bindless_texture2d_size_level(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -619,7 +621,7 @@ impl GenericCppCodeGen {
             Func::BindlessTexture3dSizeLevel => {
                 writeln!(
                     &mut self.body,
-                    "const lc_uint3 {} = lc_bindless_texture3d_size_level({}, {}, {});",
+                    "const lc_uint3 {} = lc_bindless_texture3d_size_level(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -628,7 +630,7 @@ impl GenericCppCodeGen {
             Func::Texture2dRead => {
                 writeln!(
                     &mut self.body,
-                    "const {0} {1} = lc_texture2d_read<{0}>({2}, {3});",
+                    "const {0} {1} = lc_texture2d_read<{0}>(k_args, {2}, {3});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -637,7 +639,7 @@ impl GenericCppCodeGen {
             Func::Texture3dRead => {
                 writeln!(
                     &mut self.body,
-                    "const {0} {1} = lc_texture3d_read<{0}>({2}, {3});",
+                    "const {0} {1} = lc_texture3d_read<{0}>(k_args, {2}, {3});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -646,7 +648,7 @@ impl GenericCppCodeGen {
             Func::Texture2dWrite => {
                 writeln!(
                     &mut self.body,
-                    "lc_texture2d_write({0}, {1}, {2});",
+                    "lc_texture2d_write(k_args, {0}, {1}, {2});",
                     args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -655,7 +657,7 @@ impl GenericCppCodeGen {
             Func::Texture3dWrite => {
                 writeln!(
                     &mut self.body,
-                    "lc_texture3d_write({0}, {1}, {2});",
+                    "lc_texture3d_write(k_args, {0}, {1}, {2});",
                     args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -680,16 +682,22 @@ impl GenericCppCodeGen {
                 writeln!(&mut self.body, "lc_assume({});", args_v.join(", ")).unwrap();
                 true
             }
-            Func::Assert => {
-                writeln!(&mut self.body, "lc_assert({});", args_v.join(", ")).unwrap();
+            Func::Assert(msg) => {
+                let msg = CString::from_vec_with_nul(msg.to_vec()).unwrap().into_string().unwrap();
+                let id = self.message.len();
+                self.message.push(msg);
+                writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
                 true
             }
-            Func::Unreachable => {
+            Func::Unreachable(msg) => {
+                let msg = CString::from_vec_with_nul(msg.to_vec()).unwrap().into_string().unwrap();
+                let id = self.message.len();
+                self.message.push(msg);
                 if !is_type_equal(node_ty, &Type::void()) {
                     writeln!(&mut self.body, "{} {};", node_ty_s, var).unwrap();
                     self.write_ident();
                 }
-                writeln!(&mut self.body, "lc_unreachable({});", args_v.join(", ")).unwrap();
+                writeln!(&mut self.body, "lc_unreachable({});", id).unwrap();
                 true
             }
             Func::ExtractElement => {
@@ -939,7 +947,7 @@ impl GenericCppCodeGen {
             Func::AtomicExchange => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_exchange(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_exchange(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -948,7 +956,7 @@ impl GenericCppCodeGen {
             Func::AtomicCompareExchange => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_compare_exchange(lc_buffer_ref<{0}>({2}, {3}), {4}, {5});",
+                    "const {0} {1} = lc_atomic_compare_exchange(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4}, {5});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2], args_v[3]
                 ).unwrap();
                 true
@@ -956,7 +964,7 @@ impl GenericCppCodeGen {
             Func::AtomicFetchAdd => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_fetch_add(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_fetch_add(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -974,7 +982,7 @@ impl GenericCppCodeGen {
             Func::AtomicFetchMin => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_fetch_min(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_fetch_min(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -983,7 +991,7 @@ impl GenericCppCodeGen {
             Func::AtomicFetchMax => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_fetch_max(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_fetch_max(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -992,7 +1000,7 @@ impl GenericCppCodeGen {
             Func::AtomicFetchAnd => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_fetch_and(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_fetch_and(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -1001,7 +1009,7 @@ impl GenericCppCodeGen {
             Func::AtomicFetchOr => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_fetch_or(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_fetch_or(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -1010,7 +1018,7 @@ impl GenericCppCodeGen {
             Func::AtomicFetchXor => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_atomic_fetch_xor(lc_buffer_ref<{0}>({2}, {3}), {4});",
+                    "const {0} {1} = lc_atomic_fetch_xor(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -1378,7 +1386,6 @@ impl GenericCppCodeGen {
                 let comment = CString::new(comment.as_ref()).unwrap();
                 writeln!(&mut self.body, "/* {} */", comment.to_string_lossy()).unwrap();
             }
-            Instruction::Debug(_) => todo!(),
         }
     }
     fn gen_block_(&mut self, block: Pooled<ir::BasicBlock>) {
@@ -1509,9 +1516,12 @@ impl GenericCppCodeGen {
 }
 
 pub struct CpuCodeGen;
-
-impl CodeGen for CpuCodeGen {
-    fn run(module: &ir::KernelModule) -> String {
+pub struct Generated {
+    pub source: String,
+    pub messages: Vec<String>,
+}
+impl CpuCodeGen {
+    pub(crate) fn run(module: &ir::KernelModule) -> Generated {
         let mut codegen = GenericCppCodeGen::new();
         codegen.gen_module(module);
         let defs = r#"using uint8_t = unsigned char;
@@ -1524,21 +1534,24 @@ using int32_t = signed int;
 using int64_t = signed long long;
 using size_t = unsigned long long;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
-        format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-            defs,
-            CPU_LIBM_DEF,
-            CPU_KERNEL_DEFS,
-            CPU_PRELUDE,
-            DEVICE_MATH_SRC,
-            CPU_RESOURCE,
-            CPU_TEXTURE,
-            codegen.type_gen.struct_typedefs,
-            kernel_fn_decl,
-            codegen.fwd_defs,
-            codegen.body,
-            "}",
-        )
+        Generated {
+            source: format!(
+                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                defs,
+                CPU_LIBM_DEF,
+                CPU_KERNEL_DEFS,
+                CPU_PRELUDE,
+                DEVICE_MATH_SRC,
+                CPU_RESOURCE,
+                CPU_TEXTURE,
+                codegen.type_gen.struct_typedefs,
+                kernel_fn_decl,
+                codegen.fwd_defs,
+                codegen.body,
+                "}",
+            ),
+            messages: codegen.message,
+        }
     }
 }
 
@@ -1547,20 +1560,5 @@ pub const CPU_RESOURCE: &str = include_str!("cpu_resource.h");
 pub const DEVICE_MATH_SRC: &str = include_str!("device_math.h");
 pub const CPU_LIBM_DEF: &str = include_str!("cpu_libm_def.h");
 pub const CPU_KERNEL_DEFS: &str =
-    include_str!("../../../luisa_compute_cpu_kernel_defs/cpu_kernel_defs.h");
+    include_str!("../../../../luisa_compute_cpu_kernel_defs/cpu_kernel_defs.h");
 pub const CPU_TEXTURE: &str = include_str!("cpu_texture.h");
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_codegen_cpp(module: KernelModule) -> CBoxedSlice<u8> {
-    let src = CpuCodeGen::run(&module);
-    let c_string = CString::new(src).unwrap();
-    CBoxedSlice::new(c_string.as_bytes().to_vec())
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_codegen_cuda(_module: KernelModule) -> CBoxedSlice<u8> {
-    todo!();
-    // let src = "";
-    // let c_string = CString::new(src).unwrap();
-    // CBoxedSlice::new(c_string.as_bytes().to_vec())
-}

@@ -1,17 +1,12 @@
-use crate::codegen::cpp::TypeGen;
 use base64ct::Encoding;
-use lazy_static::lazy_static;
+use luisa_compute_ir::CBoxedSlice;
 use sha2::{Digest, Sha256};
-use std::ffi::{c_char, CString};
+use std::ffi::CString;
 
-use crate::{CBoxedSlice, ir};
-use crate::ir::{Primitive, StructType, Type, VectorElementType};
+use crate::ir::{Primitive, Type, VectorElementType};
+use luisa_compute_ir::ir;
 
 pub mod cpp;
-
-pub trait CodeGen {
-    fn run(module: &ir::KernelModule) -> String;
-}
 
 pub fn sha256(s: &str) -> String {
     let mut hasher = Sha256::new();
@@ -252,8 +247,12 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_decode_const_data(data:*const u8, len:usize, ty:&ir::Type)->CBoxedSlice<u8> {
-    let data = unsafe{std::slice::from_raw_parts(data, len)};
+pub extern "C" fn luisa_compute_decode_const_data(
+    data: *const u8,
+    len: usize,
+    ty: &ir::Type,
+) -> CBoxedSlice<u8> {
+    let data = unsafe { std::slice::from_raw_parts(data, len) };
     let out = decode_const_data(data, ty);
     let cstring = CString::new(out).unwrap();
     CBoxedSlice::new(cstring.as_bytes().to_vec())

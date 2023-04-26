@@ -1,7 +1,5 @@
-use fs2::FileExt;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
-use luisa_compute_ir::codegen::sha256;
 
 use crate::rust::llvm::LLVM_PATH;
 use std::{
@@ -135,23 +133,25 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
 
 pub(crate) type KernelFn = unsafe extern "C" fn(*const KernelFnArgs);
 
-pub struct ShaderImpl {
+pub(crate) struct ShaderImpl {
     // #[allow(dead_code)]
     // lib: libloading::Library,
     // entry: libloading::Symbol<'static, KernelFn>,
     entry: KernelFn,
-    pub dir: PathBuf,
-    pub captures: Vec<defs::KernelFnArg>,
-    pub custom_ops: Vec<defs::CpuCustomOp>,
-    pub block_size: [u32; 3],
+    pub(crate) dir: PathBuf,
+    pub(crate) captures: Vec<defs::KernelFnArg>,
+    pub(crate) custom_ops: Vec<defs::CpuCustomOp>,
+    pub(crate) block_size: [u32; 3],
+    pub(crate) messages:Vec<String>,
 }
 impl ShaderImpl {
-    pub fn new(
+    pub(crate) fn new(
         name: String,
         path: PathBuf,
         captures: Vec<defs::KernelFnArg>,
         custom_ops: Vec<defs::CpuCustomOp>,
         block_size: [u32; 3],
+        messages:Vec<String>,
     ) -> Self {
         // unsafe {
         // let lib = libloading::Library::new(&path)
@@ -169,10 +169,11 @@ impl ShaderImpl {
             dir: path.clone(),
             custom_ops,
             block_size,
+            messages,
         }
         // }
     }
-    pub fn fn_ptr(&self) -> KernelFn {
+    pub(crate) fn fn_ptr(&self) -> KernelFn {
         self.entry
     }
 }

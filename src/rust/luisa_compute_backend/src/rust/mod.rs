@@ -16,14 +16,10 @@ use libc::c_void;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{
-    codegen::{sha256, CodeGen},
-    context::type_hash,
-    ir::{self, Type},
-    CArc,
-};
+use luisa_compute_ir::{context::type_hash, ir, CArc};
 use parking_lot::RwLock;
-
+mod codegen;
+use codegen::sha256;
 mod accel;
 mod llvm;
 mod resource;
@@ -43,12 +39,6 @@ impl Backend for RustBackend {
         }
         *self_ctx = Some(ctx);
     }
-    fn query(&self, property: &str) -> Option<String> {
-        match property {
-            "device_name" => Some("cpu".to_string()),
-            _ => None,
-        }
-    }
     fn create_buffer(
         &self,
         ty: &CArc<ir::Type>,
@@ -67,7 +57,6 @@ impl Backend for RustBackend {
             total_size_bytes: size_bytes,
         })
     }
-
     fn destroy_buffer(&self, buffer: luisa_compute_api_types::Buffer) {
         unsafe {
             let ptr = buffer.0 as *mut BufferImpl;
@@ -106,6 +95,7 @@ impl Backend for RustBackend {
             drop(Box::from_raw(texture));
         }
     }
+
     fn create_bindless_array(
         &self,
         size: usize,
@@ -121,7 +111,6 @@ impl Backend for RustBackend {
             native_handle: ptr as *mut std::ffi::c_void,
         })
     }
-
     fn destroy_bindless_array(&self, array: luisa_compute_api_types::BindlessArray) {
         unsafe {
             let ptr = array.0 as *mut BindlessArrayImpl;
@@ -150,8 +139,7 @@ impl Backend for RustBackend {
     fn synchronize_stream(&self, stream: luisa_compute_api_types::Stream) -> super::Result<()> {
         unsafe {
             let stream = stream.0 as *mut StreamImpl;
-            (*stream).synchronize();
-            Ok(())
+            (*stream).synchronize()
         }
     }
 
@@ -174,142 +162,7 @@ impl Backend for RustBackend {
             Ok(())
         }
     }
-    fn create_shader(
-        &self,
-        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
-        _options: &api::ShaderOption,
-    ) -> super::Result<luisa_compute_api_types::CreatedShaderInfo> {
-        // let debug =
-        //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
-        // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-        // println!("{}", debug.to_str().unwrap());
-        // {
-        //     let debug = luisa_compute_ir::serialize::serialize_kernel_module_to_json_str(&kernel);
-        //     println!("{}", debug);
-        // }
-        let tic = std::time::Instant::now();
-        let gened_src = luisa_compute_ir::codegen::cpp::CpuCodeGen::run(&kernel);
-        info!(
-            "kernel source generated in {:.3}ms",
-            (std::time::Instant::now() - tic).as_secs_f64() * 1e3
-        );
-        // println!("{}", gened_src);
-        let hash = sha256(&gened_src);
-        let gened_src = gened_src.replace("##kernel_fn##", &hash);
-        let lib_path = shader::compile(hash.clone(), gened_src).unwrap();
-        let mut captures = vec![];
-        let mut custom_ops = vec![];
-        unsafe {
-            for c in kernel.captures.as_ref() {
-                captures.push(convert_capture(*c));
-            }
-            for op in kernel.cpu_custom_ops.as_ref() {
-                custom_ops.push(defs::CpuCustomOp {
-                    func: op.func,
-                    data: op.data,
-                });
-            }
-        }
-        let shader = Box::new(shader::ShaderImpl::new(
-            hash,
-            lib_path,
-            captures,
-            custom_ops,
-            kernel.block_size,
-        ));
-        let shader = Box::into_raw(shader);
-        Ok(luisa_compute_api_types::CreatedShaderInfo {
-            resource: CreatedResourceInfo {
-                handle: shader as u64,
-                native_handle: shader as *mut std::ffi::c_void,
-            },
-            block_size: kernel.block_size,
-        })
-    }
-    fn shader_cache_dir(
-        &self,
-        shader: luisa_compute_api_types::Shader,
-    ) -> Option<std::path::PathBuf> {
-        unsafe {
-            let shader = shader.0 as *mut shader::ShaderImpl;
-            Some((*shader).dir.clone())
-        }
-    }
-    fn destroy_shader(&self, shader: luisa_compute_api_types::Shader) {
-        unsafe {
-            let shader = shader.0 as *mut shader::ShaderImpl;
-            drop(Box::from_raw(shader));
-        }
-    }
 
-    fn create_event(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
-        todo!()
-    }
-
-    fn destroy_event(&self, _event: luisa_compute_api_types::Event) {
-        todo!()
-    }
-
-    fn signal_event(&self, _event: api::Event, _stream: api::Stream) {
-        todo!()
-    }
-
-    fn wait_event(
-        &self,
-        _event: luisa_compute_api_types::Event,
-        _stream: api::Stream,
-    ) -> super::Result<()> {
-        todo!()
-    }
-
-    fn synchronize_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
-        todo!()
-    }
-    fn create_mesh(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
-        unsafe {
-            let mesh = Box::new(MeshImpl::new(
-                option.hint,
-                option.allow_compaction,
-                option.allow_update,
-            ));
-            let mesh = Box::into_raw(mesh);
-            Ok(api::CreatedResourceInfo {
-                handle: mesh as u64,
-                native_handle: mesh as *mut std::ffi::c_void,
-            })
-        }
-    }
-    fn destroy_mesh(&self, mesh: api::Mesh) {
-        unsafe {
-            let mesh = mesh.0 as *mut MeshImpl;
-            drop(Box::from_raw(mesh));
-        }
-    }
-    fn create_procedural_primitive(
-        &self,
-        _option: api::AccelOption,
-    ) -> crate::Result<api::CreatedResourceInfo> {
-        todo!()
-    }
-    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
-        todo!()
-    }
-    fn create_accel(&self, _option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
-        unsafe {
-            let accel = Box::new(AccelImpl::new());
-            let accel = Box::into_raw(accel);
-            Ok(api::CreatedResourceInfo {
-                handle: accel as u64,
-                native_handle: accel as *mut std::ffi::c_void,
-            })
-        }
-    }
-    fn destroy_accel(&self, accel: api::Accel) {
-        unsafe {
-            let accel = accel.0 as *mut AccelImpl;
-            drop(Box::from_raw(accel));
-        }
-    }
     fn create_swapchain(
         &self,
         window_handle: u64,
@@ -382,6 +235,148 @@ impl Backend for RustBackend {
                 },
                 (empty_callback, std::ptr::null_mut()),
             )
+        }
+    }
+    fn create_shader(
+        &self,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
+        _options: &api::ShaderOption,
+    ) -> super::Result<luisa_compute_api_types::CreatedShaderInfo> {
+        // let debug =
+        //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
+        // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        // println!("{}", debug.to_str().unwrap());
+        // {
+        //     let debug = luisa_compute_ir::serialize::serialize_kernel_module_to_json_str(&kernel);
+        //     println!("{}", debug);
+        // }
+        let tic = std::time::Instant::now();
+        let gened = codegen::cpp::CpuCodeGen::run(&kernel);
+        info!(
+            "kernel source generated in {:.3}ms",
+            (std::time::Instant::now() - tic).as_secs_f64() * 1e3
+        );
+        let hash = sha256(&gened.source);
+        let gened_src = gened.source.replace("##kernel_fn##", &hash);
+        let lib_path = shader::compile(hash.clone(), gened_src).unwrap();
+        let mut captures = vec![];
+        let mut custom_ops = vec![];
+        unsafe {
+            for c in kernel.captures.as_ref() {
+                captures.push(convert_capture(*c));
+            }
+            for op in kernel.cpu_custom_ops.as_ref() {
+                custom_ops.push(defs::CpuCustomOp {
+                    func: op.func,
+                    data: op.data,
+                });
+            }
+        }
+        let shader = Box::new(shader::ShaderImpl::new(
+            hash,
+            lib_path,
+            captures,
+            custom_ops,
+            kernel.block_size,
+            gened.messages,
+        ));
+        let shader = Box::into_raw(shader);
+        Ok(luisa_compute_api_types::CreatedShaderInfo {
+            resource: CreatedResourceInfo {
+                handle: shader as u64,
+                native_handle: shader as *mut std::ffi::c_void,
+            },
+            block_size: kernel.block_size,
+        })
+    }
+
+    fn shader_cache_dir(
+        &self,
+        shader: luisa_compute_api_types::Shader,
+    ) -> Option<std::path::PathBuf> {
+        unsafe {
+            let shader = shader.0 as *mut shader::ShaderImpl;
+            Some((*shader).dir.clone())
+        }
+    }
+
+    fn destroy_shader(&self, shader: luisa_compute_api_types::Shader) {
+        unsafe {
+            let shader = shader.0 as *mut shader::ShaderImpl;
+            drop(Box::from_raw(shader));
+        }
+    }
+
+    fn create_event(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+        todo!()
+    }
+
+    fn destroy_event(&self, _event: luisa_compute_api_types::Event) {
+        todo!()
+    }
+
+    fn signal_event(&self, _event: api::Event, _stream: api::Stream) {
+        todo!()
+    }
+    fn wait_event(
+        &self,
+        _event: luisa_compute_api_types::Event,
+        _stream: api::Stream,
+    ) -> super::Result<()> {
+        todo!()
+    }
+    fn synchronize_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
+        todo!()
+    }
+    fn create_mesh(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
+        unsafe {
+            let mesh = Box::new(MeshImpl::new(
+                option.hint,
+                option.allow_compaction,
+                option.allow_update,
+            ));
+            let mesh = Box::into_raw(mesh);
+            Ok(api::CreatedResourceInfo {
+                handle: mesh as u64,
+                native_handle: mesh as *mut std::ffi::c_void,
+            })
+        }
+    }
+    fn create_procedural_primitive(
+        &self,
+        _option: api::AccelOption,
+    ) -> crate::Result<api::CreatedResourceInfo> {
+        todo!()
+    }
+    fn destroy_mesh(&self, mesh: api::Mesh) {
+        unsafe {
+            let mesh = mesh.0 as *mut MeshImpl;
+            drop(Box::from_raw(mesh));
+        }
+    }
+    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
+        todo!()
+    }
+    fn create_accel(&self, _option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
+        unsafe {
+            let accel = Box::new(AccelImpl::new());
+            let accel = Box::into_raw(accel);
+            Ok(api::CreatedResourceInfo {
+                handle: accel as u64,
+                native_handle: accel as *mut std::ffi::c_void,
+            })
+        }
+    }
+    fn destroy_accel(&self, accel: api::Accel) {
+        unsafe {
+            let accel = accel.0 as *mut AccelImpl;
+            drop(Box::from_raw(accel));
+        }
+    }
+    fn query(&self, property: &str) -> Option<String> {
+        match property {
+            "device_name" => Some("cpu".to_string()),
+            _ => None,
         }
     }
 }

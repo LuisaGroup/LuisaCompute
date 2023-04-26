@@ -1,6 +1,8 @@
 pub mod convert;
 use crate::ir::{Binding, KernelModule, Primitive};
 use serde::{Deserialize, Serialize};
+use crate::CBoxedSlice;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SerializedKernelModule {
     pub blocks: Vec<SerializedBlock>,
@@ -139,7 +141,7 @@ pub enum SerializedInstruction {
     },
     AdDetach(SerializedBlockRef),
     Comment(Vec<u8>),
-    Debug(Vec<u8>), // for CPU only, would print the message if executed
+    Assert(SerializedNodeRef, Vec<u8>),
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -147,8 +149,8 @@ pub enum SerializedFunc {
     ZeroInitializer,
 
     Assume,
-    Unreachable,
-    Assert, // Assert(condition, message*) message is of Instruction::Debug
+    Unreachable(Vec<u8>),
+    Assert(Vec<u8>),
 
     ThreadId,
     BlockId,

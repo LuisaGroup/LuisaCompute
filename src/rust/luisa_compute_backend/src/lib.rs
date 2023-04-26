@@ -22,9 +22,17 @@ pub mod cpp_proxy_backend;
 pub mod remote;
 #[cfg(any(feature = "cpu", feature = "remote"))]
 pub mod rust;
-
-#[derive(Debug)]
-pub struct BackendError {}
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum BackendErrorKind {
+    KernelExecution,
+    Network,
+    Other,
+}
+#[derive(Debug, Clone)]
+pub struct  BackendError {
+    pub kind: BackendErrorKind,
+    pub message: String,
+}
 
 pub type Result<T> = std::result::Result<T, BackendError>;
 

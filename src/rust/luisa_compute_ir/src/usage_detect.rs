@@ -163,7 +163,6 @@ impl UsageDetector {
                 self.detect_block(block);
             }
             crate::ir::Instruction::Comment(_) => {}
-            crate::ir::Instruction::Debug(_) => {}
         }
     }
 

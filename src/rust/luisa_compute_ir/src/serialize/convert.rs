@@ -249,18 +249,14 @@ impl KernelSerializer {
                 let s = s.as_ref().to_vec();
                 SerializedInstruction::Comment(s)
             }
-            Instruction::Debug(s) => {
-                let s = s.as_ref().to_vec();
-                SerializedInstruction::Debug(s)
-            }
         }
     }
     fn serialize_func(&mut self, func: &Func) -> SerializedFunc {
         match func {
             Func::ZeroInitializer => SerializedFunc::ZeroInitializer,
             Func::Assume => SerializedFunc::Assume,
-            Func::Unreachable => SerializedFunc::Unreachable,
-            Func::Assert => SerializedFunc::Assert,
+            Func::Unreachable(msg) => SerializedFunc::Unreachable(msg.to_vec()),
+            Func::Assert(msg) => SerializedFunc::Assert(msg.to_vec()),
             Func::ThreadId => SerializedFunc::ThreadId,
             Func::BlockId => SerializedFunc::BlockId,
             Func::DispatchId => SerializedFunc::DispatchId,

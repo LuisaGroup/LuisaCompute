@@ -38,7 +38,7 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::AdScope: _convert_instr_ad_scope(node); break;
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
             case ir::Instruction::Tag::Comment: _convert_instr_comment(node); break;
-            case ir::Instruction::Tag::Debug: _convert_instr_debug(node); break;
+//            case ir::Instruction::Tag::Debug: _convert_instr_debug(node); break;
             default: LUISA_ERROR_WITH_LOCATION("Invalid instruction in body: `{}`.", to_string(node->instruction->tag));
         }
         node_ref = node->next;
@@ -675,10 +675,10 @@ void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_debug(const ir::Node *node) noexcept {
-    LUISA_WARNING_WITH_LOCATION("Instruction `Debug` is not implemented.");
-    auto debug_body = node->instruction->debug._0;
-    auto debug_content = luisa::string_view{reinterpret_cast<const char *>(debug_body.ptr), debug_body.len};
-    _ctx->function_builder->comment_(luisa::format("Debug: {}", debug_content));
+//    LUISA_WARNING_WITH_LOCATION("Instruction `Debug` is not implemented.");
+//    auto debug_body = node->instruction->debug._0;
+//    auto debug_content = luisa::string_view{reinterpret_cast<const char *>(debug_body.ptr), debug_body.len};
+//    _ctx->function_builder->comment_(luisa::format("Debug: {}", debug_content));
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
@@ -1038,7 +1038,6 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 break;
             }
             case ir::Instruction::Tag::Comment: break;
-            case ir::Instruction::Tag::Debug: break;
         }
     });
 }

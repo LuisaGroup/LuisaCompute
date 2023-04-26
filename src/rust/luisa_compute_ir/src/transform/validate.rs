@@ -523,7 +523,7 @@ impl Validator {
             Instruction::Comment(_) => {
                 assert!(is_type_equal(&type_, &Type::void()));
             }
-            crate::ir::Instruction::Debug { .. } => {}
+            crate::ir::Instruction::AssertWithBacktrace { .. } => {}
         }
     }
     fn validate(&mut self, module: &Module) {

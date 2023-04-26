@@ -7,6 +7,9 @@ use std::env::{current_dir, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
+use std::process::{abort, exit};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::yield_now;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -95,6 +98,9 @@ pub enum LLVMOrcOpaqueMaterializationUnit {}
 
 pub type LLVMOrcMaterializationUnitRef = *mut LLVMOrcOpaqueMaterializationUnit;
 
+use crate::rust::shader::ShaderImpl;
+use crate::rust::stream::ShaderDispatchContext;
+use crate::{BackendError, BackendErrorKind};
 use libc::{c_char, c_void, size_t};
 use parking_lot::{Mutex, ReentrantMutex};
 
@@ -662,6 +668,8 @@ unsafe impl Send for Context {}
 
 unsafe impl Sync for Context {}
 
+static ABORT_MUTEX: Mutex<()> = Mutex::new(());
+
 impl Context {
     fn new() -> Self {
         let lib = LibLLVM::new();
@@ -722,10 +730,51 @@ impl Context {
                     (lib.LLVMOrcJITDylibDefine)(jd, syms);
                 }};
             }
-            add_symbol!(lc_abort, libc::abort);
-            add_symbol!(lc_fprintf, libc::fprintf);
-            add_symbol!(lc_fwrite, libc::fwrite);
-            add_symbol!(lc_stderr, 2);
+            add_symbol!(memcpy, libc::memcpy);
+            unsafe extern "C" fn lc_abort(ctx: *const c_void, msg: i32) {
+                let _lk = ABORT_MUTEX.lock();
+                let ctx = ctx as *const ShaderDispatchContext;
+                let ctx = &*ctx;
+                let shader = ctx.shader as *const ShaderImpl;
+                let shader = &*shader;
+                let mut err = (&*ctx.error).lock();
+                if err.is_none() {
+                    *err = Some(BackendError {
+                        kind: BackendErrorKind::KernelExecution,
+                        message: shader.messages[msg as usize].clone(),
+                    });
+                }
+                panic!("kernel execution aborted");
+            }
+            add_symbol!(lc_abort, lc_abort);
+            unsafe extern "C" fn lc_abort_and_print_sll(
+                ctx: *const c_void,
+                msg: *const c_char,
+                i: u32,
+                j: u32,
+            ) {
+                let _lk = ABORT_MUTEX.lock();
+                let ctx = ctx as *const ShaderDispatchContext;
+                let ctx = &*ctx;
+                let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
+                let idx = msg.find("{}").unwrap();
+                let mut display = String::new();
+                display.push_str(&msg[..idx]);
+                display.push_str(&format!("{}", i));
+                let idx2 = msg[idx + 2..].find("{}").unwrap();
+                display.push_str(&msg[idx + 2..idx + 2 + idx2]);
+                display.push_str(&format!("{}", j));
+                display.push_str(&msg[idx + 2 + idx2 + 2..]);
+                let mut err = (&*ctx.error).lock();
+                if err.is_none() {
+                    *err = Some(BackendError {
+                        kind: BackendErrorKind::KernelExecution,
+                        message: display,
+                    });
+                }
+                panic!("kernel execution aborted");
+            }
+            add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
             //cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
             //log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/

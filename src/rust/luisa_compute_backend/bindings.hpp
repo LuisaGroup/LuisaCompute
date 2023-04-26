@@ -74,6 +74,10 @@ void lc_rs_query(void *backend, char *property, char *result, size_t result_size
 
 bool lc_rs_synchronize_stream(void *backend, Stream stream);
 
+CBoxedSlice<uint8_t> luisa_compute_decode_const_data(const uint8_t *data,
+                                                     size_t len,
+                                                     const Type *ty);
+
 } // extern "C"
 
 } // namespace luisa::compute::backend
