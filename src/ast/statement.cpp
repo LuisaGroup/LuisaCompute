@@ -3,6 +3,7 @@
 //
 
 #include <ast/statement.h>
+#include <core/logging.h>
 
 namespace luisa::compute {
 

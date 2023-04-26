@@ -161,3 +161,42 @@ end
 function char(str)
 	return libc.byteof(libc.dataptr(str), 0)
 end
+function to_hex_array(input, out)
+	local cut = char(',')
+	local hex_table = {char('0'), char('1'), char('2'), char('3'), char('4'), char('5'), char('6'), char('7'), char('8'),
+                    char('9'), char('a'), char('b'), char('c'), char('d'), char('e'), char('f')}
+
+	local str_ptr
+	local str_size
+	if type(input) == "string" then
+		str_ptr = libc.dataptr(input)
+		str_size = #input
+	else
+		str_ptr = input:caddr()
+		str_size = input:size()
+	end
+	local byte_count = 0
+	for idx = 0, (str_size - 1) do
+		if byte_count == 0 then
+			out:add("0x")
+		end
+		local i = libc.byteof(str_ptr, idx)
+		local low_bit = i >> 4
+		local high_bit = (i & 15)
+		out:add_char(hex_table[low_bit + 1])
+		out:add_char(hex_table[high_bit + 1])
+		byte_count = byte_count + 1
+		if byte_count >= 4 then
+			byte_count = 0
+			out:add_char(cut)
+		end
+	end
+	if byte_count > 0 then
+		for i = byte_count, 3 do
+			out:add("00")
+		end
+	end
+	if out:get(out:size()) == cut then
+		out:erase(1)
+	end
+end
