@@ -3,7 +3,7 @@ from luisa import *
 from luisa.builtin import *
 from luisa.types import *
 from luisa.util import *
-init()
+init("cuda")
 
 
 @func

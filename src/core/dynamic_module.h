@@ -19,8 +19,6 @@ private:
 
 private:
     explicit DynamicModule(void *handle) noexcept : _handle{handle} {}
-    [[nodiscard]] static std::mutex &_search_path_mutex() noexcept;
-    [[nodiscard]] static luisa::vector<std::pair<std::filesystem::path, size_t>> &_search_paths() noexcept;
 
 public:
     [[nodiscard]] operator bool() const noexcept {

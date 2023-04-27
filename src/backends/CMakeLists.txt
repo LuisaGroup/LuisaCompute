@@ -26,8 +26,8 @@ function(luisa_compute_add_backend name)
                 "${BACKEND_SUPPORT_DIR}"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/")
         add_dependencies(luisa-compute-backend-${name} luisa-compute-backend-${name}-copy-support)
-        install(DIRECTORY ${BACKEND_SUPPORT_DIR}
-                DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(DIRECTORY ${BACKEND_SUPPORT_DIR}/
+                DESTINATION ${CMAKE_INSTALL_BINDIR}/)
     endif ()
 endfunction()
 

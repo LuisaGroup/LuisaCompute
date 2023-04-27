@@ -37,7 +37,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     "${LUISA_RUST_SRC_DIR}/${name}"
                     "${LUISA_RUST_DEST_DIR}/${name}"
                     COMMENT "Copying '${LUISA_RUST_SRC_DIR}/${name}' to '${LUISA_RUST_DEST_DIR}/${name}'...")
-            install(FILES "${LUISA_RUST_DEST_DIR}/${name}"
+            install(PROGRAMS "${LUISA_RUST_DEST_DIR}/${name}"
                     DESTINATION ${CMAKE_INSTALL_BINDIR})
         endfunction()
         if (WIN32)
