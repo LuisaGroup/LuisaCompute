@@ -31,8 +31,6 @@ private:
     vstd::unordered_map<vstd::string, ExtPtr> exts;
 
 public:
-    static std::mutex &global_mtx() noexcept;
-    static uint64_t origin_handle(uint64_t handle);
     void *native_handle() const noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;

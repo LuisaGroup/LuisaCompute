@@ -19,7 +19,7 @@ void ProceduralPrimitives::set(Stream *stream, Usage usage, Range range) {
 void Accel::set(Stream *stream, Usage usage, Range range) {
     set_usage(stream, this, usage, range);
     for (auto &&i : _ref_count) {
-        set_usage(stream, reinterpret_cast<RWResource *>(i.first), Usage::READ, Range{});
+        set_usage(stream, RWResource::get<RWResource>(i.first), Usage::READ, Range{});
     }
 }
 void Accel::modify(size_t size, Stream *stream, luisa::span<AccelBuildCommand::Modification const> modifies) {
