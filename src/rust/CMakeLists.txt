@@ -43,7 +43,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             else ()
                 set(LUISA_RUST_DEST_DIR "$<TARGET_FILE_DIR:luisa-compute-core>/")
             endif ()
-            set(LUISA_CARGO_PROFILE "$<$<CONFIG:DEBUG>:debug>$<$<NOT:$<CONFIG:DEBUG>>:release>")
+            set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
             set(LUISA_RUST_SRC_DIR "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
             add_custom_command(TARGET luisa-compute-rust-copy
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
