@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: [ 3.10, 3.11 ]
+        python: [ "3.10", "3.11" ]
     name: ubuntu-22.04 / python-${{ matrix.python }}
     runs-on: ubuntu-22.04
     steps:
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: [ 3.10, 3.11 ]
+        python: [ "3.10", "3.11" ]
     name: macos-12 / python-${{ matrix.python }}
     runs-on: macos-12
     steps:
@@ -77,7 +77,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: [ 3.10, 3.11 ]
+        python: [ "3.10", "3.11" ]
     name: windows-2022 / python-${{ matrix.python }}
     runs-on: windows-${{ matrix.os }}
     steps:
