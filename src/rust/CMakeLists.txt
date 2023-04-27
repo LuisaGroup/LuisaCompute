@@ -53,12 +53,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         elseif (APPLE)
             set(LUISA_RUST_COPY_LIST
                     libembree4.dylib)
-            if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
-                    CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-                list(APPEND LUISA_RUST_COPY_LIST
-                        libtbb.dylib
-                        libtbbmalloc.dylib)
-            endif ()
+            # FIXME: tbb not present?
+            # if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
+            #         CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+            #     list(APPEND LUISA_RUST_COPY_LIST
+            #             libtbb.dylib
+            #             libtbbmalloc.dylib)
+            # endif ()
         else ()
             set(LUISA_RUST_COPY_LIST
                     libembree4.so
@@ -73,14 +74,22 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     endif ()
 
     function(luisa_compute_install_rust target)
-        install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets
-                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-                LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-                ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-                PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        # FIXME: corrosion does not correctly installs the rust library so we have to manually install it here
+        #        corrosion_install(TARGETS luisa_compute_${target}
+        #                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        #                LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        #                ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        #                PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets)
         install(DIRECTORY luisa_compute_${target}
                 DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/rust
                 FILES_MATCHING REGEX ".*\\.(h|hpp)$")
+        install(DIRECTORY "$<TARGET_FILE_DIR:luisa-compute-core>/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/"
+                FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(dll|so|dylib)$")
+        install(DIRECTORY "$<TARGET_LINKER_FILE_DIR:luisa-compute-core>/"
+                DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
+                FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
     endfunction()
     luisa_compute_install_rust(backend_impl)
     luisa_compute_install_rust(api_types)

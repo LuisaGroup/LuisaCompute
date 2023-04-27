@@ -348,10 +348,10 @@ def _compute_xx_id(name, *args):
     # NOTE: cast to signed int by default
     expr = getattr(lcapi.builder(), name)()
     dtype = uint3
-    expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
-    tmp = lcapi.builder().local(to_lctype(dtype))
-    lcapi.builder().assign(tmp, expr1)
-    return dtype, tmp
+    # expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
+    # tmp = lcapi.builder().local(to_lctype(dtype))
+    # lcapi.builder().assign(tmp, expr1)
+    return dtype, expr
 for _func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
     _func_map[_func] = _compute_xx_id
 def _custom_xx_id(name, *args):

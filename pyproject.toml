@@ -35,7 +35,8 @@ cmake.args = ["-G Ninja"]
 sdist.reproducible = false
 wheel.expand-macos-universal-tags = true
 wheel.packages = []
-build-dir = "build/{wheel_tag}"
+# this causes CMake referencing a temporarily installed ninja
+# build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake.define]
 LUISA_COMPUTE_BUILD_TESTS = "OFF"

@@ -53,6 +53,7 @@ public:
                 .module = DynamicModule::load(
                     runtime_directory,
                     luisa::format("lc-backend-{}", backend_name))};
+            LUISA_ASSERT(m.module, "Failed to load backend '{}'.", backend_name);
             m.creator = m.module.function<Device::Creator>("create");
             m.deleter = m.module.function<Device::Deleter>("destroy");
             m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");

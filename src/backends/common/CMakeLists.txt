@@ -34,6 +34,9 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
 
         set_target_properties(luisa-compute-vulkan-swapchain PROPERTIES
                 OUTPUT_NAME lc-vulkan-swapchain)
+        install(TARGETS luisa-compute-vulkan-swapchain EXPORT LuisaComputeTargets
+                LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     else ()
         message(WARNING "Vulkan not found, vulkan swapchain will not be enabled.")
@@ -63,4 +66,7 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME lc-hlsl-builtin)
     add_dependencies(luisa-compute-backends luisa-compute-hlsl-builtin)
+    install(TARGETS luisa-compute-hlsl-builtin EXPORT LuisaComputeTargets
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif ()
