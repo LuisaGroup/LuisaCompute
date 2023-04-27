@@ -31,18 +31,22 @@ local function sort_key(map, func)
 	end
 end
 
+local function find_clangcl()
+	return find_process_path("clang-cl.exe") ~= nil
+end
+
 local function find_llvm()
 	local clang_name = "clang"
 	if my_is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
 		return "/usr"
 	elseif my_is_host("macosx") then
-		import("lib.detect.find_tool")
+		import("lib.detect.find_path")
 		local bindir = find_path("llvm-ar", "/usr/local/Cellar/llvm/*/bin")
 		if bindir then
 			return path.directory(bindir)
 		end
 	else
-		clang_name = "clang.exe"
+		clang_name = clang_name .. ".exe"
 	end
 	local clang_bin = find_process_path(clang_name)
 	if clang_bin then
@@ -76,19 +80,30 @@ function main(...)
 		args["toolchain"] = nil
 		if toolchain == "llvm" then
 			sdk_path = find_llvm()
+		elseif toolchain == "clang-cl" then
+			sdk_path = find_clangcl()
 		end
 	else
-		sdk_path = find_llvm()
-		if sdk_path then
-			toolchain = "llvm"
-		elseif my_is_host("windows") then
-			toolchain = "msvc"
+		local is_win = my_is_host("windows")
+		-- llvm first
+		if is_win then
+			toolchain = "clang-cl"
+			sdk_path = find_clangcl()
 		else
-			toolchain = "gcc"
+			toolchain = "llvm"
+			sdk_path = find_llvm()
+		end
+
+		if not sdk_path then
+			if is_win then
+				toolchain = "msvc"
+			else
+				toolchain = "gcc"
+			end
 		end
 	end
 	sb:add("\ttoolchain = \""):add(toolchain):add("\",\n")
-	if sdk_path then
+	if toolchain == "llvm" and sdk_path then
 		sb:add("\tsdk = \""):add(sdk_path):add("\",\n")
 	end
 	sb:add("}\nfunction get_options()\n\treturn {\n")
