@@ -35,10 +35,13 @@ jobs:
         with:
           linux-local-args: '["--toolkit"]'
       - name: "Build"
-        run: python -m pip wheel . -w dist
+        run: |
+          python -m pip install -U pip scikit-build-core
+          python -m pip wheel . -w dist
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
+          name: wheel-ubuntu-22.04-python-${{ matrix.python }}
           path: dist/luisa-*.whl
 
   build-macos:
@@ -63,10 +66,13 @@ jobs:
           vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Build"
-        run: python -m pip wheel . -w dist
+        run: |
+          python -m pip install -U pip scikit-build-core
+          python -m pip wheel . -w dist
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
+          name: wheel-macos-12-python-${{ matrix.python }}
           path: dist/luisa-*.whl
 
   build-windows:
@@ -98,8 +104,11 @@ jobs:
           version: 1.10.2
       - name: "Build"
         shell: cmd
-        run: python -m pip wheel . -w dist
+        run: |
+          python -m pip install -U pip scikit-build-core
+          python -m pip wheel . -w dist
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
+          name: wheel-windows-2022-python-${{ matrix.python }}
           path: dist/luisa-*.whl
