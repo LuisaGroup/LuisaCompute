@@ -8,7 +8,7 @@ jobs:
       fail-fast: true
       matrix:
         python: [ 3.10, 3.11 ]
-    name: ubuntu-22.04 / python-${{ python }}
+    name: ubuntu-22.04 / python-${{ matrix.python }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
@@ -24,7 +24,7 @@ jobs:
       - name: "Setup Python"
         uses: actions/setup-python@v4
         with:
-          python-version: ${{ python }}
+          python-version: ${{ matrix.python }}
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
@@ -47,7 +47,7 @@ jobs:
       fail-fast: true
       matrix:
         python: [ 3.10, 3.11 ]
-    name: macos-12 / python-${{ python }}
+    name: macos-12 / python-${{ matrix.python }}
     runs-on: macos-12
     steps:
       - uses: actions/checkout@v3
@@ -56,7 +56,7 @@ jobs:
       - name: "Setup Python"
         uses: actions/setup-python@v4
         with:
-          python-version: ${{ python }}
+          python-version: ${{ matrix.python }}
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
@@ -78,7 +78,7 @@ jobs:
       fail-fast: true
       matrix:
         python: [ 3.10, 3.11 ]
-    name: windows-2022 / python-${{ python }}
+    name: windows-2022 / python-${{ matrix.python }}
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -87,7 +87,7 @@ jobs:
       - name: "Setup Python"
         uses: actions/setup-python@v4
         with:
-          python-version: ${{ python }}
+          python-version: ${{ matrix.python }}
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
