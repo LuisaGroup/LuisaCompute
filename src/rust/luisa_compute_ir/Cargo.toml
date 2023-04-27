@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "luisa_compute_ir"
-version = "0.1.0-alpha.1"
+version = "0.1.1-alpha.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,8 +11,7 @@ parking_lot = "0.12.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = "1.3.3"
-luisa_compute_cpu_kernel_defs = { path = "../luisa_compute_cpu_kernel_defs", version = "0.1.0-alpha.1" }
-luisa_compute_api_types = { path = "../luisa_compute_api_types", version = "0.1.0-alpha.1" }
+luisa_compute_api_types = { path = "../luisa_compute_api_types", version = "0.1.1-alpha.1" }
 base64ct = { version = "1.5.0", features = ["alloc"] }
 sha2 = "0.10"
 indexmap = "1.9.2"

@@ -166,7 +166,8 @@ impl Default for AccelOption {
 
 bitflags! {
     #[repr(C)]
-    #[derive(Serialize, Deserialize)]
+    #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+    #[serde(transparent)]
     pub struct AccelBuildModificationFlags : u32 {
         const EMPTY = 0;
         const PRIMITIVE = 1 << 0;
@@ -174,7 +175,7 @@ bitflags! {
         const OPAQUE_ON = 1 << 2;
         const OPAQUE_OFF = 1 << 3;
         const VISIBILITY = 1 << 4;
-        const OPAQUE = Self::OPAQUE_ON.bits | Self::OPAQUE_OFF.bits;
+        const OPAQUE = Self::OPAQUE_ON.bits() | Self::OPAQUE_OFF.bits();
     }
 }
 #[repr(C)]

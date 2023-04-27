@@ -164,7 +164,6 @@ static const AccelBuildModificationFlags AccelBuildModificationFlags_TRANSFORM =
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 2) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 3) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 4) };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)((AccelBuildModificationFlags_OPAQUE_ON).bits | (AccelBuildModificationFlags_OPAQUE_OFF).bits) };
 
 struct AccelBuildModification {
     uint32_t index;
