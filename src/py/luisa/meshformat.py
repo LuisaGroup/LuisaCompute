@@ -1,4 +1,4 @@
-import lcapi
+from .dylibs import lcapi
 
 
 class MeshFormat:

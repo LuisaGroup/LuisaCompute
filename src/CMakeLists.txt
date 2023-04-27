@@ -110,7 +110,9 @@ install(TARGETS compute
         EXPORT LuisaComputeTargets
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
 
-install(EXPORT LuisaComputeTargets
-        FILE LuisaComputeTargets.cmake
-        NAMESPACE luisa::
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
+if (NOT SKBUILD)
+    install(EXPORT LuisaComputeTargets
+            FILE LuisaComputeTargets.cmake
+            NAMESPACE luisa::
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
+endif ()

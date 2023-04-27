@@ -1,7 +1,7 @@
-import lcapi
+from .dylibs import lcapi
 from .types import to_lctype, from_lctype
 
-# Note: vector & matrix types are directly imported from lcapi
+# Note: vector & matrix types are directly imported from .dylibs.lcapi
 
 # class Vector:
     # def __init__(self, data, dtype = float):

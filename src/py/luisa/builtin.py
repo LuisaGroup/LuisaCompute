@@ -1,4 +1,4 @@
-import lcapi
+from .dylibs import lcapi
 from .mathtypes import *
 from .types import uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, short, ushort, half, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4, to_lctype, is_bit16_types, BuiltinFuncBuilder, \
     scalar_dtypes, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, vector, length_of, element_of, nameof, implicit_covertable

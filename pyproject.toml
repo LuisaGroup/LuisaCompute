@@ -6,7 +6,7 @@ build-backend = "scikit_build_core.build"
 name = "luisa"
 version = "0.2.0"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
-readme = "README_Python_en.md"
+readme = "README.md"
 authors = [
     { name = "LuisaGroup" },
 ]
@@ -29,10 +29,11 @@ license = { file = "LICENSE" }
 [tool.scikit-build]
 cmake.minimum-version = "3.23"
 ninja.minimum-version = "1.10"
-cmake.args = [
-    "-DCMAKE_INSTALL_BINDIR=.",
-    "-DCMAKE_INSTALL_LIBDIR=.",
-    "-DLUISA_COMPUTE_BUILD_TESTS=OFF"
-]
+cmake.build-type = "Release"
+sdist.reproducible = false
 wheel.expand-macos-universal-tags = true
-wheel.install-dir = "luisa"
+wheel.packages = []
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+LUISA_COMPUTE_BUILD_TESTS = "OFF"

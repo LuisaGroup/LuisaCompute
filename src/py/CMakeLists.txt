@@ -32,3 +32,11 @@ add_custom_command(TARGET lcapi-copy
         "$<TARGET_FILE_DIR:luisa-compute-core>/luisa"
         VERBATIM)
 add_dependencies(lcapi lcapi-copy)
+
+if (SKBUILD)
+    install(DIRECTORY luisa
+            DESTINATION ${SKBUILD_PLATLIB_DIR})
+    install(TARGETS lcapi
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif ()
