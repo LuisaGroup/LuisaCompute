@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/8/6.
 //
 
+#include "op.h"
 #include <core/logging.h>
 #include <ast/op.h>
 #include <ast/type_registry.h>
@@ -60,6 +61,9 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
                             Type::of<bool3>(),
                             Type::of<bool4>()}[dim - 1u];
         return {.lhs = t, .rhs = t, .result = t};
+    }
+    if (lhs->is_matrix() && rhs->is_scalar() && op == BinaryOp::DIV) {
+        return {.lhs = lhs, .rhs = rhs, .result = lhs};
     }
     if (lhs->is_scalar() && rhs->is_scalar()) {
         auto lhs_and_rhs = [&] {
