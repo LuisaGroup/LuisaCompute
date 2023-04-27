@@ -175,6 +175,13 @@ on_load(function(target)
 	end
 	local project_kind = _get_or("project_kind", "phony")
 	target:set("kind", project_kind)
+	if not is_plat("windows") then
+		if project_kind == "static" then
+			target:add("cxflags", "-fPIC", {
+				tools = {"clang", "gcc"}
+			})
+		end
+	end
 	local c_standard = target:values("c_standard")
 	local cxx_standard = target:values("cxx_standard")
 	if type(c_standard) == "string" and type(cxx_standard) == "string" then
