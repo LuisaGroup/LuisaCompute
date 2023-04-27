@@ -1,0 +1,109 @@
+name: build-wheels
+
+on: [ push, pull_request ]
+
+jobs:
+  build-linux:
+    strategy:
+      fail-fast: true
+      matrix:
+        python: [ 3.10, 3.11 ]
+    name: ubuntu-22.04 / python-${{ python }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: "Install Dependencies"
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get -y install cmake
+          sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get -y install gcc-12 g++-12
+      - name: "Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ python }}
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.204.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Setup CUDA"
+        uses: Jimver/cuda-toolkit@v0.2.8
+        with:
+          linux-local-args: '["--toolkit"]'
+      - name: "Build"
+        run: python -m pip wheel . -w dist
+      - name: "Upload Wheels"
+        uses: actions/upload-artifact@v3
+        with:
+          path: dist/luisa-*.whl
+
+  build-macos:
+    strategy:
+      fail-fast: true
+      matrix:
+        python: [ 3.10, 3.11 ]
+    name: macos-12 / python-${{ python }}
+    runs-on: macos-12
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: "Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ python }}
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.204.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Install Dependencies"
+        run: |
+          brew install cmake ninja opencv llvm sccache glfw
+      - name: "Build"
+        run: python -m pip wheel . -w dist
+      - name: "Upload Wheels"
+        uses: actions/upload-artifact@v3
+        with:
+          path: dist/luisa-*.whl
+
+  build-windows:
+    strategy:
+      fail-fast: true
+      matrix:
+        python: [ 3.10, 3.11 ]
+    name: windows-2022 / python-${{ python }}
+    runs-on: windows-${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: "Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ python }}
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.204.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Setup CUDA"
+        uses: Jimver/cuda-toolkit@v0.2.8
+      - name: "Setup Ninja"
+        uses: ashutoshvarma/setup-ninja@master
+        with:
+          version: 1.10.2
+      - name: "Build"
+        shell: cmd
+        run: python -m pip wheel . -w dist
+      - name: "Upload Wheels"
+        uses: actions/upload-artifact@v3
+        with:
+          path: dist/luisa-*.whl
