@@ -11,6 +11,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     #    if(LUISA_COMPUTE_COMPILED_BY_RUST)
     #        corrosion_set_features(luisa_compute_backend_impl FEATURES hack_copy_dll)
     #    endif()
+    corrosion_set_env_vars(luisa_compute_backend_impl EMBREE_DLL_OUT_DIR=${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
     if (LUISA_COMPUTE_ENABLE_CPU)
         corrosion_set_features(luisa_compute_backend_impl FEATURES cpu)
     endif ()
@@ -29,14 +30,14 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     if (LUISA_COMPUTE_ENABLE_CPU)
         add_custom_target(luisa-compute-rust-copy)
         function(luisa_compute_copy_rust_file name)
-            set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
-            set(LUISA_RUST_DEST_DIR "$<TARGET_FILE_DIR:luisa-compute-core>")
-            set(LUISA_RUST_SRC_DIR "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
-            add_custom_command(TARGET luisa-compute-rust-copy
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LUISA_RUST_SRC_DIR}/${name}"
-                    "${LUISA_RUST_DEST_DIR}/${name}"
-                    COMMENT "Copying '${LUISA_RUST_SRC_DIR}/${name}' to '${LUISA_RUST_DEST_DIR}/${name}'...")
+#            set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
+#            set(LUISA_RUST_DEST_DIR "$<TARGET_FILE_DIR:luisa-compute-core>")
+#            set(LUISA_RUST_SRC_DIR "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
+#            add_custom_command(TARGET luisa-compute-rust-copy
+#                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+#                    "${LUISA_RUST_SRC_DIR}/${name}"
+#                    "${LUISA_RUST_DEST_DIR}/${name}"
+#                    COMMENT "Copying '${LUISA_RUST_SRC_DIR}/${name}' to '${LUISA_RUST_DEST_DIR}/${name}'...")
             install(PROGRAMS "${LUISA_RUST_DEST_DIR}/${name}"
                     DESTINATION ${CMAKE_INSTALL_BINDIR})
         endfunction()
@@ -66,9 +67,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     libtbb.so
                     libtbbmalloc.so)
         endif ()
-        foreach (rust_file ${LUISA_RUST_COPY_LIST})
-            luisa_compute_copy_rust_file(${rust_file})
-        endforeach ()
+#        foreach (rust_file ${LUISA_RUST_COPY_LIST})
+#            luisa_compute_copy_rust_file(${rust_file})
+#        endforeach ()
         add_dependencies(luisa-compute-rust-copy
                 _cargo-build_luisa_compute_backend_impl)
     endif ()

@@ -29,7 +29,6 @@ luisa_compute_ir = { path = "../luisa_compute_ir" }
 default = ["cpu"]
 cpu = ["embree_sys"]
 remote = []
-hack_copy_dll = ["embree_sys/hack_copy_dll"]
 
 
 [lib]
