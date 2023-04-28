@@ -7,17 +7,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-20.04, ubuntu-22.04 ]
-        gcc: [ 11, 12 ]
-        llvm: [ 14, 15, 16 ]
+        os: [ ubuntu-22.04 ]
         compiler: [ gcc, clang ]
         config: [ Release, Debug ]
-        exclude:
-          - os: ubuntu-20.04
-            gcc: 12
-          - os: ubuntu-22.04
-            gcc: 11
-    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }} / llvm-${{ matrix.llvm }}
+        include:
+          - compiler: gcc
+            compiler_version: [ 11, 12 ]
+          - compiler: clang
+            compiler_version: [ 14, 15, 16 ]
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}-${{ matrix.compiler_version }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -29,14 +27,20 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cmake
           sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh ${{ matrix.llvm }}
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }}
+            sudo apt-get -y install gcc-${{ matrix.compiler_version }} g++-${{ matrix.compiler_version }}
           else
-            sudo apt-get -y install libc++-${{ matrix.llvm }}-dev libc++abi-${{ matrix.llvm }}-dev
+            wget https://apt.llvm.org/llvm.sh
+            chmod +x llvm.sh
+            sudo ./llvm.sh ${{ matrix.compiler_version }}
+            sudo apt-get -y install libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
           fi
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: latest
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
         with:
@@ -44,15 +48,15 @@ jobs:
       - name: "Configure and Build"
         run: |
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            export LUISA_CC=gcc-${{ matrix.gcc }}
-            export LUISA_CXX=g++-${{ matrix.gcc }}
+            export LUISA_CC=gcc-${{ matrix.compiler_version }}
+            export LUISA_CXX=g++-${{ matrix.compiler_version }}
             export LUISA_FLAGS=""
           else
-            export LUISA_CC=clang-${{ matrix.llvm }}
-            export LUISA_CXX=clang++-${{ matrix.llvm }}
+            export LUISA_CC=clang-${{ matrix.compiler_version }}
+            export LUISA_CXX=clang++-${{ matrix.compiler_version }}
             export LUISA_FLAGS="-stdlib=libc++"
           fi
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
           cmake --build build
       - name: "Install"
         run: |
@@ -77,6 +81,12 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja opencv llvm sccache glfw
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: latest
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
       - name: "Configure and Build"
         run: |
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
@@ -107,6 +117,12 @@ jobs:
         uses: ashutoshvarma/setup-ninja@master
         with:
           version: 1.10.2
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: latest
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
       - name: "Configure and Build"
         shell: cmd
         run: |
