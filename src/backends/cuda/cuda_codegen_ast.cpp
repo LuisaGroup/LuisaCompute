@@ -908,20 +908,29 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             extra->accept(*this);
         }
     } else {
-        if (auto args = expr->arguments(); !args.empty()) {
-            for (auto arg : args) {
+        auto trailing_comma = false;
+        auto is_builtin = expr->is_builtin();
+        for (auto arg : expr->arguments()) {
+            if (is_builtin ||
+                (arg->type() != _ray_query_any_type &&
+                 arg->type() != _ray_query_all_type)) {
+                trailing_comma = true;
                 arg->accept(*this);
                 _scratch << ", ";
             }
-            if (!expr->is_builtin() &&
-                expr->custom().propagated_builtin_callables().test(CallOp::RAY_QUERY_COMMIT_TRIANGLE) &&
-                expr->custom().propagated_builtin_callables().test(CallOp::RAY_QUERY_COMMIT_PROCEDURAL) &&
-                expr->custom().propagated_builtin_callables().test(CallOp::RAY_QUERY_TERMINATE)) {
-                _scratch << "result";
-            } else {
-                _scratch.pop_back();
-                _scratch.pop_back();
-            }
+        }
+        if (!is_builtin &&
+            [ops = expr->custom().propagated_builtin_callables()] {
+            return ops.test(CallOp::RAY_QUERY_COMMIT_TRIANGLE) ||
+                   ops.test(CallOp::RAY_QUERY_COMMIT_PROCEDURAL) ||
+                   ops.test(CallOp::RAY_QUERY_TERMINATE);
+            }()) {
+            trailing_comma = false;
+            _scratch << "result";
+        }
+        if (trailing_comma) {
+            _scratch.pop_back();
+            _scratch.pop_back();
         }
     }
     _scratch << ")";
@@ -1184,10 +1193,13 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     } else {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
-            _scratch << "\n    ";
-            _emit_variable_decl(f, arg, false);
-            _scratch << ",";
-            any_arg = true;
+            if (arg.type() != _ray_query_all_type &&
+                arg.type() != _ray_query_any_type) {
+                _scratch << "\n    ";
+                _emit_variable_decl(f, arg, false);
+                _scratch << ",";
+                any_arg = true;
+            }
         }
         if (f.tag() == Function::Tag::KERNEL) {
             _scratch << "\n"
