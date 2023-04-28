@@ -22,6 +22,14 @@ enum class AccelUsageHint {
     FAST_BUILD,
 };
 
+enum class BackendErrorKind {
+    BACKEND_NOT_FOUND,
+    KERNEL_EXECUTION,
+    KERNEL_COMPILATION,
+    NETWORK,
+    OTHER,
+};
+
 enum class BindlessArrayUpdateOperation {
     NONE,
     EMPLACE,
@@ -509,6 +517,65 @@ struct ShaderOption {
     bool enable_debug_info;
     bool compile_only;
     const char *name;
+};
+
+struct BackendError {
+    BackendErrorKind kind;
+    char *message;
+};
+
+template<typename T>
+struct Result {
+    enum class Tag {
+        OK,
+        ERR,
+    };
+
+    struct Ok_Body {
+        T _0;
+    };
+
+    struct Err_Body {
+        BackendError _0;
+    };
+
+    Tag tag;
+    union {
+        Ok_Body OK;
+        Err_Body ERR;
+    };
+};
+
+using DispatchCallback = void(*)(uint8_t*);
+
+struct DeviceInterface {
+    Device (*create_device)();
+    void (*destroy_device)(Device);
+    void (*free_string)(char*);
+    Result<CreatedBufferInfo> (*create_buffer)(Device, const void*, size_t);
+    void (*destroy_buffer)(Device, Buffer);
+    Result<CreatedResourceInfo> (*create_texture)(Device, PixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    void (*destroy_texture)(Device, Texture);
+    Result<CreatedResourceInfo> (*create_bindless_array)(Device, size_t);
+    void (*destroy_bindless_array)(Device, BindlessArray);
+    Result<CreatedResourceInfo> (*create_stream)(Device, StreamTag);
+    void (*destroy_stream)(Device, Stream);
+    void (*synchronize_stream)(Device, Stream);
+    void (*dispatch)(Device, Stream, CommandList, DispatchCallback, uint8_t*);
+    Result<CreatedSwapchainInfo> (*create_swapchain)(Device, uint64_t, Stream, uint32_t, uint32_t, bool, bool, uint32_t);
+    void (*destroy_swapchain)(Device, Swapchain);
+    Result<CreatedResourceInfo> (*create_shader)(Device, const void*, const ShaderOption*);
+    Result<CreatedResourceInfo> (*create_event)(Device);
+    void (*destroy_event)(Device, Event);
+    void (*signal_event)(Device, Stream, Event);
+    Result<uint8_t> (*wait_event)(Device, Stream, Event);
+    Result<CreatedResourceInfo> (*create_mesh)(Device, AccelOption);
+    void (*destroy_mesh)(Device, Mesh);
+    Result<CreatedResourceInfo> (*create_procedural_primitive)(Device, AccelOption);
+    void (*destroy_procedural_primitive)(Device, ProceduralPrimitive);
+    Result<CreatedResourceInfo> (*create_accel)(Device, AccelOption);
+    void (*destroy_accel)(Device, Accel);
+    char *(*query)(Device, char*);
 };
 
 } // namespace luisa::compute::api

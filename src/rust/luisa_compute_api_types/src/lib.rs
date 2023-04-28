@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void};
 pub const INVALID_RESOURCE_HANDLE: u64 = u64::MAX;
 pub type DispatchCallback = extern "C" fn(*mut u8);
 #[repr(C)]
@@ -624,6 +624,78 @@ pub enum StreamTag {
     Graphics,
     Compute,
     Copy,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
+pub enum BackendErrorKind {
+    BackendNotFound,
+    KernelExecution,
+    KernelCompilation,
+    Network,
+    Other,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct BackendError {
+    pub kind: BackendErrorKind,
+    pub message: *mut c_char,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub enum Result<T> {
+    Ok(T),
+    Err(BackendError),
+}
+
+#[repr(C)]
+pub struct DeviceInterface {
+    pub create_device: unsafe extern "C" fn() -> Device,
+    pub destroy_device: unsafe extern "C" fn(Device),
+    pub free_string: unsafe extern "C" fn(*mut c_char),
+    pub create_buffer:
+        unsafe extern "C" fn(Device, *const c_void, usize) -> Result<CreatedBufferInfo>,
+    pub destroy_buffer: unsafe extern "C" fn(Device, Buffer),
+    pub create_texture: unsafe extern "C" fn(
+        Device,
+        PixelFormat,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+    ) -> Result<CreatedResourceInfo>,
+    pub destroy_texture: unsafe extern "C" fn(Device, Texture),
+    pub create_bindless_array: unsafe extern "C" fn(Device, usize) -> Result<CreatedResourceInfo>,
+    pub destroy_bindless_array: unsafe extern "C" fn(Device, BindlessArray),
+    pub create_stream: unsafe extern "C" fn(Device, StreamTag) -> Result<CreatedResourceInfo>,
+    pub destroy_stream: unsafe extern "C" fn(Device, Stream),
+    pub synchronize_stream: unsafe extern "C" fn(Device, Stream),
+    pub dispatch: unsafe extern "C" fn(Device, Stream, CommandList, DispatchCallback, *mut u8),
+    pub create_swapchain: unsafe extern "C" fn(
+        Device,
+        u64,
+        Stream,
+        u32,
+        u32,
+        bool,
+        bool,
+        u32,
+    ) -> Result<CreatedSwapchainInfo>,
+    pub destroy_swapchain: unsafe extern "C" fn(Device, Swapchain),
+    pub create_shader:
+        unsafe extern "C" fn(Device, *const c_void, &ShaderOption) -> Result<CreatedResourceInfo>,
+    pub create_event: unsafe extern "C" fn(Device) -> Result<CreatedResourceInfo>,
+    pub destroy_event: unsafe extern "C" fn(Device, Event),
+    pub signal_event: unsafe extern "C" fn(Device, Stream, Event),
+    pub wait_event: unsafe extern "C" fn(Device, Stream, Event) -> Result<u8>,
+    pub create_mesh: unsafe extern "C" fn(Device, AccelOption) -> Result<CreatedResourceInfo>,
+    pub destroy_mesh: unsafe extern "C" fn(Device, Mesh),
+    pub create_procedural_primitive:
+        unsafe extern "C" fn(Device, AccelOption) -> Result<CreatedResourceInfo>,
+    pub destroy_procedural_primitive: unsafe extern "C" fn(Device, ProceduralPrimitive),
+    pub create_accel: unsafe extern "C" fn(Device, AccelOption) -> Result<CreatedResourceInfo>,
+    pub destroy_accel: unsafe extern "C" fn(Device, Accel),
+    pub query: unsafe extern "C" fn(Device, *mut c_char) -> *mut c_char,
 }
 
 pub fn __dummy() {}
