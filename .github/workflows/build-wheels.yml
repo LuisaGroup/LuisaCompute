@@ -81,7 +81,7 @@ jobs:
       matrix:
         python: [ "3.10", "3.11" ]
     name: windows-2022 / python-${{ matrix.python }}
-    runs-on: windows-${{ matrix.os }}
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v3
         with:
