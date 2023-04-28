@@ -47,7 +47,7 @@ def raytracing_kernel(image, accel):
         float3(0.0, 0.0, -1.0),  # direction
         0.0,  # start distance
         1000.0)  # end distance
-    q = accel.trace_all(ray, -1)
+    q = accel.query_all(ray, -1)
     hit = accel.trace_closest(ray, -1)
     # if hit.hit_type == 1:
     # if not hit.miss():

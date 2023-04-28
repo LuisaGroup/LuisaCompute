@@ -797,16 +797,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
-        case CallOp::TEXTURE_READ:
-            _scratch << "lc_surf"
-                     << expr->arguments().front()->type()->dimension() << "d_read<"
-                     << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
-            break;
-        case CallOp::TEXTURE_WRITE:
-            _scratch << "lc_surf"
-                     << expr->arguments().front()->type()->dimension() << "d_write<"
-                     << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
-            break;
+        case CallOp::TEXTURE_READ: _scratch << "lc_texture_read"; break;
+        case CallOp::TEXTURE_WRITE: _scratch << "lc_texture_write"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
@@ -1442,7 +1434,11 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "const LCSurface ";
+            _scratch << "const LCTexture"
+                     << v.type()->dimension()
+                     << "D<";
+            _emit_type_name(v.type()->element());
+            _scratch << "> ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:

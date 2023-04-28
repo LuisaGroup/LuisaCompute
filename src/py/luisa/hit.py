@@ -1,4 +1,4 @@
-import lcapi
+from .dylibs import lcapi
 from .struct import StructType
 from .func import func
 from .types import uint, BuiltinFuncBuilder

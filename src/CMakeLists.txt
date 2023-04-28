@@ -92,10 +92,6 @@ target_link_libraries(compute INTERFACE
 
 add_library(luisa::compute ALIAS compute)
 
-if (LUISA_COMPUTE_ENABLE_PYTHON)
-    add_subdirectory(py)
-endif ()
-
 function(luisa_compute_add_executable name)
     add_executable(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE luisa::compute)
@@ -110,7 +106,13 @@ install(TARGETS compute
         EXPORT LuisaComputeTargets
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
 
-install(EXPORT LuisaComputeTargets
-        FILE LuisaComputeTargets.cmake
-        NAMESPACE luisa::
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
+if (SKBUILD)
+    add_subdirectory(py)
+endif ()
+
+if (NOT SKBUILD)
+    install(EXPORT LuisaComputeTargets
+            FILE LuisaComputeTargets.cmake
+            NAMESPACE luisa::
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
+endif ()

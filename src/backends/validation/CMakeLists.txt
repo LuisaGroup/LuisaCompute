@@ -7,10 +7,11 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         event.h
         mesh.h
         procedural_primitives.h
+        range.h
         raster_ext_impl.cpp raster_ext_impl.h
         resource.cpp resource.h
         rw_resource.cpp rw_resource.h
-        shader.cpp shader.h
+        shader.h
         stream.cpp stream.h
         swap_chain.h
         texture.h)

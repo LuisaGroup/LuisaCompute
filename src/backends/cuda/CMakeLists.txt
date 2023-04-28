@@ -32,12 +32,12 @@ if (CUDAToolkit_FOUND)
             optix_api.cpp optix_api.h)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
-    target_link_libraries(luisa-compute-cuda PRIVATE
+    target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
             CUDA::nvrtc
             luisa-compute-vulkan-swapchain)
     if (WIN32)
-        target_link_libraries(luisa-compute-cuda PRIVATE cfgmgr32)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "CUDA not found. The CUDA backend will not be built.")

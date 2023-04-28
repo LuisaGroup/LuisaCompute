@@ -1,4 +1,4 @@
-import lcapi
+from .dylibs import lcapi
 from .globalvars import get_global_device
 from .types import to_lctype, basic_dtypes, dtype_of
 from .types import vector_dtypes, matrix_dtypes, element_of, length_of

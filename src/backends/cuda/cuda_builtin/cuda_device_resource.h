@@ -921,6 +921,26 @@ __device__ inline void lc_texture_write(LCTexture3D<T> tex, lc_uint3 p, V value)
     lc_surf3d_write<T>(tex.surface, p, value);
 }
 
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_read(LCTexture2D<T> tex, lc_int2 p) noexcept {
+    return lc_texture_read(tex, lc_make_uint2(p));
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_read(LCTexture3D<T> tex, lc_int3 p) noexcept {
+    return lc_texture_read(tex, lc_make_uint3(p));
+}
+
+template<typename T, typename V>
+__device__ inline void lc_texture_write(LCTexture2D<T> tex, lc_int2 p, V value) noexcept {
+    lc_texture_write(tex, lc_make_uint2(p), value);
+}
+
+template<typename T, typename V>
+__device__ inline void lc_texture_write(LCTexture3D<T> tex, lc_int3 p, V value) noexcept {
+    lc_texture_write(tex, lc_make_uint3(p), value);
+}
+
 struct alignas(16) LCBindlessSlot {
     const void *__restrict__ buffer;
     size_t buffer_size;

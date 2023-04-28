@@ -96,13 +96,9 @@ before_check(function(option)
 		else
 			bin_dir = path.join(bin_dir, "release")
 		end
-		option:enable(bin_dir, {
-			force = true
-		})
+		option:set_value(bin_dir)
 	else
-		option:enable(false, {
-			force = true
-		})
+		option:set_value(false)
 	end
 	-- checking rust
 	import("lib.detect.find_tool")

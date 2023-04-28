@@ -1,5 +1,5 @@
 import numpy as np
-import lcapi
+from .dylibs import lcapi
 from . import globalvars
 from .globalvars import stream, get_global_device
 

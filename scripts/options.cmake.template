@@ -7,7 +7,6 @@ option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" [[feature_cuda]])
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" [[feature_vulkan]])
 option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" [[feature_cpu]])
 option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" [[feature_remote]])
-option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" [[feature_python]])
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" [[feature_gui]])
 
 option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" [[feature_tests]])

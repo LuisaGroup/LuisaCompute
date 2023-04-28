@@ -1,4 +1,4 @@
-import lcapi
+from .dylibs import lcapi
 from . import globalvars
 from .types import half, short, ushort, half2, short2, ushort2, half3, short3, ushort3, half4, short4, ushort4
 
@@ -9,7 +9,7 @@ from .struct import struct, StructType
 from .buffer import buffer, Buffer, BufferType, DispatchIndirectBuffer
 from .image2d import image2d, Image2D, Texture2DType
 from .image3d import image3d, Image3D, Texture3DType
-from lcapi import PixelStorage
+from .dylibs.lcapi import PixelStorage
 from .gui import GUI
 
 from .printer import Printer
@@ -20,7 +20,7 @@ from .bindless import bindless_array, BindlessArray
 from .util import RandomSampler
 from .meshformat import MeshFormat
 
-from lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
+from .dylibs.lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
 from os.path import realpath
 import platform
 

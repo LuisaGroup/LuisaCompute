@@ -10,10 +10,8 @@ class Shader : public RWResource {
 
 public:
     luisa::span<const Function::Binding> bound_arguments() const { return _bound_arguments; }
-    static luisa::vector<Function::Binding> fallback_binding(luisa::vector<Function::Binding> &bindings);
     Shader(
-        uint64_t handle,
-        luisa::vector<Function::Binding> bound_arguments);
+        uint64_t handle, luisa::span<const Function::Binding> bound_arguments) : RWResource(handle, Tag::SHADER, false), _bound_arguments{bound_arguments.begin(), bound_arguments.end()} {}
 };
 
 }// namespace lc::validation

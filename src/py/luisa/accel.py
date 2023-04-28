@@ -1,4 +1,4 @@
-import lcapi
+from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
 from .struct import StructType

@@ -226,6 +226,7 @@ tags
 [Bb]in
 pyvenv.cfg
 .venv
+dylibs/
 pip-selfcheck.json
 
 ### JetBrains template

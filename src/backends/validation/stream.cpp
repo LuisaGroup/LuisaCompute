@@ -14,7 +14,7 @@
 #include <runtime/raster/raster_scene.h>
 #include <runtime/rtx/aabb.h>
 namespace lc::validation {
-Stream::Stream(uint64_t handle, StreamTag stream_tag) : Resource{handle, Tag::STREAM}, _stream_tag{stream_tag} {}
+Stream::Stream(uint64_t handle, StreamTag stream_tag) : RWResource{handle, Tag::STREAM, false}, _stream_tag{stream_tag} {}
 void Stream::signal(Event *evt) {
     evt->signaled.force_emplace(this, _executed_layer);
 }
@@ -89,12 +89,10 @@ void Stream::dispatch() {
 }
 void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd, bool contain_bindings) {
     size_t arg_idx = 0;
-    auto shader = reinterpret_cast<RWResource *>(cmd->handle());
-    auto native_shader = shader->handle();
+    auto shader = RWResource::get<RWResource>(cmd->handle());
     auto mark_handle = [&](uint64_t &handle, Range range) {
-        auto res = reinterpret_cast<RWResource *>(handle);
-        res->set(this, dev->shader_argument_usage(native_shader, arg_idx), range);
-        handle = res->handle();
+        auto res = RWResource::get<RWResource>(handle);
+        res->set(this, dev->shader_argument_usage(cmd->handle(), arg_idx), range);
     };
     auto set_arg = [&](Argument &arg) {
         switch (arg.tag) {
@@ -142,38 +140,37 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
     for (auto &&i : cmd->arguments()) {
         set_arg(const_cast<Argument &>(i));
     }
-    swap_handle(cmd->_handle, Usage::READ, Range{});
+    Stream::mark_handle(cmd->_handle, Usage::READ, Range{});
 }
-void Stream::swap_handle(uint64_t &v, Usage usage, Range range) {
+void Stream::mark_handle(uint64_t v, Usage usage, Range range) {
     if (v != invalid_resource_handle) {
-        reinterpret_cast<RWResource *>(v)->set(this, usage, range);
-        v = reinterpret_cast<RWResource *>(v)->handle();
+        RWResource::get<RWResource>(v)->set(this, usage, range);
     }
 };
 void Stream::custom(DeviceInterface *dev, Command *cmd) {
     switch (static_cast<CustomCommand *>(cmd)->uuid()) {
         case clear_depth_command_uuid: {
             auto c = static_cast<ClearDepthCommand *>(cmd);
-            swap_handle(c->_handle, Usage::WRITE, Range{});
+            mark_handle(c->_handle, Usage::WRITE, Range{});
         } break;
         case draw_raster_command_uuid: {
             auto c = static_cast<DrawRasterSceneCommand *>(cmd);
             mark_shader_dispatch(dev, c, false);
             if (c->_dsv_tex.handle != invalid_resource_handle) {
-                swap_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
+                mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
             }
             for (auto i : vstd::range(c->_rtv_count)) {
-                swap_handle(c->_rtv_texs[i].handle, Usage::WRITE, Range{c->_rtv_texs[i].level, 1});
+                mark_handle(c->_rtv_texs[i].handle, Usage::WRITE, Range{c->_rtv_texs[i].level, 1});
             }
             for (auto &&i : c->_scene) {
                 for (auto &&vb : i._vertex_buffers) {
-                    swap_handle(const_cast<uint64_t &>(vb._handle), Usage::READ, Range{vb._offset, vb._size});
+                    mark_handle(const_cast<uint64_t &>(vb._handle), Usage::READ, Range{vb._offset, vb._size});
                 }
                 luisa::visit(
                     [&]<typename T>(T &t) {
-                        if constexpr (std::is_same_v<T, BufferView<uint>>) {
-                            swap_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
-                        }
+                    if constexpr (std::is_same_v<T, BufferView<uint>>) {
+                        mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
+                    }
                     },
                     i._index_buffer);
             }
@@ -192,21 +189,21 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
         switch (cmd->tag()) {
             case CmdTag::EBufferUploadCommand: {
                 auto c = static_cast<BufferUploadCommand *>(cmd);
-                swap_handle(c->_handle, Usage::WRITE, Range{c->_offset, c->_size});
+                mark_handle(c->_handle, Usage::WRITE, Range{c->_offset, c->_size});
             } break;
             case CmdTag::EBufferDownloadCommand: {
                 auto c = static_cast<BufferDownloadCommand *>(cmd);
-                swap_handle(c->_handle, Usage::READ, Range{c->_offset, c->_size});
+                mark_handle(c->_handle, Usage::READ, Range{c->_offset, c->_size});
             } break;
             case CmdTag::EBufferCopyCommand: {
                 auto c = static_cast<BufferCopyCommand *>(cmd);
-                swap_handle(c->_src_handle, Usage::READ, Range{c->_src_offset, c->_size});
-                swap_handle(c->_dst_handle, Usage::WRITE, Range{c->_dst_offset, c->_size});
+                mark_handle(c->_src_handle, Usage::READ, Range{c->_src_offset, c->_size});
+                mark_handle(c->_dst_handle, Usage::WRITE, Range{c->_dst_offset, c->_size});
             } break;
             case CmdTag::EBufferToTextureCopyCommand: {
                 auto c = static_cast<BufferToTextureCopyCommand *>(cmd);
-                swap_handle(c->_buffer_handle, Usage::READ, Range{c->_buffer_offset, pixel_storage_size(c->_pixel_storage, c->size())});
-                swap_handle(c->_texture_handle, Usage::WRITE, Range{c->_texture_level, 1});
+                mark_handle(c->_buffer_handle, Usage::READ, Range{c->_buffer_offset, pixel_storage_size(c->_pixel_storage, c->size())});
+                mark_handle(c->_texture_handle, Usage::WRITE, Range{c->_texture_level, 1});
             } break;
             case CmdTag::EShaderDispatchCommand: {
                 auto c = static_cast<ShaderDispatchCommand *>(cmd);
@@ -214,67 +211,48 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             } break;
             case CmdTag::ETextureUploadCommand: {
                 auto c = static_cast<TextureUploadCommand *>(cmd);
-                swap_handle(c->_handle, Usage::WRITE, Range{c->_level, 1});
+                mark_handle(c->_handle, Usage::WRITE, Range{c->_level, 1});
             } break;
             case CmdTag::ETextureDownloadCommand: {
                 auto c = static_cast<TextureDownloadCommand *>(cmd);
-                swap_handle(c->_handle, Usage::READ, Range{c->_level, 1});
+                mark_handle(c->_handle, Usage::READ, Range{c->_level, 1});
 
             } break;
             case CmdTag::ETextureCopyCommand: {
                 auto c = static_cast<TextureCopyCommand *>(cmd);
-                swap_handle(c->_src_handle, Usage::READ, Range{c->_src_level, 1});
-                swap_handle(c->_dst_handle, Usage::WRITE, Range{c->_dst_level, 1});
+                mark_handle(c->_src_handle, Usage::READ, Range{c->_src_level, 1});
+                mark_handle(c->_dst_handle, Usage::WRITE, Range{c->_dst_level, 1});
             } break;
             case CmdTag::ETextureToBufferCopyCommand: {
                 auto c = static_cast<TextureToBufferCopyCommand *>(cmd);
-                swap_handle(c->_texture_handle, Usage::READ, Range{c->_texture_level, 1});
-                swap_handle(c->_buffer_handle, Usage::WRITE, Range{c->_buffer_offset, pixel_storage_size(c->_pixel_storage, c->size())});
+                mark_handle(c->_texture_handle, Usage::READ, Range{c->_texture_level, 1});
+                mark_handle(c->_buffer_handle, Usage::WRITE, Range{c->_buffer_offset, pixel_storage_size(c->_pixel_storage, c->size())});
             } break;
             case CmdTag::EAccelBuildCommand: {
                 auto c = static_cast<AccelBuildCommand *>(cmd);
-                reinterpret_cast<Accel *>(c->handle())->modify(c->instance_count(), this, c->modifications());
-                for (auto &&i : c->_modifications) {
-                    if (i.primitive) {
-                        i.primitive = reinterpret_cast<RWResource *>(i.primitive)->handle();
-                    }
-                }
-                swap_handle(c->_handle, Usage::WRITE, Range{});
+                RWResource::get<Accel>(c->handle())->modify(c->instance_count(), this, c->modifications());
+                mark_handle(c->_handle, Usage::WRITE, Range{});
             } break;
             case CmdTag::EMeshBuildCommand: {
                 auto c = static_cast<MeshBuildCommand *>(cmd);
-                auto mesh = reinterpret_cast<Mesh *>(c->handle());
-                mesh->vert = reinterpret_cast<Buffer *>(c->_vertex_buffer);
-                mesh->index = reinterpret_cast<Buffer *>(c->_triangle_buffer);
+                auto mesh = RWResource::get<Mesh>(c->handle());
+                mesh->vert = RWResource::get<Buffer>(c->_vertex_buffer);
+                mesh->index = RWResource::get<Buffer>(c->_triangle_buffer);
                 mesh->vert_range = Range{c->_vertex_buffer_offset, c->_vertex_buffer_size};
                 mesh->index_range = Range{c->_triangle_buffer_offset, c->_triangle_buffer_size};
-                c->_vertex_buffer = reinterpret_cast<RWResource*>(c->_vertex_buffer)->handle();
-                c->_triangle_buffer = reinterpret_cast<RWResource*>(c->_triangle_buffer)->handle();
-                swap_handle(c->_handle, Usage::WRITE, Range{});
+                mark_handle(c->_handle, Usage::WRITE, Range{});
             } break;
             case CmdTag::EProceduralPrimitiveBuildCommand: {
                 auto c = static_cast<ProceduralPrimitiveBuildCommand *>(cmd);
-                auto prim = reinterpret_cast<ProceduralPrimitives *>(c->handle());
+                auto prim = RWResource::get<ProceduralPrimitives>(c->handle());
                 prim->range = Range{c->_aabb_buffer_offset, c->_aabb_buffer_size};
-                prim->bbox = reinterpret_cast<Buffer *>(c->aabb_buffer());
-                swap_handle(c->_handle, Usage::WRITE, Range{});
-                c->_aabb_buffer = reinterpret_cast<RWResource*>(c->_aabb_buffer)->handle();
+                prim->bbox = RWResource::get<Buffer>(c->aabb_buffer());
+                mark_handle(c->_handle, Usage::WRITE, Range{});
             } break;
             case CmdTag::EBindlessArrayUpdateCommand: {
                 using Operation = BindlessArrayUpdateCommand::Modification::Operation;
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
-                for (auto &&i : c->_modifications) {
-                    if (i.buffer.op == Operation::EMPLACE) {
-                        i.buffer.handle = reinterpret_cast<RWResource *>(i.buffer.handle)->handle();
-                    }
-                    if (i.tex2d.op == Operation::EMPLACE) {
-                        i.tex2d.handle = reinterpret_cast<RWResource *>(i.tex2d.handle)->handle();
-                    }
-                    if (i.tex3d.op == Operation::EMPLACE) {
-                        i.tex3d.handle = reinterpret_cast<RWResource *>(i.tex3d.handle)->handle();
-                    }
-                }
-                swap_handle(c->_handle, Usage::WRITE, Range{});
+                mark_handle(c->_handle, Usage::WRITE, Range{});
             } break;
             case CmdTag::ECustomCommand: {
                 custom(dev, cmd);
