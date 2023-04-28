@@ -1126,13 +1126,20 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
-    // TODO: why missing some outline info with the Python frontend?
+    // detect if there is a RayQueryStmt
+    auto has_ray_query = false;
+    traverse_expressions<false>(
+        f.body(),
+        [](auto) noexcept {},
+        [&](auto stmt) noexcept {
+        if (stmt->tag() == Statement::Tag::RAY_QUERY) {
+            has_ray_query = true;
+        }
+        },
+        [](auto) noexcept {});
 
     // outline ray query functions
-    if (f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||
-        f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY)) {
-        _ray_query_lowering->outline(f);
-    }
+    if (has_ray_query) { _ray_query_lowering->outline(f); }
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
