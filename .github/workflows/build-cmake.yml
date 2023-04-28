@@ -12,9 +12,15 @@ jobs:
         config: [ Release, Debug ]
         include:
           - compiler: gcc
-            compiler_version: [ 11, 12 ]
+            compiler_version: 11
+          - compiler: gcc
+            compiler_version: 12
           - compiler: clang
-            compiler_version: [ 14, 15, 16 ]
+            compiler_version: 14
+          - compiler: clang
+            compiler_version: 15
+          - compiler: clang
+            compiler_version: 16
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}-${{ matrix.compiler_version }}
     runs-on: ${{ matrix.os }}
     steps:
