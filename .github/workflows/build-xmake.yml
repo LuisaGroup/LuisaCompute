@@ -11,9 +11,9 @@ jobs:
         toolchain:
           - { name: gcc, version: 11 }
           - { name: gcc, version: 12 }
-          - { name: llvm, version: 14 }
-          - { name: llvm, version: 15 }
-          - { name: llvm, version: 16 }
+          - { name: clang, version: 14 }
+          - { name: clang, version: 15 }
+          - { name: clang, version: 16 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: ${{ matrix.os }}
