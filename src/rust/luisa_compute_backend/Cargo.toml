@@ -16,11 +16,13 @@ lazy_static = "1.4.0"
 log = "0.4"
 parking_lot = "0.12.1"
 
+
 [features]
 default = []
+
 [build-dependencies]
 cbindgen = "0.24.3"
-
+version_check = "0.9.4"
 
 [lib]
 crate-type = ["rlib"]

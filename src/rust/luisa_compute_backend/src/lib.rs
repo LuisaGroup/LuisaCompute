@@ -16,9 +16,9 @@ use luisa_compute_ir::{
 };
 
 pub mod api_message;
-
 pub mod binding;
 pub mod cpp_proxy_backend;
+include!("rustc_version.rs");
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum BackendErrorKind {
     BackendNotFound,
@@ -135,6 +135,15 @@ impl Context {
         match device {
             "cpu" | "remote" => unsafe {
                 if let Some(backends) = &self.backends {
+                    let info = (backends.rustc_info)();
+                    if info.channel == "nightly" {
+                        log::warn!(
+                            "nightly rustc is used, please use stable rustc to compile the backend"
+                        );
+                    }
+                    if info.version != RUSTC_VERSION {
+                        log::warn!("rustc version mismatch. Current {}, backend: {}, please use recompile LuisaCompute using matching compiler", RUSTC_VERSION, info.version);
+                    }
                     let device = (backends.create_device)(device)?;
                     if let Some(swapchain) = &self.swapchain {
                         device.set_swapchain_contex(swapchain.clone());
@@ -158,10 +167,17 @@ impl Context {
         }
     }
 }
+#[repr(C)]
+pub struct RustcInfo {
+    pub channel: &'static str,
+    pub version: &'static str,
+    pub date: &'static str,
+}
 pub struct RustBackendInterface {
     #[allow(dead_code)]
     lib: Library,
     pub create_device: unsafe extern "C" fn(name: &str) -> crate::Result<Arc<dyn Backend>>,
+    pub rustc_info: unsafe extern "C" fn() -> RustcInfo,
 }
 unsafe impl Send for RustBackendInterface {}
 
@@ -170,7 +186,12 @@ impl RustBackendInterface {
     pub unsafe fn new(libpath: impl AsRef<Path>) -> std::result::Result<Self, libloading::Error> {
         let lib = Library::new(libpath.as_ref())?;
         let create_device = *lib.get(b"luisa_compute_create_device_rust_interface\0")?;
-        Ok(Self { lib, create_device })
+        let rustc_info = *lib.get(b"luisa_compute_rustc_info\0")?;
+        Ok(Self {
+            lib,
+            create_device,
+            rustc_info,
+        })
     }
 }
 pub struct SwapChainForCpuContext {

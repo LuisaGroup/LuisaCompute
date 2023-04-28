@@ -1,1 +1,2 @@
 Cargo.lock
+src/rustc_version.rs

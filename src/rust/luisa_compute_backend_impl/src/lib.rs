@@ -3,13 +3,22 @@ mod remote;
 #[cfg(feature = "cpu")]
 mod rust;
 
+use luisa_compute_backend::{RUSTC_CHANNEL, RUSTC_DATE, RUSTC_VERSION};
 pub(crate) use luisa_compute_backend::Result;
-use luisa_compute_backend::SwapChainForCpuContext;
 pub(crate) use luisa_compute_backend::{Backend, BackendError, BackendErrorKind};
+use luisa_compute_backend::{RustcInfo, SwapChainForCpuContext};
 pub(crate) use luisa_compute_ir::ir;
 use std::sync::Arc;
 
-
+#[allow(improper_ctypes_definitions)]
+#[no_mangle]
+pub extern "C" fn luisa_compute_rustc_info() -> RustcInfo {
+    RustcInfo {
+        version: RUSTC_VERSION,
+        channel: RUSTC_CHANNEL,
+        date: RUSTC_DATE,
+    }
+}
 #[allow(improper_ctypes_definitions)]
 #[no_mangle]
 pub extern "C" fn luisa_compute_create_device_rust_interface(
@@ -23,9 +32,11 @@ pub extern "C" fn luisa_compute_create_device_rust_interface(
             }
             #[cfg(not(feature = "cpu"))]
             {
-                Err(BackendError{
-                    kind:BackendErrorKind::BackendNotFound,
-                    message:"cpu backend is not enabled. Try to recompile with cpu backend enabled".to_string()
+                Err(BackendError {
+                    kind: BackendErrorKind::BackendNotFound,
+                    message:
+                        "cpu backend is not enabled. Try to recompile with cpu backend enabled"
+                            .to_string(),
                 })
             }
         }
