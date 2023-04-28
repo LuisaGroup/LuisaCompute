@@ -474,14 +474,14 @@ private:
         };
         // create outlined triangle function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
-                           << "  LCTriangleIntersectionResult result{};\n";
+                           << "  LCIntersectionResult result{};\n";
         generate_intersection_body(s->on_triangle_candidate());
         _codegen->_scratch << "  return result;\n"
                               "}\n\n";
 
         // create outlined procedural function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
-                           << "  LCProceduralIntersectionResult result{};\n";
+                           << "  LCIntersectionResult result{};\n";
         generate_intersection_body(s->on_procedural_candidate());
         _codegen->_scratch << "  return result;\n"
                               "}\n\n";
@@ -913,8 +913,15 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
                 arg->accept(*this);
                 _scratch << ", ";
             }
-            _scratch.pop_back();
-            _scratch.pop_back();
+            if (!expr->is_builtin() &&
+                expr->custom().propagated_builtin_callables().test(CallOp::RAY_QUERY_COMMIT_TRIANGLE) &&
+                expr->custom().propagated_builtin_callables().test(CallOp::RAY_QUERY_COMMIT_PROCEDURAL) &&
+                expr->custom().propagated_builtin_callables().test(CallOp::RAY_QUERY_TERMINATE)) {
+                _scratch << "result";
+            } else {
+                _scratch.pop_back();
+                _scratch.pop_back();
+            }
         }
     }
     _scratch << ")";
@@ -1186,7 +1193,14 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << "\n"
                      << "    const lc_uint3 dispatch_size) {";
         } else {
-            if (any_arg) { _scratch.pop_back(); }
+            if (auto ops = f.propagated_builtin_callables();
+                ops.test(CallOp::RAY_QUERY_COMMIT_TRIANGLE) ||
+                ops.test(CallOp::RAY_QUERY_COMMIT_PROCEDURAL) ||
+                ops.test(CallOp::RAY_QUERY_TERMINATE)) {
+                _scratch << "\n    LCIntersectionResult &result";
+            } else if (any_arg) {
+                _scratch.pop_back();
+            }
             _scratch << ") noexcept {";
         }
     }
