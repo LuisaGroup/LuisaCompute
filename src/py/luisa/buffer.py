@@ -9,7 +9,8 @@ from .builtin import _builtin_call
 from .mathtypes import *
 from .builtin import check_exact_signature
 from types import SimpleNamespace
-from .types import uint, uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, short, ushort, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
+from .types import uint, uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, short, ushort, short2, \
+    half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
 from .struct import CustomType
 from .atomic import int_atomic_functions, float_atomic_functions
 
@@ -45,6 +46,7 @@ class Buffer:
             return Buffer.from_list(arr)
         else:
             raise TypeError(f"buffer from unrecognized type: {type(arr)}")
+
     @staticmethod
     def empty(size, dtype):
         return Buffer(size, dtype)
@@ -82,6 +84,7 @@ class Buffer:
         stream.add_upload_buffer(packed_bytes)
         if sync:
             stream.synchronize()
+
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array or list
         if stream is None:
             stream = globalvars.stream
@@ -131,7 +134,7 @@ class Buffer:
         # stream.add_readback_buffer(packed_bytes)
         stream.synchronize()
         elsize = to_lctype(self.dtype).size()
-        return [from_bytes(self.dtype, packed_bytes[elsize*i: elsize*(i+1)]) for i in range(self.size)]
+        return [from_bytes(self.dtype, packed_bytes[elsize * i: elsize * (i + 1)]) for i in range(self.size)]
 
 
 buffer = Buffer.buffer
@@ -157,12 +160,14 @@ class BufferType:
 
     def __hash__(self):
         return hash(self.dtype) ^ 8965828349193294
+
     @staticmethod
     @cache
     def get_read_method(dtype):
         @func
         def read(self, idx):
             return _builtin_call(dtype, "BUFFER_READ", self, idx)
+
         return read
 
     @staticmethod
@@ -171,7 +176,9 @@ class BufferType:
         @func
         def write(self, idx, value: dtype):
             _builtin_call("BUFFER_WRITE", self, idx, value)
+
         return write
+
 
 class IndirectBufferType:
     def __init__(self, dtype):
@@ -186,12 +193,14 @@ class IndirectBufferType:
 
     def __hash__(self):
         return hash(self.dtype) ^ 8965828349193294
+
     @staticmethod
     @cache
     def get_clear_func():
         @func
         def clear(self):
             _builtin_call("INDIRECT_CLEAR_DISPATCH_BUFFER", self)
+
         return clear
 
     @staticmethod
@@ -200,6 +209,7 @@ class IndirectBufferType:
         @func
         def emplace(self, block_size: uint3, size: uint3, id):
             _builtin_call("INDIRECT_EMPLACE_DISPATCH_KERNEL", self, block_size, size, id)
+
         return emplace
 
 
@@ -214,7 +224,7 @@ def from_bytes(dtype, packed):
     if dtype in vector_dtypes or dtype in matrix_dtypes:
         el = element_of(dtype)
         elsize = to_lctype(el).size()
-        return dtype(*[from_bytes(el, packed[i*elsize: (i+1)*elsize]) for i in range(0, length_of(dtype))])
+        return dtype(*[from_bytes(el, packed[i * elsize: (i + 1) * elsize]) for i in range(0, length_of(dtype))])
     if hasattr(dtype, 'membertype'):  # struct
         values = []
         offset = 0
@@ -229,8 +239,9 @@ def from_bytes(dtype, packed):
     if hasattr(dtype, 'size'):  # array
         el = dtype.dtype
         elsize = to_lctype(el).size()
-        return dtype([from_bytes(el, packed[i*elsize: (i+1)*elsize]) for i in range(0, dtype.size)])
+        return dtype([from_bytes(el, packed[i * elsize: (i + 1) * elsize]) for i in range(0, dtype.size)])
     assert False
+
 
 class DispatchIndirectBuffer:
     def __init__(self, size: int):

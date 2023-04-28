@@ -25,8 +25,7 @@ from os.path import realpath
 import platform
 
 
-
-def init(backend_name = None, shader_path = None, support_gui = True):
+def init(backend_name=None, shader_path=None, support_gui=True):
     if globalvars.device is not None:
         return
     if globalvars.context is None:
@@ -60,7 +59,7 @@ def init(backend_name = None, shader_path = None, support_gui = True):
         else:
             backend_name = backends[0]
         print(f"detected backends: {backends}. Selecting {backend_name}.")
-        
+
     elif backend_name not in backends:
         raise NameError(f"backend '{backend_name}' is not installed.")
     globalvars.device = globalvars.context.create_device(backend_name)
@@ -69,7 +68,8 @@ def init(backend_name = None, shader_path = None, support_gui = True):
     if shader_path is not None:
         globalvars.context.set_shader_path(shader_path)
 
-def init_headless(backend_name = None, shader_path = None):
+
+def init_headless(backend_name=None, shader_path=None):
     if globalvars.device is not None:
         return
     if globalvars.context is None:
@@ -85,17 +85,21 @@ def init_headless(backend_name = None, shader_path = None):
     globalvars.device = globalvars.context.create_headless_device(backend_name)
     if shader_path is not None:
         globalvars.context.set_shader_path(shader_path)
+
+
 def del_device():
     if globalvars.device is not None:
         del globalvars.device
         globalvars.device = None
 
-def synchronize(stream = None):
+
+def synchronize(stream=None):
     if stream is None:
         stream = globalvars.stream
     stream.synchronize()
 
-def execute(stream = None):
+
+def execute(stream=None):
     if stream is None:
         stream = globalvars.stream
     stream.execute()

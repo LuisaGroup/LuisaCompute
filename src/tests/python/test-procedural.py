@@ -3,7 +3,7 @@ from luisa.types import *
 from luisa.builtin import *
 import numpy as np
 import math
-init("cuda")
+init()
 
 state = 0
 pi = math.pi

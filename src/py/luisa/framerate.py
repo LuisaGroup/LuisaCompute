@@ -1,12 +1,13 @@
 import time
 from functools import reduce
 
+
 class FrameRate:
     def __init__(self, history_size: int) -> None:
         self.history_size: int = history_size
         self._durations_and_frames: list[tuple[float, int]] = []
         self.last: float = time.time()
-    
+
     def clear(self) -> None:
         self._durations_and_frames.clear()
         self.last = time.time()

@@ -93,7 +93,14 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
     return texture;
 }
 
-void CUDABindlessArray::update(CUDACommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept {
+void CUDABindlessArray::update(CUDACommandEncoder &encoder,
+                               BindlessArrayUpdateCommand *cmd) noexcept {
+
+    if (cmd->modifications().empty()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Empty bindless array update command detected.");
+        return;
+    }
 
     if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::update", _name).c_str()); }
 

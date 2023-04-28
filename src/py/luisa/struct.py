@@ -1,16 +1,20 @@
 from .dylibs import lcapi
 from .types import dtype_of, to_lctype, nameof
 
+
 class Struct:
     @staticmethod
     def make_getter(name):
         def f(self):
             return self.values[self.structType.idx_dict[name]]
+
         return f
+
     @staticmethod
     def make_setter(name):
         def f(self, value):
             self.values[self.structType.idx_dict[name]] = value
+
         return f
 
     @staticmethod
@@ -18,8 +22,8 @@ class Struct:
         assert dtype_of(value) == dtype
         return value
 
-    def __init__(self, copy_source = None, alignment = 1, **kwargs):
-        if copy_source is not None: # copy from another struct
+    def __init__(self, copy_source=None, alignment=1, **kwargs):
+        if copy_source is not None:  # copy from another struct
             assert len(kwargs) == 0 and type(copy_source) is Struct
             self.structType = copy_source.structType
             self.values = copy_source.values.copy()
@@ -30,8 +34,8 @@ class Struct:
                 setattr(Struct, name, property(self.make_getter(name), self.make_setter(name)))
 
     def copy(self):
-        return Struct(copy_source = self)
-        
+        return Struct(copy_source=self)
+
     def to_bytes(self):
         packed_bytes = b''
         for idx, value in enumerate(self.values):
@@ -57,42 +61,47 @@ class Struct:
         idd = self.structType.idx_dict
         return '{' + ', '.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
 
-def struct(alignment = 1, **kwargs):
+
+def struct(alignment=1, **kwargs):
     assert 'copy_source' not in kwargs
     return Struct(alignment=alignment, **kwargs)
 
-def deduce_struct_type(kwargs, alignment = 1):
+
+def deduce_struct_type(kwargs, alignment=1):
     return StructType(alignment, **{name: dtype_of(kwargs[name]) for name in kwargs})
 
 
 class StructType:
-    def __init__(self, alignment = 1, **kwargs):
+    def __init__(self, alignment=1, **kwargs):
         # initialize from dict (name->type)
-        self.membertype = [] # index -> member dtype
-        self.idx_dict = {} # attr -> index
-        self.method_dict = {} # attr -> callable (if any)
+        self.membertype = []  # index -> member dtype
+        self.idx_dict = {}  # attr -> index
+        self.method_dict = {}  # attr -> callable (if any)
         self.alignment = alignment
         for idx, (name, dtype) in enumerate(kwargs.items()):
             self.idx_dict[name] = idx
-            lctype = to_lctype(dtype) # also checks if it's valid dtype
+            lctype = to_lctype(dtype)  # also checks if it's valid dtype
             self.membertype.append(dtype)
             self.alignment = max(self.alignment, lctype.alignment())
         # compute lcapi.Type
-        type_string = f'struct<{self.alignment},' +  ','.join([to_lctype(x).description() for x in self.membertype]) + '>'
+        type_string = f'struct<{self.alignment},' + ','.join(
+            [to_lctype(x).description() for x in self.membertype]) + '>'
         self.luisa_type = lcapi.Type.from_(type_string)
 
     def __call__(self, **kwargs):
         # ensure order
         assert deduce_struct_type(kwargs, alignment=self.alignment) == self
         t = Struct(alignment=self.alignment, **kwargs)
-        t.structType = self # override it's type tag to retain method_dict
+        t.structType = self  # override it's type tag to retain method_dict
         return t
 
     def __repr__(self):
-        return f'StructType[{self.alignment}](' + ', '.join([f'{x}:{nameof(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
+        return f'StructType[{self.alignment}](' + ', '.join(
+            [f'{x}:{nameof(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
 
     def __eq__(self, other):
-        return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
+        return type(
+            other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
 
     def __hash__(self):
         return hash(self.luisa_type.description()) ^ 7178987438397
@@ -106,12 +115,15 @@ class StructType:
         # add method to structtype
         self.method_dict[name] = func
 
+
 class CustomType:
-    def __init__(self, name:str):
+    def __init__(self, name: str):
         self.luisa_type = lcapi.Type.custom(name)
         self.name = name
+
     def __repr__(self):
         return self.name
+
     def __eq__(self, other):
         return type(other) is CustomType and self.name == other.name
 
