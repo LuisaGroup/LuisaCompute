@@ -295,7 +295,6 @@ private:
 
             // pack the variables into a tight struct to minimize the stack size
             {
-
                 luisa::fixed_vector<uint, 8u> indices;
                 auto glob_elements = [&indices, &captured_elements](auto &&self, Variable base, const Type *type) noexcept -> void {
                     if (type->is_scalar()) {
@@ -909,24 +908,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         }
     } else {
         auto trailing_comma = false;
-        auto is_builtin = expr->is_builtin();
         for (auto arg : expr->arguments()) {
-            if (is_builtin ||
-                (arg->type() != _ray_query_any_type &&
-                 arg->type() != _ray_query_all_type)) {
-                trailing_comma = true;
-                arg->accept(*this);
-                _scratch << ", ";
-            }
-        }
-        if (!is_builtin &&
-            [ops = expr->custom().propagated_builtin_callables()] {
-            return ops.test(CallOp::RAY_QUERY_COMMIT_TRIANGLE) ||
-                   ops.test(CallOp::RAY_QUERY_COMMIT_PROCEDURAL) ||
-                   ops.test(CallOp::RAY_QUERY_TERMINATE);
-            }()) {
-            trailing_comma = false;
-            _scratch << "result";
+            trailing_comma = true;
+            arg->accept(*this);
+            _scratch << ", ";
         }
         if (trailing_comma) {
             _scratch.pop_back();
@@ -1193,26 +1178,16 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     } else {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
-            if (arg.type() != _ray_query_all_type &&
-                arg.type() != _ray_query_any_type) {
-                _scratch << "\n    ";
-                _emit_variable_decl(f, arg, false);
-                _scratch << ",";
-                any_arg = true;
-            }
+            _scratch << "\n    ";
+            _emit_variable_decl(f, arg, false);
+            _scratch << ",";
+            any_arg = true;
         }
         if (f.tag() == Function::Tag::KERNEL) {
             _scratch << "\n"
                      << "    const lc_uint3 dispatch_size) {";
         } else {
-            if (auto ops = f.propagated_builtin_callables();
-                ops.test(CallOp::RAY_QUERY_COMMIT_TRIANGLE) ||
-                ops.test(CallOp::RAY_QUERY_COMMIT_PROCEDURAL) ||
-                ops.test(CallOp::RAY_QUERY_TERMINATE)) {
-                _scratch << "\n    LCIntersectionResult &result";
-            } else if (any_arg) {
-                _scratch.pop_back();
-            }
+            if (any_arg) { _scratch.pop_back(); }
             _scratch << ") noexcept {";
         }
     }
