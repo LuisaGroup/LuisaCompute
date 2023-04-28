@@ -242,7 +242,7 @@ def builtin_type_cast(dtype, *args):
         obj = SimpleNamespace(dtype = dtype, expr = lcapi.builder().local(to_lctype(dtype)), lr = 'l')
         _rettype, _retexpr = callable_call(dtype.method_dict['__init__'], obj, *args)
         # if it's a constructor, make sure it doesn't return value
-        if _rettype != None:
+        if _rettype is not None:
             raise TypeError(f'__init__() should return None, not {_rettype}')
         return dtype, obj.expr
     # default construct without arguments
@@ -596,7 +596,7 @@ def builtin_func(name, *args, **kwargs):
         if name == f.__name__:
             return f.builder(*args, **kwargs)
     func = _func_map.get(name)
-    if func == None:
+    if func is None:
         raise NameError(f'unrecognized function call {name}')
     return func(name, *args)
 
@@ -625,7 +625,7 @@ def callable_call(func, *args):
     globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument
     # call
-    if getattr(f, "return_type", None) == None:
+    if getattr(f, "return_type", None) is None:
         return None, lcapi.builder().call(f.function, exprs)
     else:
         dtype = f.return_type

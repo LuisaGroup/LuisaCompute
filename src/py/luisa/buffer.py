@@ -32,9 +32,9 @@ class Buffer:
         self.handle = get_global_device().impl().create_buffer(lc_type, size)
 
     def __del__(self):
-        if self.handle != None:
+        if self.handle is not None:
             device = get_global_device()
-            if device != None:
+            if device is not None:
                 device.impl().destroy_buffer(self.handle)
 
     @staticmethod

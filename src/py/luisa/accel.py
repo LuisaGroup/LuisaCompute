@@ -67,7 +67,7 @@ class Accel:
     def add_procedural(self, aabb_buffer, aabb_start_index:int = 0, aabb_count = None, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visibility_mask:int=-1, opaque:bool = True):
         assert(aabb_buffer.stride == 24)
         var_aabb_count = None
-        if aabb_count == None:
+        if aabb_count is None:
             var_aabb_count = aabb_buffer.size
         else:
             var_aabb_count = aabb_count
@@ -77,7 +77,7 @@ class Accel:
     def set_procedural(self, index: int, aabb_buffer, aabb_start_index:int = 0, aabb_count = None, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visibility_mask:int=-1, opaque:bool = True):
         assert(aabb_buffer.stride == 24)
         var_aabb_count = None
-        if aabb_count == None:
+        if aabb_count is None:
             var_aabb_count = aabb_buffer.size
         else:
             var_aabb_count = aabb_count

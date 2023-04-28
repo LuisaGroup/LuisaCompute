@@ -41,9 +41,9 @@ class Image2D:
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, mip)
     def __del__(self):
-        if self.handle != None:
+        if self.handle is not None:
             device = get_global_device()
-            if device != None:
+            if device is not None:
                 device.impl().destroy_texture(self.handle)    
     @staticmethod
     def image2d(arr):

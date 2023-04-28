@@ -14,9 +14,9 @@ class BindlessArray:
         self.array = device().impl().create_bindless_array(n_slots)
         self.handle = lcapi.get_bindless_handle(self.array)
     def __del__(self):
-        if(self.array != None):
+        if(self.array is not None):
             local_device = device()
-            if local_device != None:
+            if local_device is not None:
                 local_device.impl().destroy_bindless_array(self.array)
 
     @staticmethod
@@ -37,18 +37,18 @@ class BindlessArray:
         elif type(res) is Image2D:
             if res.dtype != float:
                 raise TypeError("Type of emplaced Image2D must be float")
-            if filter == None:
+            if filter is None:
                 filter = lcapi.Filter.LINEAR_POINT
-            if address == None:
+            if address is None:
                 address = lcapi.Address.REPEAT
             sampler = lcapi.Sampler(filter, address)
             device().impl().emplace_tex2d_in_bindless_array(self.array, idx, res.handle, sampler)
         elif type(res) is Image3D:
             if res.dtype != float:
                 raise TypeError("Type of emplaced Image3D must be float")
-            if filter == None:
+            if filter is None:
                 filter = lcapi.Filter.LINEAR_POINT
-            if address == None:
+            if address is None:
                 address = lcapi.Address.REPEAT
             sampler = lcapi.Sampler(filter, address)
             device().impl().emplace_tex3d_in_bindless_array(self.array, idx, res.handle, sampler)

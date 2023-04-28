@@ -91,7 +91,7 @@ class ASTVisitor:
     def build_Expr(node):
         if isinstance(node.value, ast.Call):
             build(node.value)
-            if node.value.dtype != None:
+            if node.value.dtype is not None:
                 raise TypeError("Discarding non-void return value")
         else:
             if not isinstance(node.value, ast.Constant):
@@ -99,16 +99,16 @@ class ASTVisitor:
 
     @staticmethod
     def build_Return(node):
-        if node.value != None:
+        if node.value is not None:
             build(node.value)
         # deduce & check type of return value
-        return_type = None if node.value == None else node.value.dtype
+        return_type = None if node.value is None else node.value.dtype
         if hasattr(ctx(), 'return_type'):
             if ctx().return_type != return_type:
                 raise TypeError("inconsistent return type in multiple return statements")
         else:
             ctx().return_type = return_type
-            if ctx().call_from_host and return_type != None:
+            if ctx().call_from_host and return_type is not None:
                 raise TypeError("luisa func called on host can't return value")
         # build return statement
         lcapi.builder().return_(getattr(node.value, 'expr', None))
@@ -288,7 +288,7 @@ class ASTVisitor:
             raise ValueError("not enough values to unpack (expected {len(lhs.elts)}, got {len(rhs.elts)})")
         tmps = []
         for r in rhs.elts:
-            if r.dtype == None:
+            if r.dtype is None:
                 raise TypeError("Can't assign None to variable")
             tmpexpr = lcapi.builder().local(to_lctype(r.dtype))
             lcapi.builder().assign(tmpexpr, r.expr)
@@ -298,7 +298,7 @@ class ASTVisitor:
 
     @staticmethod
     def build_assign_pair(lhs, rhs):
-        if rhs.dtype == None:
+        if rhs.dtype is None:
             raise TypeError("Can't assign None to variable")
         if type(lhs) is ast.Tuple:
             return build.build_tuple_assign(lhs, rhs)
@@ -472,7 +472,7 @@ class ASTVisitor:
                         raise SyntaxError("Case value can only have one.")
                     case_map["default"] = True
                     default_value = c
-            if not matched and default_value != None:
+            if not matched and default_value is not None:
                 for x in default_value.body:
                     build(x)
             return

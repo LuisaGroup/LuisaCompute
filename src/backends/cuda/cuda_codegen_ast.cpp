@@ -265,6 +265,9 @@ private:
                 auto iter = std::partition(
                     captured_variables.begin(), captured_variables.end(),
                     [this, f](auto v) noexcept {
+                    LUISA_ASSERT(!v.is_resource() ||
+                                     _root_resources.contains({f, v}),
+                                 "Invalid variable.");
                     return !v.is_resource() ||
                            _root_resources.at({f, v}).size() != 1u;
                     });
@@ -508,6 +511,8 @@ public:
     }
 
     void lower(const RayQueryStmt *stmt) noexcept {
+        LUISA_ASSERT(_outline_infos.contains(stmt),
+                     "Ray query statement not outlined.");
         auto &&[rq_index, captured_resources, captured_elements] = _outline_infos.at(stmt);
         // create ray query context
         _codegen->_scratch << "\n";
@@ -1120,6 +1125,8 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         for (auto c : f.constants()) { _emit_constant(c); }
         _scratch << "\n";
     }
+
+    // TODO: why missing some outline info with the Python frontend?
 
     // outline ray query functions
     if (f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||

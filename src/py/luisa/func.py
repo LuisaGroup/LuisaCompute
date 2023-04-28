@@ -78,12 +78,12 @@ class FuncInstanceInfo:
         self.function = None
         self.shader_handle = None
     def __del__(self):
-        if self.shader_handle != None:
+        if self.shader_handle is not None:
             device = get_global_device()
-            if device != None:
+            if device is not None:
                 device.impl().destroy_shader(self.shader_handle)
     def build_arguments(self, allow_ref: bool, arg_info=None):
-        if arg_info == None:
+        if arg_info is None:
             for idx, name in enumerate(self.func.parameters):
                 if idx >= len(self.argtypes): break
                 dtype = self.argtypes[idx]
@@ -94,7 +94,7 @@ class FuncInstanceInfo:
                 if idx >= len(self.argtypes): break
                 var_info = arg_info.get(idx)
                 dtype = self.argtypes[idx]
-                if var_info != None:
+                if var_info is not None:
                     self.local_variable[name] = var_info["var"]
                 else:
                     expr = create_arg_expr(dtype, allow_ref = allow_ref)
@@ -143,7 +143,7 @@ class func:
         f.builder = lcapi.FunctionBuilder.define_kernel(astgen)
         f.function = f.builder.function()
         # compile shader
-        if name == None:
+        if name is None:
             name = self.__name__
         if async_build:
             get_global_device().impl().save_shader_async(f.builder, name)
