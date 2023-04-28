@@ -8,20 +8,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04 ]
-        compiler: [ gcc, clang ]
+        compiler:
+          - { name: gcc, version: 11 }
+          - { name: gcc, version: 12 }
+          - { name: clang, version: 14 }
+          - { name: clang, version: 15 }
+          - { name: clang, version: 16 }
         config: [ Release, Debug ]
-        include:
-          - compiler: gcc
-            compiler_version: 11
-          - compiler: gcc
-            compiler_version: 12
-          - compiler: clang
-            compiler_version: 14
-          - compiler: clang
-            compiler_version: 15
-          - compiler: clang
-            compiler_version: 16
-    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}-${{ matrix.compiler_version }}
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler.name }}-${{ matrix.compiler.version }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -33,13 +27,13 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cmake
           sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
-          if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            sudo apt-get -y install gcc-${{ matrix.compiler_version }} g++-${{ matrix.compiler_version }}
+          if [ "${{ matrix.compiler.name }}" = "gcc" ]; then
+            sudo apt-get -y install gcc-${{ matrix.compiler.version }} g++-${{ matrix.compiler.version }}
           else
             wget https://apt.llvm.org/llvm.sh
             chmod +x llvm.sh
-            sudo ./llvm.sh ${{ matrix.compiler_version }}
-            sudo apt-get -y install libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
+            sudo ./llvm.sh ${{ matrix.compiler.version }}
+            sudo apt-get -y install libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
@@ -53,13 +47,13 @@ jobs:
           linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            export LUISA_CC=gcc-${{ matrix.compiler_version }}
-            export LUISA_CXX=g++-${{ matrix.compiler_version }}
+          if [ "${{ matrix.compiler.name }}" = "gcc" ]; then
+            export LUISA_CC=gcc-${{ matrix.compiler.version }}
+            export LUISA_CXX=g++-${{ matrix.compiler.version }}
             export LUISA_FLAGS=""
           else
-            export LUISA_CC=clang-${{ matrix.compiler_version }}
-            export LUISA_CXX=clang++-${{ matrix.compiler_version }}
+            export LUISA_CC=clang-${{ matrix.compiler.version }}
+            export LUISA_CXX=clang++-${{ matrix.compiler.version }}
             export LUISA_FLAGS="-stdlib=libc++"
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
