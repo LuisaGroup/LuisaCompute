@@ -6,7 +6,6 @@ use std::{
 };
 
 use api::{CreatedSwapchainInfo, PixelFormat};
-use binding::Binding;
 use libc::{c_char, c_void};
 use libloading::Library;
 use luisa_compute_api_types as api;
@@ -15,9 +14,7 @@ use luisa_compute_ir::{
     CArc,
 };
 
-pub mod api_message;
-pub mod binding;
-pub mod cpp_proxy_backend;
+pub mod proxy;
 include!("rustc_version.rs");
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum BackendErrorKind {
@@ -47,9 +44,46 @@ impl Debug for BackendError {
 }
 
 pub type Result<T> = std::result::Result<T, BackendError>;
-
+pub(crate) struct Interface {
+    #[allow(dead_code)]
+    pub(crate) lib: libloading::Library,
+    #[allow(dead_code)]
+    pub(crate) create_interface: unsafe extern "C" fn() -> api::DeviceInterface,
+    pub(crate) destroy_interface: unsafe extern "C" fn(api::DeviceInterface),
+    pub(crate) inner: api::DeviceInterface,
+}
+unsafe impl Send for Interface {}
+unsafe impl Sync for Interface {}
+impl Interface {
+    pub unsafe fn new(lib_path: &Path) -> std::result::Result<Self, libloading::Error> {
+        let lib = libloading::Library::new(lib_path)?;
+        let create_interface: unsafe extern "C" fn() -> api::DeviceInterface =
+            *lib.get(b"luisa_compute_device_interface_create\0")?;
+        let destroy_interface = *lib.get(b"luisa_compute_device_interface_destroy\0")?;
+        let interface = create_interface();
+        Ok(Self {
+            lib,
+            create_interface,
+            destroy_interface,
+            inner: interface,
+        })
+    }
+}
+impl std::ops::Deref for Interface {
+    type Target = api::DeviceInterface;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl Drop for Interface {
+    fn drop(&mut self) {
+        unsafe {
+            (self.destroy_interface)(self.inner);
+        }
+    }
+}
 pub struct Context {
-    pub(crate) binding: Option<Arc<Binding>>,
+    pub(crate) interface: Option<Arc<Interface>>,
     pub(crate) swapchain: Option<Arc<SwapChainForCpuContext>>,
     pub(crate) backends: Option<Arc<RustBackendInterface>>,
     pub(crate) context: Option<api::Context>,
@@ -82,27 +116,38 @@ impl Context {
                 todo!()
             };
             let backends = lib_path.join(backends_dll);
-            let binding = Binding::new(&api_dll)
+            let interface = Interface::new(&api_dll)
                 .map_err(|e| {
                     log::warn!("failed to load lc-api: {}", e);
                     e
                 })
                 .ok()
                 .map(Arc::new);
-            if let Some(binding) = &binding {
-                unsafe extern "C" fn callback(info: *const c_char, msg: *const c_char) {
-                    let info = CStr::from_ptr(info as *mut c_char).to_str().unwrap();
-                    let msg = CStr::from_ptr(msg as *mut c_char).to_str().unwrap();
-                    match info {
-                        "I" => log::log!(target: "lc-cpp", log::Level::Info, "{}", msg),
-                        "W" => log::log!(target: "lc-cpp", log::Level::Warn, "{}", msg),
-                        "E" | "C" => log::log!(target: "lc-cpp", log::Level::Error, "{}", msg),
-                        "D" => log::log!(target: "lc-cpp", log::Level::Debug, "{}", msg),
-                        "T" => log::log!(target: "lc-cpp", log::Level::Trace, "{}", msg),
-                        _ => panic!("unknown log level: {}", info),
+            if let Some(interface) = &interface {
+                unsafe extern "C" fn callback(info: api::LoggerMessage) {
+                    let level = CStr::from_ptr(info.level as *mut c_char).to_str().unwrap();
+                    let msg = CStr::from_ptr(info.message as *mut c_char).to_str().unwrap();
+                    let target = if info.target.is_null() {
+                        "lc-cpp".to_string()
+                    } else {
+                        CStr::from_ptr(info.target as *mut c_char)
+                            .to_str()
+                            .unwrap()
+                            .to_string()
+                    };
+                    let target= &target;
+                    match level {
+                        "I" | "Info" => log::log!(target: target, log::Level::Info, "{}", msg),
+                        "W" | "Warning" => log::log!(target: target, log::Level::Warn, "{}", msg),
+                        "E" | "C" | "Error" => {
+                            log::log!(target: target, log::Level::Error, "{}", msg)
+                        }
+                        "D" | "Debug" => log::log!(target: target, log::Level::Debug, "{}", msg),
+                        "T" | "Trace" => log::log!(target: target, log::Level::Trace, "{}", msg),
+                        _ => panic!("unknown log level: {}", level),
                     }
                 }
-                (binding.luisa_compute_set_logger_callback)(callback);
+                (interface.set_logger_callback)(callback);
             }
             let swapchain = SwapChainForCpuContext::new(swapchain)
                 .map_err(|e| {
@@ -119,11 +164,11 @@ impl Context {
                 .ok()
                 .map(|x| Arc::new(x));
             let lib_path_c_str = std::ffi::CString::new(lib_path.to_str().unwrap()).unwrap();
-            let context = binding.as_ref().map(|binding| {
-                (binding.luisa_compute_context_create)(lib_path_c_str.as_c_str().as_ptr())
+            let context = interface.as_ref().map(|interface| {
+                (interface.create_context)(lib_path_c_str.as_c_str().as_ptr())
             });
             Self {
-                binding,
+                interface,
                 swapchain,
                 context,
                 backends,
@@ -162,7 +207,7 @@ impl Context {
                     })
                 }
             },
-            "cuda" | "dx" | "metal" => Ok(cpp_proxy_backend::CppProxyBackend::new(self, device)),
+            "cuda" | "dx" | "metal" => Ok(proxy::ProxyBackend::new(self, device)),
             _ => panic!("unsupported device: {}", device),
         }
     }

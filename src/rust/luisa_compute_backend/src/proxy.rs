@@ -1,13 +1,15 @@
 #![allow(unused_unsafe)]
+use std::ffi::CStr;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use crate::{binding::Binding, Backend, Context, SwapChainForCpuContext};
+use crate::{Backend, BackendError, Context, Interface, SwapChainForCpuContext};
 use api::StreamTag;
 use libc::c_void;
 use luisa_compute_api_types as api;
+use luisa_compute_api_types::BackendErrorKind;
 use luisa_compute_ir::{
     ir::{KernelModule, Type},
     CArc,
@@ -54,46 +56,62 @@ pub fn init_cpp<P: AsRef<Path>>(_bin_path: P) {
     INIT_CPP.call_once(|| unsafe {});
 }
 
-pub struct CppProxyBackend {
-    binding: Arc<Binding>,
+pub struct ProxyBackend {
+    interface: Arc<Interface>,
     device: api::Device,
 }
 fn default_path() -> PathBuf {
     std::env::current_exe().unwrap()
 }
-impl CppProxyBackend {
+impl ProxyBackend {
     pub fn new(ctx: &Context, backend: &str) -> Arc<Self> {
         let backend_c_str = std::ffi::CString::new(backend).unwrap();
-        let binding = ctx.binding.clone().unwrap();
+        let interface = ctx.interface.clone().unwrap();
         let device = catch_abort!({
-            (binding.luisa_compute_device_create)(
+            (interface.create_device)(
                 ctx.context.unwrap(),
                 backend_c_str.as_ptr(),
                 b"{}\0".as_ptr() as *const _,
             )
         });
-        Arc::new(Self { device, binding })
+        Arc::new(Self { device, interface })
     }
 }
-impl Backend for CppProxyBackend {
+unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
+    match a {
+        api::Result::Ok(a) => Ok(a),
+        api::Result::Err(a) => Err(crate::BackendError {
+            kind: match a.kind {
+                api::BackendErrorKind::BackendNotFound => crate::BackendErrorKind::BackendNotFound,
+                api::BackendErrorKind::KernelExecution => crate::BackendErrorKind::KernelExecution,
+                api::BackendErrorKind::KernelCompilation => {
+                    crate::BackendErrorKind::KernelCompilation
+                }
+                api::BackendErrorKind::Network => crate::BackendErrorKind::Network,
+                api::BackendErrorKind::Other => crate::BackendErrorKind::Other,
+            },
+            message: CStr::from_ptr(a.message).to_str().unwrap().to_string(),
+        }),
+    }
+}
+impl Backend for ProxyBackend {
     fn create_buffer(
         &self,
         ty: &CArc<Type>,
         count: usize,
     ) -> crate::Result<api::CreatedBufferInfo> {
-        let buffer = catch_abort!({
-            (self.binding.luisa_compute_buffer_create)(
+        catch_abort!({
+            map((self.interface.create_buffer)(
                 self.device,
                 ty as *const _ as *const c_void,
                 count,
-            )
-        });
-        Ok(buffer)
+            ))
+        })
     }
 
     fn destroy_buffer(&self, buffer: api::Buffer) {
         catch_abort!({
-            (self.binding.luisa_compute_buffer_destroy)(self.device, buffer);
+            (self.interface.destroy_buffer)(self.device, buffer);
         })
     }
     fn create_texture(
@@ -105,8 +123,8 @@ impl Backend for CppProxyBackend {
         depth: u32,
         mipmap_levels: u32,
     ) -> crate::Result<api::CreatedResourceInfo> {
-        let texture = catch_abort!({
-            (self.binding.luisa_compute_texture_create)(
+        catch_abort!({
+            map((self.interface.create_texture)(
                 self.device,
                 std::mem::transmute(format),
                 dimension,
@@ -114,40 +132,48 @@ impl Backend for CppProxyBackend {
                 height,
                 depth,
                 mipmap_levels,
-            )
-        });
-        Ok(texture)
+            ))
+        })
     }
 
     fn destroy_texture(&self, texture: api::Texture) {
-        catch_abort!({ (self.binding.luisa_compute_texture_destroy)(self.device, texture,) })
+        catch_abort!({ (self.interface.destroy_texture)(self.device, texture,) })
     }
 
     fn create_bindless_array(&self, size: usize) -> crate::Result<api::CreatedResourceInfo> {
-        let array =
-            catch_abort!({ (self.binding.luisa_compute_bindless_array_create)(self.device, size) });
-        Ok(array)
+        catch_abort!({
+            map((self.interface.create_bindless_array)(
+                self.device,
+                size,
+            ))
+        })
     }
 
     fn destroy_bindless_array(&self, array: api::BindlessArray) {
-        catch_abort!({ (self.binding.luisa_compute_bindless_array_destroy)(self.device, array,) })
+        catch_abort!({ (self.interface.destroy_bindless_array)(self.device, array,) })
     }
 
     fn create_stream(&self, tag: StreamTag) -> crate::Result<api::CreatedResourceInfo> {
-        unsafe {
-            let stream =
-                catch_abort!({ (self.binding.luisa_compute_stream_create)(self.device, tag) });
-            Ok(stream)
-        }
+        catch_abort!({
+            map((self.interface.create_stream)(
+                self.device,
+                tag,
+            ))
+        })
     }
 
     fn destroy_stream(&self, stream: api::Stream) {
-        catch_abort!({ (self.binding.luisa_compute_stream_destroy)(self.device, stream) })
+        catch_abort!({ (self.interface.destroy_stream)(self.device, stream) })
     }
 
     fn synchronize_stream(&self, stream: api::Stream) -> crate::Result<()> {
-        catch_abort!({ (self.binding.luisa_compute_stream_synchronize)(self.device, stream,) });
-        Ok(())
+        catch_abort!({
+            map((self.interface.synchronize_stream)(
+                self.device,
+                stream,
+            ))
+            .map(|_| ())
+        })
     }
 
     fn dispatch(
@@ -157,7 +183,7 @@ impl Backend for CppProxyBackend {
         callback: (extern "C" fn(*mut u8), *mut u8),
     ) -> crate::Result<()> {
         catch_abort!({
-            (self.binding.luisa_compute_stream_dispatch)(
+            map((self.interface.dispatch)(
                 self.device,
                 stream,
                 api::CommandList {
@@ -166,9 +192,9 @@ impl Backend for CppProxyBackend {
                 },
                 callback.0,
                 callback.1,
-            );
-        });
-        Ok(())
+            ))
+            .map(|_| ())
+        })
     }
 
     fn create_shader(
@@ -176,94 +202,81 @@ impl Backend for CppProxyBackend {
         kernel: CArc<KernelModule>,
         option: &api::ShaderOption,
     ) -> crate::Result<api::CreatedShaderInfo> {
-        //  let debug =
-        //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
-        // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-        // println!("{}", debug.to_str().unwrap());
-
-        Ok(catch_abort!({
-            (self.binding.luisa_compute_shader_create)(
+        catch_abort!({
+            map((self.interface.create_shader)(
                 self.device,
                 api::KernelModule {
                     ptr: CArc::as_ptr(&kernel) as u64,
                 },
                 option,
-            )
-        }))
+            ))
+        })
     }
 
     fn destroy_shader(&self, shader: api::Shader) {
-        catch_abort!({ (self.binding.luisa_compute_shader_destroy)(self.device, shader) })
+        catch_abort!({ (self.interface.destroy_shader)(self.device, shader) })
     }
 
     fn create_event(&self) -> crate::Result<api::CreatedResourceInfo> {
-        unsafe {
-            let event = catch_abort!({ (self.binding.luisa_compute_event_create)(self.device) });
-            Ok(event)
-        }
+        catch_abort!({ map((self.interface.create_event)(self.device)) })
     }
 
     fn destroy_event(&self, event: api::Event) {
-        catch_abort!({ (self.binding.luisa_compute_event_destroy)(self.device, event) })
+        catch_abort!({ (self.interface.destroy_event)(self.device, event) })
     }
 
     fn signal_event(&self, event: api::Event, stream: api::Stream) {
-        catch_abort!({ (self.binding.luisa_compute_event_signal)(self.device, event, stream) })
+        catch_abort!({ (self.interface.signal_event)(self.device, event, stream) })
     }
 
     fn wait_event(&self, event: api::Event, stream: api::Stream) -> crate::Result<()> {
         catch_abort!({
-            (self.binding.luisa_compute_event_wait)(self.device, event, stream);
-        });
-        Ok(())
+            map((self.interface.wait_event)(
+                self.device,
+                event,
+                stream,
+            ))
+            .map(|_| ())
+        })
     }
 
     fn synchronize_event(&self, event: api::Event) -> crate::Result<()> {
         catch_abort!({
-            (self.binding.luisa_compute_event_synchronize)(self.device, event);
-        });
-        Ok(())
+            map((self.interface.synchronize_event)(
+                self.device,
+                event,
+            ))
+            .map(|_| ())
+        })
     }
 
     fn create_mesh(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
-        unsafe {
-            let mesh =
-                catch_abort!({ (self.binding.luisa_compute_mesh_create)(self.device, &option) });
-            Ok(mesh)
-        }
+        catch_abort!({ map((self.interface.create_mesh)(self.device, &option,)) })
     }
 
     fn destroy_mesh(&self, mesh: api::Mesh) {
-        catch_abort!((self.binding.luisa_compute_mesh_destroy)(self.device, mesh))
+        catch_abort!((self.interface.destroy_mesh)(self.device, mesh))
     }
 
     fn create_accel(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
-        unsafe {
-            let mesh =
-                catch_abort!({ (self.binding.luisa_compute_accel_create)(self.device, &option) });
-            Ok(std::mem::transmute(mesh))
-        }
+        catch_abort!({ map((self.interface.create_accel)(self.device, &option,)) })
     }
 
     fn destroy_accel(&self, accel: api::Accel) {
-        catch_abort!((self.binding.luisa_compute_accel_destroy)(
-            self.device,
-            accel
-        ))
+        catch_abort!((self.interface.destroy_accel)(self.device, accel))
     }
 
     fn query(&self, property: &str) -> Option<String> {
         catch_abort! {{
             let property = std::ffi::CString::new(property).unwrap();
             let property = property.as_ptr();
-            let str_buf = vec![0u8; 1024];
-            let result_len = (self.binding.luisa_compute_device_query)(self.device, property, str_buf.as_ptr() as *mut i8, str_buf.len());
-            if result_len > 0 {
-                let result_str = std::ffi::CStr::from_ptr(str_buf.as_ptr() as *const i8).to_str().unwrap().to_string();
-                Some(result_str)
-            } else {
-                None
+            let result = (self.interface.query)(self.device, property);
+            if result.is_null() {
+                return None;
             }
+            let result_str = std::ffi::CStr::from_ptr(result as *const i8).to_str().unwrap().to_string();
+            (self.interface.free_string)(result);
+            Some(result_str)
         }}
     }
 
@@ -295,7 +308,7 @@ impl Backend for CppProxyBackend {
         back_buffer_size: u32,
     ) -> crate::Result<api::CreatedSwapchainInfo> {
         catch_abort!({
-            let swap_chain = (self.binding.luisa_compute_swapchain_create)(
+            map((self.interface.create_swapchain)(
                 self.device,
                 window_handle,
                 stream_handle,
@@ -304,13 +317,12 @@ impl Backend for CppProxyBackend {
                 allow_hdr,
                 vsync,
                 back_buffer_size,
-            );
-            Ok(std::mem::transmute(swap_chain))
+            ))
         })
     }
 
     fn destroy_swapchain(&self, swap_chain: api::Swapchain) {
-        catch_abort!({ (self.binding.luisa_compute_swapchain_destroy)(self.device, swap_chain,) })
+        catch_abort!({ (self.interface.destroy_swapchain)(self.device, swap_chain,) })
     }
 
     fn present_display_in_stream(
@@ -320,7 +332,7 @@ impl Backend for CppProxyBackend {
         image_handle: api::Texture,
     ) {
         catch_abort!({
-            (self.binding.luisa_compute_swapchain_present)(
+            (self.interface.present_display_in_stream)(
                 self.device,
                 stream_handle,
                 swapchain_handle,
