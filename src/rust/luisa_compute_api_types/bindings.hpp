@@ -519,12 +519,6 @@ struct ShaderOption {
     const char *name;
 };
 
-struct LoggerMessage {
-    const char *target;
-    const char *level;
-    const char *message;
-};
-
 struct BackendError {
     BackendErrorKind kind;
     char *message;
@@ -555,13 +549,8 @@ struct Result {
 using DispatchCallback = void(*)(uint8_t*);
 
 struct DeviceInterface {
-    void *inner;
-    void (*set_logger_callback)(void(*)(LoggerMessage));
-    Context (*create_context)(const char*);
-    void (*destroy_context)(Context);
-    Device (*create_device)(Context, const char*, const char*);
-    void (*destroy_device)(Device);
-    void (*free_string)(char*);
+    Device device;
+    void (*destroy_device)(DeviceInterface);
     Result<CreatedBufferInfo> (*create_buffer)(Device, const void*, size_t);
     void (*destroy_buffer)(Device, Buffer);
     Result<CreatedResourceInfo> (*create_texture)(Device, PixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
@@ -589,6 +578,21 @@ struct DeviceInterface {
     Result<CreatedResourceInfo> (*create_accel)(Device, const AccelOption*);
     void (*destroy_accel)(Device, Accel);
     char *(*query)(Device, const char*);
+};
+
+struct LoggerMessage {
+    const char *target;
+    const char *level;
+    const char *message;
+};
+
+struct LibInterface {
+    void *inner;
+    void (*set_logger_callback)(void(*)(LoggerMessage));
+    Context (*create_context)(const char*);
+    void (*destroy_context)(Context);
+    DeviceInterface (*create_device)(Context, const char*, const char*);
+    void (*free_string)(char*);
 };
 
 } // namespace luisa::compute::api

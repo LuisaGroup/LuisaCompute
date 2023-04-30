@@ -30,15 +30,16 @@ pub struct RustBackend {
     shared_pool: Arc<rayon::ThreadPool>,
     swapchain_context: RwLock<Option<Arc<SwapChainForCpuContext>>>,
 }
-
-impl Backend for RustBackend {
-    unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>) {
+impl RustBackend {
+    pub(crate) unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>) {
         let mut self_ctx = self.swapchain_context.write();
         if self_ctx.is_some() {
             panic!("swapchain context already set");
         }
         *self_ctx = Some(ctx);
     }
+}
+impl Backend for RustBackend {
     fn create_buffer(
         &self,
         ty: &CArc<ir::Type>,
@@ -381,13 +382,13 @@ impl Backend for RustBackend {
     }
 }
 impl RustBackend {
-    pub fn new() -> Arc<Self> {
+    pub fn new() -> Self {
         let num_threads = match std::env::var("LUISA_NUM_THREADS") {
             Ok(s) => s.parse::<usize>().unwrap(),
             Err(_) => std::thread::available_parallelism().unwrap().get(),
         };
 
-        Arc::new(RustBackend {
+        RustBackend {
             shared_pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(num_threads)
@@ -395,6 +396,6 @@ impl RustBackend {
                     .unwrap(),
             ),
             swapchain_context: RwLock::new(None),
-        })
+        }
     }
 }

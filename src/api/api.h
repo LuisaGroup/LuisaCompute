@@ -15,7 +15,7 @@ typedef char * CharPtr;
 typedef const LCAccelOption * ConstAccelOptionPtr;
 typedef const LCShaderOption * ShaderOptionPtr;
 typedef uint8_t * BytePtr;
-typedef void (*LoggerCallback)(const char *, const char *);
+typedef void (*LoggerCallback)(LCLoggerMessage);
 LUISA_EXPORT_API void luisa_compute_set_logger_callback(LoggerCallback callback) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_free_c_string(CharPtr cs) LUISA_NOEXCEPT;
 

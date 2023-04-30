@@ -655,14 +655,19 @@ pub struct LoggerMessage {
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct DeviceInterface {
+pub struct LibInterface {
     pub inner: *mut c_void,
     pub set_logger_callback: unsafe extern "C" fn(unsafe extern "C" fn(LoggerMessage)),
     pub create_context: unsafe extern "C" fn(*const c_char) -> Context,
     pub destroy_context: unsafe extern "C" fn(Context),
-    pub create_device: unsafe extern "C" fn(Context, *const c_char, *const c_char) -> Device,
-    pub destroy_device: unsafe extern "C" fn(Device),
+    pub create_device: unsafe extern "C" fn(Context, *const c_char, *const c_char) -> DeviceInterface,
     pub free_string: unsafe extern "C" fn(*mut c_char),
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct DeviceInterface {
+    pub device: Device,
+    pub destroy_device: unsafe extern "C" fn(DeviceInterface),
     pub create_buffer:
         unsafe extern "C" fn(Device, *const c_void, usize) -> Result<CreatedBufferInfo>,
     pub destroy_buffer: unsafe extern "C" fn(Device, Buffer),

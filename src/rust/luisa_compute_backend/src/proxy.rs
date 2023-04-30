@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{Backend, BackendError, Context, Interface, SwapChainForCpuContext};
+use crate::{Backend, BackendError, BackendProvider, Context, Interface};
 use api::StreamTag;
 use libc::c_void;
 use luisa_compute_api_types as api;
@@ -57,24 +57,22 @@ pub fn init_cpp<P: AsRef<Path>>(_bin_path: P) {
 }
 
 pub struct ProxyBackend {
-    interface: Arc<Interface>,
-    device: api::Device,
-}
-fn default_path() -> PathBuf {
-    std::env::current_exe().unwrap()
+    pub(crate) interface: Arc<Interface>,
+    pub(crate) device: api::DeviceInterface,
 }
 impl ProxyBackend {
-    pub fn new(ctx: &Context, backend: &str) -> Arc<Self> {
-        let backend_c_str = std::ffi::CString::new(backend).unwrap();
-        let interface = ctx.interface.clone().unwrap();
-        let device = catch_abort!({
-            (interface.create_device)(
-                ctx.context.unwrap(),
-                backend_c_str.as_ptr(),
-                b"{}\0".as_ptr() as *const _,
-            )
-        });
-        Arc::new(Self { device, interface })
+    pub(crate) fn new(provider: &BackendProvider, device: &str, config: serde_json::Value) -> Self {
+        let interface = &provider.interface;
+        let device_c_str = std::ffi::CString::new(device).unwrap();
+        let device_c_str = device_c_str.as_ptr();
+        let config = std::ffi::CString::new(serde_json::to_string(&config).unwrap()).unwrap();
+        let device = unsafe {
+            (interface.inner.create_device)(provider.context, device_c_str, config.as_ptr())
+        };
+        Self {
+            device,
+            interface: interface.clone(),
+        }
     }
 }
 unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
@@ -95,25 +93,27 @@ unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
     }
 }
 impl Backend for ProxyBackend {
+    #[inline]
     fn create_buffer(
         &self,
         ty: &CArc<Type>,
         count: usize,
     ) -> crate::Result<api::CreatedBufferInfo> {
         catch_abort!({
-            map((self.interface.create_buffer)(
-                self.device,
+            map((self.device.create_buffer)(
+                self.device.device,
                 ty as *const _ as *const c_void,
                 count,
             ))
         })
     }
-
+    #[inline]
     fn destroy_buffer(&self, buffer: api::Buffer) {
         catch_abort!({
-            (self.interface.destroy_buffer)(self.device, buffer);
+            (self.device.destroy_buffer)(self.device.device, buffer);
         })
     }
+    #[inline]
     fn create_texture(
         &self,
         format: api::PixelFormat,
@@ -124,8 +124,8 @@ impl Backend for ProxyBackend {
         mipmap_levels: u32,
     ) -> crate::Result<api::CreatedResourceInfo> {
         catch_abort!({
-            map((self.interface.create_texture)(
-                self.device,
+            map((self.device.create_texture)(
+                self.device.device,
                 std::mem::transmute(format),
                 dimension,
                 width,
@@ -135,47 +135,38 @@ impl Backend for ProxyBackend {
             ))
         })
     }
-
+    #[inline]
     fn destroy_texture(&self, texture: api::Texture) {
-        catch_abort!({ (self.interface.destroy_texture)(self.device, texture,) })
+        catch_abort!({ (self.device.destroy_texture)(self.device.device, texture,) })
     }
-
+    #[inline]
     fn create_bindless_array(&self, size: usize) -> crate::Result<api::CreatedResourceInfo> {
         catch_abort!({
-            map((self.interface.create_bindless_array)(
-                self.device,
+            map((self.device.create_bindless_array)(
+                self.device.device,
                 size,
             ))
         })
     }
-
+    #[inline]
     fn destroy_bindless_array(&self, array: api::BindlessArray) {
-        catch_abort!({ (self.interface.destroy_bindless_array)(self.device, array,) })
+        catch_abort!({ (self.device.destroy_bindless_array)(self.device.device, array,) })
     }
-
+    #[inline]
     fn create_stream(&self, tag: StreamTag) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({
-            map((self.interface.create_stream)(
-                self.device,
-                tag,
-            ))
-        })
+        catch_abort!({ map((self.device.create_stream)(self.device.device, tag,)) })
     }
-
+    #[inline]
     fn destroy_stream(&self, stream: api::Stream) {
-        catch_abort!({ (self.interface.destroy_stream)(self.device, stream) })
+        catch_abort!({ (self.device.destroy_stream)(self.device.device, stream) })
     }
-
+    #[inline]
     fn synchronize_stream(&self, stream: api::Stream) -> crate::Result<()> {
         catch_abort!({
-            map((self.interface.synchronize_stream)(
-                self.device,
-                stream,
-            ))
-            .map(|_| ())
+            map((self.device.synchronize_stream)(self.device.device, stream)).map(|_| ())
         })
     }
-
+    #[inline]
     fn dispatch(
         &self,
         stream: api::Stream,
@@ -183,8 +174,8 @@ impl Backend for ProxyBackend {
         callback: (extern "C" fn(*mut u8), *mut u8),
     ) -> crate::Result<()> {
         catch_abort!({
-            map((self.interface.dispatch)(
-                self.device,
+            map((self.device.dispatch)(
+                self.device.device,
                 stream,
                 api::CommandList {
                     commands: command_list.as_ptr(),
@@ -196,107 +187,7 @@ impl Backend for ProxyBackend {
             .map(|_| ())
         })
     }
-
-    fn create_shader(
-        &self,
-        kernel: CArc<KernelModule>,
-        option: &api::ShaderOption,
-    ) -> crate::Result<api::CreatedShaderInfo> {
-        catch_abort!({
-            map((self.interface.create_shader)(
-                self.device,
-                api::KernelModule {
-                    ptr: CArc::as_ptr(&kernel) as u64,
-                },
-                option,
-            ))
-        })
-    }
-
-    fn destroy_shader(&self, shader: api::Shader) {
-        catch_abort!({ (self.interface.destroy_shader)(self.device, shader) })
-    }
-
-    fn create_event(&self) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.interface.create_event)(self.device)) })
-    }
-
-    fn destroy_event(&self, event: api::Event) {
-        catch_abort!({ (self.interface.destroy_event)(self.device, event) })
-    }
-
-    fn signal_event(&self, event: api::Event, stream: api::Stream) {
-        catch_abort!({ (self.interface.signal_event)(self.device, event, stream) })
-    }
-
-    fn wait_event(&self, event: api::Event, stream: api::Stream) -> crate::Result<()> {
-        catch_abort!({
-            map((self.interface.wait_event)(
-                self.device,
-                event,
-                stream,
-            ))
-            .map(|_| ())
-        })
-    }
-
-    fn synchronize_event(&self, event: api::Event) -> crate::Result<()> {
-        catch_abort!({
-            map((self.interface.synchronize_event)(
-                self.device,
-                event,
-            ))
-            .map(|_| ())
-        })
-    }
-
-    fn create_mesh(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.interface.create_mesh)(self.device, &option,)) })
-    }
-
-    fn destroy_mesh(&self, mesh: api::Mesh) {
-        catch_abort!((self.interface.destroy_mesh)(self.device, mesh))
-    }
-
-    fn create_accel(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.interface.create_accel)(self.device, &option,)) })
-    }
-
-    fn destroy_accel(&self, accel: api::Accel) {
-        catch_abort!((self.interface.destroy_accel)(self.device, accel))
-    }
-
-    fn query(&self, property: &str) -> Option<String> {
-        catch_abort! {{
-            let property = std::ffi::CString::new(property).unwrap();
-            let property = property.as_ptr();
-            let result = (self.interface.query)(self.device, property);
-            if result.is_null() {
-                return None;
-            }
-            let result_str = std::ffi::CStr::from_ptr(result as *const i8).to_str().unwrap().to_string();
-            (self.interface.free_string)(result);
-            Some(result_str)
-        }}
-    }
-
-    fn shader_cache_dir(&self, _shader: api::Shader) -> Option<PathBuf> {
-        todo!()
-    }
-
-    fn create_procedural_primitive(
-        &self,
-        _option: api::AccelOption,
-    ) -> crate::Result<api::CreatedResourceInfo> {
-        todo!()
-    }
-
-    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
-        todo!()
-    }
-
-    unsafe fn set_swapchain_contex(&self, _ctx: Arc<crate::SwapChainForCpuContext>) {}
-
+    #[inline]
     fn create_swapchain(
         &self,
         window_handle: u64,
@@ -308,8 +199,8 @@ impl Backend for ProxyBackend {
         back_buffer_size: u32,
     ) -> crate::Result<api::CreatedSwapchainInfo> {
         catch_abort!({
-            map((self.interface.create_swapchain)(
-                self.device,
+            map((self.device.create_swapchain)(
+                self.device.device,
                 window_handle,
                 stream_handle,
                 width,
@@ -320,11 +211,11 @@ impl Backend for ProxyBackend {
             ))
         })
     }
-
+    #[inline]
     fn destroy_swapchain(&self, swap_chain: api::Swapchain) {
-        catch_abort!({ (self.interface.destroy_swapchain)(self.device, swap_chain,) })
+        catch_abort!({ (self.device.destroy_swapchain)(self.device.device, swap_chain,) })
     }
-
+    #[inline]
     fn present_display_in_stream(
         &self,
         stream_handle: api::Stream,
@@ -332,12 +223,102 @@ impl Backend for ProxyBackend {
         image_handle: api::Texture,
     ) {
         catch_abort!({
-            (self.interface.present_display_in_stream)(
-                self.device,
+            (self.device.present_display_in_stream)(
+                self.device.device,
                 stream_handle,
                 swapchain_handle,
                 image_handle,
             )
         })
+    }
+    #[inline]
+    fn create_shader(
+        &self,
+        kernel: CArc<KernelModule>,
+        option: &api::ShaderOption,
+    ) -> crate::Result<api::CreatedShaderInfo> {
+        catch_abort!({
+            map((self.device.create_shader)(
+                self.device.device,
+                api::KernelModule {
+                    ptr:&kernel as *const CArc<_> as u64,
+                },
+                option,
+            ))
+        })
+    }
+    #[inline]
+    fn shader_cache_dir(&self, _shader: api::Shader) -> Option<PathBuf> {
+        Some(".cache".into())
+    }
+    #[inline]
+    fn destroy_shader(&self, shader: api::Shader) {
+        catch_abort!({ (self.device.destroy_shader)(self.device.device, shader) })
+    }
+    #[inline]
+    fn create_event(&self) -> crate::Result<api::CreatedResourceInfo> {
+        catch_abort!({ map((self.device.create_event)(self.device.device)) })
+    }
+    #[inline]
+    fn destroy_event(&self, event: api::Event) {
+        catch_abort!({ (self.device.destroy_event)(self.device.device, event) })
+    }
+    #[inline]
+    fn signal_event(&self, event: api::Event, stream: api::Stream) {
+        catch_abort!({ (self.device.signal_event)(self.device.device, event, stream) })
+    }
+    #[inline]
+    fn wait_event(&self, event: api::Event, stream: api::Stream) -> crate::Result<()> {
+        catch_abort!({
+            map((self.device.wait_event)(self.device.device, event, stream)).map(|_| ())
+        })
+    }
+    #[inline]
+    fn synchronize_event(&self, event: api::Event) -> crate::Result<()> {
+        catch_abort!({
+            map((self.device.synchronize_event)(self.device.device, event)).map(|_| ())
+        })
+    }
+    #[inline]
+    fn create_mesh(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
+        catch_abort!({ map((self.device.create_mesh)(self.device.device, &option,)) })
+    }
+    #[inline]
+    fn create_procedural_primitive(
+        &self,
+        _option: api::AccelOption,
+    ) -> crate::Result<api::CreatedResourceInfo> {
+        todo!()
+    }
+    #[inline]
+    fn destroy_mesh(&self, mesh: api::Mesh) {
+        catch_abort!((self.device.destroy_mesh)(self.device.device, mesh))
+    }
+    #[inline]
+    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
+        todo!()
+    }
+
+    #[inline]
+    fn create_accel(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
+        catch_abort!({ map((self.device.create_accel)(self.device.device, &option,)) })
+    }
+    #[inline]
+    fn destroy_accel(&self, accel: api::Accel) {
+        catch_abort!((self.device.destroy_accel)(self.device.device, accel))
+    }
+    #[inline]
+    fn query(&self, property: &str) -> Option<String> {
+        catch_abort! {{
+            let property = std::ffi::CString::new(property).unwrap();
+            let property = property.as_ptr();
+            let result = (self.device.query)(self.device.device, property);
+            if result.is_null() {
+                return None;
+            }
+            let result_str = std::ffi::CStr::from_ptr(result as *const i8).to_str().unwrap().to_string();
+            (self.interface.inner.free_string)(result);
+            Some(result_str)
+        }}
     }
 }

@@ -21,9 +21,9 @@ struct RC {
     uint32_t tombstone;
 
     RC(T *object, std::function<void(T *)> deleter)
-        : _object{object},
-          _deleter{deleter},
-          _ref_count{1} { tombstone = 0; }
+            : _object{object},
+              _deleter{deleter},
+              _ref_count{1} { tombstone = 0; }
 
     ~RC() { _deleter(_object); }
 
@@ -56,54 +56,58 @@ struct RC {
 
 namespace luisa::compute {
 
-struct BufferResource final : public Resource {
-    BufferResource(DeviceInterface *device, const ir::CArc<ir::Type> *element, size_t elem_count) noexcept
-        : Resource{device, Tag::BUFFER,
-                   device->create_buffer(element, elem_count)} {}
-};
+    struct BufferResource final : public Resource {
+        BufferResource(DeviceInterface *device, const ir::CArc<ir::Type> *element, size_t elem_count) noexcept
+                : Resource{device, Tag::BUFFER,
+                           device->create_buffer(element, elem_count)} {}
+    };
 
-struct TextureResource final : public Resource {
-    TextureResource(DeviceInterface *device,
-                    PixelFormat format, uint dimension,
-                    uint width, uint height, uint depth,
-                    uint mipmap_levels) noexcept
-        : Resource{device, Tag::TEXTURE,
-                   device->create_texture(format, dimension,
-                                          width, height, depth,
-                                          mipmap_levels)} {}
-};
+    struct TextureResource final : public Resource {
+        TextureResource(DeviceInterface *device,
+                        PixelFormat format, uint dimension,
+                        uint width, uint height, uint depth,
+                        uint mipmap_levels) noexcept
+                : Resource{device, Tag::TEXTURE,
+                           device->create_texture(format, dimension,
+                                                  width, height, depth,
+                                                  mipmap_levels)} {}
+    };
 
-struct ShaderResource : public Resource {
-    ShaderResource(DeviceInterface *device,
-                   Function function,
-                   const LCShaderOption &option) noexcept
+    struct ShaderResource : public Resource {
+        ShaderResource(DeviceInterface *device,
+                       Function function,
+                       const LCShaderOption &option) noexcept
+                : Resource{
+                device,
+                Tag::SHADER,
+                device->create_shader(
+                        ShaderOption{
+                                .enable_cache = option.enable_cache,
+                                .enable_fast_math = option.enable_fast_math,
+                                .enable_debug_info = option.enable_debug_info,
+                                .compile_only = option.compile_only,
+                                .name = luisa::string{option.name}},
+                        function)} {}
+
+        ShaderResource(DeviceInterface *device,
+                       const ir::KernelModule *
+
+        module,
+        const LCShaderOption &option
+        ) noexcept
         : Resource{
-              device,
-              Tag::SHADER,
-              device->create_shader(
-                  ShaderOption{
-                      .enable_cache = option.enable_cache,
-                      .enable_fast_math = option.enable_fast_math,
-                      .enable_debug_info = option.enable_debug_info,
-                      .compile_only = option.compile_only,
-                      .name = luisa::string{option.name}},
-                  function)} {}
-
-    ShaderResource(DeviceInterface *device,
-                   const ir::KernelModule *module,
-                   const LCShaderOption &option) noexcept
-        : Resource{
-              device,
-              Tag::SHADER,
-              device->create_shader(
-                  ShaderOption{
-                      .enable_cache = option.enable_cache,
-                      .enable_fast_math = option.enable_fast_math,
-                      .enable_debug_info = option.enable_debug_info,
-                      .compile_only = option.compile_only,
-                      .name = luisa::string{option.name}},
-                  module)} {}
-};
+            device,
+                    Tag::SHADER,
+                    device->create_shader(
+                            ShaderOption{
+                                    .enable_cache = option.enable_cache,
+                                    .enable_fast_math = option.enable_fast_math,
+                                    .enable_debug_info = option.enable_debug_info,
+                                    .compile_only = option.compile_only,
+                                    .name = luisa::string{option.name}},
+            module)
+        } {}
+    };
 
 }// namespace luisa::compute
 
@@ -116,229 +120,233 @@ Sampler convert_sampler(LCSampler sampler);
 
 namespace luisa::compute::detail {
 
-class CommandListConverter {
+    class CommandListConverter {
 
-private:
-    LCCommandList _list;
-    bool _is_c_api;
+    private:
+        LCCommandList _list;
+        bool _is_c_api;
 
-    luisa::unique_ptr<Command> convert_one(LCCommand cmd) const noexcept {
-        auto convert_pixel_storage = [](const LCPixelStorage &storage) noexcept {
-            return PixelStorage{(uint32_t)to_underlying(storage)};
-        };
-        auto convert_uint3 = [](uint32_t array[3]) noexcept {
-            return luisa::uint3{array[0], array[1], array[2]};
-        };
-        auto convert_accel_request = [](LCAccelBuildRequest req) noexcept {
-            return AccelBuildRequest{(uint32_t)to_underlying(req)};
-        };
-        switch (cmd.tag) {
-            case LC_COMMAND_BUFFER_COPY: {
-                auto c = cmd.buffer_copy;
-                return luisa::make_unique<BufferCopyCommand>(
-                    c.src._0, c.dst._0,
-                    c.src_offset, c.dst_offset, c.size);
-            }
-            case LC_COMMAND_BUFFER_UPLOAD: {
-                auto c = cmd.buffer_upload;
-                return luisa::make_unique<BufferUploadCommand>(
-                    c.buffer._0, c.offset,
-                    c.size, c.data);
-            }
-            case LC_COMMAND_BUFFER_DOWNLOAD: {
-                auto c = cmd.buffer_download;
-                return luisa::make_unique<BufferDownloadCommand>(
-                    c.buffer._0, c.offset,
-                    c.size, c.data);
-            }
-            case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
-                auto c = cmd.bindless_array_update;
-                auto modifications = luisa::vector<BindlessArrayUpdateCommand::Modification>{};
-                modifications.reserve(c.modifications_count);
-                for (auto i = 0u; i < c.modifications_count; i++) {
-                    auto &&[slot, api_buffer, api_tex2d, api_tex3d] = c.modifications[i];
-                    auto convert_op = [](LCBindlessArrayUpdateOperation op) noexcept {
-                        return BindlessArrayUpdateCommand::Modification::Operation{(uint)to_underlying(op)};
-                    };
-                    auto buffer = BindlessArrayUpdateCommand::Modification::Buffer(
-                        api_buffer.handle._0,
-                        api_buffer.offset,
-                        convert_op(api_buffer.op));
-                    auto tex2d = BindlessArrayUpdateCommand::Modification::Texture(
-                        api_tex2d.handle._0,
-                        convert_sampler(api_tex2d.sampler),
-                        convert_op(api_tex2d.op));
-                    auto tex3d = BindlessArrayUpdateCommand::Modification::Texture(
-                        api_tex3d.handle._0,
-                        convert_sampler(api_tex3d.sampler),
-                        convert_op(api_tex3d.op));
-                    modifications.emplace_back(slot, buffer, tex2d, tex3d);
-                }// Manually conversion is painful...
-                return luisa::make_unique<BindlessArrayUpdateCommand>(
-                    c.handle._0,
-                    modifications);
-            }
-            case LC_COMMAND_SHADER_DISPATCH: {
+        luisa::unique_ptr<Command> convert_one(LCCommand cmd) const noexcept {
+            auto convert_pixel_storage = [](const LCPixelStorage &storage) noexcept {
+                return PixelStorage{(uint32_t) to_underlying(storage)};
+            };
+            auto convert_uint3 = [](uint32_t array[3]) noexcept {
+                return luisa::uint3{array[0], array[1], array[2]};
+            };
+            auto convert_accel_request = [](LCAccelBuildRequest req) noexcept {
+                return AccelBuildRequest{(uint32_t) to_underlying(req)};
+            };
+            switch (cmd.tag) {
+                case LC_COMMAND_BUFFER_COPY: {
+                    auto c = cmd.buffer_copy;
+                    return luisa::make_unique<BufferCopyCommand>(
+                            c.src._0, c.dst._0,
+                            c.src_offset, c.dst_offset, c.size);
+                }
+                case LC_COMMAND_BUFFER_UPLOAD: {
+                    auto c = cmd.buffer_upload;
+                    return luisa::make_unique<BufferUploadCommand>(
+                            c.buffer._0, c.offset,
+                            c.size, c.data);
+                }
+                case LC_COMMAND_BUFFER_DOWNLOAD: {
+                    auto c = cmd.buffer_download;
+                    return luisa::make_unique<BufferDownloadCommand>(
+                            c.buffer._0, c.offset,
+                            c.size, c.data);
+                }
+                case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
+                    auto c = cmd.bindless_array_update;
+                    auto modifications = luisa::vector<BindlessArrayUpdateCommand::Modification>{};
+                    modifications.reserve(c.modifications_count);
+                    for (auto i = 0u; i < c.modifications_count; i++) {
+                        auto &&[slot, api_buffer, api_tex2d, api_tex3d] = c.modifications[i];
+                        auto convert_op = [](LCBindlessArrayUpdateOperation op) noexcept {
+                            return BindlessArrayUpdateCommand::Modification::Operation{(uint) to_underlying(op)};
+                        };
+                        auto buffer = BindlessArrayUpdateCommand::Modification::Buffer(
+                                api_buffer.handle._0,
+                                api_buffer.offset,
+                                convert_op(api_buffer.op));
+                        auto tex2d = BindlessArrayUpdateCommand::Modification::Texture(
+                                api_tex2d.handle._0,
+                                convert_sampler(api_tex2d.sampler),
+                                convert_op(api_tex2d.op));
+                        auto tex3d = BindlessArrayUpdateCommand::Modification::Texture(
+                                api_tex3d.handle._0,
+                                convert_sampler(api_tex3d.sampler),
+                                convert_op(api_tex3d.op));
+                        modifications.emplace_back(slot, buffer, tex2d, tex3d);
+                    }// Manually conversion is painful...
+                    return luisa::make_unique<BindlessArrayUpdateCommand>(
+                            c.handle._0,
+                            modifications);
+                }
+                case LC_COMMAND_SHADER_DISPATCH: {
 
-                auto c = cmd.shader_dispatch;
-                auto uniform_size = 0ull;
-                for (auto i = 0u; i < c.args_count; i++) {
-                    if (c.args[i].tag == LC_ARGUMENT_UNIFORM) {
-                        uniform_size += c.args[i].uniform.size;
+                    auto c = cmd.shader_dispatch;
+                    auto uniform_size = 0ull;
+                    for (auto i = 0u; i < c.args_count; i++) {
+                        if (c.args[i].tag == LC_ARGUMENT_UNIFORM) {
+                            uniform_size += c.args[i].uniform.size;
+                        }
                     }
-                }
-                ComputeDispatchCmdEncoder encoder{c.shader._0, c.args_count, uniform_size};
-                for (auto i = 0u; i < c.args_count; i++) {
-                    auto arg = c.args[i];
-                    switch (arg.tag) {
-                        case LC_ARGUMENT_BUFFER:
-                            encoder.encode_buffer(arg.buffer.buffer._0,
-                                                  arg.buffer.offset,
-                                                  arg.buffer.size);
-                            break;
-                        case LC_ARGUMENT_TEXTURE:
-                            encoder.encode_texture(arg.texture.texture._0,
-                                                   arg.texture.level);
-                            break;
-                        case LC_ARGUMENT_UNIFORM:
-                            encoder.encode_uniform(arg.uniform.data,
-                                                   arg.uniform.size);
-                            break;
-                        case LC_ARGUMENT_BINDLESS_ARRAY:
-                            encoder.encode_bindless_array(arg.bindless_array._0);
-                            break;
-                        case LC_ARGUMENT_ACCEL:
-                            encoder.encode_accel(arg.accel._0);
-                            break;
+                    ComputeDispatchCmdEncoder encoder{c.shader._0, c.args_count, uniform_size};
+                    for (auto i = 0u; i < c.args_count; i++) {
+                        auto arg = c.args[i];
+                        switch (arg.tag) {
+                            case LC_ARGUMENT_BUFFER:
+                                encoder.encode_buffer(arg.buffer.buffer._0,
+                                                      arg.buffer.offset,
+                                                      arg.buffer.size);
+                                break;
+                            case LC_ARGUMENT_TEXTURE:
+                                encoder.encode_texture(arg.texture.texture._0,
+                                                       arg.texture.level);
+                                break;
+                            case LC_ARGUMENT_UNIFORM:
+                                encoder.encode_uniform(arg.uniform.data,
+                                                       arg.uniform.size);
+                                break;
+                            case LC_ARGUMENT_BINDLESS_ARRAY:
+                                encoder.encode_bindless_array(arg.bindless_array._0);
+                                break;
+                            case LC_ARGUMENT_ACCEL:
+                                encoder.encode_accel(arg.accel._0);
+                                break;
+                        }
                     }
+                    encoder.set_dispatch_size(make_uint3(c.dispatch_size[0],
+                                                         c.dispatch_size[1],
+                                                         c.dispatch_size[2]));
+                    return std::move(encoder).build();
                 }
-                encoder.set_dispatch_size(make_uint3(c.dispatch_size[0],
-                                                     c.dispatch_size[1],
-                                                     c.dispatch_size[2]));
-                return std::move(encoder).build();
-            }
-            case LC_COMMAND_BUFFER_TO_TEXTURE_COPY: {
-                auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.buffer_to_texture_copy;
+                case LC_COMMAND_BUFFER_TO_TEXTURE_COPY: {
+                    auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.buffer_to_texture_copy;
 
-                return luisa::make_unique<BufferToTextureCopyCommand>(
-                    buffer._0,
-                    buffer_offset,
-                    texture._0,
-                    convert_pixel_storage(storage),
-                    texture_level,
-                    convert_uint3(texture_size));
-            }
-            case LC_COMMAND_TEXTURE_TO_BUFFER_COPY: {
-                auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.texture_to_buffer_copy;
-                return luisa::make_unique<TextureToBufferCopyCommand>(
-                    buffer._0,
-                    buffer_offset,
-                    texture._0,
-                    convert_pixel_storage(storage),
-                    texture_level,
-                    convert_uint3(texture_size));
-            }
-            case LC_COMMAND_TEXTURE_UPLOAD: {
-                auto [texture, storage, level, size, data] = cmd.texture_upload;
-                return luisa::make_unique<TextureUploadCommand>(
-                    texture._0,
-                    convert_pixel_storage(storage),
-                    level,
-                    convert_uint3(size),
-                    (const void *)data);
-            }
-            case LC_COMMAND_TEXTURE_DOWNLOAD: {
-                auto [texture, storage, level, size, data] = cmd.texture_download;
-                return luisa::make_unique<TextureDownloadCommand>(
-                    texture._0,
-                    convert_pixel_storage(storage),
-                    level,
-                    convert_uint3(size),
-                    (void *)data);
-            }
-            case LC_COMMAND_TEXTURE_COPY: {
-                auto [storage, src, dst, size, src_level, dst_level] = cmd.texture_copy;
-                return luisa::make_unique<TextureCopyCommand>(
-                    convert_pixel_storage(storage),
-                    src._0,
-                    dst._0,
-                    src_level,
-                    dst_level,
-                    convert_uint3(size));
-            }
-            case LC_COMMAND_MESH_BUILD: {
-                auto [mesh, request,
-                      vertex_buffer, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
-                      index_buffer, index_buffer_offset, index_buffer_size, index_stride] = cmd.mesh_build;
-                LUISA_ASSERT(index_stride == 12, "Index stride must be 12.");
-                return luisa::make_unique<MeshBuildCommand>(
-                    mesh._0,
-                    convert_accel_request(request),
-                    vertex_buffer._0, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
-                    index_buffer._0, index_buffer_offset, index_buffer_size);
-            }
-            case LC_COMMAND_PROCEDURAL_PRIMITIVE_BUILD: {
-                auto [primitive, request, aabb_buffer, aabb_offset, aabb_count] = cmd.procedural_primitive_build;
-                return luisa::make_unique<ProceduralPrimitiveBuildCommand>(
-                    primitive._0,
-                    convert_accel_request(request),
-                    aabb_buffer._0,
-                    aabb_offset,
-                    aabb_count);
-            }
-            case LC_COMMAND_ACCEL_BUILD: {
-                auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
-                auto modifications = luisa::vector<AccelBuildCommand::Modification>{};
-                modifications.reserve(modifications_count);
-                for (auto i = 0u; i < modifications_count; i++) {
-                    auto [index, flags, visibility, mesh, affine] = api_modifications[i];
-                    auto modification = AccelBuildCommand::Modification(index);
-                    modification.flags = flags.bits;
-                    modification.set_visibility(visibility);
-                    modification.set_primitive(mesh);
-                    std::memcpy(modification.affine, affine, sizeof(float) * 12);
-                    modifications.emplace_back(modification);
+                    return luisa::make_unique<BufferToTextureCopyCommand>(
+                            buffer._0,
+                            buffer_offset,
+                            texture._0,
+                            convert_pixel_storage(storage),
+                            texture_level,
+                            convert_uint3(texture_size));
                 }
-                LUISA_ASSERT(modifications_count == modifications.size(), "modifications size mismatch");
-                return luisa::make_unique<AccelBuildCommand>(
-                    accel._0,
-                    instance_count,
-                    convert_accel_request(request),
-                    modifications,
-                    update_instance_buffer_only);
+                case LC_COMMAND_TEXTURE_TO_BUFFER_COPY: {
+                    auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.texture_to_buffer_copy;
+                    return luisa::make_unique<TextureToBufferCopyCommand>(
+                            buffer._0,
+                            buffer_offset,
+                            texture._0,
+                            convert_pixel_storage(storage),
+                            texture_level,
+                            convert_uint3(texture_size));
+                }
+                case LC_COMMAND_TEXTURE_UPLOAD: {
+                    auto [texture, storage, level, size, data] = cmd.texture_upload;
+                    return luisa::make_unique<TextureUploadCommand>(
+                            texture._0,
+                            convert_pixel_storage(storage),
+                            level,
+                            convert_uint3(size),
+                            (const void *) data);
+                }
+                case LC_COMMAND_TEXTURE_DOWNLOAD: {
+                    auto [texture, storage, level, size, data] = cmd.texture_download;
+                    return luisa::make_unique<TextureDownloadCommand>(
+                            texture._0,
+                            convert_pixel_storage(storage),
+                            level,
+                            convert_uint3(size),
+                            (void *) data);
+                }
+                case LC_COMMAND_TEXTURE_COPY: {
+                    auto [storage, src, dst, size, src_level, dst_level] = cmd.texture_copy;
+                    return luisa::make_unique<TextureCopyCommand>(
+                            convert_pixel_storage(storage),
+                            src._0,
+                            dst._0,
+                            src_level,
+                            dst_level,
+                            convert_uint3(size));
+                }
+                case LC_COMMAND_MESH_BUILD: {
+                    auto [mesh, request,
+                            vertex_buffer, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
+                            index_buffer, index_buffer_offset, index_buffer_size, index_stride] = cmd.mesh_build;
+                    LUISA_ASSERT(index_stride == 12, "Index stride must be 12.");
+                    return luisa::make_unique<MeshBuildCommand>(
+                            mesh._0,
+                            convert_accel_request(request),
+                            vertex_buffer._0, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
+                            index_buffer._0, index_buffer_offset, index_buffer_size);
+                }
+                case LC_COMMAND_PROCEDURAL_PRIMITIVE_BUILD: {
+                    auto [primitive, request, aabb_buffer, aabb_offset, aabb_count] = cmd.procedural_primitive_build;
+                    return luisa::make_unique<ProceduralPrimitiveBuildCommand>(
+                            primitive._0,
+                            convert_accel_request(request),
+                            aabb_buffer._0,
+                            aabb_offset,
+                            aabb_count);
+                }
+                case LC_COMMAND_ACCEL_BUILD: {
+                    auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
+                    auto modifications = luisa::vector<AccelBuildCommand::Modification>{};
+                    modifications.reserve(modifications_count);
+                    for (auto i = 0u; i < modifications_count; i++) {
+                        auto [index, flags, visibility, mesh, affine] = api_modifications[i];
+                        auto modification = AccelBuildCommand::Modification(index);
+                        modification.flags = flags.bits;
+                        modification.set_visibility(visibility);
+                        modification.set_primitive(mesh);
+                        std::memcpy(modification.affine, affine, sizeof(float) * 12);
+                        modifications.emplace_back(modification);
+                    }
+                    LUISA_ASSERT(modifications_count == modifications.size(), "modifications size mismatch");
+                    return luisa::make_unique<AccelBuildCommand>(
+                            accel._0,
+                            instance_count,
+                            convert_accel_request(request),
+                            modifications,
+                            update_instance_buffer_only);
+                }
+                default:
+                LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int) cmd.tag);
             }
-            default: LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
         }
-    }
-    void (*_callback)(uint8_t *) = nullptr;
-    uint8_t *_callback_ctx = nullptr;
 
-public:
-    CommandListConverter(const LCCommandList list, bool is_c_api, void (*callback)(uint8_t *), uint8_t *callback_ctx)
-        : _list(list), _is_c_api(is_c_api), _callback(callback), _callback_ctx(callback_ctx) {}
+        void (*_callback)(uint8_t *) = nullptr;
 
-    [[nodiscard]] auto convert() const noexcept {
-        auto cmd_list = CommandList();
-        for (int i = 0; i < _list.commands_count; i++) {
-            cmd_list.append(convert_one(_list.commands[i]));
+        uint8_t *_callback_ctx = nullptr;
+
+    public:
+        CommandListConverter(const LCCommandList list, bool is_c_api, void (*callback)(uint8_t *),
+                             uint8_t *callback_ctx)
+                : _list(list), _is_c_api(is_c_api), _callback(callback), _callback_ctx(callback_ctx) {}
+
+        [[nodiscard]] auto convert() const noexcept {
+            auto cmd_list = CommandList();
+            for (int i = 0; i < _list.commands_count; i++) {
+                cmd_list.append(convert_one(_list.commands[i]));
+            }
+            if (_callback != nullptr && _callback_ctx != nullptr) {
+                auto _callback = this->_callback;
+                auto _callback_ctx = this->_callback_ctx;
+                cmd_list.append([=]() {
+                    _callback(_callback_ctx);
+                });
+            }
+            return cmd_list;
         }
-        if (_callback != nullptr && _callback_ctx != nullptr) {
-            auto _callback = this->_callback;
-            auto _callback_ctx = this->_callback_ctx;
-            cmd_list.append([=]() {
-                _callback(_callback_ctx);
-            });
-        }
-        return cmd_list;
-    }
-};
+    };
 
 }// namespace luisa::compute::detail
 
 template<class T>
 T from_ptr(void *ptr) {
     return T{
-        ._0 = reinterpret_cast<uint64_t>(ptr)};
+            ._0 = reinterpret_cast<uint64_t>(ptr)};
 }
 
 LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT {
@@ -368,7 +376,7 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
     // TODO: handle properties? or convert it to DeviceConfig?
     auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr)));
     return from_ptr<LCDevice>(new_with_allocator<RC<Device>>(
-        device, [](Device *d) { delete d; }));
+            device, [](Device *d) { delete d; }));
 }
 
 LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT {
@@ -387,17 +395,18 @@ LUISA_EXPORT_API void *luisa_compute_device_native_handle(LCDevice device) LUISA
     return reinterpret_cast<RC<Device> *>(device._0)->object()->impl()->native_handle();
 }
 
-LUISA_EXPORT_API LCCreatedBufferInfo luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCCreatedBufferInfo
+luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count) LUISA_NOEXCEPT {
     const ir::CArc<ir::Type> *element = reinterpret_cast<const ir::CArc<ir::Type> *>(element_);
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto info = d->retain()->object()->impl()->create_buffer(element, elem_count);
     return LCCreatedBufferInfo{
-        .resource = LCCreatedResourceInfo{
-            .handle = info.handle,
-            .native_handle = info.native_handle,
-        },
-        .element_stride = info.element_stride,
-        .total_size_bytes = info.total_size_bytes,
+            .resource = LCCreatedResourceInfo{
+                    .handle = info.handle,
+                    .native_handle = info.native_handle,
+            },
+            .element_stride = info.element_stride,
+            .total_size_bytes = info.total_size_bytes,
     };
 }
 
@@ -413,11 +422,11 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(LCDevice dev
                                                                     uint32_t w, uint32_t h, uint32_t d,
                                                                     uint32_t mips) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
-    auto pixel_format = PixelFormat{(uint8_t)to_underlying(format)};
+    auto pixel_format = PixelFormat{(uint8_t) to_underlying(format)};
     auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips);
     return LCCreatedResourceInfo{
-        .handle = info.handle,
-        .native_handle = info.native_handle,
+            .handle = info.handle,
+            .native_handle = info.native_handle,
     };
 }
 
@@ -428,13 +437,14 @@ LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture t
     d->release();
 }
 
-LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_stream_create(LCDevice device, LCStreamTag stream_tag) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCCreatedResourceInfo
+luisa_compute_stream_create(LCDevice device, LCStreamTag stream_tag) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto tag = StreamTag{(uint8_t)to_underlying(stream_tag)};
+    auto tag = StreamTag{(uint8_t) to_underlying(stream_tag)};
     auto info = d->retain()->object()->impl()->create_stream(tag);
     return LCCreatedResourceInfo{
-        .handle = info.handle,
-        .native_handle = info.native_handle,
+            .handle = info.handle,
+            .native_handle = info.native_handle,
     };
 }
 
@@ -451,32 +461,36 @@ LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream
     d->object()->impl()->synchronize_stream(handle);
 }
 
-LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, void (*callback)(uint8_t *), uint8_t *callback_ctx) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void
+luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, void (*callback)(uint8_t *),
+                              uint8_t *callback_ctx) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto converter = luisa::compute::detail::CommandListConverter(cmd_list, d->object()->impl()->is_c_api(), callback, callback_ctx);
+    auto converter = luisa::compute::detail::CommandListConverter(cmd_list, d->object()->impl()->is_c_api(), callback,
+                                                                  callback_ctx);
     d->object()->impl()->dispatch(handle, converter.convert());
 }
 
-LUISA_EXPORT_API LCCreatedShaderInfo luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOption *option_) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCCreatedShaderInfo
+luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto ir = reinterpret_cast<const ir::KernelModule *>(m.ptr);
+    auto ir = reinterpret_cast<const ir::CArc<ir::KernelModule> *>(m.ptr);
 
     auto shader_option = ShaderOption{
-        .enable_cache = option.enable_cache,
-        .enable_fast_math = option.enable_fast_math,
-        .enable_debug_info = option.enable_debug_info,
-        .compile_only = option.compile_only,
-        .name = luisa::string{option.name}};
+            .enable_cache = option.enable_cache,
+            .enable_fast_math = option.enable_fast_math,
+            .enable_debug_info = option.enable_debug_info,
+            .compile_only = option.compile_only,
+            .name = luisa::string{option.name}};
 
-    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir);
+    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir->get());
     return LCCreatedShaderInfo{
-        .resource = LCCreatedResourceInfo{
-            .handle = info.handle,
-            .native_handle = info.native_handle,
-        },
-        .block_size = {info.block_size[0], info.block_size[1], info.block_size[2]},
+            .resource = LCCreatedResourceInfo{
+                    .handle = info.handle,
+                    .native_handle = info.native_handle,
+            },
+            .block_size = {info.block_size[0], info.block_size[1], info.block_size[2]},
     };
 }
 
@@ -491,8 +505,8 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_event_create(LCDevice devic
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto info = d->retain()->object()->impl()->create_event();
     return LCCreatedResourceInfo{
-        .handle = info.handle,
-        .native_handle = info.native_handle,
+            .handle = info.handle,
+            .native_handle = info.native_handle,
     };
 }
 
@@ -523,18 +537,19 @@ LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent e
     d->object()->impl()->synchronize_event(handle);
 }
 
-LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_mesh_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCCreatedResourceInfo
+luisa_compute_mesh_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto accel_option = AccelOption{
-        .hint = AccelOption::UsageHint{(uint32_t)to_underlying(option.hint)},
-        .allow_compaction = option.allow_compaction,
-        .allow_update = option.allow_update,
+            .hint = AccelOption::UsageHint{(uint32_t) to_underlying(option.hint)},
+            .allow_compaction = option.allow_compaction,
+            .allow_update = option.allow_update,
     };
     auto info = d->retain()->object()->impl()->create_mesh(accel_option);
     return LCCreatedResourceInfo{
-        .handle = info.handle,
-        .native_handle = info.native_handle,
+            .handle = info.handle,
+            .native_handle = info.native_handle,
     };
 }
 
@@ -545,18 +560,19 @@ LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) L
     d->release();
 }
 
-LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_accel_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCCreatedResourceInfo
+luisa_compute_accel_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto accel_option = AccelOption{
-        .hint = AccelOption::UsageHint{(uint32_t)to_underlying(option.hint)},
-        .allow_compaction = option.allow_compaction,
-        .allow_update = option.allow_update,
+            .hint = AccelOption::UsageHint{(uint32_t) to_underlying(option.hint)},
+            .allow_compaction = option.allow_compaction,
+            .allow_update = option.allow_update,
     };
     auto info = d->retain()->object()->impl()->create_accel(accel_option);
     return LCCreatedResourceInfo{
-        .handle = info.handle,
-        .native_handle = info.native_handle,
+            .handle = info.handle,
+            .native_handle = info.native_handle,
     };
 }
 
@@ -577,26 +593,36 @@ LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel
 
 LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT {
     return static_cast<LCPixelStorage>(
-        to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format))));
+            to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format))));
 }
 
 inline Sampler convert_sampler(LCSampler sampler) {
     auto address = [&sampler]() noexcept -> Sampler::Address {
         switch (sampler.address) {
-            case LC_SAMPLER_ADDRESS_ZERO: return Sampler::Address::ZERO;
-            case LC_SAMPLER_ADDRESS_EDGE: return Sampler::Address::EDGE;
-            case LC_SAMPLER_ADDRESS_REPEAT: return Sampler::Address::REPEAT;
-            case LC_SAMPLER_ADDRESS_MIRROR: return Sampler::Address::MIRROR;
-            default: LUISA_ERROR_WITH_LOCATION("Invalid sampler address mode {}", static_cast<int>(sampler.address));
+            case LC_SAMPLER_ADDRESS_ZERO:
+                return Sampler::Address::ZERO;
+            case LC_SAMPLER_ADDRESS_EDGE:
+                return Sampler::Address::EDGE;
+            case LC_SAMPLER_ADDRESS_REPEAT:
+                return Sampler::Address::REPEAT;
+            case LC_SAMPLER_ADDRESS_MIRROR:
+                return Sampler::Address::MIRROR;
+            default:
+            LUISA_ERROR_WITH_LOCATION("Invalid sampler address mode {}", static_cast<int>(sampler.address));
         }
     }();
     auto filter = [&sampler]() noexcept -> Sampler::Filter {
         switch (sampler.filter) {
-            case LC_SAMPLER_FILTER_POINT: return Sampler::Filter::POINT;
-            case LC_SAMPLER_FILTER_LINEAR_LINEAR: return Sampler::Filter::LINEAR_LINEAR;
-            case LC_SAMPLER_FILTER_ANISOTROPIC: return Sampler::Filter::ANISOTROPIC;
-            case LC_SAMPLER_FILTER_LINEAR_POINT: return Sampler::Filter::LINEAR_POINT;
-            default: LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
+            case LC_SAMPLER_FILTER_POINT:
+                return Sampler::Filter::POINT;
+            case LC_SAMPLER_FILTER_LINEAR_LINEAR:
+                return Sampler::Filter::LINEAR_LINEAR;
+            case LC_SAMPLER_FILTER_ANISOTROPIC:
+                return Sampler::Filter::ANISOTROPIC;
+            case LC_SAMPLER_FILTER_LINEAR_POINT:
+                return Sampler::Filter::LINEAR_POINT;
+            default:
+            LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
         }
     }();
     return Sampler(filter, address);
@@ -606,8 +632,8 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_bindless_array_create(LCDev
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto info = d->retain()->object()->impl()->create_bindless_array(n);
     return LCCreatedResourceInfo{
-        .handle = info.handle,
-        .native_handle = info.native_handle,
+            .handle = info.handle,
+            .native_handle = info.native_handle,
     };
 }
 
@@ -628,25 +654,157 @@ size_t luisa_compute_device_query(LCDevice device, const char *query, char *resu
 }
 
 LCCreatedSwapchainInfo luisa_compute_swapchain_create(
-    LCDevice device, uint64_t window_handle, LCStream stream_handle,
-    uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT {
+        LCDevice device, uint64_t window_handle, LCStream stream_handle,
+        uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto ret = d->object()->impl()->create_swap_chain(
-        window_handle, stream_handle._0,
-        width, height, allow_hdr, vsync, back_buffer_size);
+            window_handle, stream_handle._0,
+            width, height, allow_hdr, vsync, back_buffer_size);
     return LCCreatedSwapchainInfo{
-        .resource = LCCreatedResourceInfo{
-            .handle = ret.handle,
-            .native_handle = ret.native_handle,
-        },
-        .storage = static_cast<LCPixelStorage>(ret.storage),
+            .resource = LCCreatedResourceInfo{
+                    .handle = ret.handle,
+                    .native_handle = ret.native_handle,
+            },
+            .storage = static_cast<LCPixelStorage>(ret.storage),
     };
 }
+
 void luisa_compute_swapchain_destroy(LCDevice device, LCSwapchain swapchain) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_swap_chain(swapchain._0);
 }
-void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapchain swapchain, LCTexture image) LUISA_NOEXCEPT {
+
+void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapchain swapchain,
+                                     LCTexture image) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->present_display_in_stream(stream._0, swapchain._0, image._0);
+}
+LUISA_EXPORT_API void luisa_compute_device_interface_destroy(LCDeviceInterface device) {
+    luisa_compute_device_destroy(device.device);
+}
+
+
+LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCContext ctx, const char*name, const char*config) {
+    LCDeviceInterface interface{};
+    auto device = luisa_compute_device_create(ctx, name, config);
+    interface.device = device;
+    interface.destroy_device = luisa_compute_device_interface_destroy;
+    interface.create_buffer = [](auto device, auto elem, auto count) -> LCResult_CreatedBufferInfo {
+        auto buffer = luisa_compute_buffer_create(device, elem, count);
+        return LCResult_CreatedBufferInfo{
+                .tag = LCResult_CreatedBufferInfo_Tag::LC_RESULT_CREATED_BUFFER_INFO_OK_CREATED_BUFFER_INFO,
+                .ok = buffer
+        };
+    };
+
+    interface.destroy_buffer = luisa_compute_buffer_destroy;
+    interface.create_texture = [](LCDevice device,
+                                  LCPixelFormat format, uint32_t dim,
+                                  uint32_t w, uint32_t h, uint32_t d,
+                                  uint32_t mips) -> LCResult_CreatedResourceInfo {
+        auto texture = luisa_compute_texture_create(device, format, dim, w, h, d, mips);
+        return LCResult_CreatedResourceInfo{
+                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+                .ok = texture
+        };
+    };
+    interface.destroy_buffer = luisa_compute_buffer_destroy;
+    interface.create_bindless_array = [](LCDevice device, size_t n) -> LCResult_CreatedResourceInfo {
+        auto array = luisa_compute_bindless_array_create(device, n);
+        return LCResult_CreatedResourceInfo{
+                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+                .ok = array
+        };
+    };
+    interface.destroy_bindless_array = luisa_compute_bindless_array_destroy;
+    interface.create_event = [](LCDevice device) -> LCResult_CreatedResourceInfo {
+        auto event = luisa_compute_event_create(device);
+        return LCResult_CreatedResourceInfo{
+                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+                .ok = event
+        };
+    };
+    interface.destroy_event = luisa_compute_event_destroy;
+    interface.wait_event = [](LCDevice device, LCEvent event, LCStream stream) -> LCResult_u8 {
+        luisa_compute_event_wait(device, event, stream);
+        return LCResult_u8{
+                .tag = LCResult_u8_Tag::LC_RESULT_U8_OK_U8,
+                .ok = 0
+        };
+    };
+    interface.signal_event = luisa_compute_event_signal;
+    interface.create_shader = [](LCDevice device, auto kernel, auto options) -> LCResult_CreatedShaderInfo {
+        auto shader = luisa_compute_shader_create(device, kernel, options);
+        return LCResult_CreatedShaderInfo{
+                .tag = LCResult_CreatedShaderInfo_Tag::LC_RESULT_CREATED_SHADER_INFO_OK_CREATED_SHADER_INFO,
+                .ok = shader
+        };
+    };
+    interface.destroy_shader = luisa_compute_shader_destroy;
+    interface.create_stream = [](LCDevice device, LCStreamTag tag) -> LCResult_CreatedResourceInfo {
+        auto stream = luisa_compute_stream_create(device, tag);
+        return LCResult_CreatedResourceInfo{
+                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+                .ok = stream
+        };
+    };
+    interface.destroy_stream = luisa_compute_stream_destroy;
+    interface.dispatch = [](LCDevice device, LCStream stream, LCCommandList list, LCDispatchCallback cb,
+                            uint8_t *userdata) -> LCResult_u8 {
+        luisa_compute_stream_dispatch(device, stream, list, cb, userdata);
+        return LCResult_u8{
+                .tag = LCResult_u8_Tag::LC_RESULT_U8_OK_U8,
+                .ok = 0
+        };
+    };
+    interface.create_mesh = [](LCDevice device, const LCAccelOption *option) -> LCResult_CreatedResourceInfo {
+        auto mesh = luisa_compute_mesh_create(device, option);
+        return LCResult_CreatedResourceInfo{
+                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+                .ok = mesh
+        };
+    };
+    interface.destroy_mesh = luisa_compute_mesh_destroy;
+    interface.create_accel = [](LCDevice device, const LCAccelOption *option) -> LCResult_CreatedResourceInfo {
+        auto accel = luisa_compute_accel_create(device, option);
+        return LCResult_CreatedResourceInfo{
+                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+                .ok = accel
+        };
+    };
+    interface.destroy_accel = luisa_compute_accel_destroy;
+    interface.create_swapchain = [](LCDevice device, uint64_t window_handle, LCStream stream_handle, uint32_t width,
+                                    uint32_t height, bool allow_hdr, bool vsync,
+                                    uint32_t back_buffer_size) -> LCResult_CreatedSwapchainInfo {
+        auto swapchain = luisa_compute_swapchain_create(device, window_handle, stream_handle, width, height, allow_hdr,
+                                                        vsync, back_buffer_size);
+        return LCResult_CreatedSwapchainInfo{
+                .tag = LCResult_CreatedSwapchainInfo_Tag::LC_RESULT_CREATED_SWAPCHAIN_INFO_OK_CREATED_SWAPCHAIN_INFO,
+                .ok = swapchain
+        };
+    };
+    interface.present_display_in_stream = luisa_compute_swapchain_present;
+    interface.destroy_swapchain = luisa_compute_swapchain_destroy;
+//    interface.create_procedural_primitive = [](LCDevice device, const LCProceduralPrimitiveOption* option) -> LCResult_CreatedResourceInfo {
+//        auto primitive = luisa_compute_procedural_primitive_create(device, option);
+//        return LCResult_CreatedResourceInfo{
+//                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
+//                .ok = primitive
+//        };
+//    };
+//    interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
+//    interface.set_logger_callback = luisa_compute_set_logger_callback;
+//    interface.free_string = luisa_compute_free_c_string;
+    return interface;
+}
+
+LUISA_EXPORT_API LCLibInterface luisa_compute_lib_interface() {
+    LCLibInterface interface{};
+    interface.inner = nullptr;
+    interface.set_logger_callback = luisa_compute_set_logger_callback;
+    interface.create_context = luisa_compute_context_create;
+    interface.destroy_context = luisa_compute_context_destroy;
+    interface.create_device = luisa_compute_device_interface_create;
+    interface.free_string = luisa_compute_free_c_string;
+    return interface;
 }

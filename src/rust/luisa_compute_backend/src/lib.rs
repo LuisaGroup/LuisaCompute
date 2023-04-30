@@ -1,21 +1,22 @@
 use std::ffi::{CStr, CString};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use crate::proxy::ProxyBackend;
 use api::{CreatedSwapchainInfo, PixelFormat};
 use libc::{c_char, c_void};
 use libloading::Library;
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
     ir::{self, KernelModule},
-    CArc,
+    CArc, CArcSharedBlock,
 };
 
 pub mod proxy;
-include!("rustc_version.rs");
+
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum BackendErrorKind {
     BackendNotFound,
@@ -47,153 +48,107 @@ pub type Result<T> = std::result::Result<T, BackendError>;
 pub(crate) struct Interface {
     #[allow(dead_code)]
     pub(crate) lib: libloading::Library,
-    #[allow(dead_code)]
-    pub(crate) create_interface: unsafe extern "C" fn() -> api::DeviceInterface,
-    pub(crate) destroy_interface: unsafe extern "C" fn(api::DeviceInterface),
-    pub(crate) inner: api::DeviceInterface,
+    pub(crate) inner: api::LibInterface,
 }
 unsafe impl Send for Interface {}
 unsafe impl Sync for Interface {}
 impl Interface {
     pub unsafe fn new(lib_path: &Path) -> std::result::Result<Self, libloading::Error> {
         let lib = libloading::Library::new(lib_path)?;
-        let create_interface: unsafe extern "C" fn() -> api::DeviceInterface =
-            *lib.get(b"luisa_compute_device_interface_create\0")?;
-        let destroy_interface = *lib.get(b"luisa_compute_device_interface_destroy\0")?;
+        let create_interface: unsafe extern "C" fn() -> api::LibInterface =
+            *lib.get(b"luisa_compute_lib_interface\0")?;
         let interface = create_interface();
         Ok(Self {
             lib,
-            create_interface,
-            destroy_interface,
             inner: interface,
         })
     }
 }
-impl std::ops::Deref for Interface {
-    type Target = api::DeviceInterface;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
+struct BackendProvider {
+    pub(crate) context: api::Context,
+    pub(crate) interface: Arc<Interface>,
 }
-impl Drop for Interface {
-    fn drop(&mut self) {
-        unsafe {
-            (self.destroy_interface)(self.inner);
+impl BackendProvider {
+    unsafe fn new(path: &PathBuf) -> Option<Self> {
+        let interface = Interface::new(path.as_ref())
+            .map_err(|e| {
+                log::warn!("failed to load {}: {}", path.display(), e);
+                e
+            })
+            .ok()
+            .map(Arc::new)?;
+        let parent = path.parent().unwrap();
+        let lib_path_c_str = std::ffi::CString::new(parent.to_str().unwrap()).unwrap();
+        let context = (interface.inner.create_context)(lib_path_c_str.as_c_str().as_ptr());
+
+        unsafe extern "C" fn callback(info: api::LoggerMessage) {
+            let level = CStr::from_ptr(info.level as *mut c_char).to_str().unwrap();
+            let msg = CStr::from_ptr(info.message as *mut c_char)
+                .to_str()
+                .unwrap();
+            let target = if info.target.is_null() {
+                "lc-cpp".to_string()
+            } else {
+                CStr::from_ptr(info.target as *mut c_char)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            };
+            let target = &target;
+            match level {
+                "I" | "Info" => log::log!(target: target, log::Level::Info, "{}", msg),
+                "W" | "Warning" => log::log!(target: target, log::Level::Warn, "{}", msg),
+                "E" | "C" | "Error" => {
+                    log::log!(target: target, log::Level::Error, "{}", msg)
+                }
+                "D" | "Debug" => log::log!(target: target, log::Level::Debug, "{}", msg),
+                "T" | "Trace" => log::log!(target: target, log::Level::Trace, "{}", msg),
+                _ => panic!("unknown log level: {}", level),
+            }
         }
+        (interface.inner.set_logger_callback)(callback);
+
+        Some(Self { interface, context })
     }
 }
 pub struct Context {
-    pub(crate) interface: Option<Arc<Interface>>,
-    pub(crate) swapchain: Option<Arc<SwapChainForCpuContext>>,
-    pub(crate) backends: Option<Arc<RustBackendInterface>>,
-    pub(crate) context: Option<api::Context>,
+    pub(crate) cpp: Option<BackendProvider>,
+    pub(crate) rust: Option<BackendProvider>,
 }
 
 impl Context {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         unsafe {
             let lib_path = path.as_ref().to_path_buf();
-            let api_dll = if cfg!(target_os = "windows") {
+            let cpp_dll = if cfg!(target_os = "windows") {
                 lib_path.join("lc-api.dll")
             } else if cfg!(target_os = "linux") {
                 lib_path.join("liblc-api.so")
             } else {
                 todo!()
             };
-            let swapchain_dll = if cfg!(target_os = "windows") {
-                "lc-vulkan-swapchain.dll"
+            let rust_dll = if cfg!(target_os = "windows") {
+                lib_path.join("luisa_compute_backend_impl.dll")
             } else if cfg!(target_os = "linux") {
-                "liblc-vulkan-swapchain.so"
+                lib_path.join("libluisa_compute_backend_impl.so")
             } else {
                 todo!()
             };
-            let swapchain = lib_path.join(swapchain_dll);
-            let backends_dll = if cfg!(target_os = "windows") {
-                "luisa_compute_backend_impl.dll"
-            } else if cfg!(target_os = "linux") {
-                "libluisa_compute_backend_impl.so"
-            } else {
-                todo!()
-            };
-            let backends = lib_path.join(backends_dll);
-            let interface = Interface::new(&api_dll)
-                .map_err(|e| {
-                    log::warn!("failed to load lc-api: {}", e);
-                    e
-                })
-                .ok()
-                .map(Arc::new);
-            if let Some(interface) = &interface {
-                unsafe extern "C" fn callback(info: api::LoggerMessage) {
-                    let level = CStr::from_ptr(info.level as *mut c_char).to_str().unwrap();
-                    let msg = CStr::from_ptr(info.message as *mut c_char).to_str().unwrap();
-                    let target = if info.target.is_null() {
-                        "lc-cpp".to_string()
-                    } else {
-                        CStr::from_ptr(info.target as *mut c_char)
-                            .to_str()
-                            .unwrap()
-                            .to_string()
-                    };
-                    let target= &target;
-                    match level {
-                        "I" | "Info" => log::log!(target: target, log::Level::Info, "{}", msg),
-                        "W" | "Warning" => log::log!(target: target, log::Level::Warn, "{}", msg),
-                        "E" | "C" | "Error" => {
-                            log::log!(target: target, log::Level::Error, "{}", msg)
-                        }
-                        "D" | "Debug" => log::log!(target: target, log::Level::Debug, "{}", msg),
-                        "T" | "Trace" => log::log!(target: target, log::Level::Trace, "{}", msg),
-                        _ => panic!("unknown log level: {}", level),
-                    }
-                }
-                (interface.set_logger_callback)(callback);
-            }
-            let swapchain = SwapChainForCpuContext::new(swapchain)
-                .map_err(|e| {
-                    log::warn!("failed to load swapchain: {}", e);
-                    e
-                })
-                .ok()
-                .map(|x| Arc::new(x));
-            let backends = RustBackendInterface::new(backends)
-                .map_err(|e| {
-                    log::warn!("failed to load Rust backends: {}", e);
-                    e
-                })
-                .ok()
-                .map(|x| Arc::new(x));
-            let lib_path_c_str = std::ffi::CString::new(lib_path.to_str().unwrap()).unwrap();
-            let context = interface.as_ref().map(|interface| {
-                (interface.create_context)(lib_path_c_str.as_c_str().as_ptr())
-            });
-            Self {
-                interface,
-                swapchain,
-                context,
-                backends,
-            }
+            let cpp = BackendProvider::new(&cpp_dll);
+            let rust = BackendProvider::new(&rust_dll);
+            Self { cpp, rust }
         }
     }
 
-    pub fn create_device(&self, device: &str) -> crate::Result<Arc<dyn Backend>> {
+    pub fn create_device(
+        &self,
+        device: &str,
+        config: serde_json::Value,
+    ) -> crate::Result<ProxyBackend> {
         match device {
-            "cpu" | "remote" => unsafe {
-                if let Some(backends) = &self.backends {
-                    let info = (backends.rustc_info)();
-                    if info.channel == "nightly" {
-                        log::warn!(
-                            "nightly rustc is used, please use stable rustc to compile the backend"
-                        );
-                    }
-                    if info.version != RUSTC_VERSION {
-                        log::warn!("rustc version mismatch. Current {}, backend: {}, please use recompile LuisaCompute using matching compiler", RUSTC_VERSION, info.version);
-                    }
-                    let device = (backends.create_device)(device)?;
-                    if let Some(swapchain) = &self.swapchain {
-                        device.set_swapchain_contex(swapchain.clone());
-                    }
-                    Ok(device)
+            "cpu" | "remote" => {
+                if let Some(provider) = &self.rust {
+                    Ok(ProxyBackend::new(provider, device, config))
                 } else {
                     let libname = if cfg!(target_os = "windows") {
                         "luisa_compute_backend_impl.dll"
@@ -206,8 +161,23 @@ impl Context {
                         message: format!("device {0} not found. {0} device may not be enabled or {1} is not found", device, libname),
                     })
                 }
-            },
-            "cuda" | "dx" | "metal" => Ok(proxy::ProxyBackend::new(self, device)),
+            }
+            "cuda" | "dx" | "metal" => {
+                if let Some(provider) = &self.cpp {
+                    Ok(ProxyBackend::new(provider, device, config))
+                } else {
+                    let libname = if cfg!(target_os = "windows") {
+                        "lc-api.dll"
+                    } else {
+                        "liblc-api.so"
+                    };
+
+                    Err(BackendError{
+                    kind: BackendErrorKind::BackendNotFound,
+                    message: format!("device {0} not found. {0} device may not be enabled or {1} is not found", device, libname),
+                })
+                }
+            }
             _ => panic!("unsupported device: {}", device),
         }
     }
@@ -218,67 +188,8 @@ pub struct RustcInfo {
     pub version: &'static str,
     pub date: &'static str,
 }
-pub struct RustBackendInterface {
-    #[allow(dead_code)]
-    lib: Library,
-    pub create_device: unsafe extern "C" fn(name: &str) -> crate::Result<Arc<dyn Backend>>,
-    pub rustc_info: unsafe extern "C" fn() -> RustcInfo,
-}
-unsafe impl Send for RustBackendInterface {}
-
-unsafe impl Sync for RustBackendInterface {}
-impl RustBackendInterface {
-    pub unsafe fn new(libpath: impl AsRef<Path>) -> std::result::Result<Self, libloading::Error> {
-        let lib = Library::new(libpath.as_ref())?;
-        let create_device = *lib.get(b"luisa_compute_create_device_rust_interface\0")?;
-        let rustc_info = *lib.get(b"luisa_compute_rustc_info\0")?;
-        Ok(Self {
-            lib,
-            create_device,
-            rustc_info,
-        })
-    }
-}
-pub struct SwapChainForCpuContext {
-    #[allow(dead_code)]
-    lib: Library,
-    pub create_cpu_swapchain: unsafe extern "C" fn(
-        window_handle: u64,
-        width: u32,
-        height: u32,
-        allow_hdr: bool,
-        vsync: bool,
-        back_buffer_size: u32,
-    ) -> *mut c_void,
-    pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
-    pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
-    pub cpu_swapchain_present:
-        unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
-}
-
-unsafe impl Send for SwapChainForCpuContext {}
-
-unsafe impl Sync for SwapChainForCpuContext {}
-
-impl SwapChainForCpuContext {
-    pub unsafe fn new(libpath: impl AsRef<Path>) -> std::result::Result<Self, libloading::Error> {
-        let lib = Library::new(libpath.as_ref())?;
-        let create_cpu_swapchain = *lib.get(b"luisa_compute_create_cpu_swapchain\0")?;
-        let destroy_cpu_swapchain = *lib.get(b"luisa_compute_destroy_cpu_swapchain\0")?;
-        let cpu_swapchain_present = *lib.get(b"luisa_compute_cpu_swapchain_present\0")?;
-        let cpu_swapchain_storage = *lib.get(b"luisa_compute_cpu_swapchain_storage\0")?;
-        Ok(Self {
-            lib,
-            create_cpu_swapchain,
-            destroy_cpu_swapchain,
-            cpu_swapchain_present,
-            cpu_swapchain_storage,
-        })
-    }
-}
 
 pub trait Backend: Sync + Send {
-    unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>);
     fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> Result<api::CreatedBufferInfo>;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
@@ -343,210 +254,306 @@ pub trait Backend: Sync + Send {
     fn query(&self, property: &str) -> Option<String>;
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_backend(ptr: *mut c_void) {
+// #[no_mangle]
+// pub extern "C" fn lc_rs_destroy_backend(ptr: *mut c_void) {
+//     unsafe {
+//         let ptr = ptr as *mut Box<dyn Backend>;
+//         drop(Box::from_raw(ptr));
+//     }
+// }
+//
+// #[no_mangle]
+// pub extern "C" fn lc_rs_create_backend(name: *const std::ffi::c_char) -> *mut c_void {
+//     let name = unsafe { std::ffi::CStr::from_ptr(name) };
+//     let name = name.to_str().unwrap();
+//     let backend = match name {
+//         #[cfg(feature = "cpu")]
+//         "rust" => Box::new(rust::RustBackend::new()),
+//         #[cfg(feature = "remote")]
+//         "remote" => Box::new(remote::RemoteBackend::new()),
+//         _ => panic!("unknown backend"),
+//     };
+// }
+//
+fn get_backend<'a, B: Backend>(backend: api::Device) -> &'a B {
+    unsafe { &*(backend.0 as *mut B) }
+}
+fn map<T>(a: crate::Result<T>) -> api::Result<T> {
     unsafe {
-        let ptr = ptr as *mut Box<dyn Backend>;
-        drop(Box::from_raw(ptr));
+        match a {
+            crate::Result::Ok(a) => api::Result::Ok(a),
+            crate::Result::Err(a) => api::Result::Err(api::BackendError {
+                kind: match a.kind {
+                    crate::BackendErrorKind::BackendNotFound => {
+                        api::BackendErrorKind::BackendNotFound
+                    }
+                    crate::BackendErrorKind::KernelExecution => {
+                        api::BackendErrorKind::KernelExecution
+                    }
+                    crate::BackendErrorKind::KernelCompilation => {
+                        api::BackendErrorKind::KernelCompilation
+                    }
+                    crate::BackendErrorKind::Network => api::BackendErrorKind::Network,
+                    crate::BackendErrorKind::Other => api::BackendErrorKind::Other,
+                },
+                message: CString::new(a.message).unwrap().into_raw(),
+            }),
+        }
     }
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_create_backend(name: *const std::ffi::c_char) -> *mut c_void {
-    let name = unsafe { std::ffi::CStr::from_ptr(name) };
-    let name = name.to_str().unwrap();
-    let backend = match name {
-        #[cfg(feature = "cpu")]
-        "rust" => Box::new(rust::RustBackend::new()),
-        #[cfg(feature = "remote")]
-        "remote" => Box::new(remote::RemoteBackend::new()),
-        _ => panic!("unknown backend"),
-    };
-    Box::into_raw(Box::new(backend)) as *mut c_void
-}
-
-#[no_mangle]
-pub extern "C" fn lc_rs_create_buffer(
-    backend: *mut c_void,
-    ty: *const CArc<ir::Type>,
+extern "C" fn create_buffer<B: Backend>(
+    backend: api::Device,
+    ty: *const c_void,
     count: usize,
-) -> api::CreatedBufferInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+) -> api::Result<api::CreatedBufferInfo> {
+    let backend: &B = get_backend(backend);
     let ty = unsafe { &*(ty as *const CArc<ir::Type>) };
-    backend.create_buffer(ty, count).unwrap()
+    map(backend.create_buffer(ty, count))
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_buffer(backend: *mut c_void, buffer: api::Buffer) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+pub extern "C" fn destroy_buffer<B: Backend>(backend: api::Device, buffer: api::Buffer) {
+    let backend: &B = get_backend(backend);
     backend.destroy_buffer(buffer)
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_create_texture(
-    backend: *mut c_void,
+//
+pub extern "C" fn create_texture<B: Backend>(
+    backend: api::Device,
     format: PixelFormat,
     dimension: u32,
     width: u32,
     height: u32,
     depth: u32,
     mipmap_levels: u32,
-) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend
-        .create_texture(format, dimension, width, height, depth, mipmap_levels)
-        .unwrap()
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_texture(format, dimension, width, height, depth, mipmap_levels))
 }
+//
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_texture(backend: *mut c_void, texture: api::Texture) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_texture<B: Backend>(backend: api::Device, texture: api::Texture) {
+    let backend: &B = get_backend(backend);
     backend.destroy_texture(texture)
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_create_bindless_array(
-    backend: *mut c_void,
+extern "C" fn create_bindless_array<B: Backend>(
+    backend: api::Device,
     size: usize,
-) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_bindless_array(size).unwrap()
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_bindless_array(size))
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_bindless_array(backend: *mut c_void, array: api::BindlessArray) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_bindless_array<B: Backend>(backend: api::Device, array: api::BindlessArray) {
+    let backend: &B = get_backend(backend);
     backend.destroy_bindless_array(array)
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_create_stream(
-    backend: *mut c_void,
+extern "C" fn create_stream<B: Backend>(
+    backend: api::Device,
     tag: api::StreamTag,
-) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_stream(tag).unwrap()
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_stream(tag))
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_stream(backend: *mut c_void, stream: api::Stream) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_stream<B: Backend>(backend: api::Device, stream: api::Stream) {
+    let backend: &B = get_backend(backend);
     backend.destroy_stream(stream)
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_synchronize_stream(backend: *mut c_void, stream: api::Stream) -> bool {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.synchronize_stream(stream).is_ok()
-}
-
-#[repr(C)]
-pub struct LCDispatchCallback {
-    callback: extern "C" fn(*mut u8),
-    user_data: *mut u8,
-}
-
-#[no_mangle]
-pub extern "C" fn lc_rs_dispatch(
-    backend: *mut c_void,
+extern "C" fn synchronize_stream<B: Backend>(
+    backend: api::Device,
     stream: api::Stream,
-    command_list: *const api::Command,
-    command_count: usize,
-    callback: LCDispatchCallback,
-) -> bool {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    let command_list = unsafe { std::slice::from_raw_parts(command_list, command_count) };
-    backend
-        .dispatch(
-            stream,
-            command_list,
-            (callback.callback, callback.user_data),
-        )
-        .is_ok()
+) -> api::Result<u8> {
+    let backend: &B = get_backend(backend);
+    map(backend.synchronize_stream(stream).map(|_| 0))
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_create_shader(
-    backend: *mut c_void,
-    kernel: CArc<KernelModule>,
+extern "C" fn dispatch<B: Backend>(
+    backend: api::Device,
+    stream: api::Stream,
+    command_list: api::CommandList,
+    callback: api::DispatchCallback,
+    user_data: *mut u8,
+) -> api::Result<u8> {
+    let backend: &B = get_backend(backend);
+    let command_list =
+        unsafe { std::slice::from_raw_parts(command_list.commands, command_list.commands_count) };
+    map(backend
+        .dispatch(stream, command_list, (callback, user_data))
+        .map(|_| 0))
+}
+//
+
+unsafe extern "C" fn create_shader<B: Backend>(
+    backend: api::Device,
+    kernel: api::KernelModule,
     option: &api::ShaderOption,
-) -> api::CreatedShaderInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_shader(kernel, option).unwrap()
+) -> api::Result<api::CreatedShaderInfo> {
+    let backend: &B = get_backend(backend);
+    let kernel = &*(kernel.ptr as *const CArc<ir::KernelModule>);
+    map(backend.create_shader(CArc::clone(kernel), option))
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_shader(backend: *mut c_void, shader: api::Shader) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_shader<B: Backend>(backend: api::Device, shader: api::Shader) {
+    let backend: &B = get_backend(backend);
     backend.destroy_shader(shader)
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_create_event(backend: *mut c_void) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_event().unwrap()
+extern "C" fn create_event<B: Backend>(
+    backend: api::Device,
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_event())
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_event(backend: *mut c_void, event: api::Event) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_event<B: Backend>(backend: api::Device, event: api::Event) {
+    let backend: &B = get_backend(backend);
     backend.destroy_event(event)
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_create_accel(
-    backend: *mut c_void,
-    option: api::AccelOption,
-) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_accel(option).unwrap()
+extern "C" fn signal_event<B: Backend>(
+    backend: api::Device,
+    event: api::Event,
+    stream: api::Stream,
+) {
+    let backend: &B = get_backend(backend);
+    backend.signal_event(event, stream)
+}
+extern "C" fn wait_event<B: Backend>(
+    backend: api::Device,
+    event: api::Event,
+    stream: api::Stream,
+) -> api::Result<u8> {
+    let backend: &B = get_backend(backend);
+    map(backend.wait_event(event, stream).map(|_| 0u8))
+}
+extern "C" fn synchronize_event<B: Backend>(
+    backend: api::Device,
+    event: api::Event,
+) -> api::Result<u8> {
+    let backend: &B = get_backend(backend);
+    map(backend.synchronize_event(event).map(|_| 0u8))
+}
+extern "C" fn create_accel<B: Backend>(
+    backend: api::Device,
+    option: &api::AccelOption,
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_accel(*option))
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_accel(backend: *mut c_void, accel: api::Accel) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_accel<B: Backend>(backend: api::Device, accel: api::Accel) {
+    let backend: &B = get_backend(backend);
     backend.destroy_accel(accel)
 }
-
-#[no_mangle]
-pub extern "C" fn lc_rs_create_mesh(
-    backend: *mut c_void,
-    option: api::AccelOption,
-) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_mesh(option).unwrap()
+extern "C" fn create_mesh<B: Backend>(
+    backend: api::Device,
+    option: &api::AccelOption,
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_mesh(*option))
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_destroy_mesh(backend: *mut c_void, mesh: api::Mesh) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn destroy_mesh<B: Backend>(backend: api::Device, mesh: api::Mesh) {
+    let backend: &B = get_backend(backend);
     backend.destroy_mesh(mesh)
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_create_procedural_primitive(
-    backend: *mut c_void,
-    option: api::AccelOption,
-) -> api::CreatedResourceInfo {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_procedural_primitive(option).unwrap()
+extern "C" fn create_procedural_primitive<B: Backend>(
+    backend: api::Device,
+    option: &api::AccelOption,
+) -> api::Result<api::CreatedResourceInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_procedural_primitive(*option))
+}
+extern "C" fn destroy_procedural_primitive<B: Backend>(
+    backend: api::Device,
+    primitive: api::ProceduralPrimitive,
+) {
+    let backend: &B = get_backend(backend);
+    backend.destroy_procedural_primitive(primitive)
 }
 
-#[no_mangle]
-pub extern "C" fn lc_rs_query(
-    backend: *mut c_void,
-    property: *mut std::ffi::c_char,
-    result: *mut std::ffi::c_char,
-    result_size: usize,
-) {
-    let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
+extern "C" fn query<B: Backend>(
+    backend: api::Device,
+    property: *const std::ffi::c_char,
+) -> *mut std::ffi::c_char {
+    let backend: &B = get_backend(backend);
     let property = unsafe { std::ffi::CStr::from_ptr(property) };
     let property = property.to_str().unwrap();
     let value = backend.query(property);
     let value = std::ffi::CString::new(value.unwrap_or("".into())).unwrap();
-    let result = unsafe { std::slice::from_raw_parts_mut(result as *mut u8, result_size) };
-    let value_len = value.as_bytes().len();
-    assert!(value_len < result_size);
-    result[..value_len].copy_from_slice(value.as_bytes());
-    result[value_len..].fill(0);
+    value.into_raw()
+}
+extern "C" fn create_swapchain<B: Backend>(
+    backend: api::Device,
+    window_handle: u64,
+    stream_handle: api::Stream,
+    width: u32,
+    height: u32,
+    allow_hdr: bool,
+    vsync: bool,
+    back_buffer_size: u32,
+) -> api::Result<api::CreatedSwapchainInfo> {
+    let backend: &B = get_backend(backend);
+    map(backend.create_swapchain(
+        window_handle,
+        stream_handle,
+        width,
+        height,
+        allow_hdr,
+        vsync,
+        back_buffer_size,
+    ))
+}
+extern "C" fn present_display_in_stream<B: Backend>(
+    backend: api::Device,
+    stream_handle: api::Stream,
+    swapchain: api::Swapchain,
+
+    image: api::Texture,
+) {
+    let backend: &B = get_backend(backend);
+    backend.present_display_in_stream(stream_handle, swapchain, image)
+}
+extern "C" fn destroy_swapchain<B: Backend>(backend: api::Device, swapchain: api::Swapchain) {
+    let backend: &B = get_backend(backend);
+    backend.destroy_swapchain(swapchain)
+}
+extern "C" fn destroy_device<B: Backend>(device: api::DeviceInterface) {
+    let backend: Box<B> = unsafe { Box::from_raw(device.device.0 as *mut B) };
+    drop(backend)
+}
+#[inline]
+pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
+    let backend = Box::new(backend);
+    let backend_ptr = Box::into_raw(backend);
+    api::DeviceInterface {
+        device: api::Device(backend_ptr as u64),
+        destroy_device: destroy_device::<B>,
+        create_buffer: create_buffer::<B>,
+        destroy_buffer: destroy_buffer::<B>,
+        create_texture: create_texture::<B>,
+        destroy_texture: destroy_texture::<B>,
+        create_bindless_array: create_bindless_array::<B>,
+        destroy_bindless_array: destroy_bindless_array::<B>,
+        create_stream: create_stream::<B>,
+        destroy_stream: destroy_stream::<B>,
+        synchronize_stream: synchronize_stream::<B>,
+        dispatch: dispatch::<B>,
+        create_swapchain: create_swapchain::<B>,
+        present_display_in_stream: present_display_in_stream::<B>,
+        destroy_swapchain: destroy_swapchain::<B>,
+        create_shader: create_shader::<B>,
+        destroy_shader: destroy_shader::<B>,
+        create_event: create_event::<B>,
+        destroy_event: destroy_event::<B>,
+        signal_event: signal_event::<B>,
+        synchronize_event: synchronize_event::<B>,
+        wait_event: wait_event::<B>,
+        create_mesh: create_mesh::<B>,
+        destroy_mesh: destroy_mesh::<B>,
+        create_procedural_primitive: create_procedural_primitive::<B>,
+        destroy_procedural_primitive: destroy_procedural_primitive::<B>,
+        create_accel: create_accel::<B>,
+        destroy_accel: destroy_accel::<B>,
+        query: query::<B>,
+    }
 }

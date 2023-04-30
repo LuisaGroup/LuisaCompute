@@ -452,12 +452,6 @@ typedef struct LCShaderOption {
     const char *name;
 } LCShaderOption;
 
-typedef struct LCLoggerMessage {
-    const char *target;
-    const char *level;
-    const char *message;
-} LCLoggerMessage;
-
 typedef struct LCBackendError {
     enum LCBackendErrorKind kind;
     char *message;
@@ -551,13 +545,8 @@ typedef struct LCResult_CreatedShaderInfo {
 } LCResult_CreatedShaderInfo;
 
 typedef struct LCDeviceInterface {
-    void *inner;
-    void (*set_logger_callback)(void(*)(struct LCLoggerMessage));
-    struct LCContext (*create_context)(const char*);
-    void (*destroy_context)(struct LCContext);
-    struct LCDevice (*create_device)(struct LCContext, const char*, const char*);
-    void (*destroy_device)(struct LCDevice);
-    void (*free_string)(char*);
+    struct LCDevice device;
+    void (*destroy_device)(struct LCDeviceInterface);
     struct LCResult_CreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t);
     void (*destroy_buffer)(struct LCDevice, struct LCBuffer);
     struct LCResult_CreatedResourceInfo (*create_texture)(struct LCDevice, enum LCPixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
@@ -586,3 +575,18 @@ typedef struct LCDeviceInterface {
     void (*destroy_accel)(struct LCDevice, struct LCAccel);
     char *(*query)(struct LCDevice, const char*);
 } LCDeviceInterface;
+
+typedef struct LCLoggerMessage {
+    const char *target;
+    const char *level;
+    const char *message;
+} LCLoggerMessage;
+
+typedef struct LCLibInterface {
+    void *inner;
+    void (*set_logger_callback)(void(*)(struct LCLoggerMessage));
+    struct LCContext (*create_context)(const char*);
+    void (*destroy_context)(struct LCContext);
+    struct LCDeviceInterface (*create_device)(struct LCContext, const char*, const char*);
+    void (*free_string)(char*);
+} LCLibInterface;
