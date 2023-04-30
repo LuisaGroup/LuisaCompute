@@ -1,6 +1,7 @@
 from .dylibs import lcapi
 from .types import dtype_of, to_lctype, nameof
 
+
 class Array:
     def __init__(self, arr):
         if type(arr) is Array:
@@ -33,14 +34,16 @@ class Array:
     def __repr__(self):
         return '[' + ','.join(repr(x) for x in self.values) + ']'
 
+
 def array(arr):
     return Array(arr)
+
 
 class ArrayType:
     def __init__(self, size, dtype):
         self.size = size
         self.dtype = dtype
-        assert type(size) is int and size>0
+        assert type(size) is int and size > 0
         self.luisa_type = lcapi.Type.from_(f'array<{to_lctype(dtype).description()},{self.size}>')
 
     def __call__(self, data):
@@ -56,6 +59,7 @@ class ArrayType:
     def __hash__(self):
         return hash(self.dtype) ^ hash(self.size) ^ 2958463956743103
 
+
 def deduce_array_type(arr):
     assert len(arr) > 0
     dtype = dtype_of(arr[0])
@@ -64,11 +68,12 @@ def deduce_array_type(arr):
             raise TypeError("all elements of array must be of same type")
     return ArrayType(dtype=dtype, size=len(arr))
 
+
 class SharedArrayType:
     def __init__(self, size, dtype):
         self.size = size
         self.dtype = dtype
-        assert type(size) is int and size>0
+        assert type(size) is int and size > 0
         self.luisa_type = lcapi.Type.from_(f'array<{to_lctype(dtype).description()},{self.size}>')
 
     def __repr__(self):

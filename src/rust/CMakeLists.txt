@@ -39,7 +39,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
         install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
-                FILES_MATCHING REGEX ".*luisa_compute_backend_impl.*\\.(dll|so|dylib)$")
+                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
     endif ()
 
     function(luisa_compute_install_rust target)

@@ -265,6 +265,9 @@ private:
                 auto iter = std::partition(
                     captured_variables.begin(), captured_variables.end(),
                     [this, f](auto v) noexcept {
+                    LUISA_ASSERT(!v.is_resource() ||
+                                     _root_resources.contains({f, v}),
+                                 "Invalid variable.");
                     return !v.is_resource() ||
                            _root_resources.at({f, v}).size() != 1u;
                     });
@@ -292,7 +295,6 @@ private:
 
             // pack the variables into a tight struct to minimize the stack size
             {
-
                 luisa::fixed_vector<uint, 8u> indices;
                 auto glob_elements = [&indices, &captured_elements](auto &&self, Variable base, const Type *type) noexcept -> void {
                     if (type->is_scalar()) {
@@ -471,14 +473,14 @@ private:
         };
         // create outlined triangle function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
-                           << "  LCTriangleIntersectionResult result{};\n";
+                           << "  LCIntersectionResult result{};\n";
         generate_intersection_body(s->on_triangle_candidate());
         _codegen->_scratch << "  return result;\n"
                               "}\n\n";
 
         // create outlined procedural function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
-                           << "  LCProceduralIntersectionResult result{};\n";
+                           << "  LCIntersectionResult result{};\n";
         generate_intersection_body(s->on_procedural_candidate());
         _codegen->_scratch << "  return result;\n"
                               "}\n\n";
@@ -508,6 +510,8 @@ public:
     }
 
     void lower(const RayQueryStmt *stmt) noexcept {
+        LUISA_ASSERT(_outline_infos.contains(stmt),
+                     "Ray query statement not outlined.");
         auto &&[rq_index, captured_resources, captured_elements] = _outline_infos.at(stmt);
         // create ray query context
         _codegen->_scratch << "\n";
@@ -903,11 +907,13 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             extra->accept(*this);
         }
     } else {
-        if (auto args = expr->arguments(); !args.empty()) {
-            for (auto arg : args) {
-                arg->accept(*this);
-                _scratch << ", ";
-            }
+        auto trailing_comma = false;
+        for (auto arg : expr->arguments()) {
+            trailing_comma = true;
+            arg->accept(*this);
+            _scratch << ", ";
+        }
+        if (trailing_comma) {
             _scratch.pop_back();
             _scratch.pop_back();
         }
@@ -1121,11 +1127,20 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
+    // detect if there is a RayQueryStmt
+    auto has_ray_query = false;
+    traverse_expressions<false>(
+        f.body(),
+        [](auto) noexcept {},
+        [&](auto stmt) noexcept {
+        if (stmt->tag() == Statement::Tag::RAY_QUERY) {
+            has_ray_query = true;
+        }
+        },
+        [](auto) noexcept {});
+
     // outline ray query functions
-    if (f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||
-        f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY)) {
-        _ray_query_lowering->outline(f);
-    }
+    if (has_ray_query) { _ray_query_lowering->outline(f); }
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {

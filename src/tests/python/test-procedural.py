@@ -82,7 +82,7 @@ def kernel(pos):
     fov = radians(45.8)
     ray = make_ray(pos, normalize(float3(p * tan(.5 * fov) * float2(aspect, 1.), -1.)), 1e-3, 1e3)
     q = acc.query_all(ray, -1)
-    match(q):
+    match q:
         case is_triangle():
             q.commit_triangle()
         case is_procedural():

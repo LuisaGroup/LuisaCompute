@@ -2,6 +2,7 @@ from . import func, StructType
 from .mathtypes import *
 from .types import *
 import math
+
 RandomSampler = StructType(state=int)
 
 

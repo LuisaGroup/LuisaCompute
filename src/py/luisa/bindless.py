@@ -4,19 +4,22 @@ from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
 from . import Buffer, Image2D, Image3D
-from .types import BuiltinFuncBuilder, to_lctype, uint, short, ushort, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
+from .types import BuiltinFuncBuilder, to_lctype, uint, short, ushort, short2, half2, ushort2, short3, half3, ushort3, \
+    short4, half4, ushort4
 from .builtin import check_exact_signature
 from .func import func
 from .builtin import _builtin_call
 
+
 class BindlessArray:
-    def __init__(self, n_slots = 65536):
+    def __init__(self, n_slots=65536):
         self.array = device().impl().create_bindless_array(n_slots)
         self.handle = lcapi.get_bindless_handle(self.array)
+
     def __del__(self):
-        if(self.array != None):
+        if (self.array is not None):
             local_device = device()
-            if local_device != None:
+            if local_device is not None:
                 local_device.impl().destroy_bindless_array(self.array)
 
     @staticmethod
@@ -28,27 +31,27 @@ class BindlessArray:
         return arr
 
     @staticmethod
-    def empty(n_slots = 65536):
+    def empty(n_slots=65536):
         return BindlessArray(n_slots)
 
-    def emplace(self, idx, res, filter = None, address = None, byte_offset = 0):
+    def emplace(self, idx, res, filter=None, address=None, byte_offset=0):
         if type(res) is Buffer:
             device().impl().emplace_buffer_in_bindless_array(self.array, idx, res.handle, byte_offset)
         elif type(res) is Image2D:
             if res.dtype != float:
                 raise TypeError("Type of emplaced Image2D must be float")
-            if filter == None:
+            if filter is None:
                 filter = lcapi.Filter.LINEAR_POINT
-            if address == None:
+            if address is None:
                 address = lcapi.Address.REPEAT
             sampler = lcapi.Sampler(filter, address)
             device().impl().emplace_tex2d_in_bindless_array(self.array, idx, res.handle, sampler)
         elif type(res) is Image3D:
             if res.dtype != float:
                 raise TypeError("Type of emplaced Image3D must be float")
-            if filter == None:
+            if filter is None:
                 filter = lcapi.Filter.LINEAR_POINT
-            if address == None:
+            if address is None:
                 address = lcapi.Address.REPEAT
             sampler = lcapi.Sampler(filter, address)
             device().impl().emplace_tex3d_in_bindless_array(self.array, idx, res.handle, sampler)
@@ -57,13 +60,14 @@ class BindlessArray:
 
     def remove_buffer(self, idx):
         device().impl().remove_buffer_in_bindless_array(self.array, idx)
-        
+
     def remove_texture2d(self, idx):
         device().impl().remove_tex2d_in_bindless_array(self.array, idx)
+
     def remove_texture3d(self, idx):
         device().impl().remove_tex3d_in_bindless_array(self.array, idx)
-        
-    def update(self, sync = False, stream = None):
+
+    def update(self, sync=False, stream=None):
         if stream is None:
             stream = globalvars.stream
         stream.update_bindless(self.array)
@@ -76,10 +80,11 @@ class BindlessArray:
     # might not be possible, because "type" is not a valid data type in LC
 
     @BuiltinFuncBuilder
-    def buffer_read(*argnodes): # (dtype, buffer_index, element_index)
+    def buffer_read(*argnodes):  # (dtype, buffer_index, element_index)
         check_exact_signature([type, int, uint], argnodes[1:], "buffer_read")
         dtype = argnodes[1].expr
-        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
+        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ,
+                                    [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
         return dtype, expr
 
     @func
@@ -89,6 +94,7 @@ class BindlessArray:
     @func
     def texture2d_sample(self, texture2d_index, uv: float2):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE", self, texture2d_index, uv)
+
     @func
     def texture2d_sample_mip(self, texture2d_index, uv: float2, mip):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE_LEVEL", self, texture2d_index, uv, mip)
@@ -100,6 +106,7 @@ class BindlessArray:
     @func
     def texture2d_size(self, texture2d_index):
         return _builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index)
+
     @func
     def texture3d_read(self, texture3d_index, coord: uint3):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_READ", self, texture3d_index, coord)
@@ -107,6 +114,7 @@ class BindlessArray:
     @func
     def texture3d_sample(self, texture3d_index, uv: float3):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE", self, texture3d_index, uv)
+
     @func
     def texture3d_sample_mip(self, texture3d_index, uv: float3, mip):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE_LEVEL", self, texture3d_index, uv, mip)
@@ -118,5 +126,6 @@ class BindlessArray:
     @func
     def texture3d_size(self, texture3d_index):
         return _builtin_call(uint3, "BINDLESS_TEXTURE3D_SIZE", self, texture3d_index)
+
 
 bindless_array = BindlessArray.bindless_array

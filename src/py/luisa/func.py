@@ -12,17 +12,18 @@ from . import globalvars, astbuilder
 from .globalvars import get_global_device
 from .types import dtype_of, to_lctype, implicit_covertable
 from .astbuilder import VariableInfo
-from. meshformat import MeshFormat
+from .meshformat import MeshFormat
 import textwrap
 import os
 import sys
 from .raster import AppData
 
+
 def create_arg_expr(dtype, allow_ref):
     # Note: scalars are always passed by value
     #       vectors/matrices/arrays/structs are passed by reference if (allow_ref==True)
     #       resources are always passed by reference (without specifying ref)
-    lctype = to_lctype(dtype) # also checking that it's valid data dtype
+    lctype = to_lctype(dtype)  # also checking that it's valid data dtype
     if lctype.is_scalar() or lctype.is_vector() or lctype.is_matrix():
         return lcapi.builder().argument(lctype)
     if lctype.is_array() or lctype.is_structure() or lctype.is_custom():
@@ -41,6 +42,7 @@ def create_arg_expr(dtype, allow_ref):
     else:
         assert False
 
+
 # annotation can be used (but not required) to specify argument type
 def annotation_type_check(funcname, parameters, argtypes):
     def anno_str(anno):
@@ -49,6 +51,7 @@ def annotation_type_check(funcname, parameters, argtypes):
         if hasattr(anno, '__name__'):
             return ":" + anno.__name__
         return ":" + repr(anno)
+
     count = len(argtypes)
     for idx, name in enumerate(parameters):
         if idx >= count:
@@ -57,6 +60,7 @@ def annotation_type_check(funcname, parameters, argtypes):
         if anno != inspect._empty and not implicit_covertable(anno, argtypes[idx]):
             hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
             raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
+
 
 # variables, information and compiled result are stored per func instance (argument type specialization)
 class FuncInstanceInfo:
@@ -74,33 +78,38 @@ class FuncInstanceInfo:
             **_closure_vars.nonlocals,
             **_closure_vars.builtins
         }
-        self.local_variable = {} # dict: name -> VariableInfo(dtype, expr, is_arg)
+        self.local_variable = {}  # dict: name -> VariableInfo(dtype, expr, is_arg)
         self.function = None
         self.shader_handle = None
+
     def __del__(self):
-        if self.shader_handle != None:
+        if self.shader_handle is not None:
             device = get_global_device()
-            if device != None:
+            if device is not None:
                 device.impl().destroy_shader(self.shader_handle)
+
     def build_arguments(self, allow_ref: bool, arg_info=None):
-        if arg_info == None:
+        if arg_info is None:
             for idx, name in enumerate(self.func.parameters):
                 if idx >= len(self.argtypes): break
                 dtype = self.argtypes[idx]
-                expr = create_arg_expr(dtype, allow_ref = allow_ref)
+                expr = create_arg_expr(dtype, allow_ref=allow_ref)
                 self.local_variable[name] = VariableInfo(dtype, expr, is_arg=True)
         else:
             for idx, name in enumerate(self.func.parameters):
                 if idx >= len(self.argtypes): break
                 var_info = arg_info.get(idx)
                 dtype = self.argtypes[idx]
-                if var_info != None:
+                if var_info is not None:
                     self.local_variable[name] = var_info["var"]
                 else:
-                    expr = create_arg_expr(dtype, allow_ref = allow_ref)
+                    expr = create_arg_expr(dtype, allow_ref=allow_ref)
                     self.local_variable[name] = VariableInfo(dtype, expr, is_arg=True)
+
+
 class CompileError(Exception):
     pass
+
 
 class func:
     # creates a luisa function with given function
@@ -111,23 +120,25 @@ class func:
     def __init__(self, pyfunc):
         self.pyfunc = pyfunc
         self.__name__ = pyfunc.__name__
-        self.compiled_results = {} # maps (arg_type_tuple) to (function, shader_handle)
+        self.compiled_results = {}  # maps (arg_type_tuple) to (function, shader_handle)
         frameinfo = inspect.getframeinfo(inspect.stack()[1][0])
         self.filename = frameinfo.filename
         self.lineno = frameinfo.lineno
-        
-    def save(self, argtypes: tuple, name=None, async_build: bool=True):
+
+    def save(self, argtypes: tuple, name=None, async_build: bool = True):
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
         if len(argtypes) > len(self.parameters):
-            raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} or less expected).")
+            raise Exception(
+                f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} or less expected).")
         annotation_type_check(self.__name__, self.parameters, argtypes)
         f = FuncInstanceInfo(self, True, argtypes)
+
         # build function callback
         def astgen():
-            lcapi.builder().set_block_size(256,1,1)
+            lcapi.builder().set_block_size(256, 1, 1)
             f.build_arguments(False)
             # push context & build function body AST
             top = globalvars.current_context
@@ -138,17 +149,19 @@ class func:
             finally:
                 lcapi.end_analyzer()
                 globalvars.current_context = top
+
         # build function
         # Note: must retain the builder object
         f.builder = lcapi.FunctionBuilder.define_kernel(astgen)
         f.function = f.builder.function()
         # compile shader
-        if name == None:
+        if name is None:
             name = self.__name__
         if async_build:
             get_global_device().impl().save_shader_async(f.builder, name)
         else:
             get_global_device().impl().save_shader(f.function, name)
+
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo
     def compile(self, func_type: int, allow_ref: bool, argtypes: tuple, arg_info=None):
@@ -159,13 +172,15 @@ class func:
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
         if len(argtypes) > len(self.parameters):
-            raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} or less expected).")
+            raise Exception(
+                f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} or less expected).")
         annotation_type_check(self.__name__, self.parameters, argtypes)
         f = FuncInstanceInfo(self, call_from_host, argtypes)
+
         # build function callback
         def astgen():
             if call_from_host:
-                lcapi.builder().set_block_size(256,1,1)
+                lcapi.builder().set_block_size(256, 1, 1)
             f.build_arguments(allow_ref=allow_ref, arg_info=arg_info)
             # push context & build function body AST
             top = globalvars.current_context
@@ -176,6 +191,7 @@ class func:
             finally:
                 lcapi.end_analyzer()
                 globalvars.current_context = top
+
         # build function
         # Note: must retain the builder object
         match func_type:
@@ -188,12 +204,12 @@ class func:
         f.function = f.builder.function()
         # compile shader
         if call_from_host:
-           f.shader_handle = get_global_device().impl().create_shader(f.function)
+            f.shader_handle = get_global_device().impl().create_shader(f.function)
         return f
 
     # looks up arg_type_tuple; compile if not existing
     # returns FuncInstanceInfo
-    def get_compiled(self, func_type: int, allow_ref:bool, argtypes: tuple, arg_info=None):
+    def get_compiled(self, func_type: int, allow_ref: bool, argtypes: tuple, arg_info=None):
         if (func_type,) + argtypes not in self.compiled_results:
             try:
                 self.compiled_results[(func_type,) + argtypes] = self.compile(func_type, allow_ref, argtypes, arg_info)
@@ -207,18 +223,17 @@ class func:
                     raise
         return self.compiled_results[(func_type,) + argtypes]
 
-
     # dispatch shader to stream
-    def __call__(self, *args, dispatch_size, stream = None):
-        get_global_device() # check device is initialized
+    def __call__(self, *args, dispatch_size, stream=None):
+        get_global_device()  # check device is initialized
         if stream is None:
             stream = globalvars.stream
         # get 3D dispatch size
         is_buffer = False
         if type(dispatch_size) is int:
-            dispatch_size = (dispatch_size,1,1)
-        elif (type(dispatch_size) == tuple or type(dispatch_size) == list) and (len(dispatch_size) in (1,2,3)):
-            dispatch_size = (*dispatch_size, *[1]*(3-len(dispatch_size)))
+            dispatch_size = (dispatch_size, 1, 1)
+        elif (type(dispatch_size) == tuple or type(dispatch_size) == list) and (len(dispatch_size) in (1, 2, 3)):
+            dispatch_size = (*dispatch_size, *[1] * (3 - len(dispatch_size)))
         else:
             is_buffer = True
         # get types of arguments and compile
@@ -249,27 +264,28 @@ class func:
         else:
             command.set_dispatch_size(*dispatch_size)
         stream.add(command.build())
-        if f.uses_printer: # assume that this property doesn't change with argtypes
+        if f.uses_printer:  # assume that this property doesn't change with argtypes
             globalvars.printer.final_print()
             # Note: printing will FORCE synchronize (#21)
             globalvars.printer.reset()
 
 
-def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_argtypes, pixel_argtypes, name: str, async_builder: bool=True):
-    vert_f = vertex.get_compiled(2, False,(AppData,) + vert_argtypes)
-    pixel_f = pixel.get_compiled(2, False, (vert_f.return_type, ) + pixel_argtypes)
+def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_argtypes, pixel_argtypes, name: str,
+                       async_builder: bool = True):
+    vert_f = vertex.get_compiled(2, False, (AppData,) + vert_argtypes)
+    pixel_f = pixel.get_compiled(2, False, (vert_f.return_type,) + pixel_argtypes)
     device = get_global_device().impl()
     check_val = device.check_raster_shader(vert_f.function, pixel_f.function)
     if (check_val > 0):
-        if(check_val == 1):
+        if (check_val == 1):
             raise TypeError("Vertex return type unmatch with pixel's first arg's type.")
-        elif(check_val == 2):
+        elif (check_val == 2):
             raise TypeError("Illegal vertex to pixel struct type.")
-        elif(check_val == 3):
+        elif (check_val == 3):
             raise TypeError("Pixel shader's output required less than 8.")
-        elif(check_val == 4):
+        elif (check_val == 4):
             raise TypeError("Pixel shader's return type illegal.")
-        elif(check_val == 5):
+        elif (check_val == 5):
             raise TypeError("Vertex or pixel shader is not callable.")
         else:
             raise TypeError("Vertex shader's first argument must be AppData type.")

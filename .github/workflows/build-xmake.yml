@@ -8,11 +8,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04 ]
-        gcc: [ 11, 12 ]
-        llvm: [ 14 ]
-        compiler: [ gcc, clang ]
+        toolchain:
+          - { name: gcc, version: 11 }
+          - { name: gcc, version: 12 }
+          - { name: clang, version: 14 }
+          - { name: clang, version: 15 }
+          - { name: clang, version: 16 }
         config: [ release, debug ]
-    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }} / llvm-${{ matrix.llvm }}
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -20,20 +23,38 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
-      - uses: xmake-io/github-action-setup-xmake@v1
+          sudo apt-get -y install build-essential ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev
+          if [ "${{ matrix.toolchain.name }}" = "gcc" ]; then
+            sudo apt-get -y install gcc-${{ matrix.toolchain.version }} g++-${{ matrix.toolchain.version }}
+          else
+            wget https://apt.llvm.org/llvm.sh
+            chmod +x llvm.sh
+            sudo ./llvm.sh ${{ matrix.toolchain.version }}
+            sudo apt-get -y install libc++-${{ matrix.toolchain.version }}-dev libc++abi-${{ matrix.toolchain.version }}-dev
+          fi
+      - name: "Setup CUDA"
+        uses: Jimver/cuda-toolkit@v0.2.8
+        with:
+          linux-local-args: '["--toolkit"]'
+      - name: "Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: latest
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Setup xmake"
+        uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
-      - name: "Setup CUDA"
-        run: |
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
-          sudo dpkg -i cuda-keyring_1.0-1_all.deb
-          sudo apt-get update
-          sudo apt-get -y install cuda
       - name: "Configure and Build"
         run: |
-          xmake f -p linux -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p linux -a x64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
 
   #  build-macos:
@@ -79,13 +100,20 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - uses: xmake-io/github-action-setup-xmake@v1
-        with:
-          xmake-version: latest
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: latest
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Setup XMake"
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
       - name: "Configure and Build"
         shell: powershell
         run: |
-          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true
+          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
