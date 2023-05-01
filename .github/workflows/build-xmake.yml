@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get -y install build-essential ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
+          sudo apt-get -y install build-essential uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev libdirectfb-dev
           if [ "${{ matrix.toolchain.name }}" = "gcc" ]; then
             sudo apt-get -y install gcc-${{ matrix.toolchain.version }} g++-${{ matrix.toolchain.version }}
           else
