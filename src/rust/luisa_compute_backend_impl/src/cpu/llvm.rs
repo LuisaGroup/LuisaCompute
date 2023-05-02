@@ -98,8 +98,8 @@ pub enum LLVMOrcOpaqueMaterializationUnit {}
 
 pub type LLVMOrcMaterializationUnitRef = *mut LLVMOrcOpaqueMaterializationUnit;
 
-use crate::rust::shader::ShaderImpl;
-use crate::rust::stream::ShaderDispatchContext;
+use crate::cpu::shader::ShaderImpl;
+use crate::cpu::stream::ShaderDispatchContext;
 use crate::{BackendError, BackendErrorKind};
 use libc::{c_char, c_void, size_t};
 use parking_lot::{Mutex, ReentrantMutex};
@@ -731,20 +731,23 @@ impl Context {
                 }};
             }
             add_symbol!(memcpy, libc::memcpy);
+            add_symbol!(memset, libc::memset);
             unsafe extern "C" fn lc_abort(ctx: *const c_void, msg: i32) {
                 let _lk = ABORT_MUTEX.lock();
-                let ctx = ctx as *const ShaderDispatchContext;
-                let ctx = &*ctx;
-                let shader = ctx.shader as *const ShaderImpl;
-                let shader = &*shader;
-                let mut err = (&*ctx.error).lock();
-                if err.is_none() {
-                    *err = Some(BackendError {
-                        kind: BackendErrorKind::KernelExecution,
-                        message: shader.messages[msg as usize].clone(),
-                    });
+                {
+                    let ctx = ctx as *const ShaderDispatchContext;
+                    let ctx = &*ctx;
+                    let shader = ctx.shader as *const ShaderImpl;
+                    let shader = &*shader;
+                    let mut err = (&*ctx.error).lock();
+                    if err.is_none() {
+                        *err = Some(BackendError {
+                            kind: BackendErrorKind::KernelExecution,
+                            message: shader.messages[msg as usize].clone(),
+                        });
+                    }
                 }
-                panic!("kernel execution aborted");
+                panic!("##lc_kernel##");
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
@@ -755,25 +758,27 @@ impl Context {
                 j: u32,
             ) {
                 let _lk = ABORT_MUTEX.lock();
-                let ctx = ctx as *const ShaderDispatchContext;
-                let ctx = &*ctx;
-                let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
-                let idx = msg.find("{}").unwrap();
-                let mut display = String::new();
-                display.push_str(&msg[..idx]);
-                display.push_str(&format!("{}", i));
-                let idx2 = msg[idx + 2..].find("{}").unwrap();
-                display.push_str(&msg[idx + 2..idx + 2 + idx2]);
-                display.push_str(&format!("{}", j));
-                display.push_str(&msg[idx + 2 + idx2 + 2..]);
-                let mut err = (&*ctx.error).lock();
-                if err.is_none() {
-                    *err = Some(BackendError {
-                        kind: BackendErrorKind::KernelExecution,
-                        message: display,
-                    });
+                {
+                    let ctx = ctx as *const ShaderDispatchContext;
+                    let ctx = &*ctx;
+                    let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
+                    let idx = msg.find("{}").unwrap();
+                    let mut display = String::new();
+                    display.push_str(&msg[..idx]);
+                    display.push_str(&format!("{}", i));
+                    let idx2 = msg[idx + 2..].find("{}").unwrap();
+                    display.push_str(&msg[idx + 2..idx + 2 + idx2]);
+                    display.push_str(&format!("{}", j));
+                    display.push_str(&msg[idx + 2 + idx2 + 2..]);
+                    let mut err = (&*ctx.error).lock();
+                    if err.is_none() {
+                        *err = Some(BackendError {
+                            kind: BackendErrorKind::KernelExecution,
+                            message: display,
+                        });
+                    }
                 }
-                panic!("kernel execution aborted");
+                panic!("##lc_kernel##");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/

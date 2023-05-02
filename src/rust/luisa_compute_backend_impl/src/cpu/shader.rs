@@ -1,7 +1,7 @@
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 
-use crate::rust::llvm::LLVM_PATH;
+use crate::cpu::llvm::LLVM_PATH;
 use std::{
     env::{self, current_exe},
     fs::{canonicalize, File},

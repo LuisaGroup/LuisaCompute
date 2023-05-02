@@ -79,7 +79,7 @@ impl BackendProvider {
             .map(Arc::new)?;
         let parent = path.parent().unwrap();
         let lib_path_c_str = std::ffi::CString::new(parent.to_str().unwrap()).unwrap();
-        let context = (interface.inner.create_context)(lib_path_c_str.as_c_str().as_ptr());
+
 
         unsafe extern "C" fn callback(info: api::LoggerMessage) {
             let level = CStr::from_ptr(info.level as *mut c_char).to_str().unwrap();
@@ -107,7 +107,7 @@ impl BackendProvider {
             }
         }
         (interface.inner.set_logger_callback)(callback);
-
+        let context = (interface.inner.create_context)(lib_path_c_str.as_c_str().as_ptr());
         Some(Self { interface, context })
     }
 }

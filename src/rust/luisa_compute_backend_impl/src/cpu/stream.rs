@@ -4,8 +4,9 @@ use std::{
     sync::{atomic::AtomicUsize, Arc},
     thread::{self, JoinHandle},
 };
-
-use luisa_compute_api_types::{Argument, Sampler};
+use std::collections::{HashMap, HashSet};
+use luisa_compute_api_types as api;
+use api::{Argument, Sampler};
 use luisa_compute_ir::{
     context::type_hash,
     ir::{Binding, Capture},
@@ -22,12 +23,16 @@ use super::{
     shader::ShaderImpl,
     texture::TextureImpl,
 };
+use bumpalo::Bump;
+
 #[derive(Clone)]
 struct Work {
     f: Arc<dyn Fn() + Send + Sync>,
     callback: (extern "C" fn(*mut u8), *mut u8),
 }
+
 unsafe impl Send for Work {}
+
 unsafe impl Sync for Work {}
 
 struct StreamContext {
@@ -37,13 +42,20 @@ struct StreamContext {
     work_count: AtomicUsize,
     finished_count: AtomicUsize,
     error: Mutex<Option<BackendError>>,
+    staging_buffers: Mutex<(Bump, Vec<*mut u8>)>,
+
 }
+
 pub(super) struct StreamImpl {
     shared_pool: Arc<rayon::ThreadPool>,
     #[allow(dead_code)]
     private_thread: Arc<JoinHandle<()>>,
     ctx: Arc<StreamContext>,
 }
+
+unsafe impl Send for StreamContext {}
+
+unsafe impl Sync for StreamContext {}
 
 impl StreamImpl {
     pub(super) fn new(shared_pool: Arc<rayon::ThreadPool>) -> Self {
@@ -54,6 +66,7 @@ impl StreamImpl {
             work_count: AtomicUsize::new(0),
             finished_count: AtomicUsize::new(0),
             error: Mutex::new(None),
+            staging_buffers: Mutex::new((Bump::new(), Vec::new())),
         });
         let private_thread = {
             let ctx = ctx.clone();
@@ -88,16 +101,16 @@ impl StreamImpl {
             ctx,
         }
     }
-    pub(super) fn synchronize(&self) -> crate::Result<()>{
+    pub(super) fn synchronize(&self) -> crate::Result<()> {
         let mut guard = self.ctx.queue.lock();
         while self
             .ctx
             .work_count
             .load(std::sync::atomic::Ordering::Relaxed)
             > self
-                .ctx
-                .finished_count
-                .load(std::sync::atomic::Ordering::Relaxed)
+            .ctx
+            .finished_count
+            .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.ctx.sync.wait(&mut guard);
         }
@@ -152,26 +165,60 @@ impl StreamImpl {
                         }
                     });
                     if let Err(e) = result {
-                        log::error!("kernel panicked");
+                        log::error!("kernel execution aborted");
                     }
                 });
             }
         });
     }
-    pub(super) fn dispatch(&self, command_list: &[luisa_compute_api_types::Command]) {
+    unsafe fn allocate_staging_buffer(&self, ptr: *const u8, size: usize) {
+        let mut lk = self.ctx.staging_buffers.lock();
+        let (bump, buffers) = &mut *lk;
+        let buffer = bump.alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap()).as_ptr();
+        std::ptr::copy_nonoverlapping(ptr, buffer, size);
+        buffers.push(buffer);
+    }
+    unsafe fn allocate_staging_buffers(&self, command_list: &[api::Command]) {
+        for cmd in command_list {
+            match cmd {
+                api::Command::BufferUpload(cmd) => {
+                    let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
+                    let _lk = buffer.lock.try_write().unwrap();
+                    let offset = cmd.offset;
+                    let size = cmd.size;
+                    self.allocate_staging_buffer(cmd.data, size);
+                }
+                api::Command::TextureUpload(cmd) => {
+                    let texture = &*(cmd.texture.0 as *mut TextureImpl);
+                    let level: u8 = cmd.level.try_into().unwrap();
+                    let _lk = texture.locks[level as usize].try_write().unwrap();
+                    let view = texture.view(level);
+                    let size = view.unpadded_data_size();
+                    self.allocate_staging_buffer(cmd.data, size);
+                }
+                _ => {}
+            }
+        }
+    }
+    pub(super) fn dispatch(&self, command_list: &[api::Command]) {
         unsafe {
+            self.allocate_staging_buffers(command_list);
+            let mut lk = self.ctx.staging_buffers.lock();
+            let (bump, buffers) = &mut *lk;
+            let mut cnt = 0;
             for cmd in command_list {
                 match cmd {
-                    luisa_compute_api_types::Command::BufferUpload(cmd) => {
+                    api::Command::BufferUpload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
                         let _lk = buffer.lock.try_write().unwrap();
                         let offset = cmd.offset;
                         let size = cmd.size;
-                        let data = cmd.data;
-
+                        // let data = cmd.data;
+                        let data = buffers[cnt];
+                        cnt += 1;
                         std::ptr::copy_nonoverlapping(data, buffer.data.add(offset), size);
                     }
-                    luisa_compute_api_types::Command::BufferDownload(cmd) => {
+                    api::Command::BufferDownload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
                         let _lk = buffer.lock.try_read().unwrap();
                         let offset = cmd.offset;
@@ -179,7 +226,7 @@ impl StreamImpl {
                         let data = cmd.data;
                         std::ptr::copy_nonoverlapping(buffer.data.add(offset), data, size);
                     }
-                    luisa_compute_api_types::Command::BufferCopy(cmd) => {
+                    api::Command::BufferCopy(cmd) => {
                         let src = &*(cmd.src.0 as *mut BufferImpl);
                         let dst = &*(cmd.dst.0 as *mut BufferImpl);
                         let _src_lk = src.lock.try_read().unwrap();
@@ -194,7 +241,7 @@ impl StreamImpl {
                             size,
                         );
                     }
-                    luisa_compute_api_types::Command::BufferToTextureCopy(cmd) => {
+                    api::Command::BufferToTextureCopy(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
                         let texture = &*(cmd.texture.0 as *mut TextureImpl);
                         let _buffer_lk = buffer.lock.try_read().unwrap();
@@ -211,7 +258,7 @@ impl StreamImpl {
                             view.copy_from_3d(buffer.data.add(cmd.buffer_offset))
                         }
                     }
-                    luisa_compute_api_types::Command::TextureToBufferCopy(cmd) => {
+                    api::Command::TextureToBufferCopy(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
                         let texture = &*(cmd.texture.0 as *mut TextureImpl);
                         let level: u8 = cmd.texture_level.try_into().unwrap();
@@ -228,21 +275,23 @@ impl StreamImpl {
                             view.copy_to_3d(buffer.data.add(cmd.buffer_offset))
                         }
                     }
-                    luisa_compute_api_types::Command::TextureUpload(cmd) => {
+                    api::Command::TextureUpload(cmd) => {
                         let texture = &*(cmd.texture.0 as *mut TextureImpl);
                         let level: u8 = cmd.level.try_into().unwrap();
                         let _lk = texture.locks[level as usize].try_write().unwrap();
                         let dim = texture.dimension;
                         let view = texture.view(level);
                         assert_eq!(cmd.storage, texture.storage);
+                        let data = buffers[cnt];
+                        cnt += 1;
                         if dim == 2 {
                             assert_eq!(cmd.size, view.size);
-                            view.copy_from_2d(cmd.data)
+                            view.copy_from_2d(data)
                         } else {
-                            view.copy_from_3d(cmd.data)
+                            view.copy_from_3d(data)
                         }
                     }
-                    luisa_compute_api_types::Command::TextureDownload(cmd) => {
+                    api::Command::TextureDownload(cmd) => {
                         let texture = &*(cmd.texture.0 as *mut TextureImpl);
                         let level: u8 = cmd.level.try_into().unwrap();
                         let _lk = texture.locks[level as usize].try_read().unwrap();
@@ -255,7 +304,7 @@ impl StreamImpl {
                             view.copy_to_3d(cmd.data)
                         }
                     }
-                    luisa_compute_api_types::Command::TextureCopy(cmd) => {
+                    api::Command::TextureCopy(cmd) => {
                         let src = &*(cmd.src.0 as *mut TextureImpl);
                         let dst = &*(cmd.dst.0 as *mut TextureImpl);
                         let src_level: u8 = cmd.src_level.try_into().unwrap();
@@ -277,7 +326,7 @@ impl StreamImpl {
                             src_view.data_size,
                         );
                     }
-                    luisa_compute_api_types::Command::ShaderDispatch(cmd) => {
+                    api::Command::ShaderDispatch(cmd) => {
                         let shader = &*(cmd.shader.0 as *mut ShaderImpl);
                         let dispatch_size = cmd.dispatch_size;
                         let block_size = shader.block_size;
@@ -349,11 +398,11 @@ impl StreamImpl {
                             block_count,
                         );
                     }
-                    luisa_compute_api_types::Command::MeshBuild(mesh_build) => {
+                    api::Command::MeshBuild(mesh_build) => {
                         let mesh = &mut *(mesh_build.mesh.0 as *mut MeshImpl);
                         mesh.build(mesh_build);
                     }
-                    luisa_compute_api_types::Command::AccelBuild(accel_build) => {
+                    api::Command::AccelBuild(accel_build) => {
                         let accel = &mut *(accel_build.accel.0 as *mut AccelImpl);
                         accel.update(
                             accel_build.instance_count as usize,
@@ -363,25 +412,28 @@ impl StreamImpl {
                             ),
                         );
                     }
-                    luisa_compute_api_types::Command::BindlessArrayUpdate(bindless_update) => {
+                    api::Command::BindlessArrayUpdate(bindless_update) => {
                         let array = &mut *(bindless_update.handle.0 as *mut BindlessArrayImpl);
                         array.update(std::slice::from_raw_parts(
                             bindless_update.modifications,
                             bindless_update.modifications_count,
                         ));
                     }
-                    luisa_compute_api_types::Command::ProceduralPrimitiveBuild(_) => {
+                    api::Command::ProceduralPrimitiveBuild(_) => {
                         todo!()
                     }
                 }
             }
+            bump.reset();
+            buffers.clear();
         }
     }
 }
+
 #[inline]
 pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
     match arg {
-        luisa_compute_api_types::Argument::Buffer(buffer_arg) => {
+        api::Argument::Buffer(buffer_arg) => {
             let buffer = &*(buffer_arg.buffer.0 as *mut BufferImpl);
             let offset = buffer_arg.offset;
             let size = buffer_arg.size;
@@ -392,21 +444,21 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 ty: buffer.ty,
             })
         }
-        luisa_compute_api_types::Argument::Texture(t) => {
+        api::Argument::Texture(t) => {
             let texture = &*(t.texture.0 as *mut TextureImpl);
             let level = t.level as usize;
             defs::KernelFnArg::Texture(
                 texture.into_c_texture(Sampler {
-                    address: luisa_compute_api_types::SamplerAddress::Edge,
-                    filter: luisa_compute_api_types::SamplerFilter::Point,
+                    address: api::SamplerAddress::Edge,
+                    filter: api::SamplerFilter::Point,
                 }),
                 level as u8,
             )
         }
-        luisa_compute_api_types::Argument::Uniform(uniform) => {
+        api::Argument::Uniform(uniform) => {
             defs::KernelFnArg::Uniform(uniform.data)
         }
-        luisa_compute_api_types::Argument::Accel(accel) => {
+        api::Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
             defs::KernelFnArg::Accel(defs::Accel {
                 handle: accel as *const _ as *const std::ffi::c_void,
@@ -417,7 +469,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 instance_transform,
             })
         }
-        luisa_compute_api_types::Argument::BindlessArray(a) => {
+        api::Argument::BindlessArray(a) => {
             let a = &*(a.0 as *mut BindlessArrayImpl);
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
@@ -430,6 +482,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
         }
     }
 }
+
 #[inline]
 pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
     match c.binding {
@@ -455,8 +508,8 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             let level = t.level as usize;
             defs::KernelFnArg::Texture(
                 texture.into_c_texture(Sampler {
-                    address: luisa_compute_api_types::SamplerAddress::Edge,
-                    filter: luisa_compute_api_types::SamplerFilter::Point,
+                    address: api::SamplerAddress::Edge,
+                    filter: api::SamplerFilter::Point,
                 }),
                 level as u8,
             )
@@ -496,12 +549,14 @@ extern "C" fn trace_closest(
         accel.trace_closest(ray, mask)
     }
 }
+
 extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u8) -> bool {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.trace_any(ray, mask)
     }
 }
+
 extern "C" fn instance_transform(accel: *const std::ffi::c_void, instance_id: u32) -> defs::Mat4 {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
@@ -512,6 +567,7 @@ extern "C" fn instance_transform(accel: *const std::ffi::c_void, instance_id: u3
         ])
     }
 }
+
 extern "C" fn set_instance_transform(
     accel: *const std::ffi::c_void,
     instance_id: u32,
@@ -536,6 +592,7 @@ extern "C" fn set_instance_transform(
         accel.set_instance_transform(instance_id, affine);
     }
 }
+
 extern "C" fn set_instance_visibility(
     accel: *const std::ffi::c_void,
     instance_id: u32,
@@ -546,6 +603,7 @@ extern "C" fn set_instance_visibility(
         accel.set_instance_visibility(instance_id, visible);
     }
 }
+
 pub(crate) struct ShaderDispatchContext {
     pub(crate) shader: *const ShaderImpl,
     pub(crate) error: *const Mutex<Option<BackendError>>,

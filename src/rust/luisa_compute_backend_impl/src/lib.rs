@@ -1,9 +1,9 @@
 #[cfg(feature = "remote")]
 mod remote;
 #[cfg(feature = "cpu")]
-mod rust;
+mod cpu;
 
-use crate::rust::RustBackend;
+use crate::cpu::RustBackend;
 use libloading::Library;
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 use luisa_compute_api_types as api;
@@ -93,6 +93,22 @@ fn init() {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Trace))
         .unwrap();
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            Some(*s)
+        }  else if let Some(s) = panic_info.payload().downcast_ref::<&String>() {
+            Some(s.as_ref())
+        } else {
+            None
+        };
+        if let Some(msg) = msg {
+            if msg.starts_with("##lc_kernel##") {
+                return;
+            }
+        }
+        default_hook(panic_info);
+    }));
 }
 extern "C" fn free_string(ptr: *mut c_char) {
     unsafe {
