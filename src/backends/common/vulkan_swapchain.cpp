@@ -583,6 +583,9 @@ private:
                 for (auto mode : present_modes) {
                     if (mode == VK_PRESENT_MODE_MAILBOX_KHR) { return mode; }
                 }
+                for (auto mode : present_modes) {
+                    if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR) { return mode; }
+                }
             }
             LUISA_ASSERT(std::find(present_modes.cbegin(),
                                    present_modes.cend(),
@@ -629,10 +632,11 @@ private:
             image_view_create_info.subresourceRange.layerCount = 1u;
             LUISA_CHECK_VULKAN(vkCreateImageView(_device, &image_view_create_info, nullptr, &_swapchain_image_views[i]));
         }
-        LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {} (format = {}).",
+        LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {} (format = {}, mode = {}).",
                    _swapchain_extent.width, _swapchain_extent.height, back_buffers,
                    _colorspace_name(_swapchain_format.colorSpace),
-                   luisa::to_string(_swapchain_format.format));
+                   luisa::to_string(_swapchain_format.format),
+                   luisa::to_string(present_mode));
     }
 
     void _create_render_pass() noexcept {
