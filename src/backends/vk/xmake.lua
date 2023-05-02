@@ -9,6 +9,6 @@ add_files("*.cpp", "../common/default_binary_io.cpp", "../common/hlsl/*.cpp")
 if is_plat("windows") then
     add_defines("VK_USE_PLATFORM_WIN32_KHR")
 elseif is_plat("linux") then
-    add_defines("VK_USE_PLATFORM_DIRECTFB_EXT")
+    add_defines("VK_USE_PLATFORM_XCB_KHR")
 end
 target_end()

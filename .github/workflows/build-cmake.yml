@@ -25,8 +25,7 @@ jobs:
         run: |
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get -y install cmake
-          sudo apt-get -y install build-essential ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
           if [ "${{ matrix.compiler.name }}" = "gcc" ]; then
             sudo apt-get -y install gcc-${{ matrix.compiler.version }} g++-${{ matrix.compiler.version }}
           else

@@ -32,8 +32,8 @@ display = Image2D(resolution, resolution, 4, float, storage="BYTE")
 
 
 @func
-def index(xyz: int3):
-    p = clamp(xyz, int3(0), int3(n_grid - 1))
+def index(xyz: uint3):
+    p = clamp(xyz, uint3(0), uint3(n_grid - 1))
     return p.x + p.y * n_grid + p.z * n_grid * n_grid
 
 
@@ -88,7 +88,7 @@ def point_to_grid():
         dpos = (float3(offset) - fx) * dx
         weight = w[i].x * w[j].y * w[k].z
         vadd = weight * (p_mass * vp + affine * dpos)
-        idx = index(base + offset)
+        idx = index(uint3(base + offset))
         old = grid_v.atomic_fetch_add(idx * 4, vadd.x)
         old = grid_v.atomic_fetch_add(idx * 4 + 1, vadd.y)
         old = grid_v.atomic_fetch_add(idx * 4 + 2, vadd.z)
@@ -133,7 +133,7 @@ def grid_to_point():
         k = offset.z
         dpos = (float3(offset) - fx) * dx
         weight = w[i].x * w[j].y * w[k].z
-        idx = index(base + offset)
+        idx = index(uint3(base + offset))
         g_v = float3(grid_v.read(idx * 4),
                      grid_v.read(idx * 4 + 1),
                      grid_v.read(idx * 4 + 2))
