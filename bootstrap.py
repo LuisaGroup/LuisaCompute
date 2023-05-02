@@ -786,7 +786,7 @@ def parse_cli_args(args):
             elif f in ALL_FEATURES:
                 valid_features.add(f)
             elif f.startswith('no-'):
-                valid_features.remove(f[3:])
+                valid_features.discard(f[3:])
             else:
                 print_red(f'Ignoring invalid feature "{f}"')
         parsed_args['features'] = list(valid_features)
