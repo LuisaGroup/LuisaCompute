@@ -48,11 +48,11 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     if (LUISA_COMPUTE_ENABLE_CPU)
-#        add_subdirectory(cpu)
+        add_subdirectory(cpu)
     endif ()
 
     if (LUISA_COMPUTE_ENABLE_REMOTE)
-#        add_subdirectory(remote)
+        add_subdirectory(remote)
     endif ()
 endif ()
 

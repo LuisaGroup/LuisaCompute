@@ -25,11 +25,13 @@ pub enum BackendErrorKind {
     Network,
     Other,
 }
+
 #[derive(Clone)]
 pub struct BackendError {
     pub kind: BackendErrorKind,
     pub message: String,
 }
+
 impl Debug for BackendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // f.debug_struct("BackendError")
@@ -45,13 +47,17 @@ impl Debug for BackendError {
 }
 
 pub type Result<T> = std::result::Result<T, BackendError>;
+
 pub(crate) struct Interface {
     #[allow(dead_code)]
     pub(crate) lib: libloading::Library,
     pub(crate) inner: api::LibInterface,
 }
+
 unsafe impl Send for Interface {}
+
 unsafe impl Sync for Interface {}
+
 impl Interface {
     pub unsafe fn new(lib_path: &Path) -> std::result::Result<Self, libloading::Error> {
         let lib = libloading::Library::new(lib_path)?;
@@ -64,18 +70,19 @@ impl Interface {
         })
     }
 }
+
 struct BackendProvider {
     pub(crate) context: api::Context,
     pub(crate) interface: Arc<Interface>,
 }
+
 impl BackendProvider {
-    unsafe fn new(path: &PathBuf) -> Option<Self> {
+    unsafe fn new(path: &PathBuf) -> std::result::Result<Self, libloading::Error> {
         let interface = Interface::new(path.as_ref())
             .map_err(|e| {
                 log::warn!("failed to load {}: {}", path.display(), e);
                 e
             })
-            .ok()
             .map(Arc::new)?;
         let parent = path.parent().unwrap();
         let lib_path_c_str = std::ffi::CString::new(parent.to_str().unwrap()).unwrap();
@@ -108,12 +115,13 @@ impl BackendProvider {
         }
         (interface.inner.set_logger_callback)(callback);
         let context = (interface.inner.create_context)(lib_path_c_str.as_c_str().as_ptr());
-        Some(Self { interface, context })
+        Ok(Self { interface, context })
     }
 }
+
 pub struct Context {
-    pub(crate) cpp: Option<BackendProvider>,
-    pub(crate) rust: Option<BackendProvider>,
+    pub(crate) cpp: std::result::Result<BackendProvider, libloading::Error>,
+    pub(crate) rust: std::result::Result<BackendProvider, libloading::Error>,
 }
 
 impl Context {
@@ -147,41 +155,46 @@ impl Context {
     ) -> crate::Result<ProxyBackend> {
         match device {
             "cpu" | "remote" => {
-                if let Some(provider) = &self.rust {
-                    Ok(ProxyBackend::new(provider, device, config))
-                } else {
-                    let libname = if cfg!(target_os = "windows") {
-                        "luisa_compute_backend_impl.dll"
-                    } else {
-                        "libluisa_compute_backend_impl.so"
-                    };
+                match &self.rust {
+                    Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
+                    Err(err)=>{
+                        let libname = if cfg!(target_os = "windows") {
+                            "luisa_compute_backend_impl.dll"
+                        } else {
+                            "libluisa_compute_backend_impl.so"
+                        };
 
-                    Err(BackendError{
-                        kind: BackendErrorKind::BackendNotFound,
-                        message: format!("device {0} not found. {0} device may not be enabled or {1} is not found", device, libname),
-                    })
+                        let err = err.to_string();
+                        Err(BackendError {
+                            kind: BackendErrorKind::BackendNotFound,
+                            message: format!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err),
+                        })
+                    }
                 }
             }
             "cuda" | "dx" | "metal" => {
-                if let Some(provider) = &self.cpp {
-                    Ok(ProxyBackend::new(provider, device, config))
-                } else {
-                    let libname = if cfg!(target_os = "windows") {
-                        "lc-api.dll"
-                    } else {
-                        "liblc-api.so"
-                    };
+                match &self.cpp {
+                    Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
+                    Err(err)=>{
+                        let libname = if cfg!(target_os = "windows") {
+                            "lc-api.dll"
+                        } else {
+                            "liblc-api.so"
+                        };
 
-                    Err(BackendError{
-                    kind: BackendErrorKind::BackendNotFound,
-                    message: format!("device {0} not found. {0} device may not be enabled or {1} is not found", device, libname),
-                })
+                        let err = err.to_string();
+                        Err(BackendError {
+                            kind: BackendErrorKind::BackendNotFound,
+                            message: format!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err),
+                        })
+                    }
                 }
             }
             _ => panic!("unsupported device: {}", device),
         }
     }
 }
+
 #[repr(C)]
 pub struct RustcInfo {
     pub channel: &'static str,
@@ -278,6 +291,7 @@ pub trait Backend: Sync + Send {
 fn get_backend<'a, B: Backend>(backend: api::Device) -> &'a B {
     unsafe { &*(backend.0 as *mut B) }
 }
+
 fn map<T>(a: crate::Result<T>) -> api::Result<T> {
     unsafe {
         match a {
@@ -301,6 +315,7 @@ fn map<T>(a: crate::Result<T>) -> api::Result<T> {
         }
     }
 }
+
 extern "C" fn create_buffer<B: Backend>(
     backend: api::Device,
     ty: *const c_void,
@@ -315,6 +330,7 @@ pub extern "C" fn destroy_buffer<B: Backend>(backend: api::Device, buffer: api::
     let backend: &B = get_backend(backend);
     backend.destroy_buffer(buffer)
 }
+
 //
 pub extern "C" fn create_texture<B: Backend>(
     backend: api::Device,
@@ -355,6 +371,7 @@ extern "C" fn create_stream<B: Backend>(
     let backend: &B = get_backend(backend);
     map(backend.create_stream(tag))
 }
+
 extern "C" fn destroy_stream<B: Backend>(backend: api::Device, stream: api::Stream) {
     let backend: &B = get_backend(backend);
     backend.destroy_stream(stream)
@@ -398,16 +415,19 @@ extern "C" fn destroy_shader<B: Backend>(backend: api::Device, shader: api::Shad
     let backend: &B = get_backend(backend);
     backend.destroy_shader(shader)
 }
+
 extern "C" fn create_event<B: Backend>(
     backend: api::Device,
 ) -> api::Result<api::CreatedResourceInfo> {
     let backend: &B = get_backend(backend);
     map(backend.create_event())
 }
+
 extern "C" fn destroy_event<B: Backend>(backend: api::Device, event: api::Event) {
     let backend: &B = get_backend(backend);
     backend.destroy_event(event)
 }
+
 extern "C" fn signal_event<B: Backend>(
     backend: api::Device,
     event: api::Event,
@@ -416,6 +436,7 @@ extern "C" fn signal_event<B: Backend>(
     let backend: &B = get_backend(backend);
     backend.signal_event(event, stream)
 }
+
 extern "C" fn wait_event<B: Backend>(
     backend: api::Device,
     event: api::Event,
@@ -424,6 +445,7 @@ extern "C" fn wait_event<B: Backend>(
     let backend: &B = get_backend(backend);
     map(backend.wait_event(event, stream).map(|_| 0u8))
 }
+
 extern "C" fn synchronize_event<B: Backend>(
     backend: api::Device,
     event: api::Event,
@@ -431,6 +453,7 @@ extern "C" fn synchronize_event<B: Backend>(
     let backend: &B = get_backend(backend);
     map(backend.synchronize_event(event).map(|_| 0u8))
 }
+
 extern "C" fn create_accel<B: Backend>(
     backend: api::Device,
     option: &api::AccelOption,
@@ -443,6 +466,7 @@ extern "C" fn destroy_accel<B: Backend>(backend: api::Device, accel: api::Accel)
     let backend: &B = get_backend(backend);
     backend.destroy_accel(accel)
 }
+
 extern "C" fn create_mesh<B: Backend>(
     backend: api::Device,
     option: &api::AccelOption,
@@ -463,6 +487,7 @@ extern "C" fn create_procedural_primitive<B: Backend>(
     let backend: &B = get_backend(backend);
     map(backend.create_procedural_primitive(*option))
 }
+
 extern "C" fn destroy_procedural_primitive<B: Backend>(
     backend: api::Device,
     primitive: api::ProceduralPrimitive,
@@ -482,6 +507,7 @@ extern "C" fn query<B: Backend>(
     let value = std::ffi::CString::new(value.unwrap_or("".into())).unwrap();
     value.into_raw()
 }
+
 extern "C" fn create_swapchain<B: Backend>(
     backend: api::Device,
     window_handle: u64,
@@ -503,24 +529,27 @@ extern "C" fn create_swapchain<B: Backend>(
         back_buffer_size,
     ))
 }
+
 extern "C" fn present_display_in_stream<B: Backend>(
     backend: api::Device,
     stream_handle: api::Stream,
     swapchain: api::Swapchain,
-
     image: api::Texture,
 ) {
     let backend: &B = get_backend(backend);
     backend.present_display_in_stream(stream_handle, swapchain, image)
 }
+
 extern "C" fn destroy_swapchain<B: Backend>(backend: api::Device, swapchain: api::Swapchain) {
     let backend: &B = get_backend(backend);
     backend.destroy_swapchain(swapchain)
 }
+
 extern "C" fn destroy_device<B: Backend>(device: api::DeviceInterface) {
     let backend: Box<B> = unsafe { Box::from_raw(device.device.0 as *mut B) };
     drop(backend)
 }
+
 #[inline]
 pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
     let backend = Box::new(backend);
