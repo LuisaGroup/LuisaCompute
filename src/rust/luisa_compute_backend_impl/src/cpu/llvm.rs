@@ -3,7 +3,7 @@
 use lazy_static::lazy_static;
 use libloading::Symbol;
 use serde::{Deserialize, Serialize};
-use std::env::{current_dir, var};
+use std::env::{current_dir, current_exe, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
@@ -332,7 +332,7 @@ impl LLVMPaths {
         }
     }
     pub fn get() -> LLVMPaths {
-        let cur = current_dir().unwrap().join(PATH_CACHE_FILE);
+        let cur = current_exe().unwrap().parent().unwrap().join(PATH_CACHE_FILE);
         let paths = if cur.exists() {
             let file = File::open(&cur).unwrap();
             let reader = BufReader::new(file);
