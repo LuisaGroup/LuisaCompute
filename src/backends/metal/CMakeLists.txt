@@ -44,7 +44,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_link_libraries(luisa-compute-backend-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"
-            "-framework QuartzCore")
+            "-framework QuartzCore"
+            "-framework AppKit")
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "Metal backend requires Apple platforms with clang.")

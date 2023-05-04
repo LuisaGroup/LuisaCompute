@@ -1,22 +1,18 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
 
-    corrosion_import_crate(
-            MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-            NO_DEFAULT_FEATURES)
-
-    set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
-    set(LUISA_RUST_OUTPUT_DIR
-            "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
-    corrosion_set_env_vars(luisa_compute_backend_impl
-            "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/backend_support")
+    set(LUISA_RUST_FEATURES "")
 
     if (LUISA_COMPUTE_ENABLE_CPU)
-        corrosion_set_features(luisa_compute_backend_impl FEATURES cpu)
+        list(APPEND LUISA_RUST_FEATURES cpu)
     endif ()
 
     if (LUISA_COMPUTE_ENABLE_REMOTE)
-        corrosion_set_features(luisa_compute_backend_impl FEATURES remote)
+        list(APPEND LUISA_RUST_FEATURES remote)
     endif ()
+
+    corrosion_import_crate(
+            MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+            FEATURES ${LUISA_RUST_FEATURES})
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -24,22 +20,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     target_compile_definitions(luisa-compute-rust-meta INTERFACE LUISA_ENABLE_RUST)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(luisa-compute-rust-meta INTERFACE -Wno-return-type-c-linkage)
-    endif ()
-
-    if (LUISA_COMPUTE_ENABLE_CPU)
-
-        # FIXME: using the internal target is not ideal
-        add_custom_target(luisa-compute-rust-copy DEPENDS
-                _cargo-build_luisa_compute_backend_impl)
-
-        add_custom_command(TARGET luisa-compute-rust-copy
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/")
-
-        install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
-                DESTINATION "${CMAKE_INSTALL_BINDIR}/"
-                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
     endif ()
 
     function(luisa_compute_install_rust target)
@@ -60,8 +40,33 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
     endfunction()
-    luisa_compute_install_rust(backend_impl)
+
     luisa_compute_install_rust(api_types)
     luisa_compute_install_rust(ir)
     luisa_compute_install(rust-meta)
+
+    # optionally enable the CPU and remote backends implemented in Rust
+    if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
+
+        set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
+        set(LUISA_RUST_OUTPUT_DIR
+                "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
+        corrosion_set_env_vars(luisa_compute_backend_impl
+                "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/backend_support")
+
+        # FIXME: using the internal target is not ideal
+        add_custom_target(luisa-compute-rust-copy DEPENDS
+                _cargo-build_luisa_compute_backend_impl)
+
+        add_custom_command(TARGET luisa-compute-rust-copy
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
+                "$<TARGET_FILE_DIR:luisa-compute-core>/")
+
+        install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/"
+                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
+        luisa_compute_install_rust(backend_impl)
+    endif ()
+
 endif ()
