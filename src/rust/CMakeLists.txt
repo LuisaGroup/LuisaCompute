@@ -1,18 +1,8 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
-
-    set(LUISA_RUST_FEATURES "")
-
-    if (LUISA_COMPUTE_ENABLE_CPU)
-        list(APPEND LUISA_RUST_FEATURES cpu)
-    endif ()
-
-    if (LUISA_COMPUTE_ENABLE_REMOTE)
-        list(APPEND LUISA_RUST_FEATURES remote)
-    endif ()
-
     corrosion_import_crate(
-            MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-            FEATURES ${LUISA_RUST_FEATURES})
+        MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+        NO_DEFAULT_FEATURES)
+
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -41,13 +31,21 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
     endfunction()
 
+
     luisa_compute_install_rust(api_types)
     luisa_compute_install_rust(ir)
     luisa_compute_install(rust-meta)
 
     # optionally enable the CPU and remote backends implemented in Rust
     if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
+        if (LUISA_COMPUTE_ENABLE_CPU)
+            corrosion_set_features(luisa_compute_backend_impl FEATURES cpu)
+        endif ()
 
+
+        if (LUISA_COMPUTE_ENABLE_REMOTE)
+            corrosion_set_features(luisa_compute_backend_impl FEATURES remote)
+        endif ()
         set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
         set(LUISA_RUST_OUTPUT_DIR
                 "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
@@ -68,5 +66,4 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
         luisa_compute_install_rust(backend_impl)
     endif ()
-
 endif ()
