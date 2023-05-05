@@ -5,7 +5,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QFrame>
-#include <QDialog>
+#include <QMainWindow>
 
 #include <core/clock.h>
 #include <core/logging.h>
@@ -52,41 +52,41 @@ int main(int argc, char *argv[]) {
     auto image = device.create_image<float>(PixelStorage::BYTE4, resolution);
 
     QApplication app{argc, argv};
-    QDialog dialog;
-    dialog.setFixedSize(width, height);
-    dialog.setWindowTitle("Display");
+    QMainWindow window;
+    window.setFixedSize(width, height);
+    window.setWindowTitle("Display");
 
-    QWidget canvas{&dialog};
-    canvas.setFixedSize(dialog.contentsRect().size());
-    canvas.move(dialog.contentsRect().topLeft());
+    QWidget canvas{&window};
+    canvas.setFixedSize(window.contentsRect().size());
+    canvas.move(window.contentsRect().topLeft());
 
-    QWidget overlay{&dialog};
+    QWidget overlay{&window};
     overlay.setStyleSheet("background-color: rgba(64, 96, 128);");
-    overlay.setFixedSize(dialog.contentsRect().size() / 2);
-    overlay.move(dialog.contentsRect().center() - overlay.rect().center());
+    overlay.setFixedSize(window.contentsRect().size() / 2);
+    overlay.move(window.contentsRect().center() - overlay.rect().center());
 
     QPushButton button{"Quit", &overlay};
     button.move(overlay.contentsRect().center() - button.rect().center());
     QObject::connect(&button, &QPushButton::clicked, [&] {
-        dialog.setVisible(false);
+        window.setVisible(false);
     });
 
     auto swapchain = device.create_swapchain(
         canvas.winId(), stream,
         resolution, false, false, 3);
 
-    dialog.show();
+    window.show();
 
     Clock clk;
     Framerate framerate;
-    while (dialog.isVisible()) {
+    while (window.isVisible()) {
         QApplication::processEvents();
         auto time = static_cast<float>(clk.toc() * 1e-3);
         stream << draw(image, time).dispatch(resolution)
                << swapchain.present(image);
         framerate.record();
         auto title = luisa::format("Display - {:.2f} fps", framerate.report());
-        dialog.setWindowTitle(title.c_str());
+        window.setWindowTitle(title.c_str());
     }
 
     stream << synchronize();
