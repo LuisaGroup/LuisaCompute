@@ -67,10 +67,13 @@ endif ()
 
 # GUI interaction with wxWidgets
 find_package(wxWidgets COMPONENTS core base)
+
 if (wxWidgets_FOUND)
+
     include(${wxWidgets_USE_FILE})
+    message(STATUS "Found wxWidgets: ${wxWidgets_INCLUDE_DIRS}")
+
     if (UNIX AND NOT APPLE)
-        message(STATUS "wxWidgets: ${wxWidgets_LIBRARIES}")
         foreach (lib ${wxWidgets_LIBRARIES})
             if (lib MATCHES ".*wx_gtk2.*")
                 set(LUISA_REQUIRED_GTK_LIB gtk+-2.0)
@@ -87,14 +90,22 @@ if (wxWidgets_FOUND)
         if (PkgConfig_FOUND)
             pkg_check_modules(GTK ${LUISA_REQUIRED_GTK_LIB})
         endif ()
+        if (GTK_FOUND)
+            message(STATUS "Found GTK: ${GTK_INCLUDE_DIRS}")
+        endif ()
     endif ()
 
     if (NOT LUISA_REQUIRED_GTK_LIB OR GTK_FOUND)
+        add_library(luisa-compute-gui-wx INTERFACE)
+        target_include_directories(luisa-compute-gui-wx INTERFACE
+                ${wxWidgets_INCLUDE_DIRS})
+        target_link_libraries(luisa-compute-gui-wx INTERFACE
+                ${wxWidgets_LIBRARIES}
+                luisa-compute-gui)
+
+        # demos using wxWidgets
         luisa_compute_add_executable(test_swapchain_wx test_swapchain_wx.cpp)
-        target_include_directories(test_swapchain_wx PRIVATE ${GTK_INCLUDE_DIRS})
-        target_link_libraries(test_swapchain_wx PRIVATE
-                ${GTK_LIBRARIES}
-                ${wxWidgets_LIBRARIES})
+        target_link_libraries(test_swapchain_wx PRIVATE luisa-compute-gui-wx)
     endif ()
 endif ()
 
@@ -103,9 +114,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 COMPONENTS Widgets Core Gui)
+find_package(Qt6 COMPONENTS Widgets Core Gui QUIET)
 if (NOT Qt6_FOUND)
-    find_package(Qt5 COMPONENTS Widgets Core Gui)
+    find_package(Qt5 COMPONENTS Widgets Core Gui QUIET)
 endif ()
 
 if (Qt6_FOUND OR Qt5_FOUND)

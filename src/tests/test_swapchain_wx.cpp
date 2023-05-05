@@ -34,12 +34,10 @@ private:
 
 public:
     explicit Renderer(wxWindow *parent, Device &device, Stream &stream) noexcept
-        : wxWindow{parent, wxID_ANY, wxDefaultPosition, parent->GetClientSize()},
-          _device{device}, _stream{stream} {
-        Connect(wxEVT_CREATE, wxWindowCreateEventHandler(Renderer::create));
-    }
+        : wxWindow{parent, wxID_ANY}, _device{device}, _stream{stream} {}
 
-    void create(wxWindowCreateEvent &) noexcept {
+    void initialize() noexcept {
+
         auto width = 0;
         auto height = 0;
         auto channels = 0;
@@ -59,16 +57,17 @@ public:
 
         _swapchain = luisa::make_unique<SwapChain>(
             _device.create_swapchain(
-                window_handle, _stream, resolution, false, true, 3));
+                window_handle, _stream, resolution, false, false, 3));
 
+        SetSize(GetParent()->GetClientSize());
         Center();
     }
 
     void render(wxIdleEvent &event) noexcept {
+        LUISA_INFO("FPS: {}", _framerate.report());
         if (_swapchain == nullptr) { return; }
         _stream << _swapchain->present(*_image);
         _framerate.record(1u);
-        LUISA_INFO("FPS: {}", _framerate.report());
         event.RequestMore();
     }
 };
@@ -103,23 +102,27 @@ public:
         _stream = luisa::make_unique<Stream>(_device->create_stream(StreamTag::GRAPHICS));
 
         auto frame = new Frame{wxSize{1280, 720}};
-        auto renderer = new Renderer{frame, *_device, *_stream};
 
-        auto panel = new wxPanel{frame};
+        auto renderer = new Renderer{frame, *_device, *_stream};
+        // FIXME: initializing in the ctor or on create event
+        //  doesn't work on Windows, so doing it here manually.
+        renderer->initialize();
+
+        auto panel = new wxPanel{renderer};
         panel->SetClientSize(renderer->GetClientSize() / 2);
         panel->SetBackgroundColour(wxColour{128, 64, 96, 128});
         panel->Center();
 
         auto button = new wxButton{panel, wxID_EXIT, wxT("Quit")};
-        button->Center();
         Bind(wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(Frame::close), frame);
+        button->Center();
 
         Bind(wxEVT_IDLE, wxIdleEventHandler(Renderer::render), renderer);
 
-        frame->Show(true);
+        frame->Show();
 
         return true;
     }
 };
 
-IMPLEMENT_APP(App)
+IMPLEMENT_APP_CONSOLE(App)
