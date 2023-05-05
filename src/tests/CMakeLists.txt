@@ -97,3 +97,18 @@ if (wxWidgets_FOUND)
                 ${wxWidgets_LIBRARIES})
     endif ()
 endif ()
+
+# GUI interaction with Qt
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+find_package(Qt6 COMPONENTS Widgets Core Gui)
+if (NOT Qt6_FOUND)
+    find_package(Qt5 COMPONENTS Widgets Core Gui)
+endif ()
+
+if (Qt6_FOUND OR Qt5_FOUND)
+    luisa_compute_add_executable(test_swapchain_qt test_swapchain_qt.cpp)
+    target_link_libraries(test_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui)
+endif ()
