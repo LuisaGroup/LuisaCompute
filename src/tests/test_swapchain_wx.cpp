@@ -123,6 +123,11 @@ public:
 
         return true;
     }
+
+    int OnExit() override {
+        _stream->synchronize();
+        return wxAppBase::OnExit();
+    }
 };
 
 IMPLEMENT_APP_CONSOLE(App)
