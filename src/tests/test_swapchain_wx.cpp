@@ -4,6 +4,7 @@
 
 #include <random>
 #include <wx/wx.h>
+
 #include <stb/stb_image.h>
 
 #include <core/clock.h>
@@ -13,6 +14,11 @@
 #include <runtime/stream.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
+
+#if defined(__WXGTK__)
+#include <gtk/gtkx.h>
+#include <gdk/gdkx.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -45,10 +51,15 @@ public:
         _stream << _image->copy_from(pixels) << synchronize();
         stbi_image_free(pixels);
 
+#ifdef __WXGTK__
+        auto window_handle =  gdk_x11_window_get_xid(gtk_widget_get_window(GetHandle()));
+#else
+        auto window_handle = reinterpret_cast<uint64_t>(GetHandle());
+#endif
+
         _swapchain = luisa::make_unique<SwapChain>(
             _device.create_swapchain(
-                reinterpret_cast<uint64_t>(GetHandle()),
-                _stream, resolution, false, true, 3));
+                window_handle, _stream, resolution, false, true, 3));
 
         Center();
     }
