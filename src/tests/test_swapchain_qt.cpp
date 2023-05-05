@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
 
     auto swapchain = device.create_swapchain(
         canvas.winId(), stream,
-        resolution, false, true, 3);
+        resolution, false, false, 3);
 
     dialog.show();
 
@@ -85,7 +85,8 @@ int main(int argc, char *argv[]) {
         stream << draw(image, time).dispatch(resolution)
                << swapchain.present(image);
         framerate.record();
-        LUISA_INFO("FPS: {}", framerate.report());
+        auto title = luisa::format("Display - {:.2f} fps", framerate.report());
+        dialog.setWindowTitle(title.c_str());
     }
 
     stream << synchronize();
