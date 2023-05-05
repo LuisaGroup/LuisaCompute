@@ -61,7 +61,6 @@ int main(int argc, char *argv[]) {
     canvas.move(window.contentsRect().topLeft());
 
     QWidget overlay{&window};
-    overlay.setStyleSheet("background-color: rgba(64, 96, 128);");
     overlay.setFixedSize(window.contentsRect().size() / 2);
     overlay.move(window.contentsRect().center() - overlay.rect().center());
 
