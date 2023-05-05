@@ -381,9 +381,9 @@ def _custom_xx_id(name, *args):
     # NOTE: cast to signed int by default
     expr = getattr(lcapi.builder(), name)()
     dtype = uint
-    tmp = lcapi.builder().local(to_lctype(dtype))
-    lcapi.builder().assign(tmp, expr)
-    return dtype, tmp
+    # tmp = lcapi.builder().local(to_lctype(dtype))
+    # lcapi.builder().assign(tmp, expr)
+    return dtype, expr
 
 
 for _func in 'kernel_id', 'object_id':

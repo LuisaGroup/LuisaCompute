@@ -4,6 +4,7 @@
 
 #include <random>
 #include <wx/wx.h>
+
 #include <stb/stb_image.h>
 
 #include <core/clock.h>
@@ -13,6 +14,11 @@
 #include <runtime/stream.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
+
+#if defined(__WXGTK__)
+#include <gtk/gtkx.h>
+#include <gdk/gdkx.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -28,10 +34,9 @@ private:
 
 public:
     explicit Renderer(wxWindow *parent, Device &device, Stream &stream) noexcept
-        : wxWindow{parent, wxID_ANY, wxDefaultPosition, parent->GetClientSize()},
-          _device{device}, _stream{stream} {
+        : wxWindow{parent, wxID_ANY}, _device{device}, _stream{stream} {}
 
-        CentreOnParent();
+    void initialize() noexcept {
 
         auto width = 0;
         auto height = 0;
@@ -44,40 +49,37 @@ public:
         _stream << _image->copy_from(pixels) << synchronize();
         stbi_image_free(pixels);
 
+#ifdef __WXGTK__
+        auto window_handle =  gdk_x11_window_get_xid(gtk_widget_get_window(GetHandle()));
+#else
+        auto window_handle = reinterpret_cast<uint64_t>(GetHandle());
+#endif
+
         _swapchain = luisa::make_unique<SwapChain>(
             _device.create_swapchain(
-                reinterpret_cast<uint64_t>(GetHandle()),
-                _stream, resolution, false, false, 3));
+                window_handle, _stream, resolution, false, false, 3));
+
+        SetSize(GetParent()->GetClientSize());
+        Center();
     }
 
-    void render() noexcept {
+    void render(wxIdleEvent &event) noexcept {
+        LUISA_INFO("FPS: {}", _framerate.report());
         if (_swapchain == nullptr) { return; }
         _stream << _swapchain->present(*_image);
         _framerate.record(1u);
-        LUISA_INFO("FPS: {}", _framerate.report());
+        event.RequestMore();
     }
 };
 
 class Frame : public wxFrame {
 
 public:
-    Frame() noexcept : wxFrame{nullptr, wxID_ANY, wxT("Display")} { Centre(); }
+    explicit Frame(wxSize size) noexcept
+        : wxFrame{nullptr, wxID_ANY, wxT("Display"),
+                  wxDefaultPosition, size} {}
+    void close(wxCommandEvent &) noexcept { Close(); }
 };
-
-class Panel : public wxPanel {
-
-private:
-    std::mt19937 _rng{std::random_device{}()};
-
-public:
-    explicit Panel(wxWindow *parent, wxSize size, const wxColour &color) noexcept
-        : wxPanel{parent, wxID_ANY, wxDefaultPosition, size} {
-
-        SetOwnBackgroundColour(color);
-        CenterOnParent();
-    }
-};
-
 
 class App : public wxApp {
 
@@ -85,8 +87,6 @@ private:
     luisa::unique_ptr<Context> _context;
     luisa::unique_ptr<Device> _device;
     luisa::unique_ptr<Stream> _stream;
-    Frame *_frame{nullptr};
-    Renderer *_renderer{nullptr};
 
 public:
     bool OnInit() override {
@@ -101,34 +101,33 @@ public:
         _device = luisa::make_unique<Device>(_context->create_device(argv[1].c_str().AsChar()));
         _stream = luisa::make_unique<Stream>(_device->create_stream(StreamTag::GRAPHICS));
 
-        _frame = new Frame;
-        _renderer = new Renderer{_frame, *_device, *_stream};
+        auto frame = new Frame{wxSize{1280, 720}};
 
-        auto panel = new Panel{_frame, _renderer->GetClientSize() / 2, wxColour{128, 64, 96}};
+        auto renderer = new Renderer{frame, *_device, *_stream};
+        // FIXME: initializing in the ctor or on create event
+        //  doesn't work on Windows, so doing it here manually.
+        renderer->initialize();
+
+        auto panel = new wxPanel{renderer};
+        panel->SetClientSize(renderer->GetClientSize() / 2);
+        panel->SetBackgroundColour(wxColour{128, 64, 96, 128});
+        panel->Center();
 
         auto button = new wxButton{panel, wxID_EXIT, wxT("Quit")};
-        Connect(wxID_EXIT, wxEVT_COMMAND_BUTTON_CLICKED,
-                wxCommandEventHandler(App::close));
-        button->CenterOnParent();
-        button->SetFocus();
+        Bind(wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(Frame::close), frame);
+        button->Center();
 
-        _frame->Show(true);
+        Bind(wxEVT_IDLE, wxIdleEventHandler(Renderer::render), renderer);
 
-        Connect(wxID_ANY, wxEVT_IDLE, wxIdleEventHandler(App::idle));
+        frame->Show();
 
         return true;
     }
 
-    void idle(wxIdleEvent &event) noexcept {
-        if (_renderer == nullptr) { return; }
-        _renderer->render();
-        event.RequestMore();
-    }
-
-    void close(wxCommandEvent &) noexcept {
-        if (_frame == nullptr) { return; }
-        _frame->Close();
+    int OnExit() override {
+        _stream->synchronize();
+        return wxAppBase::OnExit();
     }
 };
 
-IMPLEMENT_APP(App)
+IMPLEMENT_APP_CONSOLE(App)

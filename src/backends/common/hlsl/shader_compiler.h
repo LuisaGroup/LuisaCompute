@@ -1,7 +1,6 @@
 #pragma once
 #include <filesystem>
 #include <core/dynamic_module.h>
-#include <winerror.h>
 #include <comdef.h>
 #include <wrl/client.h>
 #include "dxcapi.h"

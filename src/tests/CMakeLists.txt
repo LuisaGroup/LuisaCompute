@@ -65,9 +65,62 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
 endif ()
 
+# GUI interaction with wxWidgets
 find_package(wxWidgets COMPONENTS core base)
+
 if (wxWidgets_FOUND)
+
     include(${wxWidgets_USE_FILE})
-    luisa_compute_add_executable(test_swapchain_wx test_swapchain_wx.cpp)
-    target_link_libraries(test_swapchain_wx PRIVATE ${wxWidgets_LIBRARIES})
+    message(STATUS "Found wxWidgets: ${wxWidgets_INCLUDE_DIRS}")
+
+    if (UNIX AND NOT APPLE)
+        foreach (lib ${wxWidgets_LIBRARIES})
+            if (lib MATCHES ".*wx_gtk2.*")
+                set(LUISA_REQUIRED_GTK_LIB gtk+-2.0)
+            elseif (lib MATCHES ".*wx_gtk3.*")
+                set(LUISA_REQUIRED_GTK_LIB gtk+-3.0)
+            elseif (lib MATCHES ".*wx_gtk4.*")
+                set(LUISA_REQUIRED_GTK_LIB gtk4)
+            endif ()
+        endforeach ()
+    endif ()
+
+    if (LUISA_REQUIRED_GTK_LIB)
+        find_package(PkgConfig)
+        if (PkgConfig_FOUND)
+            pkg_check_modules(GTK ${LUISA_REQUIRED_GTK_LIB})
+        endif ()
+        if (GTK_FOUND)
+            message(STATUS "Found GTK: ${GTK_INCLUDE_DIRS}")
+        endif ()
+    endif ()
+
+    if (NOT LUISA_REQUIRED_GTK_LIB OR GTK_FOUND)
+        add_library(luisa-compute-gui-wx INTERFACE)
+        target_include_directories(luisa-compute-gui-wx INTERFACE
+                ${wxWidgets_INCLUDE_DIRS})
+        target_link_libraries(luisa-compute-gui-wx INTERFACE
+                ${wxWidgets_LIBRARIES}
+                luisa-compute-gui)
+
+        # demos using wxWidgets
+        luisa_compute_add_executable(test_swapchain_wx test_swapchain_wx.cpp)
+        target_link_libraries(test_swapchain_wx PRIVATE luisa-compute-gui-wx)
+    endif ()
+endif ()
+
+# GUI interaction with Qt
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+find_package(Qt6 COMPONENTS Widgets Core Gui QUIET CONFIG)
+if (NOT Qt6_FOUND)
+    find_package(Qt5 COMPONENTS Widgets Core Gui QUIET CONFIG)
+endif ()
+
+if (Qt6_FOUND OR Qt5_FOUND)
+    message(STATUS "Found Qt")
+    luisa_compute_add_executable(test_swapchain_qt test_swapchain_qt.cpp)
+    target_link_libraries(test_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui)
 endif ()
