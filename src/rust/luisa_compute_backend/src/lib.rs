@@ -245,7 +245,7 @@ pub trait Backend: Sync + Send {
     );
     fn create_shader(
         &self,
-        kernel: CArc<KernelModule>,
+        kernel: &KernelModule,
         options: &api::ShaderOption,
     ) -> Result<api::CreatedShaderInfo>;
     fn shader_cache_dir(&self, shader: api::Shader) -> Option<PathBuf>;
@@ -407,8 +407,8 @@ unsafe extern "C" fn create_shader<B: Backend>(
     option: &api::ShaderOption,
 ) -> api::Result<api::CreatedShaderInfo> {
     let backend: &B = get_backend(backend);
-    let kernel = &*(kernel.ptr as *const CArc<ir::KernelModule>);
-    map(backend.create_shader(CArc::clone(kernel), option))
+    let kernel = &*(kernel.ptr as *const ir::KernelModule);
+    map(backend.create_shader(kernel, option))
 }
 
 extern "C" fn destroy_shader<B: Backend>(backend: api::Device, shader: api::Shader) {

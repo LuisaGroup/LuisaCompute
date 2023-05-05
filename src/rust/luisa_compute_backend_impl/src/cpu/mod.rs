@@ -240,7 +240,7 @@ impl Backend for RustBackend {
     }
     fn create_shader(
         &self,
-        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
+        kernel: &luisa_compute_ir::ir::KernelModule,
         _options: &api::ShaderOption,
     ) -> super::Result<luisa_compute_api_types::CreatedShaderInfo> {
         // let debug =

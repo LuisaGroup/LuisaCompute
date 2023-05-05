@@ -1,4 +1,5 @@
 #![allow(unused_unsafe)]
+
 use std::ffi::CStr;
 use std::{
     path::{Path, PathBuf},
@@ -20,12 +21,14 @@ use std::sync::Once;
 static INIT_CPP: Once = Once::new();
 static mut OLD_SIGABRT_HANDLER: libc::sighandler_t = 0;
 static CPP_MUTEX: Mutex<()> = Mutex::new(());
+
 fn restore_signal_handler() {
     unsafe {
         libc::signal(libc::SIGABRT, OLD_SIGABRT_HANDLER);
         libc::signal(libc::SIGSEGV, OLD_SIGABRT_HANDLER);
     }
 }
+
 pub(crate) fn _signal_handler(signal: libc::c_int) {
     if signal == libc::SIGABRT {
         restore_signal_handler();
@@ -60,6 +63,7 @@ pub struct ProxyBackend {
     pub(crate) interface: Arc<Interface>,
     pub(crate) device: api::DeviceInterface,
 }
+
 impl ProxyBackend {
     pub(crate) fn new(provider: &BackendProvider, device: &str, config: serde_json::Value) -> Self {
         let interface = &provider.interface;
@@ -75,6 +79,7 @@ impl ProxyBackend {
         }
     }
 }
+
 unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
     match a {
         api::Result::Ok(a) => Ok(a),
@@ -92,6 +97,7 @@ unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
         }),
     }
 }
+
 impl Backend for ProxyBackend {
     #[inline]
     fn create_buffer(
@@ -234,14 +240,14 @@ impl Backend for ProxyBackend {
     #[inline]
     fn create_shader(
         &self,
-        kernel: CArc<KernelModule>,
+        kernel: &KernelModule,
         option: &api::ShaderOption,
     ) -> crate::Result<api::CreatedShaderInfo> {
         catch_abort!({
             map((self.device.create_shader)(
                 self.device.device,
                 api::KernelModule {
-                    ptr:&kernel as *const CArc<_> as u64,
+                    ptr:kernel as *const _ as u64,
                 },
                 option,
             ))

@@ -4,9 +4,9 @@
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
                                                          const luisa::compute::DeviceConfig *config) noexcept {
-    return new luisa::compute::rust::RustDevice{std::move(ctx), "remote"};
+    return luisa::compute::rust::create(std::move(ctx), config, "remote");
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {
-    delete device;
+    return luisa::compute::rust::destroy(device);
 }

@@ -3,9 +3,9 @@
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
                                                          const luisa::compute::DeviceConfig *config) noexcept {
-    return luisa::new_with_allocator<luisa::compute::rust::RustDevice>(std::move(ctx), "cpu");
+    return luisa::compute::rust::create(std::move(ctx), config, "cpu");
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {
-    luisa::delete_with_allocator(device);
+    return luisa::compute::rust::destroy(device);
 }
