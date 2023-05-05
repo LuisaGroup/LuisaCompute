@@ -48,7 +48,7 @@ namespace luisa::compute::rust {
             dll = DynamicModule::load(this->runtime_path, "luisa_compute_backend_impl");
             luisa_compute_lib_interface = dll.function<api::LibInterface()>("luisa_compute_lib_interface");
             lib = luisa_compute_lib_interface();
-            api_ctx = lib.create_context(this->runtime_path.c_str());
+            api_ctx = lib.create_context(this->runtime_path.generic_string().c_str());
             device = lib.create_device(api_ctx, name.data(), nullptr);
             lib.set_logger_callback([](api::LoggerMessage message) {
                 luisa::string_view target(message.target);

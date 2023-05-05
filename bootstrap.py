@@ -100,10 +100,11 @@ def get_available_features():
     global print_missing_rust_warning
     # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui', 'tests']
-    if not check_rust():
-        print_missing_rust_warning = True
+    if check_rust():
         features.append('cpu')
         features.append('remote')
+    else:
+        print_missing_rust_warning = True
 
     # enable DirectX on Windows by default
     if sys.platform == 'win32':
