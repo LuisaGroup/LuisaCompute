@@ -48,7 +48,7 @@ public:
         _swapchain = luisa::make_unique<SwapChain>(
             _device.create_swapchain(
                 reinterpret_cast<uint64_t>(GetHandle()),
-                _stream, resolution, false, false, 3));
+                _stream, resolution, false, true, 3));
 
         Center();
     }
