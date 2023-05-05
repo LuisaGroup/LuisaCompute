@@ -38,6 +38,11 @@ pub(crate) fn _signal_handler(signal: libc::c_int) {
         restore_signal_handler();
         panic!("segfault inside LuisaCompute");
     }
+    #[cfg(target_os = "linux")]
+    if signal == libc::SIGBUS {
+        restore_signal_handler();
+        panic!("bus error inside LuisaCompute");
+    }
 }
 #[macro_export]
 macro_rules! catch_abort {
