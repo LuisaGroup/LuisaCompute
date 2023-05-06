@@ -76,15 +76,18 @@ function main(...)
 	sb:add("lc_toolchain = {\n")
 	local toolchain = args["toolchain"]
 	local sdk_path
+	local is_win = my_is_host("windows")
 	if toolchain then
 		args["toolchain"] = nil
 		if toolchain == "llvm" then
-			sdk_path = find_llvm()
-		elseif toolchain == "clang-cl" then
-			sdk_path = find_clangcl()
+			if is_win then
+				sdk_path = find_clangcl()
+				toolchain = "clang-cl"
+			else
+				sdk_path = find_llvm()				
+			end
 		end
 	else
-		local is_win = my_is_host("windows")
 		-- llvm first
 		if is_win then
 			toolchain = "clang-cl"
