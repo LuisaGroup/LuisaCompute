@@ -1,4 +1,3 @@
-import luisa
 from .struct import StructType
 from .array import ArrayType
 from .types import *

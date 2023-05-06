@@ -1,16 +1,12 @@
 from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, basic_dtypes, dtype_of
+from .types import to_lctype, basic_dtypes, dtype_of, BuiltinFuncBuilder
 from .types import vector_dtypes, matrix_dtypes, element_of, length_of
 from functools import cache
-from .func import func
-from .builtin import _builtin_call
 from .mathtypes import *
 from .builtin import check_exact_signature
-from types import SimpleNamespace
-from .types import uint, uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, short, ushort, short2, \
-    half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
+from .types import uint, uint, uint3, short, ushort
 from .struct import CustomType
 from .atomic import int_atomic_functions, float_atomic_functions
 
@@ -164,18 +160,20 @@ class BufferType:
     @staticmethod
     @cache
     def get_read_method(dtype):
-        @func
+        @BuiltinFuncBuilder
         def read(self, idx):
-            return _builtin_call(dtype, "BUFFER_READ", self, idx)
+            check_exact_signature([uint], [idx], "read")
+            return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BUFFER_READ, [self.expr, idx.expr])
 
         return read
 
     @staticmethod
     @cache
     def get_write_method(dtype):
-        @func
-        def write(self, idx, value: dtype):
-            _builtin_call("BUFFER_WRITE", self, idx, value)
+        @BuiltinFuncBuilder
+        def write(self, idx, value):
+            check_exact_signature([uint, dtype], [idx, value], "write")
+            return None, lcapi.builder().call(lcapi.CallOp.BUFFER_WRITE, [self.expr, idx.expr, value.expr])
 
         return write
 
@@ -197,18 +195,19 @@ class IndirectBufferType:
     @staticmethod
     @cache
     def get_clear_func():
-        @func
+        @BuiltinFuncBuilder
         def clear(self):
-            _builtin_call("INDIRECT_CLEAR_DISPATCH_BUFFER", self)
+            return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
 
         return clear
 
     @staticmethod
     @cache
     def get_emplace_func():
-        @func
-        def emplace(self, block_size: uint3, size: uint3, id):
-            _builtin_call("INDIRECT_EMPLACE_DISPATCH_KERNEL", self, block_size, size, id)
+        @BuiltinFuncBuilder
+        def emplace(self, block_size, size, id):
+            check_exact_signature([uint3, uint3, uint], [block_size, size, id], "emplace")
+            return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, id.expr])
 
         return emplace
 

@@ -1,13 +1,11 @@
 from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .struct import StructType
-from .array import ArrayType
 from .mathtypes import *
 from .func import func
-from .types import to_lctype
-from .builtin import _builtin_call, bitwise_cast
-from .hit import TriangleHit, CommittedHit, ProceduralHit
+from .types import to_lctype, BuiltinFuncBuilder, uint
+from .builtin import bitwise_cast, check_exact_signature
+from .hit import TriangleHit
 from .rayquery import rayQueryAllType, rayQueryAnyType, Ray
 
 
@@ -148,34 +146,51 @@ class Accel:
         if sync:
             stream.synchronize()
 
-    @func
-    def trace_closest(self, ray: Ray, vis_mask: int):
-        return _builtin_call(TriangleHit, "RAY_TRACING_TRACE_CLOSEST", self, ray, vis_mask)
+    @BuiltinFuncBuilder
+    def trace_closest(self, ray, vis_mask):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest")
+        expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST, [self.expr, ray.expr, vis_mask.expr])
+        return TriangleHit, expr
 
-    @func
-    def trace_any(self, ray: Ray, vis_mask: int):
-        return _builtin_call(bool, "RAY_TRACING_TRACE_ANY", self, ray, vis_mask)
+    @BuiltinFuncBuilder
+    def trace_any(self, ray, vis_mask):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any")
+        expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY, [self.expr, ray.expr, vis_mask.expr])
+        return bool, expr
 
-    @func
-    def instance_transform(self, index: int):
-        return _builtin_call(float4x4, "RAY_TRACING_INSTANCE_TRANSFORM", self, index)
+    @BuiltinFuncBuilder
+    def instance_transform(self, index):
+        check_exact_signature([uint], [index], "instance_transform")
+        expr = lcapi.builder().call(to_lctype(float4x4), lcapi.CallOp.RAY_TRACING_INSTANCE_TRANSFORM, [self.expr, index.expr])
+        return float4x4, expr
 
-    @func
-    def set_instance_transform(self, index: int, transform: float4x4):
-        _builtin_call("RAY_TRACING_SET_INSTANCE_TRANSFORM", self, index, transform)
+    @BuiltinFuncBuilder
+    def set_instance_transform(self, index, transform):
+        check_exact_signature([uint, float4x4], [index, transform], "set_instance_transform")
+        expr = lcapi.builder().call(to_lctype(float4x4), lcapi.CallOp.RAY_TRACING_SET_INSTANCE_TRANSFORM, [self.expr, index.expr, transform.expr])
+        return float4x4, expr
 
-    @func
-    def set_instance_visibility(self, index: int, visibility_mask: int):
-        _builtin_call("RAY_TRACING_SET_INSTANCE_VISIBILITY", self, index, visibility_mask)
 
-    @func
-    def set_instance_visibility(self, index: int, visibility_mask: int):
-        _builtin_call("RAY_TRACING_SET_INSTANCE_OPACITY", self, index, visibility_mask)
+    @BuiltinFuncBuilder
+    def set_instance_visibility(self, index, visibility_mask):
+        check_exact_signature([uint, uint], [index, visibility_mask], "set_instance_visibility")
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_TRACING_SET_INSTANCE_VISIBILITY, [self.expr, index.expr, visibility_mask.expr])
+        return None, expr
 
-    @func
-    def query_all(self, ray: Ray, vis_mask: int):
-        return _builtin_call(rayQueryAllType, "RAY_TRACING_QUERY_ALL", self, ray, vis_mask)
+    @BuiltinFuncBuilder
+    def set_instance_opacity(self, index, opacity):
+        check_exact_signature([uint, bool], [index, opacity], "set_instance_opacity")
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_TRACING_SET_INSTANCE_OPACITY, [self.expr, index.expr, opacity.expr])
+        return None, expr
 
-    @func
-    def query_any(self, ray: Ray, vis_mask: int):
-        return _builtin_call(rayQueryAnyType, "RAY_TRACING_QUERY_ANY", self, ray, vis_mask)
+    @BuiltinFuncBuilder
+    def query_all(self, ray, vis_mask):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "query_all")
+        expr = lcapi.builder().call(to_lctype(rayQueryAllType), lcapi.CallOp.RAY_TRACING_QUERY_ALL, [self.expr, ray.expr, vis_mask.expr])
+        return rayQueryAllType, expr
+
+    @BuiltinFuncBuilder
+    def query_any(self, ray, vis_mask: int):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "query_any")
+        expr = lcapi.builder().call(to_lctype(rayQueryAnyType), lcapi.CallOp.RAY_TRACING_QUERY_ANY, [self.expr, ray.expr, vis_mask.expr])
+        return rayQueryAllType, expr

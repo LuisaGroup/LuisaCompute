@@ -1,7 +1,6 @@
-from .dylibs import lcapi
 from .struct import StructType
 from .func import func
-from .types import uint, BuiltinFuncBuilder
+from .types import uint
 from .mathtypes import *
 
 CommittedHit = StructType(inst=uint, prim=uint, bary=float2, hit_type=uint, ray_t=float)

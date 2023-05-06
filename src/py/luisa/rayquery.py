@@ -1,15 +1,10 @@
 from .dylibs import lcapi
-from .globalvars import get_global_device
-from .types import to_lctype, basic_dtypes, dtype_of
-from .types import vector_dtypes, matrix_dtypes, element_of, length_of
-from functools import cache
+from .types import to_lctype
 from .func import func
-from .builtin import _builtin_call, bitwise_cast
 from .struct import StructType
 from .mathtypes import *
 from .builtin import check_exact_signature
-from .types import uint, BuiltinFuncBuilder
-from .struct import CustomType
+from .types import BuiltinFuncBuilder
 from .hit import TriangleHit, CommittedHit, ProceduralHit
 from .array import ArrayType
 
@@ -63,47 +58,47 @@ class RayQueryAllType:
         return hash("LC_RayQueryAll") ^ 1641414112621983
 
     @BuiltinFuncBuilder
-    def procedural_candidate(*args):
+    def procedural_candidate(self):
         expr = lcapi.builder().call(to_lctype(ProceduralHit),
                                     lcapi.CallOp.RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,
-                                    [args[0].expr])
+                                    [self.expr])
         return ProceduralHit, expr
 
     @BuiltinFuncBuilder
-    def triangle_candidate(*args):
+    def triangle_candidate(self):
         expr = lcapi.builder().call(to_lctype(TriangleHit),
                                     lcapi.CallOp.RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
-                                    [args[0].expr])
+                                    [self.expr])
         return TriangleHit, expr
 
     @BuiltinFuncBuilder
-    def committed_hit(*args):
+    def committed_hit(self):
         expr = lcapi.builder().call(to_lctype(CommittedHit),
                                     lcapi.CallOp.RAY_QUERY_COMMITTED_HIT,
-                                    [args[0].expr])
+                                    [self.expr])
         return CommittedHit, expr
 
     @BuiltinFuncBuilder
-    def terminate(*args):
-        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_TERMINATE, [args[0].expr])
+    def terminate(self):
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_TERMINATE, [self.expr])
         return None, expr
 
     @BuiltinFuncBuilder
-    def commit_triangle(*args):
-        print(args)
-        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_TRIANGLE, [args[0].expr])
+    def commit_triangle(self):
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_TRIANGLE, [self.expr])
         return None, expr
 
     @BuiltinFuncBuilder
-    def commit_procedural(*args):
-        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_PROCEDURAL, [args[0].expr, args[1].expr])
+    def commit_procedural(self, distance):
+        check_exact_signature([float], [distance], "commit_procedural")
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_PROCEDURAL, [self.expr, distance.expr])
         return None, expr
 
     @BuiltinFuncBuilder
-    def world_space_ray(*args):
+    def world_space_ray(self):
         expr = lcapi.builder().call(to_lctype(Ray),
                                     lcapi.CallOp.RAY_QUERY_WORLD_SPACE_RAY,
-                                    [args[0].expr])
+                                    [self.expr])
         return Ray, expr
 
 
@@ -121,47 +116,47 @@ class RayQueryAnyType:
         return hash("LC_RayQueryAny") ^ 2239219477752302592
 
     @BuiltinFuncBuilder
-    def procedural_candidate(*args):
+    def procedural_candidate(self):
         expr = lcapi.builder().call(to_lctype(ProceduralHit),
                                     lcapi.CallOp.RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,
-                                    [args[0].expr])
+                                    [self.expr])
         return ProceduralHit, expr
 
     @BuiltinFuncBuilder
-    def triangle_candidate(*args):
+    def triangle_candidate(self):
         expr = lcapi.builder().call(to_lctype(TriangleHit),
                                     lcapi.CallOp.RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
-                                    [args[0].expr])
+                                    [self.expr])
         return TriangleHit, expr
 
     @BuiltinFuncBuilder
-    def committed_hit(*args):
+    def committed_hit(self):
         expr = lcapi.builder().call(to_lctype(CommittedHit),
                                     lcapi.CallOp.RAY_QUERY_COMMITTED_HIT,
-                                    [args[0].expr])
+                                    [self.expr])
         return CommittedHit, expr
 
     @BuiltinFuncBuilder
-    def terminate(*args):
-        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_TERMINATE, [args[0].expr])
+    def terminate(self):
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_TERMINATE, [self.expr])
         return None, expr
 
     @BuiltinFuncBuilder
-    def commit_triangle(*args):
-        print(args)
-        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_TRIANGLE, [args[0].expr])
+    def commit_triangle(self):
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_TRIANGLE, [self.expr])
         return None, expr
 
     @BuiltinFuncBuilder
-    def commit_procedural(*args):
-        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_PROCEDURAL, [args[0].expr, args[1].expr])
+    def commit_procedural(self, distance):
+        check_exact_signature([float], [distance], "commit_procedural")
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_QUERY_COMMIT_PROCEDURAL, [self.expr, distance.expr])
         return None, expr
 
     @BuiltinFuncBuilder
-    def world_space_ray(*args):
+    def world_space_ray(self):
         expr = lcapi.builder().call(to_lctype(Ray),
                                     lcapi.CallOp.RAY_QUERY_WORLD_SPACE_RAY,
-                                    [args[0].expr])
+                                    [self.expr])
         return Ray, expr
 
 

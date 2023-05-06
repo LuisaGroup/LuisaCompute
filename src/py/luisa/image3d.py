@@ -1,12 +1,12 @@
 from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import dtype_of, length_of, element_of, vector
+from .types import length_of, element_of, vector, to_lctype
 from functools import cache
 from .func import func
-from .builtin import _builtin_call
+from .builtin import _builtin_call, check_exact_signature
 from .mathtypes import *
-from .types import uint, uint3
+from .types import uint, uint3, BuiltinFuncBuilder
 
 
 def _check_storage(storage_name, dtype):
@@ -142,9 +142,10 @@ class Texture3DType:
     def get_read_method(dtype):
         dtype4 = vector(element_of(dtype), 4)
         if length_of(dtype) == 4:
-            @func
-            def read(self, coord: uint3):
-                return _builtin_call(dtype, "TEXTURE_READ", self, (coord))
+            @BuiltinFuncBuilder
+            def read(self, coord):
+                check_exact_signature([uint3], [coord], "read")
+                return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.TEXTURE_READ, [self.expr, coord.expr])
 
             return read
         elif length_of(dtype) == 2:
@@ -166,9 +167,10 @@ class Texture3DType:
     @cache
     def get_write_method(dtype):
         if length_of(dtype) == 4:
-            @func
-            def write(self, coord: uint3, value: dtype):
-                _builtin_call("TEXTURE_WRITE", self, (coord), value)
+            @BuiltinFuncBuilder
+            def write(self, coord, value):
+                check_exact_signature([uint3, dtype], [coord, value], "write")
+                return None, lcapi.builder().call(lcapi.CallOp.TEXTURE_WRITE, [self.expr, coord.expr, value.expr])
 
             return write
         else:
