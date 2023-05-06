@@ -108,12 +108,12 @@ public:
         //  doesn't work on Windows, so doing it here manually.
         renderer->initialize();
 
-        auto panel = new wxPanel{renderer};
-        panel->SetClientSize(renderer->GetClientSize() / 2);
-        panel->SetBackgroundColour(wxColour{128, 64, 96, 128});
-        panel->Center();
+        auto overlay = new wxWindow{renderer, wxID_ANY};
+        overlay->SetClientSize(renderer->GetClientSize() / 2);
+        overlay->SetBackgroundColour(wxColour{128, 64, 96, 128});
+        overlay->Center();
 
-        auto button = new wxButton{panel, wxID_EXIT, wxT("Quit")};
+        auto button = new wxButton{overlay, wxID_EXIT, wxT("Quit")};
         Bind(wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(Frame::close), frame);
         button->Center();
 
