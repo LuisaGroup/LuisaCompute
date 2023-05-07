@@ -487,7 +487,7 @@ def find_llvm(version):
         clang_from_prog = 'C:/Program Files/LLVM/bin'
         if os.path.exists(clang_from_prog) and clang_from_prog not in candidate_paths:
             candidate_paths.append(clang_from_prog)
-        clang_from_vs = find_msvc(None, '**/VC/Tools/Llvm/x64/bin/clang.exe')
+        clang_from_vs = find_msvc(None, '**/VC/Tools/Llvm/x64/bin/clang-cl.exe')
         if clang_from_vs:
             candidate_paths += [os.path.dirname(x) for x in clang_from_vs]
     else:
@@ -562,8 +562,8 @@ def build_system_config_args_cmake(config: dict, mode: str, toolchain: str, tool
     elif toolchain == 'llvm':
         llvm_bin = find_llvm(toolchain_version).replace('\\', '/')
         if sys.platform == 'win32':
-            args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang.exe")
-            args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang++.exe")
+            args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang-cl.exe")
+            args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang-cl.exe")
         else:
             args.append(f"-DCMAKE_C_COMPILER={llvm_bin}/clang")
             args.append(f"-DCMAKE_CXX_COMPILER={llvm_bin}/clang++")
