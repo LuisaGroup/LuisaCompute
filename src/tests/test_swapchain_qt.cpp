@@ -6,6 +6,8 @@
 #include <QPushButton>
 #include <QFrame>
 #include <QMainWindow>
+#include <QPainter>
+#include <QPaintEvent>
 
 #include <core/clock.h>
 #include <core/logging.h>
@@ -19,6 +21,19 @@
 
 using namespace luisa;
 using namespace luisa::compute;
+
+class Canvas : public QWidget {
+
+public:
+    [[nodiscard]] QPaintEngine *paintEngine() const override { return nullptr; }
+
+public:
+    explicit Canvas(QWidget *parent) noexcept : QWidget{parent} {
+        setAttribute(Qt::WA_NativeWindow);
+        setAttribute(Qt::WA_PaintOnScreen);
+        setAttribute(Qt::WA_OpaquePaintEvent);
+    }
+};
 
 int main(int argc, char *argv[]) {
 
@@ -56,11 +71,11 @@ int main(int argc, char *argv[]) {
     window.setFixedSize(width, height);
     window.setWindowTitle("Display");
 
-    QWidget canvas{&window};
+    Canvas canvas{&window};
     canvas.setFixedSize(window.contentsRect().size());
     canvas.move(window.contentsRect().topLeft());
 
-    QWidget overlay{&window};
+    QFrame overlay{&window};
     overlay.setFixedSize(window.contentsRect().size() / 2);
     overlay.move(window.contentsRect().center() - overlay.rect().center());
 
