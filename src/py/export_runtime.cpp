@@ -174,7 +174,7 @@ void export_runtime(py::module &m) {
         });
     m.def("get_bindless_handle", [](uint64 handle) {
         return reinterpret_cast<ManagedBindless *>(handle)->GetHandle();
-    });
+    }, pyref);
     // py::class_<DeviceInterface::BuiltinBuffer>(m, "BuiltinBuffer")
     //     .def("handle", [](DeviceInterface::BuiltinBuffer &buffer) {
     //         return buffer.handle;
@@ -186,7 +186,7 @@ void export_runtime(py::module &m) {
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
         .def("create_shader", [](DeviceInterface &self, Function kernel) {
             return self.create_shader({}, kernel).handle;
-        })// TODO: support metaoptions
+        }, pyref)// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;
             luisa::string dst_path_str;
@@ -305,7 +305,7 @@ void export_runtime(py::module &m) {
             auto ptr = d.create_buffer(type, size).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
-        })
+        }, pyref)
         // .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
         //     auto ptr = d.create_dispatch_buffer(dimension, size);
         //     RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
@@ -318,13 +318,13 @@ void export_runtime(py::module &m) {
             auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
             return ptr;
-        })
+        }, pyref)
         .def("destroy_texture", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
         .def("create_bindless_array", [](DeviceInterface &d, size_t slots) {
             return reinterpret_cast<uint64>(new_with_allocator<ManagedBindless>(&d, slots));
-        })// size
+        }, pyref)// size
         .def("destroy_bindless_array", [](DeviceInterface &d, uint64 handle) {
             delete_with_allocator(reinterpret_cast<ManagedBindless *>(handle));
         })
@@ -533,5 +533,5 @@ void export_runtime(py::module &m) {
             pyref)
         .def("operate", [&](AtomicAccessChain &self, CallOp op, const luisa::vector<const Expression *> &args) -> Expression const * {
             return self.node->operate(op, luisa::span<Expression const *const>{args});
-        });
+        }, pyref);
 }

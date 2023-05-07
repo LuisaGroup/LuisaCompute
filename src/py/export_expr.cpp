@@ -74,5 +74,5 @@ void export_expr(py::module &m) {
         .def("dimension", &Type::dimension)
         .def_static("custom", [](luisa::string_view str) {
             return Type::custom(str);
-        });
+        }, pyref);
 }
