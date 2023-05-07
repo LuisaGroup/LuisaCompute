@@ -98,10 +98,11 @@ if (wxWidgets_FOUND)
     if (NOT LUISA_REQUIRED_GTK_LIB OR GTK_FOUND)
         add_library(luisa-compute-gui-wx INTERFACE)
         target_include_directories(luisa-compute-gui-wx INTERFACE
+                ${GTK_INCLUDE_DIRS}
                 ${wxWidgets_INCLUDE_DIRS})
         target_link_libraries(luisa-compute-gui-wx INTERFACE
-                ${wxWidgets_LIBRARIES}
-                luisa-compute-gui)
+                ${GTK_LIBRARIES}
+                ${wxWidgets_LIBRARIES})
 
         # demos using wxWidgets
         luisa_compute_add_executable(test_swapchain_wx test_swapchain_wx.cpp)
