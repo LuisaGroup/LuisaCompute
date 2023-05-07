@@ -3,7 +3,6 @@ mod remote;
 #[cfg(feature = "cpu")]
 mod cpu;
 
-use crate::cpu::RustBackend;
 use libloading::Library;
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 use luisa_compute_api_types as api;
@@ -169,7 +168,7 @@ unsafe extern "C" fn create_device(
                     })
                     .ok()
                     .map(|x| Arc::new(x));
-                let device = RustBackend::new();
+                let device = cpu::RustBackend::new();
                 if let Some(swapchain) = swapchain {
                     device.set_swapchain_contex(swapchain);
                 }

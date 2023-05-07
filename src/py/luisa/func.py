@@ -14,8 +14,6 @@ from .types import dtype_of, to_lctype, implicit_covertable
 from .astbuilder import VariableInfo
 from .meshformat import MeshFormat
 import textwrap
-import os
-import sys
 from .raster import AppData
 
 

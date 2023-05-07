@@ -1,4 +1,3 @@
-import ast
 from .dylibs import lcapi
 import numpy
 from types import SimpleNamespace
