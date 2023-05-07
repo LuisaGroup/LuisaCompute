@@ -16,8 +16,9 @@
 #include <gui/framerate.h>
 
 #if defined(__WXGTK__)
-#include <gtk/gtkx.h>
+#include <gtk/gtk.h>
 #include <gdk/gdkx.h>
+#include <glib-object.h>
 #endif
 
 using namespace luisa;
@@ -49,10 +50,22 @@ public:
         _stream << _image->copy_from(pixels) << synchronize();
         stbi_image_free(pixels);
 
+        auto handle = GetHandle();
+        LUISA_ASSERT(handle != nullptr, "Window handle is null.");
+
 #ifdef __WXGTK__
-        auto window_handle =  gdk_x11_window_get_xid(gtk_widget_get_window(GetHandle()));
+        auto window = gtk_widget_get_window(handle);
+        LUISA_ASSERT(window != nullptr, "Window is null.");
+        auto window_handle = 0ull;
+        if (GDK_IS_X11_WINDOW(window)) {
+            window_handle = gdk_x11_window_get_xid(window);
+        } else {
+            LUISA_ERROR_WITH_LOCATION(
+                "Unknown window type: {}",
+                G_OBJECT_CLASS_NAME(window));
+        }
 #else
-        auto window_handle = reinterpret_cast<uint64_t>(GetHandle());
+        auto window_handle = reinterpret_cast<uint64_t>(handle);
 #endif
 
         _swapchain = luisa::make_unique<SwapChain>(

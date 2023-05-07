@@ -4,10 +4,7 @@
 
 #include <QApplication>
 #include <QPushButton>
-#include <QFrame>
 #include <QMainWindow>
-#include <QPainter>
-#include <QPaintEvent>
 
 #include <core/clock.h>
 #include <core/logging.h>
@@ -32,6 +29,9 @@ public:
         setAttribute(Qt::WA_NativeWindow);
         setAttribute(Qt::WA_PaintOnScreen);
         setAttribute(Qt::WA_OpaquePaintEvent);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setAttribute(Qt::WA_DontCreateNativeAncestors);
+        setAutoFillBackground(true);
     }
 };
 
@@ -70,14 +70,16 @@ int main(int argc, char *argv[]) {
     QMainWindow window;
     window.setFixedSize(width, height);
     window.setWindowTitle("Display");
+    window.setAutoFillBackground(true);
 
     Canvas canvas{&window};
     canvas.setFixedSize(window.contentsRect().size());
     canvas.move(window.contentsRect().topLeft());
 
-    QFrame overlay{&window};
+    QWidget overlay{&window};
     overlay.setFixedSize(window.contentsRect().size() / 2);
     overlay.move(window.contentsRect().center() - overlay.rect().center());
+    overlay.setAutoFillBackground(true);
 
     QPushButton button{"Quit", &overlay};
     button.move(overlay.contentsRect().center() - button.rect().center());
