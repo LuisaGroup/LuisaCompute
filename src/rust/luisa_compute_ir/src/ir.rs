@@ -796,6 +796,12 @@ pub struct UserData {
     data: *const u8,
     eq: extern "C" fn(*const u8, *const u8) -> bool,
 }
+impl PartialEq for UserData {
+    fn eq(&self, other: &Self) -> bool {
+        (self.eq)(self.data, other.data)
+    }
+}
+impl Eq for UserData {}
 impl Serialize for UserData {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let state = serializer.serialize_struct("UserData", 1)?;
@@ -1131,10 +1137,22 @@ impl NodeRef {
             _ => panic!("not i32 node; found: {:?}", self.get().instruction),
         }
     }
+    pub fn is_unreachable(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Call(Func::Unreachable(_), _) => true,
+            _ => false,
+        }
+    }
     pub fn get_user_data(&self) -> &UserData {
         match self.get().instruction.as_ref() {
             Instruction::UserData(data) => data,
             _ => panic!("not user data node; found: {:?}", self.get().instruction),
+        }
+    }
+    pub fn is_user_data(&self)->bool {
+        match self.get().instruction.as_ref() {
+            Instruction::UserData(_) => true,
+            _ => false,
         }
     }
     pub fn unwrap_user_data<T: UserNodeData>(&self) -> &T {
@@ -1633,6 +1651,9 @@ impl IrBuilder {
         if t == Type::userdata() {
             let userdata0 = incoming[0].value.get_user_data();
             for i in 1..incoming.len() {
+                if incoming[i].value.is_unreachable() {
+                    continue;
+                }
                 let userdata = incoming[i].value.get_user_data();
                 assert_eq!(
                     userdata0.tag, userdata.tag,

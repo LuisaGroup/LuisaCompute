@@ -4,11 +4,8 @@ from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
 from . import Buffer, Image2D, Image3D
-from .types import BuiltinFuncBuilder, to_lctype, uint, short, ushort, short2, half2, ushort2, short3, half3, ushort3, \
-    short4, half4, ushort4
+from .types import BuiltinFuncBuilder, to_lctype, uint
 from .builtin import check_exact_signature
-from .func import func
-from .builtin import _builtin_call
 
 
 class BindlessArray:
@@ -74,11 +71,6 @@ class BindlessArray:
         if sync:
             stream.synchronize()
 
-    # @func
-    # def buffer_read(self: BindlessArray, dtype: type, buffer_index: int, element_index: int):
-    #     return _builtin_call(dtype, "BINDLESS_BUFFER_READ", self, buffer_index, element_index)
-    # might not be possible, because "type" is not a valid data type in LC
-
     @BuiltinFuncBuilder
     def buffer_read(*argnodes):  # (dtype, buffer_index, element_index)
         check_exact_signature([type, int, uint], argnodes[1:], "buffer_read")
@@ -87,45 +79,55 @@ class BindlessArray:
                                     [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
         return dtype, expr
 
-    @func
-    def texture2d_read(self, texture2d_index, coord: uint2):
-        return _builtin_call(float4, "BINDLESS_TEXTURE2D_READ", self, texture2d_index, coord)
+    @BuiltinFuncBuilder
+    def texture2d_read(self, texture2d_index, coord):
+        check_exact_signature([uint, uint2], [texture2d_index, coord], "texture2d_read")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_READ, [self.expr, texture2d_index.expr, coord.expr])
 
-    @func
-    def texture2d_sample(self, texture2d_index, uv: float2):
-        return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE", self, texture2d_index, uv)
+    @BuiltinFuncBuilder
+    def texture2d_sample(self, texture2d_index, uv):
+        check_exact_signature([uint, float2], [texture2d_index, uv], "texture2d_sample")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE, [self.expr, texture2d_index.expr, uv.expr])
 
-    @func
-    def texture2d_sample_mip(self, texture2d_index, uv: float2, mip):
-        return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE_LEVEL", self, texture2d_index, uv, mip)
+    @BuiltinFuncBuilder
+    def texture2d_sample_mip(self, texture2d_index, uv, mip):
+        check_exact_signature([uint, float2, uint], [texture2d_index, uv, mip], "texture2d_sample_mip")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE_LEVEL, [self.expr, texture2d_index.expr, uv.expr, mip.expr])
 
-    @func
-    def texture2d_sample_grad(self, texture2d_index, uv: float2, ddx: float2, ddy: float2):
-        return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE_GRAD", self, texture2d_index, uv, ddx, ddy)
+    @BuiltinFuncBuilder
+    def texture2d_sample_grad(self, texture2d_index, uv, ddx, ddy):
+        check_exact_signature([uint, float2, float2, float2], [texture2d_index, uv, ddx, ddy], "texture2d_sample_grad")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE_GRAD, [self.expr, texture2d_index.expr, uv.expr, ddx.expr, ddy.expr])
 
-    @func
+    @BuiltinFuncBuilder
     def texture2d_size(self, texture2d_index):
-        return _builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index)
+        check_exact_signature([uint], [texture2d_index], "texture2d_size")
+        return uint2, lcapi.builder().call(to_lctype(uint2), lcapi.CallOp.BINDLESS_TEXTURE2D_SIZE, [self.expr, texture2d_index.expr])
 
-    @func
-    def texture3d_read(self, texture3d_index, coord: uint3):
-        return _builtin_call(float4, "BINDLESS_TEXTURE3D_READ", self, texture3d_index, coord)
+    @BuiltinFuncBuilder
+    def texture3d_read(self, texture3d_index, coord):
+        check_exact_signature([uint, uint3], [texture3d_index, coord], "texture3d_read")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE3D_READ, [self.expr, texture3d_index.expr, coord.expr])
 
-    @func
-    def texture3d_sample(self, texture3d_index, uv: float3):
-        return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE", self, texture3d_index, uv)
+    @BuiltinFuncBuilder
+    def texture3d_sample(self, texture3d_index, uv):
+        check_exact_signature([uint, float3], [texture3d_index, uv], "texture3d_sample")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE3D_SAMPLE, [self.expr, texture3d_index.expr, uv.expr])
 
-    @func
-    def texture3d_sample_mip(self, texture3d_index, uv: float3, mip):
-        return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE_LEVEL", self, texture3d_index, uv, mip)
+    @BuiltinFuncBuilder
+    def texture3d_sample_mip(self, texture3d_index, uv, mip):
+        check_exact_signature([uint, float3, uint], [texture3d_index, uv, mip], "texture3d_sample_mip")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE3D_SAMPLE_LEVEL, [self.expr, texture3d_index.expr, uv.expr, mip.expr])
 
-    @func
-    def texture3d_sample_grad(self, texture3d_index, uv: float3, ddx: float3, ddy: float3):
-        return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE_GRAD", self, texture3d_index, uv, ddx, ddy)
+    @BuiltinFuncBuilder
+    def texture3d_sample_grad(self, texture3d_index, uv, ddx, ddy):
+        check_exact_signature([uint, float3, float3, float3], [texture3d_index, uv, ddx, ddy], "texture3d_sample_grad")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE3D_SAMPLE_GRAD, [self.expr, texture3d_index.expr, uv.expr, ddx.expr, ddy.expr])
 
-    @func
+    @BuiltinFuncBuilder
     def texture3d_size(self, texture3d_index):
-        return _builtin_call(uint3, "BINDLESS_TEXTURE3D_SIZE", self, texture3d_index)
+        check_exact_signature([uint], [texture3d_index], "texture3d_size")
+        return uint3, lcapi.builder().call(to_lctype(uint3), lcapi.CallOp.BINDLESS_TEXTURE3D_SIZE, [self.expr, texture3d_index.expr])
 
 
 bindless_array = BindlessArray.bindless_array

@@ -1,12 +1,12 @@
 from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import dtype_of, length_of, element_of, vector
+from .types import dtype_of, length_of, element_of, vector, to_lctype
 from functools import cache
 from .func import func
-from .builtin import _builtin_call
 from .mathtypes import *
-from .types import uint, uint2
+from .types import uint, uint2, BuiltinFuncBuilder
+from .builtin import _builtin_call, check_exact_signature
 
 
 def _check_storage(storage_name, dtype):
@@ -189,20 +189,22 @@ class Texture2DType:
     @staticmethod
     @cache
     def get_read_method(dtype):
-        dtype4 = vector(element_of(dtype), 4)
         if length_of(dtype) == 4:
-            @func
-            def read(self, coord: uint2):
-                return _builtin_call(dtype, "TEXTURE_READ", self, (coord))
+            @BuiltinFuncBuilder
+            def read(self, coord):
+                check_exact_signature([uint2], [coord], "read")
+                return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.TEXTURE_READ, [self.expr, coord.expr])
 
             return read
         elif length_of(dtype) == 2:
+            dtype4 = vector(element_of(dtype), 4)
             @func
             def read(self, coord: uint2):
                 return _builtin_call(dtype4, "TEXTURE_READ", self, (coord)).xy
 
             return read
         elif length_of(dtype) == 1:
+            dtype4 = vector(element_of(dtype), 4)
             @func
             def read(self, coord: uint2):
                 return _builtin_call(dtype4, "TEXTURE_READ", self, (coord)).x
@@ -215,9 +217,10 @@ class Texture2DType:
     @cache
     def get_write_method(dtype):
         if length_of(dtype) == 4:
-            @func
-            def write(self, coord: uint2, value: dtype):
-                _builtin_call("TEXTURE_WRITE", self, (coord), value)
+            @BuiltinFuncBuilder
+            def write(self, coord, value):
+                check_exact_signature([uint2, dtype], [coord, value], "write")
+                return None, lcapi.builder().call(lcapi.CallOp.TEXTURE_WRITE, [self.expr, coord.expr, value.expr])
 
             return write
         else:

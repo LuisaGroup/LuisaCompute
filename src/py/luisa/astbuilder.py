@@ -11,7 +11,7 @@ from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtyp
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .array import ArrayType, SharedArrayType
-from .struct import StructType, CustomType
+from .struct import StructType
 
 
 def ctx():

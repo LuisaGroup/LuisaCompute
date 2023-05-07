@@ -4,7 +4,6 @@
 
 #include <QApplication>
 #include <QPushButton>
-#include <QFrame>
 #include <QMainWindow>
 
 #include <core/clock.h>
@@ -19,6 +18,22 @@
 
 using namespace luisa;
 using namespace luisa::compute;
+
+class Canvas : public QWidget {
+
+public:
+    [[nodiscard]] QPaintEngine *paintEngine() const override { return nullptr; }
+
+public:
+    explicit Canvas(QWidget *parent) noexcept : QWidget{parent} {
+        setAttribute(Qt::WA_NativeWindow);
+        setAttribute(Qt::WA_PaintOnScreen);
+        setAttribute(Qt::WA_OpaquePaintEvent);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setAttribute(Qt::WA_DontCreateNativeAncestors);
+        setAutoFillBackground(true);
+    }
+};
 
 int main(int argc, char *argv[]) {
 
@@ -55,14 +70,16 @@ int main(int argc, char *argv[]) {
     QMainWindow window;
     window.setFixedSize(width, height);
     window.setWindowTitle("Display");
+    window.setAutoFillBackground(true);
 
-    QWidget canvas{&window};
+    Canvas canvas{&window};
     canvas.setFixedSize(window.contentsRect().size());
     canvas.move(window.contentsRect().topLeft());
 
     QWidget overlay{&window};
     overlay.setFixedSize(window.contentsRect().size() / 2);
     overlay.move(window.contentsRect().center() - overlay.rect().center());
+    overlay.setAutoFillBackground(true);
 
     QPushButton button{"Quit", &overlay};
     button.move(overlay.contentsRect().center() - button.rect().center());
