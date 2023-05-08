@@ -140,7 +140,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                         vstd::wstring s{desc.Description};
                         vstd::string ss(s.size(), '\0');
                         std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
-                        LUISA_INFO("Found capable DirectX device at index {}: {}.", index, ss);
                         adapterID = GenAdapterGUID(desc);
                         break;
                     }
