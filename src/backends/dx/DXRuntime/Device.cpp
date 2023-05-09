@@ -81,10 +81,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
     }
-    if (fileIo == nullptr) {
-        serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx));
-        fileIo = serVisitor.get();
-    }
     if (useRuntime) {
         auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
             struct AdapterInfo {
@@ -167,6 +163,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             samplerHeap->CreateSampler(
                 samplers[i], i);
         }
+    }
+    if (fileIo == nullptr) {
+        serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), device.Get());
+        fileIo = serVisitor.get();
     }
 }
 bool Device::SupportMeshShader() const {
