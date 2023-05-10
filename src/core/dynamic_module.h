@@ -29,7 +29,7 @@ public:
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
     ~DynamicModule() noexcept;
-
+    void dispose() noexcept;
     /**
      * @brief Return function pointer of given name
      * 

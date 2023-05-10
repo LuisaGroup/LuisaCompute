@@ -4,7 +4,7 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <Resource/GpuAllocator.h>
 #include <Shader/BuiltinKernel.h>
-#include <dxgi1_3.h>
+#include <dxgi1_4.h>
 #include <backends/common/hlsl/shader_compiler.h>
 #include <Shader/ComputeShader.h>
 #include <core/logging.h>
@@ -81,6 +81,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
     }
+    if (fileIo == nullptr) {
+        serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), device.Get());
+        fileIo = serVisitor.get();
+    }
     if (useRuntime) {
         auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
             struct AdapterInfo {
@@ -133,9 +137,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                         ThrowIfFailed(D3D12CreateDevice(
                             adapter.Get(), D3D_FEATURE_LEVEL_12_1,
                             IID_PPV_ARGS(device.GetAddressOf())));
-                        vstd::wstring s{desc.Description};
-                        vstd::string ss(s.size(), '\0');
-                        std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
                         adapterID = GenAdapterGUID(desc);
                         break;
                     }
@@ -163,10 +164,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             samplerHeap->CreateSampler(
                 samplers[i], i);
         }
-    }
-    if (fileIo == nullptr) {
-        serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), device.Get());
-        fileIo = serVisitor.get();
     }
 }
 bool Device::SupportMeshShader() const {

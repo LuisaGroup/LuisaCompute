@@ -20,13 +20,17 @@ int main(int argc, char *argv[]) {
     }
     DynamicModule dylib = DynamicModule::load(context.runtime_directory(), "lc-dstorage");
     // void *create_dstorage_impl(compute::Context const &ctx) noexcept
-    auto create_dstorage_impl = dylib.function<void *(Context const &ctx, void* device)>("create_dstorage_impl");
+    auto create_dstorage_impl = dylib.function<void *(Context const &ctx, void *device)>("create_dstorage_impl");
     // void delete_dstorage_impl(void *ptr) noexcept
     auto delete_dstorage_impl = dylib.function<void(void *ptr)>("delete_dstorage_impl");
     // BinaryStream *create_dstorage_stream(void *impl, luisa::string_view const &path) noexcept
     auto create_dstorage_stream = dylib.function<BinaryStream *(void *impl, luisa::string_view path)>("create_dstorage_stream");
-    // void delete_dstorage_stream(BinaryStream *stream) noexcept
+    // bool dstorage_supported(void *impl)
+    auto dstorage_supported = dylib.function<bool(void *impl)>("dstorage_supported");
     void *impl = create_dstorage_impl(context, nullptr);
+    if (!dstorage_supported(impl)) {
+        return -1;
+    }
     BinaryStream *stream = create_dstorage_stream(impl, "test_file.txt");
     LUISA_INFO("File length: {}", stream->length());
     luisa::string str;

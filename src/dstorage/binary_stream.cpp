@@ -4,13 +4,14 @@
 #include <dstorage/dstorage.h>
 #include <winrt/base.h>
 #include <d3d12.h>
+#include <dxgi1_4.h>
 #include <vstl/meta_lib.h>
 #include <iostream>
+#include <core/logging.h>
 using winrt::check_hresult;
 using winrt::com_ptr;
 
 namespace luisa {
-using namespace compute;
 class DStorageStream;
 class DStorageImpl {
 public:
@@ -21,15 +22,50 @@ public:
     ID3D12Device *device;
     com_ptr<IDStorageQueue> queue;
     std::mutex queue_mtx;
+    bool dstorage_supported{false};
     DStorageImpl(std::filesystem::path const &runtime_dir, ID3D12Device *device_ptr) noexcept
         : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
           device{device_ptr},
           dstorage_module{DynamicModule::load(runtime_dir, "dstorage")} {
         HRESULT(WINAPI * DStorageGetFactory)
         (REFIID riid, _COM_Outptr_ void **ppv);
+        if (!dstorage_module || !dstorage_core_module) {
+            LUISA_WARNING("Direct-Storage DLL not found.");
+            return;
+        }
         DStorageGetFactory = reinterpret_cast<decltype(DStorageGetFactory)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageGetFactory"));
         if (!device) {
-            check_hresult(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(device_com.put())));
+            uint32_t dxgiFactoryFlags = 0;
+#ifndef NDEBUG
+            // Enable the debug layer (requires the Graphics Tools "optional feature").
+            // NOTE: Enabling the debug layer after device creation will invalidate the active device.
+            {
+                com_ptr<ID3D12Debug> debugController;
+                if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+                    debugController->EnableDebugLayer();
+
+                    // Enable additional debug layers.
+                    dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+                }
+            }
+#endif
+            com_ptr<IDXGIFactory4> dxgiFactory;
+            com_ptr<IDXGIAdapter1> adapter;
+            check_hresult(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(dxgiFactory.put())));
+            for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, adapter.put()) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
+                DXGI_ADAPTER_DESC1 desc;
+                adapter->GetDesc1(&desc);
+                if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0) {
+                    check_hresult(D3D12CreateDevice(
+                        adapter.get(), D3D_FEATURE_LEVEL_12_1,
+                        IID_PPV_ARGS(device_com.put())));
+                    break;
+                }
+            }
+            if (adapter == nullptr) {
+                LUISA_WARNING("Direct Storage not supported on this device.");
+                return;
+            }
             device = device_com.get();
         }
         check_hresult(DStorageGetFactory(IID_PPV_ARGS(factory.put())));
@@ -39,8 +75,9 @@ public:
             .Priority = DSTORAGE_PRIORITY_NORMAL,
             .Device = device};
         check_hresult(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.put())));
+        dstorage_supported = true;
     }
-    DStorageImpl(Context const &ctx, ID3D12Device *device_ptr) noexcept
+    DStorageImpl(compute::Context const &ctx, ID3D12Device *device_ptr) noexcept
         : DStorageImpl{ctx.runtime_directory(), device_ptr} {}
     BinaryStream *create_stream(luisa::string_view path) noexcept;
 };
@@ -53,19 +90,10 @@ class DStorageStream : public BinaryStream {
     size_t _pos{0};
 
 public:
-    DStorageStream(com_ptr<IDStorageFile> &&file, DStorageImpl *impl) noexcept
+    DStorageStream(com_ptr<IDStorageFile> &&file, DStorageImpl *impl, size_t length) noexcept
         : _file{std::move(file)},
-          _impl{impl} {
-        BY_HANDLE_FILE_INFORMATION info{};
-        check_hresult(_file->GetFileInformation(&info));
-        if constexpr (sizeof(size_t) > sizeof(DWORD)) {
-            _length = info.nFileSizeHigh;
-            _length <<= (sizeof(DWORD) * 8);
-            _length |= info.nFileSizeLow;
-        } else {
-            _length = info.nFileSizeLow;
-        }
-
+          _impl{impl},
+          _length{length} {
         check_hresult(impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(fence.put())));
     }
     size_t length() const noexcept override {
@@ -85,11 +113,11 @@ public:
         request.Source.File.Source = _file.get();
         request.Source.File.Offset = _pos;
         request.Source.File.Size = sz;
-        request.UncompressedSize = 0;
+        request.UncompressedSize = sz;
         request.Destination.Memory.Buffer = dst.data();
         request.Destination.Memory.Size = sz;
         {
-            // std::lock_guard lck{_impl->queue_mtx};
+            std::lock_guard lck{_impl->queue_mtx};
             _impl->queue->EnqueueRequest(&request);
             _impl->queue->EnqueueSignal(fence.get(), fence_idx);
             _impl->queue->Submit();
@@ -118,7 +146,21 @@ BinaryStream *DStorageImpl::create_stream(luisa::string_view path) noexcept {
     if (FAILED(hr)) {
         return nullptr;
     }
-    return new_with_allocator<DStorageStream>(std::move(file), this);
+    size_t length;
+    BY_HANDLE_FILE_INFORMATION info{};
+    check_hresult(file->GetFileInformation(&info));
+    if constexpr (sizeof(size_t) > sizeof(DWORD)) {
+        length = info.nFileSizeHigh;
+        length <<= (sizeof(DWORD) * 8);
+        length |= info.nFileSizeLow;
+    } else {
+        length = info.nFileSizeLow;
+    }
+    if (length == 0) return nullptr;
+    return new_with_allocator<DStorageStream>(std::move(file), this, length);
+}
+LUISA_EXPORT_API bool dstorage_supported(void *impl) {
+    return reinterpret_cast<DStorageImpl *>(impl)->dstorage_supported;
 }
 LUISA_EXPORT_API void *create_dstorage_impl(compute::Context const &ctx, ID3D12Device *device) noexcept {
     return new_with_allocator<DStorageImpl>(ctx, device);
@@ -131,147 +173,3 @@ LUISA_EXPORT_API BinaryStream *create_dstorage_stream(void *impl, luisa::string_
 }
 
 }// namespace luisa
- // int main() {
- //     using namespace luisa;
- //     DynamicModule dstorage_core_module{DynamicModule::load("dstoragecore")};
- //     DynamicModule dstorage_module{DynamicModule::load("dstorage")};
- //     HRESULT(WINAPI * DStorageGetFactory)
- //     (REFIID riid, _COM_Outptr_ void **ppv);
- //     DStorageGetFactory = reinterpret_cast<decltype(DStorageGetFactory)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageGetFactory"));
-
-//     com_ptr<IDStorageFactory> factory;
-//     com_ptr<ID3D12Device> device;
-//     com_ptr<IDStorageQueue> queue;
-//     com_ptr<ID3D12Fence> fence;
-
-//     check_hresult(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device)));
-//     check_hresult(DStorageGetFactory(IID_PPV_ARGS(factory.put())));
-//     // DSTORAGE_QUEUE_DESC queueDesc{};
-//     // queueDesc.Capacity = DSTORAGE_MAX_QUEUE_CAPACITY;
-//     // queueDesc.Priority = DSTORAGE_PRIORITY_NORMAL;
-//     // queueDesc.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-//     // queueDesc.Device = device.get();
-//     DSTORAGE_QUEUE_DESC queue_desc{
-//         .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
-//         .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-//         .Priority = DSTORAGE_PRIORITY_NORMAL,
-//         .Device = device.get()};
-//     check_hresult(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.put())));
-//     check_hresult(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(fence.put())));
-
-//     com_ptr<IDStorageFile> file;
-//     HRESULT hr = factory->OpenFile(L"test_file.txt", IID_PPV_ARGS(file.put()));
-//     if (FAILED(hr)) {
-//         return 0;
-//     }
-
-//     BY_HANDLE_FILE_INFORMATION info{};
-//     check_hresult(file->GetFileInformation(&info));
-//     size_t fileSize;
-//     fileSize = info.nFileSizeHigh;
-//     fileSize <<= 32;
-//     fileSize |= info.nFileSizeLow;
-//     char c[32];
-//     for (auto &&i : c) {
-//         i = 'X';
-//     }
-//     DSTORAGE_REQUEST request = {};
-//     request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-//     request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
-//     request.Source.File.Source = file.get();
-//     request.Source.File.Offset = 0;
-//     request.Source.File.Size = fileSize;
-//     request.UncompressedSize = fileSize;
-
-//     request.Destination.Memory.Buffer = c;
-//     request.Destination.Memory.Size = fileSize;
-
-//     constexpr uint64_t fenceValue = 1;
-//     queue->EnqueueRequest(&request);
-//     queue->EnqueueSignal(fence.get(), fenceValue);
-//     queue->Submit();
-
-//     // Configure a fence to be signaled when the request is completed
-// {}
-//     HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-//     auto scope_exit = vstd::scope_exit([&] {
-//         CloseHandle(fenceEvent);
-//     });
-//     check_hresult(fence->SetEventOnCompletion(fenceValue, fenceEvent));
-//     // {
-//     //     // std::lock_guard lck{_impl->queue_mtx};
-//     //     queue->EnqueueRequest(&request);
-//     //     queue->EnqueueSignal(fence.get(), fence_idx);
-//     //     queue->Submit();
-//     // }
-//     // {
-//     //     HANDLE event_handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-//     //     auto scope_exit = vstd::scope_exit([&] {
-//     //         CloseHandle(event_handle);
-//     //     });
-//     //     check_hresult(fence->SetEventOnCompletion(fence_idx, event_handle));
-//     //     WaitForSingleObject(fence.get(), INFINITE);
-//     // }
-//     // Tell DirectStorage to start executing all queued items.
-
-//     // Wait for the submitted work to complete
-//     WaitForSingleObject(fenceEvent, INFINITE);
-
-//     for (auto &&i : c) {
-//         std::cout << i << ' ';
-//     }
-//     // Check the status array for errors.
-//     // If an error was detected the first failure record
-//     // can be retrieved to get more details.
-//     DSTORAGE_ERROR_RECORD errorRecord{};
-//     queue->RetrieveErrorRecord(&errorRecord);
-//     if (FAILED(errorRecord.FirstFailure.HResult)) {
-//         //
-//         // errorRecord.FailureCount - The number of failed requests in the queue since the last
-//         //                            RetrieveErrorRecord call.
-//         // errorRecord.FirstFailure - Detailed record about the first failed command in the enqueue order.
-//         //
-//         std::cout << "The DirectStorage request failed! HRESULT=0x" << std::hex << errorRecord.FirstFailure.HResult << std::endl;
-//     } else {
-//         std::cout << "The DirectStorage request completed successfully!" << std::endl;
-//     }
-
-//     return 0;
-
-//     // com_ptr<IDStorageQueue> queue;
-
-//     // DSTORAGE_QUEUE_DESC queue_desc{
-//     //     .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
-//     //     .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-//     //     .Priority = DSTORAGE_PRIORITY_NORMAL,
-//     //     .Device = device.get()};
-
-//     // BY_HANDLE_FILE_INFORMATION info{};
-//     // check_hresult(file->GetFileInformation(&info));
-//     // uint32_t fileSize = info.nFileSizeLow;
-
-//     // constexpr auto fence_idx = 1;
-//     // {
-//     //     // std::lock_guard lck{_impl->queue_mtx};
-//     //     queue->EnqueueRequest(&request);
-//     //     queue->EnqueueSignal(fence.get(), fence_idx);
-//     //     queue->Submit();
-//     // }
-//     // {
-//     //     HANDLE event_handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-//     //     auto scope_exit = vstd::scope_exit([&] {
-//     //         CloseHandle(event_handle);
-//     //     });
-//     //     check_hresult(fence->SetEventOnCompletion(fence_idx, event_handle));
-//     //     WaitForSingleObject(fence.get(), INFINITE);
-//     // }
-//     // for (auto &&i : c) {
-//     //     std::cout << i << ' ';
-//     // }
-//     // std::cout << '\n';
-//     // auto impl = new_with_allocator<DStorageImpl>("./");
-//     // auto strm = impl->create_stream("test_file.txt");
-//     // strm->read({});
-//     // delete_with_allocator(strm);
-//     // delete_with_allocator(impl);
-// }
