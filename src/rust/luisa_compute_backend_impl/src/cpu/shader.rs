@@ -58,13 +58,16 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         Ok(s) => s == "1",
         Err(_) => false,
     };
-    if dump_src {
+    let source_file = if dump_src {
         let source_file = format!("{}/{}.cc", build_dir.display(), target);
         std::fs::write(&source_file, &source).map_err(|e| {
             eprintln!("fs::write({}) failed", source_file);
             e
         })?;
-    }
+        source_file
+    } else {
+        "-".to_string()
+    };
     // log::info!("compiling kernel {}", source_file);
     {
         let mut args: Vec<&str> = vec![];
@@ -91,7 +94,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         args.push("-emit-llvm");
         args.push("-x");
         args.push("c++");
-        args.push("-");
+        args.push(&source_file);
         args.push("-o");
         args.push(&target_lib);
         let clang = &LLVM_PATH.clang;

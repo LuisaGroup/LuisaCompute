@@ -150,14 +150,8 @@ impl UsageDetector {
                 }
                 self.detect_block(default);
             }
-            crate::ir::Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
-            } => {
-                self.detect_block(forward);
-                self.detect_block(backward);
-                self.detect_block(epilogue);
+            crate::ir::Instruction::AdScope { body } => {
+                self.detect_block(body);
             }
             crate::ir::Instruction::AdDetach(block) => {
                 self.detect_block(block);

@@ -1360,19 +1360,11 @@ impl GenericCppCodeGen {
                 writeln!(&mut self.body, "}}").unwrap();
             }
             Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
+                body,
             } => {
-                writeln!(&mut self.body, "/* AdScope Forward */").unwrap();
-                self.gen_block(*forward);
-                writeln!(&mut self.body, "/* AdScope Forward End */").unwrap();
-                writeln!(&mut self.body, "/* AdScope Backward */").unwrap();
-                self.gen_block(*backward);
-                writeln!(&mut self.body, "/* AdScope Backward End */").unwrap();
-                writeln!(&mut self.body, "/* AdScope Epilogue */").unwrap();
-                self.gen_block(*epilogue);
-                writeln!(&mut self.body, "/* AdScope Epilogue End */").unwrap();
+                writeln!(&mut self.body, "/* AdScope */").unwrap();
+                self.gen_block(*body);
+                writeln!(&mut self.body, "/* AdScope End */").unwrap();
             }
             Instruction::AdDetach(bb) => {
                 self.write_ident();

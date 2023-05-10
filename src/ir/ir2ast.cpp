@@ -668,15 +668,9 @@ void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_ad_scope(const ir::Node *node) noexcept {
-    _ctx->function_builder->comment_("ADScope Forward Begin");
-    _convert_block(node->instruction->ad_scope.forward.get());
-    _ctx->function_builder->comment_("ADScope Forward End");
-    _ctx->function_builder->comment_("ADScope Backward Begin");
-    _convert_block(node->instruction->ad_scope.backward.get());
-    _ctx->function_builder->comment_("ADScope Backward End");
-    _ctx->function_builder->comment_("ADScope Epilogue Begin");
-    _convert_block(node->instruction->ad_scope.epilogue.get());
-    _ctx->function_builder->comment_("ADScope Epilogue End");
+    _ctx->function_builder->comment_("ADScope Begin");
+    _convert_block(node->instruction->ad_scope.body.get());
+    _ctx->function_builder->comment_("ADScope End");
 }
 
 void IR2AST::_convert_instr_ad_detach(const ir::Node *node) noexcept {
@@ -980,9 +974,7 @@ void IR2AST::_collect_phis(const ir::BasicBlock *bb) noexcept {
                 break;
             }
             case ir::Instruction::Tag::AdScope: {
-                _collect_phis(instr->ad_scope.forward.get());
-                _collect_phis(instr->ad_scope.backward.get());
-                _collect_phis(instr->ad_scope.epilogue.get());
+                _collect_phis(instr->ad_scope.body.get());
                 break;
             }
             case ir::Instruction::Tag::AdDetach: {
@@ -1045,9 +1037,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 break;
             }
             case ir::Instruction::Tag::AdScope: {
-                _process_local_declarations(instr->ad_scope.forward.get());
-                _process_local_declarations(instr->ad_scope.backward.get());
-                _process_local_declarations(instr->ad_scope.epilogue.get());
+                _process_local_declarations(instr->ad_scope.body.get());
                 break;
             }
             case ir::Instruction::Tag::AdDetach: {

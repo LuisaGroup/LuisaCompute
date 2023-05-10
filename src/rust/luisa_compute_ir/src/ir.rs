@@ -478,6 +478,7 @@ pub enum Func {
     DispatchSize,
 
     RequiresGradient,
+    Backward, // marks the beginning of backward pass
     Gradient,
     GradientMarker, // marks a (node, gradient) tuple
     AccGrad,        // grad (local), increment
@@ -927,9 +928,7 @@ pub enum Instruction {
         cases: CBoxedSlice<SwitchCase>,
     },
     AdScope {
-        forward: Pooled<BasicBlock>,
-        backward: Pooled<BasicBlock>,
-        epilogue: Pooled<BasicBlock>,
+        body: Pooled<BasicBlock>,
     },
     // RayQuery{
     //     ray: NodeRef,
@@ -1107,7 +1106,7 @@ impl BasicBlock {
     }
     pub fn push(&self, node: NodeRef) {
         // node.insert_before(self.last);
-        self.last.insert_before(node);
+        self.last.insert_before_self(node);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1127,6 +1126,32 @@ impl BasicBlock {
         for node in nodes {
             self.push(node);
         }
+    }
+    /// split the block into two at @at
+    /// @at is not transfered into the other block
+    pub fn split(&self, at: NodeRef, pools: &CArc<ModulePools>) -> Pooled<BasicBlock> {
+        let new_bb_start = at.get().next;
+        let second_last = self.last.get().prev;
+        let new_bb = pools.bb_pool.alloc(BasicBlock::new(pools));
+        new_bb.first.update(|first| {
+            first.next = new_bb_start;
+        });
+        new_bb.last.update(|last| {
+            last.prev = second_last;
+        });
+        second_last.update(|node| {
+            node.next = new_bb.last;
+        });
+        new_bb_start.update(|node| {
+            node.prev = new_bb.first;
+        });
+        at.update(|at|{
+            at.next = self.last;
+        });
+        self.last.update(|last|{
+            last.prev = at;
+        });
+        new_bb
     }
 }
 
@@ -1149,7 +1174,7 @@ impl NodeRef {
             _ => panic!("not user data node; found: {:?}", self.get().instruction),
         }
     }
-    pub fn is_user_data(&self)->bool {
+    pub fn is_user_data(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::UserData(_) => true,
             _ => false,
@@ -1208,7 +1233,7 @@ impl NodeRef {
             node.next = INVALID_REF;
         });
     }
-    pub fn insert_after(&self, node_ref: NodeRef) {
+    pub fn insert_after_self(&self, node_ref: NodeRef) {
         assert!(self.valid());
         assert!(!node_ref.is_linked());
         let next = self.get().next;
@@ -1219,7 +1244,7 @@ impl NodeRef {
             node.next = next;
         });
     }
-    pub fn insert_before(&self, node_ref: NodeRef) {
+    pub fn insert_before_self(&self, node_ref: NodeRef) {
         assert!(self.valid());
         assert!(!node_ref.is_linked());
         let prev = self.get().prev;
@@ -1322,7 +1347,7 @@ pub enum Binding {
     Accel(AccelBinding),
 }
 
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
 pub struct Capture {
     pub node: NodeRef,
@@ -1389,14 +1414,8 @@ impl NodeCollector {
         self.nodes.push(node_ref);
         let inst = node_ref.get().instruction.as_ref();
         match inst {
-            Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
-            } => {
-                self.visit_block(*forward);
-                self.visit_block(*backward);
-                self.visit_block(*epilogue);
+            Instruction::AdScope { body } => {
+                self.visit_block(*body);
             }
             Instruction::If {
                 cond: _,
@@ -1538,7 +1557,7 @@ impl IrBuilder {
         self.insert_point = node;
     }
     pub fn append(&mut self, node: NodeRef) {
-        self.insert_point.insert_after(node);
+        self.insert_point.insert_after_self(node);
         self.insert_point = node;
     }
     pub fn append_block(&mut self, block: Pooled<BasicBlock>) {
@@ -1613,11 +1632,7 @@ impl IrBuilder {
     }
     pub fn extract(&mut self, node: NodeRef, index: usize, ret_type: CArc<Type>) -> NodeRef {
         let c = self.const_(Const::Int32(index as i32));
-        self.call(
-            Func::ExtractElement,
-            &[node, c],
-            ret_type,
-        )
+        self.call(Func::ExtractElement, &[node, c], ret_type)
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
         let node = Node::new(

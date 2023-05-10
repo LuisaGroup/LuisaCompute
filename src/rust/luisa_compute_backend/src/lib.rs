@@ -42,7 +42,8 @@ impl Debug for BackendError {
             f,
             "BackendError: {:?}, message:\n {}",
             self.kind, self.message
-        )
+        )?;
+        writeln!(f, "note: run with `LUISA_BACKTRACE=1` environment variable to display a backtrace for DSL code")
     }
 }
 

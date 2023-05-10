@@ -135,9 +135,7 @@ pub enum SerializedInstruction {
         cases: Vec<SerializedSwitchCase>,
     },
     AdScope {
-        forward: SerializedBlockRef,
-        backward: SerializedBlockRef,
-        epilogue: SerializedBlockRef,
+        body: SerializedBlockRef,
     },
     AdDetach(SerializedBlockRef),
     Comment(Vec<u8>),
@@ -158,6 +156,7 @@ pub enum SerializedFunc {
     DispatchSize,
 
     RequiresGradient,
+    Backward,       // marks the beginning of backward pass
     Gradient,
     GradientMarker, // marks a (node, gradient) tuple
     AccGrad,        // grad (local), increment

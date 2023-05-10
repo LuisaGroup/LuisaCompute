@@ -1,7 +1,7 @@
-#[cfg(feature = "remote")]
-mod remote;
 #[cfg(feature = "cpu")]
 mod cpu;
+#[cfg(feature = "remote")]
+mod remote;
 
 use libloading::Library;
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
@@ -11,8 +11,10 @@ use luisa_compute_backend::create_device_interface;
 pub(crate) use luisa_compute_backend::Result;
 pub(crate) use luisa_compute_backend::{Backend, BackendError, BackendErrorKind};
 pub(crate) use luisa_compute_ir::ir;
+use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
+use std::process::abort;
 use std::sync::Arc;
 
 pub struct SwapChainForCpuContext {
@@ -92,11 +94,10 @@ fn init() {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Trace))
         .unwrap();
-    let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
             Some(*s)
-        }  else if let Some(s) = panic_info.payload().downcast_ref::<&String>() {
+        } else if let Some(s) = panic_info.payload().downcast_ref::<&String>() {
             Some(s.as_ref())
         } else {
             None
@@ -106,7 +107,36 @@ fn init() {
                 return;
             }
         }
-        default_hook(panic_info);
+        if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            eprint!("panic occurred: {:?}", s);
+        } else if let Some(s) = panic_info.payload().downcast_ref::<&String>() {
+            eprint!("panic occurred: {:?}", s);
+        } else {
+            eprint!("panic occurred");
+        }
+        if let Some(location) = panic_info.location() {
+            eprint!(
+                " in file '{}' at line {}\n",
+                location.file(),
+                location.line()
+            );
+        } else {
+            eprint!("but can't get location information...\n");
+        }
+        // default_hook(panic_info);
+        match env::var("RUST_BACKTRACE") {
+            Ok(v) => {
+                if v == "1" {
+                    eprintln!("{:?}", std::backtrace::Backtrace::capture());
+                } else if v == "full" {
+                    eprintln!("{:?}", std::backtrace::Backtrace::force_capture());
+                }
+            }
+            Err(_) => {
+                eprintln!("set RUST_BACKTRACE=1 to see backtrace");
+            }
+        };
+        abort();
     }));
 }
 extern "C" fn free_string(ptr: *mut c_char) {
