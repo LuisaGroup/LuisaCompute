@@ -1356,6 +1356,14 @@ pub struct KernelModule {
     pub pools: CArc<ModulePools>,
 }
 unsafe impl Send for KernelModule {}
+
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct BlockModule {
+    pub module: Module,
+}
+unsafe impl Send for BlockModule {}
+
 impl Module {
     pub fn from_fragment(entry: Pooled<BasicBlock>, pools: CArc<ModulePools>) -> Self {
         Self {
@@ -1891,6 +1899,13 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
     CArc::into_raw(CArc::new(m))
 }
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_new_block_module(
+    m: BlockModule,
+) -> *mut CArcSharedBlock<BlockModule> {
+    CArc::into_raw(CArc::new(m))
+}
+
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBlock<Type> {
     CArc::into_raw(context::register_type(ty.clone()))
 }
@@ -1906,6 +1921,11 @@ pub mod debug {
 
     pub fn dump_ir_binary(module: &Module) -> Vec<u8> {
         bincode::serialize(module).unwrap()
+    }
+
+    pub fn dump_ir_human_readable(module: &Module) -> String {
+        let mut d = DisplayIR::new();
+        d.display_ir(module)
     }
 
     #[no_mangle]
