@@ -17,7 +17,10 @@ DynamicModule::DynamicModule(DynamicModule &&another) noexcept
     : _handle{another._handle} { another._handle = nullptr; }
 
 DynamicModule::~DynamicModule() noexcept { dynamic_module_destroy(_handle); }
-
+void DynamicModule::dispose() noexcept {
+    dynamic_module_destroy(_handle);
+    _handle = nullptr;
+}
 [[nodiscard]] static std::mutex &dynamic_module_search_path_mutex() noexcept {
     static std::mutex mutex;
     return mutex;

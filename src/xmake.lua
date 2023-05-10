@@ -30,3 +30,6 @@ end
 if get_config("enable_api") then
 	includes("api")
 end
+if is_plat("windows") then
+	includes("dstorage")
+end

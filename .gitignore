@@ -288,6 +288,9 @@ CMakeSettings.json
 # white list
 !src/backends/dx/dx_support/dxcompiler.dll
 !src/backends/dx/dx_support/dxil.dll
+!src/dstorage/bin
+!src/dstorage/bin/dstorage.dll
+!src/dstorage/bin/dstoragecore.dll
 
 **/imgui.ini
 *.vcxproj

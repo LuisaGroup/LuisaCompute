@@ -56,17 +56,17 @@ struct allocator {
     template<typename U>
     constexpr allocator(allocator<U>) noexcept {}
     [[nodiscard]] auto allocate(std::size_t n) const noexcept {
-        return static_cast<T *>(detail::allocator_allocate(sizeof(T) * n, alignof(T)));
+        return static_cast<T *>(luisa::detail::allocator_allocate(sizeof(T) * n, alignof(T)));
     }
     [[nodiscard]] auto allocate(std::size_t n, size_t alignment, size_t) const noexcept {
         assert(alignment >= alignof(T));
-        return static_cast<T *>(detail::allocator_allocate(sizeof(T) * n, alignment));
+        return static_cast<T *>(luisa::detail::allocator_allocate(sizeof(T) * n, alignment));
     }
     void deallocate(T *p, size_t) const noexcept {
-        detail::allocator_deallocate(p, alignof(T));
+        luisa::detail::allocator_deallocate(p, alignof(T));
     }
     void deallocate(void *p, size_t) const noexcept {
-        detail::allocator_deallocate(p, alignof(T));
+        luisa::detail::allocator_deallocate(p, alignof(T));
     }
     template<typename R>
     [[nodiscard]] constexpr auto operator==(allocator<R>) const noexcept -> bool {

@@ -475,7 +475,7 @@ LUISA_EXPORT_API LCCreatedShaderInfo
 luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto ir = reinterpret_cast<const ir::CArc<ir::KernelModule> *>(m.ptr);
+    auto ir = reinterpret_cast<const ir::KernelModule *>(m.ptr);
 
     auto shader_option = ShaderOption{
             .enable_cache = option.enable_cache,
@@ -484,7 +484,7 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
             .compile_only = option.compile_only,
             .name = luisa::string{option.name}};
 
-    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir->get());
+    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir);
     return LCCreatedShaderInfo{
             .resource = LCCreatedResourceInfo{
                     .handle = info.handle,
@@ -748,6 +748,13 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
                 .ok = stream
         };
     };
+    interface.synchronize_stream = [](LCDevice device, LCStream stream) -> LCResult_u8 {
+        luisa_compute_stream_synchronize(device, stream);
+        return LCResult_u8{
+                .tag = LCResult_u8_Tag::LC_RESULT_U8_OK_U8,
+                .ok = 0
+        };
+    };
     interface.destroy_stream = luisa_compute_stream_destroy;
     interface.dispatch = [](LCDevice device, LCStream stream, LCCommandList list, LCDispatchCallback cb,
                             uint8_t *userdata) -> LCResult_u8 {
@@ -795,6 +802,14 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
 //    interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
 //    interface.set_logger_callback = luisa_compute_set_logger_callback;
 //    interface.free_string = luisa_compute_free_c_string;
+    interface.query = [](LCDevice device, const char *query)->char * {
+        auto d = reinterpret_cast<RC<Device> *>(device._0);
+        auto result_s = d->object()->impl()->query(luisa::string_view{query});
+        char* result = (char*)malloc(result_s.size() + 1);
+        std::memcpy(result, result_s.data(), result_s.size() );
+        result[result_s.size()] = '\0';
+        return result;
+    };
     return interface;
 }
 

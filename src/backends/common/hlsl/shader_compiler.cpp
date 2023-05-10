@@ -45,9 +45,9 @@ ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path)
         LUISA_ERROR("dxcompiler.dll not found.");
     }
     auto voidPtr = dxcCompiler.address("DxcCreateInstance"sv);
-    HRESULT(__stdcall * DxcCreateInstance)
+    HRESULT(WINAPI * DxcCreateInstance)
     (const IID &, const IID &, LPVOID *) =
-        reinterpret_cast<HRESULT(__stdcall *)(const IID &, const IID &, LPVOID *)>(voidPtr);
+        reinterpret_cast<HRESULT(WINAPI *)(const IID &, const IID &, LPVOID *)>(voidPtr);
     DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(comp.GetAddressOf()));
 }
 ShaderCompilerModule::~ShaderCompilerModule() {
