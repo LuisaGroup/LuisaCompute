@@ -1,6 +1,8 @@
 #pragma once
 #ifdef LUISA_PLATFORM_WINDOWS
-#define LUISA_USE_DIRECT_STORAGE
+// don't put here pls
+// pass-in form cmake or xmake
+// #define LUISA_USE_DIRECT_STORAGE
 #endif
 
 #include <core/binary_io.h>
