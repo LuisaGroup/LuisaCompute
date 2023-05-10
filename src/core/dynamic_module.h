@@ -24,6 +24,7 @@ public:
     [[nodiscard]] operator bool() const noexcept {
         return _handle != nullptr;
     }
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
     DynamicModule() noexcept {}
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;

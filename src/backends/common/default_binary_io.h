@@ -1,12 +1,14 @@
 #pragma once
+#ifdef LUISA_PLATFORM_WINDOWS
+#define LUISA_USE_DIRECT_STORAGE
+#endif
 
 #include <core/binary_io.h>
 #include <core/stl/filesystem.h>
 #include <vstl/common.h>
 #include <shared_mutex>
-#include <core/binary_file_stream.h>
 #include <runtime/context.h>
-
+#include <core/dynamic_module.h>
 namespace luisa::compute {
 class DefaultBinaryIO final : public BinaryIO {
 public:
@@ -24,6 +26,11 @@ private:
     mutable MutexMap _mutex_map;
     std::filesystem::path _cache_dir;
     std::filesystem::path _data_dir;
+#ifdef LUISA_USE_DIRECT_STORAGE
+    DynamicModule dstorage_lib;
+    void *dstorage_impl;
+    BinaryStream *(*create_dstorage_stream)(void *impl, luisa::string_view path);
+#endif
 
 private:
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;
@@ -32,30 +39,14 @@ private:
     void _unlock(MapIndex const &idx, bool is_write) const noexcept;
 
 public:
-    DefaultBinaryIO(Context &&ctx) noexcept;
+    DefaultBinaryIO(Context &&ctx, void* ext = nullptr) noexcept;
+    ~DefaultBinaryIO() noexcept;
     luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override;
     void write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
     void write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
     void write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
-};
-
-class LockedBinaryFileStream : public BinaryStream {
-
-private:
-    BinaryFileStream _stream;
-    DefaultBinaryIO const *_binary_io;
-    DefaultBinaryIO::MapIndex _idx;
-
-public:
-    explicit LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept;
-    ~LockedBinaryFileStream() noexcept override;
-    [[nodiscard]] size_t length() const noexcept override { return _stream.length(); }
-    [[nodiscard]] size_t pos() const noexcept override { return _stream.pos(); }
-    void read(luisa::span<std::byte> dst) noexcept override {
-        _stream.read(dst);
-    }
 };
 
 }// namespace luisa::compute
