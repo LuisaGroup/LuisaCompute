@@ -1767,37 +1767,73 @@ fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
         pools: module.pools,
     }
 }
-impl Transform for Autodiff {
-    fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
-        for node in module.entry.iter() {
-            match node.get().instruction.as_ref() {
-                Instruction::AdScope { body } => {
-                    let ad_block = Module {
-                        kind: ModuleKind::Block,
-                        entry: body.clone(),
-                        pools: module.pools.clone(),
-                    };
-                    let mut backward = None;
-                    for node in body.iter() {
-                        match node.get().instruction.as_ref() {
-                            Instruction::Call(f, _)=>if *f == Func::Backward{
+fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
+    for node in block.iter() {
+        match node.get().instruction.as_ref() {
+            Instruction::AdScope { body } => {
+                let ad_block = Module {
+                    kind: ModuleKind::Block,
+                    entry: body.clone(),
+                    pools: pools.clone(),
+                };
+                let mut backward = None;
+                for node in body.iter() {
+                    match node.get().instruction.as_ref() {
+                        Instruction::Call(f, _) => {
+                            if *f == Func::Backward {
                                 backward = Some(node);
                             }
-                            _=>{}
                         }
-                    };
-                    let backward = backward.unwrap_or_else(|| {
-                        panic!("no backward call inside AdScope!");
-                    });
-                    let epilogue = body.split(backward, &module.pools);
-                    backward.remove();
-                    let ad_block = ad_transform_block(ad_block);
-                    assert_eq!(ad_block.entry.ptr, body.ptr);
-                    body.merge(epilogue);
+                        _ => {}
+                    }
                 }
-                _ => {}
+                let backward = backward.unwrap_or_else(|| {
+                    panic!("no backward call inside AdScope!");
+                });
+                let epilogue = body.split(backward, pools);
+                backward.remove();
+                let ad_block = ad_transform_block(ad_block);
+                assert_eq!(ad_block.entry.ptr, body.ptr);
+                body.merge(epilogue);
             }
+            Instruction::If {
+                cond: _,
+                true_branch,
+                false_branch,
+            } => {
+                ad_transform_recursive(*true_branch, pools);
+                ad_transform_recursive(*false_branch, pools);
+            }
+            Instruction::GenericLoop {
+                prepare,
+                cond: _,
+                body,
+                update,
+            } => {
+                ad_transform_recursive(*prepare, pools);
+                ad_transform_recursive(*body, pools);
+                ad_transform_recursive(*update, pools);
+            }
+            Instruction::Loop { body, cond: _ } => {
+                ad_transform_recursive(*body, pools);
+            }
+            Instruction::Switch {
+                value: _,
+                default,
+                cases,
+            } => {
+                ad_transform_recursive(*default, pools);
+                for SwitchCase { value: _, block } in cases.iter() {
+                    ad_transform_recursive(*block, pools);
+                }
+            }
+            _ => {}
         }
+    }
+}
+impl Transform for Autodiff {
+    fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
+        ad_transform_recursive(module.entry, &module.pools);
         module
     }
 }
