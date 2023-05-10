@@ -48,6 +48,10 @@ pub(crate) fn _signal_handler(signal: libc::c_int) {
 macro_rules! catch_abort {
     ($stmts:expr) => {
         unsafe {
+            #[cfg(debug_assertions)]
+            {
+                log::trace!("catch_abort: {}", stringify!($stmts));
+            }
             let _guard = CPP_MUTEX.lock();
             OLD_SIGABRT_HANDLER =
                 libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
