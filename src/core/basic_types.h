@@ -59,6 +59,8 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
 template<typename T, size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
     static constexpr auto dimension = N;
+    static Vector<T, N> zero() noexcept { return Vector<T, N>(0); }
+    static Vector<T, N> one() noexcept { return Vector<T, N>(1); }
     using value_type = T;
     using Storage = detail::VectorStorage<T, N>;
     static_assert(std::disjunction_v<std::is_same<T, bool>,
@@ -116,6 +118,18 @@ struct Matrix<2> {
     constexpr Matrix(const float2 c0, const float2 c1) noexcept
         : cols{c0, c1} {}
 
+    static constexpr Matrix eye(const float c) noexcept {
+        return Matrix{
+            float2{c   , 0.0f},
+            float2{0.0f, c   }};
+    }
+
+    static constexpr Matrix fill(const float c) noexcept {
+        return Matrix{
+            float2{c, c},
+            float2{c, c}};
+    }
+
     [[nodiscard]] constexpr float2 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float2 &operator[](size_t i) const noexcept { return cols[i]; }
 };
@@ -131,6 +145,20 @@ struct Matrix<3> {
 
     constexpr Matrix(const float3 c0, const float3 c1, const float3 c2) noexcept
         : cols{c0, c1, c2} {}
+
+    static constexpr Matrix eye(const float c) noexcept {
+        return Matrix{
+            float3{c   , 0.0f, 0.0f},
+            float3{0.0f, c   , 0.0f},
+            float3{0.0f, 0.0f, c   }};
+    }
+
+    static constexpr Matrix fill(const float c) noexcept {
+        return Matrix{
+            float3{c, c, c},
+            float3{c, c, c},
+            float3{c, c, c}};
+    }
 
     [[nodiscard]] constexpr float3 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
@@ -150,6 +178,22 @@ struct Matrix<4> {
 
     constexpr Matrix(const float4 c0, const float4 c1, const float4 c2, const float4 c3) noexcept
         : cols{c0, c1, c2, c3} {}
+
+    static constexpr Matrix eye(const float c) noexcept {
+        return Matrix{
+            float4{c   , 0.0f, 0.0f, 0.0f},
+            float4{0.0f, c   , 0.0f, 0.0f},
+            float4{0.0f, 0.0f, c   , 0.0f},
+            float4{0.0f, 0.0f, 0.0f, c   }};
+    }
+
+    static constexpr Matrix fill(const float c) noexcept {
+        return Matrix{
+            float4{c, c, c, c},
+            float4{c, c, c, c},
+            float4{c, c, c, c},
+            float4{c, c, c, c}};
+    }
 
     [[nodiscard]] constexpr float4 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
