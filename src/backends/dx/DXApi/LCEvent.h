@@ -4,15 +4,16 @@ namespace lc::dx {
 class CommandQueue;
 class LCEvent : public vstd::IOperatorNewBase {
     friend class CommandQueue;
-    mutable CommandQueue *queue;
+
+public:
     ComPtr<ID3D12Fence> fence;
-    mutable std::atomic_uint64_t fenceIndex = 1;
+    mutable size_t fenceIndex = 1;
     Device *device;
+    mutable bool currentThreadSync{false};
     mutable std::mutex eventMtx;
     mutable std::condition_variable cv;
     mutable uint64 finishedEvent = 1;
 
-public:
     ID3D12Fence *Fence() const { return fence.Get(); }
     LCEvent(Device *device);
     ~LCEvent();

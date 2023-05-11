@@ -40,8 +40,8 @@ public:
         Delegate(const Delegate &) noexcept = delete;
         Delegate &operator=(Delegate &&) noexcept = delete;
         Delegate &operator=(const Delegate &) noexcept = delete;
-        Delegate operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
-        Delegate operator<<(luisa::move_only_function<void()> &&f) && noexcept;
+        Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
+        Delegate &&operator<<(luisa::move_only_function<void()> &&f) && noexcept;
         Stream &operator<<(Event::Signal &&signal) && noexcept;
         Stream &operator<<(Event::Wait &&wait) && noexcept;
         Stream &operator<<(SwapChain::Present &&present) && noexcept;

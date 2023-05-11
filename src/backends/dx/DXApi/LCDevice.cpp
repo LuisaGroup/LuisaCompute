@@ -61,6 +61,14 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         [](DeviceExtension *ext) {
             delete static_cast<DxRasterExt *>(ext);
         });
+    exts.try_emplace(
+        DStorageExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DStorageExtImpl(device->context().runtime_directory(), device->nativeDevice.device.Get());
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DStorageExtImpl *>(ext);
+        });
 }
 LCDevice::~LCDevice() {
 }

@@ -8,12 +8,13 @@
 #include <vstl/meta_lib.h>
 #include <iostream>
 #include <core/logging.h>
+#include <dstorage/dstorage_interface.h>
 using winrt::check_hresult;
 using winrt::com_ptr;
 
 namespace luisa {
 class DStorageStream;
-class DStorageImpl {
+class DStorageImpl : public DStorageInterface {
 public:
     DynamicModule dstorage_core_module;
     DynamicModule dstorage_module;
@@ -22,7 +23,7 @@ public:
     ID3D12Device *device;
     com_ptr<IDStorageQueue> queue;
     std::mutex queue_mtx;
-    bool dstorage_supported{false};
+    bool _dstorage_supported{false};
     DStorageImpl(std::filesystem::path const &runtime_dir, ID3D12Device *device_ptr) noexcept
         : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
           device{device_ptr},
@@ -75,11 +76,14 @@ public:
             .Priority = DSTORAGE_PRIORITY_NORMAL,
             .Device = device};
         check_hresult(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.put())));
-        dstorage_supported = true;
+        _dstorage_supported = true;
     }
     DStorageImpl(compute::Context const &ctx, ID3D12Device *device_ptr) noexcept
         : DStorageImpl{ctx.runtime_directory(), device_ptr} {}
-    BinaryStream *create_stream(luisa::string_view path) noexcept;
+    luisa::unique_ptr<BinaryStream> create_stream(luisa::string_view path) noexcept override;
+    bool dstorage_supported() const noexcept override {
+        return _dstorage_supported;
+    }
 };
 class DStorageStream : public BinaryStream {
     com_ptr<IDStorageFile> _file;
@@ -134,7 +138,7 @@ public:
         _pos += sz;
     }
 };
-BinaryStream *DStorageImpl::create_stream(luisa::string_view path) noexcept {
+luisa::unique_ptr<BinaryStream> DStorageImpl::create_stream(luisa::string_view path) noexcept {
     com_ptr<IDStorageFile> file;
     luisa::vector<wchar_t> wstr;
     wstr.push_back_uninitialized(path.size() + 1);
@@ -157,19 +161,9 @@ BinaryStream *DStorageImpl::create_stream(luisa::string_view path) noexcept {
         length = info.nFileSizeLow;
     }
     if (length == 0) return nullptr;
-    return new_with_allocator<DStorageStream>(std::move(file), this, length);
+    return luisa::make_unique<DStorageStream>(std::move(file), this, length);
 }
-LUISA_EXPORT_API bool dstorage_supported(void *impl) {
-    return reinterpret_cast<DStorageImpl *>(impl)->dstorage_supported;
+LUISA_EXPORT_API DStorageInterface *create(compute::Context const &runtime_dir, ID3D12Device *device_ptr) noexcept {
+    return new_with_allocator<DStorageImpl>(runtime_dir.runtime_directory(), device_ptr);
 }
-LUISA_EXPORT_API void *create_dstorage_impl(compute::Context const &ctx, ID3D12Device *device) noexcept {
-    return new_with_allocator<DStorageImpl>(ctx, device);
-}
-LUISA_EXPORT_API void delete_dstorage_impl(void *ptr) noexcept {
-    delete_with_allocator(reinterpret_cast<DStorageImpl *>(ptr));
-}
-LUISA_EXPORT_API BinaryStream *create_dstorage_stream(void *impl, luisa::string_view path) noexcept {
-    return reinterpret_cast<DStorageImpl *>(impl)->create_stream(path);
-}
-
 }// namespace luisa

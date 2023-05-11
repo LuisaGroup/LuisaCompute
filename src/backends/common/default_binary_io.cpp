@@ -2,7 +2,9 @@
 #include <backends/common/default_binary_io.h>
 #include <core/logging.h>
 #include <core/binary_file_stream.h>
-
+#ifdef LUISA_USE_DIRECT_STORAGE
+#include <dstorage/dstorage_interface.h>
+#endif
 namespace luisa::compute {
 class LockedBinaryFileStream : public BinaryStream {
 
@@ -52,7 +54,7 @@ public:
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
     auto idx = _lock(file_path, false);
     if (dstorage_impl) {
-        luisa::unique_ptr<BinaryStream> strm{create_dstorage_stream(dstorage_impl, file_path)};
+        luisa::unique_ptr<BinaryStream> strm{dstorage_impl->create_stream(file_path)};
         if (!strm) {
             _unlock(idx, false);
             LUISA_INFO("Read file {} failed.", file_path);
@@ -151,24 +153,14 @@ DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, void *ext) noexcept
       _data_dir{_ctx.create_runtime_subdir(".data"sv)} {
 #ifdef LUISA_USE_DIRECT_STORAGE
     dstorage_lib = DynamicModule::load(_ctx.runtime_directory(), "lc-dstorage");
-    dstorage_impl = dstorage_lib.invoke<void *(Context const &ctx, void *device)>("create_dstorage_impl", _ctx, ext);
-    if (dstorage_lib.invoke<bool(void *impl)>("dstorage_supported", dstorage_impl)) {
-        create_dstorage_stream = dstorage_lib.function<BinaryStream *(void *impl, luisa::string_view path)>("create_dstorage_stream");
-    } else {
+    dstorage_impl = luisa::unique_ptr<DStorageInterface>{dstorage_lib.invoke<DStorageInterface *(Context const &ctx, void *device)>("create", _ctx, ext)};
+    if (!dstorage_impl->dstorage_supported()) {
         LUISA_WARNING("Fallback to default IO.");
-        dstorage_lib.invoke<void(void *ptr)>("delete_dstorage_impl", dstorage_impl);
-        dstorage_impl = nullptr;
-        dstorage_lib.dispose();
+        dstorage_impl.reset();
     }
 #endif
 }
-DefaultBinaryIO::~DefaultBinaryIO() {
-#ifdef LUISA_USE_DIRECT_STORAGE
-    if (dstorage_impl) {
-        dstorage_lib.invoke<void(void *ptr)>("delete_dstorage_impl", dstorage_impl);
-    }
-#endif
-}
+DefaultBinaryIO::~DefaultBinaryIO() {}
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::string_view name) const noexcept {
     std::filesystem::path local_path{name};

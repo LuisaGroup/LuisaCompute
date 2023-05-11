@@ -97,7 +97,7 @@ void CommandQueue::ExecuteThread() {
             device->WaitFence(evt->fence.Get(), tarFrame);
             {
                 std::lock_guard lck(evt->eventMtx);
-                evt->finishedEvent++;
+                evt->finishedEvent = std::max(tarFrame, evt->finishedEvent);
             }
             evt->cv.notify_all();
         };

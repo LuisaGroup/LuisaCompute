@@ -4,7 +4,12 @@
 #include <backends/ext/native_resource_ext.h>
 #include <backends/ext/raster_ext.h>
 #include <backends/ext/dx_cuda_interop.h>
+#include <backends/ext/dstorage_ext.h>
 #include <backends/dx/d3dx12.h>
+#include <core/dynamic_module.h>
+#include <dstorage/dstorage.h>
+using Microsoft::WRL::ComPtr;
+
 namespace lc::dx {
 using namespace luisa::compute;
 class Device;
@@ -159,5 +164,22 @@ public:
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
     DxCudaInteropImpl(Device &device) : _device{device} {}
+};
+class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
+    luisa::DynamicModule dstorage_core_module;
+    luisa::DynamicModule dstorage_module;
+    ComPtr<IDStorageFactory> factory;
+    ID3D12Device *device;
+
+public:
+    DStorageExtImpl(std::filesystem::path const &runtime_dir, ID3D12Device *device) noexcept;
+    ResourceCreationInfo create_stream_handle() noexcept override;
+    File open_file_handle(luisa::string_view path) noexcept override;
+    void close_file_handle(uint64_t handle) noexcept override;
+    void destroy_stream_handle(uint64_t handle) noexcept override;
+    void enqueue_buffer(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t buffer_handle, size_t buffer_offset, size_t size_bytes) noexcept override;
+    void enqueue_image(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t image_handle, size_t pixel_size, uint32_t mip) noexcept override;
+    void signal(uint64_t stream_handle, uint64_t event_handle) noexcept override;
+    void commit(uint64_t stream_handle) noexcept override;
 };
 }// namespace lc::dx
