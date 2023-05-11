@@ -39,7 +39,4 @@ end
 if get_config("cpu_backend") then
     add_deps("lc-backend-cpu", { inherit = false })
 end
-if is_plat("windows") then
-    add_deps("lc-dstorage", { inherit = false })
-end
 target_end()

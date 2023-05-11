@@ -18,6 +18,7 @@ public:
     virtual void destroy_stream_handle(uint64_t handle) noexcept = 0;
     virtual void enqueue_buffer(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t buffer_handle, size_t offset, size_t size_bytes) noexcept = 0;
     virtual void enqueue_image(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t image_handle, size_t pixel_size, uint32_t mip) noexcept = 0;
+    virtual void enqueue_memory(uint64_t stream_handle, uint64_t file, size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept = 0;
     virtual void signal(uint64_t stream_handle, uint64_t event_handle) noexcept = 0;
     virtual void commit(uint64_t stream_handle) noexcept = 0;
     [[nodiscard]] DStorageStream create_stream() noexcept;
@@ -41,6 +42,12 @@ public:
         uint64_t image_handle;
         size_t pixel_size;
         uint32_t mip_level;
+    };
+    struct MemoryEnqueue {
+        uint64_t file_handle;
+        size_t file_offset;
+        void *dst_ptr;
+        size_t size_bytes;
     };
     explicit DStorageFile(DStorageExt *ext, DStorageExt::File const &file) noexcept : _ext{ext}, _file{file} {}
     DStorageFile(DStorageFile const &) noexcept = delete;
@@ -123,6 +130,22 @@ public:
             .pixel_size = image.size_bytes(),
             .mip_level = image.level()};
     }
+    MemoryEnqueue read_to(size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept {
+        return MemoryEnqueue{
+            .file_handle = _file.handle,
+            .file_offset = file_offset,
+            .dst_ptr = dst_ptr,
+            .size_bytes = size_bytes};
+    }
+    template<typename T>
+        requires(std::is_trivial_v<T>)
+    MemoryEnqueue read_to(size_t file_offset, luisa::span<T> dst) noexcept {
+        return MemoryEnqueue{
+            .file_handle = _file.handle,
+            .file_offset = file_offset,
+            .dst_ptr = dst.data(),
+            .size_bytes = dst.size_bytes()};
+    }
 };
 
 class DStorageStream {
@@ -151,12 +174,16 @@ public:
             new (std::launder(this)) Delegate{std::move(rhs)};
             return *this;
         }
-        Delegate &&operator<<(DStorageFile::BufferEnqueue const &cmd) noexcept {
+        Delegate operator<<(DStorageFile::BufferEnqueue const &cmd) noexcept {
             _stream->_ext->enqueue_buffer(_stream->_handle, cmd.file_handle, cmd.file_offset, cmd.buffer_handle, cmd.buffer_offset, cmd.size_bytes);
             return std::move(*this);
         }
-        Delegate &&operator<<(DStorageFile::ImageEnqueue const &cmd) noexcept {
+        Delegate operator<<(DStorageFile::ImageEnqueue const &cmd) noexcept {
             _stream->_ext->enqueue_image(_stream->_handle, cmd.file_handle, cmd.file_offset, cmd.image_handle, cmd.pixel_size, cmd.mip_level);
+            return std::move(*this);
+        }
+        Delegate operator<<(DStorageFile::MemoryEnqueue const &cmd) noexcept {
+            _stream->_ext->enqueue_memory(_stream->_handle, cmd.file_handle, cmd.file_offset, cmd.dst_ptr, cmd.size_bytes);
             return std::move(*this);
         }
         DStorageStream &operator<<(Event::Signal &&signal) noexcept {
@@ -169,11 +196,13 @@ public:
                 _stream->_ext->commit(_stream->_handle);
         }
     };
+    DStorageStream(DStorageStream const &) = delete;
     DStorageStream(DStorageStream &&rhs) noexcept {
         _ext = rhs._ext;
         _handle = rhs._handle;
         rhs._handle = invalid_resource_handle;
     }
+    DStorageStream &operator=(DStorageStream const &) = delete;
     DStorageStream &operator=(DStorageStream &&rhs) noexcept {
         this->~DStorageStream();
         new (std::launder(this)) DStorageStream{std::move(rhs)};
@@ -188,10 +217,8 @@ public:
         _ext->signal(_handle, signal.handle);
         return *this;
     }
-    Delegate operator<<(DStorageFile::BufferEnqueue const &cmd) noexcept {
-        return Delegate{this} << cmd;
-    }
-    Delegate operator<<(DStorageFile::ImageEnqueue const &cmd) noexcept {
+    template<typename Enqueue>
+    Delegate operator<<(Enqueue const &cmd) noexcept {
         return Delegate{this} << cmd;
     }
 };

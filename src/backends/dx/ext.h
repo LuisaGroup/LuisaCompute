@@ -179,6 +179,7 @@ public:
     void destroy_stream_handle(uint64_t handle) noexcept override;
     void enqueue_buffer(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t buffer_handle, size_t buffer_offset, size_t size_bytes) noexcept override;
     void enqueue_image(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t image_handle, size_t pixel_size, uint32_t mip) noexcept override;
+    void enqueue_memory(uint64_t stream_handle, uint64_t file, size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept override;
     void signal(uint64_t stream_handle, uint64_t event_handle) noexcept override;
     void commit(uint64_t stream_handle) noexcept override;
 };

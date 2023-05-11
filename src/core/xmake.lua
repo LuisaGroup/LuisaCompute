@@ -7,7 +7,7 @@ if is_plat("windows") then
     if is_mode("debug") then
         add_syslinks("Dbghelp")
     end
-	add_defines("NOMINMAX", "LUISA_PLATFORM_WINDOWS", "LUISA_USE_DIRECT_STORAGE", {public = true})
+	add_defines("NOMINMAX", "LUISA_PLATFORM_WINDOWS", {public = true})
 elseif is_plat("linux") then
     add_defines("LUISA_PLATFORM_UNIX", {public = true})
 elseif is_plat("macosx") then

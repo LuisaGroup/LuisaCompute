@@ -225,6 +225,23 @@ void DStorageExtImpl::enqueue_buffer(uint64_t stream_handle, uint64_t file_handl
     request.Destination.Buffer.Resource = reinterpret_cast<Buffer *>(buffer_handle)->GetResource();
     queue->EnqueueRequest(&request);
 }
+void DStorageExtImpl::enqueue_memory(uint64_t stream_handle, uint64_t file_handle, size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept {
+    auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
+    auto file = reinterpret_cast<DStorageFileImpl *>(file_handle);
+    if (file_offset + size_bytes > file->size_bytes) {
+        LUISA_ERROR("Direct-Storage enqueue_buffer out of bound, required size: {}, file size: {}.", file_offset + size_bytes, file->size_bytes);
+    }
+    DSTORAGE_REQUEST request = {};
+    request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
+    request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
+    request.Source.File.Source = file->file.Get();
+    request.Source.File.Offset = file_offset;
+    request.Source.File.Size = size_bytes;
+    request.UncompressedSize = 0;
+    request.Destination.Memory.Buffer = dst_ptr;
+    request.Destination.Memory.Size = size_bytes;
+    queue->EnqueueRequest(&request);
+}
 void DStorageExtImpl::enqueue_image(uint64_t stream_handle, uint64_t file_handle, size_t file_offset, uint64_t image_handle, size_t size_bytes, uint32_t mip) noexcept {
     auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
     auto file = reinterpret_cast<DStorageFileImpl *>(file_handle);

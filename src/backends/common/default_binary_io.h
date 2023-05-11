@@ -6,11 +6,7 @@
 #include <shared_mutex>
 #include <runtime/context.h>
 #include <core/dynamic_module.h>
-#ifdef LUISA_USE_DIRECT_STORAGE
-namespace luisa{
-class DStorageInterface;
-}
-#endif
+
 namespace luisa::compute {
 class DefaultBinaryIO final : public BinaryIO {
 public:
@@ -29,10 +25,6 @@ private:
     mutable MutexMap _mutex_map;
     std::filesystem::path _cache_dir;
     std::filesystem::path _data_dir;
-#ifdef LUISA_USE_DIRECT_STORAGE
-    DynamicModule dstorage_lib;
-    luisa::unique_ptr<DStorageInterface> dstorage_impl{};
-#endif
 
 private:
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;

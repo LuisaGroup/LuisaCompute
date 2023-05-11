@@ -2,9 +2,6 @@
 #include <backends/common/default_binary_io.h>
 #include <core/logging.h>
 #include <core/binary_file_stream.h>
-#ifdef LUISA_USE_DIRECT_STORAGE
-#include <dstorage/dstorage_interface.h>
-#endif
 namespace luisa::compute {
 class LockedBinaryFileStream : public BinaryStream {
 
@@ -28,58 +25,6 @@ public:
     }
 };
 
-#ifdef LUISA_USE_DIRECT_STORAGE
-class DStorageLockedFileStream : public BinaryStream {
-
-private:
-    luisa::unique_ptr<BinaryStream> _stream;
-    DefaultBinaryIO const *_binary_io;
-    DefaultBinaryIO::MapIndex _idx;
-
-public:
-    explicit DStorageLockedFileStream(DefaultBinaryIO const *binary_io, luisa::unique_ptr<BinaryStream> &&stream, DefaultBinaryIO::MapIndex &&idx) noexcept
-        : _stream{std::move(stream)},
-          _binary_io{binary_io},
-          _idx{std::move(idx)} {}
-    ~DStorageLockedFileStream() noexcept override {
-        _binary_io->_unlock(_idx, false);
-    }
-    [[nodiscard]] size_t length() const noexcept override { return _stream->length(); }
-    [[nodiscard]] size_t pos() const noexcept override { return _stream->pos(); }
-    void read(luisa::span<std::byte> dst) noexcept override {
-        _stream->read(dst);
-    }
-};
-
-luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
-    auto idx = _lock(file_path, false);
-    if (dstorage_impl) {
-        luisa::unique_ptr<BinaryStream> strm{dstorage_impl->create_stream(file_path)};
-        if (!strm) {
-            _unlock(idx, false);
-            LUISA_INFO("Read file {} failed.", file_path);
-            return {};
-        }
-        return luisa::make_unique<DStorageLockedFileStream>(this, std::move(strm), std::move(idx));
-    } else {
-        auto file = std::fopen(file_path.c_str(), "rb");
-        if (file) {
-            auto length = BinaryFileStream::seek_len(file);
-            if (length == 0) [[unlikely]] {
-                _unlock(idx, false);
-                LUISA_INFO("Read file {} failed.", file_path);
-                return nullptr;
-            }
-            return luisa::make_unique<LockedBinaryFileStream>(this, file, length, file_path, std::move(idx));
-        } else {
-            _unlock(idx, false);
-            LUISA_INFO("Read file {} failed.", file_path);
-            return nullptr;
-        }
-    }
-}
-#else
-
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
     auto idx = _lock(file_path, false);
     auto file = std::fopen(file_path.c_str(), "rb");
@@ -96,7 +41,6 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file
         return nullptr;
     }
 }
-#endif
 DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool is_write) const noexcept {
     MapIndex iter;
     FileMutex *ptr;
@@ -151,14 +95,6 @@ DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, void *ext) noexcept
     : _ctx(std::move(ctx)),
       _cache_dir{_ctx.create_runtime_subdir(".cache"sv)},
       _data_dir{_ctx.create_runtime_subdir(".data"sv)} {
-#ifdef LUISA_USE_DIRECT_STORAGE
-    dstorage_lib = DynamicModule::load(_ctx.runtime_directory(), "lc-dstorage");
-    dstorage_impl = luisa::unique_ptr<DStorageInterface>{dstorage_lib.invoke<DStorageInterface *(Context const &ctx, void *device)>("create", _ctx, ext)};
-    if (!dstorage_impl->dstorage_supported()) {
-        LUISA_WARNING("Fallback to default IO.");
-        dstorage_impl.reset();
-    }
-#endif
 }
 DefaultBinaryIO::~DefaultBinaryIO() {}
 
