@@ -1,6 +1,6 @@
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
-
+use crate::panic_abort;
 use crate::cpu::llvm::LLVM_PATH;
 use std::{
     env::{self, current_exe},
@@ -85,7 +85,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         } else if cfg!(target_arch = "aarch64") {
             args.push("-DLUISA_ARCH_ARM64");
         } else {
-            panic!("unsupported target architecture");
+            panic_abort!("unsupported target architecture");
         }
         args.push("-ffast-math");
         args.push("-fno-rtti");
@@ -125,7 +125,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
                         "clang++ output: {}",
                         String::from_utf8(output.stdout).unwrap(),
                     );
-                    panic!("compile failed")
+                    panic_abort!("compile failed")
                 }
             },
         }
@@ -158,7 +158,7 @@ impl ShaderImpl {
     ) -> Self {
         // unsafe {
         // let lib = libloading::Library::new(&path)
-        //     .unwrap_or_else(|_| panic!("cannot load library {:?}", &path));
+        //     .unwrap_or_else(|_| panic_abort!("cannot load library {:?}", &path));
         // let entry: libloading::Symbol<KernelFn> = lib.get(b"kernel_fn").unwrap();
         // let entry: libloading::Symbol<'static, KernelFn> = transmute(entry);
         let tic = std::time::Instant::now();

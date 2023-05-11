@@ -12,6 +12,7 @@ pub(crate) use luisa_compute_backend::Backend;
 pub(crate) use luisa_compute_ir::ir;
 use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
+use std::panic::Location;
 use std::path::{Path, PathBuf};
 use std::process::abort;
 use std::sync::Arc;
@@ -89,15 +90,47 @@ impl log::Log for SimpleLogger {
 
 static LOGGER: SimpleLogger = SimpleLogger;
 static mut LOGGER_CALLBACK: Option<unsafe extern "C" fn(api::LoggerMessage)> = None;
+#[macro_export]
+macro_rules! panic_abort {
+    ($msg:expr) => {
+        {crate::_panic_abort($msg.to_string(), std::panic::Location::caller());unreachable!()}
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        {crate::_panic_abort(format!($fmt, $($arg)*), std::panic::Location::caller());unreachable!()}
+    };
+}
+pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
+    eprint!("panic occurred: '{}'", msg);
+
+    eprint!(
+        " in file '{}' at line {}\n",
+        location.file(),
+        location.line()
+    );
+    eprintln!("set LUISA_BACKTRACE=1 ro enable host DSL backtrace");
+    match env::var("RUST_BACKTRACE") {
+        Ok(v) => {
+            if v == "1" {
+                eprintln!("{:?}", std::backtrace::Backtrace::capture());
+            } else if v == "full" {
+                eprintln!("{:?}", std::backtrace::Backtrace::force_capture());
+            }
+        }
+        Err(_) => {
+            eprintln!("set RUST_BACKTRACE=1 to display device backtrace");
+        }
+    };
+    abort();
+}
 fn init() {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Trace))
         .unwrap();
+    // std::panic::set_hook(Box::new(move |panic_info| {});
+    // let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
             Some(*s)
-        } else if let Some(s) = panic_info.payload().downcast_ref::<&String>() {
-            Some(s.as_ref())
         } else {
             None
         };
@@ -106,35 +139,6 @@ fn init() {
                 return;
             }
         }
-        if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-            eprint!("panic occurred: {:?}", s);
-        } else if let Some(s) = panic_info.payload().downcast_ref::<&String>() {
-            eprint!("panic occurred: {:?}", s);
-        } else {
-            eprint!("panic occurred");
-        }
-        if let Some(location) = panic_info.location() {
-            eprint!(
-                " in file '{}' at line {}\n",
-                location.file(),
-                location.line()
-            );
-        } else {
-            eprint!("but can't get location information...\n");
-        }
-        // default_hook(panic_info);
-        match env::var("RUST_BACKTRACE") {
-            Ok(v) => {
-                if v == "1" {
-                    eprintln!("{:?}", std::backtrace::Backtrace::capture());
-                } else if v == "full" {
-                    eprintln!("{:?}", std::backtrace::Backtrace::force_capture());
-                }
-            }
-            Err(_) => {
-                eprintln!("set RUST_BACKTRACE=1 to see backtrace");
-            }
-        };
         abort();
     }));
 }
@@ -204,7 +208,7 @@ unsafe extern "C" fn create_device(
             }
             #[cfg(not(feature = "cpu"))]
             {
-                panic!("cpu device is not enabled")
+                panic_abort!("cpu device is not enabled")
             }
         }
         "remote" => {
@@ -216,10 +220,10 @@ unsafe extern "C" fn create_device(
             }
             #[cfg(not(feature = "remote"))]
             {
-                panic!("remote device is not enabled")
+                panic_abort!("remote device is not enabled")
             }
         }
-        _ => panic!("unknown device {}", device),
+        _ => panic_abort!("unknown device {}", device),
     }
 }
 #[no_mangle]

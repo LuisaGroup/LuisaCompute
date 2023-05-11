@@ -716,7 +716,7 @@ inline void lc_texture3d_write(const KernelFnArgs* k_args,const Texture3D &tex, 
 [[nodiscard]] inline const Texture &
 lc_bindless_texture_2d(const KernelFnArgs *k_args, const BindlessArray &array, size_t index) noexcept {
     if (index >= array.texture2ds_count) {
-        lc_abort_and_print_sll(k_args->internal_data, "Bindless texture2d index out of bounds: %zu >= %zu\n", index,
+        lc_abort_and_print_sll(k_args->internal_data, "Bindless texture2d index out of bounds: %zu >= %zu", index,
                                array.texture2ds_count);
     }
     return array.texture2ds[index];
@@ -725,7 +725,7 @@ lc_bindless_texture_2d(const KernelFnArgs *k_args, const BindlessArray &array, s
 [[nodiscard]] inline const Texture &
 lc_bindless_texture_3d(const KernelFnArgs *k_args, const BindlessArray &array, size_t index) noexcept {
     if (index >= array.texture3ds_count) {
-        lc_abort_and_print_sll(k_args->internal_data, "Bindless texture3d index out of bounds: %zu >= %zu\n", index,
+        lc_abort_and_print_sll(k_args->internal_data, "Bindless texture3d index out of bounds: %zu >= %zu", index,
                                array.texture3ds_count);
 
     }

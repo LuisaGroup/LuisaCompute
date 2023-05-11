@@ -2,8 +2,6 @@
 #![allow(non_snake_case)]
 use std::{cell::RefCell, sync::Arc};
 
-use crate::SwapChainForCpuContext;
-
 use self::{
     accel::{AccelImpl, MeshImpl},
     resource::{BindlessArrayImpl, BufferImpl, EventImpl},
@@ -11,6 +9,8 @@ use self::{
     texture::TextureImpl,
 };
 use super::Backend;
+use crate::panic_abort;
+use crate::SwapChainForCpuContext;
 use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
 use libc::c_void;
 use log::info;
@@ -34,7 +34,7 @@ impl RustBackend {
     pub(crate) unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>) {
         let mut self_ctx = self.swapchain_context.write();
         if self_ctx.is_some() {
-            panic!("swapchain context already set");
+            panic_abort!("swapchain context already set");
         }
         *self_ctx = Some(ctx);
     }
@@ -170,7 +170,7 @@ impl Backend for RustBackend {
         let ctx = self.swapchain_context.read();
         let ctx = ctx
             .as_ref()
-            .unwrap_or_else(|| panic!("swapchain context is not initialized"));
+            .unwrap_or_else(|| panic_abort!("swapchain context is not initialized"));
         unsafe {
             let sc_ctx = (ctx.create_cpu_swapchain)(
                 window_handle,
@@ -194,7 +194,7 @@ impl Backend for RustBackend {
         let ctx = self.swapchain_context.read();
         let ctx = ctx
             .as_ref()
-            .unwrap_or_else(|| panic!("swapchain context is not initialized"));
+            .unwrap_or_else(|| panic_abort!("swapchain context is not initialized"));
         unsafe {
             (ctx.destroy_cpu_swapchain)(swap_chain.0 as *mut c_void);
         }
@@ -208,7 +208,7 @@ impl Backend for RustBackend {
         let ctx = self.swapchain_context.read();
         let ctx = ctx
             .as_ref()
-            .unwrap_or_else(|| panic!("swapchain context is not initialized"));
+            .unwrap_or_else(|| panic_abort!("swapchain context is not initialized"));
         unsafe {
             let stream = &*(stream_handle.0 as *mut StreamImpl);
             let img = &*(image_handle.0 as *mut TextureImpl);

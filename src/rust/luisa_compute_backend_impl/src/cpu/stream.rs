@@ -6,15 +6,16 @@ use luisa_compute_ir::{
 };
 use parking_lot::{Condvar, Mutex, RwLock};
 use rayon;
-use std::collections::{HashMap, HashSet};
 use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::{
     collections::VecDeque,
     sync::{atomic::AtomicUsize, Arc},
     thread::{self, JoinHandle},
 };
-
-use luisa_compute_cpu_kernel_defs as defs;
+use std::{
+    collections::{HashMap, HashSet},
+    process::abort,
+};
 
 use super::{
     accel::{AccelImpl, MeshImpl},
@@ -22,7 +23,9 @@ use super::{
     shader::ShaderImpl,
     texture::TextureImpl,
 };
+use crate::panic_abort;
 use bumpalo::Bump;
+use luisa_compute_cpu_kernel_defs as defs;
 
 #[derive(Clone)]
 struct Work {
@@ -117,7 +120,7 @@ impl StreamImpl {
         }
         let error = self.ctx.error.lock();
         if error.is_some() {
-            panic!("{}", error.as_ref().unwrap());
+            panic_abort!("{}", error.as_ref().unwrap());
         }
     }
     pub(super) fn enqueue(

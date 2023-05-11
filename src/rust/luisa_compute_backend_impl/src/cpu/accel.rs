@@ -9,7 +9,7 @@ use embree_sys as sys;
 use lazy_static::lazy_static;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-
+use crate::panic_abort;
 use parking_lot::{Mutex, RwLock};
 struct Device(sys::RTCDevice);
 unsafe impl Send for Device {}
@@ -34,7 +34,7 @@ macro_rules! check_error {
     ($device:expr) => {{
         let err = sys::rtcGetDeviceError($device);
         if err != sys::RTC_ERROR_NONE {
-            panic!("Embree error: {}", err);
+            panic_abort!("Embree error: {}", err);
         }
     }};
 }

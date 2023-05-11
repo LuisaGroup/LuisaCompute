@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::panic_abort;
 use lazy_static::lazy_static;
 use libloading::Symbol;
 use serde::{Deserialize, Serialize};
@@ -331,7 +332,11 @@ impl LLVMPaths {
         }
     }
     pub fn get() -> LLVMPaths {
-        let cur = current_exe().unwrap().parent().unwrap().join(PATH_CACHE_FILE);
+        let cur = current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(PATH_CACHE_FILE);
         let paths = if cur.exists() {
             let file = File::open(&cur).unwrap();
             let reader = BufReader::new(file);
@@ -347,7 +352,7 @@ impl LLVMPaths {
                     match var("LUISA_CLANG_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++");
+                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++")
                         }
                     }
                 }),
@@ -358,7 +363,7 @@ impl LLVMPaths {
                     match var("LUISA_LLVM_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of LLVM");
+                            panic_abort!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of LLVM")
                         }
                     }
                 }),
@@ -430,7 +435,7 @@ fn llvm_lib_path() -> &'static str {
 impl LibLLVM {
     fn new() -> Self {
         if cfg!(not(target_arch = "x86_64")) {
-            panic!("only x86_64 is supported");
+            panic_abort!("only x86_64 is supported");
         }
         unsafe {
             let lib = libloading::Library::new(&llvm_lib_path()).unwrap();
@@ -594,7 +599,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             if (lib.LLVMParseBitcodeInContext2)(ctx, bc_buffer, &mut module as *mut LLVMModuleRef)
                 != 0
             {
-                panic!("LLVMParseBitcodeInContext2 failed");
+                panic_abort!("LLVMParseBitcodeInContext2 failed");
             }
             // let mut msg: *mut i8 = std::ptr::null_mut();
             // if (lib.LLVMParseIRInContext)(
@@ -604,7 +609,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             //     &mut msg as *mut *mut i8,
             // ) != 0
             // {
-            //     panic!("LLVMParseIRInContext failed");
+            //     panic_abort!("LLVMParseIRInContext failed");
             // }
             // let pass = CString::new("default<O3>").unwrap();
             // let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
@@ -857,7 +862,7 @@ fn target_triple() -> String {
     } else if cfg!(target_os = "macos") {
         "x86_64-apple-darwin".to_string()
     } else {
-        panic!("unsupported target");
+        panic_abort!("unsupported target")
     }
 }
 
