@@ -40,8 +40,8 @@ public:
         Delegate(const Delegate &) noexcept = delete;
         Delegate &operator=(Delegate &&) noexcept = delete;
         Delegate &operator=(const Delegate &) noexcept = delete;
-        Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
-        Delegate &&operator<<(luisa::move_only_function<void()> &&f) && noexcept;
+        Delegate operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
+        Delegate operator<<(luisa::move_only_function<void()> &&f) && noexcept;
         Stream &operator<<(Event::Signal &&signal) && noexcept;
         Stream &operator<<(Event::Wait &&wait) && noexcept;
         Stream &operator<<(SwapChain::Present &&present) && noexcept;
@@ -92,15 +92,7 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
-        auto make_return = []<typename S>(S &&s) noexcept -> decltype(auto) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<S>, Stream>) {
-                return (s);
-            } else {
-                return Delegate{std::forward<S>(s)};
-            }
-        };
-        Delegate delegate{this};
-        return make_return(std::move(delegate) << std::move(args));
+        return Delegate{this} << std::move(args);
     }
 };
 

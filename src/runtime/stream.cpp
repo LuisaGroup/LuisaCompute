@@ -31,8 +31,7 @@ void Stream::_dispatch(CommandList &&list) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
-    Delegate delegate{this};
-    return std::move(delegate) << std::move(cmd);
+    return Delegate{this} << std::move(cmd);
 }
 
 void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
@@ -69,7 +68,7 @@ Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
     s._stream = nullptr;
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept {
+Stream::Delegate Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept {
     if (!_command_list.callbacks().empty()) { _commit(); }
     _command_list.append(std::move(cmd));
     return std::move(*this);
@@ -95,7 +94,7 @@ Stream &Stream::Delegate::operator<<(SwapChain::Present &&p) && noexcept {
     return *_stream << std::move(p);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
+Stream::Delegate Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
     _command_list.append(std::move(f));
     return std::move(*this);
 }
@@ -121,8 +120,7 @@ Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
-    Delegate delegate{this};
-    return std::move(delegate) << std::move(f);
+    return Delegate{this} << std::move(f);
 }
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
