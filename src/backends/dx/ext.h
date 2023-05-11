@@ -11,6 +11,7 @@
 using Microsoft::WRL::ComPtr;
 
 namespace lc::dx {
+class LCDevice;
 using namespace luisa::compute;
 class Device;
 class DxTexCompressExt final : public TexCompressExt, public vstd::IOperatorNewBase {
@@ -169,18 +170,12 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_core_module;
     luisa::DynamicModule dstorage_module;
     ComPtr<IDStorageFactory> factory;
-    ID3D12Device *device;
+    LCDevice *device;
 
 public:
-    DStorageExtImpl(std::filesystem::path const &runtime_dir, ID3D12Device *device) noexcept;
-    ResourceCreationInfo create_stream_handle() noexcept override;
+    DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
+    std::pair<DeviceInterface *, ResourceCreationInfo> create_stream_handle() noexcept override;
     File open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
-    void destroy_stream_handle(uint64_t handle) noexcept override;
-    void enqueue_buffer(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t buffer_handle, size_t buffer_offset, size_t size_bytes) noexcept override;
-    void enqueue_image(uint64_t stream_handle, uint64_t file, size_t file_offset, uint64_t image_handle, size_t pixel_size, uint32_t mip) noexcept override;
-    void enqueue_memory(uint64_t stream_handle, uint64_t file, size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept override;
-    void signal(uint64_t stream_handle, uint64_t event_handle) noexcept override;
-    void commit(uint64_t stream_handle) noexcept override;
 };
 }// namespace lc::dx

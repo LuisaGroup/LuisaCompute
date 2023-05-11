@@ -47,7 +47,10 @@ Stream &Stream::operator<<(Event::Wait &&wait) noexcept {
 }
 
 Stream::Stream(DeviceInterface *device, StreamTag stream_tag) noexcept
-    : Resource{device, Tag::STREAM, device->create_stream(stream_tag)},
+    : Stream{device, stream_tag, device->create_stream(stream_tag)} {}
+
+Stream::Stream(DeviceInterface *device, StreamTag stream_tag, const ResourceCreationInfo &handle) noexcept
+    : Resource{device, Tag::STREAM, handle},
       _stream_tag(stream_tag) {}
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}

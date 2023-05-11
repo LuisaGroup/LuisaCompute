@@ -22,7 +22,7 @@
 // for validation
 namespace lc::validation {
 class Stream;
-}
+}// namespace lc::validation
 namespace luisa::compute {
 
 struct IndirectDispatchArg {
@@ -51,6 +51,7 @@ class RasterMesh;
 
 static constexpr uint64_t draw_raster_command_uuid = 10000;
 static constexpr uint64_t clear_depth_command_uuid = 10001;
+static constexpr uint64_t dstorage_command_uuid = 10002;
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
@@ -681,7 +682,42 @@ public:
 
     LUISA_MAKE_COMMAND_COMMON(ClearDepthCommand, StreamTag::GRAPHICS)
 };
+class DStorageReadCommand : public CustomCommand {
+public:
+    struct BufferEnqueue {
+        uint64_t file_handle;
+        size_t file_offset;
+        uint64_t buffer_handle;
+        size_t buffer_offset;
+        size_t size_bytes;
+    };
+    struct ImageEnqueue {
+        uint64_t file_handle;
+        size_t file_offset;
+        uint64_t image_handle;
+        size_t pixel_size;
+        uint32_t mip_level;
+    };
+    struct MemoryEnqueue {
+        uint64_t file_handle;
+        size_t file_offset;
+        void *dst_ptr;
+        size_t size_bytes;
+    };
+    using EnqueueCommand = luisa::variant<
+        BufferEnqueue,
+        ImageEnqueue,
+        MemoryEnqueue>;
 
+private:
+    EnqueueCommand _enqueue_cmd;
+
+public:
+    explicit DStorageReadCommand(EnqueueCommand &&cmd)
+        : CustomCommand{dstorage_command_uuid}, _enqueue_cmd{std::move(cmd)} {}
+    [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
+    LUISA_MAKE_COMMAND_COMMON(DStorageReadCommand, StreamTag::CUSTOM)
+};
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
 #undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
 #undef LUISA_MAKE_COMMAND_COMMON_RECYCLE

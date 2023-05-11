@@ -9,6 +9,8 @@
 #include <Resource/ExternalDepth.h>
 #include <Resource/Buffer.h>
 #include <DXApi/LCEvent.h>
+#include <DXApi/LCDevice.h>
+#include <DXRuntime/DStorageCommandQueue.h>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -130,7 +132,7 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
-DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, ID3D12Device *device) noexcept
+DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept
     : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
       dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
       device{device} {
@@ -143,29 +145,12 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, ID3D1
     DStorageGetFactory = reinterpret_cast<decltype(DStorageGetFactory)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageGetFactory"));
     ThrowIfFailed(DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf())));
 }
-class DStorageFileImpl : public vstd::IOperatorNewBase {
-public:
-    ComPtr<IDStorageFile> file;
-    size_t size_bytes;
-    DStorageFileImpl(ComPtr<IDStorageFile> &&file, size_t size_bytes) : file{std::move(file)}, size_bytes{size_bytes} {}
-};
-class DStorageQueueImpl : public vstd::IOperatorNewBase {
-public:
-    ComPtr<IDStorageQueue> queue;
-    DStorageQueueImpl(IDStorageFactory *factory, ID3D12Device *device) {
-        DSTORAGE_QUEUE_DESC queue_desc{
-            .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
-            .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-            .Priority = DSTORAGE_PRIORITY_NORMAL,
-            .Device = device};
-        ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.GetAddressOf())));
-    }
-};
-ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
-    ResourceCreationInfo r;
-    auto ptr = new DStorageQueueImpl{factory.Get(), device};
-    r.handle = reinterpret_cast<uint64_t>(ptr);
-    r.native_handle = ptr->queue.Get();
+std::pair<DeviceInterface *, ResourceCreationInfo> DStorageExtImpl::create_stream_handle() noexcept {
+    std::pair<DeviceInterface *, ResourceCreationInfo> r;
+    auto ptr = new DStorageCommandQueue{factory.Get(), &device->nativeDevice};
+    r.second.handle = reinterpret_cast<uint64_t>(ptr);
+    r.second.native_handle = ptr->Queue();
+    r.first = device;
     return r;
 }
 DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
@@ -204,77 +189,5 @@ DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path)
 void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     delete reinterpret_cast<DStorageFileImpl *>(handle);
 }
-void DStorageExtImpl::destroy_stream_handle(uint64_t handle) noexcept {
-    delete reinterpret_cast<DStorageQueueImpl *>(handle);
-}
-void DStorageExtImpl::enqueue_buffer(uint64_t stream_handle, uint64_t file_handle, size_t file_offset, uint64_t buffer_handle, size_t buffer_offset, size_t size_bytes) noexcept {
-    auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
-    auto file = reinterpret_cast<DStorageFileImpl *>(file_handle);
-    if (file_offset + size_bytes > file->size_bytes) {
-        LUISA_ERROR("Direct-Storage enqueue_buffer out of bound, required size: {}, file size: {}.", file_offset + size_bytes, file->size_bytes);
-    }
-    DSTORAGE_REQUEST request = {};
-    request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-    request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_BUFFER;
-    request.Source.File.Source = file->file.Get();
-    request.Source.File.Offset = file_offset;
-    request.Source.File.Size = size_bytes;
-    request.UncompressedSize = 0;
-    request.Destination.Buffer.Offset = buffer_offset;
-    request.Destination.Buffer.Size = size_bytes;
-    request.Destination.Buffer.Resource = reinterpret_cast<Buffer *>(buffer_handle)->GetResource();
-    queue->EnqueueRequest(&request);
-}
-void DStorageExtImpl::enqueue_memory(uint64_t stream_handle, uint64_t file_handle, size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept {
-    auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
-    auto file = reinterpret_cast<DStorageFileImpl *>(file_handle);
-    if (file_offset + size_bytes > file->size_bytes) {
-        LUISA_ERROR("Direct-Storage enqueue_buffer out of bound, required size: {}, file size: {}.", file_offset + size_bytes, file->size_bytes);
-    }
-    DSTORAGE_REQUEST request = {};
-    request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-    request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
-    request.Source.File.Source = file->file.Get();
-    request.Source.File.Offset = file_offset;
-    request.Source.File.Size = size_bytes;
-    request.UncompressedSize = 0;
-    request.Destination.Memory.Buffer = dst_ptr;
-    request.Destination.Memory.Size = size_bytes;
-    queue->EnqueueRequest(&request);
-}
-void DStorageExtImpl::enqueue_image(uint64_t stream_handle, uint64_t file_handle, size_t file_offset, uint64_t image_handle, size_t size_bytes, uint32_t mip) noexcept {
-    auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
-    auto file = reinterpret_cast<DStorageFileImpl *>(file_handle);
-    if (file_offset + size_bytes > file->size_bytes) {
-        LUISA_ERROR("Direct-Storage enquue_image out of bound, required size: {}, file size: {}.", file_offset + size_bytes, file->size_bytes);
-    }
-    DSTORAGE_REQUEST request = {};
-    request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-    request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION;
-    request.Source.File.Source = file->file.Get();
-    request.Source.File.Offset = file_offset;
-    request.Source.File.Size = size_bytes;
-    request.UncompressedSize = 0;
-    auto tex = reinterpret_cast<TextureBase *>(image_handle);
-    request.Destination.Texture.SubresourceIndex = mip;
-    request.Destination.Texture.Resource = tex->GetResource();
-    request.Destination.Texture.Region = D3D12_BOX{
-        0u, 0u, 0u,
-        tex->Width(), tex->Height(), tex->Depth()};
-    queue->EnqueueRequest(&request);
-}
-void DStorageExtImpl::signal(uint64_t stream_handle, uint64_t event_handle) noexcept {
-    auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
-    auto event = reinterpret_cast<LCEvent *>(event_handle);
-    auto idx = ++event->fenceIndex;
-    {
-        std::lock_guard lck(event->eventMtx);
-        event->currentThreadSync = true;
-        queue->EnqueueSignal(event->Fence(), ++event->fenceIndex);
-    }
-}
-void DStorageExtImpl::commit(uint64_t stream_handle) noexcept {
-    auto queue = reinterpret_cast<DStorageQueueImpl *>(stream_handle)->queue.Get();
-    queue->Submit();
-}
+
 }// namespace lc::dx

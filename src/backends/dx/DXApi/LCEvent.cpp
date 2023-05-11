@@ -1,6 +1,7 @@
 
 #include <DXApi/LCEvent.h>
 #include <DXRuntime/CommandQueue.h>
+#include <DXRuntime/DStorageCommandQueue.h>
 namespace lc::dx {
 LCEvent::LCEvent(Device *device)
     : device(device) {
@@ -14,22 +15,19 @@ LCEvent::~LCEvent() {
 
 void LCEvent::Sync() const {
     std::unique_lock lck(eventMtx);
-    if (currentThreadSync) {
-        uint64_t currentFenceIndex = fenceIndex;
-        lck.unlock();
-        device->WaitFence(fence.Get(), currentFenceIndex);
-        lck.lock();
-        finishedEvent = std::max(finishedEvent, currentFenceIndex);
-    } else {
-        while (finishedEvent < fenceIndex) {
+    while (finishedEvent < fenceIndex) {
             cv.wait(lck);
         }
-    }
 }
 void LCEvent::Signal(CommandQueue *queue) const {
     std::lock_guard lck(eventMtx);
-    currentThreadSync = false;
     queue->Queue()->Signal(fence.Get(), ++fenceIndex);
+    queue->AddEvent(this);
+}
+void LCEvent::Signal(DStorageCommandQueue *queue) const {
+    std::lock_guard lck(eventMtx);
+    queue->Queue()->EnqueueSignal(fence.Get(), ++fenceIndex);
+    queue->Queue()->Submit();
     queue->AddEvent(this);
 }
 void LCEvent::Wait(CommandQueue *queue) const {

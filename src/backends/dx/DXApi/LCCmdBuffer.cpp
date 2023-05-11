@@ -563,12 +563,12 @@ public:
             alloc->ExecuteAfterComplete(
                 [bfView,
                  ptr = cmd->data()] {
-                    auto rbBuffer = static_cast<ReadbackBuffer const *>(bfView.buffer);
-                    size_t bufferOffset = bfView.offset;
-                    rbBuffer->CopyData(
-                        bufferOffset,
-                        {reinterpret_cast<uint8_t *>(ptr), bfView.byteSize});
-                });
+                auto rbBuffer = static_cast<ReadbackBuffer const *>(bfView.buffer);
+                size_t bufferOffset = bfView.offset;
+                rbBuffer->CopyData(
+                    bufferOffset,
+                    {reinterpret_cast<uint8_t *>(ptr), bfView.byteSize});
+            });
         } else {
             auto rbBuffer = static_cast<ReadbackBuffer const *>(bfView.buffer);
             size_t bufferOffset = bfView.offset;
@@ -577,16 +577,16 @@ public:
                  bufferOffset,
                  dataPtr = reinterpret_cast<uint8_t *>(cmd->data()),
                  copyInfo]() mutable {
-                    while (copyInfo.bufferSize > 0) {
+                while (copyInfo.bufferSize > 0) {
 
-                        rbBuffer->CopyData(
-                            bufferOffset,
-                            {dataPtr, copyInfo.copySize});
-                        dataPtr += copyInfo.copySize;
-                        copyInfo.bufferSize -= copyInfo.copySize;
-                        bufferOffset += copyInfo.stepSize;
-                    }
-                });
+                    rbBuffer->CopyData(
+                        bufferOffset,
+                        {dataPtr, copyInfo.copySize});
+                    dataPtr += copyInfo.copySize;
+                    copyInfo.bufferSize -= copyInfo.copySize;
+                    bufferOffset += copyInfo.stepSize;
+                }
+            });
         }
         bd->CopyBufferTexture(
             bfView,
@@ -781,29 +781,29 @@ public:
                 *vbv,
                 src.size(),
                 [&](size_t i) {
-                    auto &e = src[i];
-                    auto bf = reinterpret_cast<Buffer *>(e.handle());
-                    return D3D12_VERTEX_BUFFER_VIEW{
-                        .BufferLocation = bf->GetAddress() + e.offset(),
-                        .SizeInBytes = static_cast<uint>(e.size()),
-                        .StrideInBytes = static_cast<uint>(e.stride())};
+                auto &e = src[i];
+                auto bf = reinterpret_cast<Buffer *>(e.handle());
+                return D3D12_VERTEX_BUFFER_VIEW{
+                    .BufferLocation = bf->GetAddress() + e.offset(),
+                    .SizeInBytes = static_cast<uint>(e.size()),
+                    .StrideInBytes = static_cast<uint>(e.stride())};
                 });
             cmdList->IASetVertexBuffers(0, vbv->size(), vbv->data());
             auto const &i = mesh.index();
 
             luisa::visit(
                 [&]<typename T>(T const &i) {
-                    if constexpr (std::is_same_v<T, uint>) {
-                        cmdList->DrawInstanced(i, mesh.instance_count(), 0, 0);
-                    } else {
-                        auto bf = reinterpret_cast<Buffer *>(i.handle());
-                        D3D12_INDEX_BUFFER_VIEW idx{
-                            .BufferLocation = bf->GetAddress() + i.offset(),
-                            .SizeInBytes = static_cast<uint>(i.size_bytes()),
-                            .Format = DXGI_FORMAT_R32_UINT};
-                        cmdList->IASetIndexBuffer(&idx);
-                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, 0, 0);
-                    }
+                if constexpr (std::is_same_v<T, uint>) {
+                    cmdList->DrawInstanced(i, mesh.instance_count(), 0, 0);
+                } else {
+                    auto bf = reinterpret_cast<Buffer *>(i.handle());
+                    D3D12_INDEX_BUFFER_VIEW idx{
+                        .BufferLocation = bf->GetAddress() + i.offset(),
+                        .SizeInBytes = static_cast<uint>(i.size_bytes()),
+                        .Format = DXGI_FORMAT_R32_UINT};
+                    cmdList->IASetIndexBuffer(&idx);
+                    cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, 0, 0);
+                }
                 },
                 i);
         }
@@ -814,7 +814,8 @@ LCCmdBuffer::LCCmdBuffer(
     Device *device,
     GpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
-    : device(device),
+    : CmdQueueBase{CmdQueueTag::MainCmd},
+      device(device),
       reorder({}),
       queue(
           device,

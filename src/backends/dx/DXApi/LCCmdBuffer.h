@@ -12,6 +12,7 @@
 #include <Shader/ComputeShader.h>
 #include <Resource/BottomAccel.h>
 #include <runtime/buffer.h>
+#include <DXApi/CmdQueueBase.h>
 namespace lc::dx {
 using namespace luisa::compute;
 class RenderTexture;
@@ -43,7 +44,7 @@ struct ReorderFuncTable {
         reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
     }
 };
-class LCCmdBuffer final : public vstd::IOperatorNewBase {
+class LCCmdBuffer final : public CmdQueueBase, public vstd::IOperatorNewBase {
 protected:
     Device *device;
     ResourceStateTracker tracker;

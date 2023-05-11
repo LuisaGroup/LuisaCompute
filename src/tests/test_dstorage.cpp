@@ -11,14 +11,6 @@
 using namespace luisa;
 using namespace luisa::compute;
 int main(int argc, char *argv[]) {
-    Context context{argv[0]};
-    // Direct Storage only supported for dx currently.
-    Device device = context.create_device("dx");
-    DStorageExt *dstorage_ext = device.extension<DStorageExt>();
-    DStorageStream dstorage_stream = dstorage_ext->create_stream();
-    Stream compute_stream = device.create_stream();
-    Event event = device.create_event();
-
     // Write a test file
     {
         FILE *file = fopen("test_dstorage_file.txt", "wb");
@@ -28,6 +20,15 @@ int main(int argc, char *argv[]) {
             fclose(file);
         }
     }
+
+    Context context{argv[0]};
+    // Direct Storage only supported for dx currently.
+    Device device = context.create_device("dx");
+    DStorageExt *dstorage_ext = device.extension<DStorageExt>();
+    Stream dstorage_stream = dstorage_ext->create_stream();
+    Stream compute_stream = device.create_stream();
+    Event event = device.create_event();
+
     DStorageFile file = dstorage_ext->open_file("test_dstorage_file.txt");
     if (!file.valid()) {
         LUISA_WARNING("File not found.");
@@ -38,6 +39,7 @@ int main(int argc, char *argv[]) {
     luisa::vector<char> buffer_data;
     buffer_data.resize(buffer.size_bytes() + 1);
     // Read buffer from file
+
     dstorage_stream << file.read_to(0, buffer) << event.signal();
     // wait for disk reading and read back to memory.
     compute_stream << event.wait() << buffer.copy_to(buffer_data.data()) << synchronize();

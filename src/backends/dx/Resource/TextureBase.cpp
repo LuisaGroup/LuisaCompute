@@ -126,10 +126,4 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC TextureBase::GetColorUavDescBase(uint targetMip
 }
 TextureBase::~TextureBase() {
 }
-D3D12_RESOURCE_STATES TextureBase::GetNonSimulCurrentState() const {
-    return initState.load();
-}
-void TextureBase::SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const {
-    initState = state;
-}
 }// namespace lc::dx

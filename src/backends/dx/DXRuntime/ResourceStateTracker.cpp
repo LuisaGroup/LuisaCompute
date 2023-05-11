@@ -48,12 +48,7 @@ D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const 
     if (iter != stateMap.end()) {
         return iter->second.curState;
     }
-    auto nonSimulState = res->GetNonSimulCurrentState();
-    if (luisa::to_underlying(nonSimulState) == std::numeric_limits<uint32_t>::max()) {
         return res->GetInitState();
-    } else {
-        return nonSimulState;
-    }
 }
 ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;
@@ -68,10 +63,7 @@ void ResourceStateTracker::RecordState(
             if (isWrite) {
                 writeStateMap.emplace(resource);
             }
-            auto initState = resource->GetNonSimulCurrentState();
-            if (luisa::to_underlying(initState) == std::numeric_limits<uint32_t>::max()) {
-                initState = resource->GetInitState();
-            }
+            auto initState= resource->GetInitState();
             return State{
                 .fence = lock ? fenceCount : 0,
                 .lastState = initState,
@@ -124,11 +116,7 @@ void ResourceStateTracker::ExecuteStateMap() {
 void ResourceStateTracker::RestoreStateMap() {
     for (auto &&i : stateMap) {
         auto res = i.first;
-        if (res->IsNonSimulResource()) {
-            res->SetNonSimulCurrentState(i.second.curState);
-        } else {
-            i.second.curState = res->GetInitState();
-        }
+        i.second.curState = res->GetInitState();
         bool useUavBarrier =
             (i.second.lastState == i.second.curState) &&
             (detail::IsUAV(i.second.lastState) &&

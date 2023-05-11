@@ -61,10 +61,12 @@ public:
 
 private:
     friend class Device;
+    friend class DStorageExt;
     StreamTag _stream_tag{};
 
 private:
     explicit Stream(DeviceInterface *device, StreamTag stream_tag) noexcept;
+    explicit Stream(DeviceInterface *device, StreamTag stream_tag, const ResourceCreationInfo &stream_handle) noexcept;
     void _dispatch(CommandList &&command_buffer) noexcept;
     void _synchronize() noexcept;
 
