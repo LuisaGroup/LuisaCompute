@@ -14,7 +14,6 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::BackendError;
 use luisa_compute_cpu_kernel_defs as defs;
 
 use super::{
@@ -41,7 +40,7 @@ struct StreamContext {
     sync: Condvar,
     work_count: AtomicUsize,
     finished_count: AtomicUsize,
-    error: Mutex<Option<BackendError>>,
+    error: Mutex<Option<String>>,
     staging_buffers: Mutex<(Bump, Vec<*mut u8>)>,
 }
 
@@ -100,10 +99,10 @@ impl StreamImpl {
             ctx,
         }
     }
-    pub(super) fn has_error(&self)->bool {
+    pub(super) fn has_error(&self) -> bool {
         self.ctx.error.lock().is_some()
     }
-    pub(super) fn synchronize(&self) -> crate::Result<()> {
+    pub(super) fn synchronize(&self) {
         let mut guard = self.ctx.queue.lock();
         while self
             .ctx
@@ -118,10 +117,7 @@ impl StreamImpl {
         }
         let mut error = self.ctx.error.lock();
         if error.is_some() {
-            let error = error.take().unwrap();
-            Err(error)
-        } else {
-            Ok(())
+            panic!("{}", error.as_ref().unwrap());
         }
     }
     pub(super) fn enqueue(
@@ -613,5 +609,5 @@ extern "C" fn set_instance_visibility(
 
 pub(crate) struct ShaderDispatchContext {
     pub(crate) shader: *const ShaderImpl,
-    pub(crate) error: *const Mutex<Option<BackendError>>,
+    pub(crate) error: *const Mutex<Option<String>>,
 }

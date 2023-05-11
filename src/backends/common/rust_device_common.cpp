@@ -18,13 +18,6 @@ namespace luisa::compute::backend {
 #include <runtime/rhi/resource.h>
 
 namespace luisa::compute::rust {
-    template<class T>
-    T unwrap(const api::Result<T> &r) noexcept {
-        if (r.tag == api::Result<T>::Tag::OK) {
-            return r.OK._0;
-        }
-        LUISA_ERROR_WITH_LOCATION("unwrap an Err value");
-    }
 
 // @Mike-Leo-Smith: fill-in the blanks pls
     class RustDevice final : public DeviceInterface {
@@ -75,7 +68,7 @@ namespace luisa::compute::rust {
         }
 
         BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override {
-            api::CreatedBufferInfo buffer = unwrap(device.create_buffer(device.device, element, elem_count));
+            api::CreatedBufferInfo buffer = device.create_buffer(device.device, element, elem_count);
             BufferCreationInfo info{};
             info.element_stride = buffer.element_stride;
             info.total_size_bytes = buffer.total_size_bytes;
@@ -90,9 +83,9 @@ namespace luisa::compute::rust {
 
         ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth,
                                             uint mipmap_levels) noexcept override {
-            api::CreatedResourceInfo texture = unwrap(
+            api::CreatedResourceInfo texture = 
                     device.create_texture(device.device, (api::PixelFormat) format, dimension, width, height, depth,
-                                          mipmap_levels));
+                                          mipmap_levels);
             ResourceCreationInfo info{};
             info.handle = texture.handle;
             info.native_handle = texture.native_handle;
@@ -104,7 +97,7 @@ namespace luisa::compute::rust {
         }
 
         ResourceCreationInfo create_bindless_array(size_t size) noexcept override {
-            api::CreatedResourceInfo array = unwrap(device.create_bindless_array(device.device, size));
+            api::CreatedResourceInfo array = device.create_bindless_array(device.device, size);
             ResourceCreationInfo info{};
             info.handle = array.handle;
             info.native_handle = array.native_handle;
@@ -116,7 +109,7 @@ namespace luisa::compute::rust {
         }
 
         ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override {
-            api::CreatedResourceInfo stream = unwrap(device.create_stream(device.device, (api::StreamTag) stream_tag));
+            api::CreatedResourceInfo stream = device.create_stream(device.device, (api::StreamTag) stream_tag);
             ResourceCreationInfo info{};
             info.handle = stream.handle;
             info.native_handle = stream.native_handle;
@@ -138,9 +131,9 @@ namespace luisa::compute::rust {
         SwapChainCreationInfo
         create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr,
                           bool vsync, uint back_buffer_size) noexcept override {
-            auto swapchain = unwrap(
+            auto swapchain = 
                     device.create_swapchain(device.device, window_handle, api::Stream{stream_handle}, width, height,
-                                            allow_hdr, vsync, back_buffer_size));
+                                            allow_hdr, vsync, back_buffer_size);
             SwapChainCreationInfo info{};
             info.handle = swapchain.resource.handle;
             info.native_handle = swapchain.resource.native_handle;
@@ -169,7 +162,7 @@ namespace luisa::compute::rust {
             option.enable_cache = option_.enable_cache;
             option.enable_debug_info = option_.enable_debug_info;
             option.enable_fast_math = option_.enable_fast_math;
-            auto shader = unwrap(device.create_shader(device.device, api::KernelModule{(uint64_t) kernel}, &option));
+            auto shader = device.create_shader(device.device, api::KernelModule{(uint64_t) kernel}, &option);
             ShaderCreationInfo info{};
             info.block_size[0] = shader.block_size[0];
             info.block_size[1] = shader.block_size[1];
@@ -194,7 +187,7 @@ namespace luisa::compute::rust {
         }
 
         ResourceCreationInfo create_event() noexcept override {
-            api::CreatedResourceInfo event = unwrap(device.create_event(device.device));
+            api::CreatedResourceInfo event = device.create_event(device.device);
             ResourceCreationInfo info{};
             info.handle = event.handle;
             info.native_handle = event.native_handle;
@@ -222,7 +215,7 @@ namespace luisa::compute::rust {
             option.allow_compaction = option_.allow_compaction;
             option.allow_update = option_.allow_update;
             option.hint = (api::AccelUsageHint) option_.hint;
-            auto mesh = unwrap(device.create_mesh(device.device, &option));
+            auto mesh = device.create_mesh(device.device, &option);
             ResourceCreationInfo info{};
             info.handle = mesh.handle;
             info.native_handle = mesh.native_handle;
@@ -246,7 +239,7 @@ namespace luisa::compute::rust {
             option.allow_compaction = option_.allow_compaction;
             option.allow_update = option_.allow_update;
             option.hint = (api::AccelUsageHint) option_.hint;
-            auto accel = unwrap(device.create_accel(device.device, &option));
+            auto accel = device.create_accel(device.device, &option);
             ResourceCreationInfo info{};
             info.handle = accel.handle;
             info.native_handle = accel.native_handle;

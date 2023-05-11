@@ -16,40 +16,6 @@ use luisa_compute_ir::{
 };
 
 pub mod proxy;
-
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub enum BackendErrorKind {
-    BackendNotFound,
-    KernelExecution,
-    KernelCompilation,
-    Network,
-    EventPoisoned,
-    Unrecoverable,
-}
-
-#[derive(Clone)]
-pub struct BackendError {
-    pub kind: BackendErrorKind,
-    pub message: String,
-}
-
-impl Debug for BackendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // f.debug_struct("BackendError")
-        //     .field("kind", &self.kind)
-        //     .field("message", &self.message)
-        //     .finish()
-        writeln!(
-            f,
-            "BackendError: {:?}, message:\n {}",
-            self.kind, self.message
-        )?;
-        writeln!(f, "note: run with `LUISA_BACKTRACE=1` environment variable to display a backtrace for DSL code")
-    }
-}
-
-pub type Result<T> = std::result::Result<T, BackendError>;
-
 pub(crate) struct Interface {
     #[allow(dead_code)]
     pub(crate) lib: libloading::Library,
@@ -149,14 +115,10 @@ impl Context {
         }
     }
 
-    pub fn create_device(
-        &self,
-        device: &str,
-        config: serde_json::Value,
-    ) -> crate::Result<ProxyBackend> {
+    pub fn create_device(&self, device: &str, config: serde_json::Value) -> ProxyBackend {
         match device {
             "cpu" | "remote" => match &self.rust {
-                Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
+                Ok(provider) => ProxyBackend::new(provider, device, config),
                 Err(err) => {
                     let libname = if cfg!(target_os = "windows") {
                         "luisa_compute_backend_impl.dll"
@@ -165,14 +127,11 @@ impl Context {
                     };
 
                     let err = err.to_string();
-                    Err(BackendError {
-                            kind: BackendErrorKind::BackendNotFound,
-                            message: format!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err),
-                        })
+                    panic!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err);
                 }
             },
             "cuda" | "dx" | "metal" => match &self.cpp {
-                Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
+                Ok(provider) => ProxyBackend::new(provider, device, config),
                 Err(err) => {
                     let libname = if cfg!(target_os = "windows") {
                         "lc-api.dll"
@@ -181,10 +140,7 @@ impl Context {
                     };
 
                     let err = err.to_string();
-                    Err(BackendError {
-                            kind: BackendErrorKind::BackendNotFound,
-                            message: format!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err),
-                        })
+                    panic!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err);
                 }
             },
             _ => panic!("unsupported device: {}", device),
@@ -200,7 +156,7 @@ pub struct RustcInfo {
 }
 
 pub trait Backend: Sync + Send {
-    fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> Result<api::CreatedBufferInfo>;
+    fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> api::CreatedBufferInfo;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
         &self,
@@ -210,19 +166,19 @@ pub trait Backend: Sync + Send {
         height: u32,
         depth: u32,
         mipmap_levels: u32,
-    ) -> Result<api::CreatedResourceInfo>;
+    ) -> api::CreatedResourceInfo;
     fn destroy_texture(&self, texture: api::Texture);
-    fn create_bindless_array(&self, size: usize) -> Result<api::CreatedResourceInfo>;
+    fn create_bindless_array(&self, size: usize) -> api::CreatedResourceInfo;
     fn destroy_bindless_array(&self, array: api::BindlessArray);
-    fn create_stream(&self, tag: api::StreamTag) -> Result<api::CreatedResourceInfo>;
+    fn create_stream(&self, tag: api::StreamTag) -> api::CreatedResourceInfo;
     fn destroy_stream(&self, stream: api::Stream);
-    fn synchronize_stream(&self, stream: api::Stream) -> Result<()>;
+    fn synchronize_stream(&self, stream: api::Stream);
     fn dispatch(
         &self,
         stream: api::Stream,
         command_list: &[api::Command],
         callback: (extern "C" fn(*mut u8), *mut u8),
-    ) -> Result<()>;
+    );
     fn create_swapchain(
         &self,
         window_handle: u64,
@@ -232,7 +188,7 @@ pub trait Backend: Sync + Send {
         allow_hdr: bool,
         vsync: bool,
         back_buffer_size: u32,
-    ) -> Result<CreatedSwapchainInfo>;
+    ) -> api::CreatedSwapchainInfo;
     fn destroy_swapchain(&self, swap_chain: api::Swapchain);
     fn present_display_in_stream(
         &self,
@@ -244,22 +200,19 @@ pub trait Backend: Sync + Send {
         &self,
         kernel: &KernelModule,
         options: &api::ShaderOption,
-    ) -> Result<api::CreatedShaderInfo>;
+    ) -> api::CreatedShaderInfo;
     fn shader_cache_dir(&self, shader: api::Shader) -> Option<PathBuf>;
     fn destroy_shader(&self, shader: api::Shader);
-    fn create_event(&self) -> Result<api::CreatedResourceInfo>;
+    fn create_event(&self) -> api::CreatedResourceInfo;
     fn destroy_event(&self, event: api::Event);
     fn signal_event(&self, event: api::Event, stream: api::Stream);
-    fn wait_event(&self, event: api::Event, stream: api::Stream) -> Result<()>;
-    fn synchronize_event(&self, event: api::Event) -> Result<()>;
-    fn create_mesh(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
-    fn create_procedural_primitive(
-        &self,
-        option: api::AccelOption,
-    ) -> Result<api::CreatedResourceInfo>;
+    fn wait_event(&self, event: api::Event, stream: api::Stream);
+    fn synchronize_event(&self, event: api::Event);
+    fn create_mesh(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
+    fn create_procedural_primitive(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
     fn destroy_mesh(&self, mesh: api::Mesh);
     fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive);
-    fn create_accel(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
+    fn create_accel(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
     fn destroy_accel(&self, accel: api::Accel);
     fn query(&self, property: &str) -> Option<String>;
 }
@@ -289,33 +242,14 @@ fn get_backend<'a, B: Backend>(backend: api::Device) -> &'a B {
     unsafe { &*(backend.0 as *mut B) }
 }
 
-fn map<T>(a: crate::Result<T>) -> api::Result<T> {
-    match a {
-        crate::Result::Ok(a) => api::Result::Ok(a),
-        crate::Result::Err(a) => api::Result::Err(api::BackendError {
-            kind: match a.kind {
-                crate::BackendErrorKind::BackendNotFound => api::BackendErrorKind::BackendNotFound,
-                crate::BackendErrorKind::KernelExecution => api::BackendErrorKind::KernelExecution,
-                crate::BackendErrorKind::KernelCompilation => {
-                    api::BackendErrorKind::KernelCompilation
-                }
-                crate::BackendErrorKind::Network => api::BackendErrorKind::Network,
-                crate::BackendErrorKind::EventPoisoned => api::BackendErrorKind::EventPoisoned,
-                crate::BackendErrorKind::Unrecoverable => api::BackendErrorKind::Unrecoverable,
-            },
-            message: CString::new(a.message).unwrap().into_raw(),
-        }),
-    }
-}
-
 extern "C" fn create_buffer<B: Backend>(
     backend: api::Device,
     ty: *const c_void,
     count: usize,
-) -> api::Result<api::CreatedBufferInfo> {
+) -> api::CreatedBufferInfo {
     let backend: &B = get_backend(backend);
     let ty = unsafe { &*(ty as *const CArc<ir::Type>) };
-    map(backend.create_buffer(ty, count))
+    backend.create_buffer(ty, count)
 }
 
 pub extern "C" fn destroy_buffer<B: Backend>(backend: api::Device, buffer: api::Buffer) {
@@ -332,9 +266,9 @@ pub extern "C" fn create_texture<B: Backend>(
     height: u32,
     depth: u32,
     mipmap_levels: u32,
-) -> api::Result<api::CreatedResourceInfo> {
+) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_texture(format, dimension, width, height, depth, mipmap_levels))
+    backend.create_texture(format, dimension, width, height, depth, mipmap_levels)
 }
 //
 
@@ -346,9 +280,9 @@ extern "C" fn destroy_texture<B: Backend>(backend: api::Device, texture: api::Te
 extern "C" fn create_bindless_array<B: Backend>(
     backend: api::Device,
     size: usize,
-) -> api::Result<api::CreatedResourceInfo> {
+) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_bindless_array(size))
+    backend.create_bindless_array(size)
 }
 
 extern "C" fn destroy_bindless_array<B: Backend>(backend: api::Device, array: api::BindlessArray) {
@@ -359,9 +293,9 @@ extern "C" fn destroy_bindless_array<B: Backend>(backend: api::Device, array: ap
 extern "C" fn create_stream<B: Backend>(
     backend: api::Device,
     tag: api::StreamTag,
-) -> api::Result<api::CreatedResourceInfo> {
+) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_stream(tag))
+    backend.create_stream(tag)
 }
 
 extern "C" fn destroy_stream<B: Backend>(backend: api::Device, stream: api::Stream) {
@@ -369,12 +303,9 @@ extern "C" fn destroy_stream<B: Backend>(backend: api::Device, stream: api::Stre
     backend.destroy_stream(stream)
 }
 
-extern "C" fn synchronize_stream<B: Backend>(
-    backend: api::Device,
-    stream: api::Stream,
-) -> api::Result<u8> {
+extern "C" fn synchronize_stream<B: Backend>(backend: api::Device, stream: api::Stream) {
     let backend: &B = get_backend(backend);
-    map(backend.synchronize_stream(stream).map(|_| 0))
+    backend.synchronize_stream(stream)
 }
 
 extern "C" fn dispatch<B: Backend>(
@@ -383,13 +314,11 @@ extern "C" fn dispatch<B: Backend>(
     command_list: api::CommandList,
     callback: api::DispatchCallback,
     user_data: *mut u8,
-) -> api::Result<u8> {
+) {
     let backend: &B = get_backend(backend);
     let command_list =
         unsafe { std::slice::from_raw_parts(command_list.commands, command_list.commands_count) };
-    map(backend
-        .dispatch(stream, command_list, (callback, user_data))
-        .map(|_| 0))
+    backend.dispatch(stream, command_list, (callback, user_data))
 }
 //
 
@@ -397,10 +326,10 @@ unsafe extern "C" fn create_shader<B: Backend>(
     backend: api::Device,
     kernel: api::KernelModule,
     option: &api::ShaderOption,
-) -> api::Result<api::CreatedShaderInfo> {
+) -> api::CreatedShaderInfo {
     let backend: &B = get_backend(backend);
     let kernel = &*(kernel.ptr as *const ir::KernelModule);
-    map(backend.create_shader(kernel, option))
+    backend.create_shader(kernel, option)
 }
 
 extern "C" fn destroy_shader<B: Backend>(backend: api::Device, shader: api::Shader) {
@@ -408,11 +337,9 @@ extern "C" fn destroy_shader<B: Backend>(backend: api::Device, shader: api::Shad
     backend.destroy_shader(shader)
 }
 
-extern "C" fn create_event<B: Backend>(
-    backend: api::Device,
-) -> api::Result<api::CreatedResourceInfo> {
+extern "C" fn create_event<B: Backend>(backend: api::Device) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_event())
+    backend.create_event()
 }
 
 extern "C" fn destroy_event<B: Backend>(backend: api::Device, event: api::Event) {
@@ -429,29 +356,22 @@ extern "C" fn signal_event<B: Backend>(
     backend.signal_event(event, stream)
 }
 
-extern "C" fn wait_event<B: Backend>(
-    backend: api::Device,
-    event: api::Event,
-    stream: api::Stream,
-) -> api::Result<u8> {
+extern "C" fn wait_event<B: Backend>(backend: api::Device, event: api::Event, stream: api::Stream) {
     let backend: &B = get_backend(backend);
-    map(backend.wait_event(event, stream).map(|_| 0u8))
+    backend.wait_event(event, stream)
 }
 
-extern "C" fn synchronize_event<B: Backend>(
-    backend: api::Device,
-    event: api::Event,
-) -> api::Result<u8> {
+extern "C" fn synchronize_event<B: Backend>(backend: api::Device, event: api::Event) {
     let backend: &B = get_backend(backend);
-    map(backend.synchronize_event(event).map(|_| 0u8))
+    backend.synchronize_event(event)
 }
 
 extern "C" fn create_accel<B: Backend>(
     backend: api::Device,
     option: &api::AccelOption,
-) -> api::Result<api::CreatedResourceInfo> {
+) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_accel(*option))
+    backend.create_accel(*option)
 }
 
 extern "C" fn destroy_accel<B: Backend>(backend: api::Device, accel: api::Accel) {
@@ -462,9 +382,9 @@ extern "C" fn destroy_accel<B: Backend>(backend: api::Device, accel: api::Accel)
 extern "C" fn create_mesh<B: Backend>(
     backend: api::Device,
     option: &api::AccelOption,
-) -> api::Result<api::CreatedResourceInfo> {
+) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_mesh(*option))
+    backend.create_mesh(*option)
 }
 
 extern "C" fn destroy_mesh<B: Backend>(backend: api::Device, mesh: api::Mesh) {
@@ -475,9 +395,9 @@ extern "C" fn destroy_mesh<B: Backend>(backend: api::Device, mesh: api::Mesh) {
 extern "C" fn create_procedural_primitive<B: Backend>(
     backend: api::Device,
     option: &api::AccelOption,
-) -> api::Result<api::CreatedResourceInfo> {
+) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_procedural_primitive(*option))
+    backend.create_procedural_primitive(*option)
 }
 
 extern "C" fn destroy_procedural_primitive<B: Backend>(
@@ -509,9 +429,9 @@ extern "C" fn create_swapchain<B: Backend>(
     allow_hdr: bool,
     vsync: bool,
     back_buffer_size: u32,
-) -> api::Result<api::CreatedSwapchainInfo> {
+) -> api::CreatedSwapchainInfo {
     let backend: &B = get_backend(backend);
-    map(backend.create_swapchain(
+    backend.create_swapchain(
         window_handle,
         stream_handle,
         width,
@@ -519,7 +439,7 @@ extern "C" fn create_swapchain<B: Backend>(
         allow_hdr,
         vsync,
         back_buffer_size,
-    ))
+    )
 }
 
 extern "C" fn present_display_in_stream<B: Backend>(

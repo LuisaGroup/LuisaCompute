@@ -22,15 +22,6 @@ enum class AccelUsageHint {
     FAST_BUILD,
 };
 
-enum class BackendErrorKind {
-    BACKEND_NOT_FOUND,
-    KERNEL_EXECUTION,
-    KERNEL_COMPILATION,
-    NETWORK,
-    EVENT_POISONED,
-    UNRECOVERABLE,
-};
-
 enum class BindlessArrayUpdateOperation {
     NONE,
     EMPLACE,
@@ -520,63 +511,36 @@ struct ShaderOption {
     const char *name;
 };
 
-struct BackendError {
-    BackendErrorKind kind;
-    char *message;
-};
-
-template<typename T>
-struct Result {
-    enum class Tag {
-        OK,
-        ERR,
-    };
-
-    struct Ok_Body {
-        T _0;
-    };
-
-    struct Err_Body {
-        BackendError _0;
-    };
-
-    Tag tag;
-    union {
-        Ok_Body OK;
-        Err_Body ERR;
-    };
-};
-
 using DispatchCallback = void(*)(uint8_t*);
 
 struct DeviceInterface {
     Device device;
     void (*destroy_device)(DeviceInterface);
-    Result<CreatedBufferInfo> (*create_buffer)(Device, const void*, size_t);
+    CreatedBufferInfo (*create_buffer)(Device, const void*, size_t);
     void (*destroy_buffer)(Device, Buffer);
-    Result<CreatedResourceInfo> (*create_texture)(Device, PixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    CreatedResourceInfo (*create_texture)(Device, PixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
     void (*destroy_texture)(Device, Texture);
-    Result<CreatedResourceInfo> (*create_bindless_array)(Device, size_t);
+    CreatedResourceInfo (*create_bindless_array)(Device, size_t);
     void (*destroy_bindless_array)(Device, BindlessArray);
-    Result<CreatedResourceInfo> (*create_stream)(Device, StreamTag);
+    CreatedResourceInfo (*create_stream)(Device, StreamTag);
     void (*destroy_stream)(Device, Stream);
-    Result<uint8_t> (*synchronize_stream)(Device, Stream);
-    Result<uint8_t> (*dispatch)(Device, Stream, CommandList, DispatchCallback, uint8_t*);
-    Result<CreatedSwapchainInfo> (*create_swapchain)(Device, uint64_t, Stream, uint32_t, uint32_t, bool, bool, uint32_t);
+    void (*synchronize_stream)(Device, Stream);
+    void (*dispatch)(Device, Stream, CommandList, DispatchCallback, uint8_t*);
+    CreatedSwapchainInfo (*create_swapchain)(Device, uint64_t, Stream, uint32_t, uint32_t, bool, bool, uint32_t);
     void (*present_display_in_stream)(Device, Stream, Swapchain, Texture);
     void (*destroy_swapchain)(Device, Swapchain);
-    Result<CreatedShaderInfo> (*create_shader)(Device, KernelModule, const ShaderOption*);
+    CreatedShaderInfo (*create_shader)(Device, KernelModule, const ShaderOption*);
     void (*destroy_shader)(Device, Shader);
-    Result<CreatedResourceInfo> (*create_event)(Device);
+    CreatedResourceInfo (*create_event)(Device);
     void (*destroy_event)(Device, Event);
     void (*signal_event)(Device, Event, Stream);
-    Result<uint8_t> (*synchronize_event)(Device, Event);
-    Result<uint8_t> (*wait_event)(Device, Event, Stream);
-    Result<CreatedResourceInfo> (*create_mesh)(Device, const AccelOption*);
+    void (*synchronize_event)(Device, Event);
+    void (*wait_event)(Device, Event, Stream);
+    CreatedResourceInfo (*create_mesh)(Device, const AccelOption*);
     void (*destroy_mesh)(Device, Mesh);
-    Result<CreatedResourceInfo> (*create_procedural_primitive)(Device, const AccelOption*);
+    CreatedResourceInfo (*create_procedural_primitive)(Device, const AccelOption*);
     void (*destroy_procedural_primitive)(Device, ProceduralPrimitive);
-    Result<CreatedResourceInfo> (*create_accel)(Device, const AccelOption*);
+    CreatedResourceInfo (*create_accel)(Device, const AccelOption*);
     void (*destroy_accel)(Device, Accel);
     char *(*query)(Device, const char*);
 };

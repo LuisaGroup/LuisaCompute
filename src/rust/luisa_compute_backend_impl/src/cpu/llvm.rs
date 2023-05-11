@@ -100,7 +100,6 @@ pub type LLVMOrcMaterializationUnitRef = *mut LLVMOrcOpaqueMaterializationUnit;
 
 use crate::cpu::shader::ShaderImpl;
 use crate::cpu::stream::ShaderDispatchContext;
-use crate::{BackendError, BackendErrorKind};
 use libc::{c_char, c_void, size_t};
 use parking_lot::{Mutex, ReentrantMutex};
 
@@ -741,10 +740,7 @@ impl Context {
                     let shader = &*shader;
                     let mut err = (&*ctx.error).lock();
                     if err.is_none() {
-                        *err = Some(BackendError {
-                            kind: BackendErrorKind::KernelExecution,
-                            message: shader.messages[msg as usize].clone(),
-                        });
+                        *err = Some(shader.messages[msg as usize].clone());
                     }
                 }
                 panic!("##lc_kernel##");
@@ -772,10 +768,7 @@ impl Context {
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
                     let mut err = (&*ctx.error).lock();
                     if err.is_none() {
-                        *err = Some(BackendError {
-                            kind: BackendErrorKind::KernelExecution,
-                            message: display,
-                        });
+                        *err = Some(display);
                     }
                 }
                 panic!("##lc_kernel##");

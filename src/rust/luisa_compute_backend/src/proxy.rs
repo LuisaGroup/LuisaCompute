@@ -6,11 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::{Backend, BackendError, BackendProvider, Context, Interface};
+use crate::{Backend, BackendProvider, Context, Interface};
 use api::StreamTag;
 use libc::c_void;
 use luisa_compute_api_types as api;
-use luisa_compute_api_types::BackendErrorKind;
 use luisa_compute_ir::{
     ir::{KernelModule, Type},
     CArc,
@@ -93,38 +92,11 @@ impl ProxyBackend {
     }
 }
 
-unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
-    match a {
-        api::Result::Ok(a) => Ok(a),
-        api::Result::Err(a) => Err(crate::BackendError {
-            kind: match a.kind {
-                api::BackendErrorKind::BackendNotFound => crate::BackendErrorKind::BackendNotFound,
-                api::BackendErrorKind::KernelExecution => crate::BackendErrorKind::KernelExecution,
-                api::BackendErrorKind::KernelCompilation => {
-                    crate::BackendErrorKind::KernelCompilation
-                }
-                api::BackendErrorKind::Network => crate::BackendErrorKind::Network,
-                api::BackendErrorKind::EventPoisoned => crate::BackendErrorKind::EventPoisoned,
-                api::BackendErrorKind::Unrecoverable=>crate::BackendErrorKind::Unrecoverable,
-            },
-            message: CStr::from_ptr(a.message).to_str().unwrap().to_string(),
-        }),
-    }
-}
-
 impl Backend for ProxyBackend {
     #[inline]
-    fn create_buffer(
-        &self,
-        ty: &CArc<Type>,
-        count: usize,
-    ) -> crate::Result<api::CreatedBufferInfo> {
+    fn create_buffer(&self, ty: &CArc<Type>, count: usize) -> api::CreatedBufferInfo {
         catch_abort!({
-            map((self.device.create_buffer)(
-                self.device.device,
-                ty as *const _ as *const c_void,
-                count,
-            ))
+            (self.device.create_buffer)(self.device.device, ty as *const _ as *const c_void, count)
         })
     }
     #[inline]
@@ -142,9 +114,9 @@ impl Backend for ProxyBackend {
         height: u32,
         depth: u32,
         mipmap_levels: u32,
-    ) -> crate::Result<api::CreatedResourceInfo> {
+    ) -> api::CreatedResourceInfo {
         catch_abort!({
-            map((self.device.create_texture)(
+            (self.device.create_texture)(
                 self.device.device,
                 std::mem::transmute(format),
                 dimension,
@@ -152,7 +124,7 @@ impl Backend for ProxyBackend {
                 height,
                 depth,
                 mipmap_levels,
-            ))
+            )
         })
     }
     #[inline]
@@ -160,31 +132,24 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.destroy_texture)(self.device.device, texture,) })
     }
     #[inline]
-    fn create_bindless_array(&self, size: usize) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({
-            map((self.device.create_bindless_array)(
-                self.device.device,
-                size,
-            ))
-        })
+    fn create_bindless_array(&self, size: usize) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_bindless_array)(self.device.device, size,) })
     }
     #[inline]
     fn destroy_bindless_array(&self, array: api::BindlessArray) {
         catch_abort!({ (self.device.destroy_bindless_array)(self.device.device, array,) })
     }
     #[inline]
-    fn create_stream(&self, tag: StreamTag) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.device.create_stream)(self.device.device, tag,)) })
+    fn create_stream(&self, tag: StreamTag) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_stream)(self.device.device, tag,) })
     }
     #[inline]
     fn destroy_stream(&self, stream: api::Stream) {
         catch_abort!({ (self.device.destroy_stream)(self.device.device, stream) })
     }
     #[inline]
-    fn synchronize_stream(&self, stream: api::Stream) -> crate::Result<()> {
-        catch_abort!({
-            map((self.device.synchronize_stream)(self.device.device, stream)).map(|_| ())
-        })
+    fn synchronize_stream(&self, stream: api::Stream) {
+        catch_abort!({ (self.device.synchronize_stream)(self.device.device, stream) })
     }
     #[inline]
     fn dispatch(
@@ -192,9 +157,9 @@ impl Backend for ProxyBackend {
         stream: api::Stream,
         command_list: &[api::Command],
         callback: (extern "C" fn(*mut u8), *mut u8),
-    ) -> crate::Result<()> {
+    ) {
         catch_abort!({
-            map((self.device.dispatch)(
+            (self.device.dispatch)(
                 self.device.device,
                 stream,
                 api::CommandList {
@@ -203,8 +168,7 @@ impl Backend for ProxyBackend {
                 },
                 callback.0,
                 callback.1,
-            ))
-            .map(|_| ())
+            )
         })
     }
     #[inline]
@@ -217,9 +181,9 @@ impl Backend for ProxyBackend {
         allow_hdr: bool,
         vsync: bool,
         back_buffer_size: u32,
-    ) -> crate::Result<api::CreatedSwapchainInfo> {
+    ) -> api::CreatedSwapchainInfo {
         catch_abort!({
-            map((self.device.create_swapchain)(
+            (self.device.create_swapchain)(
                 self.device.device,
                 window_handle,
                 stream_handle,
@@ -228,7 +192,7 @@ impl Backend for ProxyBackend {
                 allow_hdr,
                 vsync,
                 back_buffer_size,
-            ))
+            )
         })
     }
     #[inline]
@@ -256,15 +220,15 @@ impl Backend for ProxyBackend {
         &self,
         kernel: &KernelModule,
         option: &api::ShaderOption,
-    ) -> crate::Result<api::CreatedShaderInfo> {
+    ) -> api::CreatedShaderInfo {
         catch_abort!({
-            map((self.device.create_shader)(
+            (self.device.create_shader)(
                 self.device.device,
                 api::KernelModule {
-                    ptr:kernel as *const _ as u64,
+                    ptr: kernel as *const _ as u64,
                 },
                 option,
-            ))
+            )
         })
     }
     #[inline]
@@ -276,8 +240,8 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.destroy_shader)(self.device.device, shader) })
     }
     #[inline]
-    fn create_event(&self) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.device.create_event)(self.device.device)) })
+    fn create_event(&self) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_event)(self.device.device) })
     }
     #[inline]
     fn destroy_event(&self, event: api::Event) {
@@ -288,26 +252,19 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.signal_event)(self.device.device, event, stream) })
     }
     #[inline]
-    fn wait_event(&self, event: api::Event, stream: api::Stream) -> crate::Result<()> {
-        catch_abort!({
-            map((self.device.wait_event)(self.device.device, event, stream)).map(|_| ())
-        })
+    fn wait_event(&self, event: api::Event, stream: api::Stream) {
+        catch_abort!({ (self.device.wait_event)(self.device.device, event, stream) })
     }
     #[inline]
-    fn synchronize_event(&self, event: api::Event) -> crate::Result<()> {
-        catch_abort!({
-            map((self.device.synchronize_event)(self.device.device, event)).map(|_| ())
-        })
+    fn synchronize_event(&self, event: api::Event) {
+        catch_abort!({ (self.device.synchronize_event)(self.device.device, event) })
     }
     #[inline]
-    fn create_mesh(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.device.create_mesh)(self.device.device, &option,)) })
+    fn create_mesh(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_mesh)(self.device.device, &option,) })
     }
     #[inline]
-    fn create_procedural_primitive(
-        &self,
-        _option: api::AccelOption,
-    ) -> crate::Result<api::CreatedResourceInfo> {
+    fn create_procedural_primitive(&self, _option: api::AccelOption) -> api::CreatedResourceInfo {
         todo!()
     }
     #[inline]
@@ -320,8 +277,8 @@ impl Backend for ProxyBackend {
     }
 
     #[inline]
-    fn create_accel(&self, option: api::AccelOption) -> crate::Result<api::CreatedResourceInfo> {
-        catch_abort!({ map((self.device.create_accel)(self.device.device, &option,)) })
+    fn create_accel(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_accel)(self.device.device, &option,) })
     }
     #[inline]
     fn destroy_accel(&self, accel: api::Accel) {

@@ -44,19 +44,19 @@ impl Backend for RustBackend {
         &self,
         ty: &CArc<ir::Type>,
         count: usize,
-    ) -> super::Result<luisa_compute_api_types::CreatedBufferInfo> {
+    ) -> luisa_compute_api_types::CreatedBufferInfo {
         let size_bytes = ty.size() * count;
         let buffer = Box::new(BufferImpl::new(size_bytes, ty.alignment(), type_hash(&ty)));
         let data = buffer.data;
         let ptr = Box::into_raw(buffer);
-        Ok(CreatedBufferInfo {
+        CreatedBufferInfo {
             resource: CreatedResourceInfo {
                 handle: ptr as u64,
                 native_handle: data as *mut std::ffi::c_void,
             },
             element_stride: ty.size(),
             total_size_bytes: size_bytes,
-        })
+        }
     }
     fn destroy_buffer(&self, buffer: luisa_compute_api_types::Buffer) {
         unsafe {
@@ -73,7 +73,7 @@ impl Backend for RustBackend {
         height: u32,
         depth: u32,
         mipmap_levels: u32,
-    ) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+    ) -> luisa_compute_api_types::CreatedResourceInfo {
         let storage = format.storage();
 
         let texture = TextureImpl::new(
@@ -84,10 +84,10 @@ impl Backend for RustBackend {
         );
         let data = texture.data;
         let ptr = Box::into_raw(Box::new(texture));
-        Ok(CreatedResourceInfo {
+        CreatedResourceInfo {
             handle: ptr as u64,
             native_handle: data as *mut std::ffi::c_void,
-        })
+        }
     }
 
     fn destroy_texture(&self, texture: luisa_compute_api_types::Texture) {
@@ -97,20 +97,17 @@ impl Backend for RustBackend {
         }
     }
 
-    fn create_bindless_array(
-        &self,
-        size: usize,
-    ) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+    fn create_bindless_array(&self, size: usize) -> luisa_compute_api_types::CreatedResourceInfo {
         let bindless_array = BindlessArrayImpl {
             buffers: vec![defs::BufferView::default(); size],
             tex2ds: vec![defs::Texture::default(); size],
             tex3ds: vec![defs::Texture::default(); size],
         };
         let ptr = Box::into_raw(Box::new(bindless_array));
-        Ok(CreatedResourceInfo {
+        CreatedResourceInfo {
             handle: ptr as u64,
             native_handle: ptr as *mut std::ffi::c_void,
-        })
+        }
     }
     fn destroy_bindless_array(&self, array: luisa_compute_api_types::BindlessArray) {
         unsafe {
@@ -119,15 +116,12 @@ impl Backend for RustBackend {
         }
     }
 
-    fn create_stream(
-        &self,
-        _tag: api::StreamTag,
-    ) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+    fn create_stream(&self, _tag: api::StreamTag) -> luisa_compute_api_types::CreatedResourceInfo {
         let stream = Box::into_raw(Box::new(StreamImpl::new(self.shared_pool.clone())));
-        Ok(CreatedResourceInfo {
+        CreatedResourceInfo {
             handle: stream as u64,
             native_handle: stream as *mut std::ffi::c_void,
-        })
+        }
     }
 
     fn destroy_stream(&self, stream: luisa_compute_api_types::Stream) {
@@ -137,7 +131,7 @@ impl Backend for RustBackend {
         }
     }
 
-    fn synchronize_stream(&self, stream: luisa_compute_api_types::Stream) -> super::Result<()> {
+    fn synchronize_stream(&self, stream: luisa_compute_api_types::Stream) {
         unsafe {
             let stream = stream.0 as *mut StreamImpl;
             (*stream).synchronize()
@@ -149,7 +143,7 @@ impl Backend for RustBackend {
         stream_: luisa_compute_api_types::Stream,
         command_list: &[luisa_compute_api_types::Command],
         callback: (extern "C" fn(*mut u8), *mut u8),
-    ) -> super::Result<()> {
+    ) {
         unsafe {
             let stream = &*(stream_.0 as *mut StreamImpl);
             let command_list = command_list.to_vec();
@@ -160,7 +154,6 @@ impl Backend for RustBackend {
                 },
                 callback,
             );
-            Ok(())
         }
     }
 
@@ -173,7 +166,7 @@ impl Backend for RustBackend {
         allow_hdr: bool,
         vsync: bool,
         back_buffer_size: u32,
-    ) -> crate::Result<api::CreatedSwapchainInfo> {
+    ) -> api::CreatedSwapchainInfo {
         let ctx = self.swapchain_context.read();
         let ctx = ctx
             .as_ref()
@@ -188,13 +181,13 @@ impl Backend for RustBackend {
                 back_buffer_size,
             );
             let storage = (ctx.cpu_swapchain_storage)(sc_ctx);
-            Ok(api::CreatedSwapchainInfo {
+            api::CreatedSwapchainInfo {
                 resource: api::CreatedResourceInfo {
                     handle: sc_ctx as u64,
                     native_handle: sc_ctx as *mut std::ffi::c_void,
                 },
                 storage: std::mem::transmute(storage as u32),
-            })
+            }
         }
     }
     fn destroy_swapchain(&self, swap_chain: api::Swapchain) {
@@ -242,7 +235,7 @@ impl Backend for RustBackend {
         &self,
         kernel: &luisa_compute_ir::ir::KernelModule,
         _options: &api::ShaderOption,
-    ) -> super::Result<luisa_compute_api_types::CreatedShaderInfo> {
+    ) -> luisa_compute_api_types::CreatedShaderInfo {
         // let debug =
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
         // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
@@ -282,13 +275,13 @@ impl Backend for RustBackend {
             gened.messages,
         ));
         let shader = Box::into_raw(shader);
-        Ok(luisa_compute_api_types::CreatedShaderInfo {
+        luisa_compute_api_types::CreatedShaderInfo {
             resource: CreatedResourceInfo {
                 handle: shader as u64,
                 native_handle: shader as *mut std::ffi::c_void,
             },
             block_size: kernel.block_size,
-        })
+        }
     }
 
     fn shader_cache_dir(
@@ -308,13 +301,13 @@ impl Backend for RustBackend {
         }
     }
 
-    fn create_event(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+    fn create_event(&self) -> luisa_compute_api_types::CreatedResourceInfo {
         let event = Box::new(EventImpl::new());
         let event = Box::into_raw(event);
-        Ok(luisa_compute_api_types::CreatedResourceInfo {
+        luisa_compute_api_types::CreatedResourceInfo {
             handle: event as u64,
             native_handle: event as *mut std::ffi::c_void,
-        })
+        }
     }
 
     fn destroy_event(&self, _event: luisa_compute_api_types::Event) {
@@ -337,11 +330,7 @@ impl Backend for RustBackend {
             )
         }
     }
-    fn wait_event(
-        &self,
-        event: luisa_compute_api_types::Event,
-        stream: api::Stream,
-    ) -> super::Result<()> {
+    fn wait_event(&self, event: luisa_compute_api_types::Event, stream: api::Stream) {
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             let stream = &*(stream.0 as *mut StreamImpl);
@@ -349,7 +338,9 @@ impl Backend for RustBackend {
             stream.enqueue(
                 move || {
                     if stream.has_error() {
-                        event.poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
+                        event
+                            .poisoned
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
                         return;
                     }
                     if event.poisoned.load(std::sync::atomic::Ordering::SeqCst) {
@@ -359,17 +350,15 @@ impl Backend for RustBackend {
                 },
                 (empty_callback, std::ptr::null_mut()),
             );
-            Ok(())
         }
     }
-    fn synchronize_event(&self, event: luisa_compute_api_types::Event) -> super::Result<()> {
+    fn synchronize_event(&self, event: luisa_compute_api_types::Event) {
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             event.synchronize();
-            Ok(())
         }
     }
-    fn create_mesh(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
+    fn create_mesh(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
             let mesh = Box::new(MeshImpl::new(
                 option.hint,
@@ -377,16 +366,13 @@ impl Backend for RustBackend {
                 option.allow_update,
             ));
             let mesh = Box::into_raw(mesh);
-            Ok(api::CreatedResourceInfo {
+            api::CreatedResourceInfo {
                 handle: mesh as u64,
                 native_handle: mesh as *mut std::ffi::c_void,
-            })
+            }
         }
     }
-    fn create_procedural_primitive(
-        &self,
-        _option: api::AccelOption,
-    ) -> crate::Result<api::CreatedResourceInfo> {
+    fn create_procedural_primitive(&self, _option: api::AccelOption) -> api::CreatedResourceInfo {
         todo!()
     }
     fn destroy_mesh(&self, mesh: api::Mesh) {
@@ -398,14 +384,14 @@ impl Backend for RustBackend {
     fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
         todo!()
     }
-    fn create_accel(&self, _option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
+    fn create_accel(&self, _option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
             let accel = Box::new(AccelImpl::new());
             let accel = Box::into_raw(accel);
-            Ok(api::CreatedResourceInfo {
+            api::CreatedResourceInfo {
                 handle: accel as u64,
                 native_handle: accel as *mut std::ffi::c_void,
-            })
+            }
         }
     }
     fn destroy_accel(&self, accel: api::Accel) {
