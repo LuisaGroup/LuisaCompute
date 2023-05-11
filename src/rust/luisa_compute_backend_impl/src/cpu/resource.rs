@@ -1,12 +1,49 @@
-use std::alloc::Layout;
+use std::{alloc::Layout, sync::atomic::{AtomicU64, AtomicBool}, time::Duration};
 
 use luisa_compute_api_types::{BindlessArrayUpdateModification, BindlessArrayUpdateOperation};
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_ir::{context::type_hash, ir::Type, CArc};
-use parking_lot::RwLock;
+use parking_lot::{Condvar, Mutex, RwLock};
 
 use super::texture::TextureImpl;
-
+pub struct EventImpl {
+    pub mutex: Mutex<u64>,
+    pub host: AtomicU64,
+    pub device: AtomicU64,
+    pub on_signal: Condvar,
+    pub poisoned: AtomicBool,
+}
+impl EventImpl {
+    pub fn new() -> Self {
+        Self {
+            mutex: Mutex::new(0),
+            host: AtomicU64::new(0),
+            device: AtomicU64::new(0),
+            on_signal: Condvar::new(),
+            poisoned: AtomicBool::new(false),
+        }
+    }
+    pub fn signal(&self) {
+        self.on_signal.notify_all();
+    }
+    pub fn record(&self) {
+        let _lk = self.mutex.lock();
+        self.host.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub fn wait(&self, ticket: u64) {
+        let mut lk = self.mutex.lock();
+        loop {
+            self.on_signal.wait(&mut lk);
+            if self.device.load(std::sync::atomic::Ordering::SeqCst) >= ticket {
+                break;
+            }
+        }
+    }
+    pub fn synchronize(&self){
+        let ticket = self.host.load(std::sync::atomic::Ordering::Relaxed);
+        self.wait(ticket);
+    }
+}
 #[repr(C)]
 pub struct BufferImpl {
     pub lock: RwLock<()>,

@@ -23,7 +23,8 @@ pub enum BackendErrorKind {
     KernelExecution,
     KernelCompilation,
     Network,
-    Other,
+    EventPoisoned,
+    Unrecoverable,
 }
 
 #[derive(Clone)]
@@ -87,7 +88,6 @@ impl BackendProvider {
             .map(Arc::new)?;
         let parent = path.parent().unwrap();
         let lib_path_c_str = std::ffi::CString::new(parent.to_str().unwrap()).unwrap();
-
 
         unsafe extern "C" fn callback(info: api::LoggerMessage) {
             let level = CStr::from_ptr(info.level as *mut c_char).to_str().unwrap();
@@ -155,42 +155,38 @@ impl Context {
         config: serde_json::Value,
     ) -> crate::Result<ProxyBackend> {
         match device {
-            "cpu" | "remote" => {
-                match &self.rust {
-                    Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
-                    Err(err)=>{
-                        let libname = if cfg!(target_os = "windows") {
-                            "luisa_compute_backend_impl.dll"
-                        } else {
-                            "libluisa_compute_backend_impl.so"
-                        };
+            "cpu" | "remote" => match &self.rust {
+                Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
+                Err(err) => {
+                    let libname = if cfg!(target_os = "windows") {
+                        "luisa_compute_backend_impl.dll"
+                    } else {
+                        "libluisa_compute_backend_impl.so"
+                    };
 
-                        let err = err.to_string();
-                        Err(BackendError {
+                    let err = err.to_string();
+                    Err(BackendError {
                             kind: BackendErrorKind::BackendNotFound,
                             message: format!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err),
                         })
-                    }
                 }
-            }
-            "cuda" | "dx" | "metal" => {
-                match &self.cpp {
-                    Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
-                    Err(err)=>{
-                        let libname = if cfg!(target_os = "windows") {
-                            "lc-api.dll"
-                        } else {
-                            "liblc-api.so"
-                        };
+            },
+            "cuda" | "dx" | "metal" => match &self.cpp {
+                Ok(provider) => Ok(ProxyBackend::new(provider, device, config)),
+                Err(err) => {
+                    let libname = if cfg!(target_os = "windows") {
+                        "lc-api.dll"
+                    } else {
+                        "liblc-api.so"
+                    };
 
-                        let err = err.to_string();
-                        Err(BackendError {
+                    let err = err.to_string();
+                    Err(BackendError {
                             kind: BackendErrorKind::BackendNotFound,
                             message: format!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err),
                         })
-                    }
                 }
-            }
+            },
             _ => panic!("unsupported device: {}", device),
         }
     }
@@ -294,26 +290,21 @@ fn get_backend<'a, B: Backend>(backend: api::Device) -> &'a B {
 }
 
 fn map<T>(a: crate::Result<T>) -> api::Result<T> {
-    unsafe {
-        match a {
-            crate::Result::Ok(a) => api::Result::Ok(a),
-            crate::Result::Err(a) => api::Result::Err(api::BackendError {
-                kind: match a.kind {
-                    crate::BackendErrorKind::BackendNotFound => {
-                        api::BackendErrorKind::BackendNotFound
-                    }
-                    crate::BackendErrorKind::KernelExecution => {
-                        api::BackendErrorKind::KernelExecution
-                    }
-                    crate::BackendErrorKind::KernelCompilation => {
-                        api::BackendErrorKind::KernelCompilation
-                    }
-                    crate::BackendErrorKind::Network => api::BackendErrorKind::Network,
-                    crate::BackendErrorKind::Other => api::BackendErrorKind::Other,
-                },
-                message: CString::new(a.message).unwrap().into_raw(),
-            }),
-        }
+    match a {
+        crate::Result::Ok(a) => api::Result::Ok(a),
+        crate::Result::Err(a) => api::Result::Err(api::BackendError {
+            kind: match a.kind {
+                crate::BackendErrorKind::BackendNotFound => api::BackendErrorKind::BackendNotFound,
+                crate::BackendErrorKind::KernelExecution => api::BackendErrorKind::KernelExecution,
+                crate::BackendErrorKind::KernelCompilation => {
+                    api::BackendErrorKind::KernelCompilation
+                }
+                crate::BackendErrorKind::Network => api::BackendErrorKind::Network,
+                crate::BackendErrorKind::EventPoisoned => api::BackendErrorKind::EventPoisoned,
+                crate::BackendErrorKind::Unrecoverable => api::BackendErrorKind::Unrecoverable,
+            },
+            message: CString::new(a.message).unwrap().into_raw(),
+        }),
     }
 }
 

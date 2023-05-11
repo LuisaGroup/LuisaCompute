@@ -27,7 +27,8 @@ enum class BackendErrorKind {
     KERNEL_EXECUTION,
     KERNEL_COMPILATION,
     NETWORK,
-    OTHER,
+    EVENT_POISONED,
+    UNRECOVERABLE,
 };
 
 enum class BindlessArrayUpdateOperation {

@@ -6,7 +6,7 @@ use crate::SwapChainForCpuContext;
 
 use self::{
     accel::{AccelImpl, MeshImpl},
-    resource::{BindlessArrayImpl, BufferImpl},
+    resource::{BindlessArrayImpl, BufferImpl, EventImpl},
     stream::{convert_capture, StreamImpl},
     texture::TextureImpl,
 };
@@ -222,7 +222,7 @@ impl Backend for RustBackend {
             let storage = (ctx.cpu_swapchain_storage)(swapchain_handle.0 as *mut c_void);
             let storage: api::PixelStorage = std::mem::transmute(storage as u32);
             assert_eq!(storage, img.storage);
-            extern "C" fn empty_callback(_: *mut u8) {}
+
             let present = ctx.cpu_swapchain_present;
             stream.enqueue(
                 move || {
@@ -309,25 +309,65 @@ impl Backend for RustBackend {
     }
 
     fn create_event(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
-        todo!()
+        let event = Box::new(EventImpl::new());
+        let event = Box::into_raw(event);
+        Ok(luisa_compute_api_types::CreatedResourceInfo {
+            handle: event as u64,
+            native_handle: event as *mut std::ffi::c_void,
+        })
     }
 
     fn destroy_event(&self, _event: luisa_compute_api_types::Event) {
-        todo!()
+        unsafe {
+            let event = _event.0 as *mut EventImpl;
+            drop(Box::from_raw(event));
+        }
     }
 
-    fn signal_event(&self, _event: api::Event, _stream: api::Stream) {
-        todo!()
+    fn signal_event(&self, event: api::Event, stream: api::Stream) {
+        unsafe {
+            let event = &*(event.0 as *mut EventImpl);
+            let stream = &*(stream.0 as *mut StreamImpl);
+            event.record();
+            stream.enqueue(
+                move || {
+                    event.signal();
+                },
+                (empty_callback, std::ptr::null_mut()),
+            )
+        }
     }
     fn wait_event(
         &self,
-        _event: luisa_compute_api_types::Event,
-        _stream: api::Stream,
+        event: luisa_compute_api_types::Event,
+        stream: api::Stream,
     ) -> super::Result<()> {
-        todo!()
+        unsafe {
+            let event = &*(event.0 as *mut EventImpl);
+            let stream = &*(stream.0 as *mut StreamImpl);
+            let ticket = event.host.load(std::sync::atomic::Ordering::Acquire);
+            stream.enqueue(
+                move || {
+                    if stream.has_error() {
+                        event.poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
+                        return;
+                    }
+                    if event.poisoned.load(std::sync::atomic::Ordering::SeqCst) {
+                        return;
+                    }
+                    event.wait(ticket);
+                },
+                (empty_callback, std::ptr::null_mut()),
+            );
+            Ok(())
+        }
     }
-    fn synchronize_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
-        todo!()
+    fn synchronize_event(&self, event: luisa_compute_api_types::Event) -> super::Result<()> {
+        unsafe {
+            let event = &*(event.0 as *mut EventImpl);
+            event.synchronize();
+            Ok(())
+        }
     }
     fn create_mesh(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
         unsafe {
@@ -399,3 +439,4 @@ impl RustBackend {
         }
     }
 }
+extern "C" fn empty_callback(_: *mut u8) {}

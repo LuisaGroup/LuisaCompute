@@ -632,7 +632,8 @@ pub enum BackendErrorKind {
     KernelExecution,
     KernelCompilation,
     Network,
-    Other,
+    EventPoisoned,
+    Unrecoverable,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

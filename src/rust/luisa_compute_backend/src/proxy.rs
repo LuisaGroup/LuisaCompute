@@ -104,7 +104,8 @@ unsafe fn map<T>(a: api::Result<T>) -> crate::Result<T> {
                     crate::BackendErrorKind::KernelCompilation
                 }
                 api::BackendErrorKind::Network => crate::BackendErrorKind::Network,
-                api::BackendErrorKind::Other => crate::BackendErrorKind::Other,
+                api::BackendErrorKind::EventPoisoned => crate::BackendErrorKind::EventPoisoned,
+                api::BackendErrorKind::Unrecoverable=>crate::BackendErrorKind::Unrecoverable,
             },
             message: CStr::from_ptr(a.message).to_str().unwrap().to_string(),
         }),

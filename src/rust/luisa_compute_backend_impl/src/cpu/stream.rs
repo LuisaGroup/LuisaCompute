@@ -1,18 +1,18 @@
-use std::panic::{RefUnwindSafe, UnwindSafe};
-use std::{
-    collections::VecDeque,
-    sync::{atomic::AtomicUsize, Arc},
-    thread::{self, JoinHandle},
-};
-use std::collections::{HashMap, HashSet};
-use luisa_compute_api_types as api;
 use api::{Argument, Sampler};
+use luisa_compute_api_types as api;
 use luisa_compute_ir::{
     context::type_hash,
     ir::{Binding, Capture},
 };
 use parking_lot::{Condvar, Mutex, RwLock};
 use rayon;
+use std::collections::{HashMap, HashSet};
+use std::panic::{RefUnwindSafe, UnwindSafe};
+use std::{
+    collections::VecDeque,
+    sync::{atomic::AtomicUsize, Arc},
+    thread::{self, JoinHandle},
+};
 
 use crate::BackendError;
 use luisa_compute_cpu_kernel_defs as defs;
@@ -43,7 +43,6 @@ struct StreamContext {
     finished_count: AtomicUsize,
     error: Mutex<Option<BackendError>>,
     staging_buffers: Mutex<(Bump, Vec<*mut u8>)>,
-
 }
 
 pub(super) struct StreamImpl {
@@ -101,6 +100,9 @@ impl StreamImpl {
             ctx,
         }
     }
+    pub(super) fn has_error(&self)->bool {
+        self.ctx.error.lock().is_some()
+    }
     pub(super) fn synchronize(&self) -> crate::Result<()> {
         let mut guard = self.ctx.queue.lock();
         while self
@@ -108,9 +110,9 @@ impl StreamImpl {
             .work_count
             .load(std::sync::atomic::Ordering::Relaxed)
             > self
-            .ctx
-            .finished_count
-            .load(std::sync::atomic::Ordering::Relaxed)
+                .ctx
+                .finished_count
+                .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.ctx.sync.wait(&mut guard);
         }
@@ -174,7 +176,9 @@ impl StreamImpl {
     unsafe fn allocate_staging_buffer(&self, ptr: *const u8, size: usize) {
         let mut lk = self.ctx.staging_buffers.lock();
         let (bump, buffers) = &mut *lk;
-        let buffer = bump.alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap()).as_ptr();
+        let buffer = bump
+            .alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap())
+            .as_ptr();
         std::ptr::copy_nonoverlapping(ptr, buffer, size);
         buffers.push(buffer);
     }
@@ -184,7 +188,6 @@ impl StreamImpl {
                 api::Command::BufferUpload(cmd) => {
                     let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
                     let _lk = buffer.lock.try_write().unwrap();
-                    let offset = cmd.offset;
                     let size = cmd.size;
                     self.allocate_staging_buffer(cmd.data, size);
                 }
@@ -207,6 +210,12 @@ impl StreamImpl {
             let (bump, buffers) = &mut *lk;
             let mut cnt = 0;
             for cmd in command_list {
+                {
+                    let err = self.ctx.error.lock();
+                    if err.is_some() {
+                        break;
+                    }
+                }
                 match cmd {
                     api::Command::BufferUpload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
@@ -455,9 +464,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 level as u8,
             )
         }
-        api::Argument::Uniform(uniform) => {
-            defs::KernelFnArg::Uniform(uniform.data)
-        }
+        api::Argument::Uniform(uniform) => defs::KernelFnArg::Uniform(uniform.data),
         api::Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
             defs::KernelFnArg::Accel(defs::Accel {
