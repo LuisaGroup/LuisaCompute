@@ -115,7 +115,7 @@ impl StreamImpl {
         {
             self.ctx.sync.wait(&mut guard);
         }
-        let mut error = self.ctx.error.lock();
+        let error = self.ctx.error.lock();
         if error.is_some() {
             panic!("{}", error.as_ref().unwrap());
         }
@@ -162,7 +162,7 @@ impl StreamImpl {
                             }
                         }
                     });
-                    if let Err(e) = result {
+                    if let Err(_) = result {
                         log::error!("kernel execution aborted");
                     }
                 });

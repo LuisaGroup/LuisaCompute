@@ -337,15 +337,6 @@ impl Backend for RustBackend {
             let ticket = event.host.load(std::sync::atomic::Ordering::Acquire);
             stream.enqueue(
                 move || {
-                    if stream.has_error() {
-                        event
-                            .poisoned
-                            .store(true, std::sync::atomic::Ordering::SeqCst);
-                        return;
-                    }
-                    if event.poisoned.load(std::sync::atomic::Ordering::SeqCst) {
-                        return;
-                    }
                     event.wait(ticket);
                 },
                 (empty_callback, std::ptr::null_mut()),
