@@ -10,7 +10,7 @@ ResourceCreationInfo RasterExtImpl::create_raster_shader(
     Function pixel,
     const ShaderOption &shader_option) noexcept {
     auto res = _impl->create_raster_shader(mesh_format, vert, pixel, shader_option);
-    if (res.handle != invalid_resource_handle)
+    if (res.valid())
         new RWResource(res.handle, RWResource::Tag::RASTER_SHADER, false);
     return res;
 }

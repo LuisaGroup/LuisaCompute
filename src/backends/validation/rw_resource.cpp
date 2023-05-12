@@ -15,7 +15,7 @@ struct ResMap {
 };
 static ResMap res_map;
 RWResource::RWResource(uint64_t handle, Tag tag, bool non_simultaneous)
-    : Resource{tag}, _non_simultaneous{non_simultaneous} {
+    : Resource{tag}, _handle{handle}, _non_simultaneous{non_simultaneous} {
     std::lock_guard lck{mtx};
     res_map.map.force_emplace(handle, this);
 }

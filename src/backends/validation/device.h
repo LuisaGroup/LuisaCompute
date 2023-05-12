@@ -2,6 +2,8 @@
 
 #include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
+#include <core/magic_enum.h>
+#include "stream_func.h"
 
 namespace lc::validation {
 
@@ -31,6 +33,8 @@ private:
     vstd::unordered_map<vstd::string, ExtPtr> exts;
 
 public:
+    static void check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_id = 0);
+    static void add_custom_stream(uint64_t handle, StreamOption&& opt);
     void *native_handle() const noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
