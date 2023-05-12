@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     }
     {
         DStorageFile file = dstorage_ext->open_file("test_dstorage_file.txt");
-        if (!file.valid()) {
+        if (!file) {
             LUISA_WARNING("Buffer file not found.");
             exit(1);
         }
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
     }
     {
         DStorageFile file = dstorage_ext->open_file("test_dstorage_texture.bytes");
-        if (!file.valid()) {
+        if (!file) {
             LUISA_WARNING("Texture file not found.");
             exit(1);
         }

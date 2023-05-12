@@ -135,7 +135,7 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
 DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept
     : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
       dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
-      device{device} {
+      mdevice{device} {
     HRESULT(WINAPI * DStorageGetFactory)
     (REFIID riid, _COM_Outptr_ void **ppv);
     if (!dstorage_module || !dstorage_core_module) {
@@ -145,12 +145,11 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDev
     DStorageGetFactory = reinterpret_cast<decltype(DStorageGetFactory)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageGetFactory"));
     ThrowIfFailed(DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf())));
 }
-std::pair<DeviceInterface *, ResourceCreationInfo> DStorageExtImpl::create_stream_handle() noexcept {
-    std::pair<DeviceInterface *, ResourceCreationInfo> r;
-    auto ptr = new DStorageCommandQueue{factory.Get(), &device->nativeDevice};
-    r.second.handle = reinterpret_cast<uint64_t>(ptr);
-    r.second.native_handle = ptr->Queue();
-    r.first = device;
+ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
+    ResourceCreationInfo r;
+    auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice};
+    r.handle = reinterpret_cast<uint64_t>(ptr);
+    r.native_handle = ptr->Queue();
     return r;
 }
 DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
@@ -185,6 +184,9 @@ DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path)
     f.handle = reinterpret_cast<uint64_t>(new DStorageFileImpl{std::move(file), length});
     f.size_bytes = length;
     return f;
+}
+DeviceInterface * DStorageExtImpl::device() const noexcept{
+    return mdevice;
 }
 void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     delete reinterpret_cast<DStorageFileImpl *>(handle);

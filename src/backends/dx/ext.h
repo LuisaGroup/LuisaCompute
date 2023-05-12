@@ -170,11 +170,12 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_core_module;
     luisa::DynamicModule dstorage_module;
     ComPtr<IDStorageFactory> factory;
-    LCDevice *device;
+    LCDevice *mdevice;
 
 public:
+    DeviceInterface *device() const noexcept;
     DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
-    std::pair<DeviceInterface *, ResourceCreationInfo> create_stream_handle() noexcept override;
+    ResourceCreationInfo create_stream_handle() noexcept override;
     File open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
 };

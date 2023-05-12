@@ -8,9 +8,10 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     DStorageExt *_impl;
 
 public:
+    DeviceInterface* device() const noexcept override;
     File open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
-    std::pair<DeviceInterface *, ResourceCreationInfo> create_stream_handle() noexcept override;
+    ResourceCreationInfo create_stream_handle() noexcept override;
     DStorageExtImpl(DStorageExt *ext);
 };
 }// namespace lc::validation
