@@ -39,7 +39,7 @@ public:
         return _file.size_bytes;
     }
     template<typename T>
-    luisa::unique_ptr<Command> read_to(size_t file_offset, Buffer<T> const &buffer) noexcept {
+    luisa::unique_ptr<Command> read_to(Buffer<T> const &buffer, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::BufferEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -48,7 +48,7 @@ public:
             .size_bytes = buffer.size_bytes()});
     }
     template<typename T>
-    luisa::unique_ptr<Command> read_to(size_t file_offset, BufferView<T> const &buffer) noexcept {
+    luisa::unique_ptr<Command> read_to(BufferView<T> const &buffer, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::BufferEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -57,7 +57,7 @@ public:
             .size_bytes = buffer.size_bytes()});
     }
     template<typename T>
-    luisa::unique_ptr<Command> read_to(size_t file_offset, Image<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(Image<T> const &image, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -66,7 +66,7 @@ public:
             .mip_level = 0});
     }
     template<typename T>
-    luisa::unique_ptr<Command> read_to(size_t file_offset, ImageView<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(ImageView<T> const &image, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -75,7 +75,7 @@ public:
             .mip_level = image.level()});
     }
     template<typename T>
-    luisa::unique_ptr<Command> read_to(size_t file_offset, Volume<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(Volume<T> const &image, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -84,7 +84,7 @@ public:
             .mip_level = 0});
     }
     template<typename T>
-    luisa::unique_ptr<Command> read_to(size_t file_offset, VolumeView<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(VolumeView<T> const &image, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -92,7 +92,7 @@ public:
             .pixel_size = image.size_bytes(),
             .mip_level = image.level()});
     }
-    luisa::unique_ptr<Command> read_to(size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept {
+    luisa::unique_ptr<Command> read_to(void *dst_ptr, size_t size_bytes, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::MemoryEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -101,12 +101,21 @@ public:
     }
     template<typename T>
         requires(std::is_trivial_v<T>)
-    luisa::unique_ptr<Command> read_to(size_t file_offset, luisa::span<T> dst) noexcept {
+    luisa::unique_ptr<Command> read_to(luisa::span<T> dst, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::MemoryEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
             .dst_ptr = dst.data(),
             .size_bytes = dst.size_bytes()});
+    }
+    template<typename T>
+        requires(std::is_trivial_v<T>)
+    luisa::unique_ptr<Command> read_to(T* data, size_t size_bytes, size_t file_offset = 0) noexcept {
+        return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::MemoryEnqueue{
+            .file_handle = _file.handle,
+            .file_offset = file_offset,
+            .dst_ptr = data,
+            .size_bytes = size_bytes});
     }
 };
 

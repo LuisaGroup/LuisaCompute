@@ -5,6 +5,8 @@
 namespace luisa::compute {
 class MeshFormat;
 class RasterExt : public DeviceExtension {
+protected:
+    ~RasterExt() noexcept = default;
 
 public:
     static constexpr luisa::string_view name = "RasterExt";

@@ -89,7 +89,6 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                     0u, 0u, 0u,
                     tex->Width(), tex->Height(), tex->Depth()};
             } else {
-                DSTORAGE_REQUEST request = {};
                 request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
                 auto file = reinterpret_cast<DStorageFileImpl *>(t.file_handle);

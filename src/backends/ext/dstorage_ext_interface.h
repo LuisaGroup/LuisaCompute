@@ -4,6 +4,9 @@ namespace luisa::compute {
 class Stream;
 class DStorageFile;
 class DStorageExt : public DeviceExtension {
+protected:
+    ~DStorageExt() noexcept = default;
+
 public:
     static constexpr luisa::string_view name = "DStorageExt";
     struct File : public ResourceCreationInfo {

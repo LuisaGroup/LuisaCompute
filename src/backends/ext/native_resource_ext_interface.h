@@ -1,20 +1,23 @@
 #pragma once
-
-#include <ast/type_registry.h>
 #include <runtime/rhi/device_interface.h>
-#include <backends/common/resource_generator.h>
-
 namespace luisa::compute {
-
+class DepthBuffer;
+template<typename T>
+class Buffer;
+template<typename T>
+class Image;
+template<typename T>
+class Volume;
 class NativeResourceExt : public DeviceExtension {
+    DeviceInterface *_device;
 
 protected:
-    DeviceInterface *_device;
-    explicit NativeResourceExt(DeviceInterface *device) noexcept
-        : _device{device} {}
     ~NativeResourceExt() noexcept = default;
 
 public:
+    explicit NativeResourceExt(DeviceInterface *device) noexcept
+        : _device{device} {}
+
     static constexpr luisa::string_view name = "NativeResourceExt";
     virtual BufferCreationInfo register_external_buffer(
         void *external_ptr,
@@ -37,22 +40,13 @@ public:
         // custom data see backends' header
         void *custom_data) noexcept = 0;
     template<typename T>
-    [[nodiscard]] Buffer<T> create_native_buffer(void *native_ptr, size_t elem_count, void *custom_data) noexcept {
-        auto type = Type::of<T>();
-        return ResourceGenerator::create_native_buffer<T>(
-            register_external_buffer(native_ptr, type, elem_count, custom_data),
-            _device);
-    }
+    [[nodiscard]] Buffer<T> create_native_buffer(void *native_ptr, size_t elem_count, void *custom_data) noexcept;
     [[nodiscard]] DepthBuffer create_native_depth_buffer(
         void *native_ptr,
         DepthFormat format,
         uint width,
         uint height,
-        void *custom_data) {
-        return ResourceGenerator::create_native_depth_buffer(
-            register_external_depth_buffer(native_ptr, format, width, height, custom_data),
-            _device, format, {width, height});
-    }
+        void *custom_data);
     template<typename T>
     [[nodiscard]] Image<T> create_native_image(
         void *external_ptr,
@@ -60,15 +54,7 @@ public:
         uint height,
         PixelStorage storage,
         uint mip,
-        void *custom_data) noexcept {
-        auto fmt = pixel_storage_to_format<T>(storage);
-        return ResourceGenerator::create_native_image<T>(
-            register_external_image(external_ptr, fmt, 2, width, height, 1, mip, custom_data),
-            _device,
-            storage,
-            uint2{width, height},
-            mip);
-    }
+        void *custom_data) noexcept;
     template<typename T>
     [[nodiscard]] Volume<T> create_native_volume(
         void *external_ptr,
@@ -77,12 +63,6 @@ public:
         uint volume,
         PixelStorage storage,
         uint mip,
-        void *custom_data) noexcept {
-        auto fmt = pixel_storage_to_format<T>(storage);
-        return ResourceGenerator::create_native_volume<T>(
-            register_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
-            _device, storage, uint3{width, height, volume}, mip);
-    }
+        void *custom_data) noexcept;
 };
-
 }// namespace luisa::compute
