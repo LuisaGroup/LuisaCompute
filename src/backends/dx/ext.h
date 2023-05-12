@@ -170,6 +170,7 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_core_module;
     luisa::DynamicModule dstorage_module;
     ComPtr<IDStorageFactory> factory;
+    ComPtr<IDStorageCompressionCodec> compression_codec;
     LCDevice *mdevice;
 
 public:
@@ -178,5 +179,9 @@ public:
     ResourceCreationInfo create_stream_handle() noexcept override;
     File open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
+    void gdeflate_compress(
+        luisa::span<std::byte const> input,
+        CompressQuality quality,
+        luisa::vector<std::byte> &result) noexcept override;
 };
 }// namespace lc::dx

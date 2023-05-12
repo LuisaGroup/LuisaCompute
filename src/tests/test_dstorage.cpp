@@ -7,6 +7,7 @@
 #include <runtime/event.h>
 #include <backends/ext/dstorage_ext.hpp>
 #include <stb/stb_image_write.h>
+#include <core/clock.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -61,17 +62,17 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Start test texture read.");
     static constexpr uint32_t width = 512;
     static constexpr uint32_t height = 512;
+    luisa::vector<uint8_t> pixels(width * height * 4);
+    for (size_t x = 0; x < width; ++x)
+        for (size_t y = 0; y < height; ++y) {
+            size_t pixel_pos = x + y * width;
+            float2 uv = make_float2(x, y) / make_float2(width, height);
+            pixels[pixel_pos * 4] = static_cast<uint8_t>(uv.x * 255);
+            pixels[pixel_pos * 4 + 1] = static_cast<uint8_t>(uv.y * 255);
+            pixels[pixel_pos * 4 + 2] = 127;
+            pixels[pixel_pos * 4 + 3] = 255;
+        }
     {
-        luisa::vector<uint8_t> pixels(width * height * 4);
-        for (size_t x = 0; x < width; ++x)
-            for (size_t y = 0; y < height; ++y) {
-                size_t pixel_pos = x + y * width;
-                float2 uv = make_float2(x, y) / make_float2(width, height);
-                pixels[pixel_pos * 4] = static_cast<uint8_t>(uv.x * 255);
-                pixels[pixel_pos * 4 + 1] = static_cast<uint8_t>(uv.y * 255);
-                pixels[pixel_pos * 4 + 2] = 127;
-                pixels[pixel_pos * 4 + 3] = 255;
-            }
         FILE *file = fopen("test_dstorage_texture.bytes", "wb");
         if (file) {
             fwrite(pixels.data(), pixels.size_bytes(), 1, file);
@@ -85,10 +86,42 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
-        luisa::vector<uint8_t> pixels(width * height * 4u);
-        dstorage_stream << file.read_to(img) << event.signal();
-        compute_stream << event.wait() << img.copy_to(pixels.data()) << synchronize();
-        stbi_write_png("test_dstorage_texture.png", width, height, 4, pixels.data(), 0);
+        luisa::vector<uint8_t> out_pixels(width * height * 4u);
+        Clock clock{};
+        dstorage_stream << file.read_to(img) << synchronize();
+        double time = clock.toc();
+        LUISA_INFO("Texture read time: {} ms", time);
+        compute_stream << img.copy_to(out_pixels.data()) << synchronize();
+        stbi_write_png("test_dstorage_texture.png", width, height, 4, out_pixels.data(), 0);
     }
     LUISA_INFO("Texture result read to test_dstorage_texture.png.");
+    LUISA_INFO("Start test texture compress and decompress.");
+    luisa::vector<std::byte> compressed_pixels;
+    Clock compress_clock{};
+    dstorage_ext->gdeflate_compress(luisa::span{reinterpret_cast<std::byte const *>(pixels.data()), pixels.size()}, DStorageExt::CompressQuality::Best, compressed_pixels);
+    double compress_time = compress_clock.toc();
+    LUISA_INFO("Texture compress time: {} ms", compress_time);
+    {
+        FILE *file = fopen("test_dstorage_texture_compressed.bytes", "wb");
+        if (file) {
+            fwrite(compressed_pixels.data(), compressed_pixels.size_bytes(), 1, file);
+            fclose(file);
+        }
+    }
+    {
+        DStorageFile file = dstorage_ext->open_file("test_dstorage_texture_compressed.bytes");
+        if (!file) {
+            LUISA_WARNING("Texture file not found.");
+            exit(1);
+        }
+        Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
+        luisa::vector<uint8_t> out_pixels(width * height * 4u);
+        Clock decompress_clock{};
+        dstorage_stream << file.decompress_to(img, /*uncompressed origin pixel size*/ pixels.size_bytes()) << synchronize();
+        double decompress_time = decompress_clock.toc();
+        LUISA_INFO("Texture decompress time: {} ms", decompress_time);
+        compute_stream << img.copy_to(out_pixels.data()) << synchronize();
+        stbi_write_png("test_dstorage_texture_decompressed.png", width, height, 4, out_pixels.data(), 0);
+    }
+    LUISA_INFO("Decompressed texture result read to test_dstorage_texture_decompressed.png.");
 }

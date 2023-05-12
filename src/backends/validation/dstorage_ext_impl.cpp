@@ -5,6 +5,12 @@
 #include <runtime/rhi/command.h>
 
 namespace lc::validation {
+void DStorageExtImpl::gdeflate_compress(
+    luisa::span<std::byte const> input,
+    CompressQuality quality,
+    luisa::vector<std::byte> &result) noexcept {
+    _impl->gdeflate_compress(input, quality, result);
+}
 DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
     auto file = _impl->open_file_handle(path);
     if (file.valid())
@@ -15,7 +21,7 @@ void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     _impl->close_file_handle(handle);
     RWResource::dispose(handle);
 }
-DeviceInterface* DStorageExtImpl::device() const noexcept{
+DeviceInterface *DStorageExtImpl::device() const noexcept {
     return _impl->device();
 }
 ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {

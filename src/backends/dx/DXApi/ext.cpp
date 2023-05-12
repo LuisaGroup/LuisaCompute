@@ -144,6 +144,10 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDev
     }
     DStorageGetFactory = reinterpret_cast<decltype(DStorageGetFactory)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageGetFactory"));
     ThrowIfFailed(DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf())));
+    HRESULT(WINAPI * DStorageCreateCompressionCodec)
+    (DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void **ppv);
+    DStorageCreateCompressionCodec = reinterpret_cast<decltype(DStorageCreateCompressionCodec)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageCreateCompressionCodec"));
+    ThrowIfFailed(DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE, std::thread::hardware_concurrency(), IID_PPV_ARGS(compression_codec.GetAddressOf())));
 }
 ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
     ResourceCreationInfo r;
@@ -185,11 +189,31 @@ DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path)
     f.size_bytes = length;
     return f;
 }
-DeviceInterface * DStorageExtImpl::device() const noexcept{
+DeviceInterface *DStorageExtImpl::device() const noexcept {
     return mdevice;
 }
 void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     delete reinterpret_cast<DStorageFileImpl *>(handle);
 }
+void DStorageExtImpl::gdeflate_compress(
+    luisa::span<std::byte const> input,
+    CompressQuality quality,
+    luisa::vector<std::byte> &result) noexcept {
+    constexpr DSTORAGE_COMPRESSION qua[] = {
+        DSTORAGE_COMPRESSION_FASTEST,
+        DSTORAGE_COMPRESSION_DEFAULT,
+        DSTORAGE_COMPRESSION_BEST_RATIO};
 
+    result.clear();
+    result.push_back_uninitialized(input.size());
+    size_t out_size{};
+    compression_codec->CompressBuffer(
+        input.data(),
+        input.size(),
+        qua[luisa::to_underlying(quality)],
+        result.data(),
+        result.size(),
+        &out_size);
+    result.resize(out_size);
+}
 }// namespace lc::dx
