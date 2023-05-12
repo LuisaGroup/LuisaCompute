@@ -1,7 +1,7 @@
 #include "DStorageCommandQueue.h"
 #include <DXApi/LCEvent.h>
 #include <core/logging.h>
-#include <backends/ext/dstorage_ext.h>
+#include <backends/ext/dstorage_ext_interface.h>
 #include <Resource/TextureBase.h>
 #include <Resource/Buffer.h>
 namespace lc::dx {

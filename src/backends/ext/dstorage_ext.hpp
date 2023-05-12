@@ -1,29 +1,10 @@
 #pragma once
-#include <runtime/device.h>
-#include <runtime/event.h>
+#include <backends/ext/dstorage_ext_interface.h>
 #include <runtime/stream.h>
 #include <runtime/rhi/command.h>
 
 namespace luisa::compute {
 class DStorageCommandList;
-class DStorageFile;
-
-class DStorageExt : public DeviceExtension {
-public:
-    static constexpr luisa::string_view name = "DStorageExt";
-    struct File : public ResourceCreationInfo {
-        size_t size_bytes;
-    };
-
-    virtual File open_file_handle(luisa::string_view path) noexcept = 0;
-    virtual void close_file_handle(uint64_t handle) noexcept = 0;
-    virtual std::pair<DeviceInterface *, ResourceCreationInfo> create_stream_handle() noexcept = 0;
-    [[nodiscard]] Stream create_stream() noexcept {
-        auto handle = create_stream_handle();
-        return Stream{handle.first, StreamTag::CUSTOM, handle.second};
-    }
-    [[nodiscard]] DStorageFile open_file(luisa::string_view path) noexcept;
-};
 class DStorageFile {
     DStorageExt *_ext;
     DStorageExt::File _file;
@@ -57,7 +38,7 @@ public:
         return _file.size_bytes;
     }
     template<typename T>
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, Buffer<T> const &buffer) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, Buffer<T> const &buffer) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::BufferEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -66,7 +47,7 @@ public:
             .size_bytes = buffer.size_bytes()});
     }
     template<typename T>
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, BufferView<T> const &buffer) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, BufferView<T> const &buffer) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::BufferEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -75,7 +56,7 @@ public:
             .size_bytes = buffer.size_bytes()});
     }
     template<typename T>
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, Image<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, Image<T> const &image) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -84,7 +65,7 @@ public:
             .mip_level = 0});
     }
     template<typename T>
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, ImageView<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, ImageView<T> const &image) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -93,7 +74,7 @@ public:
             .mip_level = image.level()});
     }
     template<typename T>
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, Volume<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, Volume<T> const &image) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -102,7 +83,7 @@ public:
             .mip_level = 0});
     }
     template<typename T>
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, VolumeView<T> const &image) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, VolumeView<T> const &image) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::ImageEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -110,7 +91,7 @@ public:
             .pixel_size = image.size_bytes(),
             .mip_level = image.level()});
     }
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, void *dst_ptr, size_t size_bytes) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::MemoryEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -119,7 +100,7 @@ public:
     }
     template<typename T>
         requires(std::is_trivial_v<T>)
-    luisa::unique_ptr<DStorageReadCommand> read_to(size_t file_offset, luisa::span<T> dst) noexcept {
+    luisa::unique_ptr<Command> read_to(size_t file_offset, luisa::span<T> dst) noexcept {
         return luisa::make_unique<DStorageReadCommand>(DStorageReadCommand::MemoryEnqueue{
             .file_handle = _file.handle,
             .file_offset = file_offset,
@@ -131,5 +112,8 @@ public:
 inline DStorageFile DStorageExt::open_file(luisa::string_view path) noexcept {
     return DStorageFile{this, open_file_handle(path)};
 }
-
+inline Stream DStorageExt::create_stream() noexcept {
+    auto handle = create_stream_handle();
+    return Stream{handle.first, StreamTag::CUSTOM, handle.second};
+}
 }// namespace luisa::compute

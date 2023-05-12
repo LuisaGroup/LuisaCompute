@@ -4,7 +4,7 @@
 #include <backends/ext/native_resource_ext.h>
 #include <backends/ext/raster_ext.h>
 #include <backends/ext/dx_cuda_interop.h>
-#include <backends/ext/dstorage_ext.h>
+#include <backends/ext/dstorage_ext_interface.h>
 #include <backends/dx/d3dx12.h>
 #include <core/dynamic_module.h>
 #include <dstorage/dstorage.h>

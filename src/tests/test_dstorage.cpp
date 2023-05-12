@@ -5,7 +5,7 @@
 #include <runtime/image.h>
 #include <core/logging.h>
 #include <runtime/event.h>
-#include <backends/ext/dstorage_ext.h>
+#include <backends/ext/dstorage_ext.hpp>
 #include <stb/stb_image_write.h>
 
 using namespace luisa;
