@@ -1,5 +1,5 @@
 #pragma once
-#include <runtime/device.h>
+#include <runtime/rhi/device_interface.h>
 namespace luisa::compute {
 class Stream;
 class DStorageFile;

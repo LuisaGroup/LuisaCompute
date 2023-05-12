@@ -2,7 +2,7 @@
 #include <vstl/common.h>
 #include <backends/ext/tex_compress_ext.h>
 #include <backends/ext/native_resource_ext.h>
-#include <backends/ext/raster_ext.h>
+#include <backends/ext/raster_ext_interface.h>
 #include <backends/ext/dx_cuda_interop.h>
 #include <backends/ext/dstorage_ext_interface.h>
 #include <backends/dx/d3dx12.h>

@@ -4,7 +4,7 @@
 #include <runtime/volume.h>
 #include <runtime/raster/depth_buffer.h>
 #include <runtime/buffer.h>
-#include <backends/ext/raster_ext.h>
+#include <backends/ext/raster_ext.hpp>
 
 namespace luisa::compute {
 

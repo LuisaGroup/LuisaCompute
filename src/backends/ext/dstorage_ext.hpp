@@ -1,5 +1,6 @@
 #pragma once
 #include <backends/ext/dstorage_ext_interface.h>
+#include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/rhi/command.h>
 
