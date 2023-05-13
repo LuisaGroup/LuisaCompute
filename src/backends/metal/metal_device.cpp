@@ -84,7 +84,20 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
     compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(256u);
     auto create_builtin_compute_shader = [&](auto name) noexcept {
-        auto function = builtin_library->newFunction(name);
+        auto function_desc = MTL::FunctionDescriptor::alloc()->init();
+        function_desc->setName(name);
+        function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
+        auto function = builtin_library->newFunction(function_desc, &error);
+        function_desc->release();
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to compile built-in Metal kernel '{}': {}",
+                name->utf8String(), error->localizedDescription()->utf8String());
+        }
+        error = nullptr;
+        LUISA_ASSERT(function != nullptr,
+                     "Failed to compile built-in Metal kernel '{}'.",
+                     name->utf8String());
         compute_pipeline_desc->setComputeFunction(function);
         auto pipeline = _handle->newComputePipelineState(
             compute_pipeline_desc, MTL::PipelineOptionNone, nullptr, &error);
@@ -105,8 +118,26 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     compute_pipeline_desc->release();
 
     // render pipeline
-    auto builtin_swapchain_vertex_shader = builtin_library->newFunction(MTLSTR("swapchain_vertex_shader"));
-    auto builtin_swapchain_fragment_shader = builtin_library->newFunction(MTLSTR("swapchain_fragment_shader"));
+    auto create_builtin_raster_shader = [&](auto name) noexcept {
+        auto shader_desc = MTL::FunctionDescriptor::alloc()->init();
+        shader_desc->setName(name);
+        shader_desc->setOptions(MTL::FunctionOptionCompileToBinary);
+        auto shader = builtin_library->newFunction(shader_desc, &error);
+        shader_desc->release();
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to compile built-in Metal vertex shader '{}': {}",
+                name->utf8String(), error->localizedDescription()->utf8String());
+        }
+        error = nullptr;
+        LUISA_ASSERT(shader != nullptr,
+                     "Failed to compile built-in Metal rasterization shader '{}'.",
+                     name->utf8String());
+        return shader;
+    };
+    auto builtin_swapchain_vertex_shader = create_builtin_raster_shader(MTLSTR("swapchain_vertex_shader"));
+    auto builtin_swapchain_fragment_shader = create_builtin_raster_shader(MTLSTR("swapchain_fragment_shader"));
+
     auto render_pipeline_desc = MTL::RenderPipelineDescriptor::alloc()->init();
     render_pipeline_desc->setVertexFunction(builtin_swapchain_vertex_shader);
     render_pipeline_desc->setFragmentFunction(builtin_swapchain_fragment_shader);
