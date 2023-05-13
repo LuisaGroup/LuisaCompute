@@ -4,6 +4,7 @@
 namespace luisa::compute {
 template<typename T>
 class Buffer;
+class Stream;
 class DenoiserExt : public DeviceExtension {
 protected:
     ~DenoiserExt() noexcept = default;
