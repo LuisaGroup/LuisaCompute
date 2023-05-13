@@ -682,6 +682,7 @@ public:
 
     LUISA_MAKE_COMMAND_COMMON(ClearDepthCommand, StreamTag::GRAPHICS)
 };
+
 class DStorageReadCommand : public CustomCommand {
 public:
     struct BufferEnqueue {
@@ -730,6 +731,7 @@ public:
     [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
     LUISA_MAKE_COMMAND_COMMON(DStorageReadCommand, StreamTag::CUSTOM)
 };
+
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
 #undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
 #undef LUISA_MAKE_COMMAND_COMMON_RECYCLE

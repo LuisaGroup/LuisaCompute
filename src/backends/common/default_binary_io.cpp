@@ -96,7 +96,8 @@ DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, void *ext) noexcept
       _cache_dir{_ctx.create_runtime_subdir(".cache"sv)},
       _data_dir{_ctx.create_runtime_subdir(".data"sv)} {
 }
-DefaultBinaryIO::~DefaultBinaryIO() {}
+
+DefaultBinaryIO::~DefaultBinaryIO() noexcept = default;
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::string_view name) const noexcept {
     std::filesystem::path local_path{name};

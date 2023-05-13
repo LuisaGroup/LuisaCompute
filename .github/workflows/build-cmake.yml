@@ -69,12 +69,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-11, macos-12 ]
+        os: [ macos-12, macos-13 ]
         compiler: [ homebrew-clang, system-clang ]
         config: [ Release, Debug ]
-        exclude:
-          - os: macos-11
-            compiler: system-clang
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
     steps:
