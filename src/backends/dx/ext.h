@@ -166,11 +166,13 @@ public:
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
     DxCudaInteropImpl(Device &device) : _device{device} {}
 };
+
 class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_core_module;
     luisa::DynamicModule dstorage_module;
     ComPtr<IDStorageFactory> factory;
     ComPtr<IDStorageCompressionCodec> compression_codec;
+    std::mutex codec_mtx;
     LCDevice *mdevice;
 
 public:

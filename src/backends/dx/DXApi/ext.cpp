@@ -144,10 +144,6 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDev
     }
     DStorageGetFactory = reinterpret_cast<decltype(DStorageGetFactory)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageGetFactory"));
     ThrowIfFailed(DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf())));
-    HRESULT(WINAPI * DStorageCreateCompressionCodec)
-    (DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void **ppv);
-    DStorageCreateCompressionCodec = reinterpret_cast<decltype(DStorageCreateCompressionCodec)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageCreateCompressionCodec"));
-    ThrowIfFailed(DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE, std::thread::hardware_concurrency(), IID_PPV_ARGS(compression_codec.GetAddressOf())));
 }
 ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
     ResourceCreationInfo r;
@@ -205,8 +201,17 @@ void DStorageExtImpl::gdeflate_compress(
         DSTORAGE_COMPRESSION_BEST_RATIO};
 
     result.clear();
-    result.push_back_uninitialized(input.size());
     size_t out_size{};
+    {
+        std::lock_guard lck{codec_mtx};
+        if (!compression_codec) {
+            HRESULT(WINAPI * DStorageCreateCompressionCodec)
+            (DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void **ppv);
+            DStorageCreateCompressionCodec = reinterpret_cast<decltype(DStorageCreateCompressionCodec)>(GetProcAddress(reinterpret_cast<HMODULE>(dstorage_module.handle()), "DStorageCreateCompressionCodec"));
+            ThrowIfFailed(DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE, std::thread::hardware_concurrency(), IID_PPV_ARGS(compression_codec.GetAddressOf())));
+        }
+    }
+    result.push_back_uninitialized(compression_codec->CompressBufferBound(input.size()));
     compression_codec->CompressBuffer(
         input.data(),
         input.size(),
