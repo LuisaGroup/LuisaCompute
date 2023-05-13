@@ -11,6 +11,7 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         raster_ext_impl.cpp raster_ext_impl.h
         resource.cpp resource.h
         rw_resource.cpp rw_resource.h
+        dstorage_ext_impl.cpp dstorage_ext_impl.h
         shader.h
         stream.cpp stream.h
         swap_chain.h
