@@ -24,13 +24,18 @@ private:
     mutable Cache _cache;
 
 private:
-    [[nodiscard]] std::pair<MTL::Library *, uint3 /* block size */>
+    [[nodiscard]] NS::SharedPtr<MTL::ComputePipelineState>
     _load_disk_archive(uint64_t hash, luisa::string_view name,
                        const ShaderOption &option, uint3 block_size) const noexcept;
 
     void _store_disk_archive(uint64_t hash, luisa::string_view name,
                              const ShaderOption &option, uint3 block_size,
                              MTL::ComputePipelineDescriptor *pipeline_desc) const noexcept;
+
+    [[nodiscard]] std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
+                            NS::SharedPtr<MTL::ComputePipelineState>>
+    _load_kernel_from_library(MTL::Library *library, luisa::string_view name,
+                              const ShaderOption &option, uint3 block_size) const noexcept;
 
 public:
     explicit MetalCompiler(const MetalDevice *device) noexcept;
