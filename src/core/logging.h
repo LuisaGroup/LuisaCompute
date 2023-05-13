@@ -11,6 +11,7 @@
 
 #include <core/stl/format.h>
 #include <core/platform.h>
+#include <rust/luisa_compute_api_types/bindings.h>
 
 namespace luisa {
 
@@ -20,24 +21,8 @@ using log_level = spdlog::level::level_enum;
 namespace detail {
 [[nodiscard]] LC_CORE_API luisa::logger &default_logger() noexcept;
 LC_CORE_API void set_sink(spdlog::sink_ptr sink) noexcept;
-template<class Mt>
-class SinkWithCallback : public spdlog::sinks::base_sink<Mt> {
-    std::function<void(const char *, const char *)> _callback;
+LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept;
 
-public:
-    template<class F>
-    explicit SinkWithCallback(F &&_callback) noexcept
-        : _callback{_callback} {}
-protected:
-    void sink_it_(const spdlog::details::log_msg &msg) override {
-        auto level = msg.level;
-        auto level_name = spdlog::level::to_short_c_str(level);
-        auto message = fmt::to_string(msg.payload);
-        _callback(level_name, message.c_str());
-    }
-    void flush_() override {
-    }
-};
 }// namespace detail
 
 template<typename... Args>

@@ -38,11 +38,6 @@ void luisa_compute_log_error(const char *msg) LUISA_NOEXCEPT {
 }
 
 LUISA_EXPORT_API void luisa_compute_set_logger_callback(LoggerCallback callback) LUISA_NOEXCEPT {
-    auto sink = std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>([=](const char *level, const char* msg){
-        LCLoggerMessage m{};
-        m.level = level;
-        m.message = msg;
-        callback(m);
-    });
+    auto sink = luisa::detail::create_sink_with_callback(callback);
     luisa::detail::set_sink(sink);
 }
