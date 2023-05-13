@@ -2,6 +2,13 @@
 
 using namespace metal;
 
+#define lc_assume(...) __builtin_assume(__VA_ARGS__)
+
+template<typename T>
+[[noreturn, gnu::always_inline]] inline T lc_unreachable() {
+    __builtin_unreachable();
+}
+
 template<typename... T>
 [[nodiscard, gnu::always_inline]] inline auto make_float2x2(T... args) {
     return float2x2(args...);
@@ -52,30 +59,44 @@ template<typename... T>
         float4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
+template<typename T>
+struct LCBuffer {
+    device T *data;
+    ulong size;
+};
+
+template<typename T>
+struct LCBuffer<const T> {
+    const device T *data;
+    ulong size;
+
+    LCBuffer(LCBuffer<T> buffer)
+        : data{buffer.data}, size{buffer.size} {}
+};
+
 template<typename T, typename I>
-[[nodiscard, gnu::always_inline]] inline auto buffer_read(const device T *buffer, I index) {
-    return buffer[index];
+[[nodiscard, gnu::always_inline]] inline auto buffer_read(LCBuffer<T> buffer, I index) {
+    return buffer.data[index];
 }
 
 template<typename T, typename I>
-[[gnu::always_inline]] inline void buffer_write(device T *buffer, I index, T value) {
-    buffer[index] = value;
+[[gnu::always_inline]] inline void buffer_write(LCBuffer<T> buffer, I index, T value) {
+    buffer.data[index] = value;
 }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto address_of(thread T &x) {
-    return &x;
+[[gnu::always_inline]] inline auto buffer_size(LCBuffer<T> buffer) {
+    return buffer.size;
 }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto address_of(threadgroup T &x) {
-    return &x;
-}
+[[nodiscard, gnu::always_inline]] inline auto address_of(thread T &x) { return &x; }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto address_of(device T &x) {
-    return &x;
-}
+[[nodiscard, gnu::always_inline]] inline auto address_of(threadgroup T &x) { return &x; }
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto address_of(device T &x) { return &x; }
 
 namespace detail {
 template<typename T>
@@ -199,178 +220,73 @@ template<typename T, access a, typename Value>
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(device int &a) {
-    return reinterpret_cast<device atomic_int *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(device uint &a) {
-    return reinterpret_cast<device atomic_uint *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(device float &a) {
-    return &a;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup int &a) {
-    return reinterpret_cast<threadgroup atomic_int *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup uint &a) {
-    return reinterpret_cast<threadgroup atomic_uint *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup float &a) {
-    return &a;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const int &a) {
-    return reinterpret_cast<device const atomic_int *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const uint &a) {
-    return reinterpret_cast<device const atomic_uint *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const float &a) {
-    return &a;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const int &a) {
-    return reinterpret_cast<threadgroup const atomic_int *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const uint &a) {
-    return reinterpret_cast<threadgroup const atomic_uint *>(&a);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const float &a) {
-    return &a;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_int *a, int cmp, int val, memory_order) {
-    atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
-    return cmp;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_int *a, int cmp, int val, memory_order) {
-    atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
-    return cmp;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_uint *a, uint cmp, uint val, memory_order) {
-    atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
-    return cmp;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
-    atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
-    return cmp;
-}
-
-// atomic operations for floating-point values
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_float(device float *a, float cmp_in, float val, memory_order) {
-    auto cmp = as_type<int>(cmp_in);
-    atomic_compare_exchange_weak_explicit(reinterpret_cast<device atomic_int *>(a), &cmp, as_type<int>(val), memory_order_relaxed, memory_order_relaxed);
-    return as_type<float>(cmp);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_float(threadgroup float *a, float cmp_in, float val, memory_order) {
-    auto cmp = as_type<int>(cmp_in);
-    atomic_compare_exchange_weak_explicit(reinterpret_cast<threadgroup atomic_int *>(a), &cmp, as_type<int>(val), memory_order_relaxed, memory_order_relaxed);
-    return as_type<float>(cmp);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_exchange_explicit_float(device float *a, float val, memory_order) {
-    return as_type<float>(atomic_exchange_explicit(reinterpret_cast<device atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_exchange_explicit_float(threadgroup float *a, float val, memory_order) {
-    return as_type<float>(atomic_exchange_explicit(reinterpret_cast<threadgroup atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(device float *a, float val, memory_order) {
-#if __METAL_VERSION__ >= 300
-    auto aa = reinterpret_cast<device atomic_float *>(a);
-    return atomic_fetch_add_explicit(aa, val, memory_order_relaxed);
-#else
-    auto ok = false;
-    auto old_val = 0.0f;
-    while (!ok) {
-        old_val = *a;
-        auto new_val = old_val + val;
-        ok = atomic_compare_exchange_weak_explicit(
-            reinterpret_cast<device atomic_int *>(a), reinterpret_cast<thread int *>(&old_val),
-            as_type<int>(new_val), memory_order_relaxed, memory_order_relaxed);
+#define LC_AS_ATOMIC(add_space, type)                                             \
+    [[gnu::always_inline, nodiscard]] inline auto as_atomic(addr_space type &a) { \
+        return reinterpret_cast<addr_space atomic_##type *>(&a);                  \
     }
-    return old_val;
-#endif
+LC_AS_ATOMIC(device, int)
+LC_AS_ATOMIC(device, uint)
+LC_AS_ATOMIC(device, float)
+LC_AS_ATOMIC(threadgroup, int)
+LC_AS_ATOMIC(threadgroup, uint)
+LC_AS_ATOMIC(threadgroup, float)
+#undef LC_AS_ATOMIC
+
+template<typename A, typename T>
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_explicit(A a, T expected, T desired, memory_order) {
+    atomic_compare_exchange_weak_explicit(a, &expected, desired, memory_order_relaxed, memory_order_relaxed);
+    return expected;
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(threadgroup float *a, float val, memory_order) {
-    auto ok = false;
-    auto old_val = 0.0f;
-    while (!ok) {
-        old_val = *a;
-        auto new_val = old_val + val;
-        ok = atomic_compare_exchange_weak_explicit(
-            reinterpret_cast<threadgroup atomic_int *>(a), reinterpret_cast<thread int *>(&old_val),
-            as_type<int>(new_val), memory_order_relaxed, memory_order_relaxed);
-    }
-    return old_val;
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(device float *a, float val, memory_order) {
-#if __METAL_VERSION__ >= 300
-    auto aa = reinterpret_cast<device atomic_float *>(a);
-    return atomic_fetch_sub_explicit(aa, val, memory_order_relaxed);
-#else
-    return atomic_fetch_add_explicit_float(a, -val, memory_order_relaxed);
-#endif
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(threadgroup float *a, float val, memory_order) {
-    return atomic_fetch_add_explicit_float(a, -val, memory_order_relaxed);
-}
-
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(device float *a, float val, memory_order) {
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit(device atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = *a;
+        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
             old <= val ||
-            atomic_compare_exchange_float(a, old, val, memory_order_relaxed)) {
+            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
         }
     }
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(threadgroup float *a, float val, memory_order) {
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit(threadgroup atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = *a;
+        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
             old <= val ||
-            atomic_compare_exchange_float(a, old, val, memory_order_relaxed)) {
+            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
         }
     }
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit_float(device float *a, float val, memory_order) {
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit(device atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = *a;
+        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
             old >= val ||
-            atomic_compare_exchange_float(a, old, val, memory_order_relaxed)) {
+            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
         }
     }
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit_float(threadgroup float *a, float val, memory_order) {
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit(threadgroup atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = *a;
+        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
             old >= val ||
-            atomic_compare_exchange_float(a, old, val, memory_order_relaxed)) {
+            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
         }
     }
 }
+
+#define lc_atomic_exchange(...) atomic_exchange_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_compare_exchange(...) atomic_compare_exchange_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_add(...) atomic_fetch_add_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_sub(...) atomic_fetch_sub_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_and(...) atomic_fetch_and_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_or(...) atomic_fetch_or_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_xor(...) atomic_fetch_xor_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_min(...) atomic_fetch_min_explicit(__VA_ARGS__, memory_order_relaxed)
+#define lc_atomic_fetch_max(...) atomic_fetch_max_explicit(__VA_ARGS__, memory_order_relaxed)
 
 [[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {
     auto u = as_type<uint>(x);
@@ -413,8 +329,9 @@ template<typename T>
 
 struct alignas(16) BindlessItem {
     device const void *buffer;
-    metal::uint sampler2d;
-    metal::uint sampler3d;
+    ulong buffer_size : 48;
+    uint sampler2d : 8;
+    uint sampler3d : 8;
     metal::texture2d<float> handle2d;
     metal::texture3d<float> handle3d;
 };
@@ -440,19 +357,6 @@ struct alignas(16) BindlessItem {
     __builtin_assume(code < 16u);
     return samplers[code];
 }
-
-struct alignas(16) Ray {
-    array<float, 3> m0;
-    float m1;
-    array<float, 3> m2;
-    float m3;
-};
-
-struct alignas(16) Hit {
-    uint m0;
-    uint m1;
-    float2 m2;
-};
 
 [[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
     device const auto &t = heap[index];
@@ -517,11 +421,30 @@ struct alignas(16) Hit {
 }
 
 template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(device const BindlessItem *heap, uint buffer_index) {
+    return heap[buffer_index].size / sizeof(T);
+}
+
+template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
     return static_cast<device const T *>(heap[buffer_index].buffer)[i];
 }
 
 using namespace metal::raytracing;
+
+struct alignas(16) Ray {
+    array<float, 3> m0;
+    float m1;
+    array<float, 3> m2;
+    float m3;
+};
+
+struct TriangleHit {
+    uint m0;
+    uint m1;
+    float2 m2;
+    float m3;
+};
 
 struct alignas(16) Instance {
     array<float, 12> transform;
@@ -560,17 +483,18 @@ struct Accel {
     return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_closest(Accel accel, Ray r) {
-    auto isect = intersector_closest().intersect(make_ray(r), accel.handle);
+[[nodiscard, gnu::always_inline]] inline auto trace_closest(Accel accel, Ray r, uint mask) {
+    auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask);
     return isect.type == intersection_type::none ?
-               Hit{0xffffffffu, 0xffffffffu, float2(0.0f)} :
-               Hit{isect.instance_id,
-                   isect.primitive_id,
-                   isect.triangle_barycentric_coord};
+               TriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               TriangleHit{isect.instance_id,
+                           isect.primitive_id,
+                           isect.triangle_barycentric_coord,
+                           isect.distance};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_any(Accel accel, Ray r) {
-    auto isect = intersector_any().intersect(make_ray(r), accel.handle);
+[[nodiscard, gnu::always_inline]] inline auto trace_any(Accel accel, Ray r, uint mask) {
+    auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
 
@@ -599,6 +523,15 @@ struct Accel {
     p[11] = m[3][2];
 }
 
-[[gnu::always_inline]] inline void accel_set_instance_visibility(Accel accel, uint i, bool v) {
-    accel.instances[i].mask = v ? ~0u : 0u;
+[[gnu::always_inline]] inline void accel_set_instance_visibility(Accel accel, uint i, uint mask) {
+    accel.instances[i].mask = mask;
+}
+
+[[gnu::always_inline]] inline void accel_set_instance_opacity(Accel accel, uint i, bool opaque) {
+    constexpr auto instance_option_opaque = 4u;
+    constexpr auto instance_option_non_opaque = 8u;
+    auto options = accel.instances[i].options;
+    options &= ~(instance_option_opaque | instance_option_non_opaque);
+    options |= opaque ? instance_option_opaque : instance_option_non_opaque;
+    accel.instances[i].options = options;
 }

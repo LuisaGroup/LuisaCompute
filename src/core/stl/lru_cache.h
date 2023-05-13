@@ -33,6 +33,11 @@ public:
         return luisa::make_unique<LRUCache>(capacity);
     }
 
+    template<typename F>
+    void set_delete_callback(F &&f) noexcept {
+        _cache.setDeleteCallback(std::forward<F>(f));
+    }
+
     [[nodiscard]] auto fetch(const Key &key) noexcept -> luisa::optional<Value> {
         std::lock_guard lock{_mutex};
         auto value = _cache.at(key);

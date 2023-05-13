@@ -1,4 +1,4 @@
 #pragma once
 
-extern "C" const char luisa_metal_builtin_metal_device_lib[23787];
-extern "C" const char luisa_metal_builtin_metal_builtin_kernels[5437];
+extern "C" const char luisa_metal_builtin_metal_device_lib[21303];
+extern "C" const char luisa_metal_builtin_metal_builtin_kernels[5414];
