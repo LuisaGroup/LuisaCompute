@@ -20,7 +20,8 @@ private:
     NS::SharedPtr<MTL::ComputePipelineState> _handle;
     luisa::vector<Usage> _argument_usages;
     luisa::vector<Argument> _bound_arguments;
-    uint3 _block_size;
+    uint _block_size[3];
+    luisa::vector<std::byte> _argument_buffer;
     NS::String *_name{nullptr};
 
 public:

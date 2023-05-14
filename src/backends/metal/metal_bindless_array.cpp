@@ -119,6 +119,7 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
 }
 
 void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encoder) noexcept {
+    encoder->useResource(_array, MTL::ResourceUsageRead);
     _buffer_tracker.traverse([encoder](auto resource) noexcept {
         encoder->useResource(reinterpret_cast<MTL::Buffer *>(resource),
                              MTL::ResourceUsageRead);

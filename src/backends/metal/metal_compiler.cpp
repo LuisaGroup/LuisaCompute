@@ -203,7 +203,8 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
             name);
         return {};
     }
-    library_dump.write(reinterpret_cast<const char *>(library_data.data()), library_data.size());
+    library_dump.write(reinterpret_cast<const char *>(library_data.data()),
+                       static_cast<ssize_t>(library_data.size()));
     library_dump.close();
 
     auto url = NS::URL::fileURLWithPath(NS::String::string(
@@ -221,7 +222,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
 
     // load kernel
     auto [pipeline_desc, pipeline] = _load_kernel_from_library(library.get(), metadata.block_size);
-    LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc());
+    if (pipeline) { LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc()); }
     return pipeline;
 }
 

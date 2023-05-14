@@ -1,4 +1,5 @@
 #pragma clang diagnostic ignored "-Wc++17-extensions"
+#pragma clang diagnostic ignored "-Wunused-variable"
 
 #include <metal_stdlib>
 
