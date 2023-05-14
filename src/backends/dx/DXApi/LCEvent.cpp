@@ -26,8 +26,7 @@ void LCEvent::Signal(CommandQueue *queue) const {
 }
 void LCEvent::Signal(DStorageCommandQueue *queue) const {
     std::lock_guard lck(eventMtx);
-    queue->Queue()->EnqueueSignal(fence.Get(), ++fenceIndex);
-    queue->Queue()->Submit();
+    queue->Signal(fence.Get(), ++fenceIndex);
     queue->AddEvent(this);
 }
 void LCEvent::Wait(CommandQueue *queue) const {

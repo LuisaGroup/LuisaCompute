@@ -149,7 +149,7 @@ ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
     ResourceCreationInfo r;
     auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice};
     r.handle = reinterpret_cast<uint64_t>(ptr);
-    r.native_handle = ptr->Queue();
+    r.native_handle = nullptr;
     return r;
 }
 DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {

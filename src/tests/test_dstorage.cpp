@@ -73,22 +73,10 @@ int main(int argc, char *argv[]) {
             pixels[pixel_pos * 4 + 3] = 255;
         }
     {
-        FILE *file = fopen("test_dstorage_texture.bytes", "wb");
-        if (file) {
-            fwrite(pixels.data(), pixels.size_bytes(), 1, file);
-            fclose(file);
-        }
-    }
-    {
-        DStorageFile file = dstorage_ext->open_file("test_dstorage_texture.bytes");
-        if (!file) {
-            LUISA_WARNING("Texture file not found.");
-            exit(1);
-        }
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
         luisa::vector<uint8_t> out_pixels(width * height * 4u);
         Clock clock{};
-        dstorage_stream << file.read_to(img) << synchronize();
+        dstorage_stream << DStorageMemory::read_to(img, pixels.data()) << synchronize();
         double time = clock.toc();
         LUISA_INFO("Texture read time: {} ms", time);
         compute_stream << img.copy_to(out_pixels.data()) << synchronize();
@@ -100,24 +88,14 @@ int main(int argc, char *argv[]) {
     Clock compress_clock{};
     dstorage_ext->gdeflate_compress(luisa::span{reinterpret_cast<std::byte const *>(pixels.data()), pixels.size()}, DStorageExt::CompressQuality::Best, compressed_pixels);
     double compress_time = compress_clock.toc();
-    LUISA_INFO("Texture compress time: {} ms", compress_time);
+    LUISA_INFO("Texture compress time: {} ms, before compress size: {} bytes, after compress size: {} bytes", compress_time, pixels.size_bytes(), compressed_pixels.size_bytes());
     {
-        FILE *file = fopen("test_dstorage_texture_compressed.bytes", "wb");
-        if (file) {
-            fwrite(compressed_pixels.data(), compressed_pixels.size_bytes(), 1, file);
-            fclose(file);
-        }
-    }
-    {
-        DStorageFile file = dstorage_ext->open_file("test_dstorage_texture_compressed.bytes");
-        if (!file) {
-            LUISA_WARNING("Texture file not found.");
-            exit(1);
-        }
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
         luisa::vector<uint8_t> out_pixels(width * height * 4u);
         Clock decompress_clock{};
-        dstorage_stream << file.decompress_to(img, /*uncompressed origin pixel size*/ pixels.size_bytes()) << synchronize();
+        dstorage_stream
+            << DStorageMemory::decompress_to(img, compressed_pixels.data())
+            << synchronize();
         double decompress_time = decompress_clock.toc();
         LUISA_INFO("Texture decompress time: {} ms", decompress_time);
         compute_stream << img.copy_to(out_pixels.data()) << synchronize();

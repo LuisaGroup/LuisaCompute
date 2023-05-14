@@ -19,7 +19,9 @@ class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase 
         std::pair<vstd::vector<vstd::function<void()>>, uint64>,
         std::pair<LCEvent const *, uint64>>;
     Device *device;
+    IDStorageFactory *factory;
     std::mutex mtx;
+    std::mutex exec_mtx;
     std::thread thd;
     std::condition_variable waitCv;
     std::condition_variable mainCv;
@@ -27,14 +29,15 @@ class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase 
     std::atomic_uint64_t lastFrame = 0;
     bool enabled = true;
     ComPtr<ID3D12Fence> cmdFence;
-    ComPtr<IDStorageQueue> queue;
+    ComPtr<IDStorageQueue> fileQueue;
+    ComPtr<IDStorageQueue> memQueue;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
 
 public:
-    auto Queue() const { return queue.Get(); }
+    void Signal(ID3D12Fence *fence, UINT64 value);
     uint64 LastFrame() const { return lastFrame; }
-    DStorageCommandQueue(IDStorageFactory* factory, Device *device);
+    DStorageCommandQueue(IDStorageFactory *factory, Device *device);
     void AddEvent(LCEvent const *evt);
     uint64 Execute(luisa::compute::CommandList &&list);
     void Complete(uint64 fence);
