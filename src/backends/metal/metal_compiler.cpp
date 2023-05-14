@@ -3,7 +3,11 @@
 //
 
 #include <fstream>
+
+#include <core/clock.h>
 #include <backends/metal/metal_compiler.h>
+
+#define LUISA_METAL_BACKEND_DUMP_SOURCE 1
 
 namespace luisa::compute::metal {
 
@@ -13,14 +17,15 @@ namespace detail {
     std::error_code ec;
     auto temp_dir = std::filesystem::temp_directory_path(ec);
     std::filesystem::path temp_path;
-    if (!ec) {
+    if (ec) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to find temporary directory: {}.",
             ec.message());
     } else {
         auto uuid = CFUUIDCreate(nullptr);
         auto uuid_string = CFUUIDCreateString(nullptr, uuid);
-        temp_path = temp_dir / CFStringGetCStringPtr(uuid_string, kCFStringEncodingUTF8);
+        temp_path = std::filesystem::absolute(
+            temp_dir / CFStringGetCStringPtr(uuid_string, kCFStringEncodingUTF8));
         CFRelease(uuid);
         CFRelease(uuid_string);
     }
@@ -115,9 +120,10 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
 }
 
 NS::SharedPtr<MTL::ComputePipelineState>
-MetalCompiler::_load_disk_archive(
-    luisa::string_view name, bool is_aot,
-    MetalShaderMetadata &metadata) const noexcept {
+MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
+                                  MetalShaderMetadata &metadata) const noexcept {
+
+    Clock clk;
 
     // open file stream
     auto io = _device->io();
@@ -180,11 +186,31 @@ MetalCompiler::_load_disk_archive(
     metadata.argument_usages = std::move(file_metadata->argument_usages);
 
     // load library
-    auto library_data = luisa::span{buffer}.subspan(sizeof(uint64_t));
-    auto dispatch_data = dispatch_data_create(library_data.data(), library_data.size(), nullptr, nullptr);
+    auto library_data = luisa::span{buffer}.subspan(sizeof(size_t) + metadata_size);
+    auto temp_file_path = detail::temp_unique_file_path();
+    if (temp_file_path.empty()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to load Metal shader "
+            "archive for '{}': failed to create temporary file.",
+            name);
+        return {};
+    }
+    std::ofstream library_dump{temp_file_path, std::ios::binary};
+    if (!library_dump.is_open()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to load Metal shader "
+            "archive for '{}': failed to open temporary file.",
+            name);
+        return {};
+    }
+    library_dump.write(reinterpret_cast<const char *>(library_data.data()), library_data.size());
+    library_dump.close();
+
+    auto url = NS::URL::fileURLWithPath(NS::String::string(
+        temp_file_path.string().c_str(), NS::UTF8StringEncoding));
     NS::Error *error = nullptr;
-    auto library = NS::TransferPtr(_device->handle()->newLibrary(dispatch_data, &error));
-    dispatch_release(dispatch_data);
+    auto library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
+    std::filesystem::remove(temp_file_path);
     if (error != nullptr) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to load Metal shader "
@@ -195,6 +221,7 @@ MetalCompiler::_load_disk_archive(
 
     // load kernel
     auto [pipeline_desc, pipeline] = _load_kernel_from_library(library.get(), metadata.block_size);
+    LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc());
     return pipeline;
 }
 
@@ -263,6 +290,16 @@ NS::SharedPtr<MTL::ComputePipelineState> MetalCompiler::compile(
                        name);
         }
 
+#if LUISA_METAL_BACKEND_DUMP_SOURCE
+        auto src_dump_name = luisa::format("{}.metal", name);
+        luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
+        if (is_aot) {
+            _device->io()->write_shader_bytecode(src_dump_name, src_dump);
+        } else if (option.enable_cache) {
+            _device->io()->write_shader_cache(src_dump_name, src_dump);
+        }
+#endif
+
         // no cache found, compile from source
         auto source = NS::String::alloc()->init(const_cast<char *>(src.data()),
                                                 src.size(), NS::UTF8StringEncoding, false);
@@ -270,6 +307,9 @@ NS::SharedPtr<MTL::ComputePipelineState> MetalCompiler::compile(
         options->setFastMathEnabled(option.enable_fast_math);
         options->setLanguageVersion(MTL::LanguageVersion3_0);
         options->setLibraryType(MTL::LibraryTypeExecutable);
+        options->setMaxTotalThreadsPerThreadgroup(metadata.block_size.x *
+                                                  metadata.block_size.y *
+                                                  metadata.block_size.z);
         NS::Error *error;
         auto library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
         source->release();

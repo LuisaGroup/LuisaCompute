@@ -1,3 +1,5 @@
+#pragma clang diagnostic ignored "-Wc++17-extensions"
+
 #include <metal_stdlib>
 
 using namespace metal;
@@ -220,7 +222,7 @@ template<typename T, access a, typename Value>
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-#define LC_AS_ATOMIC(add_space, type)                                             \
+#define LC_AS_ATOMIC(addr_space, type)                                            \
     [[gnu::always_inline, nodiscard]] inline auto as_atomic(addr_space type &a) { \
         return reinterpret_cast<addr_space atomic_##type *>(&a);                  \
     }
@@ -240,7 +242,7 @@ template<typename A, typename T>
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit(device atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
+        if (auto old = atomic_load_explicit(static_cast<device volatile atomic_float *>(a), memory_order_relaxed);
             old <= val ||
             atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
@@ -250,9 +252,13 @@ template<typename A, typename T>
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit(threadgroup atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
+        if (auto old = *reinterpret_cast<threadgroup volatile float *>(a);
             old <= val ||
-            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
+            atomic_compare_exchange_explicit(
+                reinterpret_cast<threadgroup atomic_int *>(a),
+                as_type<int>(old),
+                as_type<int>(val),
+                memory_order_relaxed)) {
             return old;
         }
     }
@@ -260,7 +266,7 @@ template<typename A, typename T>
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit(device atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
+        if (auto old = atomic_load_explicit(static_cast<device volatile atomic_float *>(a), memory_order_relaxed);
             old >= val ||
             atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
@@ -270,9 +276,13 @@ template<typename A, typename T>
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit(threadgroup atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
+        if (auto old = *reinterpret_cast<threadgroup volatile float *>(a);
             old >= val ||
-            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
+            atomic_compare_exchange_explicit(
+                reinterpret_cast<threadgroup atomic_int *>(a),
+                as_type<int>(old),
+                as_type<int>(val),
+                memory_order_relaxed)) {
             return old;
         }
     }
@@ -332,8 +342,12 @@ struct alignas(16) BindlessItem {
     ulong buffer_size : 48;
     uint sampler2d : 8;
     uint sampler3d : 8;
-    metal::texture2d<float> handle2d;
-    metal::texture3d<float> handle3d;
+    metal::texture2d<float> tex2d;
+    metal::texture3d<float> tex3d;
+};
+
+struct LCBindlessArray {
+    device const BindlessItem *items;
 };
 
 [[nodiscard, gnu::always_inline]] constexpr sampler get_sampler(uint code) {
@@ -358,76 +372,76 @@ struct alignas(16) BindlessItem {
     return samplers[code];
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
-    device const auto &t = heap[index];
-    return t.handle2d.sample(get_sampler(t.sampler2d), uv);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(LCBindlessArray array, uint index, float2 uv) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(device const BindlessItem *heap, uint index, float3 uvw) {
-    device const auto &t = heap[index];
-    return t.handle3d.sample(get_sampler(t.sampler3d), uvw);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(LCBindlessArray array, uint index, float3 uvw) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(device const BindlessItem *heap, uint index, float2 uv, float lod) {
-    device const auto &t = heap[index];
-    return t.handle2d.sample(get_sampler(t.sampler2d), uv, level(lod));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(LCBindlessArray array, uint index, float2 uv, float lod) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv, level(lod));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(device const BindlessItem *heap, uint index, float3 uvw, float lod) {
-    device const auto &t = heap[index];
-    return t.handle3d.sample(get_sampler(t.sampler3d), uvw, level(lod));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(LCBindlessArray array, uint index, float3 uvw, float lod) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw, level(lod));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(device const BindlessItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
-    device const auto &t = heap[index];
-    return t.handle2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(LCBindlessArray array, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(device const BindlessItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
-    device const auto &t = heap[index];
-    return t.handle3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(LCBindlessArray array, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(device const BindlessItem *heap, uint i) {
-    return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(LCBindlessArray array, uint i) {
+    return uint2(array.items[i].tex2d.get_width(), array.items[i].tex2d.get_height());
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(device const BindlessItem *heap, uint i) {
-    return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(LCBindlessArray array, uint i) {
+    return uint3(array.items[i].tex3d.get_width(), array.items[i].tex3d.get_height(), array.items[i].tex3d.get_depth());
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(device const BindlessItem *heap, uint i, uint lv) {
-    return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(LCBindlessArray array, uint i, uint lv) {
+    return uint2(array.items[i].tex2d.get_width(lv), array.items[i].tex2d.get_height(lv));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(device const BindlessItem *heap, uint i, uint lv) {
-    return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(LCBindlessArray array, uint i, uint lv) {
+    return uint3(array.items[i].tex3d.get_width(lv), array.items[i].tex3d.get_height(lv), array.items[i].tex3d.get_depth(lv));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(device const BindlessItem *heap, uint i, uint2 uv) {
-    return heap[i].handle2d.read(uv);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(LCBindlessArray array, uint i, uint2 uv) {
+    return array.items[i].tex2d.read(uv);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(device const BindlessItem *heap, uint i, uint3 uvw) {
-    return heap[i].handle3d.read(uvw);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(LCBindlessArray array, uint i, uint3 uvw) {
+    return array.items[i].tex3d.read(uvw);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(device const BindlessItem *heap, uint i, uint2 uv, uint lv) {
-    return heap[i].handle2d.read(uv, lv);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(LCBindlessArray array, uint i, uint2 uv, uint lv) {
+    return array.items[i].tex2d.read(uv, lv);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(device const BindlessItem *heap, uint i, uint3 uvw, uint lv) {
-    return heap[i].handle3d.read(uvw, lv);
-}
-
-template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(device const BindlessItem *heap, uint buffer_index) {
-    return heap[buffer_index].size / sizeof(T);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(LCBindlessArray array, uint i, uint3 uvw, uint lv) {
+    return array.items[i].tex3d.read(uvw, lv);
 }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
-    return static_cast<device const T *>(heap[buffer_index].buffer)[i];
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(LCBindlessArray array, uint buffer_index) {
+    return array.items[buffer_index].buffer_size / sizeof(T);
+}
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(LCBindlessArray array, uint buffer_index, uint i) {
+    return static_cast<device const T *>(array.items[buffer_index].buffer)[i];
 }
 
 using namespace metal::raytracing;
