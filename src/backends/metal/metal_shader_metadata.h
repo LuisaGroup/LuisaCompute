@@ -27,7 +27,7 @@ struct MetalShaderMetadata {
     }
 };
 
-[[nodiscard]] luisa::string serialize_cuda_shader_metadata(const MetalShaderMetadata &metadata) noexcept;
-[[nodiscard]] luisa::optional<MetalShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept;
+[[nodiscard]] luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadata) noexcept;
+[[nodiscard]] luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::string_view metadata) noexcept;
 
 }// namespace luisa::compute::metal

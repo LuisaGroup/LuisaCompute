@@ -10,7 +10,7 @@
 
 namespace luisa::compute::metal {
 
-luisa::string serialize_cuda_shader_metadata(const MetalShaderMetadata &metadata) noexcept {
+luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadata) noexcept {
     luisa::string result;
     result.append(luisa::format("CHECKSUM {:016x} ", metadata.checksum));
     result.append(luisa::format("BLOCK_SIZE {} {} {} ", metadata.block_size.x, metadata.block_size.y, metadata.block_size.z));
@@ -28,7 +28,7 @@ luisa::string serialize_cuda_shader_metadata(const MetalShaderMetadata &metadata
     return result;
 }
 
-luisa::optional<MetalShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept {
+luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::string_view metadata) noexcept {
 
     auto read_token = [&metadata] {
         // skip blanks

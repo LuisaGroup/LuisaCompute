@@ -9,6 +9,8 @@
 
 namespace luisa::compute::metal {
 
+class MetalCommandEncoder;
+
 class MetalShader {
 
 public:
