@@ -55,6 +55,8 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: "Setup LLVM"
+        run: brew install llvm
       - name: "Setup Python"
         uses: actions/setup-python@v4
         with:
@@ -67,6 +69,9 @@ jobs:
           vulkan-use-cache: true
       - name: "Build"
         run: |
+          export PATH="/usr/local/opt/llvm/bin:$PATH"
+          export CC=clang
+          export CXX=clang++
           python -m pip install -U pip scikit-build-core
           python -m pip wheel . -w dist
       - name: "Upload Wheels"
