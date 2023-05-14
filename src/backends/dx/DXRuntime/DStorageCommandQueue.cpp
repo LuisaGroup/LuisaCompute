@@ -7,36 +7,43 @@
 namespace lc::dx {
 void DStorageCommandQueue::ExecuteThread() {
     while (enabled) {
-        auto ExecuteAllocator = [&](auto &b) {
-            device->WaitFence(cmdFence.Get(), b);
-            {
-                std::lock_guard lck(mtx);
-                executedFrame = b;
+        uint64_t fence;
+        bool wakeupThread;
+        auto ExecuteAllocator = [&](HANDLE b) {
+            WaitForSingleObject(b, INFINITE);
+            CloseHandle(b);
+            if (wakeupThread) {
+                {
+                    std::lock_guard lck(mtx);
+                    executedFrame = fence;
+                }
+                mainCv.notify_all();
             }
-            mainCv.notify_all();
         };
         auto ExecuteCallbacks = [&](auto &vec) {
-            for (auto &&i : vec.first) {
+            for (auto &&i : vec) {
                 i();
             }
-            {
-                std::lock_guard lck(mtx);
-                executedFrame = vec.second;
+            if (wakeupThread) {
+                {
+                    std::lock_guard lck(mtx);
+                    executedFrame = fence;
+                }
+                mainCv.notify_all();
             }
-            mainCv.notify_all();
         };
-        auto ExecuteEvent = [&](auto &pair) {
-            auto evt = pair.first;
-            auto tarFrame = pair.second;
-            device->WaitFence(evt->fence.Get(), tarFrame);
+        auto ExecuteEvent = [&](auto &evt) {
+            device->WaitFence(evt->fence.Get(), fence);
             {
                 std::lock_guard lck(evt->eventMtx);
-                evt->finishedEvent = std::max(tarFrame, evt->finishedEvent);
+                evt->finishedEvent = std::max(fence, evt->finishedEvent);
             }
             evt->cv.notify_all();
         };
         while (auto b = executedAllocators.pop()) {
-            b->multi_visit(
+            fence = b->fence;
+            wakeupThread = b->wakeupThread;
+            b->evt.multi_visit(
                 ExecuteAllocator,
                 ExecuteCallbacks,
                 ExecuteEvent);
@@ -48,7 +55,7 @@ void DStorageCommandQueue::ExecuteThread() {
     }
 }
 void DStorageCommandQueue::AddEvent(LCEvent const *evt) {
-    executedAllocators.push(evt, evt->fenceIndex);
+    executedAllocators.push(evt, evt->fenceIndex, true);
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();
@@ -57,6 +64,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
     size_t curFrame;
     bool memQueueUsed = false;
     bool fileQueueUsed = false;
+    vstd::optional<HANDLE> eventHandle;
     {
         std::lock_guard lck{exec_mtx};
         for (auto &&i : list.commands()) {
@@ -132,23 +140,25 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 cmd->enqueue_cmd());
             queue->EnqueueRequest(&request);
         }
-
         if (fileQueueUsed) {
-            curFrame = ++lastFrame;
-            fileQueue->EnqueueSignal(cmdFence.Get(), curFrame);
+            eventHandle.create(CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS));
+            fileQueue->EnqueueSetEvent(*eventHandle);
             fileQueue->Submit();
         }
         if (memQueueUsed) {
-            curFrame = ++lastFrame;
-            memQueue->EnqueueSignal(cmdFence.Get(), curFrame);
+            eventHandle.create(CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS));
+            memQueue->EnqueueSetEvent(*eventHandle);
             memQueue->Submit();
         }
     }
-    if (fileQueueUsed || memQueueUsed) {
-        executedAllocators.push(curFrame);
-    }
+    bool pushFunc = !list.callbacks().empty();
     curFrame = ++lastFrame;
-    executedAllocators.push(std::move(list.steal_callbacks()), curFrame);
+    if (eventHandle) {
+        executedAllocators.push(*eventHandle, curFrame, !pushFunc);
+    }
+    if (pushFunc) {
+        executedAllocators.push(std::move(list.steal_callbacks()), curFrame, true);
+    }
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();
@@ -171,10 +181,6 @@ DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *de
       factory{factory},
       CmdQueueBase(CmdQueueTag::DStorage),
       thd([this] { ExecuteThread(); }) {
-    ThrowIfFailed(device->device->CreateFence(
-        0,
-        D3D12_FENCE_FLAG_NONE,
-        IID_PPV_ARGS(&cmdFence)));
 }
 void DStorageCommandQueue::Signal(ID3D12Fence *fence, UINT64 value) {
     std::lock_guard lck{exec_mtx};

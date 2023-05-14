@@ -14,10 +14,21 @@ public:
     DStorageFileImpl(ComPtr<IDStorageFile> &&file, size_t size_bytes) : file{std::move(file)}, size_bytes{size_bytes} {}
 };
 class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase {
-    using CallbackEvent = vstd::variant<
-        uint64,
-        std::pair<vstd::vector<vstd::function<void()>>, uint64>,
-        std::pair<LCEvent const *, uint64>>;
+    struct CallbackEvent {
+        using Variant = vstd::variant<
+            HANDLE,
+            vstd::vector<vstd::function<void()>>,
+            LCEvent const *>;
+        Variant evt;
+        uint64_t fence;
+        bool wakeupThread;
+        template<typename Arg>
+            requires(std::is_constructible_v<Variant, Arg &&>)
+        CallbackEvent(Arg &&arg,
+                      uint64_t fence,
+                      bool wakeupThread)
+            : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
+    };
     Device *device;
     IDStorageFactory *factory;
     std::mutex mtx;
@@ -28,9 +39,8 @@ class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase 
     uint64 executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     bool enabled = true;
-    ComPtr<ID3D12Fence> cmdFence;
-    ComPtr<IDStorageQueue> fileQueue;
-    ComPtr<IDStorageQueue> memQueue;
+    ComPtr<IDStorageQueue2> fileQueue;
+    ComPtr<IDStorageQueue2> memQueue;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
 
