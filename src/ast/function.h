@@ -23,6 +23,7 @@ class Expression;
  * 
  */
 class LC_AST_API Function {
+
 public:
     /// Function types
     enum struct Tag : uint {

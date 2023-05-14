@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2023/4/20.
 //
 
+#include <core/logging.h>
+#include <backends/metal/metal_command_encoder.h>
 #include <backends/metal/metal_primitive.h>
 
 namespace luisa::compute::metal {

@@ -9,6 +9,7 @@
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_accel.h>
 #include <backends/metal/metal_mesh.h>
+#include <backends/metal/metal_shader.h>
 #include <backends/metal/metal_procedural_primitive.h>
 #include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_command_encoder.h>
@@ -143,6 +144,8 @@ void MetalCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
     _prepare_command_buffer();
+    auto shader = reinterpret_cast<const MetalShader *>(command->handle());
+    shader->launch(*this, command);
 }
 
 void MetalCommandEncoder::visit(TextureUploadCommand *command) noexcept {

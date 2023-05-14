@@ -27,6 +27,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_bindless_array.cpp metal_bindless_array.h
             metal_swapchain.cpp metal_swapchain.h metal_swapchain.mm
             metal_command_encoder.cpp metal_command_encoder.h
+            metal_shader.cpp metal_shader.h
+            metal_shader_metadata.cpp metal_shader_metadata.h
             metal_stage_buffer_pool.cpp metal_stage_buffer_pool.h
             metal_callback_context.cpp metal_callback_context.h
             metal_primitive.cpp metal_primitive.h

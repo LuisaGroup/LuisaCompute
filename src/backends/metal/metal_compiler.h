@@ -7,6 +7,7 @@
 #include <core/stl/lru_cache.h>
 #include <runtime/rhi/resource.h>
 #include <backends/metal/metal_api.h>
+#include <backends/metal/metal_shader_metadata.h>
 
 namespace luisa::compute::metal {
 

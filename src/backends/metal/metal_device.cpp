@@ -20,6 +20,7 @@
 #include <backends/metal/metal_accel.h>
 #include <backends/metal/metal_mesh.h>
 #include <backends/metal/metal_procedural_primitive.h>
+#include <backends/metal/metal_shader.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
@@ -334,12 +335,14 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
 }
 
 Usage MetalDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
-    return Usage::NONE;
+    auto shader = reinterpret_cast<MetalShader *>(handle);
+    return shader->argument_usage(index);
 }
 
 void MetalDevice::destroy_shader(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        // TODO
+        auto shader = reinterpret_cast<MetalShader *>(handle);
+        luisa::delete_with_allocator(shader);
     });
 }
 
@@ -489,7 +492,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 event->set_name(name);
                 break;
             }
-            case Resource::Tag::SHADER: break;
+            case Resource::Tag::SHADER: {
+                auto shader = reinterpret_cast<MetalShader *>(resource_handle);
+                shader->set_name(name);
+                break;
+            }
             case Resource::Tag::RASTER_SHADER: break;
             case Resource::Tag::SWAP_CHAIN: {
                 auto swapchain = reinterpret_cast<MetalSwapchain *>(resource_handle);
@@ -497,6 +504,7 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 break;
             }
             case Resource::Tag::DEPTH_BUFFER: break;
+            case Resource::Tag::DSTORAGE_FILE: break;
         }
     });
 }
