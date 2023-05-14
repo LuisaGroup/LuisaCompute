@@ -699,7 +699,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
         return x;
     };
 
-    auto apply = []<typename T>(const ir::Type *ty, auto &&fn) noexcept -> T {
+    auto apply = []<typename F>(const ir::Type *ty, const F &fn) noexcept {
         auto type = _convert_type(ty);
         switch (ty->tag) {
             case ir::Type::Tag::Primitive: {
@@ -783,7 +783,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     return _ctx->function_builder->literal(type, U(0));
                 }
             };
-            return apply.operator()<const LiteralExpr *>(type, build_zero_with_type);
+            return apply(type, build_zero_with_type);
         }
         case ir::Const::Tag::One: {
             auto type = const_.one._0.get();
@@ -794,7 +794,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     return _ctx->function_builder->literal(type, U(1));
                 }
             };
-            return apply.operator()<const LiteralExpr *>(type, build_one_with_type);
+            return apply(type, build_one_with_type);
         }
         case ir::Const::Tag::Bool:
             return _ctx->function_builder->literal(Type::from("bool"), const_.bool_._0);
@@ -817,7 +817,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     auto build_literal_with_type = [&]<typename U>(const Type *type) {
                         return _ctx->function_builder->literal(type, decode.operator()<U>(data.ptr));
                     };
-                    return apply.operator()<const LiteralExpr *>(type, build_literal_with_type);
+                    return apply(type, build_literal_with_type);
                 }
                 case ir::Type::Tag::Array: {
                     auto get_payload = [data]<typename T>() noexcept {
@@ -827,7 +827,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     auto build_constant_with_type = [&]<typename U>(const Type *type) {
                         return _ctx->function_builder->constant(type, ConstantData::create(get_payload.operator()<U>()));
                     };
-                    return apply.operator()<const ConstantExpr *>(elem_type, build_constant_with_type);
+                    return apply(elem_type, build_constant_with_type);
                 }
                 default: LUISA_ERROR_WITH_LOCATION("Invalid array type.");
             }
