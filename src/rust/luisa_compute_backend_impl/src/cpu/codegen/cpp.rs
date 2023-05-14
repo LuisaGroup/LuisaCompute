@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     ffi::CString,
 };
@@ -17,12 +18,12 @@ use super::sha256;
 use super::decode_const_data;
 use std::fmt::Write;
 
-pub(crate) struct TypeGen {
+pub(crate) struct TypeGenInner {
     cache: HashMap<CArc<Type>, String>,
     struct_typedefs: String,
 }
 
-impl TypeGen {
+impl TypeGenInner {
     pub(crate) fn new() -> Self {
         Self {
             cache: HashMap::new(),
@@ -149,7 +150,23 @@ impl TypeGen {
         }
     }
 }
+struct TypeGen {
+    inner: RefCell<TypeGenInner>,
+}
 
+impl TypeGen {
+    fn new() -> Self {
+        Self {
+            inner: RefCell::new(TypeGenInner::new()),
+        }
+    }
+    fn gen_c_type(&self, t: &CArc<Type>) -> String {
+        self.inner.borrow_mut().to_c_type(t)
+    }
+    fn generated(&self) -> String {
+        self.inner.borrow().struct_typedefs.clone()
+    }
+}
 pub struct PhiCollector {
     phis: IndexSet<NodeRef>,
     phis_per_block: IndexMap<*const BasicBlock, Vec<NodeRef>>,
@@ -216,39 +233,40 @@ impl PhiCollector {
         }
     }
 }
-
-pub struct GenericCppCodeGen {
-    type_gen: TypeGen,
-    node_to_var: HashMap<NodeRef, String>,
-    body: String,
-    fwd_defs: String,
+struct GlobalEmitter {
+    message: Vec<String>,
+    global_vars: HashMap<NodeRef, String>,
+    generated_callables: HashMap<u64, String>,
+    generated_callable_sources: HashMap<String, String>,
     captures: IndexMap<NodeRef, usize>,
     args: IndexMap<NodeRef, usize>,
     cpu_custom_ops: IndexMap<usize, usize>,
+}
+struct FunctionEmitter<'a> {
+    type_gen: &'a TypeGen,
+    node_to_var: HashMap<NodeRef, String>,
+    body: String,
+    fwd_defs: String,
     phis: IndexSet<NodeRef>,
     phis_per_block: IndexMap<*const BasicBlock, Vec<NodeRef>>,
-    generated_globals: HashSet<String>,
     indent: usize,
     visited: HashSet<NodeRef>,
-    message: Vec<String>,
+    globals: &'a mut GlobalEmitter,
+    // message: Vec<String>,
 }
 
-impl GenericCppCodeGen {
-    pub fn new() -> Self {
+impl<'a> FunctionEmitter<'a> {
+    fn new(globals: &'a mut GlobalEmitter, type_gen: &'a TypeGen) -> Self {
         Self {
-            type_gen: TypeGen::new(),
+            type_gen,
             node_to_var: HashMap::new(),
             body: String::new(),
             fwd_defs: String::new(),
-            captures: IndexMap::new(),
-            args: IndexMap::new(),
             phis: IndexSet::new(),
             phis_per_block: IndexMap::new(),
-            cpu_custom_ops: IndexMap::new(),
-            generated_globals: HashSet::new(),
             indent: 1,
             visited: HashSet::new(),
-            message: vec![],
+            globals,
         }
     }
     fn write_ident(&mut self) {
@@ -306,6 +324,90 @@ impl GenericCppCodeGen {
             Type::Void | Type::Primitive(_) => unreachable!(),
             _ => todo!(),
         }
+    }
+    fn gen_callable(
+        &mut self,
+        var: &String,
+        node_ty_s: &String,
+        f: &Func,
+        args_v: &Vec<String>,
+    ) -> bool {
+        let f = match f {
+            Func::Callable(f) => f,
+            _ => return false,
+        };
+        let fid = CArc::as_ptr(&f.0) as u64;
+        if !self.globals.generated_callables.contains_key(&fid) {
+            let fname = format!("callable_{}", self.globals.generated_callables.len());
+            let mut callable_emitter = FunctionEmitter::new(&mut self.globals, &self.type_gen);
+
+            let mut params = vec![];
+            for (i, arg) in f.0.args.iter().enumerate() {
+                let mut param = String::new();
+                let var = format!("ca_{}", i);
+                match arg.get().instruction.as_ref() {
+                    Instruction::Accel => {
+                        write!(&mut param, "const Accel& {}", var).unwrap();
+                    }
+                    Instruction::Bindless => {
+                        write!(&mut param, "const BindlessArray& {}", var).unwrap();
+                    }
+                    Instruction::Buffer => {
+                        write!(&mut param, "const BufferView& {}", var).unwrap();
+                    }
+                    Instruction::Texture2D => {
+                        write!(&mut param, "const Texture2D& {}", var).unwrap();
+                    }
+                    Instruction::Texture3D => {
+                        write!(&mut param, "const Texture3D& {}", var).unwrap();
+                    }
+                    Instruction::Argument { by_value } => {
+                        let ty = self.type_gen.gen_c_type(arg.type_());
+                        if *by_value {
+                            write!(&mut param, "const {}& {}", ty, var).unwrap();
+                        } else {
+                            write!(&mut param, "{}& {}", ty, var).unwrap();
+                        }
+                    }
+                    _ => {
+                        unreachable!()
+                    }
+                }
+                callable_emitter
+                    .node_to_var
+                    .insert(arg.clone(), var.clone());
+                params.push(param);
+            }
+            callable_emitter.gen_callable_module(&f.0);
+            callable_emitter.indent += self.indent;
+
+            let source = format!("[=]({}){{\n{};}}", params.join(","), callable_emitter.body);
+            if let Some(fname) = self.globals.generated_callable_sources.get(&source) {
+                self.globals.generated_callables.insert(fid, fname.clone());
+            } else {
+                self.globals.generated_callables.insert(fid, fname.clone());
+                self.globals
+                    .generated_callable_sources
+                    .insert(source.clone(), fname.clone());
+                writeln!(&mut self.body, "const auto {} = {};\n", fname, source).unwrap();
+                self.write_ident();
+            }
+        }
+        let fname = &self.globals.generated_callables[&fid];
+        if var != "" {
+            writeln!(
+                &mut self.body,
+                "const {} {} = {}({});",
+                node_ty_s,
+                var,
+                fname,
+                args_v.join(", ")
+            )
+            .unwrap();
+        } else {
+            writeln!(&mut self.body, "{}({});", fname, args_v.join(", ")).unwrap();
+        }
+        true
     }
     fn gen_binop(
         &mut self,
@@ -444,7 +546,7 @@ impl GenericCppCodeGen {
     ) -> bool {
         match f {
             Func::BufferRead => {
-                let buffer_ty = self.type_gen.to_c_type(args[0].type_());
+                let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
                     "const auto {1} = lc_buffer_read<{0}>(k_args, {2}, {3});",
@@ -454,7 +556,7 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BufferWrite => {
-                let buffer_ty = self.type_gen.to_c_type(args[0].type_());
+                let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
                     "lc_buffer_write<{}>(k_args, {}, {}, {});",
@@ -464,7 +566,7 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BufferSize => {
-                let buffer_ty = self.type_gen.to_c_type(args[0].type_());
+                let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
                     "const {} {} = lc_buffer_size<{}>(k_args, {});",
@@ -483,7 +585,7 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BindlessBufferSize(t) => {
-                let buffer_ty = self.type_gen.to_c_type(t);
+                let buffer_ty = self.type_gen.gen_c_type(t);
                 writeln!(
                     &mut self.body,
                     "const {} {} = lc_bindless_buffer_size<{}>(k_args, {}, {});",
@@ -683,16 +785,22 @@ impl GenericCppCodeGen {
                 true
             }
             Func::Assert(msg) => {
-                let msg = CString::from_vec_with_nul(msg.to_vec()).unwrap().into_string().unwrap();
-                let id = self.message.len();
-                self.message.push(msg);
+                let msg = CString::from_vec_with_nul(msg.to_vec())
+                    .unwrap()
+                    .into_string()
+                    .unwrap();
+                let id = self.globals.message.len();
+                self.globals.message.push(msg);
                 writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
                 true
             }
             Func::Unreachable(msg) => {
-                let msg = CString::from_vec_with_nul(msg.to_vec()).unwrap().into_string().unwrap();
-                let id = self.message.len();
-                self.message.push(msg);
+                let msg = CString::from_vec_with_nul(msg.to_vec())
+                    .unwrap()
+                    .into_string()
+                    .unwrap();
+                let id = self.globals.message.len();
+                self.globals.message.push(msg);
                 if !is_type_equal(node_ty, &Type::void()) {
                     writeln!(&mut self.body, "{} {};", node_ty_s, var).unwrap();
                     self.write_ident();
@@ -843,7 +951,7 @@ impl GenericCppCodeGen {
                 true
             }
             Func::GradientMarker => {
-                let ty = self.type_gen.to_c_type(args.as_ref()[1].type_());
+                let ty = self.type_gen.gen_c_type(args.as_ref()[1].type_());
                 writeln!(
                     self.body,
                     "const {} {}_grad = {};",
@@ -1026,6 +1134,7 @@ impl GenericCppCodeGen {
             }
             Func::CpuCustomOp(op) => {
                 let i = *self
+                    .globals
                     .cpu_custom_ops
                     .get(&(CArc::as_ptr(op) as usize))
                     .unwrap();
@@ -1190,7 +1299,7 @@ impl GenericCppCodeGen {
         self.visited.insert(node);
         let inst = &node.get().instruction;
         let node_ty = node.type_();
-        let node_ty_s = self.type_gen.to_c_type(node_ty);
+        let node_ty_s = self.type_gen.gen_c_type(node_ty);
         match inst.as_ref() {
             Instruction::Buffer => {}
             Instruction::Bindless => {}
@@ -1244,6 +1353,9 @@ impl GenericCppCodeGen {
                         args.as_ref(),
                         &args_v,
                     );
+                }
+                if !done {
+                    done = self.gen_callable(&var, &node_ty_s, f, &args_v);
                 }
                 assert!(done, "{:?} is not implemented", f);
             }
@@ -1359,9 +1471,7 @@ impl GenericCppCodeGen {
                 self.write_ident();
                 writeln!(&mut self.body, "}}").unwrap();
             }
-            Instruction::AdScope {
-                body,
-            } => {
+            Instruction::AdScope { body } => {
                 writeln!(&mut self.body, "/* AdScope */").unwrap();
                 self.gen_block(*body);
                 writeln!(&mut self.body, "/* AdScope End */").unwrap();
@@ -1467,7 +1577,7 @@ impl GenericCppCodeGen {
                 .unwrap();
             }
             Instruction::Uniform => {
-                let ty = self.type_gen.to_c_type(node.type_());
+                let ty = self.type_gen.gen_c_type(node.type_());
                 writeln!(
                     &mut self.fwd_defs,
                     "    const {0}& {1} = *reinterpret_cast<const {0}*>({2}[{3}].uniform._0);",
@@ -1478,11 +1588,11 @@ impl GenericCppCodeGen {
             _ => unreachable!(),
         }
         if is_capture {
-            assert!(!self.captures.contains_key(&node));
-            self.captures.insert(node, index);
+            assert!(!self.globals.captures.contains_key(&node));
+            self.globals.captures.insert(node, index);
         } else {
-            assert!(!self.args.contains_key(&node));
-            self.args.insert(node, index);
+            assert!(!self.globals.args.contains_key(&node));
+            self.globals.args.insert(node, index);
         }
     }
     fn gen_module(&mut self, module: &ir::KernelModule) {
@@ -1500,8 +1610,31 @@ impl GenericCppCodeGen {
         for (i, arg) in module.args.as_ref().iter().enumerate() {
             self.gen_arg(*arg, i, false);
         }
+        assert!(self.globals.global_vars.is_empty());
+        self.globals.global_vars = self.node_to_var.clone();
         for (i, op) in module.cpu_custom_ops.as_ref().iter().enumerate() {
-            self.cpu_custom_ops.insert(CArc::as_ptr(op) as usize, i);
+            self.globals
+                .cpu_custom_ops
+                .insert(CArc::as_ptr(op) as usize, i);
+        }
+        self.gen_block(module.module.entry);
+    }
+    fn gen_callable_module(&mut self, module: &ir::CallableModule) {
+        let mut phi_collector = PhiCollector::new();
+        phi_collector.visit_block(module.module.entry);
+        let PhiCollector {
+            phis_per_block,
+            phis,
+        } = phi_collector;
+        self.phis_per_block = phis_per_block;
+        self.phis = phis;
+        // self.node_to_var = self.globals.global_vars.clone();
+        for (k, v) in &self.globals.global_vars {
+            assert!(!self.node_to_var.contains_key(k));
+            self.node_to_var.insert(k.clone(), v.clone());
+        }
+        for (_, capture) in module.captures.as_ref().iter().enumerate() {
+            assert!(self.globals.captures.contains_key(&capture.node));
         }
         self.gen_block(module.module.entry);
     }
@@ -1514,7 +1647,17 @@ pub struct Generated {
 }
 impl CpuCodeGen {
     pub(crate) fn run(module: &ir::KernelModule) -> Generated {
-        let mut codegen = GenericCppCodeGen::new();
+        let mut globals = GlobalEmitter {
+            message: vec![],
+            generated_callables: HashMap::new(),
+            generated_callable_sources: HashMap::new(),
+            global_vars: HashMap::new(),
+            captures: IndexMap::new(),
+            args: IndexMap::new(),
+            cpu_custom_ops: IndexMap::new(),
+        };
+        let type_gen = TypeGen::new();
+        let mut codegen = FunctionEmitter::new(&mut globals, &type_gen);
         codegen.gen_module(module);
         let defs = r#"using uint8_t = unsigned char;
 using uint16_t = unsigned short;
@@ -1536,13 +1679,13 @@ using size_t = unsigned long long;"#;
                 DEVICE_MATH_SRC,
                 CPU_RESOURCE,
                 CPU_TEXTURE,
-                codegen.type_gen.struct_typedefs,
+                type_gen.generated(),
                 kernel_fn_decl,
                 codegen.fwd_defs,
                 codegen.body,
                 "}",
             ),
-            messages: codegen.message,
+            messages: globals.message,
         }
     }
 }

@@ -111,9 +111,9 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
     match env::var("RUST_BACKTRACE") {
         Ok(v) => {
             if v == "1" {
-                eprintln!("{:?}", std::backtrace::Backtrace::capture());
+                eprintln!("{}", std::backtrace::Backtrace::capture());
             } else if v == "full" {
-                eprintln!("{:?}", std::backtrace::Backtrace::force_capture());
+                eprintln!("{}", std::backtrace::Backtrace::force_capture());
             }
         }
         Err(_) => {

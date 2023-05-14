@@ -106,7 +106,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
             .stdout(Stdio::piped())
             .spawn()
             .expect("clang++ failed to start");
-        {
+        if source_file == "-" {
             let mut stdin = child.stdin.take().expect("failed to open stdin");
             stdin
                 .write_all(source.as_bytes())

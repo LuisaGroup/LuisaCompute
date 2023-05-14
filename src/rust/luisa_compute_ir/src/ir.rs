@@ -1145,10 +1145,10 @@ impl BasicBlock {
         new_bb_start.update(|node| {
             node.prev = new_bb.first;
         });
-        at.update(|at|{
+        at.update(|at| {
             at.next = self.last;
         });
-        self.last.update(|last|{
+        self.last.update(|last| {
             last.prev = at;
         });
         new_bb
@@ -1258,6 +1258,7 @@ impl NodeRef {
     pub fn is_lvalue(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Local { .. } => true,
+            Instruction::Argument { by_value, .. } => !by_value,
             Instruction::Call(f, _) => *f == Func::GetElementPtr,
             _ => false,
         }
@@ -1282,19 +1283,23 @@ pub struct Module {
 }
 
 #[repr(C)]
+#[derive(Debug, Serialize, Clone)]
+pub struct CallableModuleRef(pub CArc<CallableModule>);
+
+#[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct CallableModule {
     pub module: Module,
+    pub ret_type: CArc<Type>,
     pub args: CBoxedSlice<NodeRef>,
     pub captures: CBoxedSlice<Capture>,
+    pub callables: CBoxedSlice<CallableModuleRef>,
     pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
 
-#[repr(C)]
-#[derive(Debug, Serialize, Clone)]
-pub struct CallableModuleRef(pub CArc<CallableModule>);
+
 
 impl PartialEq for CallableModuleRef {
     fn eq(&self, other: &Self) -> bool {

@@ -12,7 +12,7 @@ namespace luisa::compute::ir {
 struct VectorType;
 struct Type;
 using AtomicUsize = std::atomic<size_t>;
-
+struct CallableModuleRef;
 template<typename T>
 struct CArcSharedBlock {
     T* ptr;
