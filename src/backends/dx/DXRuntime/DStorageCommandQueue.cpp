@@ -9,9 +9,11 @@ void DStorageCommandQueue::ExecuteThread() {
     while (enabled) {
         uint64_t fence;
         bool wakeupThread;
-        auto ExecuteAllocator = [&](HANDLE b) {
-            WaitForSingleObject(b, INFINITE);
-            CloseHandle(b);
+        auto ExecuteAllocator = [&](WaitQueueHandle const &b) {
+            for (auto &&i : b.handles) {
+                WaitForSingleObject(i, INFINITE);
+                CloseHandle(i);
+            }
             if (wakeupThread) {
                 {
                     std::lock_guard lck(mtx);
@@ -64,7 +66,10 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
     size_t curFrame;
     bool memQueueUsed = false;
     bool fileQueueUsed = false;
-    vstd::optional<HANDLE> eventHandle;
+    WaitQueueHandle waitQueueHandle;
+    for (auto &&i : waitQueueHandle.handles) {
+        i = nullptr;
+    }
     {
         std::lock_guard lck{exec_mtx};
         for (auto &&i : list.commands()) {
@@ -140,23 +145,19 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 cmd->enqueue_cmd());
             queue->EnqueueRequest(&request);
         }
-        if (fileQueueUsed) {
-            eventHandle.create(CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS));
-            fileQueue->EnqueueSetEvent(*eventHandle);
-            fileQueue->Submit();
-        }
-        if (memQueueUsed) {
-            eventHandle.create(CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS));
-            memQueue->EnqueueSetEvent(*eventHandle);
-            memQueue->Submit();
-        }
+        auto setQueueHandle = [&](auto queue, bool used, auto &handle) {
+            if (!used) return;
+            handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
+            queue->EnqueueSetEvent(handle);
+            queue->Submit();
+        };
+        setQueueHandle(fileQueue, fileQueueUsed, waitQueueHandle.handles[0]);
+        setQueueHandle(memQueue, memQueueUsed, waitQueueHandle.handles[1]);
     }
-    bool pushFunc = !list.callbacks().empty();
+    bool callbackEmpty = list.callbacks().empty();
     curFrame = ++lastFrame;
-    if (eventHandle) {
-        executedAllocators.push(*eventHandle, curFrame, !pushFunc);
-    }
-    if (pushFunc) {
+    executedAllocators.push(waitQueueHandle, curFrame, callbackEmpty);
+    if (!callbackEmpty) {
         executedAllocators.push(std::move(list.steal_callbacks()), curFrame, true);
     }
     mtx.lock();

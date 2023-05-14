@@ -14,9 +14,12 @@ public:
     DStorageFileImpl(ComPtr<IDStorageFile> &&file, size_t size_bytes) : file{std::move(file)}, size_bytes{size_bytes} {}
 };
 class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase {
+    struct WaitQueueHandle {
+        HANDLE handles[2];
+    };
     struct CallbackEvent {
         using Variant = vstd::variant<
-            HANDLE,
+            WaitQueueHandle,
             vstd::vector<vstd::function<void()>>,
             LCEvent const *>;
         Variant evt;
