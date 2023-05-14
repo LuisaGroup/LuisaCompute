@@ -7,7 +7,7 @@ using namespace metal;
 
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 
-template<typename T>
+template<typename T = void>
 [[noreturn, gnu::always_inline]] inline T lc_unreachable() {
     __builtin_unreachable();
 }
