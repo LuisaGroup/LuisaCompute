@@ -42,11 +42,23 @@ namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
-static vstd::string_view HLSLHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
-    return CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
-}
-static vstd::string_view RayTracingHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
-    return CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
+static void AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
+    builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
+    if (ops.uses_raytracing()) {
+        builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
+    }
+    if (ops.test(CallOp::DETERMINANT)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("determinant", internalDataPath);
+    }
+    if (ops.test(CallOp::INVERSE)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
+    }
+    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
+    }
+    if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
+        builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
+    }
 }
 }// namespace detail
 // static thread_local vstd::unique_ptr<CodegenStackData> opt;
@@ -1477,14 +1489,7 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     opt->finalResult = &finalResult;
     finalResult.reserve(65500);
-    finalResult << detail::HLSLHeader(this, internalDataPath);
-    if (kernel.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(this, internalDataPath);
-    }
-    auto builtin_call = kernel.propagated_builtin_callables();
-    if (builtin_call.test(CallOp::DDX) || builtin_call.test(CallOp::DDY)) {
-        finalResult << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
-    }
+    detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
     opt->funcType = CodegenStackData::FuncType::Callable;
@@ -1537,10 +1542,9 @@ CodegenResult CodegenUtility::RasterCodegen(
     vstd::StringBuilder finalResult;
     opt->finalResult = &finalResult;
     finalResult.reserve(65500);
-    finalResult << detail::HLSLHeader(this, internalDataPath);
-    if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(this, internalDataPath);
-    }
+    auto opSet = vertFunc.propagated_builtin_callables();
+    opSet.propagate(pixelFunc.propagated_builtin_callables());
+    detail::AddHeader(opSet, internalDataPath, finalResult, true);
     // Vertex
     codegenData << "struct v2p{\n"sv;
     auto v2pType = vertFunc.return_type();

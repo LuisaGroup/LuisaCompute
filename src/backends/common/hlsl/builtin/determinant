@@ -1,0 +1,48 @@
+float determinant(float2x2 m){
+return m[0][0]*m[1][1]-m[1][0]*m[0][1];
+}
+float determinant(float3x4 m){
+return m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z)-m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z)+m[2].x*(m[0].y*m[1].z-m[1].y*m[0].z);
+}
+float determinant(float4x4 m){
+float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
+float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
+float coef03=m[1].z*m[2].w-m[2].z*m[1].w;
+float coef04=m[2].y*m[3].w-m[3].y*m[2].w;
+float coef06=m[1].y*m[3].w-m[3].y*m[1].w;
+float coef07=m[1].y*m[2].w-m[2].y*m[1].w;
+float coef08=m[2].y*m[3].z-m[3].y*m[2].z;
+float coef10=m[1].y*m[3].z-m[3].y*m[1].z;
+float coef11=m[1].y*m[2].z-m[2].y*m[1].z;
+float coef12=m[2].x*m[3].w-m[3].x*m[2].w;
+float coef14=m[1].x*m[3].w-m[3].x*m[1].w;
+float coef15=m[1].x*m[2].w-m[2].x*m[1].w;
+float coef16=m[2].x*m[3].z-m[3].x*m[2].z;
+float coef18=m[1].x*m[3].z-m[3].x*m[1].z;
+float coef19=m[1].x*m[2].z-m[2].x*m[1].z;
+float coef20=m[2].x*m[3].y-m[3].x*m[2].y;
+float coef22=m[1].x*m[3].y-m[3].x*m[1].y;
+float coef23=m[1].x*m[2].y-m[2].x*m[1].y;
+float4 fac0=float4(coef00,coef00,coef02,coef03);
+float4 fac1=float4(coef04,coef04,coef06,coef07);
+float4 fac2=float4(coef08,coef08,coef10,coef11);
+float4 fac3=float4(coef12,coef12,coef14,coef15);
+float4 fac4=float4(coef16,coef16,coef18,coef19);
+float4 fac5=float4(coef20,coef20,coef22,coef23);
+float4 Vec0=float4(m[1].x,m[0].x,m[0].x,m[0].x);
+float4 Vec1=float4(m[1].y,m[0].y,m[0].y,m[0].y);
+float4 Vec2=float4(m[1].z,m[0].z,m[0].z,m[0].z);
+float4 Vec3=float4(m[1].w,m[0].w,m[0].w,m[0].w);
+float4 inv0=Vec1*fac0-Vec2*fac1+Vec3*fac2;
+float4 inv1=Vec0*fac0-Vec2*fac3+Vec3*fac4;
+float4 inv2=Vec0*fac1-Vec1*fac3+Vec3*fac5;
+float4 inv3=Vec0*fac2-Vec1*fac4+Vec2*fac5;
+float4 sign_a=float4(+1.0f,-1.0f,+1.0f,-1.0f);
+float4 sign_b=float4(-1.0f,+1.0f,-1.0f,+1.0f);
+float4 inv_0=inv0*sign_a;
+float4 inv_1=inv1*sign_b;
+float4 inv_2=inv2*sign_a;
+float4 inv_3=inv3*sign_b;
+float4 dot0=m[0]*float4(inv_0.x,inv_1.x,inv_2.x,inv_3.x);
+return dot0.x+dot0.y+dot0.z+dot0.w;
+}
