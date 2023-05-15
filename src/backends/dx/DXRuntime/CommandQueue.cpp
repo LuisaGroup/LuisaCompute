@@ -203,10 +203,7 @@ void CommandQueue::Complete(uint64 fence) {
     }
 }
 void CommandQueue::Complete() {
-    std::unique_lock lck(mtx);
-    while (executedAllocators.length() > 0) {
-        mainCv.wait(lck);
-    }
+    Complete(lastFrame);
 }
 
 }// namespace lc::dx

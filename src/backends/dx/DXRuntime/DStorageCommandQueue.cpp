@@ -11,8 +11,10 @@ void DStorageCommandQueue::ExecuteThread() {
         bool wakeupThread;
         auto ExecuteAllocator = [&](WaitQueueHandle const &b) {
             for (auto &&i : b.handles) {
-                WaitForSingleObject(i, INFINITE);
-                CloseHandle(i);
+                if (i) {
+                    WaitForSingleObject(i, INFINITE);
+                    CloseHandle(i);
+                }
             }
             if (wakeupThread) {
                 {
@@ -97,8 +99,8 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                                 .Device = device->device.Get()};
                             ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(fileQueue.GetAddressOf())));
                         }
-                        queue = fileQueue.Get();
                     }
+                    queue = fileQueue.Get();
                 } else {
                     request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
                     request.Source.Memory.Source = t.src_ptr;
@@ -113,8 +115,8 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                                 .Device = device->device.Get()};
                             ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(memQueue.GetAddressOf())));
                         }
-                        queue = memQueue.Get();
                     }
+                    queue = memQueue.Get();
                 }
                 },
                 cmd->src);
@@ -172,10 +174,7 @@ void DStorageCommandQueue::Complete(uint64 fence) {
     }
 }
 void DStorageCommandQueue::Complete() {
-    std::unique_lock lck(mtx);
-    while (executedAllocators.length() > 0) {
-        mainCv.wait(lck);
-    }
+    Complete(lastFrame);
 }
 DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *device)
     : device(device),

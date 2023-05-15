@@ -212,13 +212,13 @@ void DStorageExtImpl::gdeflate_compress(
         }
     }
     result.push_back_uninitialized(compression_codec->CompressBufferBound(input.size()));
-    compression_codec->CompressBuffer(
+    ThrowIfFailed(compression_codec->CompressBuffer(
         input.data(),
         input.size(),
         qua[luisa::to_underlying(quality)],
         result.data(),
         result.size(),
-        &out_size);
+        &out_size));
     result.resize(out_size);
 }
 }// namespace lc::dx
