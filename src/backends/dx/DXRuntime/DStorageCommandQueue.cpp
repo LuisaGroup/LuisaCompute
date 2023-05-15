@@ -143,9 +143,13 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 if(luisa::to_underlying(tex->Dimension()) > 3){
                     depth >>= t.mip_level;
                 }
+                auto height = tex->Height() >> t.mip_level;
+                if((cmd->size_bytes / (height * depth)) < D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) [[unlikely]]{
+                    LUISA_ERROR("DirectX direct-storage can not support texture destination with row size(width * pixel_size) less than {}, current row size: {}, try use buffer instead.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, (cmd->size_bytes / (height * depth)));
+                }
                 request.Destination.Texture.Region = D3D12_BOX{
                     0u, 0u, 0u,
-                    tex->Width() >> t.mip_level, tex->Height() >> t.mip_level, depth};
+                    tex->Width() >> t.mip_level, height, depth};
                 if (cmd->compression == DStorageReadCommand::Compression::GDeflate) {
                     request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
                     UINT64 totalSize{};
