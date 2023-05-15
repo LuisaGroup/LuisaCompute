@@ -114,18 +114,18 @@ struct vector_element {
 template<typename T>
 using vector_element_t = typename vector_element<T>::type;
 
-template<uint index, typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v) {
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v, uint index) {
     return reinterpret_cast<thread vector_element_t<T> *>(&v) + index;
 }
 
-template<uint index, typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v) {
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v, uint index) {
     return reinterpret_cast<threadgroup vector_element_t<T> *>(&v) + index;
 }
 
-template<uint index, typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v) {
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v, uint index) {
     return reinterpret_cast<device vector_element_t<T> *>(&v) + index;
 }
 
@@ -798,3 +798,7 @@ inline void lc_accumulate_grad(thread array<T, N> *dst, array<T, N> grad) {
 [[nodiscard]] inline auto lc_outer_product(float2 a, float2 b) noexcept { return float2x2(a * b.x, a * b.y); }
 [[nodiscard]] inline auto lc_outer_product(float3 a, float3 b) noexcept { return float3x3(a * b.x, a * b.y, a * b.z); }
 [[nodiscard]] inline auto lc_outer_product(float4 a, float4 b) noexcept { return float4x4(a * b.x, a * b.y, a * b.z, a * b.w); }
+
+
+void test(float &x) {}
+void test2(float2 v) { test(v[0]); }

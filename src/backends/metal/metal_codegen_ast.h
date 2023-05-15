@@ -58,6 +58,7 @@ private:
     void _emit_function() noexcept;
     void _emit_constant(const Function::Constant &c) noexcept;
     void _emit_indention() noexcept;
+    void _emit_access_chain(luisa::span<const Expression *const> chain) noexcept;
 
 public:
     explicit MetalCodegenAST(StringScratch &scratch) noexcept;

@@ -597,6 +597,57 @@ void MetalCodegenAST::visit(const RefExpr *expr) noexcept {
     }
 }
 
+void MetalCodegenAST::_emit_access_chain(luisa::span<const Expression *const> chain) noexcept {
+    auto type = chain.front()->type();
+    _scratch << "(";
+    chain.front()->accept(*this);
+    for (auto index : chain.subspan(1u)) {
+        switch (type->tag()) {
+            case Type::Tag::VECTOR: [[fallthrough]];
+            case Type::Tag::ARRAY: {
+                type = type->element();
+                _scratch << "[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            case Type::Tag::MATRIX: {
+                type = Type::vector(type->element(),
+                                    type->dimension());
+                _scratch << "[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            case Type::Tag::STRUCTURE: {
+                LUISA_ASSERT(index->tag() == Expression::Tag::LITERAL,
+                             "Indexing structure with non-constant "
+                             "index is not supported.");
+                auto literal = static_cast<const LiteralExpr *>(index)->value();
+                auto i = luisa::holds_alternative<int>(literal) ?
+                             static_cast<uint>(luisa::get<int>(literal)) :
+                             luisa::get<uint>(literal);
+                LUISA_ASSERT(i < type->members().size(),
+                             "Index out of range.");
+                type = type->members()[i];
+                _scratch << ".m" << i;
+                break;
+            }
+            case Type::Tag::BUFFER: {
+                type = type->element();
+                _scratch << ".data[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            default: LUISA_ERROR_WITH_LOCATION(
+                "Invalid node type '{}' in access chain.",
+                type->description());
+        }
+    }
+    _scratch << ")";
+}
+
 void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
 
     switch (expr->op()) {
@@ -745,13 +796,13 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "accel_trace_any"; break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "accel_query_any"; break;
-        case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
-        case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
-        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
-        case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
-        case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "LC_RAY_QUERY_COMMIT_TRIANGLE"; break;
-        case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "LC_RAY_QUERY_COMMIT_PROCEDURAL"; break;
-        case CallOp::RAY_QUERY_TERMINATE: _scratch << "LC_RAY_QUERY_TERMINATE"; break;
+        case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "ray_query_world_ray"; break;
+        case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "ray_query_procedural_candidate"; break;
+        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "ray_query_triangle_candidate"; break;
+        case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "ray_query_committed_hit"; break;
+        case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "ray_query_commit_triangle"; break;
+        case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "ray_query_commit_procedural"; break;
+        case CallOp::RAY_QUERY_TERMINATE: _scratch << "ray_query_terminate"; break;
         case CallOp::REDUCE_SUM: _scratch << "lc_reduce_sum"; break;
         case CallOp::REDUCE_PRODUCT: _scratch << "lc_reduce_prod"; break;
         case CallOp::REDUCE_MIN: _scratch << "lc_reduce_min"; break;
@@ -770,6 +821,33 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }
+    _scratch << "(";
+    if (auto op = expr->op(); is_atomic_operation(op)) {
+        // lower access chain to atomic operation
+        auto args = expr->arguments();
+        auto access_chain = args.subspan(
+            0u,
+            op == CallOp::ATOMIC_COMPARE_EXCHANGE ?
+                args.size() - 2u :
+                args.size() - 1u);
+        _emit_access_chain(access_chain);
+        for (auto extra : args.subspan(access_chain.size())) {
+            _scratch << ", ";
+            extra->accept(*this);
+        }
+    } else {
+        auto trailing_comma = false;
+        for (auto arg : expr->arguments()) {
+            trailing_comma = true;
+            arg->accept(*this);
+            _scratch << ", ";
+        }
+        if (trailing_comma) {
+            _scratch.pop_back();
+            _scratch.pop_back();
+        }
+    }
+    _scratch << ")";
 }
 
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {
