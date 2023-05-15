@@ -72,8 +72,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         return u;
     };
 
-    auto index = 0u;
-    auto encode = [&](Argument arg) noexcept {
+    auto encode = [&, index = 0u](Argument arg) mutable noexcept {
         auto usage = mtl_usage(_argument_usages[index++]);
         switch (arg.tag) {
             case Argument::Tag::BUFFER: {

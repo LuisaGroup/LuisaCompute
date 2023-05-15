@@ -26,12 +26,6 @@ public:
               Type::array(Type::of<T>(), n))},
           _size{n} {}
 
-    template<typename U>
-        requires is_array_expr_v<U>
-    Local(U &&array) noexcept
-        : _expression{detail::extract_expression(def(std::forward<U>(array)))},
-          _size{array_expr_dimension_v<U>} {}
-
     Local(Local &&) noexcept = default;
     Local(const Local &another) noexcept
         : _size{another._size} {
