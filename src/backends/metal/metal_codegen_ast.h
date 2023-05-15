@@ -13,6 +13,16 @@ class MetalCodegenAST {
 
 private:
     StringScratch &_scratch;
+    const Type *_ray_type;
+    const Type *_triangle_hit_type;
+    const Type *_procedural_hit_type;
+    const Type *_committed_hit_type;
+    const Type *_ray_query_all_type;
+    const Type *_ray_query_any_type;
+
+private:
+    void _emit_type_decls(Function kernel) noexcept;
+    void _emit_type_name(const Type *type) noexcept;
 
 public:
     explicit MetalCodegenAST(StringScratch &scratch) noexcept;

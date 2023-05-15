@@ -34,7 +34,7 @@ size_t MetalStageBufferPool::Allocation::size() const noexcept {
 }
 
 std::byte *MetalStageBufferPool::Allocation::data() const noexcept {
-    return static_cast<std::byte *>(_buffer->contents()) + offset();
+    return static_cast<std::byte *>(buffer()->contents()) + offset();
 }
 
 [[nodiscard]] inline auto metal_stage_buffer_options(bool write_combined) noexcept {

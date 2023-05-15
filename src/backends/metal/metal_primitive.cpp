@@ -85,9 +85,9 @@ void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
             }));
         });
         auto submitted_command_buffer = encoder.submit({});
+        submitted_command_buffer->waitUntilCompleted();
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
         compacted_handle->setLabel(name);
-        submitted_command_buffer->waitUntilCompleted();
         auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
