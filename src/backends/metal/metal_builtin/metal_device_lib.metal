@@ -795,10 +795,15 @@ inline void lc_accumulate_grad(thread array<T, N> *dst, array<T, N> grad) {
 [[nodiscard]] inline auto lc_reduce_min(ulong4 v) { return ulong(min(v.x, min(v.y, min(v.z, v.w)))); }
 [[nodiscard]] inline auto lc_reduce_max(ulong4 v) { return ulong(max(v.x, max(v.y, max(v.z, v.w)))); }
 
-[[nodiscard]] inline auto lc_outer_product(float2 a, float2 b) noexcept { return float2x2(a * b.x, a * b.y); }
-[[nodiscard]] inline auto lc_outer_product(float3 a, float3 b) noexcept { return float3x3(a * b.x, a * b.y, a * b.z); }
-[[nodiscard]] inline auto lc_outer_product(float4 a, float4 b) noexcept { return float4x4(a * b.x, a * b.y, a * b.z, a * b.w); }
+[[nodiscard]] inline auto lc_outer_product(float2 a, float2 b) { return float2x2(a * b.x, a * b.y); }
+[[nodiscard]] inline auto lc_outer_product(float3 a, float3 b) { return float3x3(a * b.x, a * b.y, a * b.z); }
+[[nodiscard]] inline auto lc_outer_product(float4 a, float4 b) { return float4x4(a * b.x, a * b.y, a * b.z, a * b.w); }
 
+template<typename T>
+[[nodiscard]] inline thread T &as_ref(const thread T &x) { return const_cast<thread T &>(x); }
 
-void test(float &x) {}
-void test2(float2 v) { test(v[0]); }
+template<typename T>
+[[nodiscard]] inline threadgroup T &as_ref(const threadgroup T &x) { return const_cast<threadgroup T &>(x); }
+
+template<typename T>
+[[nodiscard]] inline device T &as_ref(const device T &x) { return const_cast<device T &>(x); }

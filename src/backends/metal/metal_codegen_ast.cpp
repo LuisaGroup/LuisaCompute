@@ -328,7 +328,7 @@ void MetalCodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
-        case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
+        case Variable::Tag::DISPATCH_SIZE: _scratch << "ds"; break;
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 }
@@ -380,34 +380,17 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch << ";\n";
         }
     } else {
-        auto is_mut_ref = [f = _function](auto arg) noexcept {
-            return arg.is_reference() &&
-                   (to_underlying(f.variable_usage(arg.uid())) &
-                    to_underlying(Usage::WRITE));
-        };
-        auto any_mut_ref = std::any_of(_function.arguments().cbegin(),
-                                       _function.arguments().cend(), is_mut_ref);
-        if (any_mut_ref) {
-            _scratch << "template<";
-            for (auto arg : _function.arguments()) {
-                if (is_mut_ref(arg)) {
-                    _scratch << "typename T" << arg.uid() << ", ";
-                }
-            }
-            _scratch.pop_back();
-            _scratch.pop_back();
-            _scratch << ">\n";
-        }
         _emit_type_name(_function.return_type());
         _scratch << " callable_" << hash_to_string(_function.hash()) << "(";
         if (!_function.arguments().empty()) {
             for (auto arg : _function.arguments()) {
-                if (is_mut_ref(arg)) {
-                    _scratch << "T" << arg.uid();
-                } else {
-                    _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
-                }
+                auto is_mut_ref = arg.is_reference() &&
+                                  (to_underlying(_function.variable_usage(arg.uid())) &
+                                   to_underlying(Usage::WRITE));
+                if (is_mut_ref) { _scratch << "thread "; }
+                _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
                 _scratch << " ";
+                if (is_mut_ref) { _scratch << "&"; }
                 _emit_variable_name(arg);
                 _scratch << ", ";
             }
@@ -559,14 +542,10 @@ void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
     expr->self()->accept(*this);
     _scratch << ")";
     if (expr->is_swizzle()) {
-        if (expr->swizzle_size() == 1u) {
-            _scratch << "[" << expr->swizzle_index(0u) << "]";
-        } else {
-            static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
-            _scratch << ".";
-            for (auto i = 0u; i < expr->swizzle_size(); i++) {
-                _scratch << xyzw[expr->swizzle_index(i)];
-            }
+        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+        _scratch << ".";
+        for (auto i = 0u; i < expr->swizzle_size(); i++) {
+            _scratch << xyzw[expr->swizzle_index(i)];
         }
     } else {
         _scratch << ".m" << expr->member_index();
@@ -585,16 +564,7 @@ void MetalCodegenAST::visit(const LiteralExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const RefExpr *expr) noexcept {
-    if (auto v = expr->variable();
-        v.is_reference() &&
-        (to_underlying(_function.variable_usage(v.uid())) &
-         to_underlying(Usage::WRITE))) {
-        _scratch << "(*";
-        _emit_variable_name(v);
-        _scratch << ")";
-    } else {
-        _emit_variable_name(v);
-    }
+    _emit_variable_name(expr->variable());
 }
 
 void MetalCodegenAST::_emit_access_chain(luisa::span<const Expression *const> chain) noexcept {
@@ -749,7 +719,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             break;
         }
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-#define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
+#define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)        \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
     case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
@@ -830,16 +800,26 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             op == CallOp::ATOMIC_COMPARE_EXCHANGE ?
                 args.size() - 2u :
                 args.size() - 1u);
+        _scratch << "as_ref(";
         _emit_access_chain(access_chain);
+        _scratch << ")";
         for (auto extra : args.subspan(access_chain.size())) {
             _scratch << ", ";
             extra->accept(*this);
         }
     } else {
         auto trailing_comma = false;
-        for (auto arg : expr->arguments()) {
+        for (auto i = 0u; i < expr->arguments().size(); i++) {
+            auto is_mut_ref = !expr->is_builtin() &&
+                              expr->custom().arguments()[i].is_reference() &&
+                              (to_underlying(expr->custom().variable_usage(
+                                   expr->custom().arguments()[i].uid())) &
+                               to_underlying(Usage::WRITE));
+            if (is_mut_ref) { _scratch << "as_ref("; }
+            auto arg = expr->arguments()[i];
             trailing_comma = true;
             arg->accept(*this);
+            if (is_mut_ref) { _scratch << ")"; }
             _scratch << ", ";
         }
         if (trailing_comma) {

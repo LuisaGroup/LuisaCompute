@@ -86,7 +86,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                 auto texture = reinterpret_cast<const MetalTexture *>(arg.texture.handle);
                 auto binding = texture->binding(arg.texture.level);
                 copy(&binding, sizeof(binding));
-                if (usage != 0u) { compute_encoder->useResource(texture->handle(), usage); }
+                if (usage != 0u) { compute_encoder->useResource(texture->handle(arg.texture.level), usage); }
                 break;
             }
             case Argument::Tag::BINDLESS_ARRAY: {
