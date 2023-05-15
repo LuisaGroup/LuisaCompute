@@ -230,7 +230,10 @@ void MetalCodegenAST::_emit_type_decls(Function kernel) noexcept {
 
 void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
 
-    if (type == nullptr) { _scratch << "void"; }
+    if (type == nullptr) {
+        _scratch << "void";
+        return;
+    }
 
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "bool"; break;

@@ -65,14 +65,14 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    Callable rand = [](UInt &state) noexcept {
+    auto rand = [](UInt &state) noexcept {
         constexpr uint lcg_a = 1664525u;
         constexpr uint lcg_c = 1013904223u;
         state = lcg_a * state + lcg_c;
         return cast<float>(state & 0x00ffffffu) * (1.0f / static_cast<float>(0x01000000u));
     };
 
-    Callable out_dir = [&rand](Float3 n, UInt &seed) noexcept {
+    auto out_dir = [&rand](Float3 n, UInt &seed) noexcept {
         Float3 u = ite(
             abs(n.y) < 1.0f - eps,
             normalize(cross(n, make_float3(0.0f, 1.0f, 0.0f))),
