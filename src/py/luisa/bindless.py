@@ -66,7 +66,7 @@ class BindlessArray:
 
     def update(self, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         stream.update_bindless(self.array)
         if sync:
             stream.synchronize()

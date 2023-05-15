@@ -111,7 +111,7 @@ class Image2D:
 
     def copy_to_tex(self, tex, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert self.storage == tex.storage and self.width == tex.width and self.height == tex.height
         cpcmd = lcapi.TextureCopyCommand.create(self.storage, self.handle, tex.handle, 0, 0,
                                                 lcapi.uint3(self.width, self.height, 1))
@@ -121,7 +121,7 @@ class Image2D:
 
     def copy_from_tex(self, tex, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert self.storage == tex.storage and self.width == tex.width and self.height == tex.height
         cpcmd = lcapi.TextureCopyCommand.create(self.storage, tex.handle, self.handle, 0, 0,
                                                 lcapi.uint3(self.width, self.height, 1))
@@ -137,7 +137,7 @@ class Image2D:
 
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width, self.height, 1),
                                                   arr)
@@ -148,7 +148,7 @@ class Image2D:
 
     def copy_to(self, arr, sync=True, stream=None):  # arr: numpy array
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0,
                                                     lcapi.uint3(self.width, self.height, 1), arr)

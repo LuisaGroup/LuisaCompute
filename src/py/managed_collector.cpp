@@ -21,11 +21,12 @@ ManagedCollector::ManagedCollector(size_t objPerEle) noexcept : objPerEle(objPer
 
 ManagedCollector::~ManagedCollector() noexcept {
     auto ref = RefCounter::current.get();
-    for (auto &&i : handles) {
-        if (i != invalid_resource_handle) {
-            ref->DeRef(i);
+    if (ref)
+        for (auto &&i : handles) {
+            if (i != invalid_resource_handle) {
+                ref->DeRef(i);
+            }
         }
-    }
 }
 
 void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcept {

@@ -225,7 +225,7 @@ class func:
     def __call__(self, *args, dispatch_size, stream=None):
         get_global_device()  # check device is initialized
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         # get 3D dispatch size
         is_buffer = False
         if type(dispatch_size) is int:
