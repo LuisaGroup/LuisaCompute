@@ -1,0 +1,7 @@
+float4 SampleTex3DLevel(const ByteAddressBuffer arr,const uint index,const float3 uv,const float level){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp3D(arr,index))];return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].SampleLevel(samp,uv,level);}
+float4 SampleTex3D(const ByteAddressBuffer arr,const uint index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
+float4 SampleTex3DGrad(const ByteAddressBuffer arr,const uint index,const float3 uv,const float3 ddx,const float3 ddy){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp3D(arr,index))];return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].SampleGrad(samp,uv,ddx,ddy);}
+float4 ReadTex3DLevel(const ByteAddressBuffer arr,const uint index,const uint3 coord,const Lvl level){return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].Load(uint4(coord,level));}
+float4 ReadTex3D(const ByteAddressBuffer arr,const uint index,const uint3 coord){return ReadTex3DLevel(arr,index,coord,0);}
+uint3 Tex3DSize(const ByteAddressBuffer arr,const uint index){return ReadBdlsTex3DXYZ(arr,index);}
+uint3 Tex3DSizeLevel(const ByteAddressBuffer arr,const uint index,const uint level){return max(Tex3DSize(arr,index)>>level,1u);}
