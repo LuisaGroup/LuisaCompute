@@ -88,7 +88,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                     auto file = reinterpret_cast<DStorageFileImpl *>(t.file_handle);
                     request.Source.File.Source = file->file.Get();
                     request.Source.File.Offset = t.file_offset;
-                    request.Source.File.Size = cmd->size_bytes;
+                    request.Source.File.Size = std::min<size_t>(file->size_bytes, cmd->size_bytes);
                     if (!fileQueueUsed) {
                         fileQueueUsed = true;
                         if (!fileQueue) {
@@ -120,10 +120,12 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 }
                 },
                 cmd->src);
-            if (cmd->compression == DStorageReadCommand::Compression::GDeflate) {
-                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                request.UncompressedSize = cmd->size_bytes;
-            }
+            auto set_compress = [&](size_t size) {
+                if (cmd->compression == DStorageReadCommand::Compression::GDeflate) {
+                    request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
+                    request.UncompressedSize = size;
+                }
+            };
             luisa::visit(
                 [&]<typename T>(T const &t) {
             if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::BufferEnqueue>) {
@@ -131,18 +133,34 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 request.Destination.Buffer.Resource = reinterpret_cast<Buffer *>(t.buffer_handle)->GetResource();
                 request.Destination.Buffer.Offset = t.buffer_offset;
                 request.Destination.Buffer.Size = cmd->size_bytes;
+                set_compress(cmd->size_bytes);
             } else if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::ImageEnqueue>) {
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION;
                 auto tex = reinterpret_cast<TextureBase *>(t.image_handle);
                 request.Destination.Texture.SubresourceIndex = t.mip_level;
                 request.Destination.Texture.Resource = tex->GetResource();
+                auto depth = tex->Depth();
+                if(luisa::to_underlying(tex->Dimension()) > 3){
+                    depth >>= t.mip_level;
+                }
                 request.Destination.Texture.Region = D3D12_BOX{
                     0u, 0u, 0u,
-                    tex->Width(), tex->Height(), tex->Depth()};
+                    tex->Width() >> t.mip_level, tex->Height() >> t.mip_level, depth};
+                if (cmd->compression == DStorageReadCommand::Compression::GDeflate) {
+                    request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
+                    UINT64 totalSize{};
+                    device->device->GetCopyableFootprints(
+                        vstd::get_rval_ptr( tex->GetResource()->GetDesc()),
+                        t.mip_level, 1, 0, nullptr, nullptr, nullptr, &totalSize
+                    );
+                    request.UncompressedSize = totalSize;
+                }
+                
             } else {
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
                 request.Destination.Memory.Buffer = t.dst_ptr;
                 request.Destination.Memory.Size = cmd->size_bytes;
+                set_compress(cmd->size_bytes);
             } },
                 cmd->enqueue_cmd());
             queue->EnqueueRequest(&request);
