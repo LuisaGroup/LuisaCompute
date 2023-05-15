@@ -561,7 +561,7 @@ struct LCAccel {
     return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_closest(LCAccel accel, LCRay r, uint mask) {
+[[nodiscard, gnu::always_inline]] inline auto accel_trace_closest(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask);
     return isect.type == intersection_type::none ?
                LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
@@ -571,7 +571,7 @@ struct LCAccel {
                              isect.distance};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_any(LCAccel accel, LCRay r, uint mask) {
+[[nodiscard, gnu::always_inline]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
@@ -709,3 +709,92 @@ inline void lc_accumulate_grad(thread array<T, N> *dst, array<T, N> grad) {
 #pragma unroll
     for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
 }
+
+[[nodiscard]] inline auto lc_reduce_sum(short2 v) { return short(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(short2 v) { return short(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(short2 v) { return short(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(short2 v) { return short(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(short3 v) { return short(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(short3 v) { return short(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(short3 v) { return short(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(short3 v) { return short(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(short4 v) { return short(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(short4 v) { return short(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(short4 v) { return short(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(short4 v) { return short(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(ushort2 v) { return ushort(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(ushort2 v) { return ushort(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(ushort2 v) { return ushort(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(ushort2 v) { return ushort(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(ushort3 v) { return ushort(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(ushort3 v) { return ushort(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(ushort3 v) { return ushort(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(ushort3 v) { return ushort(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(ushort4 v) { return ushort(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(ushort4 v) { return ushort(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(ushort4 v) { return ushort(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(ushort4 v) { return ushort(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(int2 v) { return int(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(int2 v) { return int(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(int2 v) { return int(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(int2 v) { return int(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(int3 v) { return int(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(int3 v) { return int(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(int3 v) { return int(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(int3 v) { return int(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(int4 v) { return int(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(int4 v) { return int(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(int4 v) { return int(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(int4 v) { return int(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(uint2 v) { return uint(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(uint2 v) { return uint(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(uint2 v) { return uint(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(uint2 v) { return uint(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(uint3 v) { return uint(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(uint3 v) { return uint(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(uint3 v) { return uint(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(uint3 v) { return uint(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(uint4 v) { return uint(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(uint4 v) { return uint(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(uint4 v) { return uint(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(uint4 v) { return uint(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(float2 v) { return float(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(float2 v) { return float(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(float2 v) { return float(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(float2 v) { return float(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(float3 v) { return float(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(float3 v) { return float(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(float3 v) { return float(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(float3 v) { return float(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(float4 v) { return float(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(float4 v) { return float(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(float4 v) { return float(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(float4 v) { return float(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(long2 v) { return long(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(long2 v) { return long(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(long2 v) { return long(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(long2 v) { return long(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(long3 v) { return long(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(long3 v) { return long(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(long3 v) { return long(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(long3 v) { return long(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(long4 v) { return long(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(long4 v) { return long(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(long4 v) { return long(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(long4 v) { return long(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(ulong2 v) { return ulong(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(ulong2 v) { return ulong(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(ulong2 v) { return ulong(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(ulong2 v) { return ulong(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(ulong3 v) { return ulong(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(ulong3 v) { return ulong(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(ulong3 v) { return ulong(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(ulong3 v) { return ulong(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(ulong4 v) { return ulong(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(ulong4 v) { return ulong(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(ulong4 v) { return ulong(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(ulong4 v) { return ulong(max(v.x, max(v.y, max(v.z, v.w)))); }
+
+[[nodiscard]] inline auto lc_outer_product(float2 a, float2 b) noexcept { return float2x2(a * b.x, a * b.y); }
+[[nodiscard]] inline auto lc_outer_product(float3 a, float3 b) noexcept { return float3x3(a * b.x, a * b.y, a * b.z); }
+[[nodiscard]] inline auto lc_outer_product(float4 a, float4 b) noexcept { return float4x4(a * b.x, a * b.y, a * b.z, a * b.w); }

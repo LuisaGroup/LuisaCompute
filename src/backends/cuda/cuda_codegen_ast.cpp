@@ -891,6 +891,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {

@@ -598,6 +598,178 @@ void MetalCodegenAST::visit(const RefExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
+
+    switch (expr->op()) {
+        case CallOp::CUSTOM: _scratch << "callable_" << hash_to_string(expr->custom().hash()); break;
+        case CallOp::ALL: _scratch << "all"; break;
+        case CallOp::ANY: _scratch << "any"; break;
+        case CallOp::SELECT: _scratch << "lc_select"; break;
+        case CallOp::CLAMP: _scratch << "clamp"; break;
+        case CallOp::SATURATE: _scratch << "saturate"; break;
+        case CallOp::LERP: _scratch << "mix"; break;
+        case CallOp::STEP: _scratch << "step"; break;
+        case CallOp::ABS: _scratch << "abs"; break;
+        case CallOp::MIN: _scratch << "min"; break;
+        case CallOp::MAX: _scratch << "max"; break;
+        case CallOp::CLZ: _scratch << "clz"; break;
+        case CallOp::CTZ: _scratch << "ctz"; break;
+        case CallOp::POPCOUNT: _scratch << "popcount"; break;
+        case CallOp::REVERSE: _scratch << "reverse_bits"; break;
+        case CallOp::ISINF: _scratch << "lc_isinf"; break;
+        case CallOp::ISNAN: _scratch << "lc_isnan"; break;
+        case CallOp::ACOS: _scratch << "acos"; break;
+        case CallOp::ACOSH: _scratch << "acosh"; break;
+        case CallOp::ASIN: _scratch << "asin"; break;
+        case CallOp::ASINH: _scratch << "asinh"; break;
+        case CallOp::ATAN: _scratch << "atan"; break;
+        case CallOp::ATAN2: _scratch << "atan2"; break;
+        case CallOp::ATANH: _scratch << "atanh"; break;
+        case CallOp::COS: _scratch << "cos"; break;
+        case CallOp::COSH: _scratch << "cosh"; break;
+        case CallOp::SIN: _scratch << "sin"; break;
+        case CallOp::SINH: _scratch << "sinh"; break;
+        case CallOp::TAN: _scratch << "tan"; break;
+        case CallOp::TANH: _scratch << "tanh"; break;
+        case CallOp::EXP: _scratch << "exp"; break;
+        case CallOp::EXP2: _scratch << "exp2"; break;
+        case CallOp::EXP10: _scratch << "exp10"; break;
+        case CallOp::LOG: _scratch << "log"; break;
+        case CallOp::LOG2: _scratch << "log2"; break;
+        case CallOp::LOG10: _scratch << "log10"; break;
+        case CallOp::POW: _scratch << "pow"; break;
+        case CallOp::SQRT: _scratch << "sqrt"; break;
+        case CallOp::RSQRT: _scratch << "rsqrt"; break;
+        case CallOp::CEIL: _scratch << "ceil"; break;
+        case CallOp::FLOOR: _scratch << "floor"; break;
+        case CallOp::FRACT: _scratch << "fract"; break;
+        case CallOp::TRUNC: _scratch << "trunc"; break;
+        case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::FMA: _scratch << "fma"; break;
+        case CallOp::COPYSIGN: _scratch << "copysign"; break;
+        case CallOp::CROSS: _scratch << "cross"; break;
+        case CallOp::DOT: _scratch << "dot"; break;
+        case CallOp::LENGTH: _scratch << "length"; break;
+        case CallOp::LENGTH_SQUARED: _scratch << "length_squared"; break;
+        case CallOp::NORMALIZE: _scratch << "normalize"; break;
+        case CallOp::FACEFORWARD: _scratch << "faceforward"; break;
+        case CallOp::REFLECT: _scratch << "reflect"; break;
+        case CallOp::DETERMINANT: _scratch << "determinant"; break;
+        case CallOp::TRANSPOSE: _scratch << "transpose"; break;
+        case CallOp::INVERSE: _scratch << "inverse"; break;
+        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "block_barrier"; break;
+        case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;
+        case CallOp::ATOMIC_FETCH_ADD: _scratch << "lc_atomic_fetch_add"; break;
+        case CallOp::ATOMIC_FETCH_SUB: _scratch << "lc_atomic_fetch_sub"; break;
+        case CallOp::ATOMIC_FETCH_AND: _scratch << "lc_atomic_fetch_and"; break;
+        case CallOp::ATOMIC_FETCH_OR: _scratch << "lc_atomic_fetch_or"; break;
+        case CallOp::ATOMIC_FETCH_XOR: _scratch << "lc_atomic_fetch_xor"; break;
+        case CallOp::ATOMIC_FETCH_MIN: _scratch << "lc_atomic_fetch_min"; break;
+        case CallOp::ATOMIC_FETCH_MAX: _scratch << "lc_atomic_fetch_max"; break;
+        case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
+        case CallOp::BUFFER_SIZE: _scratch << "buffer_size"; break;
+        case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
+        case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "bindless_texture_sample2d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "bindless_texture_sample3d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "bindless_texture_sample3d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "bindless_texture_read2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "bindless_texture_read3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "bindless_texture_read2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "bindless_texture_read3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "bindless_texture_size2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
+        case CallOp::BINDLESS_BUFFER_READ: {
+            _scratch << "bindless_buffer_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
+        case CallOp::BINDLESS_BUFFER_SIZE: {
+            _scratch << "bindless_buffer_size<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
+        case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+#define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
+    case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
+    case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
+    case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(short, SHORT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ushort, USHORT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(int, INT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(long, LONG)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
+#undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
+        case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::ASSUME: _scratch << "lc_assume"; break;
+        case CallOp::UNREACHABLE: {
+            _scratch << "lc_unreachable";
+            if (auto type = expr->type()) {
+                _scratch << "<";
+                _emit_type_name(type);
+                _scratch << ">";
+            }
+            break;
+        }
+        case CallOp::ZERO: {
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
+        case CallOp::ONE: {
+            _scratch << "lc_one<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "accel_instance_transform"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "accel_set_instance_opacity"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "accel_trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "accel_trace_any"; break;
+        case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "accel_query_all"; break;
+        case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "accel_query_any"; break;
+        case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
+        case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
+        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
+        case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
+        case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "LC_RAY_QUERY_COMMIT_TRIANGLE"; break;
+        case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "LC_RAY_QUERY_COMMIT_PROCEDURAL"; break;
+        case CallOp::RAY_QUERY_TERMINATE: _scratch << "LC_RAY_QUERY_TERMINATE"; break;
+        case CallOp::REDUCE_SUM: _scratch << "lc_reduce_sum"; break;
+        case CallOp::REDUCE_PRODUCT: _scratch << "lc_reduce_prod"; break;
+        case CallOp::REDUCE_MIN: _scratch << "lc_reduce_min"; break;
+        case CallOp::REDUCE_MAX: _scratch << "lc_reduce_max"; break;
+        case CallOp::OUTER_PRODUCT: _scratch << "lc_outer_product"; break;
+        case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: _scratch << "lc_mat_comp_mul"; break;
+        case CallOp::REQUIRES_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+    }
 }
 
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {
