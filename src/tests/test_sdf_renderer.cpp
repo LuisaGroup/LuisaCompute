@@ -65,14 +65,14 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    auto rand = [](UInt &state) noexcept {
+    Callable rand = [](UInt &state) noexcept {
         constexpr uint lcg_a = 1664525u;
         constexpr uint lcg_c = 1013904223u;
         state = lcg_a * state + lcg_c;
-        return cast<float>(state & 0x00ffffffu) * (1.0f / static_cast<float>(0x01000000u));
+        return cast<float>(state) / cast<float>(std::numeric_limits<uint>::max());
     };
 
-    auto out_dir = [&rand](Float3 n, UInt &seed) noexcept {
+    Callable out_dir = [&rand](Float3 n, UInt &seed) noexcept {
         Float3 u = ite(
             abs(n.y) < 1.0f - eps,
             normalize(cross(n, make_float3(0.0f, 1.0f, 0.0f))),
@@ -220,10 +220,6 @@ int main(int argc, char *argv[]) {
                      0.0f, 1.0f);
     };
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
-        //        Shared<float> s1{13u};
-        //        Shared<float> s2{1024u};
-        //        s2[thread_x()] = 1.f;
-        //        sync_block();
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
@@ -231,13 +227,13 @@ int main(int argc, char *argv[]) {
     };
     Shader2D<Image<float>, Image<float>, float> hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     double t0 = clock.toc();
-    double last_t = t0;
     uint spp_count = 0u;
     for (uint spp = 0u; spp < total_spp; spp += interval) {
 
         // render
         CommandList command_list = CommandList::create();
         for (uint frame = spp; frame < spp + interval && frame < total_spp; frame++) {
+            LUISA_INFO("Frame: {}", frame);
             command_list << render(seed_image, accum_image, frame).dispatch(width, height);
             spp_count++;
         }

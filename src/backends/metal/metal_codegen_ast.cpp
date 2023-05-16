@@ -541,25 +541,42 @@ void MetalCodegenAST::visit(const BinaryExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
-    _scratch << "(";
-    expr->self()->accept(*this);
-    _scratch << ")";
     if (expr->is_swizzle()) {
-        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
-        _scratch << ".";
-        for (auto i = 0u; i < expr->swizzle_size(); i++) {
-            _scratch << xyzw[expr->swizzle_index(i)];
+        if (expr->swizzle_size() == 1u) {
+            _scratch << "*vector_element_ptr(";
+            expr->self()->accept(*this);
+            _scratch << ", " << expr->swizzle_index(0u) << ")";
+        } else {
+            static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+            _scratch << "(";
+            expr->self()->accept(*this);
+            _scratch << ").";
+            for (auto i = 0u; i < expr->swizzle_size(); i++) {
+                _scratch << xyzw[expr->swizzle_index(i)];
+            }
         }
     } else {
-        _scratch << ".m" << expr->member_index();
+        _scratch << "(";
+        expr->self()->accept(*this);
+        _scratch << ").m" << expr->member_index();
     }
 }
 
 void MetalCodegenAST::visit(const AccessExpr *expr) noexcept {
-    expr->range()->accept(*this);
-    _scratch << "[";
-    expr->index()->accept(*this);
-    _scratch << "]";
+    if (expr->range()->type()->is_vector()) {
+        _scratch << "*vector_element_ptr(";
+        expr->range()->accept(*this);
+        _scratch << ", ";
+        expr->index()->accept(*this);
+        _scratch << ")";
+    } else {
+        _scratch << "(";
+        expr->range()->accept(*this);
+        _scratch << ")";
+        _scratch << "[";
+        expr->index()->accept(*this);
+        _scratch << "]";
+    }
 }
 
 void MetalCodegenAST::visit(const LiteralExpr *expr) noexcept {
@@ -813,16 +830,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
     } else {
         auto trailing_comma = false;
         for (auto i = 0u; i < expr->arguments().size(); i++) {
-            auto is_mut_ref = !expr->is_builtin() &&
-                              expr->custom().arguments()[i].is_reference() &&
-                              (to_underlying(expr->custom().variable_usage(
-                                   expr->custom().arguments()[i].uid())) &
-                               to_underlying(Usage::WRITE));
-            if (is_mut_ref) { _scratch << "as_ref("; }
             auto arg = expr->arguments()[i];
             trailing_comma = true;
             arg->accept(*this);
-            if (is_mut_ref) { _scratch << ")"; }
             _scratch << ", ";
         }
         if (trailing_comma) {

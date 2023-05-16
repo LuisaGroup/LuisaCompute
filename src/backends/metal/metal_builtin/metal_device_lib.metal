@@ -142,11 +142,13 @@ template<typename T, access a>
 template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
     t.write(value, uv);
+    if constexpr (a == access::read_write) { t.fence(); }
 }
 
 template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
     t.write(value, uvw);
+    if constexpr (a == access::read_write) { t.fence(); }
 }
 
 [[nodiscard]] inline auto inverse(float2x2 m) {
