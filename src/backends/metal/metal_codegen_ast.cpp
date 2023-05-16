@@ -1118,4 +1118,12 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _scratch << "/* ray query end */\n";
 }
 
+void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {
+    _emit_indention();
+    _scratch << "/* autodiff begin */\n";
+    stmt->body()->accept(*this);
+    _emit_indention();
+    _scratch << "/* autodiff end */\n";
+}
+
 }// namespace luisa::compute::metal
