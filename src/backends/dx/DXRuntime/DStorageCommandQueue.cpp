@@ -88,7 +88,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                     auto file = reinterpret_cast<DStorageFileImpl *>(t.file_handle);
                     request.Source.File.Source = file->file.Get();
                     request.Source.File.Offset = t.file_offset;
-                    request.Source.File.Size = std::min<size_t>(file->size_bytes, cmd->size_bytes);
+                    request.Source.File.Size = cmd->src_size;
                     if (!fileQueueUsed) {
                         fileQueueUsed = true;
                         if (!fileQueue) {
@@ -104,7 +104,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 } else {
                     request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
                     request.Source.Memory.Source = t.src_ptr;
-                    request.Source.Memory.Size = cmd->size_bytes;
+                    request.Source.Memory.Size = cmd->src_size;
                     if (!memQueueUsed) {
                         memQueueUsed = true;
                         if (!memQueue) {
@@ -132,8 +132,8 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_BUFFER;
                 request.Destination.Buffer.Resource = reinterpret_cast<Buffer *>(t.buffer_handle)->GetResource();
                 request.Destination.Buffer.Offset = t.buffer_offset;
-                request.Destination.Buffer.Size = cmd->size_bytes;
-                set_compress(cmd->size_bytes);
+                request.Destination.Buffer.Size = cmd->dst_size;
+                set_compress(cmd->dst_size);
             } else if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::ImageEnqueue>) {
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION;
                 auto tex = reinterpret_cast<TextureBase *>(t.image_handle);
@@ -144,8 +144,8 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                     depth >>= t.mip_level;
                 }
                 auto height = tex->Height() >> t.mip_level;
-                if((cmd->size_bytes / (height * depth)) < D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) [[unlikely]]{
-                    LUISA_ERROR("DirectX direct-storage can not support texture destination with row size(width * pixel_size) less than {}, current row size: {}, try use buffer instead.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, (cmd->size_bytes / (height * depth)));
+                if((cmd->dst_size / (height * depth)) < D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) [[unlikely]]{
+                    LUISA_ERROR("DirectX direct-storage can not support texture destination with row size(width * pixel_size) less than {}, current row size: {}, try use buffer instead.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, (cmd->dst_size / (height * depth)));
                 }
                 request.Destination.Texture.Region = D3D12_BOX{
                     0u, 0u, 0u,
@@ -163,8 +163,8 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
             } else {
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
                 request.Destination.Memory.Buffer = t.dst_ptr;
-                request.Destination.Memory.Size = cmd->size_bytes;
-                set_compress(cmd->size_bytes);
+                request.Destination.Memory.Size = cmd->dst_size;
+                set_compress(cmd->dst_size);
             } },
                 cmd->enqueue_cmd());
             queue->EnqueueRequest(&request);

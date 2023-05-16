@@ -47,6 +47,7 @@ public:
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
             buffer.size_bytes(),
+            buffer.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::BufferEnqueue{
                 .buffer_handle = buffer.handle(),
@@ -57,9 +58,10 @@ public:
         return read_to(buffer.view(), file_offset);
     }
     template<typename T>
-    luisa::unique_ptr<Command> decompress_to(BufferView<T> const &buffer, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+    luisa::unique_ptr<Command> decompress_to(BufferView<T> const &buffer, size_t compresed_size, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            compresed_size,
             buffer.size_bytes(),
             compress_type,
             DStorageReadCommand::BufferEnqueue{
@@ -67,14 +69,15 @@ public:
                 .buffer_offset = buffer.offset_bytes()});
     }
     template<typename T>
-    luisa::unique_ptr<Command> decompress_to(Buffer<T> const &buffer, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
-        return decompress_to(buffer.view(), file_offset, compress_type);
+    luisa::unique_ptr<Command> decompress_to(Buffer<T> const &buffer, size_t compresed_size, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        return decompress_to(buffer.view(), compresed_size, file_offset, compress_type);
     }
     template<typename T>
     luisa::unique_ptr<Command> read_to(
         ImageView<T> const &image, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            image.size_bytes(),
             image.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::ImageEnqueue{
@@ -88,9 +91,10 @@ public:
     }
     template<typename T>
     luisa::unique_ptr<Command> decompress_to(
-        ImageView<T> const &image, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        ImageView<T> const &image, size_t compresed_size, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            compresed_size,
             image.size_bytes(),
             compress_type,
             DStorageReadCommand::ImageEnqueue{
@@ -99,14 +103,19 @@ public:
     }
     template<typename T>
     luisa::unique_ptr<Command> decompress_to(
-        Image<T> const &image, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
-        return decompress_to(image.view(0), file_offset, compress_type);
+        Image<T> const &image, size_t compresed_size, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        return decompress_to(
+            image.view(0),
+            compresed_size,
+            file_offset,
+            compress_type);
     }
     template<typename T>
     luisa::unique_ptr<Command> read_to(
         VolumeView<T> const &volume, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            volume.size_bytes(),
             volume.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::ImageEnqueue{
@@ -120,9 +129,10 @@ public:
     }
     template<typename T>
     luisa::unique_ptr<Command> decompress_to(
-        VolumeView<T> const &volume, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        VolumeView<T> const &volume, size_t compresed_size, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            compresed_size,
             volume.size_bytes(),
             compress_type,
             DStorageReadCommand::ImageEnqueue{
@@ -131,8 +141,12 @@ public:
     }
     template<typename T>
     luisa::unique_ptr<Command> decompress_to(
-        Volume<T> const &volume, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
-        return decompress_to(volume.view(0), file_offset, compress_type);
+        Volume<T> const &volume, size_t compresed_size, size_t file_offset = 0, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        return decompress_to(
+            volume.view(0),
+            compresed_size,
+            file_offset,
+            compress_type);
     }
     template<typename T>
         requires(std::is_trivial_v<T>)
@@ -140,6 +154,7 @@ public:
         luisa::span<T> dst, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            dst.size_bytes(),
             dst.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::MemoryEnqueue{
@@ -151,6 +166,7 @@ public:
         T *data, size_t size, size_t file_offset = 0) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             handle(), file_offset,
+            size * sizeof(T),
             size * sizeof(T),
             DStorageCompression::None,
             DStorageReadCommand::MemoryEnqueue{
@@ -167,6 +183,7 @@ public:
         return luisa::make_unique<DStorageReadCommand>(
             src,
             buffer.size_bytes(),
+            buffer.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::BufferEnqueue{
                 .buffer_handle = buffer.handle(),
@@ -177,9 +194,10 @@ public:
         return read_to(buffer.view(), src);
     }
     template<typename T>
-    static luisa::unique_ptr<Command> decompress_to(BufferView<T> const &buffer, void const *ptr, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+    static luisa::unique_ptr<Command> decompress_to(BufferView<T> const &buffer, void const *ptr, size_t compresed_size, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             ptr,
+            compresed_size,
             buffer.size_bytes(),
             compress_type,
             DStorageReadCommand::BufferEnqueue{
@@ -187,14 +205,19 @@ public:
                 .buffer_offset = buffer.offset_bytes()});
     }
     template<typename T>
-    static luisa::unique_ptr<Command> decompress_to(Buffer<T> const &buffer, void const *ptr, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
-        return decompress_to(buffer.view(), ptr, compress_type);
+    static luisa::unique_ptr<Command> decompress_to(Buffer<T> const &buffer, void const *ptr, size_t compresed_size, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        return decompress_to(
+            buffer.view(),
+            ptr,
+            compresed_size,
+            compress_type);
     }
     template<typename T>
     static luisa::unique_ptr<Command> read_to(
         ImageView<T> const &image, void const *src) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             src,
+            image.size_bytes(),
             image.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::ImageEnqueue{
@@ -208,9 +231,10 @@ public:
     }
     template<typename T>
     static luisa::unique_ptr<Command> decompress_to(
-        ImageView<T> const &image, void const *src, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        ImageView<T> const &image, void const *src, size_t compresed_size, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             src,
+            compresed_size,
             image.size_bytes(),
             compress_type,
             DStorageReadCommand::ImageEnqueue{
@@ -219,14 +243,19 @@ public:
     }
     template<typename T>
     static luisa::unique_ptr<Command> decompress_to(
-        Image<T> const &image, void const *src, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
-        return decompress_to(image.view(0), src, compress_type);
+        Image<T> const &image, void const *src, size_t compresed_size, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        return decompress_to(
+            image.view(0),
+            src,
+            compresed_size,
+            compress_type);
     }
     template<typename T>
     static luisa::unique_ptr<Command> read_to(
         VolumeView<T> const &volume, void const *src) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             src,
+            volume.size_bytes(),
             volume.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::ImageEnqueue{
@@ -240,9 +269,10 @@ public:
     }
     template<typename T>
     static luisa::unique_ptr<Command> decompress_to(
-        VolumeView<T> const &volume, void const *src, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        VolumeView<T> const &volume, void const *src, size_t compresed_size, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             src,
+            compresed_size,
             volume.size_bytes(),
             compress_type,
             DStorageReadCommand::ImageEnqueue{
@@ -251,8 +281,12 @@ public:
     }
     template<typename T>
     static luisa::unique_ptr<Command> decompress_to(
-        Volume<T> const &volume, void const *src, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
-        return decompress_to(volume.view(0), src, compress_type);
+        Volume<T> const &volume, void const *src, size_t compresed_size, DStorageCompression compress_type = DStorageCompression::GDeflate) noexcept {
+        return decompress_to(
+            volume.view(0), 
+            src,
+            compresed_size,
+            compress_type);
     }
     template<typename T>
         requires(std::is_trivial_v<T>)
@@ -260,6 +294,7 @@ public:
         luisa::span<T> dst, void const *src) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             src,
+            dst.size_bytes(),
             dst.size_bytes(),
             DStorageCompression::None,
             DStorageReadCommand::MemoryEnqueue{
@@ -271,6 +306,7 @@ public:
         T *data, size_t size, void const *src) noexcept {
         return luisa::make_unique<DStorageReadCommand>(
             src,
+            size * sizeof(T),
             size * sizeof(T),
             DStorageCompression::None,
             DStorageReadCommand::MemoryEnqueue{

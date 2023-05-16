@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<uint8_t> out_pixels(width * height * 4u);
         Clock decompress_clock{};
         dstorage_stream
-            << DStorageMemory::decompress_to(img, compressed_pixels.data())
+            << DStorageMemory::decompress_to(img, compressed_pixels.data(), compressed_pixels.size())
             << synchronize();
         double decompress_time = decompress_clock.toc();
         LUISA_INFO("Texture decompress time: {} ms", decompress_time);

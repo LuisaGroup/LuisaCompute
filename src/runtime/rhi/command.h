@@ -708,7 +708,8 @@ public:
         GDeflate,
     };
     luisa::variant<FileSource, MemorySource> src;
-    size_t size_bytes;
+    size_t src_size;
+    size_t dst_size;
     Compression compression;
 
     using EnqueueCommand = luisa::variant<
@@ -725,24 +726,28 @@ public:
     explicit DStorageReadCommand(
         uint64_t file_handle,
         size_t file_offset,
-        size_t size_bytes,
+        size_t src_size,
+        size_t dst_size,
         Compression compression,
         Arg &&cmd)
         : CustomCommand{dstorage_command_uuid},
           src{FileSource{file_handle, file_offset}},
-          size_bytes{size_bytes},
+          src_size{src_size},
+          dst_size{dst_size},
           compression{compression},
           _enqueue_cmd{std::forward<Arg>(cmd)} {}
     template<typename Arg>
         requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
     explicit DStorageReadCommand(
         void const *src_ptr,
-        size_t size_bytes,
+        size_t src_size,
+        size_t dst_size,
         Compression compression,
         Arg &&cmd)
         : CustomCommand{dstorage_command_uuid},
           src{MemorySource{src_ptr}},
-          size_bytes{size_bytes},
+          src_size{src_size},
+          dst_size{dst_size},
           compression{compression},
           _enqueue_cmd{std::forward<Arg>(cmd)} {}
     [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
