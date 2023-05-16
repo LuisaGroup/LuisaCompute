@@ -27,10 +27,9 @@ public:
         _ext = rhs._ext;
         _size_bytes = rhs._size_bytes;
     }
-    DStorageFile &operator=(DStorageFile const &) = delete;
+    DStorageFile &operator=(DStorageFile const &) noexcept = delete;
     DStorageFile &operator=(DStorageFile &&rhs) noexcept {
-        this->~DStorageFile();
-        new (std::launder(this)) DStorageFile{std::move(rhs)};
+        _move_from(std::move(rhs));
         return *this;
     }
     using Resource::operator bool;

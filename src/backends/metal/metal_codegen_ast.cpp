@@ -433,6 +433,29 @@ void MetalCodegenAST::_emit_function() noexcept {
         }
     }
 
+    // emit gradient variables for autodiff
+    luisa::unordered_set<Variable> gradient_variables;
+    traverse_expressions<true>(
+        _function.body(),
+        [&](auto expr) noexcept {
+        if (expr->tag() == Expression::Tag::CALL) {
+            if (auto call = static_cast<const CallExpr *>(expr);
+                call->op() == CallOp::GRADIENT_MARKER) {
+                LUISA_ASSERT(call->arguments().size() == 2u &&
+                                 call->arguments().front()->tag() == Expression::Tag::REF,
+                             "Invalid gradient marker.");
+                auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                if (gradient_variables.emplace(v).second) {
+                    _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
+                    _emit_variable_name(v);
+                    _scratch << ");\n";
+                }
+            }
+        }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
+
     // emit function body
     _scratch << "\n  /* function body begin */\n";
     _indention = 1u;
@@ -814,10 +837,10 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::REDUCE_MAX: _scratch << "lc_reduce_max"; break;
         case CallOp::OUTER_PRODUCT: _scratch << "lc_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: _scratch << "lc_mat_comp_mul"; break;
-        case CallOp::REQUIRES_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::REQUIRES_GRADIENT: _scratch << "LC_REQUIRES_GRAD"; break;
+        case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
+        case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
+        case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
