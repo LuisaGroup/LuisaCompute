@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from .mathtypes import *
 from .types import uint, uint3, float2, float3, float4, short, ushort, half, half2, half3, half4, to_lctype, is_bit16_types, BuiltinFuncBuilder, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, \
-    vector, length_of, element_of, nameof, implicit_covertable
+    vector, length_of, element_of, nameof, implicit_covertable, basic_dtypes
 import functools
 from . import globalvars
 from types import SimpleNamespace
@@ -539,10 +539,21 @@ def _dot(name, *args):
     assert args[0].dtype in {float2, float3, float4, half2, half3, half4}
     assert args[0].dtype == args[1].dtype
     op = getattr(lcapi.CallOp, name.upper())
-    return element_of(args[0].dtype), lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
+    return element_of(args[0].dtype), lcapi.builder().call(to_lctype(element_of(args[0].dtype)), op, [x.expr for x in args])
 
 
 _func_map["dot"] = _dot
+
+
+def _dd(name, *args):
+    assert len(args) == 1
+    assert args[0].dtype in basic_dtypes
+    op = getattr(lcapi.CallOp, name.upper())
+    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, args[0].expr)
+
+
+_func_map["ddx"] = _dd
+_func_map["ddy"] = _dd
 
 
 def _cross(name, *args):

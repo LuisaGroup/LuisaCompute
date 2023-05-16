@@ -1405,18 +1405,22 @@ template<typename X>
     return copysign(1.0f, std::forward<X>(x));
 }
 template<typename X>
-    requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
+    requires is_dsl_v<X> && (is_scalar_v<expr_value_t<X>> || is_matrix_v<expr_value_t<X>> || is_vector_v<expr_value_t<X>>)
 [[nodiscard]] inline auto ddx(X &&x) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::DDX,
-        std::forward<X>(x));
+    using value_type = expr_value_t<X>;
+    return def<value_type>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<value_type>(), CallOp::DDX,
+            {LUISA_EXPR(x)}));
 }
 template<typename X>
-    requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
+    requires is_dsl_v<X> && (is_scalar_v<expr_value_t<X>> || is_matrix_v<expr_value_t<X>> || is_vector_v<expr_value_t<X>>)
 [[nodiscard]] inline auto ddy(X &&x) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::DDY,
-        std::forward<X>(x));
+    using value_type = expr_value_t<X>;
+    return def<value_type>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<value_type>(), CallOp::DDY,
+            {LUISA_EXPR(x)}));
 }
 
 /// Cross product.
