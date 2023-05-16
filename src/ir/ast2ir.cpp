@@ -53,7 +53,8 @@ ir::Module AST2IR::_convert_body() noexcept {
     return ir::Module{.kind = _function.tag() == Function::Tag::KERNEL ?
                                   ir::ModuleKind::Kernel :
                                   ir::ModuleKind::Function,
-                      .entry = bb};
+                      .entry = bb,
+                      .pools = _pools.clone()};
 }
 
 luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function function) noexcept {
@@ -128,8 +129,19 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
             shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
         auto module = _convert_body();
+        
+        LUISA_INFO("creating autodiff pipeline");
+        auto autodiff_pipeline = ir::luisa_compute_ir_transform_pipeline_new();
+        LUISA_INFO("adding autodiff transform");
+        ir::luisa_compute_ir_transform_pipeline_add_transform(autodiff_pipeline, "autodiff");
+        LUISA_INFO("converting module");
+        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, module);
+        LUISA_INFO("destroying pipeline");
+        ir::luisa_compute_ir_transform_pipeline_destroy(autodiff_pipeline);
+        LUISA_INFO("autodiff done");
+        
         return ir::luisa_compute_ir_new_kernel_module(
-            ir::KernelModule{.module = module,
+            ir::KernelModule{.module = converted_module,
                              .captures = captures,
                              .args = non_captures,
                              .shared = shared,
@@ -204,8 +216,9 @@ ir::NodeRef AST2IR::_convert_stmt(const Statement *stmt) noexcept {
         case Statement::Tag::FOR: return _convert(static_cast<const ForStmt *>(stmt)); break;
         case Statement::Tag::COMMENT: return _convert(static_cast<const CommentStmt *>(stmt)); break;
         case Statement::Tag::RAY_QUERY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case Statement::Tag::AUTO_DIFF: return _convert(static_cast<const AutoDiffStmt *>(stmt)); break;
     }
-    LUISA_ERROR_WITH_LOCATION("Invalid statement tag.");
+    LUISA_ERROR_WITH_LOCATION("Invalid statement tag: {}.", to_underlying(stmt->tag()));
 }
 
 ir::IrBuilder *AST2IR::_current_builder() noexcept {
@@ -501,6 +514,19 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             _convert_type(callable.return_type()));
         return _cast(expr->type(), callable.return_type(), call);
     }
+
+    // CallOp::ONE compiles to ConstExpr instead of CallExpr
+    // this is TOO ad-hoc, when to refactor
+    if (expr->op() == CallOp::ONE) {
+        auto type = _convert_type(expr->type());
+        auto c = ir::Const{
+            .tag = ir::Const::Tag::One,
+            .one = ir::Const::One_Body{
+                ._0 = type,
+            }};
+        return ir::luisa_compute_ir_build_const(_current_builder(), c);
+    }
+
     // built-in
     auto tag = [expr] {
         switch (expr->op()) {
@@ -627,6 +653,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::BINDLESS_BUFFER_TYPE: return ir::Func::Tag::BindlessBufferType;
             case CallOp::REQUIRES_GRADIENT: return ir::Func::Tag::RequiresGradient;
             case CallOp::GRADIENT: return ir::Func::Tag::Gradient;
+            case CallOp::BACKWARD: return ir::Func::Tag::Backward;
             case CallOp::GRADIENT_MARKER: return ir::Func::Tag::GradientMarker;
             case CallOp::ACCUMULATE_GRADIENT: return ir::Func::Tag::AccGrad;
             case CallOp::DETACH: return ir::Func::Tag::Detach;
@@ -1032,6 +1059,23 @@ ir::NodeRef AST2IR::_convert(const CommentStmt *stmt) noexcept {
         ir::Node{.type_ = _convert_type(nullptr).clone(),
                  .instruction = instr});
     ir::luisa_compute_ir_append_node(b, node);
+    return node;
+}
+
+ir::NodeRef AST2IR::_convert(const AutoDiffStmt *stmt) noexcept {
+    auto body = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->body()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto instr = ir::luisa_compute_ir_new_instruction(ir::Instruction{
+        .tag = ir::Instruction::Tag::AdScope,
+        .ad_scope = ir::Instruction::AdScope_Body{
+            .body = body}});
+    auto node = ir::luisa_compute_ir_new_node(
+        _pools.clone(),
+        ir::Node{.type_ = _convert_type(nullptr).clone(),
+                 .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
     return node;
 }
 

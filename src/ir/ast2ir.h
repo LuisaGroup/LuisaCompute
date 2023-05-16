@@ -79,6 +79,7 @@ private:
     [[nodiscard]] ir::NodeRef _convert(const AssignStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const ForStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CommentStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const AutoDiffStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert_stmt(const Statement *stmt) noexcept;
     [[nodiscard]] ir::Module _convert_body() noexcept;
 
