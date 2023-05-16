@@ -126,9 +126,9 @@ static void collect_types_in_function(Function f,
     traverse_expressions<true>(
         f.body(),
         [&add](auto expr) noexcept {
-        if (auto type = expr->type()) {
-            add(add, type);
-        }
+            if (auto type = expr->type()) {
+                add(add, type);
+            }
         },
         [](auto) noexcept {},
         [](auto) noexcept {});
@@ -438,20 +438,20 @@ void MetalCodegenAST::_emit_function() noexcept {
     traverse_expressions<true>(
         _function.body(),
         [&](auto expr) noexcept {
-        if (expr->tag() == Expression::Tag::CALL) {
-            if (auto call = static_cast<const CallExpr *>(expr);
-                call->op() == CallOp::GRADIENT_MARKER) {
-                LUISA_ASSERT(call->arguments().size() == 2u &&
-                                 call->arguments().front()->tag() == Expression::Tag::REF,
-                             "Invalid gradient marker.");
-                auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
-                if (gradient_variables.emplace(v).second) {
-                    _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
-                    _emit_variable_name(v);
-                    _scratch << ");\n";
+            if (expr->tag() == Expression::Tag::CALL) {
+                if (auto call = static_cast<const CallExpr *>(expr);
+                    call->op() == CallOp::GRADIENT_MARKER) {
+                    LUISA_ASSERT(call->arguments().size() == 2u &&
+                                     call->arguments().front()->tag() == Expression::Tag::REF,
+                                 "Invalid gradient marker.");
+                    auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                    if (gradient_variables.emplace(v).second) {
+                        _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
+                        _emit_variable_name(v);
+                        _scratch << ");\n";
+                    }
                 }
             }
-        }
         },
         [](auto) noexcept {},
         [](auto) noexcept {});

@@ -121,12 +121,12 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
         objects.reserve(instance_count);
         std::transform(_primitives.begin(), _primitives.end(), std::back_inserter(objects),
                        [](auto p) noexcept {
-            auto handle = p->handle();
+                           auto handle = p->handle();
 #ifndef NDEBUG
-            LUISA_ASSERT(handle != nullptr, "Invalid primitive handle.");
+                           LUISA_ASSERT(handle != nullptr, "Invalid primitive handle.");
 #endif
-            return handle;
-        });
+                           return handle;
+                       });
         auto instances = NS::Array::array(objects.data(), objects.size());
         _descriptor->setInstancedAccelerationStructures(instances);
     }
