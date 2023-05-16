@@ -1,10 +1,13 @@
+#pragma clang diagnostic ignored "-Wc++17-extensions"
+#pragma clang diagnostic ignored "-Wunused-variable"
+
 #include <metal_stdlib>
 
 using namespace metal;
 
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 
-template<typename T>
+template<typename T = void>
 [[noreturn, gnu::always_inline]] inline T lc_unreachable() {
     __builtin_unreachable();
 }
@@ -111,18 +114,18 @@ struct vector_element {
 template<typename T>
 using vector_element_t = typename vector_element<T>::type;
 
-template<uint index, typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v) {
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v, uint index) {
     return reinterpret_cast<thread vector_element_t<T> *>(&v) + index;
 }
 
-template<uint index, typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v) {
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v, uint index) {
     return reinterpret_cast<threadgroup vector_element_t<T> *>(&v) + index;
 }
 
-template<uint index, typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v) {
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v, uint index) {
     return reinterpret_cast<device vector_element_t<T> *>(&v) + index;
 }
 
@@ -201,8 +204,8 @@ template<typename T, access a, typename Value>
     const auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
     const auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
     const auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
-    constexpr auto sign_a = float4{+1.0f, -1.0f, +1.0f, -1.0f};
-    constexpr auto sign_b = float4{-1.0f, +1.0f, -1.0f, +1.0f};
+    auto sign_a = float4{+1.0f, -1.0f, +1.0f, -1.0f};
+    auto sign_b = float4{-1.0f, +1.0f, -1.0f, +1.0f};
     const auto inv_0 = inv0 * sign_a;
     const auto inv_1 = inv1 * sign_b;
     const auto inv_2 = inv2 * sign_a;
@@ -220,7 +223,7 @@ template<typename T, access a, typename Value>
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-#define LC_AS_ATOMIC(add_space, type)                                             \
+#define LC_AS_ATOMIC(addr_space, type)                                            \
     [[gnu::always_inline, nodiscard]] inline auto as_atomic(addr_space type &a) { \
         return reinterpret_cast<addr_space atomic_##type *>(&a);                  \
     }
@@ -233,111 +236,186 @@ LC_AS_ATOMIC(threadgroup, float)
 #undef LC_AS_ATOMIC
 
 template<typename A, typename T>
-[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_explicit(A a, T expected, T desired, memory_order) {
+[[gnu::always_inline]] inline auto atomic_compare_exchange_explicit(A a, T expected, T desired, memory_order) {
     atomic_compare_exchange_weak_explicit(a, &expected, desired, memory_order_relaxed, memory_order_relaxed);
     return expected;
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit(device atomic_float *a, float val, memory_order) {
+[[gnu::always_inline]] inline auto atomic_compare_exchange_explicit(threadgroup atomic_float *a, float expected, float desired, memory_order) {
+    auto expected_i = as_type<int>(expected);
+    atomic_compare_exchange_weak_explicit(reinterpret_cast<threadgroup atomic_int *>(a), &expected_i, as_type<int>(desired), memory_order_relaxed, memory_order_relaxed);
+    return as_type<float>(expected_i);
+}
+
+[[gnu::always_inline]] inline auto atomic_exchange_explicit(threadgroup atomic_float *a, float x, memory_order) {
+    return as_type<float>(atomic_exchange_explicit(reinterpret_cast<threadgroup atomic_int *>(a), as_type<int>(x), memory_order_relaxed));
+}
+
+[[gnu::always_inline]] inline auto atomic_fetch_min_explicit(device atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
-            old <= val ||
-            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
+        if (auto old = atomic_load_explicit(static_cast<device volatile atomic_float *>(a), memory_order_relaxed);
+            old <= val || atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
         }
     }
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit(threadgroup atomic_float *a, float val, memory_order) {
+[[gnu::always_inline]] inline auto atomic_fetch_min_explicit(threadgroup atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
-            old <= val ||
-            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
+        if (auto old = *reinterpret_cast<threadgroup volatile float *>(a);
+            old <= val || atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed) == old) {
             return old;
         }
     }
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit(device atomic_float *a, float val, memory_order) {
+[[gnu::always_inline]] inline auto atomic_fetch_max_explicit(device atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
-            old >= val ||
-            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
+        if (auto old = atomic_load_explicit(static_cast<device volatile atomic_float *>(a), memory_order_relaxed);
+            old >= val || atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
             return old;
         }
     }
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit(threadgroup atomic_float *a, float val, memory_order) {
+[[gnu::always_inline]] inline auto atomic_fetch_max_explicit(threadgroup atomic_float *a, float val, memory_order) {
     for (;;) {
-        if (auto old = atomic_load_explicit(a, memory_order_relaxed);
-            old >= val ||
-            atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed)) {
+        if (auto old = *reinterpret_cast<threadgroup volatile float *>(a);
+            old >= val || atomic_compare_exchange_explicit(a, old, val, memory_order_relaxed) == old) {
             return old;
         }
     }
 }
 
-#define lc_atomic_exchange(...) atomic_exchange_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_compare_exchange(...) atomic_compare_exchange_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_add(...) atomic_fetch_add_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_sub(...) atomic_fetch_sub_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_and(...) atomic_fetch_and_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_or(...) atomic_fetch_or_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_xor(...) atomic_fetch_xor_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_min(...) atomic_fetch_min_explicit(__VA_ARGS__, memory_order_relaxed)
-#define lc_atomic_fetch_max(...) atomic_fetch_max_explicit(__VA_ARGS__, memory_order_relaxed)
+[[gnu::always_inline]] inline auto atomic_fetch_add_explicit(threadgroup atomic_float *a, float val, memory_order) {
+    for (;;) {
+        if (auto old = *reinterpret_cast<threadgroup volatile float *>(a);
+            atomic_compare_exchange_explicit(a, old, old + val, memory_order_relaxed) == old) {
+            return old;
+        }
+    }
+}
 
-[[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {
+[[gnu::always_inline]] inline auto atomic_fetch_sub_explicit(threadgroup atomic_float *object, float operand, memory_order) {
+    return atomic_fetch_add_explicit(object, -operand, memory_order_relaxed);
+}
+
+#define LC_ATOMIC_OP2(op, addr_space, type)                                         \
+    [[gnu::always_inline]] inline auto lc_atomic_##op(addr_space type &a, type x) { \
+        return atomic_##op##_explicit(as_atomic(a), x, memory_order_relaxed);       \
+    }
+#define LC_ATOMIC_OP3(op, addr_space, type)                                                 \
+    [[gnu::always_inline]] inline auto lc_atomic_##op(addr_space type &a, type x, type y) { \
+        return atomic_##op##_explicit(as_atomic(a), x, y, memory_order_relaxed);            \
+    }
+
+#define LC_ATOMIC_OP2_INT(op)           \
+    LC_ATOMIC_OP2(op, device, int)      \
+    LC_ATOMIC_OP2(op, device, uint)     \
+    LC_ATOMIC_OP2(op, threadgroup, int) \
+    LC_ATOMIC_OP2(op, threadgroup, uint)
+
+#define LC_ATOMIC_OP2_FLOAT(op)      \
+    LC_ATOMIC_OP2(op, device, float) \
+    LC_ATOMIC_OP2(op, threadgroup, float)
+
+#define LC_ATOMIC_OP2_ALL(op) \
+    LC_ATOMIC_OP2_INT(op)     \
+    LC_ATOMIC_OP2_FLOAT(op)
+
+#define LC_ATOMIC_OP3_INT(op)           \
+    LC_ATOMIC_OP3(op, device, int)      \
+    LC_ATOMIC_OP3(op, device, uint)     \
+    LC_ATOMIC_OP3(op, threadgroup, int) \
+    LC_ATOMIC_OP3(op, threadgroup, uint)
+
+#define LC_ATOMIC_OP3_FLOAT(op)      \
+    LC_ATOMIC_OP3(op, device, float) \
+    LC_ATOMIC_OP3(op, threadgroup, float)
+
+#define LC_ATOMIC_OP3_ALL(op) \
+    LC_ATOMIC_OP3_INT(op)     \
+    LC_ATOMIC_OP3_FLOAT(op)
+
+LC_ATOMIC_OP2_ALL(exchange)
+LC_ATOMIC_OP3_ALL(compare_exchange)
+LC_ATOMIC_OP2_ALL(fetch_add)
+LC_ATOMIC_OP2_ALL(fetch_sub)
+LC_ATOMIC_OP2_INT(fetch_and)
+LC_ATOMIC_OP2_INT(fetch_or)
+LC_ATOMIC_OP2_INT(fetch_xor)
+LC_ATOMIC_OP2_ALL(fetch_min)
+LC_ATOMIC_OP2_ALL(fetch_max)
+
+[[gnu::always_inline, nodiscard]] inline auto lc_isnan(float x) {
     auto u = as_type<uint>(x);
     return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_nan(float2 v) {
-    return bool2(is_nan(v.x), is_nan(v.y));
+[[gnu::always_inline, nodiscard]] inline auto lc_isnan(float2 v) {
+    return bool2(lc_isnan(v.x), lc_isnan(v.y));
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_nan(float3 v) {
-    return bool3(is_nan(v.x), is_nan(v.y), is_nan(v.z));
+[[gnu::always_inline, nodiscard]] inline auto lc_isnan(float3 v) {
+    return bool3(lc_isnan(v.x), lc_isnan(v.y), lc_isnan(v.z));
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_nan(float4 v) {
-    return bool4(is_nan(v.x), is_nan(v.y), is_nan(v.z), is_nan(v.w));
+[[gnu::always_inline, nodiscard]] inline auto lc_isnan(float4 v) {
+    return bool4(lc_isnan(v.x), lc_isnan(v.y), lc_isnan(v.z), lc_isnan(v.w));
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_inf(float x) {
+[[gnu::always_inline, nodiscard]] inline auto lc_isinf(float x) {
     auto u = as_type<uint>(x);
     return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_inf(float2 v) {
-    return bool2(is_inf(v.x), is_inf(v.y));
+[[gnu::always_inline, nodiscard]] inline auto lc_isinf(float2 v) {
+    return bool2(lc_isinf(v.x), lc_isinf(v.y));
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_inf(float3 v) {
-    return bool3(is_inf(v.x), is_inf(v.y), is_inf(v.z));
+[[gnu::always_inline, nodiscard]] inline auto lc_isinf(float3 v) {
+    return bool3(lc_isinf(v.x), lc_isinf(v.y), lc_isinf(v.z));
 }
 
-[[gnu::always_inline, nodiscard]] inline auto is_inf(float4 v) {
-    return bool4(is_inf(v.x), is_inf(v.y), is_inf(v.z), is_inf(v.w));
+[[gnu::always_inline, nodiscard]] inline auto lc_isinf(float4 v) {
+    return bool4(lc_isinf(v.x), lc_isinf(v.y), lc_isinf(v.z), lc_isinf(v.w));
 }
 
 template<typename T>
-[[gnu::always_inline, nodiscard]] inline auto select(T f, T t, bool b) {
+[[gnu::always_inline, nodiscard]] inline auto lc_select(T f, T t, bool b) {
     return b ? t : f;
 }
 
-struct alignas(16) BindlessItem {
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto lc_select(T f, T t, bool2 b) {
+    return T{b.x ? t.x : f.x, b.y ? t.y : f.y};
+}
+
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto lc_select(T f, T t, bool3 b) {
+    return T{b.x ? t.x : f.x, b.y ? t.y : f.y, b.z ? t.z : f.z};
+}
+
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto lc_select(T f, T t, bool4 b) {
+    return T{b.x ? t.x : f.x, b.y ? t.y : f.y, b.z ? t.z : f.z, b.w ? t.w : f.w};
+}
+
+struct alignas(16) LCBindlessItem {
     device const void *buffer;
     ulong buffer_size : 48;
     uint sampler2d : 8;
     uint sampler3d : 8;
-    metal::texture2d<float> handle2d;
-    metal::texture3d<float> handle3d;
+    metal::texture2d<float> tex2d;
+    metal::texture3d<float> tex3d;
 };
 
-[[nodiscard, gnu::always_inline]] constexpr sampler get_sampler(uint code) {
-    constexpr const array<sampler, 16u> samplers{
+struct LCBindlessArray {
+    device const LCBindlessItem *items;
+};
+
+[[nodiscard, gnu::always_inline]] sampler get_sampler(uint code) {
+    const array<sampler, 16u> samplers{
         sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none),
         sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none),
         sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none),
@@ -358,95 +436,95 @@ struct alignas(16) BindlessItem {
     return samplers[code];
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
-    device const auto &t = heap[index];
-    return t.handle2d.sample(get_sampler(t.sampler2d), uv);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(LCBindlessArray array, uint index, float2 uv) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(device const BindlessItem *heap, uint index, float3 uvw) {
-    device const auto &t = heap[index];
-    return t.handle3d.sample(get_sampler(t.sampler3d), uvw);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(LCBindlessArray array, uint index, float3 uvw) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(device const BindlessItem *heap, uint index, float2 uv, float lod) {
-    device const auto &t = heap[index];
-    return t.handle2d.sample(get_sampler(t.sampler2d), uv, level(lod));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(LCBindlessArray array, uint index, float2 uv, float lod) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv, level(lod));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(device const BindlessItem *heap, uint index, float3 uvw, float lod) {
-    device const auto &t = heap[index];
-    return t.handle3d.sample(get_sampler(t.sampler3d), uvw, level(lod));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(LCBindlessArray array, uint index, float3 uvw, float lod) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw, level(lod));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(device const BindlessItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
-    device const auto &t = heap[index];
-    return t.handle2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(LCBindlessArray array, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(device const BindlessItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
-    device const auto &t = heap[index];
-    return t.handle3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(LCBindlessArray array, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(device const BindlessItem *heap, uint i) {
-    return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(LCBindlessArray array, uint i) {
+    return uint2(array.items[i].tex2d.get_width(), array.items[i].tex2d.get_height());
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(device const BindlessItem *heap, uint i) {
-    return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(LCBindlessArray array, uint i) {
+    return uint3(array.items[i].tex3d.get_width(), array.items[i].tex3d.get_height(), array.items[i].tex3d.get_depth());
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(device const BindlessItem *heap, uint i, uint lv) {
-    return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(LCBindlessArray array, uint i, uint lv) {
+    return uint2(array.items[i].tex2d.get_width(lv), array.items[i].tex2d.get_height(lv));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(device const BindlessItem *heap, uint i, uint lv) {
-    return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(LCBindlessArray array, uint i, uint lv) {
+    return uint3(array.items[i].tex3d.get_width(lv), array.items[i].tex3d.get_height(lv), array.items[i].tex3d.get_depth(lv));
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(device const BindlessItem *heap, uint i, uint2 uv) {
-    return heap[i].handle2d.read(uv);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(LCBindlessArray array, uint i, uint2 uv) {
+    return array.items[i].tex2d.read(uv);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(device const BindlessItem *heap, uint i, uint3 uvw) {
-    return heap[i].handle3d.read(uvw);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(LCBindlessArray array, uint i, uint3 uvw) {
+    return array.items[i].tex3d.read(uvw);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(device const BindlessItem *heap, uint i, uint2 uv, uint lv) {
-    return heap[i].handle2d.read(uv, lv);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(LCBindlessArray array, uint i, uint2 uv, uint lv) {
+    return array.items[i].tex2d.read(uv, lv);
 }
 
-[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(device const BindlessItem *heap, uint i, uint3 uvw, uint lv) {
-    return heap[i].handle3d.read(uvw, lv);
-}
-
-template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(device const BindlessItem *heap, uint buffer_index) {
-    return heap[buffer_index].size / sizeof(T);
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(LCBindlessArray array, uint i, uint3 uvw, uint lv) {
+    return array.items[i].tex3d.read(uvw, lv);
 }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
-    return static_cast<device const T *>(heap[buffer_index].buffer)[i];
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(LCBindlessArray array, uint buffer_index) {
+    return array.items[buffer_index].buffer_size / sizeof(T);
+}
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(LCBindlessArray array, uint buffer_index, uint i) {
+    return static_cast<device const T *>(array.items[buffer_index].buffer)[i];
 }
 
 using namespace metal::raytracing;
 
-struct alignas(16) Ray {
+struct alignas(16) LCRay {
     array<float, 3> m0;
     float m1;
     array<float, 3> m2;
     float m3;
 };
 
-struct TriangleHit {
+struct LCTriangleHit {
     uint m0;
     uint m1;
     float2 m2;
     float m3;
 };
 
-struct alignas(16) Instance {
+struct alignas(16) LCInstance {
     array<float, 12> transform;
     uint options;
     uint mask;
@@ -454,14 +532,14 @@ struct alignas(16) Instance {
     uint mesh_index;
 };
 
-static_assert(sizeof(Instance) == 64u, "");
+static_assert(sizeof(LCInstance) == 64u, "");
 
-struct Accel {
+struct LCAccel {
     instance_acceleration_structure handle;
-    device Instance *__restrict__ instances;
+    device LCInstance *__restrict__ instances;
 };
 
-[[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
+[[nodiscard, gnu::always_inline]] auto intersector_closest() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
@@ -469,7 +547,7 @@ struct Accel {
     return i;
 }
 
-[[nodiscard, gnu::always_inline]] constexpr auto intersector_any() {
+[[nodiscard, gnu::always_inline]] auto intersector_any() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
@@ -477,28 +555,28 @@ struct Accel {
     return i;
 }
 
-[[nodiscard, gnu::always_inline]] inline auto make_ray(Ray r_in) {
+[[nodiscard, gnu::always_inline]] inline auto make_ray(LCRay r_in) {
     auto o = float3(r_in.m0[0], r_in.m0[1], r_in.m0[2]);
     auto d = float3(r_in.m2[0], r_in.m2[1], r_in.m2[2]);
     return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_closest(Accel accel, Ray r, uint mask) {
+[[nodiscard, gnu::always_inline]] inline auto accel_trace_closest(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask);
     return isect.type == intersection_type::none ?
-               TriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
-               TriangleHit{isect.instance_id,
-                           isect.primitive_id,
-                           isect.triangle_barycentric_coord,
-                           isect.distance};
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_any(Accel accel, Ray r, uint mask) {
+[[nodiscard, gnu::always_inline]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
 
-[[nodiscard, gnu::always_inline]] inline auto accel_instance_transform(Accel accel, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto accel_instance_transform(LCAccel accel, uint i) {
     auto m = accel.instances[i].transform;
     return float4x4(
         m[0], m[1], m[2], 0.0f,
@@ -507,7 +585,7 @@ struct Accel {
         m[9], m[10], m[11], 1.0f);
 }
 
-[[gnu::always_inline]] inline void accel_set_instance_transform(Accel accel, uint i, float4x4 m) {
+[[gnu::always_inline]] inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {
     auto p = accel.instances[i].transform.data();
     p[0] = m[0][0];
     p[1] = m[0][1];
@@ -523,15 +601,209 @@ struct Accel {
     p[11] = m[3][2];
 }
 
-[[gnu::always_inline]] inline void accel_set_instance_visibility(Accel accel, uint i, uint mask) {
+[[gnu::always_inline]] inline void accel_set_instance_visibility(LCAccel accel, uint i, uint mask) {
     accel.instances[i].mask = mask;
 }
 
-[[gnu::always_inline]] inline void accel_set_instance_opacity(Accel accel, uint i, bool opaque) {
-    constexpr auto instance_option_opaque = 4u;
-    constexpr auto instance_option_non_opaque = 8u;
+[[gnu::always_inline]] inline void accel_set_instance_opacity(LCAccel accel, uint i, bool opaque) {
+    auto instance_option_opaque = 4u;
+    auto instance_option_non_opaque = 8u;
     auto options = accel.instances[i].options;
     options &= ~(instance_option_opaque | instance_option_non_opaque);
     options |= opaque ? instance_option_opaque : instance_option_non_opaque;
     accel.instances[i].options = options;
 }
+
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto lc_one();
+
+template<typename T>
+struct One {
+    [[gnu::always_inline, nodiscard]] inline static auto make() { return T{1}; }
+};
+
+template<typename T, size_t N>
+struct One<array<T, N>> {
+    [[gnu::always_inline, nodiscard]] inline static auto make() {
+        array<T, N> a;
+#pragma unroll
+        for (auto i = 0u; i < N; i++) { a[i] = lc_one<T>(); }
+        return a;
+    }
+};
+
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto lc_zero() { return T{}; }
+
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto lc_one() { return One<T>::make(); }
+
+template<>
+[[gnu::always_inline, nodiscard]] inline auto lc_one<float2x2>() { return float2x2{lc_one<float2>(), lc_one<float2>()}; }
+
+template<>
+[[gnu::always_inline, nodiscard]] inline auto lc_one<float3x3>() { return float3x3{lc_one<float3>(), lc_one<float3>(), lc_one<float3>()}; }
+
+template<>
+[[gnu::always_inline, nodiscard]] inline auto lc_one<float4x4>() { return float4x4{lc_one<float4>(), lc_one<float4>(), lc_one<float4>(), lc_one<float4>()}; }
+
+[[nodiscard]] inline auto lc_mat_comp_mul(float2x2 lhs, float2x2 rhs) {
+    return float2x2(lhs[0] * rhs[0],
+                    lhs[1] * rhs[1]);
+}
+
+[[nodiscard]] inline auto lc_mat_comp_mul(float3x3 lhs, float3x3 rhs) {
+    return float3x3(lhs[0] * rhs[0],
+                    lhs[1] * rhs[1],
+                    lhs[2] * rhs[2]);
+}
+
+[[nodiscard]] inline auto lc_mat_comp_mul(float4x4 lhs, float4x4 rhs) {
+    return float4x4(lhs[0] * rhs[0],
+                    lhs[1] * rhs[1],
+                    lhs[2] * rhs[2],
+                    lhs[3] * rhs[3]);
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float v) {
+    return lc_select(v, lc_zero<float>(), lc_isnan(v) | lc_isinf(v));
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float2 v) {
+    return lc_select(v, lc_zero<float2>(), lc_isnan(v) | lc_isinf(v));
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float3 v) {
+    return lc_select(v, lc_zero<float3>(), lc_isnan(v) | lc_isinf(v));
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float4 v) {
+    return lc_select(v, lc_zero<float4>(), lc_isnan(v) | lc_isinf(v));
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float2x2 v) {
+    return float2x2(lc_remove_nan(v[0]), lc_remove_nan(v[1]));
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float3x3 v) {
+    return float3x3(lc_remove_nan(v[0]), lc_remove_nan(v[1]), lc_remove_nan(v[2]));
+}
+
+[[nodiscard]] inline auto lc_remove_nan(float4x4 v) {
+    return float4x4(lc_remove_nan(v[0]), lc_remove_nan(v[1]), lc_remove_nan(v[2]), lc_remove_nan(v[3]));
+}
+
+template<typename T>
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread T *dst, T grad) {}
+
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float *dst, float grad) { *dst += lc_remove_nan(grad); }
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float2 *dst, float2 grad) { *dst += lc_remove_nan(grad); }
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float3 *dst, float3 grad) { *dst += lc_remove_nan(grad); }
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float4 *dst, float4 grad) { *dst += lc_remove_nan(grad); }
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float2x2 *dst, float2x2 grad) { *dst += lc_remove_nan(grad); }
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float3x3 *dst, float3x3 grad) { *dst += lc_remove_nan(grad); }
+[[gnu::always_inline]] inline void lc_accumulate_grad(thread float4x4 *dst, float4x4 grad) { *dst += lc_remove_nan(grad); }
+
+template<typename T, size_t N>
+inline void lc_accumulate_grad(thread array<T, N> *dst, array<T, N> grad) {
+#pragma unroll
+    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
+}
+
+[[nodiscard]] inline auto lc_reduce_sum(short2 v) { return short(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(short2 v) { return short(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(short2 v) { return short(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(short2 v) { return short(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(short3 v) { return short(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(short3 v) { return short(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(short3 v) { return short(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(short3 v) { return short(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(short4 v) { return short(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(short4 v) { return short(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(short4 v) { return short(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(short4 v) { return short(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(ushort2 v) { return ushort(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(ushort2 v) { return ushort(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(ushort2 v) { return ushort(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(ushort2 v) { return ushort(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(ushort3 v) { return ushort(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(ushort3 v) { return ushort(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(ushort3 v) { return ushort(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(ushort3 v) { return ushort(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(ushort4 v) { return ushort(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(ushort4 v) { return ushort(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(ushort4 v) { return ushort(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(ushort4 v) { return ushort(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(int2 v) { return int(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(int2 v) { return int(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(int2 v) { return int(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(int2 v) { return int(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(int3 v) { return int(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(int3 v) { return int(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(int3 v) { return int(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(int3 v) { return int(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(int4 v) { return int(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(int4 v) { return int(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(int4 v) { return int(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(int4 v) { return int(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(uint2 v) { return uint(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(uint2 v) { return uint(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(uint2 v) { return uint(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(uint2 v) { return uint(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(uint3 v) { return uint(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(uint3 v) { return uint(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(uint3 v) { return uint(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(uint3 v) { return uint(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(uint4 v) { return uint(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(uint4 v) { return uint(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(uint4 v) { return uint(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(uint4 v) { return uint(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(float2 v) { return float(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(float2 v) { return float(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(float2 v) { return float(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(float2 v) { return float(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(float3 v) { return float(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(float3 v) { return float(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(float3 v) { return float(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(float3 v) { return float(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(float4 v) { return float(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(float4 v) { return float(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(float4 v) { return float(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(float4 v) { return float(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(long2 v) { return long(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(long2 v) { return long(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(long2 v) { return long(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(long2 v) { return long(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(long3 v) { return long(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(long3 v) { return long(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(long3 v) { return long(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(long3 v) { return long(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(long4 v) { return long(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(long4 v) { return long(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(long4 v) { return long(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(long4 v) { return long(max(v.x, max(v.y, max(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_sum(ulong2 v) { return ulong(v.x + v.y); }
+[[nodiscard]] inline auto lc_reduce_prod(ulong2 v) { return ulong(v.x * v.y); }
+[[nodiscard]] inline auto lc_reduce_min(ulong2 v) { return ulong(min(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_max(ulong2 v) { return ulong(max(v.x, v.y)); }
+[[nodiscard]] inline auto lc_reduce_sum(ulong3 v) { return ulong(v.x + v.y + v.z); }
+[[nodiscard]] inline auto lc_reduce_prod(ulong3 v) { return ulong(v.x * v.y * v.z); }
+[[nodiscard]] inline auto lc_reduce_min(ulong3 v) { return ulong(min(v.x, min(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_max(ulong3 v) { return ulong(max(v.x, max(v.y, v.z))); }
+[[nodiscard]] inline auto lc_reduce_sum(ulong4 v) { return ulong(v.x + v.y + v.z + v.w); }
+[[nodiscard]] inline auto lc_reduce_prod(ulong4 v) { return ulong(v.x * v.y * v.z * v.w); }
+[[nodiscard]] inline auto lc_reduce_min(ulong4 v) { return ulong(min(v.x, min(v.y, min(v.z, v.w)))); }
+[[nodiscard]] inline auto lc_reduce_max(ulong4 v) { return ulong(max(v.x, max(v.y, max(v.z, v.w)))); }
+
+[[nodiscard]] inline auto lc_outer_product(float2 a, float2 b) { return float2x2(a * b.x, a * b.y); }
+[[nodiscard]] inline auto lc_outer_product(float3 a, float3 b) { return float3x3(a * b.x, a * b.y, a * b.z); }
+[[nodiscard]] inline auto lc_outer_product(float4 a, float4 b) { return float4x4(a * b.x, a * b.y, a * b.z, a * b.w); }
+
+template<typename T>
+[[nodiscard]] inline thread T &as_ref(const thread T &x) { return const_cast<thread T &>(x); }
+
+template<typename T>
+[[nodiscard]] inline threadgroup T &as_ref(const threadgroup T &x) { return const_cast<threadgroup T &>(x); }
+
+template<typename T>
+[[nodiscard]] inline device T &as_ref(const device T &x) { return const_cast<device T &>(x); }

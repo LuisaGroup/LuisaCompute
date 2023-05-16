@@ -1404,6 +1404,20 @@ template<typename X>
 [[nodiscard]] inline auto sign(X &&x) noexcept {
     return copysign(1.0f, std::forward<X>(x));
 }
+template<typename X>
+    requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
+[[nodiscard]] inline auto ddx(X &&x) noexcept {
+    return detail::make_vector_call<float>(
+        CallOp::DDX,
+        std::forward<X>(x));
+}
+template<typename X>
+    requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
+[[nodiscard]] inline auto ddy(X &&x) noexcept {
+    return detail::make_vector_call<float>(
+        CallOp::DDY,
+        std::forward<X>(x));
+}
 
 /// Cross product.
 template<typename X, typename Y>
@@ -1565,6 +1579,11 @@ void backward(T &&x, G &&grad) noexcept {
     auto expr_x = LUISA_EXPR(x);
     b->call(CallOp::GRADIENT_MARKER, {expr_x, LUISA_EXPR(grad)});
     b->call(CallOp::BACKWARD, {expr_x});
+}
+
+inline void discard() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_DISCARD, {});
 }
 
 /// Back-propagate gradient from the variable

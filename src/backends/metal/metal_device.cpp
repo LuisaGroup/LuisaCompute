@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2023/4/8.
 //
 
+#include <core/clock.h>
 #include <core/logging.h>
 
 #ifdef LUISA_ENABLE_IR
@@ -20,6 +21,7 @@
 #include <backends/metal/metal_accel.h>
 #include <backends/metal/metal_mesh.h>
 #include <backends/metal/metal_procedural_primitive.h>
+#include <backends/metal/metal_shader.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
@@ -317,29 +319,116 @@ void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swa
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     return with_autorelease_pool([=, this] {
-        return ShaderCreationInfo();
+        MetalShaderMetadata metadata{};
+        metadata.block_size = kernel.block_size();
+        metadata.argument_types.reserve(kernel.arguments().size());
+        metadata.argument_usages.reserve(kernel.arguments().size());
+        for (auto &&arg : kernel.arguments()) {
+            metadata.argument_types.emplace_back(arg.type()->description());
+            metadata.argument_usages.emplace_back(kernel.variable_usage(arg.uid()));
+        }
+        luisa::vector<MetalShader::Argument> bound_arguments;
+        bound_arguments.reserve(kernel.bound_arguments().size());
+        for (auto &&binding : kernel.bound_arguments()) {
+            luisa::visit([&bound_arguments](auto b) noexcept {
+                using T = std::remove_cvref_t<decltype(b)>;
+                MetalShader::Argument argument{};
+                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                    argument.tag = MetalShader::Argument::Tag::BUFFER;
+                    argument.buffer.handle = b.handle;
+                    argument.buffer.offset = b.offset;
+                    argument.buffer.size = b.size;
+                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                    argument.tag = MetalShader::Argument::Tag::TEXTURE;
+                    argument.texture.handle = b.handle;
+                    argument.texture.level = b.level;
+                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                    argument.tag = MetalShader::Argument::Tag::BINDLESS_ARRAY;
+                    argument.bindless_array.handle = b.handle;
+                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                    argument.tag = MetalShader::Argument::Tag::ACCEL;
+                    argument.accel.handle = b.handle;
+                } else {
+                    LUISA_ERROR_WITH_LOCATION("Invalid binding type.");
+                }
+                bound_arguments.emplace_back(argument);
+            },
+                         binding);
+        }
+
+        // codegen
+        StringScratch scratch;
+        MetalCodegenAST codegen{scratch};
+        codegen.emit(kernel);
+
+        // create shader
+        auto pipeline = _compiler->compile(scratch.string_view(), option, metadata);
+        auto shader = luisa::new_with_allocator<MetalShader>(
+            std::move(pipeline),
+            std::move(metadata.argument_usages),
+            std::move(bound_arguments),
+            kernel.block_size());
+        ShaderCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader;
+        info.block_size = kernel.block_size();
+        return info;
     });
 }
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
+    // TODO: codegen from IR directly
     return with_autorelease_pool([=, this] {
-        return ShaderCreationInfo();
+#ifdef LUISA_ENABLE_IR
+        Clock clk;
+        auto function = IR2AST::build(kernel);
+        LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+        return create_shader(option, function->function());
+#else
+        LUISA_ERROR_WITH_LOCATION("Metal device does not support creating shader from IR types.");
+        return {};
+#endif
     });
 }
 
 ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {
     return with_autorelease_pool([=, this] {
-        return ShaderCreationInfo();
+        MetalShaderMetadata metadata{};
+        auto pipeline = _compiler->load(name, metadata);
+        LUISA_ASSERT(pipeline, "Failed to load Metal AOT shader '{}'.", name);
+        LUISA_ASSERT(metadata.argument_types.size() == arg_types.size(),
+                     "Argument count mismatch in Metal AOT "
+                     "shader '{}': expected {}, but got {}.",
+                     name, metadata.argument_types.size(), arg_types.size());
+        for (auto i = 0u; i < arg_types.size(); i++) {
+            LUISA_ASSERT(metadata.argument_types[i] == arg_types[i]->description(),
+                         "Argument type mismatch in Metal AOT "
+                         "shader '{}': expected {}, but got {}.",
+                         name, metadata.argument_types[i],
+                         arg_types[i]->description());
+        }
+        auto shader = new_with_allocator<MetalShader>(
+            std::move(pipeline),
+            std::move(metadata.argument_usages),
+            luisa::vector<MetalShader::Argument>{},
+            metadata.block_size);
+        ShaderCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader;
+        info.block_size = metadata.block_size;
+        return info;
     });
 }
 
 Usage MetalDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
-    return Usage::NONE;
+    auto shader = reinterpret_cast<MetalShader *>(handle);
+    return shader->argument_usage(index);
 }
 
 void MetalDevice::destroy_shader(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        // TODO
+        auto shader = reinterpret_cast<MetalShader *>(handle);
+        luisa::delete_with_allocator(shader);
     });
 }
 
@@ -489,7 +578,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 event->set_name(name);
                 break;
             }
-            case Resource::Tag::SHADER: break;
+            case Resource::Tag::SHADER: {
+                auto shader = reinterpret_cast<MetalShader *>(resource_handle);
+                shader->set_name(name);
+                break;
+            }
             case Resource::Tag::RASTER_SHADER: break;
             case Resource::Tag::SWAP_CHAIN: {
                 auto swapchain = reinterpret_cast<MetalSwapchain *>(resource_handle);
@@ -497,6 +590,7 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 break;
             }
             case Resource::Tag::DEPTH_BUFFER: break;
+            case Resource::Tag::DSTORAGE_FILE: break;
         }
     });
 }

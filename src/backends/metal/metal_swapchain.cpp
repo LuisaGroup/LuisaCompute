@@ -19,6 +19,7 @@ MetalSwapchain::MetalSwapchain(MetalDevice *device, uint64_t window_handle,
                     device->builtin_swapchain_present_hdr() :
                     device->builtin_swapchain_present_ldr()},
       _render_pass_desc{MTL::RenderPassDescriptor::alloc()->init()} {
+    _layer->retain();
     auto attachment_desc = _render_pass_desc->colorAttachments()->object(0);
     attachment_desc->setLoadAction(MTL::LoadActionDontCare);
     attachment_desc->setStoreAction(MTL::StoreActionStore);
@@ -27,6 +28,7 @@ MetalSwapchain::MetalSwapchain(MetalDevice *device, uint64_t window_handle,
 MetalSwapchain::~MetalSwapchain() noexcept {
     if (_command_label) { _command_label->release(); }
     _render_pass_desc->release();
+    _layer->release();
 }
 
 PixelStorage MetalSwapchain::pixel_storage() const noexcept {

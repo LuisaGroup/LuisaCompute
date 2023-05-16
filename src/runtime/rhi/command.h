@@ -696,14 +696,20 @@ public:
     struct MemoryEnqueue {
         void *dst_ptr;
     };
-    struct GDeflateCompression {
-        size_t uncompressed_size;
+    struct FileSource {
+        uint64_t file_handle;
+        size_t file_offset;
     };
-    using CompressOption = luisa::variant<luisa::monostate, GDeflateCompression>;
-    uint64_t file_handle;
-    size_t file_offset;
+    struct MemorySource {
+        void const *src_ptr;
+    };
+    enum class Compression : uint32_t {
+        None,
+        GDeflate,
+    };
+    luisa::variant<FileSource, MemorySource> src;
     size_t size_bytes;
-    CompressOption compress_option;
+    Compression compression;
 
     using EnqueueCommand = luisa::variant<
         BufferEnqueue,
@@ -720,13 +726,24 @@ public:
         uint64_t file_handle,
         size_t file_offset,
         size_t size_bytes,
-        CompressOption compress_option,
+        Compression compression,
         Arg &&cmd)
         : CustomCommand{dstorage_command_uuid},
-          file_handle{file_handle},
-          file_offset{file_offset},
+          src{FileSource{file_handle, file_offset}},
           size_bytes{size_bytes},
-          compress_option{compress_option},
+          compression{compression},
+          _enqueue_cmd{std::forward<Arg>(cmd)} {}
+    template<typename Arg>
+        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
+    explicit DStorageReadCommand(
+        void const *src_ptr,
+        size_t size_bytes,
+        Compression compression,
+        Arg &&cmd)
+        : CustomCommand{dstorage_command_uuid},
+          src{MemorySource{src_ptr}},
+          size_bytes{size_bytes},
+          compression{compression},
           _enqueue_cmd{std::forward<Arg>(cmd)} {}
     [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
     LUISA_MAKE_COMMAND_COMMON(DStorageReadCommand, StreamTag::CUSTOM)

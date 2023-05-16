@@ -63,7 +63,7 @@ class Buffer:
 
     def copy_from_list(self, arr, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert len(arr) == self.size
         lctype = to_lctype(self.dtype)
         packed_bytes = bytearray()
@@ -83,7 +83,7 @@ class Buffer:
 
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array or list
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         # numpy array of same data layout
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.BufferUploadCommand.create(
@@ -104,7 +104,7 @@ class Buffer:
     # arr: numpy array; user is resposible for data layout
     def copy_to(self, arr, sync=True, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, arr)
@@ -125,7 +125,7 @@ class Buffer:
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, packed_bytes)
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         stream.add(dlcmd)
         # stream.add_readback_buffer(packed_bytes)
         stream.synchronize()

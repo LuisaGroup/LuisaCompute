@@ -13,11 +13,22 @@ public:
     using AllocatorPtr = vstd::unique_ptr<CommandAllocator>;
 
 private:
-    using CallbackEvent = vstd::variant<
-        std::pair<AllocatorPtr, uint64>,
-        std::pair<vstd::function<void()>, uint64>,
-        std::pair<vstd::vector<vstd::function<void()>>, uint64>,
-        std::pair<LCEvent const *, uint64>>;
+    struct CallbackEvent {
+        using Variant = vstd::variant<
+            AllocatorPtr,
+            vstd::function<void()>,
+            vstd::vector<vstd::function<void()>>,
+            LCEvent const *>;
+        Variant evt;
+        uint64_t fence;
+        bool wakeupThread;
+        template<typename Arg>
+            requires(std::is_constructible_v<Variant, Arg &&>)
+        CallbackEvent(Arg &&arg,
+                      uint64_t fence,
+                      bool wakeupThread)
+            : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
+    };
     Device *device;
     GpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
@@ -33,9 +44,8 @@ private:
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
-	template <typename Func>
+    template<typename Func>
     uint64 _Execute(AllocatorPtr &&alloc, Func &&callback);
-
 
 public:
     void WaitFrame(uint64 lastFrame);
@@ -47,12 +57,11 @@ public:
         D3D12_COMMAND_LIST_TYPE type);
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
-    void Callback(vstd::function<void()> &&f);
     void AddEvent(LCEvent const *evt);
     uint64 Execute(AllocatorPtr &&alloc);
     uint64 ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
     uint64 ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
-	void ExecuteEmpty(AllocatorPtr &&alloc);
+    void ExecuteEmpty(AllocatorPtr &&alloc);
     void ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
     uint64 ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain, bool vsync);
     void Complete(uint64 fence);

@@ -149,7 +149,7 @@ ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
     ResourceCreationInfo r;
     auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice};
     r.handle = reinterpret_cast<uint64_t>(ptr);
-    r.native_handle = ptr->Queue();
+    r.native_handle = nullptr;
     return r;
 }
 DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
@@ -212,13 +212,13 @@ void DStorageExtImpl::gdeflate_compress(
         }
     }
     result.push_back_uninitialized(compression_codec->CompressBufferBound(input.size()));
-    compression_codec->CompressBuffer(
+    ThrowIfFailed(compression_codec->CompressBuffer(
         input.data(),
         input.size(),
         qua[luisa::to_underlying(quality)],
         result.data(),
         result.size(),
-        &out_size);
+        &out_size));
     result.resize(out_size);
 }
 }// namespace lc::dx

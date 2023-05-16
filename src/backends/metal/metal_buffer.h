@@ -24,7 +24,7 @@ public:
     MetalBuffer(MTL::Device *device, size_t size) noexcept;
     ~MetalBuffer() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] Binding binding(size_t offset) const noexcept;
+    [[nodiscard]] Binding binding(size_t offset, size_t size) const noexcept;
     void set_name(luisa::string_view name) noexcept;
 };
 

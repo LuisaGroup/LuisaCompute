@@ -208,21 +208,21 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT3,// (scalar, vec3)
     MAKE_FLOAT4,// (scalar, vec4)
 
-    MAKE_SHORT2,  // (scalar, vec2)
-    MAKE_SHORT3,  // (scalar, vec3)
-    MAKE_SHORT4,  // (scalar, vec4)
-    MAKE_USHORT2, // (scalar, vec2)
-    MAKE_USHORT3, // (scalar, vec3)
-    MAKE_USHORT4, // (scalar, vec4)
+    MAKE_SHORT2, // (scalar, vec2)
+    MAKE_SHORT3, // (scalar, vec3)
+    MAKE_SHORT4, // (scalar, vec4)
+    MAKE_USHORT2,// (scalar, vec2)
+    MAKE_USHORT3,// (scalar, vec3)
+    MAKE_USHORT4,// (scalar, vec4)
     MAKE_LONG2,  // (scalar, vec2)
     MAKE_LONG3,  // (scalar, vec3)
     MAKE_LONG4,  // (scalar, vec4)
     MAKE_ULONG2, // (scalar, vec2)
     MAKE_ULONG3, // (scalar, vec3)
     MAKE_ULONG4, // (scalar, vec4)
-    MAKE_HALF2,// (scalar, vec2)
-    MAKE_HALF3,// (scalar, vec3)
-    MAKE_HALF4,// (scalar, vec4)
+    MAKE_HALF2,  // (scalar, vec2)
+    MAKE_HALF3,  // (scalar, vec3)
+    MAKE_HALF4,  // (scalar, vec4)
 
     MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
@@ -265,6 +265,11 @@ enum struct CallOp : uint32_t {
 
     // rasterization
     RASTER_DISCARD,// (): void
+
+    // Derivative Operations for 2x2 quad
+    // partial derivative
+    DDX,// (arg: float vector): float vector
+    DDY,// (arg: float vector): float vector
 
     // indirect
     INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void

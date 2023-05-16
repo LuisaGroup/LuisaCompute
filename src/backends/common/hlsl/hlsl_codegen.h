@@ -84,9 +84,14 @@ public:
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
+        luisa::BinaryIO const *internalDataPath,
         bool isSpirV);
-    void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
-                                     bool isRaster, bool isSpirv);
+    void PreprocessCodegenProperties(
+        CodegenResult::Properties &properties,
+        vstd::StringBuilder &varData,
+        RegisterIndexer &registerCount,
+        luisa::BinaryIO const *internalDataPath,
+        bool cbufferNonEmpty, bool isRaster, bool isSpirv);
     void PostprocessCodegenProperties(vstd::StringBuilder &finalResult);
     void CodegenProperties(
         CodegenResult::Properties &properties,
