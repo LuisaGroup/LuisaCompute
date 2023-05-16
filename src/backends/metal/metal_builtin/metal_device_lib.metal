@@ -114,20 +114,43 @@ struct vector_element {
 template<typename T>
 using vector_element_t = typename vector_element<T>::type;
 
+#define LC_VECTOR_REF_IMPL(T, N, addr_space)                                                                       \
+    [[nodiscard, gnu::always_inline]] inline addr_space auto &vector_element_ref(addr_space T##N &v, uint index) { \
+        return *(reinterpret_cast<addr_space vector_element_t<T##N> *>(&v) + index);                               \
+    }                                                                                                              \
+    [[nodiscard, gnu::always_inline]] inline auto vector_element_ref(addr_space const T##N &v, uint index) { return v[index]; }
+
+#define LC_VECTOR_REF(T, N)               \
+    LC_VECTOR_REF_IMPL(T, N, thread)      \
+    LC_VECTOR_REF_IMPL(T, N, threadgroup) \
+    LC_VECTOR_REF_IMPL(T, N, device)
+
+#define LC_VECTOR_REF_ALL(T) \
+    LC_VECTOR_REF(T, 2)      \
+    LC_VECTOR_REF(T, 3)      \
+    LC_VECTOR_REF(T, 4)
+
+LC_VECTOR_REF_ALL(half)
+LC_VECTOR_REF_ALL(float)
+LC_VECTOR_REF_ALL(int)
+LC_VECTOR_REF_ALL(uint)
+LC_VECTOR_REF_ALL(bool)
+LC_VECTOR_REF_ALL(char)
+LC_VECTOR_REF_ALL(uchar)
+LC_VECTOR_REF_ALL(short)
+LC_VECTOR_REF_ALL(ushort)
+LC_VECTOR_REF_ALL(long)
+LC_VECTOR_REF_ALL(ulong)
+
+// sinkholes for non-vectors
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v, uint index) {
-    return reinterpret_cast<thread vector_element_t<T> *>(&v) + index;
-}
+[[nodiscard, gnu::always_inline]] inline thread auto &vector_element_ref(thread T &v) { return v; }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v, uint index) {
-    return reinterpret_cast<threadgroup vector_element_t<T> *>(&v) + index;
-}
+[[nodiscard, gnu::always_inline]] inline threadgroup auto &vector_element_ref(threadgroup T &v) { return v; }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v, uint index) {
-    return reinterpret_cast<device vector_element_t<T> *>(&v) + index;
-}
+[[nodiscard, gnu::always_inline]] inline device auto &vector_element_ref(device T &v) { return v; }
 
 template<typename T, access a>
 [[nodiscard, gnu::always_inline]] inline auto texture_read(texture2d<T, a> t, uint2 uv) {

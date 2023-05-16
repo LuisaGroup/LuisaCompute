@@ -543,7 +543,7 @@ void MetalCodegenAST::visit(const BinaryExpr *expr) noexcept {
 void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
     if (expr->is_swizzle()) {
         if (expr->swizzle_size() == 1u) {
-            _scratch << "*vector_element_ptr(";
+            _scratch << "vector_element_ref(";
             expr->self()->accept(*this);
             _scratch << ", " << expr->swizzle_index(0u) << ")";
         } else {
@@ -564,7 +564,7 @@ void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
 
 void MetalCodegenAST::visit(const AccessExpr *expr) noexcept {
     if (expr->range()->type()->is_vector()) {
-        _scratch << "*vector_element_ptr(";
+        _scratch << "vector_element_ref(";
         expr->range()->accept(*this);
         _scratch << ", ";
         expr->index()->accept(*this);
@@ -589,11 +589,19 @@ void MetalCodegenAST::visit(const RefExpr *expr) noexcept {
 
 void MetalCodegenAST::_emit_access_chain(luisa::span<const Expression *const> chain) noexcept {
     auto type = chain.front()->type();
-    _scratch << "(";
+    _scratch << "vector_element_ref(";
+    auto any_vector = false;
     chain.front()->accept(*this);
     for (auto index : chain.subspan(1u)) {
         switch (type->tag()) {
-            case Type::Tag::VECTOR: [[fallthrough]];
+            case Type::Tag::VECTOR: {
+                _scratch << ", ";
+                index->accept(*this);
+                _scratch << ")";
+                type = type->element();
+                any_vector = true;
+                break;
+            }
             case Type::Tag::ARRAY: {
                 type = type->element();
                 _scratch << "[";
@@ -635,7 +643,7 @@ void MetalCodegenAST::_emit_access_chain(luisa::span<const Expression *const> ch
                 type->description());
         }
     }
-    _scratch << ")";
+    if (!any_vector) { _scratch << ")"; }
 }
 
 void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
