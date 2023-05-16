@@ -305,10 +305,9 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
             _scratch << "LCAccel";
             break;
         case Type::Tag::CUSTOM: {
-            if (type == _ray_query_all_type) {
-                _scratch << "LCRayQueryAll";
-            } else if (type == _ray_query_any_type) {
-                _scratch << "LCRayQueryAny";
+            if (type == _ray_query_all_type ||
+                type == _ray_query_any_type) {
+                _scratch << "LCRayQuery";
             } else {
                 LUISA_ERROR_WITH_LOCATION(
                     "Unsupported custom type: {}.",
@@ -424,6 +423,14 @@ void MetalCodegenAST::_emit_function() noexcept {
         _scratch << " ";
         _emit_variable_name(local);
         _scratch << "{};\n";
+
+        // create a shadow variable for ray query
+        if (local.type() == _ray_query_any_type ||
+            local.type() == _ray_query_all_type) {
+            _scratch << "LC_RAY_QUERY_SHADOW_VARIABLE(";
+            _emit_variable_name(local);
+            _scratch << ");\n";
+        }
     }
 
     // emit function body
@@ -1044,7 +1051,40 @@ void MetalCodegenAST::visit(const CommentStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    _emit_indention();
+    if (stmt->on_procedural_candidate()->statements().empty()) {
+        _scratch << "LC_RAY_QUERY_INIT_NO_PROCEDURAL(";
+    } else {
+        _scratch << "LC_RAY_QUERY_INIT(";
+    }
+    stmt->query()->accept(*this);
+    _scratch << ");\n";
+    _emit_indention();
+    _scratch << "while (ray_query_next(";
+    stmt->query()->accept(*this);
+    _scratch << ")) {\n";
+    _indention++;
+    _emit_indention();
+    _scratch << "if (ray_query_is_triangle_candidate(";
+    stmt->query()->accept(*this);
+    _scratch << ")) {\n";
+    _indention++;
+    for (auto s : stmt->on_triangle_candidate()->statements()) {
+        s->accept(*this);
+    }
+    _indention--;
+    _emit_indention();
+    _scratch << "} else {\n";
+    _indention++;
+    for (auto s : stmt->on_procedural_candidate()->statements()) {
+        s->accept(*this);
+    }
+    _indention--;
+    _emit_indention();
+    _scratch << "}\n";
+    _indention--;
+    _emit_indention();
+    _scratch << "}\n";
 }
 
 }// namespace luisa::compute::metal
