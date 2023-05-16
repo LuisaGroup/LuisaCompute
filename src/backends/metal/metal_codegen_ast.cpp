@@ -1052,6 +1052,8 @@ void MetalCodegenAST::visit(const CommentStmt *stmt) noexcept {
 
 void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _emit_indention();
+    _scratch << "/* ray query begin */\n";
+    _emit_indention();
     if (stmt->on_procedural_candidate()->statements().empty()) {
         _scratch << "LC_RAY_QUERY_INIT_NO_PROCEDURAL(";
     } else {
@@ -1069,6 +1071,8 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     stmt->query()->accept(*this);
     _scratch << ")) {\n";
     _indention++;
+    _emit_indention();
+    _scratch << "/* ray query triangle branch */\n";
     for (auto s : stmt->on_triangle_candidate()->statements()) {
         s->accept(*this);
     }
@@ -1076,6 +1080,8 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "} else {\n";
     _indention++;
+    _emit_indention();
+    _scratch << "/* ray query procedural branch */\n";
     for (auto s : stmt->on_procedural_candidate()->statements()) {
         s->accept(*this);
     }
@@ -1085,6 +1091,8 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _indention--;
     _emit_indention();
     _scratch << "}\n";
+    _emit_indention();
+    _scratch << "/* ray query end */\n";
 }
 
 }// namespace luisa::compute::metal
