@@ -15,6 +15,31 @@
 
 namespace luisa::compute::cuda {
 
+namespace detail {
+
+[[nodiscard]] static auto glob_variables_with_grad(Function f) noexcept {
+    luisa::unordered_set<Variable> gradient_variables;
+    traverse_expressions<true>(
+        f.body(),
+        [&](auto expr) noexcept {
+        if (expr->tag() == Expression::Tag::CALL) {
+            if (auto call = static_cast<const CallExpr *>(expr);
+                call->op() == CallOp::GRADIENT_MARKER) {
+                LUISA_ASSERT(call->arguments().size() == 2u &&
+                                 call->arguments().front()->tag() == Expression::Tag::REF,
+                             "Invalid gradient marker.");
+                auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                gradient_variables.emplace(v);
+            }
+        }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
+    return gradient_variables;
+}
+
+}// namespace detail
+
 class CUDACodegenAST::RayQueryLowering {
 
 public:
@@ -379,6 +404,7 @@ private:
             _codegen->_scratch << "\n};\n\n";
         }
 
+        auto grad_variables = detail::glob_variables_with_grad(f);
         auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
             // corner case: emit nothing if empty handler
             if (stmt->statements().empty()) { return; }
@@ -438,6 +464,12 @@ private:
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << "{};\n";
+                if (grad_variables.contains(v)) {
+                    _codegen->_emit_indent();
+                    _codegen->_scratch << "LC_GRAD_SHADOW_VARIABLE(";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ");\n";
+                }
             }
             // emit body
             _codegen->_emit_indent();
@@ -882,10 +914,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::REDUCE_MAX: _scratch << "lc_reduce_max"; break;
         case CallOp::OUTER_PRODUCT: _scratch << "lc_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: _scratch << "lc_mat_comp_mul"; break;
-        case CallOp::REQUIRES_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::REQUIRES_GRADIENT: _scratch << "LC_REQUIRES_GRAD"; break;
+        case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
+        case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
+        case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
@@ -1069,6 +1101,10 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
 
 void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
     _ray_query_lowering->lower(stmt);
+}
+
+void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
+    stmt->body()->accept(*this);
 }
 
 void CUDACodegenAST::emit(Function f) {
@@ -1557,12 +1593,20 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _scratch << ");";
         }
     }
+    auto grad_vars = detail::glob_variables_with_grad(f);
     for (auto v : f.local_variables()) {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(f, v, false);
             _scratch << "{};";
+            if (grad_vars.contains(v)) {
+                _scratch << "\n";
+                _emit_indent();
+                _scratch << "LC_GRAD_SHADOW_VARIABLE(";
+                _emit_variable_name(v);
+                _scratch << ");";
+            }
         }
     }
 }
