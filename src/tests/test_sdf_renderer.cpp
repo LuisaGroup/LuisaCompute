@@ -233,7 +233,6 @@ int main(int argc, char *argv[]) {
         // render
         CommandList command_list = CommandList::create();
         for (uint frame = spp; frame < spp + interval && frame < total_spp; frame++) {
-            LUISA_INFO("Frame: {}", frame);
             command_list << render(seed_image, accum_image, frame).dispatch(width, height);
             spp_count++;
         }
