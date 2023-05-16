@@ -427,7 +427,7 @@ void MetalCodegenAST::_emit_function() noexcept {
         // create a shadow variable for ray query
         if (local.type() == _ray_query_any_type ||
             local.type() == _ray_query_all_type) {
-            _scratch << "LC_RAY_QUERY_SHADOW_VARIABLE(";
+            _scratch << "  LC_RAY_QUERY_SHADOW_VARIABLE(";
             _emit_variable_name(local);
             _scratch << ");\n";
         }
