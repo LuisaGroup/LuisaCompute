@@ -971,9 +971,14 @@ void MetalCodegenAST::visit(const LoopStmt *stmt) noexcept {
 
 void MetalCodegenAST::visit(const ExprStmt *stmt) noexcept {
     _emit_indention();
-    _scratch << "static_cast<void>(";
+    if (stmt->expression()->type() != nullptr) {
+        _scratch << "static_cast<void>(";
+    }
     stmt->expression()->accept(*this);
-    _scratch << ");\n";
+    if (stmt->expression()->type() != nullptr) {
+        _scratch << ")";
+    }
+    _scratch << ";\n";
 }
 
 void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
