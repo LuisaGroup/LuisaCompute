@@ -238,6 +238,7 @@ struct GlobalEmitter {
     global_vars: HashMap<NodeRef, String>,
     generated_callables: HashMap<u64, String>,
     generated_callable_sources: HashMap<String, String>,
+    callable_def:String,
     captures: IndexMap<NodeRef, usize>,
     args: IndexMap<NodeRef, usize>,
     cpu_custom_ops: IndexMap<usize, usize>,
@@ -338,7 +339,6 @@ impl<'a> FunctionEmitter<'a> {
         };
         let fid = CArc::as_ptr(&f.0) as u64;
         if !self.globals.generated_callables.contains_key(&fid) {
-            let fname = format!("callable_{}", self.globals.generated_callables.len());
             let mut callable_emitter = FunctionEmitter::new(&mut self.globals, &self.type_gen);
 
             let mut params = vec![];
@@ -380,8 +380,9 @@ impl<'a> FunctionEmitter<'a> {
             }
             callable_emitter.gen_callable_module(&f.0);
             callable_emitter.indent += self.indent;
-
-            let source = format!("[=]({}){{\n{};}}", params.join(","), callable_emitter.body);
+            
+            let fname = format!("callable_{}", callable_emitter.globals.generated_callables.len());
+            let source = format!("[=]({}){{\n{}\n{};}}", params.join(","), callable_emitter.fwd_defs, callable_emitter.body);
             if let Some(fname) = self.globals.generated_callable_sources.get(&source) {
                 self.globals.generated_callables.insert(fid, fname.clone());
             } else {
@@ -389,7 +390,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.globals
                     .generated_callable_sources
                     .insert(source.clone(), fname.clone());
-                writeln!(&mut self.body, "const auto {} = {};\n", fname, source).unwrap();
+                writeln!(&mut self.globals.callable_def, "const auto {} = {};\n", fname, source).unwrap();
                 self.write_ident();
             }
         }
@@ -1655,6 +1656,7 @@ impl CpuCodeGen {
             captures: IndexMap::new(),
             args: IndexMap::new(),
             cpu_custom_ops: IndexMap::new(),
+            callable_def:String::new(),
         };
         let type_gen = TypeGen::new();
         let mut codegen = FunctionEmitter::new(&mut globals, &type_gen);
@@ -1671,7 +1673,7 @@ using size_t = unsigned long long;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         Generated {
             source: format!(
-                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 defs,
                 CPU_LIBM_DEF,
                 CPU_KERNEL_DEFS,
@@ -1682,6 +1684,7 @@ using size_t = unsigned long long;"#;
                 type_gen.generated(),
                 kernel_fn_decl,
                 codegen.fwd_defs,
+                codegen.globals.callable_def,
                 codegen.body,
                 "}",
             ),
