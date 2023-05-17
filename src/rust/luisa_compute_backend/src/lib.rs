@@ -16,6 +16,7 @@ use luisa_compute_ir::{
 };
 
 pub mod proxy;
+
 pub(crate) struct Interface {
     #[allow(dead_code)]
     pub(crate) lib: libloading::Library,
@@ -99,6 +100,8 @@ impl Context {
                 lib_path.join("lc-api.dll")
             } else if cfg!(target_os = "linux") {
                 lib_path.join("liblc-api.so")
+            } else if cfg!(target_os = "macos") {
+                lib_path.join("liblc-api.dylib")
             } else {
                 todo!()
             };
@@ -106,6 +109,8 @@ impl Context {
                 lib_path.join("luisa_compute_backend_impl.dll")
             } else if cfg!(target_os = "linux") {
                 lib_path.join("libluisa_compute_backend_impl.so")
+            } else if cfg!(target_os = "macos") {
+                lib_path.join("libluisa_compute_backend_impl.dylib")
             } else {
                 todo!()
             };
@@ -122,8 +127,12 @@ impl Context {
                 Err(err) => {
                     let libname = if cfg!(target_os = "windows") {
                         "luisa_compute_backend_impl.dll"
-                    } else {
+                    } else if cfg!(target_os = "linux") {
                         "libluisa_compute_backend_impl.so"
+                    } else if cfg!(target_os = "macos") {
+                        "libluisa_compute_backend_impl.dylib"
+                    } else {
+                        todo!()
                     };
 
                     let err = err.to_string();
@@ -135,8 +144,12 @@ impl Context {
                 Err(err) => {
                     let libname = if cfg!(target_os = "windows") {
                         "lc-api.dll"
-                    } else {
+                    } else if cfg!(target_os = "linux") {
                         "liblc-api.so"
+                    } else if cfg!(target_os = "macos") {
+                        "liblc-api.dylib"
+                    } else {
+                        todo!()
                     };
 
                     let err = err.to_string();
