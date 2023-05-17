@@ -178,39 +178,6 @@ class BufferType:
         return write
 
 
-class IndirectBufferType:
-    def __init__(self):
-        self.dtype = CustomType("LC_IndirectDispatchBuffer")
-        self.luisa_type = self.dtype.luisa_type
-        self.clear = self.get_clear_func()
-        self.emplace = self.get_emplace_func()
-
-    def __eq__(self, other):
-        return type(other) is IndirectBufferType and self.dtype == other.dtype
-
-    def __hash__(self):
-        return hash(self.dtype) ^ 8965828349193294
-
-    @staticmethod
-    @cache
-    def get_clear_func():
-        @BuiltinFuncBuilder
-        def clear(self):
-            return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
-
-        return clear
-
-    @staticmethod
-    @cache
-    def get_emplace_func():
-        @BuiltinFuncBuilder
-        def emplace(self, block_size, size):
-            check_exact_signature([uint3, uint3], [block_size, size], "emplace")
-            return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr])
-
-        return emplace
-
-
 def from_bytes(dtype, packed):
     import struct
     if dtype == int:
@@ -241,15 +208,19 @@ def from_bytes(dtype, packed):
     assert False
 
 
-class DispatchIndirectBuffer:
+class IndirectDispatchBuffer:
     def __init__(self, size: int):
         self.dtype = CustomType("LC_IndirectKernelDispatch")
-        self.bufferType = IndirectBufferType()
-        self.clear = self.bufferType.clear
-        self.emplace = self.bufferType.emplace
         buffer = get_global_device().impl().create_dispatch_buffer(size)
         self.size = size
         self.bytesize = buffer.size_bytes()
         self.stride = buffer.element_stride()
         # instantiate buffer on device
         self.handle = buffer.handle()
+    @BuiltinFuncBuilder
+    def clear(self):
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
+    @BuiltinFuncBuilder
+    def emplace(self, block_size, size):
+        check_exact_signature([uint3, uint3], [block_size, size], "emplace")
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr])

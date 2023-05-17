@@ -6,7 +6,7 @@ from .func import func, save_raster_shader
 from .mathtypes import *
 from .array import array, ArrayType, SharedArrayType
 from .struct import struct, StructType
-from .buffer import buffer, Buffer, BufferType, DispatchIndirectBuffer
+from .buffer import buffer, Buffer, BufferType, IndirectDispatchBuffer
 from .image2d import image2d, Image2D, Texture2DType
 from .image3d import image3d, Image3D, Texture3DType
 from .dylibs.lcapi import PixelStorage

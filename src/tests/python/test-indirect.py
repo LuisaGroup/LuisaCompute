@@ -14,7 +14,7 @@ def dispatch(buffer):
     old = buffer.atomic_fetch_add(kernel_id(), dispatch_size().x)
 
 
-dispatch_buffer = DispatchIndirectBuffer(dispatch_count)
+dispatch_buffer = IndirectDispatchBuffer(dispatch_count)
 
 
 @func

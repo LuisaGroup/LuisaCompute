@@ -10,7 +10,7 @@ import ast
 from .dylibs import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
-from .types import dtype_of, to_lctype, implicit_covertable
+from .types import dtype_of, to_lctype, implicit_covertable, basic_dtypes, uint
 from .astbuilder import VariableInfo
 from .meshformat import MeshFormat
 import textwrap
@@ -123,7 +123,7 @@ class func:
         self.filename = frameinfo.filename
         self.lineno = frameinfo.lineno
 
-    def save(self, argtypes: tuple, name=None, async_build: bool = True):
+    def save(self, argtypes: tuple, name=None, async_build: bool = True, print_cpp_header = False):
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
@@ -159,6 +159,107 @@ class func:
             get_global_device().impl().save_shader_async(f.builder, name)
         else:
             get_global_device().impl().save_shader(f.function, name)
+        if print_cpp_header:
+            front = '''#pragma once
+#include <core/mathematics.h>
+#include <runtime/device.h>
+namespace luisa::compute {
+'''
+            type_idx = 0
+            type_map = {}
+            type_defines = []
+            r = ""
+            shader_name = name.replace("\\","/")
+            func_name = shader_name.replace("/", "_").replace(":", "_")
+            def get_value_type_name(dtype, r):
+                if dtype in basic_dtypes:
+                    if dtype in {float, int, uint, bool}:
+                        return dtype.__name__, r
+                    return "luisa::" + dtype.__name__, r
+                elif type(dtype).__name__ == "StructType":
+                    name = type_map.get(arg)
+                    if name == None:
+                        name = "Arg" + str(type_idx)
+                        type_map[arg] = name
+
+                        r += f"struct {name} " + "{\n"
+                        for idx, ele_type in arg._py_args.items():
+                            ele_name, r = get_value_type_name(ele_type, r)
+                            r += f"    {ele_name} {idx};\n"
+                        r += "}\n"
+                    return name, r
+                else:
+                    return None, r
+            buffer_declared = False
+            volume_declared = False
+            image_declared = False
+            for arg in argtypes:
+                name, r = get_value_type_name(arg, r)
+                if name:
+                    type_defines.append(name)
+                elif type(arg).__name__ == "Texture2DType":
+                    dtype_name, r = get_value_type_name(arg.dtype, r)
+                    if name == None:
+                        name = f"Image<{dtype_name}>"
+                        type_map[arg] = name
+                        if not image_declared:
+                            front += "template <typename T> class Image;\n"
+                            image_declared = True
+                    type_defines.append("luisa::compute::" + name)
+                elif type(arg).__name__ == "Texture3DType":
+                    dtype_name, r = get_value_type_name(arg.dtype, r)
+                    if name == None:
+                        name = f"Volume<{dtype_name}>"
+                        type_map[arg] = name
+                        if not volume_declared:
+                            front += "template <typename T> class Volume;\n"
+                            volume_declared = True
+                    type_defines.append("luisa::compute::" + name)
+                elif type(arg).__name__ == "BufferType":
+                    dtype_name, r = get_value_type_name(arg.dtype, r)
+                    if name == None:
+                        name = f"Buffer<{dtype_name}>"
+                        type_map[arg] = name
+                        if not buffer_declared:
+                            front += "template <typename T> class Buffer;\n"
+                            buffer_declared = True
+                    type_defines.append("luisa::compute::" + name)
+                elif arg.__name__ == "BindlessArray":
+                    name = type_map.get(arg)
+                    if name == None:
+                        name = "BindlessArray"
+                        type_map[arg] = name
+                        front += "class BindlessArray;\n"
+                    type_defines.append("luisa::compute::" + name)
+                elif arg.__name__ == "Accel":
+                    name = type_map.get(arg)
+                    if name == None:
+                        name = "Accel"
+                        type_map[arg] = name
+                        front += "class Accel;\n"
+                    type_defines.append("luisa::compute::" + name)
+                elif arg.__name__ == "IndirectDispatchBuffer":
+                    name = type_map.get(arg)
+                    if name == None:
+                        name = "IndirectDispatchBuffer"
+                        type_map[arg] = name
+                        front += "class IndirectDispatchBuffer;\n"
+                    type_defines.append("luisa::compute::" + name)
+                else:
+                    assert False
+                    
+            front += "}\n"
+            r += "inline Shader3D<"
+            type_name = ""
+            sz = 0
+            for i in type_defines:
+                type_name += f"{i}"
+                sz += 1
+                if sz != len(type_defines):
+                    type_name += ", "
+            r += type_name + "> load_" + func_name
+            r +=" (luisa::compute::Device& device) {\n    return device.load_shader<" + type_name + ">(\"" + shader_name + "\");\n}\n"
+            return front + r
 
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo
