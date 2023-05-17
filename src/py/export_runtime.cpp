@@ -438,6 +438,14 @@ void export_runtime(py::module &m) {
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
         .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
+        .def("dimension", [](FunctionBuilder &self) {
+            if (self.block_size().z > 1) {
+                return 3;
+            }else if (self.block_size().y > 1) {
+                return 2;
+            }
+            return 1;
+        })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
             auto eval = analyzer.back().try_eval(expr);
             return visit(
@@ -508,11 +516,11 @@ void export_runtime(py::module &m) {
                 auto result = analyzer.back().assign(l, r);
                 visit(
                     [&]<typename T>(T const &t) {
-            if constexpr (std::is_same_v<T, monostate>) {
-                self.assign(l, r);
-            } else {
-                self.assign(l, self.literal(Type::of<T>(), t));
-            }
+                        if constexpr (std::is_same_v<T, monostate>) {
+                            self.assign(l, r);
+                        } else {
+                            self.assign(l, self.literal(Type::of<T>(), t));
+                        }
                     },
                     result);
             },

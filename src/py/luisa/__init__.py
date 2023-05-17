@@ -24,6 +24,33 @@ from .dylibs.lcapi import log_level_verbose, log_level_info, log_level_warning, 
 from os.path import realpath
 import platform
 
+def _select_backend(backends):
+    platform_str = str(platform.platform()).lower()
+    if platform_str.find("windows") >= 0:
+        for i in backends:
+            if i == "dx":
+                backend_name = "dx"
+                break
+        if backend_name is None:
+            backend_name = backends[0]
+    elif platform_str.find("linux") >= 0:
+        for i in backends:
+            if i == "cuda":
+                backend_name = "cuda"
+                break
+        if backend_name is None:
+            backend_name = backends[0]
+    elif platform_str.find("macos") >= 0:
+        for i in backends:
+            if i == "metal":
+                backend_name = "metal"
+                break
+        if backend_name is None:
+            backend_name = backends[0]
+    else:
+        backend_name = backends[0]
+    print(f"detected backends: {backends}. Selecting {backend_name}.")
+    return backend_name
 
 def init(backend_name=None, shader_path=None, support_gui=True):
     if globalvars.vars is not None:
@@ -34,32 +61,7 @@ def init(backend_name=None, shader_path=None, support_gui=True):
     backends = globalvars.vars.context.installed_backends()
     assert len(backends) > 0
     if backend_name is None:
-        platform_str = str(platform.platform()).lower()
-        if platform_str.find("windows") >= 0:
-            for i in backends:
-                if i == "dx":
-                    backend_name = "dx"
-                    break
-            if backend_name is None:
-                backend_name = backends[0]
-        elif platform_str.find("linux") >= 0:
-            for i in backends:
-                if i == "cuda":
-                    backend_name = "cuda"
-                    break
-            if backend_name is None:
-                backend_name = backends[0]
-        elif platform_str.find("macos") >= 0:
-            for i in backends:
-                if i == "metal":
-                    backend_name = "metal"
-                    break
-            if backend_name is None:
-                backend_name = backends[0]
-        else:
-            backend_name = backends[0]
-        print(f"detected backends: {backends}. Selecting {backend_name}.")
-
+        backend_name = _select_backend(backends)
     elif backend_name not in backends:
         raise NameError(f"backend '{backend_name}' is not installed.")
     globalvars.device = globalvars.vars.context.create_device(backend_name)
@@ -79,8 +81,7 @@ def init_headless(backend_name=None, shader_path=None):
     backends = globalvars.vars.context.installed_backends()
     assert len(backends) > 0
     if backend_name is None:
-        print(f"detected backends: {backends}. Selecting {backends[0]}.")
-        backend_name = backends[0]
+        backend_name = _select_backend(backends)
     elif backend_name not in backends:
         raise NameError(f"backend '{backend_name}' is not installed.")
     globalvars.device = globalvars.vars.context.create_headless_device(backend_name)

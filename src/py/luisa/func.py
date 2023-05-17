@@ -161,19 +161,18 @@ class func:
             get_global_device().impl().save_shader(f.function, name)
         if print_cpp_header:
             front = '''#pragma once
-#include <core/mathematics.h>
 #include <runtime/device.h>
-namespace luisa::compute {
+#include <runtime/shader.h>
 '''
             type_idx = 0
             type_map = {}
             type_defines = []
             r = ""
             shader_name = name.replace("\\","/")
-            func_name = shader_name.replace("/", "_").replace(":", "_")
+            func_name = shader_name.replace("/", "_").replace(":", "_").replace(".", "_")
             def get_value_type_name(dtype, r):
                 if dtype in basic_dtypes:
-                    if dtype in {float, int, uint, bool}:
+                    if dtype in {float, int, bool}:
                         return dtype.__name__, r
                     return "luisa::" + dtype.__name__, r
                 elif type(dtype).__name__ == "StructType":
@@ -186,7 +185,7 @@ namespace luisa::compute {
                         for idx, ele_type in arg._py_args.items():
                             ele_name, r = get_value_type_name(ele_type, r)
                             r += f"    {ele_name} {idx};\n"
-                        r += "}\n"
+                        r += "};\n"
                     return name, r
                 else:
                     return None, r
@@ -203,7 +202,7 @@ namespace luisa::compute {
                         name = f"Image<{dtype_name}>"
                         type_map[arg] = name
                         if not image_declared:
-                            front += "template <typename T> class Image;\n"
+                            front += "#include <runtime/image.h>\n"
                             image_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif type(arg).__name__ == "Texture3DType":
@@ -212,7 +211,7 @@ namespace luisa::compute {
                         name = f"Volume<{dtype_name}>"
                         type_map[arg] = name
                         if not volume_declared:
-                            front += "template <typename T> class Volume;\n"
+                            front += "#include <runtime/volume.h>\n"
                             volume_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif type(arg).__name__ == "BufferType":
@@ -221,7 +220,7 @@ namespace luisa::compute {
                         name = f"Buffer<{dtype_name}>"
                         type_map[arg] = name
                         if not buffer_declared:
-                            front += "template <typename T> class Buffer;\n"
+                            front += "#include <runtime/buffer.h>\n"
                             buffer_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "BindlessArray":
@@ -229,27 +228,28 @@ namespace luisa::compute {
                     if name == None:
                         name = "BindlessArray"
                         type_map[arg] = name
-                        front += "class BindlessArray;\n"
+                        front += "#include <runtime/bindless_array.h>\n"
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "Accel":
                     name = type_map.get(arg)
                     if name == None:
                         name = "Accel"
                         type_map[arg] = name
-                        front += "class Accel;\n"
+                        front += "#include <runtime/rtx/accel.h>\n"
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "IndirectDispatchBuffer":
                     name = type_map.get(arg)
                     if name == None:
                         name = "IndirectDispatchBuffer"
                         type_map[arg] = name
-                        front += "class IndirectDispatchBuffer;\n"
+                        front += "#include <runtime/dispatch_buffer.h>\n"
                     type_defines.append("luisa::compute::" + name)
                 else:
                     assert False
                     
-            front += "}\n"
-            r += "inline Shader3D<"
+            dimension = f.builder.dimension()
+            func_declare = "" 
+            func_declare += f"luisa::compute::Shader{dimension}D<"
             type_name = ""
             sz = 0
             for i in type_defines:
@@ -257,8 +257,11 @@ namespace luisa::compute {
                 sz += 1
                 if sz != len(type_defines):
                     type_name += ", "
-            r += type_name + "> load_" + func_name
-            r +=" (luisa::compute::Device& device) {\n    return device.load_shader<" + type_name + ">(\"" + shader_name + "\");\n}\n"
+            func_declare += type_name + ">"
+            func_name = "load_" + func_name
+            func_name +=" (luisa::compute::Device& device)"
+            r += f"// {func_declare} {func_name};\n"
+            r += f"inline auto {func_name}" + " {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_name + "\");\n}\n"
             return front + r
 
     # compiles an argument-type-specialized callable/kernel
