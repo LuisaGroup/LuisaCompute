@@ -29,12 +29,7 @@ def create_arg_expr(dtype, allow_ref):
             return lcapi.builder().reference(lctype)
         else:
             return lcapi.builder().argument(lctype)
-    elif lctype.is_custom():
-        if allow_ref:
-            return lcapi.builder().custom_reference(lctype)
-        else:
-            return lcapi.builder().custom_argument(lctype)
-    elif lctype.is_buffer():
+    elif lctype.is_buffer() or lctype.is_custom_buffer():
         return lcapi.builder().buffer(lctype)
     elif lctype.is_texture():
         return lcapi.builder().texture(lctype)
@@ -251,7 +246,7 @@ class func:
                 command.encode_uniform(lcapi.to_bytes(a), lctype.size())
             elif lctype.is_array() or lctype.is_structure():
                 command.encode_uniform(a.to_bytes(), lctype.size())
-            elif lctype.is_buffer():
+            elif lctype.is_buffer() or lctype.is_custom_buffer():
                 command.encode_buffer(a.handle, 0, a.bytesize)
             elif lctype.is_texture():
                 command.encode_texture(a.handle, 0)
@@ -259,7 +254,6 @@ class func:
                 command.encode_bindless_array(a.handle)
             elif lctype.is_accel():
                 command.encode_accel(a.handle)
-            elif lctype.is_custom() and lctype.description() == "LC_IndirectDispatchBuffer":
                 command.encode_buffer(a.handle, 0, a.bytesize)
             else:
                 assert False

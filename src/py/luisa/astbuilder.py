@@ -223,7 +223,7 @@ class ASTVisitor:
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val), 'r'
-        if lctype.is_buffer():
+        if lctype.is_buffer() or lctype.is_custom_buffer():
             return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0,
                                                          val.bytesize), 'l'  # offset defaults to 0
         if lctype.is_texture():

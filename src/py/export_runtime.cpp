@@ -471,24 +471,6 @@ void export_runtime(py::module &m) {
 
         .def("argument", &FunctionBuilder::argument, pyref)
         .def("reference", &FunctionBuilder::reference, pyref)
-        .def(
-            "custom_reference", [](FunctionBuilder &self, Type const *type) {
-                if (type == Type::of<IndirectDispatchBuffer>()) {
-                    return self.buffer(type);
-                } else {
-                    return self.reference(type);
-                }
-            },
-            pyref)
-        .def(
-            "custom_argument", [](FunctionBuilder &self, Type const *type) {
-                if (type == Type::of<IndirectDispatchBuffer>()) {
-                    return self.buffer(type);
-                } else {
-                    return self.argument(type);
-                }
-            },
-            pyref)
         .def("buffer", &FunctionBuilder::buffer, pyref)
         .def("texture", &FunctionBuilder::texture, pyref)
         .def("bindless_array", &FunctionBuilder::bindless_array, pyref)
