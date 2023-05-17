@@ -31,7 +31,7 @@ pub struct SwapChainForCpuContext {
     pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
     pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
     pub cpu_swapchain_present:
-        unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
+    unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
 }
 
 unsafe impl Send for SwapChainForCpuContext {}
@@ -122,6 +122,7 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
     };
     abort();
 }
+
 fn init() {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Trace))
@@ -142,6 +143,7 @@ fn init() {
         abort();
     }));
 }
+
 extern "C" fn free_string(ptr: *mut c_char) {
     unsafe {
         if !ptr.is_null() {
@@ -149,7 +151,9 @@ extern "C" fn free_string(ptr: *mut c_char) {
         }
     }
 }
+
 static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
+
 extern "C" fn set_logger_callback(cb: unsafe extern "C" fn(api::LoggerMessage)) {
     INIT_LOGGER.call_once(|| {
         init();
@@ -158,14 +162,17 @@ extern "C" fn set_logger_callback(cb: unsafe extern "C" fn(api::LoggerMessage)) 
         }
     });
 }
+
 struct Context {
     path: PathBuf,
 }
+
 extern "C" fn create_context(path: *const c_char) -> api::Context {
     let path = unsafe { CStr::from_ptr(path).to_str().unwrap() };
     let path = PathBuf::from(path);
     api::Context(Box::into_raw(Box::new(Context { path })) as u64)
 }
+
 extern "C" fn destroy_context(ctx: api::Context) {
     unsafe {
         drop(Box::from_raw(ctx.0 as *mut Context));
@@ -189,6 +196,8 @@ unsafe extern "C" fn create_device(
                     "lc-vulkan-swapchain.dll"
                 } else if cfg!(target_os = "linux") {
                     "liblc-vulkan-swapchain.so"
+                } else if cfg!(target_os = "macos") {
+                    "liblc-vulkan-swapchain.dylib"
                 } else {
                     todo!()
                 };
@@ -226,6 +235,7 @@ unsafe extern "C" fn create_device(
         _ => panic_abort!("unknown device {}", device),
     }
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_lib_interface() -> api::LibInterface {
     api::LibInterface {
