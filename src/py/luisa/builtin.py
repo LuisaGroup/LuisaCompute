@@ -206,7 +206,7 @@ builtin_func_names = {
     'clz', 'ctz', 'popcount', 'reverse',
     'determinant', 'transpose', 'inverse', "faceforward", "reflect",
     'print',
-    'len'
+    'len', 'ddx', 'ddy'
 }
 
 
@@ -549,7 +549,7 @@ def _dd(name, *args):
     assert len(args) == 1
     assert args[0].dtype in basic_dtypes
     op = getattr(lcapi.CallOp, name.upper())
-    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, args[0].expr)
+    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, [args[0].expr])
 
 
 _func_map["ddx"] = _dd
