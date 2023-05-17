@@ -1,7 +1,7 @@
 //
 // Created by Mike Smith on 2022/10/17.
 //
-
+#include <fstream>
 #include <core/logging.h>
 #include <ir/ast2ir.h>
 #include <ast/function_builder.h>
@@ -136,6 +136,11 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
         ir::luisa_compute_ir_transform_pipeline_add_transform(autodiff_pipeline, "autodiff");
         LUISA_INFO("converting module");
         auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, module);
+        //
+        auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
+        std::ofstream out2{"autodiff_ir_dump_instant.txt"};
+        out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
+        //
         LUISA_INFO("destroying pipeline");
         ir::luisa_compute_ir_transform_pipeline_destroy(autodiff_pipeline);
         LUISA_INFO("autodiff done");
@@ -770,6 +775,14 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     //            }
     //        }
     //    }
+    else if (expr->op() == CallOp::GRADIENT_MARKER) {
+        LUISA_VERBOSE("using gradient marker arg emplace");
+
+        args.reserve(2);
+        args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[0])));
+        // args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[1])));
+        args.emplace_back(_convert_expr(expr->arguments()[1]));
+    }
     else {
         LUISA_VERBOSE("using default arg emplace");
         args.reserve(expr->arguments().size());
@@ -987,6 +1000,7 @@ ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
     auto lhs = _convert_expr(stmt->lhs());
     auto rhs = _cast(stmt->lhs()->type(), stmt->rhs()->type(),
                      _convert_expr(stmt->rhs()));
+    assign_map[lhs._0] = rhs;
     auto instr = ir::luisa_compute_ir_new_instruction(
         ir::Instruction{.tag = ir::Instruction::Tag::Update,
                         .update = {.var = lhs, .value = rhs}});
@@ -1295,6 +1309,14 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
             }
         },
         value);
+}
+
+[[nodiscard]] ir::NodeRef AST2IR::get_assign_rhs(ir::NodeRef lhs) {
+    if (auto it = assign_map.find(lhs._0); it != nullptr) {
+        return it->second;
+    } else {
+        return lhs;
+    }
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
