@@ -834,8 +834,8 @@ template<typename T>
 
 #define LC_GRAD_SHADOW_VARIABLE(x) auto x##_grad = lc_zero<decltype(x)>()
 #define LC_MARK_GRAD(x, dx) x##_grad = dx
-#define LC_ACCUM_GRAD(x, dx) lc_accumulate_grad(&(x##_grad), (dx))
 #define LC_GRAD(x) (x##_grad)
+#define LC_ACCUM_GRAD(x, dx) (lc_accumulate_grad(&(x##_grad), (dx)), LC_GRAD(x))
 #define LC_REQUIRES_GRAD(x) static_cast<void>(0)
 
 template<typename T, size_t N>
