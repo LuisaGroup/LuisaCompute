@@ -1404,7 +1404,6 @@ void CodegenUtility::CodegenProperties(
             if constexpr (rtBuffer) {
                 printInstBuffer.operator()<writable>();
                 properties.emplace_back(prop);
-
             } else {
                 print();
                 properties.emplace_back(prop);
@@ -1414,7 +1413,6 @@ void CodegenUtility::CodegenProperties(
             varData << ");\n"sv;
             r++;
         };
-
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
                 if (Writable(i)) {
@@ -1441,6 +1439,11 @@ void CodegenUtility::CodegenProperties(
                     genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
                 }
                 break;
+            case Type::Tag::CUSTOM: {
+                if (i.type()->description() == "LC_IndirectDispatchBuffer"sv) {
+                    genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                }
+            } break;
             default: break;
         }
     }

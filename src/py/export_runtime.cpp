@@ -15,6 +15,7 @@
 #include <ast/atomic_ref_node.h>
 #include <core/logging.h>
 #include <runtime/context.h>
+#include <runtime/dispatch_buffer.h>
 
 namespace py = pybind11;
 using namespace luisa;
@@ -54,7 +55,7 @@ ManagedDevice::~ManagedDevice() noexcept {
             i.wait();
         }
         futures.clear();
-        
+
         if (device_count == 0) {
             RefCounter::current = nullptr;
             thread_pool.destroy();
@@ -86,7 +87,11 @@ void export_runtime(py::module &m) {
             fmt.format.emplace_vertex_stream(fmt.attributes);
             fmt.attributes.clear();
         });
-
+    py::class_<BufferCreationInfo>(m, "BufferCreationInfo")
+        .def(py::init<>())
+        .def("element_stride", [](BufferCreationInfo &self) { return self.element_stride; })
+        .def("size_bytes", [](BufferCreationInfo &self) { return self.total_size_bytes; })
+        .def("handle", [](BufferCreationInfo &self) { return self.handle; });
     py::class_<Context>(m, "Context")
         .def(py::init<luisa::string>())
         .def("create_device", [](Context &self, luisa::string_view backend_name) {
@@ -320,11 +325,11 @@ void export_runtime(py::module &m) {
                 return ptr;
             },
             pyref)
-        // .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
-        //     auto ptr = d.create_dispatch_buffer(dimension, size);
-        //     RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
-        //     return ptr;
-        // })
+        .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
+            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size);
+            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+            return ptr;
+        })
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
@@ -466,6 +471,24 @@ void export_runtime(py::module &m) {
 
         .def("argument", &FunctionBuilder::argument, pyref)
         .def("reference", &FunctionBuilder::reference, pyref)
+        .def(
+            "custom_reference", [](FunctionBuilder &self, Type const *type) {
+                if (type == Type::of<IndirectDispatchBuffer>()) {
+                    return self.buffer(type);
+                } else {
+                    return self.reference(type);
+                }
+            },
+            pyref)
+        .def(
+            "custom_argument", [](FunctionBuilder &self, Type const *type) {
+                if (type == Type::of<IndirectDispatchBuffer>()) {
+                    return self.buffer(type);
+                } else {
+                    return self.argument(type);
+                }
+            },
+            pyref)
         .def("buffer", &FunctionBuilder::buffer, pyref)
         .def("texture", &FunctionBuilder::texture, pyref)
         .def("bindless_array", &FunctionBuilder::bindless_array, pyref)

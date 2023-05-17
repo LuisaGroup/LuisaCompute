@@ -179,10 +179,9 @@ class BufferType:
 
 
 class IndirectBufferType:
-    def __init__(self, dtype):
-        self.dtype = dtype
-        self.luisa_type = lcapi.Type.from_(
-            "buffer<" + to_lctype(dtype).description() + ">")
+    def __init__(self):
+        self.dtype = CustomType("LC_IndirectDispatchBuffer")
+        self.luisa_type = self.dtype.luisa_type
         self.clear = self.get_clear_func()
         self.emplace = self.get_emplace_func()
 
@@ -205,9 +204,9 @@ class IndirectBufferType:
     @cache
     def get_emplace_func():
         @BuiltinFuncBuilder
-        def emplace(self, block_size, size, id):
-            check_exact_signature([uint3, uint3, uint], [block_size, size, id], "emplace")
-            return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, id.expr])
+        def emplace(self, block_size, size):
+            check_exact_signature([uint3, uint3], [block_size, size], "emplace")
+            return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr])
 
         return emplace
 
@@ -244,12 +243,13 @@ def from_bytes(dtype, packed):
 
 class DispatchIndirectBuffer:
     def __init__(self, size: int):
-        self.dtype = CustomType("DispatchArgs")
-        self.bufferType = IndirectBufferType(self.dtype)
+        self.dtype = CustomType("LC_IndirectKernelDispatch")
+        self.bufferType = IndirectBufferType()
         self.clear = self.bufferType.clear
         self.emplace = self.bufferType.emplace
-        buffer = get_global_device().impl().create_dispatch_buffer(3, size)
+        buffer = get_global_device().impl().create_dispatch_buffer(size)
         self.size = size
-        self.bytesize = buffer.size()
+        self.bytesize = buffer.size_bytes()
+        self.stride = buffer.element_stride()
         # instantiate buffer on device
         self.handle = buffer.handle()

@@ -19,6 +19,7 @@ namespace luisa::compute {
 
 class Accel;
 class BindlessArray;
+class IndirectDispatchBuffer;
 
 namespace detail {
 
@@ -113,6 +114,9 @@ public:
 
     // see definition in runtime/bindless_array.cpp
     ShaderInvokeBase &operator<<(const BindlessArray &array) noexcept;
+
+    // see definition in runtime/dispatch_buffer.cpp
+    ShaderInvokeBase &operator<<(const IndirectDispatchBuffer &array) noexcept;
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) && noexcept {

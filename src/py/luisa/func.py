@@ -24,11 +24,16 @@ def create_arg_expr(dtype, allow_ref):
     lctype = to_lctype(dtype)  # also checking that it's valid data dtype
     if lctype.is_scalar() or lctype.is_vector() or lctype.is_matrix():
         return lcapi.builder().argument(lctype)
-    if lctype.is_array() or lctype.is_structure() or lctype.is_custom():
+    elif lctype.is_array() or lctype.is_structure():
         if allow_ref:
             return lcapi.builder().reference(lctype)
         else:
             return lcapi.builder().argument(lctype)
+    elif lctype.is_custom():
+        if allow_ref:
+            return lcapi.builder().custom_reference(lctype)
+        else:
+            return lcapi.builder().custom_argument(lctype)
     elif lctype.is_buffer():
         return lcapi.builder().buffer(lctype)
     elif lctype.is_texture():
@@ -254,6 +259,8 @@ class func:
                 command.encode_bindless_array(a.handle)
             elif lctype.is_accel():
                 command.encode_accel(a.handle)
+            elif lctype.is_custom() and lctype.description() == "LC_IndirectDispatchBuffer":
+                command.encode_buffer(a.handle, 0, a.bytesize)
             else:
                 assert False
         # dispatch
