@@ -134,10 +134,15 @@ if (APPLE)
     endif ()
 endif ()
 
+set(CMAKE_MACOSX_RPATH ON)
+set(CMAKE_SKIP_BUILD_RPATH OFF)
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+
 if (APPLE)
-    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
-elseif (UNIX)
-    set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../bin;$ORIGIN/../lib")
+    set(CMAKE_INSTALL_RPATH "@loader_path")
+else ()
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
 endif ()
 
 if (NOT CMAKE_INSTALL_PREFIX)
