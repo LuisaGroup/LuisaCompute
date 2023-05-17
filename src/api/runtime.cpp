@@ -690,10 +690,9 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.device = device;
     interface.destroy_device = luisa_compute_device_interface_destroy;
     interface.create_buffer = luisa_compute_buffer_create;
-
     interface.destroy_buffer = luisa_compute_buffer_destroy;
     interface.create_texture = luisa_compute_texture_create;
-    interface.destroy_buffer = luisa_compute_buffer_destroy;
+    interface.destroy_texture = luisa_compute_texture_destroy;
     interface.create_bindless_array = luisa_compute_bindless_array_create;
     interface.destroy_bindless_array = luisa_compute_bindless_array_destroy;
     interface.create_event = luisa_compute_event_create;
