@@ -37,8 +37,10 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::Switch: _convert_instr_switch(node); break;
             case ir::Instruction::Tag::AdScope: _convert_instr_ad_scope(node); break;
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
-            case ir::Instruction::Tag::Comment: _convert_instr_comment(node); break;
-//            case ir::Instruction::Tag::Debug: _convert_instr_debug(node); break;
+            case ir::Instruction::Tag::Comment:
+                _convert_instr_comment(node);
+                break;
+                //            case ir::Instruction::Tag::Debug: _convert_instr_debug(node); break;
             default: LUISA_ERROR_WITH_LOCATION("Invalid instruction in body: `{}`.", to_string(node->instruction->tag));
         }
         node_ref = node->next;
@@ -686,10 +688,10 @@ void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_debug(const ir::Node *node) noexcept {
-//    LUISA_WARNING_WITH_LOCATION("Instruction `Debug` is not implemented.");
-//    auto debug_body = node->instruction->debug._0;
-//    auto debug_content = luisa::string_view{reinterpret_cast<const char *>(debug_body.ptr), debug_body.len};
-//    _ctx->function_builder->comment_(luisa::format("Debug: {}", debug_content));
+    //    LUISA_WARNING_WITH_LOCATION("Instruction `Debug` is not implemented.");
+    //    auto debug_body = node->instruction->debug._0;
+    //    auto debug_content = luisa::string_view{reinterpret_cast<const char *>(debug_body.ptr), debug_body.len};
+    //    _ctx->function_builder->comment_(luisa::format("Debug: {}", debug_content));
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
@@ -711,7 +713,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     case ir::Primitive::Uint16:
                     case ir::Primitive::Uint32:
                     case ir::Primitive::Uint64: return fn.template operator()<uint>(type);
-                    case ir::Primitive::Float32: 
+                    case ir::Primitive::Float32:
                     case ir::Primitive::Float64: return fn.template operator()<float>(type);
                 }
                 LUISA_ERROR_WITH_LOCATION("bad primitive type: {}", to_underlying(ty->primitive._0));
@@ -823,9 +825,11 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     auto get_payload = [data]<typename T>() noexcept {
                         return luisa::span(reinterpret_cast<const T *>(data.ptr), data.len / sizeof(T));
                     };
+                    auto array_type = _convert_type(type);
                     auto elem_type = type->array._0.element.get();
                     auto build_constant_with_type = [&]<typename U>(const Type *type) {
-                        return _ctx->function_builder->constant(type, ConstantData::create(get_payload.operator()<U>()));
+                        return _ctx->function_builder->constant(
+                            array_type, ConstantData::create(get_payload.operator()<U>()));
                     };
                     return apply(elem_type, build_constant_with_type);
                 }

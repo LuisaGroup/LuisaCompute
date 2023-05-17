@@ -126,9 +126,9 @@ static void collect_types_in_function(Function f,
     traverse_expressions<true>(
         f.body(),
         [&add](auto expr) noexcept {
-        if (auto type = expr->type()) {
-            add(add, type);
-        }
+            if (auto type = expr->type()) {
+                add(add, type);
+            }
         },
         [](auto) noexcept {},
         [](auto) noexcept {});
@@ -230,7 +230,10 @@ void MetalCodegenAST::_emit_type_decls(Function kernel) noexcept {
 
 void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
 
-    if (type == nullptr) { _scratch << "void"; }
+    if (type == nullptr) {
+        _scratch << "void";
+        return;
+    }
 
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "bool"; break;
@@ -302,10 +305,9 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
             _scratch << "LCAccel";
             break;
         case Type::Tag::CUSTOM: {
-            if (type == _ray_query_all_type) {
-                _scratch << "LCRayQueryAll";
-            } else if (type == _ray_query_any_type) {
-                _scratch << "LCRayQueryAny";
+            if (type == _ray_query_all_type ||
+                type == _ray_query_any_type) {
+                _scratch << "LCRayQuery";
             } else {
                 LUISA_ERROR_WITH_LOCATION(
                     "Unsupported custom type: {}.",
@@ -421,7 +423,41 @@ void MetalCodegenAST::_emit_function() noexcept {
         _scratch << " ";
         _emit_variable_name(local);
         _scratch << "{};\n";
+
+        // create a shadow variable for ray query
+        if (local.type() == _ray_query_any_type ||
+            local.type() == _ray_query_all_type) {
+            _scratch << "  LC_RAY_QUERY_SHADOW_VARIABLE(";
+            _emit_variable_name(local);
+            _scratch << ");\n";
+        }
     }
+
+    // emit gradient variables for autodiff
+    luisa::unordered_set<Variable> gradient_variables;
+    traverse_expressions<true>(
+        _function.body(),
+        [&](auto expr) noexcept {
+            if (expr->tag() == Expression::Tag::CALL) {
+                if (auto call = static_cast<const CallExpr *>(expr);
+                    call->op() == CallOp::GRADIENT_MARKER ||
+                    call->op() == CallOp::ACCUMULATE_GRADIENT ||
+                    call->op() == CallOp::GRADIENT ||
+                    call->op() == CallOp::REQUIRES_GRADIENT) {
+                    LUISA_ASSERT(call->arguments().size() >= 1u &&
+                                     call->arguments().front()->tag() == Expression::Tag::REF,
+                                 "Invalid gradient function call.");
+                    auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                    if (gradient_variables.emplace(v).second) {
+                        _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
+                        _emit_variable_name(v);
+                        _scratch << ");\n";
+                    }
+                }
+            }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
 
     // emit function body
     _scratch << "\n  /* function body begin */\n";
@@ -538,25 +574,42 @@ void MetalCodegenAST::visit(const BinaryExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
-    _scratch << "(";
-    expr->self()->accept(*this);
-    _scratch << ")";
     if (expr->is_swizzle()) {
-        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
-        _scratch << ".";
-        for (auto i = 0u; i < expr->swizzle_size(); i++) {
-            _scratch << xyzw[expr->swizzle_index(i)];
+        if (expr->swizzle_size() == 1u) {
+            _scratch << "vector_element_ref(";
+            expr->self()->accept(*this);
+            _scratch << ", " << expr->swizzle_index(0u) << ")";
+        } else {
+            static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+            _scratch << "(";
+            expr->self()->accept(*this);
+            _scratch << ").";
+            for (auto i = 0u; i < expr->swizzle_size(); i++) {
+                _scratch << xyzw[expr->swizzle_index(i)];
+            }
         }
     } else {
-        _scratch << ".m" << expr->member_index();
+        _scratch << "(";
+        expr->self()->accept(*this);
+        _scratch << ").m" << expr->member_index();
     }
 }
 
 void MetalCodegenAST::visit(const AccessExpr *expr) noexcept {
-    expr->range()->accept(*this);
-    _scratch << "[";
-    expr->index()->accept(*this);
-    _scratch << "]";
+    if (expr->range()->type()->is_vector()) {
+        _scratch << "vector_element_ref(";
+        expr->range()->accept(*this);
+        _scratch << ", ";
+        expr->index()->accept(*this);
+        _scratch << ")";
+    } else {
+        _scratch << "(";
+        expr->range()->accept(*this);
+        _scratch << ")";
+        _scratch << "[";
+        expr->index()->accept(*this);
+        _scratch << "]";
+    }
 }
 
 void MetalCodegenAST::visit(const LiteralExpr *expr) noexcept {
@@ -569,11 +622,19 @@ void MetalCodegenAST::visit(const RefExpr *expr) noexcept {
 
 void MetalCodegenAST::_emit_access_chain(luisa::span<const Expression *const> chain) noexcept {
     auto type = chain.front()->type();
-    _scratch << "(";
+    _scratch << "vector_element_ref(";
+    auto any_vector = false;
     chain.front()->accept(*this);
     for (auto index : chain.subspan(1u)) {
         switch (type->tag()) {
-            case Type::Tag::VECTOR: [[fallthrough]];
+            case Type::Tag::VECTOR: {
+                _scratch << ", ";
+                index->accept(*this);
+                _scratch << ")";
+                type = type->element();
+                any_vector = true;
+                break;
+            }
             case Type::Tag::ARRAY: {
                 type = type->element();
                 _scratch << "[";
@@ -615,7 +676,7 @@ void MetalCodegenAST::_emit_access_chain(luisa::span<const Expression *const> ch
                 type->description());
         }
     }
-    _scratch << ")";
+    if (!any_vector) { _scratch << ")"; }
 }
 
 void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
@@ -779,10 +840,10 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::REDUCE_MAX: _scratch << "lc_reduce_max"; break;
         case CallOp::OUTER_PRODUCT: _scratch << "lc_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: _scratch << "lc_mat_comp_mul"; break;
-        case CallOp::REQUIRES_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::REQUIRES_GRADIENT: _scratch << "LC_REQUIRES_GRAD"; break;
+        case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
+        case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
+        case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
@@ -810,16 +871,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
     } else {
         auto trailing_comma = false;
         for (auto i = 0u; i < expr->arguments().size(); i++) {
-            auto is_mut_ref = !expr->is_builtin() &&
-                              expr->custom().arguments()[i].is_reference() &&
-                              (to_underlying(expr->custom().variable_usage(
-                                   expr->custom().arguments()[i].uid())) &
-                               to_underlying(Usage::WRITE));
-            if (is_mut_ref) { _scratch << "as_ref("; }
             auto arg = expr->arguments()[i];
             trailing_comma = true;
             arg->accept(*this);
-            if (is_mut_ref) { _scratch << ")"; }
             _scratch << ", ";
         }
         if (trailing_comma) {
@@ -833,7 +887,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {
     switch (expr->op()) {
         case CastOp::STATIC: _scratch << "static_cast<"; break;
-        case CastOp::BITWISE: _scratch << "as_type<"; break;
+        case CastOp::BITWISE: _scratch << "bitcast<"; break;
     }
     _emit_type_name(expr->type());
     _scratch << ">(";
@@ -920,9 +974,14 @@ void MetalCodegenAST::visit(const LoopStmt *stmt) noexcept {
 
 void MetalCodegenAST::visit(const ExprStmt *stmt) noexcept {
     _emit_indention();
-    _scratch << "static_cast<void>(";
+    if (stmt->expression()->type() != nullptr) {
+        _scratch << "static_cast<void>(";
+    }
     stmt->expression()->accept(*this);
-    _scratch << ");\n";
+    if (stmt->expression()->type() != nullptr) {
+        _scratch << ")";
+    }
+    _scratch << ";\n";
 }
 
 void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
@@ -1023,7 +1082,56 @@ void MetalCodegenAST::visit(const CommentStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    _emit_indention();
+    _scratch << "/* ray query begin */\n";
+    _emit_indention();
+    if (stmt->on_procedural_candidate()->statements().empty()) {
+        _scratch << "LC_RAY_QUERY_INIT_NO_PROCEDURAL(";
+    } else {
+        _scratch << "LC_RAY_QUERY_INIT(";
+    }
+    stmt->query()->accept(*this);
+    _scratch << ");\n";
+    _emit_indention();
+    _scratch << "while (ray_query_next(";
+    stmt->query()->accept(*this);
+    _scratch << ")) {\n";
+    _indention++;
+    _emit_indention();
+    _scratch << "if (ray_query_is_triangle_candidate(";
+    stmt->query()->accept(*this);
+    _scratch << ")) {\n";
+    _indention++;
+    _emit_indention();
+    _scratch << "/* ray query triangle branch */\n";
+    for (auto s : stmt->on_triangle_candidate()->statements()) {
+        s->accept(*this);
+    }
+    _indention--;
+    _emit_indention();
+    _scratch << "} else {\n";
+    _indention++;
+    _emit_indention();
+    _scratch << "/* ray query procedural branch */\n";
+    for (auto s : stmt->on_procedural_candidate()->statements()) {
+        s->accept(*this);
+    }
+    _indention--;
+    _emit_indention();
+    _scratch << "}\n";
+    _indention--;
+    _emit_indention();
+    _scratch << "}\n";
+    _emit_indention();
+    _scratch << "/* ray query end */\n";
+}
+
+void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {
+    _emit_indention();
+    _scratch << "/* autodiff begin */\n";
+    stmt->body()->accept(*this);
+    _emit_indention();
+    _scratch << "/* autodiff end */\n";
 }
 
 }// namespace luisa::compute::metal

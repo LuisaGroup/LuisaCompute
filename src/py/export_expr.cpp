@@ -2,6 +2,7 @@
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
 #include <ast/function_builder.h>
+#include <runtime/dispatch_buffer.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -53,7 +54,6 @@ void export_expr(py::module &m) {
     py::class_<RayQueryStmt>(m, "RayQueryStmt")
         .def("on_triangle_candidate", py::overload_cast<>(&RayQueryStmt::on_triangle_candidate), pyref)
         .def("on_procedural_candidate", py::overload_cast<>(&RayQueryStmt::on_procedural_candidate), pyref);
-
     py::class_<Type, raw_ptr<Type>>(m, "Type")
         .def_static("from_", &Type::from, pyref)
         .def("size", &Type::size)
@@ -72,7 +72,12 @@ void export_expr(py::module &m) {
         .def("element", &Type::element, pyref)
         .def("description", &Type::description)
         .def("dimension", &Type::dimension)
-        .def_static("custom", [](luisa::string_view str) {
-            return Type::custom(str);
-        }, pyref);
+        .def("is_custom_buffer", [](Type const *t) {
+            return t == Type::of<IndirectDispatchBuffer>();
+        })
+        .def_static(
+            "custom", [](luisa::string_view str) {
+                return Type::custom(str);
+            },
+            pyref);
 }

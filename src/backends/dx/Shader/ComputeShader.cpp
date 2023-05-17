@@ -196,7 +196,7 @@ ID3D12CommandSignature *ComputeShader::CmdSig() const {
     memset(indDesc, 0, vstd::array_byte_size(indDesc));
     indDesc[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
     auto &c = indDesc[0].Constant;
-    c.RootParameterIndex = 1;
+    c.RootParameterIndex = 0;
     c.DestOffsetIn32BitValues = 0;
     c.Num32BitValuesToSet = 4;
     indDesc[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;

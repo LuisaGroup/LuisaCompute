@@ -112,6 +112,8 @@ void export_op(py::module &m) {
 
         .value("CROSS", CallOp::CROSS)
         .value("DOT", CallOp::DOT)
+        .value("DDX", CallOp::DDX)
+        .value("DDY", CallOp::DDY)
         .value("LENGTH", CallOp::LENGTH)
         .value("LENGTH_SQUARED", CallOp::LENGTH_SQUARED)
         .value("NORMALIZE", CallOp::NORMALIZE)

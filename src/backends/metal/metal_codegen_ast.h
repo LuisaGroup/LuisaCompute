@@ -43,6 +43,7 @@ private:
     void visit(const SwitchStmt *stmt) noexcept override;
     void visit(const SwitchCaseStmt *stmt) noexcept override;
     void visit(const SwitchDefaultStmt *stmt) noexcept override;
+    void visit(const AutoDiffStmt *stmt) noexcept override;
     void visit(const AssignStmt *stmt) noexcept override;
     void visit(const ForStmt *stmt) noexcept override;
     void visit(const ConstantExpr *expr) noexcept override;

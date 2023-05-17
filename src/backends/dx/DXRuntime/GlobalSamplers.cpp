@@ -1,8 +1,7 @@
-
 #include <DXRuntime/GlobalSamplers.h>
 namespace lc::dx {
-struct SamplerHash{
-    size_t operator()(Sampler const& s) const {
+struct SamplerHash {
+    size_t operator()(Sampler const &s) const {
         return luisa::hash64(&s, sizeof(Sampler), luisa::hash64_default_seed);
     }
 };
@@ -20,6 +19,7 @@ struct GlobalSampleData {
             for (auto y : vstd::range(4)) {
                 auto d = vstd::scope_exit([&] { ++idx; });
                 auto &&v = arr[idx];
+                v.MaxAnisotropy = 0;
                 switch ((Sampler::Filter)y) {
                     case Sampler::Filter::POINT:
                         v.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -31,6 +31,7 @@ struct GlobalSampleData {
                         v.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
                         break;
                     case Sampler::Filter::ANISOTROPIC:
+                        v.MaxAnisotropy = 16;
                         v.Filter = D3D12_FILTER_ANISOTROPIC;
                         break;
                     default: assert(false); break;
@@ -52,7 +53,6 @@ struct GlobalSampleData {
                 v.AddressV = address;
                 v.AddressW = address;
                 v.MipLODBias = 0;
-                v.MaxAnisotropy = 16;
                 v.MinLOD = 0;
                 v.MaxLOD = 16;
                 searchMap.try_emplace(

@@ -15,6 +15,7 @@
 #include <ast/atomic_ref_node.h>
 #include <core/logging.h>
 #include <runtime/context.h>
+#include <runtime/dispatch_buffer.h>
 
 namespace py = pybind11;
 using namespace luisa;
@@ -54,7 +55,7 @@ ManagedDevice::~ManagedDevice() noexcept {
             i.wait();
         }
         futures.clear();
-        
+
         if (device_count == 0) {
             RefCounter::current = nullptr;
             thread_pool.destroy();
@@ -86,7 +87,11 @@ void export_runtime(py::module &m) {
             fmt.format.emplace_vertex_stream(fmt.attributes);
             fmt.attributes.clear();
         });
-
+    py::class_<BufferCreationInfo>(m, "BufferCreationInfo")
+        .def(py::init<>())
+        .def("element_stride", [](BufferCreationInfo &self) { return self.element_stride; })
+        .def("size_bytes", [](BufferCreationInfo &self) { return self.total_size_bytes; })
+        .def("handle", [](BufferCreationInfo &self) { return self.handle; });
     py::class_<Context>(m, "Context")
         .def(py::init<luisa::string>())
         .def("create_device", [](Context &self, luisa::string_view backend_name) {
@@ -320,11 +325,11 @@ void export_runtime(py::module &m) {
                 return ptr;
             },
             pyref)
-        // .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
-        //     auto ptr = d.create_dispatch_buffer(dimension, size);
-        //     RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
-        //     return ptr;
-        // })
+        .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
+            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size);
+            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+            return ptr;
+        })
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
@@ -433,6 +438,14 @@ void export_runtime(py::module &m) {
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
         .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
+        .def("dimension", [](FunctionBuilder &self) {
+            if (self.block_size().z > 1) {
+                return 3;
+            }else if (self.block_size().y > 1) {
+                return 2;
+            }
+            return 1;
+        })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
             auto eval = analyzer.back().try_eval(expr);
             return visit(
@@ -503,11 +516,11 @@ void export_runtime(py::module &m) {
                 auto result = analyzer.back().assign(l, r);
                 visit(
                     [&]<typename T>(T const &t) {
-            if constexpr (std::is_same_v<T, monostate>) {
-                self.assign(l, r);
-            } else {
-                self.assign(l, self.literal(Type::of<T>(), t));
-            }
+                        if constexpr (std::is_same_v<T, monostate>) {
+                            self.assign(l, r);
+                        } else {
+                            self.assign(l, self.literal(Type::of<T>(), t));
+                        }
                     },
                     result);
             },

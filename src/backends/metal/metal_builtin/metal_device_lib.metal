@@ -114,20 +114,43 @@ struct vector_element {
 template<typename T>
 using vector_element_t = typename vector_element<T>::type;
 
+#define LC_VECTOR_REF_IMPL(T, N, addr_space)                                                                       \
+    [[nodiscard, gnu::always_inline]] inline addr_space auto &vector_element_ref(addr_space T##N &v, uint index) { \
+        return *(reinterpret_cast<addr_space vector_element_t<T##N> *>(&v) + index);                               \
+    }                                                                                                              \
+    [[nodiscard, gnu::always_inline]] inline auto vector_element_ref(addr_space const T##N &v, uint index) { return v[index]; }
+
+#define LC_VECTOR_REF(T, N)               \
+    LC_VECTOR_REF_IMPL(T, N, thread)      \
+    LC_VECTOR_REF_IMPL(T, N, threadgroup) \
+    LC_VECTOR_REF_IMPL(T, N, device)
+
+#define LC_VECTOR_REF_ALL(T) \
+    LC_VECTOR_REF(T, 2)      \
+    LC_VECTOR_REF(T, 3)      \
+    LC_VECTOR_REF(T, 4)
+
+LC_VECTOR_REF_ALL(half)
+LC_VECTOR_REF_ALL(float)
+LC_VECTOR_REF_ALL(int)
+LC_VECTOR_REF_ALL(uint)
+LC_VECTOR_REF_ALL(bool)
+LC_VECTOR_REF_ALL(char)
+LC_VECTOR_REF_ALL(uchar)
+LC_VECTOR_REF_ALL(short)
+LC_VECTOR_REF_ALL(ushort)
+LC_VECTOR_REF_ALL(long)
+LC_VECTOR_REF_ALL(ulong)
+
+// sinkholes for non-vectors
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v, uint index) {
-    return reinterpret_cast<thread vector_element_t<T> *>(&v) + index;
-}
+[[nodiscard, gnu::always_inline]] inline thread auto &vector_element_ref(thread T &v) { return v; }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v, uint index) {
-    return reinterpret_cast<threadgroup vector_element_t<T> *>(&v) + index;
-}
+[[nodiscard, gnu::always_inline]] inline threadgroup auto &vector_element_ref(threadgroup T &v) { return v; }
 
 template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v, uint index) {
-    return reinterpret_cast<device vector_element_t<T> *>(&v) + index;
-}
+[[nodiscard, gnu::always_inline]] inline device auto &vector_element_ref(device T &v) { return v; }
 
 template<typename T, access a>
 [[nodiscard, gnu::always_inline]] inline auto texture_read(texture2d<T, a> t, uint2 uv) {
@@ -142,11 +165,13 @@ template<typename T, access a>
 template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
     t.write(value, uv);
+    if constexpr (a == access::read_write) { t.fence(); }
 }
 
 template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
     t.write(value, uvw);
+    if constexpr (a == access::read_write) { t.fence(); }
 }
 
 [[nodiscard]] inline auto inverse(float2x2 m) {
@@ -511,17 +536,30 @@ template<typename T>
 using namespace metal::raytracing;
 
 struct alignas(16) LCRay {
-    array<float, 3> m0;
-    float m1;
-    array<float, 3> m2;
-    float m3;
+    array<float, 3> m0;// origin
+    float m1;          // min distance
+    array<float, 3> m2;// direction
+    float m3;          // max distance
 };
 
 struct LCTriangleHit {
-    uint m0;
-    uint m1;
-    float2 m2;
-    float m3;
+    uint m0;  // instance index
+    uint m1;  // triangle index
+    float2 m2;// barycentric coordinates
+    float m3; // distance
+};
+
+struct LCCommittedHit {
+    uint m0;  // instance index
+    uint m1;  // primitive index
+    float2 m2;// barycentric coordinates
+    uint m3;  // hit kind
+    float m4; // distance
+};
+
+struct LCProceduralHit {
+    uint m0;// instance index
+    uint m1;// primitive index
 };
 
 struct alignas(16) LCInstance {
@@ -576,7 +614,97 @@ struct LCAccel {
     return isect.type != intersection_type::none;
 }
 
-[[nodiscard, gnu::always_inline]] inline auto accel_instance_transform(LCAccel accel, uint i) {
+struct LCRayQuery {
+    instance_acceleration_structure accel;
+    ray ray;
+    uint mask;
+    bool terminate_on_first_hit;
+    thread intersection_query<triangle_data, instancing> *i;
+};
+
+[[nodiscard, gnu::always_inline]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask) {
+    return LCRayQuery{accel.handle, make_ray(ray), mask, false, nullptr};
+}
+
+[[nodiscard, gnu::always_inline]] inline auto accel_query_any(LCAccel accel, LCRay ray, uint mask) {
+    return LCRayQuery{accel.handle, make_ray(ray), mask, true, nullptr};
+}
+
+void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_data, instancing> &i, bool has_procedural_branch) {
+    intersection_params params;
+    params.accept_any_intersection(q.terminate_on_first_hit);
+    params.assume_geometry_type(has_procedural_branch ?
+                                    geometry_type::triangle | geometry_type::bounding_box :
+                                    geometry_type::triangle);
+    i.reset(q.ray, q.accel, q.mask, params);
+    q.i = &i;
+}
+
+#define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
+    intersection_query<triangle_data, instancing> q##_i
+
+#define LC_RAY_QUERY_INIT(q) ray_query_init(q, q##_i, true)
+#define LC_RAY_QUERY_INIT_NO_PROCEDURAL(q) ray_query_init(q, q##_i, false)
+
+[[nodiscard]] inline auto ray_query_is_triangle_candidate(LCRayQuery q) {
+    return q.i->get_candidate_intersection_type() == intersection_type::triangle;
+}
+
+[[nodiscard]] inline auto ray_query_next(LCRayQuery q) {
+    return q.i->next();
+}
+
+[[nodiscard]] inline auto ray_query_world_ray(LCRayQuery q) {
+    auto o = q.i->get_world_space_ray_origin();
+    auto d = q.i->get_world_space_ray_direction();
+    auto t_min = q.i->get_ray_min_distance();
+    auto t_max = q.i->get_committed_distance();
+    return LCRay{.m0 = {o.x, o.y, o.z},
+                 .m1 = t_min,
+                 .m2 = {d.x, d.y, d.z},
+                 .m3 = t_max};
+}
+
+[[nodiscard]] inline auto ray_query_procedural_candidate(LCRayQuery q) {
+    auto inst = q.i->get_candidate_instance_id();
+    auto prim = q.i->get_candidate_primitive_id();
+    return LCProceduralHit{inst, prim};
+}
+
+[[nodiscard]] inline auto ray_query_triangle_candidate(LCRayQuery q) {
+    auto inst = q.i->get_candidate_instance_id();
+    auto prim = q.i->get_candidate_primitive_id();
+    auto bary = q.i->get_candidate_triangle_barycentric_coord();
+    auto t = q.i->get_candidate_triangle_distance();
+    return LCTriangleHit{inst, prim, bary, t};
+}
+
+[[nodiscard]] inline auto ray_query_committed_hit(LCRayQuery q) {
+    auto type = q.i->get_committed_intersection_type();
+    auto kind = type == intersection_type::none     ? 0u :
+                type == intersection_type::triangle ? 1u :
+                                                      2u;
+    auto inst = kind ? q.i->get_committed_instance_id() : ~0u;
+    auto prim = q.i->get_committed_primitive_id();
+    auto bary = q.i->get_committed_triangle_barycentric_coord();
+    auto t = q.i->get_committed_distance();
+    return LCCommittedHit{inst, prim, bary, kind, t};
+}
+
+inline void ray_query_commit_triangle(LCRayQuery q) {
+    q.i->commit_triangle_intersection();
+}
+
+inline void ray_query_commit_procedural(LCRayQuery q, float t) {
+    q.i->commit_bounding_box_intersection(t);
+}
+
+inline void ray_query_terminate(LCRayQuery q) {
+    q.i->abort();
+}
+
+[[nodiscard, gnu::always_inline]] inline auto
+accel_instance_transform(LCAccel accel, uint i) {
     auto m = accel.instances[i].transform;
     return float4x4(
         m[0], m[1], m[2], 0.0f,
@@ -704,6 +832,12 @@ template<typename T>
 [[gnu::always_inline]] inline void lc_accumulate_grad(thread float3x3 *dst, float3x3 grad) { *dst += lc_remove_nan(grad); }
 [[gnu::always_inline]] inline void lc_accumulate_grad(thread float4x4 *dst, float4x4 grad) { *dst += lc_remove_nan(grad); }
 
+#define LC_GRAD_SHADOW_VARIABLE(x) auto x##_grad = lc_zero<decltype(x)>()
+#define LC_MARK_GRAD(x, dx) x##_grad = dx
+#define LC_GRAD(x) (x##_grad)
+#define LC_ACCUM_GRAD(x, dx) (lc_accumulate_grad(&(x##_grad), (dx)), LC_GRAD(x))
+#define LC_REQUIRES_GRAD(x) static_cast<void>(0)
+
 template<typename T, size_t N>
 inline void lc_accumulate_grad(thread array<T, N> *dst, array<T, N> grad) {
 #pragma unroll
@@ -807,3 +941,9 @@ template<typename T>
 
 template<typename T>
 [[nodiscard]] inline device T &as_ref(const device T &x) { return const_cast<device T &>(x); }
+
+template<typename U, typename T>
+[[nodiscard]] inline auto bitcast(T x) {
+    static_assert(sizeof(U) == sizeof(T), "bitcast requires types of same size");
+    return *reinterpret_cast<const thread U *>(&x);
+}

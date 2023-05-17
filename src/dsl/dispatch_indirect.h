@@ -18,9 +18,8 @@ public:
     Expr(const IndirectDispatchBuffer &buffer) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     void clear() const noexcept;
-    void dispatch_kernel(Expr<uint> kernel_id,
-                         Expr<uint3> block_size,
-                         Expr<uint3> dispatch_size) const noexcept;
+    // return kernel_id
+    Var<uint> dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept;
 };
 
 Expr(const IndirectDispatchBuffer &) -> Expr<IndirectDispatchBuffer>;
@@ -30,7 +29,7 @@ struct Var<IndirectDispatchBuffer> : public Expr<IndirectDispatchBuffer> {
     explicit Var(detail::ArgumentCreation) noexcept
         : Expr<IndirectDispatchBuffer>{
               detail::FunctionBuilder::current()->buffer(
-                  Type::of<IndirectKernelDispatch>())} {}
+                  Type::of<IndirectDispatchBuffer>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
     Var &operator=(Var &&) noexcept = delete;
@@ -51,9 +50,8 @@ public:
 
 public:
     void clear() const noexcept;
-    void dispatch_kernel(Expr<uint> kernel_id,
-                         Expr<uint3> block_size,
-                         Expr<uint3> dispatch_size) const noexcept;
+    // return kernel_id
+    Var<uint> dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept;
 };
 
 }// namespace detail

@@ -1781,7 +1781,11 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     match node.get().instruction.as_ref() {
                         Instruction::Call(f, _) => {
                             if *f == Func::Backward {
-                                backward = Some(node);
+                                if backward == None {
+                                    backward = Some(node);
+                                } else {
+                                    panic!("multiple backward calls inside AdScope!");
+                                }
                             }
                         }
                         _ => {}

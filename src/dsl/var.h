@@ -54,20 +54,18 @@ struct Var : public detail::Ref<T> {
     Var(std::tuple<Args...> args) noexcept
         : Var{args, std::index_sequence_for<Args...>{}} {}
 
-    /// Assign from arg.
+    /// Assign from a single argument
     template<typename Arg>
         requires concepts::different<std::remove_cvref_t<Arg>, Var<T>> &&
-                 std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>> &&
-                 ((std::tuple_size_v<struct_member_tuple_t<T>>) == 1)
-    Var(Arg &&arg) noexcept : Var{std::make_tuple(std::forward<Arg>(arg))} {}
-
-    /// Assign from arg.
-    template<typename Arg>
-        requires concepts::different<std::remove_cvref_t<Arg>, Var<T>> &&
-                 std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>> &&
-                 ((std::tuple_size_v<struct_member_tuple_t<T>>) > 1)
+                 std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>>
     Var(Arg &&arg) noexcept : Var{} {
-        dsl::assign(*this, std::forward<Arg>(arg));
+        using member_tuple = struct_member_tuple_t<T>;
+        if constexpr (std::tuple_size_v<member_tuple> > 1u ||
+                      std::is_same_v<expr_value_t<Arg>, T>) {
+            dsl::assign(*this, std::forward<Arg>(arg));
+        } else {
+            dsl::assign(this->template get<0u>(), std::forward<Arg>(arg));
+        }
     }
 
     /// Assign from list

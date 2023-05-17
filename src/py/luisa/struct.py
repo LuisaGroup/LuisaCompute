@@ -78,6 +78,7 @@ class StructType:
         self.idx_dict = {}  # attr -> index
         self.method_dict = {}  # attr -> callable (if any)
         self.alignment = alignment
+        self._py_args = kwargs
         for idx, (name, dtype) in enumerate(kwargs.items()):
             self.idx_dict[name] = idx
             lctype = to_lctype(dtype)  # also checks if it's valid dtype

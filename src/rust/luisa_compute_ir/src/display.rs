@@ -213,6 +213,7 @@ impl DisplayIR {
                     self.display(*node, ident + 1, false);
                 }
                 self.add_ident(ident);
+                self.output += "}";
             }
             Instruction::AdDetach(bb) => {
                 self.output += "AdDetach {\n";
@@ -222,7 +223,7 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::Comment(_) => todo!(),
+            Instruction::Comment(_) => {},
             Instruction::Return(_) => todo!(),
         }
         if !no_new_line {

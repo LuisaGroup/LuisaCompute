@@ -152,13 +152,13 @@ InterlockedCompareExchangeFloatBitwise($,old,old-@,r);
 if(old==r)return old;
 })"sv;
 static vstd::string_view _atomic_and =
-    R"(# r;InterlockedAnd(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedAnd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_or =
-    R"(# r;InterlockedOr(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedOr($,@,r);return r;)"sv;
 static vstd::string_view _atomic_xor =
-    R"(# r;InterlockedXor(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedXor($,@,r);return r;)"sv;
 static vstd::string_view _atomic_min =
-    R"(# r;InterlockedMin(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedMin($,@,r);return r;)"sv;
 static vstd::string_view _atomic_min_float =
     R"(while(true){
 # old=$;
@@ -168,7 +168,7 @@ InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
 }})"sv;
 static vstd::string_view _atomic_max =
-    R"(# r;InterlockedMax(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedMax($,@,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
     R"(while(true){
 # old=$;

@@ -60,6 +60,7 @@ private:
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
     void visit(const RayQueryStmt *stmt) override;
+    void visit(const AutoDiffStmt *stmt) override;
     void visit(const CpuCustomOpExpr *expr) override;
     void visit(const GpuCustomOpExpr *expr) override;
 

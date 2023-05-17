@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
         return valid;
     };
 
-    static constexpr uint spp_per_dispatch = 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" ? 4u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -232,11 +232,13 @@ int main(int argc, char *argv[]) {
                 $if(hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float4x4 m = accel.instance_transform(hit.inst);
-                Float3 p0 = make_float3(m * make_float4(vertex_buffer->read(triangle.i0), 1.f));
-                Float3 p1 = make_float3(m * make_float4(vertex_buffer->read(triangle.i1), 1.f));
-                Float3 p2 = make_float3(m * make_float4(vertex_buffer->read(triangle.i2), 1.f));
+                Float3 p0 = vertex_buffer->read(triangle.i0);
+                Float3 p1 = vertex_buffer->read(triangle.i1);
+                Float3 p2 = vertex_buffer->read(triangle.i2);
                 Float3 p = hit->interpolate(p0, p1, p2);
+                p = (m * make_float4(p, 1.f)).xyz();
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
+                n = (m * make_float4(n, 0.f)).xyz();
                 Float cos_wi = abs(dot(-ray->direction(), n));
                 Var<Material> material = material_buffer->read(hit.inst);
 

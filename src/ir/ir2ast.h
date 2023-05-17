@@ -7,7 +7,7 @@ namespace luisa::compute {
 
 namespace detail {
 class FunctionBuilder;
-}
+}// namespace detail
 
 class LC_IR_API IR2AST {
 public:

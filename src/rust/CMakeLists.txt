@@ -1,7 +1,7 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     corrosion_import_crate(
-        MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-        NO_DEFAULT_FEATURES)
+            MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+            NO_DEFAULT_FEATURES)
 
 
     add_library(luisa-compute-rust-meta INTERFACE)
@@ -60,6 +60,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/")
+
+        if (APPLE)
+            add_custom_command(TARGET luisa-compute-rust-copy
+                    COMMENT "Fixing rpath for $<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib"
+                    COMMAND install_name_tool -add_rpath "@loader_path"
+                    "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib")
+        endif ()
 
         install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"

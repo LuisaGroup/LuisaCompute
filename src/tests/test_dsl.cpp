@@ -39,6 +39,12 @@ struct Point3D {
     float3 v;
 };
 
+struct TriArray {
+    int v[3];
+};
+
+LUISA_STRUCT(TriArray, v){};
+
 LUISA_STRUCT(Test1, something, a) {};
 LUISA_STRUCT(Test2, a, b) {};
 LUISA_STRUCT(Test3, a, b, c) {};
@@ -62,6 +68,10 @@ TEST_CASE("dsl") {
 
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
+
+    Callable bb = [&](BindlessVar a) noexcept {
+        return a.buffer<TriArray>(0u).read(0u);
+    };
 
     Callable c1 = [&](UInt a) noexcept {
         Var<Point3D> p1;

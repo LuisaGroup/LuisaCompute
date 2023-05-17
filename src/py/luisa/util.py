@@ -114,12 +114,12 @@ def make_float4x4_eye(v: float):
 
 
 @func
-def distance(a: float3, b: float3):
+def distance(a, b):
     return length(a - b)
 
 
 @func
-def distance_squared(a: float3, b: float3):
+def distance_squared(a, b):
     return length_squared(a - b)
 
 

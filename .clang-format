@@ -20,7 +20,7 @@ AlwaysBreakTemplateDeclarations: MultiLine
 BreakBeforeBraces: Attach
 Cpp11BracedListStyle: true
 IndentWrappedFunctionNames: false
-LambdaBodyIndentation: OuterScope
+LambdaBodyIndentation: Signature
 ObjCBlockIndentWidth: 4
 PPIndentWidth: 2
 BraceWrapping:
