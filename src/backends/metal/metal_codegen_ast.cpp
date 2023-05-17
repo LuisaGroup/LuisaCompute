@@ -887,7 +887,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {
     switch (expr->op()) {
         case CastOp::STATIC: _scratch << "static_cast<"; break;
-        case CastOp::BITWISE: _scratch << "as_type<"; break;
+        case CastOp::BITWISE: _scratch << "bitcast<"; break;
     }
     _emit_type_name(expr->type());
     _scratch << ">(";

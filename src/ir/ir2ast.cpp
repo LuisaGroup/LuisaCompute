@@ -825,9 +825,11 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                     auto get_payload = [data]<typename T>() noexcept {
                         return luisa::span(reinterpret_cast<const T *>(data.ptr), data.len / sizeof(T));
                     };
+                    auto array_type = _convert_type(type);
                     auto elem_type = type->array._0.element.get();
                     auto build_constant_with_type = [&]<typename U>(const Type *type) {
-                        return _ctx->function_builder->constant(type, ConstantData::create(get_payload.operator()<U>()));
+                        return _ctx->function_builder->constant(
+                            array_type, ConstantData::create(get_payload.operator()<U>()));
                     };
                     return apply(elem_type, build_constant_with_type);
                 }

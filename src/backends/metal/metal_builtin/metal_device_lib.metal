@@ -941,3 +941,9 @@ template<typename T>
 
 template<typename T>
 [[nodiscard]] inline device T &as_ref(const device T &x) { return const_cast<device T &>(x); }
+
+template<typename U, typename T>
+[[nodiscard]] inline auto bitcast(T x) {
+    static_assert(sizeof(U) == sizeof(T), "bitcast requires types of same size");
+    return *reinterpret_cast<const thread U *>(&x);
+}
