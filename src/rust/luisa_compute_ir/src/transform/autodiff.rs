@@ -422,7 +422,7 @@ impl Backward {
             node = self.intermediate_to_node[&node];
         }
         if let Some(grad_var) = self.grad(node) {
-            builder.call(Func::AccGrad, &[grad_var, grad], grad_var.type_().clone());
+            builder.call(Func::AccGrad, &[grad_var, grad], Type::void());
         }
         // } else {
         //     self.grads.insert(node, grad);
