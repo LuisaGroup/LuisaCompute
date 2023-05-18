@@ -198,7 +198,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBui
     uint64 varCount = 1;
     luisa::visit(
         [&](auto &&arr) {
-        varCount = arr.size();
+            varCount = arr.size();
         },
         data.view());
     str << "{\n";
@@ -216,11 +216,11 @@ void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuild
     str << "={{";
     luisa::visit(
         [&](auto &&arr) {
-        for (auto const &ele : arr) {
-            PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
-            prt(ele, str);
-            str << ',';
-        }
+            for (auto const &ele : arr) {
+                PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
+                prt(ele, str);
+                str << ',';
+            }
         },
         view);
     auto last = str.end() - 1;
@@ -724,6 +724,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "Mat";
             }
         } break;
+        case CallOp::BUFFER_SIZE: {
+            str << "bfsize"sv;
+        } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
             str << "TraceClosest"sv;
             break;
@@ -736,6 +739,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_TRACING_QUERY_ANY:
             str << "QueryAny"sv;
             break;
+        case CallOp::BINDLESS_BUFFER_SIZE: {
+            str << "bdlsBfSize"sv;
+            opt->useBufferBindless = true;
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            vstd::to_string(expr->type()->size(), str);
+            str << ",bdls)"sv;
+            return;
+        }
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "READ_BUFFER"sv;
             opt->useBufferBindless = true;
@@ -966,7 +981,7 @@ struct TypeNameStruct<luisa::Matrix<t>> {
 void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str) {
     vstd::VariantVisitor_t<basic_types>()(
         [&]<typename T>() {
-        TypeNameStruct<T>()(str);
+            TypeNameStruct<T>()(str);
         },
         typeIndex);
 }
@@ -985,13 +1000,13 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             auto &&dataView = i.data.view();
             luisa::visit(
                 [&]<typename T>(vstd::span<T> const &sp) {
-                for (auto i : vstd::range(sp.size())) {
-                    auto &&value = sp[i];
-                    PrintValue<std::remove_cvref_t<T>>()(value, result);
-                    if (i != (sp.size() - 1)) {
-                        result << ',';
+                    for (auto i : vstd::range(sp.size())) {
+                        auto &&value = sp[i];
+                        PrintValue<std::remove_cvref_t<T>>()(value, result);
+                        if (i != (sp.size() - 1)) {
+                            result << ',';
+                        }
                     }
-                }
                 },
                 dataView);
             result << "};\n"sv;
@@ -1286,13 +1301,13 @@ void CodegenUtility::GenerateBindless(
         str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << CodegenUtility::ReadInternalHLSLFile("tex2d_atomic", internalDataPath);
+        str << CodegenUtility::ReadInternalHLSLFile("tex2d_bindless", internalDataPath);
     }
     if (opt->useTex3DBindless) {
         str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << CodegenUtility::ReadInternalHLSLFile("tex3d_atomic", internalDataPath);
+        str << CodegenUtility::ReadInternalHLSLFile("tex3d_bindless", internalDataPath);
     }
 }
 

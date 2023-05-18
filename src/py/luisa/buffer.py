@@ -20,6 +20,7 @@ class Buffer:
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
         self.write = self.bufferType.write
+        self.buffer_size = self.bufferType.buffer_size
         self.dtype = dtype
         self.size = size
         lc_type = to_lctype(self.dtype)
@@ -166,6 +167,11 @@ class BufferType:
             return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BUFFER_READ, [self.expr, idx.expr])
 
         return read
+    
+    @BuiltinFuncBuilder
+    def buffer_size(self, idx):
+        check_exact_signature([uint], [idx], "buffer_size")
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr, idx.expr])
 
     @staticmethod
     @cache

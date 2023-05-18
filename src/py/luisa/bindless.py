@@ -100,6 +100,11 @@ class BindlessArray:
         return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE_GRAD, [self.expr, texture2d_index.expr, uv.expr, ddx.expr, ddy.expr])
 
     @BuiltinFuncBuilder
+    def buffer_size(self, buffer_index):
+        check_exact_signature([uint], [buffer_index], "texture2d_size")
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BINDLESS_BUFFER_SIZE, [self.expr, buffer_index.expr])
+
+    @BuiltinFuncBuilder
     def texture2d_size(self, texture2d_index):
         check_exact_signature([uint], [texture2d_index], "texture2d_size")
         return uint2, lcapi.builder().call(to_lctype(uint2), lcapi.CallOp.BINDLESS_TEXTURE2D_SIZE, [self.expr, texture2d_index.expr])

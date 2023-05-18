@@ -1,3 +1,5 @@
+#define LC_IndirectKernelDispatch uint
+#define LC_IndirectDispatchBuffer RWStructuredBuffer<uint>
 void ClearDispInd(RWStructuredBuffer<uint> buffer){buffer[0]=0;}
 void EmplaceDispInd3D(RWStructuredBuffer<uint> buffer,uint3 blk,uint3 size,uint kid){
 uint idx;
@@ -13,28 +15,8 @@ buffer[idx+5]=dispSize.y;
 buffer[idx+6]=dispSize.z;
 }
 void EmplaceDispInd2D(RWStructuredBuffer<uint> buffer,uint2 blk,uint2 size,uint kid){
-uint idx;
-uint2 dispSize=(size+blk-1)/blk;
-InterlockedAdd(buffer[0],1,idx);
-idx=idx*7+1;
-buffer[idx]=size.x;
-buffer[idx+1]=size.y;
-buffer[idx+2]=1;
-buffer[idx+3]=kid;
-buffer[idx+4]=dispSize.x;
-buffer[idx+5]=dispSize.y;
-buffer[idx+6]=1;
+EmplaceDispInd3D(buffer,uint3(blk,1),uint3(size,1),kid);
 }
 void EmplaceDispInd1D(RWStructuredBuffer<uint> buffer,uint blk,uint size,uint kid){
-uint idx;
-uint dispSize=(size+blk-1)/blk;
-InterlockedAdd(buffer[0],1,idx);
-idx=idx*7+1;
-buffer[idx]=size;
-buffer[idx+1]=1;
-buffer[idx+2]=1;
-buffer[idx+3]=kid;
-buffer[idx+4]=dispSize;
-buffer[idx+5]=1;
-buffer[idx+6]=1;
+EmplaceDispInd3D(buffer,uint3(blk,1,1),uint3(size,1,1),kid);
 }
