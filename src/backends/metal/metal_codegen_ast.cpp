@@ -441,6 +441,7 @@ void MetalCodegenAST::_emit_function() noexcept {
             if (expr->tag() == Expression::Tag::CALL) {
                 if (auto call = static_cast<const CallExpr *>(expr);
                     call->op() == CallOp::GRADIENT ||
+                    call->op() == CallOp::GRADIENT_MARKER ||
                     call->op() == CallOp::REQUIRES_GRADIENT) {
                     LUISA_ASSERT(call->arguments().size() >= 1u &&
                                      call->arguments().front()->tag() == Expression::Tag::REF,
