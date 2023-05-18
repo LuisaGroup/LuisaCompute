@@ -105,9 +105,6 @@ public:
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }
-
-public:
-    [[nodiscard]] static ThreadPool &global() noexcept;
 };
 
 }// namespace luisa
