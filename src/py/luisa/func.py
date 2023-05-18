@@ -355,7 +355,6 @@ class func:
                 command.encode_bindless_array(a.handle)
             elif lctype.is_accel():
                 command.encode_accel(a.handle)
-                command.encode_buffer(a.handle, 0, a.bytesize)
             else:
                 assert False
         # dispatch
