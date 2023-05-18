@@ -151,9 +151,9 @@ protected:
     Resource(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
     Resource(Resource &&) noexcept;
     // protected destructor for derived classes
-    virtual ~Resource() noexcept = default;
 
 public:
+    virtual ~Resource() noexcept = default;
     Resource(const Resource &) noexcept = delete;
     Resource &operator=(Resource &&) noexcept = delete;// use _move_from in derived classes
     Resource &operator=(const Resource &) noexcept = delete;

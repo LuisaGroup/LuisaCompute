@@ -8,9 +8,11 @@
 #include <core/stl/optional.h>
 #include <core/stl/functional.h>
 #include <runtime/rhi/command.h>
+
 #ifdef LUISA_ENABLE_API
 #include <api/common.h>
 #endif
+
 namespace luisa::compute {
 
 class CmdDeser;
@@ -76,7 +78,10 @@ private:
     explicit Commit(CommandList &&list) noexcept
         : _list{std::move(list)} {}
     Commit(Commit &&) noexcept = default;
+
+public:
     Commit &operator=(Commit &&) noexcept = delete;
+    Commit &operator=(const Commit &) noexcept = delete;
 };
 
 }// namespace luisa::compute
