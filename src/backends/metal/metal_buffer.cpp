@@ -16,7 +16,7 @@ metal::MetalBuffer::~MetalBuffer() noexcept {
 }
 
 MetalBuffer::Binding MetalBuffer::binding(size_t offset, size_t size) const noexcept {
-    LUISA_ASSERT(offset < size, "Offset out of range.");
+    LUISA_ASSERT(offset + size <= _handle->length(), "Offset out of range.");
     return {_handle->gpuAddress() + offset, size};
 }
 
