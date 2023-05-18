@@ -221,6 +221,6 @@ class IndirectDispatchBuffer:
     def clear(self):
         return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
     @BuiltinFuncBuilder
-    def emplace(self, block_size, size):
-        check_exact_signature([uint3, uint3], [block_size, size], "emplace")
-        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr])
+    def dispatch_kernel(self, block_size, size, kernel_id):
+        check_exact_signature([uint3, uint3, uint], [block_size, size, kernel_id], "dispatch_kernel")
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, kernel_id.expr])

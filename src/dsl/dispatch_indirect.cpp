@@ -9,11 +9,11 @@ void IndirectDispatchBufferExprProxy::clear() const noexcept {
     Expr<IndirectDispatchBuffer>{_buffer}.clear();
 }
 
-Var<uint> IndirectDispatchBufferExprProxy::dispatch_kernel(
+void IndirectDispatchBufferExprProxy::dispatch_kernel(
     Expr<uint3> block_size,
-    Expr<uint3> dispatch_size) const noexcept {
-    return Expr<IndirectDispatchBuffer>{_buffer}
-        .dispatch_kernel(block_size, dispatch_size);
+    Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept {
+    Expr<IndirectDispatchBuffer>{_buffer}
+        .dispatch_kernel(block_size, dispatch_size, kernel_id);
 }
 
 }// namespace detail
@@ -28,15 +28,15 @@ void Expr<IndirectDispatchBuffer>::clear() const noexcept {
         {_expression});
 }
 
-Var<uint> Expr<IndirectDispatchBuffer>::dispatch_kernel(
+void Expr<IndirectDispatchBuffer>::dispatch_kernel(
     Expr<uint3> block_size,
-    Expr<uint3> dispatch_size) const noexcept {
-    return def<uint>(detail::FunctionBuilder::current()->call(
-        Type::of<uint>(),
+    Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept {
+    detail::FunctionBuilder::current()->call(
         CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL,
         {_expression,
          block_size.expression(),
-         dispatch_size.expression()}));
+         dispatch_size.expression(),
+         kernel_id.expression()});
 }
 
 }// namespace luisa::compute

@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
     constexpr uint dispatch_count = 16;
     Kernel1D emplace_kernel = [&](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
         set_block_size(dispatch_count);
-        dispatch_buffer.dispatch_kernel(kernel_dispatch_size, make_uint3(dispatch_id().x, 1u, 1u));
+        dispatch_buffer.dispatch_kernel(kernel_dispatch_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
     };
     Kernel1D dispatch_kernel = [&](BufferVar<uint> buffer) {
         set_block_size(kernel_dispatch_size.x, kernel_dispatch_size.y, kernel_dispatch_size.z);
