@@ -169,9 +169,8 @@ class BufferType:
         return read
     
     @BuiltinFuncBuilder
-    def buffer_size(self, idx):
-        check_exact_signature([uint], [idx], "buffer_size")
-        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr, idx.expr])
+    def buffer_size(self):
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr])
 
     @staticmethod
     @cache
