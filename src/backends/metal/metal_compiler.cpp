@@ -5,6 +5,8 @@
 #include <fstream>
 
 #include <core/clock.h>
+#include <core/logging.h>
+#include <backends/metal/metal_device.h>
 #include <backends/metal/metal_compiler.h>
 
 #define LUISA_METAL_BACKEND_DUMP_SOURCE 1

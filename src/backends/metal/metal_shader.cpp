@@ -7,6 +7,7 @@
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_accel.h>
 #include <backends/metal/metal_bindless_array.h>
+#include <backends/metal/metal_command_encoder.h>
 #include <backends/metal/metal_shader.h>
 
 namespace luisa::compute::metal {

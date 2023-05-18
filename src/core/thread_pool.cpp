@@ -170,4 +170,9 @@ uint ThreadPool::worker_thread_index() noexcept {
     return detail::worker_thread_index();
 }
 
+ThreadPool &ThreadPool::global() noexcept {
+    static ThreadPool pool;
+    return pool;
+}
+
 }// namespace luisa
