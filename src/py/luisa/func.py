@@ -258,11 +258,8 @@ class func:
                 if sz != len(type_defines):
                     type_name += ", "
             func_declare += type_name + ">"
-            func_name = "load_" + func_name
-            func_name +=" (luisa::compute::Device& device)"
-            r += f"// {func_declare} {func_name};\n"
-            r += f"inline auto {func_name}" + " {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_name + "\");\n}\n"
-            return front + r
+            r += f"inline {func_declare} load" + "(luisa::compute::Device &device) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_name + "\");\n}\n"
+            return front + "namespace " + func_name + ' {\n' +  r + '}// namespace ' + func_name + '\n'
 
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo
