@@ -40,6 +40,7 @@ class Image3D:
         self.bytesize = lcapi.pixel_storage_size(self.storage, width, height, volume)
         self.texture3DType = Texture3DType(dtype, channel)
         self.read = self.texture3DType.read
+        self.texture_size = self.texture2DType.texture_size
         self.write = self.texture3DType.write
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 3, width, height, volume, mip)
@@ -136,7 +137,11 @@ class Texture3DType:
 
     def __hash__(self):
         return hash(self.dtype) ^ hash(self.channel) ^ 127858794396757894
-
+    
+    @BuiltinFuncBuilder
+    def texture_size(self):
+        return uint3, lcapi.builder().call(to_lctype(uint3), lcapi.CallOp.TEXTURE_SIZE, [self.expr])
+    
     @staticmethod
     @cache
     def get_read_method(dtype):

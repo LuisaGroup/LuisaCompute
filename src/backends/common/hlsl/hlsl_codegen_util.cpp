@@ -727,6 +727,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BUFFER_SIZE: {
             str << "bfsize"sv;
         } break;
+        case CallOp::TEXTURE_SIZE: {
+            str << "texsize"sv;
+        } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
             str << "TraceClosest"sv;
             break;

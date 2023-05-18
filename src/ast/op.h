@@ -175,6 +175,7 @@ enum struct CallOp : uint32_t {
     BUFFER_SIZE,  /// [(buffer) -> size]
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
+    TEXTURE_SIZE, /// [(texture) -> value]
 
     BINDLESS_TEXTURE2D_SAMPLE,      // (bindless_array, index: uint, uv: float2): float4
     BINDLESS_TEXTURE2D_SAMPLE_LEVEL,// (bindless_array, index: uint, uv: float2, level: float): float4

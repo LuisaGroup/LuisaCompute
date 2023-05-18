@@ -39,6 +39,7 @@ class Image2D:
         self.bytesize = lcapi.pixel_storage_size(self.storage, width, height, 1)
         self.texture2DType = Texture2DType(dtype, channel)
         self.read = self.texture2DType.read
+        self.texture_size = self.texture2DType.texture_size
         self.write = self.texture2DType.write
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, mip)
@@ -185,7 +186,11 @@ class Texture2DType:
 
     def __hash__(self):
         return hash(self.dtype) ^ hash(self.channel) ^ 127858794396757894
-
+    
+    @BuiltinFuncBuilder
+    def texture_size(self):
+        return uint2, lcapi.builder().call(to_lctype(uint2), lcapi.CallOp.TEXTURE_SIZE, [self.expr])
+            
     @staticmethod
     @cache
     def get_read_method(dtype):
