@@ -19,7 +19,8 @@ on_load(function(target)
 		elseif is_plat("linux") then
 			target:add("linkdirs", path.join(cuda_path, "lib64/"))
 		end
-		target:add("links", "nvrtc", "cudart", "cuda")
+		target:add("links", "nvrtc", "cudart")
+		target:add("syslinks", "cuda")
 	else
 		target:set("enabled", false)
 		return
