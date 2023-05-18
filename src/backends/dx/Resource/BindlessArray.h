@@ -17,12 +17,11 @@ public:
         uint buffer = n_pos;
         uint tex2D = n_pos;
         uint tex3D = n_pos;
-        uint samp = n_pos;
-        void write_samp2d(uint s) {
-            samp = (samp & ~65535u) | s;
+        void write_samp2d(uint tex, uint s) {
+            tex2D = tex | (s << 28);
         }
-        void write_samp3d(uint s) {
-            samp = (s << 16) | (samp & 65535u);
+        void write_samp3d(uint tex, uint s) {
+            tex3D = tex | (s << 28);
         }
     };
     struct MapIndicies {

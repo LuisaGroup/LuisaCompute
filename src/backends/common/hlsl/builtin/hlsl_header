@@ -69,7 +69,7 @@ row_major float4x4 m;
 #define Smptx(tex,uv) tex[uv]
 #define Writetx(tex,uv,value) tex[uv]=value
 uint ReadBdlsBuffer(ByteAddressBuffer s,uint idx){
-return s.Load(16*idx);
+return s.Load(12*idx);
 }
 template<typename T>
 T fract(T x){return x-floor(x);}
@@ -157,4 +157,10 @@ uint3 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,s.z,mip);
 return s;
+}
+uint ReadBdlsTex(uint num){
+return num&268435455;
+}
+uint ReadBdlsSmp(uint num){
+return num>>28;
 }
