@@ -61,10 +61,17 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             hlsl/builtin/bc7_trymode_02cs.c
             hlsl/builtin/bc7_trymode_137cs.c
             hlsl/builtin/bc7_trymode_456cs.c
+            hlsl/builtin/compute_quad.c
+            hlsl/builtin/determinant.c
             hlsl/builtin/hlsl_builtin.h
             hlsl/builtin/hlsl_config.h
             hlsl/builtin/hlsl_header.c
-            hlsl/builtin/raytracing_header.c)
+            hlsl/builtin/indirect.c
+            hlsl/builtin/inverse.c
+            hlsl/builtin/raytracing_header.c
+            hlsl/builtin/tex2d_bindless.c
+            hlsl/builtin/tex3d_bindless.c)
+
     add_library(luisa-compute-hlsl-builtin MODULE ${LUISA_HLSL_BUILTIN_SOURCES})
     target_compile_definitions(luisa-compute-hlsl-builtin PRIVATE LC_HLSL_DLL)
     set_target_properties(luisa-compute-hlsl-builtin PROPERTIES
