@@ -56,6 +56,18 @@ static void AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataP
     if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
     }
+    if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("resource_size", internalDataPath);
+    }
+    if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("accel_header", internalDataPath);
+    }
+    if (ops.test(CallOp::COPYSIGN)){
+        builder << CodegenUtility::ReadInternalHLSLFile("copy_sign", internalDataPath);
+    }
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
     }

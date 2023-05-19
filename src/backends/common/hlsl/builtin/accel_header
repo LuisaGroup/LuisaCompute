@@ -1,0 +1,33 @@
+struct MeshInst {
+float4 p0;
+float4 p1;
+float4 p2;
+uint InstanceID:24;
+uint InstanceMask:8;
+uint InstanceContributionToHitGroupIndex:24;
+uint Flags:8;
+uint2 accelStructPtr;
+};
+template<typename T>
+float4x4 InstMatrix(T instBuffer,uint index){
+MeshInst v=instBuffer[index];
+return float4x4(
+float4(v.p0.x,v.p1.x,v.p2.x,0),
+float4(v.p0.y,v.p1.y,v.p2.y,0),
+float4(v.p0.z,v.p1.z,v.p2.z,0),
+float4(v.p0.w,v.p1.w,v.p2.w,1));
+}
+void SetInstTransform(inout MeshInst i,float4x4 mat){
+i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
+i.p1=float4(mat[0].y,mat[1].y,mat[2].y,mat[3].y);
+i.p2=float4(mat[0].z,mat[1].z,mat[2].z,mat[3].z);
+}
+void SetAccelTransform(RWStructuredBuffer<MeshInst> buffer,uint index,float4x4 mat){
+SetInstTransform(buffer[index],mat);
+}
+void SetAccelVis(RWStructuredBuffer<MeshInst> buffer,uint index,uint mask){
+buffer[index].InstanceMask=mask;
+}
+void SetAccelOpaque(RWStructuredBuffer<MeshInst> buffer,uint index,bool opaque){
+buffer[index].Flags=select(opaque,4,8);
+}

@@ -11,14 +11,6 @@ template<typename T>
 T _exp10(T v){return pow(10,v);};
 template<typename T>
 float _length_sqr(T x){return dot(x,x);}
-float copysign(float a,float b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float2 copysign(float2 a,float2 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float3 copysign(float3 a,float3 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float4 copysign(float4 a,float4 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float16_t copysign(float16_t a,float16_t b){return copysign((float)a,(float)b);}
-float16_t copysign(float16_t2 a,float16_t2 b){return copysign((float2)a,(float2)b);}
-float16_t copysign(float16_t3 a,float16_t3 b){return copysign((float3)a,(float3)b);}
-float16_t copysign(float16_t4 a,float16_t4 b){return copysign((float4)a,(float4)b);}
 template<typename T>
 T _fma(T a,T b,T c){return a*b+c;}
 // TODO
@@ -80,84 +72,9 @@ uint sz;
 bf[NonUniformResourceIndex(ReadBdlsBuffer(arr,arrIdx))].GetDimensions(sz);
 return sz/size;
 }
-struct MeshInst {
-float4 p0;
-float4 p1;
-float4 p2;
-uint InstanceID:24;
-uint InstanceMask:8;
-uint InstanceContributionToHitGroupIndex:24;
-uint Flags:8;
-uint2 accelStructPtr;
-};
-template<typename T>
-float4x4 InstMatrix(T instBuffer,uint index){
-MeshInst v=instBuffer[index];
-return float4x4(
-float4(v.p0.x,v.p1.x,v.p2.x,0),
-float4(v.p0.y,v.p1.y,v.p2.y,0),
-float4(v.p0.z,v.p1.z,v.p2.z,0),
-float4(v.p0.w,v.p1.w,v.p2.w,1));
-}
-void SetInstTransform(inout MeshInst i,float4x4 mat){
-i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
-i.p1=float4(mat[0].y,mat[1].y,mat[2].y,mat[3].y);
-i.p2=float4(mat[0].z,mat[1].z,mat[2].z,mat[3].z);
-}
-void SetAccelTransform(RWStructuredBuffer<MeshInst> buffer,uint index,float4x4 mat){
-SetInstTransform(buffer[index],mat);
-}
-void SetAccelVis(RWStructuredBuffer<MeshInst> buffer,uint index,uint mask){
-buffer[index].InstanceMask=mask;
-}
-void SetAccelOpaque(RWStructuredBuffer<MeshInst> buffer,uint index,bool opaque){
-buffer[index].Flags=select(opaque,4,8);
-}
 struct Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
 struct Hit1{uint v0;uint v1;float2 v2;float v3;};
 struct Hit2{uint v0;uint v1;};
-template<typename T>
-uint bfsize(T b){
-uint c,s;
-b.GetDimensions(c,s);
-return c;
-}
-uint2 texsize(Texture2D<float4> t){
-uint2 s;
-uint mip;
-t.GetDimensions(0,s.x,s.y,mip);
-return s;
-}
-uint2 texsize(Texture2D<uint4> t){
-uint2 s;
-uint mip;
-t.GetDimensions(0,s.x,s.y,mip);
-return s;
-}
-uint2 texsize(Texture2D<int4> t){
-uint2 s;
-uint mip;
-t.GetDimensions(0,s.x,s.y,mip);
-return s;
-}
-uint3 texsize(Texture3D<float4> t){
-uint3 s;
-uint mip;
-t.GetDimensions(0,s.x,s.y,s.z,mip);
-return s;
-}
-uint3 texsize(Texture3D<uint4> t){
-uint3 s;
-uint mip;
-t.GetDimensions(0,s.x,s.y,s.z,mip);
-return s;
-}
-uint3 texsize(Texture3D<int4> t){
-uint3 s;
-uint mip;
-t.GetDimensions(0,s.x,s.y,s.z,mip);
-return s;
-}
 uint ReadBdlsTex(uint num){
 return num&268435455;
 }
