@@ -1,13 +1,3 @@
-struct MeshInst {
-float4 p0;
-float4 p1;
-float4 p2;
-uint InstanceID:24;
-uint InstanceMask:8;
-uint InstanceContributionToHitGroupIndex:24;
-uint Flags:8;
-uint2 accelStructPtr;
-};
 template<typename T>
 float4x4 InstMatrix(T instBuffer,uint index){
 MeshInst v=instBuffer[index];

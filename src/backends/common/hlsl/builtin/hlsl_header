@@ -75,6 +75,16 @@ return sz/size;
 struct Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
 struct Hit1{uint v0;uint v1;float2 v2;float v3;};
 struct Hit2{uint v0;uint v1;};
+struct MeshInst {
+float4 p0;
+float4 p1;
+float4 p2;
+uint InstanceID:24;
+uint InstanceMask:8;
+uint InstanceContributionToHitGroupIndex:24;
+uint Flags:8;
+uint2 accelStructPtr;
+};
 uint ReadBdlsTex(uint num){
 return num&268435455;
 }
