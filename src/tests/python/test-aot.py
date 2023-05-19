@@ -15,7 +15,7 @@ def out_kernel(tex):
 # save this kernel as "out_kernel.bytes"
 cpp_header = out_kernel.save(
     (Texture2DType(float, 4), ),
-    "fuck/out_kernel.bytes",
+    "out_kernel.bytes",
     # compile in independent thread
     async_build=True,
     # print c++ header(maybe useful for c++ runtime)
