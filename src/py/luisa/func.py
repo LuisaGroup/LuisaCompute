@@ -16,6 +16,7 @@ from .meshformat import MeshFormat
 import textwrap
 from .raster import AppData
 from pathlib import Path
+import sys
 
 
 def create_arg_expr(dtype, allow_ref):
@@ -259,7 +260,10 @@ class func:
                 if sz != len(type_defines):
                     type_name += ", "
             func_declare += type_name + ">"
-            r += f"inline {func_declare} load" + "(luisa::compute::Device &device) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_name + "\");\n}\n"
+            shader_path = str(shader_path)
+            if sys.platform == 'win32':
+                shader_path = shader_path.replace("\\", "/")
+            r += f"inline {func_declare} load" + "(luisa::compute::Device &device) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_path + "\");\n}\n"
             return front + "namespace " + shader_name + ' {\n' +  r + '}// namespace ' + shader_name + '\n'
 
     # compiles an argument-type-specialized callable/kernel
