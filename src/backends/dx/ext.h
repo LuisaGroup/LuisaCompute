@@ -172,8 +172,10 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_module;
     ComPtr<IDStorageFactory> factory;
     ComPtr<IDStorageCompressionCodec> compression_codec;
-    std::mutex codec_mtx;
+    vstd::spin_mutex spin_mtx;
+    std::mutex mtx;
     LCDevice *mdevice;
+    void InitFactory();
 
 public:
     DeviceInterface *device() const noexcept;
@@ -181,6 +183,7 @@ public:
     ResourceCreationInfo create_stream_handle() noexcept override;
     File open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
+    void set_config(bool hdd) noexcept override;
     void gdeflate_compress(
         luisa::span<std::byte const> input,
         CompressQuality quality,

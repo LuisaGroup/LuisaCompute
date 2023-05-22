@@ -12,6 +12,9 @@ public:
     File open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
     ResourceCreationInfo create_stream_handle() noexcept override;
+    void set_config(bool hdd) noexcept override {
+        _impl->set_config(hdd);
+    }
     void gdeflate_compress(
         luisa::span<std::byte const> input,
         CompressQuality quality,

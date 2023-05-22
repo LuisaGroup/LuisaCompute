@@ -17,6 +17,7 @@ public:
     struct File : public ResourceCreationInfo {
         size_t size_bytes;
     };
+    virtual void set_config(bool is_hdd_hardware) noexcept = 0;
     virtual DeviceInterface *device() const noexcept = 0;
     virtual File open_file_handle(luisa::string_view path) noexcept = 0;
     virtual void close_file_handle(uint64_t handle) noexcept = 0;
