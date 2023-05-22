@@ -533,7 +533,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     };
 
     if (option.enable_debug_info) {
-        nvrtc_options.emplace_back("-line-info");
+        nvrtc_options.emplace_back("-lineinfo");
 #if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG
         nvrtc_options.emplace_back("-DLUISA_DEBUG=1");
 #endif
