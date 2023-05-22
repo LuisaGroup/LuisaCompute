@@ -80,7 +80,7 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja opencv llvm sccache glfw
+          brew install cmake ninja llvm sccache glfw
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
