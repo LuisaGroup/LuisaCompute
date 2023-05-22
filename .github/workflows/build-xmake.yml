@@ -13,7 +13,7 @@ jobs:
           - { name: gcc, version: 12 }
           - { name: clang, version: 14 }
           - { name: clang, version: 15 }
-#          - { name: clang, version: 16 }
+        #          - { name: clang, version: 16 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: ${{ matrix.os }}
@@ -57,28 +57,28 @@ jobs:
           xmake f -p linux -a x64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
 
-    build-macos:
-      strategy:
-        fail-fast: false
-        matrix:
-          os: [ macos-12, macos-13 ]
-          compiler: [ homebrew-clang, system-clang ]
-          config: [ Release, Debug ]
-      name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-      runs-on: ${{ matrix.os }}
-      steps:
-        - uses: actions/checkout@v3
-          with:
-            submodules: recursive
-        - name: "Install Dependencies"
-          run: |
-            brew install llvm
-        - name: "Configure and Build"
-          run: |
-            if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
-              export PATH=/usr/local/opt/llvm/bin:$PATH
-            fi
-            xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-12, macos-13 ]
+        compiler: [ homebrew-clang, system-clang ]
+        config: [ Release, Debug ]
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: "Install Dependencies"
+        run: |
+          brew install llvm
+      - name: "Configure and Build"
+        run: |
+          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
+            export PATH=/usr/local/opt/llvm/bin:$PATH
+          fi
+          xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
 
   build-windows:
     strategy:
