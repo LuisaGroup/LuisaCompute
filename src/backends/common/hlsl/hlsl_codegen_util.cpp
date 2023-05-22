@@ -42,8 +42,9 @@ namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
-static void AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
+static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
     builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
+    size_t immutable_size = builder.size();
     if (ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
     }
@@ -59,18 +60,31 @@ static void AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataP
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("resource_size", internalDataPath);
     }
+    bool useBindless = false;
+    for (auto i : vstd::range(
+             luisa::to_underlying(CallOp::BINDLESS_TEXTURE2D_SAMPLE),
+             luisa::to_underlying(CallOp::BINDLESS_BUFFER_TYPE) + 1)) {
+        if (ops.test(static_cast<CallOp>(i))) {
+            useBindless = true;
+            break;
+        }
+    }
+    if (useBindless) {
+        builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
+    }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
         builder << CodegenUtility::ReadInternalHLSLFile("accel_header", internalDataPath);
     }
-    if (ops.test(CallOp::COPYSIGN)){
+    if (ops.test(CallOp::COPYSIGN)) {
         builder << CodegenUtility::ReadInternalHLSLFile("copy_sign", internalDataPath);
     }
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
     }
+    return immutable_size;
 }
 }// namespace detail
 // static thread_local vstd::unique_ptr<CodegenStackData> opt;
@@ -1522,7 +1536,7 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     opt->finalResult = &finalResult;
     finalResult.reserve(65500);
-    detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
     opt->funcType = CodegenStackData::FuncType::Callable;
@@ -1539,7 +1553,6 @@ uint4 dsp_c;
         varData << "uint4 dsp_c:register(b0);\n"sv;
     }
     CodegenResult::Properties properties;
-    uint64 immutableHeaderSize = finalResult.size();
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
@@ -1577,7 +1590,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     finalResult.reserve(65500);
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
-    detail::AddHeader(opSet, internalDataPath, finalResult, true);
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, internalDataPath, finalResult, true);
     // Vertex
     codegenData << "struct v2p{\n"sv;
     auto v2pType = vertFunc.return_type();
@@ -1704,7 +1717,6 @@ uint iid:SV_INSTANCEID;
         GenerateCBuffer(funcs, varData);
     }
     CodegenResult::Properties properties;
-    uint64 immutableHeaderSize = finalResult.size();
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);

@@ -70,6 +70,7 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             hlsl/builtin/inverse.c
             hlsl/builtin/raytracing_header.c
             hlsl/builtin/resource_size.c
+            hlsl/builtin/bindless_common.c
             hlsl/builtin/tex2d_bindless.c
             hlsl/builtin/tex3d_bindless.c)
 
