@@ -386,7 +386,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, const 
         return create_shader(option, function->function());
 #else
         LUISA_ERROR_WITH_LOCATION("Metal device does not support creating shader from IR types.");
-        return {};
+        return ShaderCreationInfo{};
 #endif
     });
 }
