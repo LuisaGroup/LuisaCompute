@@ -78,6 +78,13 @@ struct alignas(16) BindlessSlot {
     metal::texture3d<float> tex3d;
 };
 
+struct Sampler {
+    uchar filter;
+    uchar address;
+};
+
+[[nodiscard]] inline auto sampler_code(Sampler s) { return (s.filter << 2u) | s.address; }
+
 struct alignas(16) BindlessSlotModification {
     struct Buffer {
         device const void *handle;
@@ -86,12 +93,12 @@ struct alignas(16) BindlessSlotModification {
     };
     struct Texture2D {
         metal::texture2d<float> handle;
-        uint sampler;
+        Sampler sampler;
         uint op;
     };
     struct Texture3D {
         metal::texture3d<float> handle;
-        uint sampler;
+        Sampler sampler;
         uint op;
     };
     ulong slot;
@@ -122,14 +129,14 @@ static_assert(sizeof(BindlessSlotModification) == 64u, "");
         }
         if (m.tex2d.op == op_update) {
             slot.tex2d = m.tex2d.handle;
-            slot.sampler2d = m.tex2d.sampler;
+            slot.sampler2d = sampler_code(m.tex2d.sampler);
         } else if (m.tex2d.op == op_remove) {
             slot.tex2d = {};
             slot.sampler2d = 0u;
         }
         if (m.tex3d.op == op_update) {
             slot.tex3d = m.tex3d.handle;
-            slot.sampler3d = m.tex3d.sampler;
+            slot.sampler3d = sampler_code(m.tex3d.sampler);
         } else if (m.tex3d.op == op_remove) {
             slot.tex3d = {};
             slot.sampler3d = 0u;
