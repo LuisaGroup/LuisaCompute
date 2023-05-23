@@ -162,6 +162,11 @@ template<typename T, access a>
     return t.read(uvw);
 }
 
+template<typename T, access a>
+[[nodiscard, gnu::always_inline]] inline auto texture_size(texture2d<T, a> t) {
+    return uint2(t.get_width(), t.get_height());
+}
+
 template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
     t.write(value, uv);

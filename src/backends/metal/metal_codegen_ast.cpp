@@ -752,6 +752,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::BUFFER_SIZE: _scratch << "buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::TEXTURE_SIZE: _scratch << "texture_size"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "bindless_texture_sample2d_grad"; break;

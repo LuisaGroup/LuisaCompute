@@ -902,6 +902,33 @@ struct LCTexture3D {
 };
 
 template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_size(LCTexture2D<T> tex) noexcept {
+    lc_uint2 size;
+    asm("suq.width.b32 %0, [%1];"
+        : "=r"(size.x)
+        : "l"(tex.surface.handle));
+    asm("suq.height.b32 %0, [%1];"
+        : "=r"(size.y)
+        : "l"(tex.surface.handle));
+    return size;
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_size(LCTexture3D<T> tex) noexcept {
+    lc_uint3 size;
+    asm("suq.width.b32 %0, [%1];"
+        : "=r"(size.x)
+        : "l"(tex.surface.handle));
+    asm("suq.height.b32 %0, [%1];"
+        : "=r"(size.y)
+        : "l"(tex.surface.handle));
+    asm("suq.depth.b32 %0, [%1];"
+        : "=r"(size.z)
+        : "l"(tex.surface.handle));
+    return size;
+}
+
+template<typename T>
 [[nodiscard]] __device__ inline auto lc_texture_read(LCTexture2D<T> tex, lc_uint2 p) noexcept {
     return lc_surf2d_read<T>(tex.surface, p);
 }

@@ -115,6 +115,13 @@ public:
             CallOp::TEXTURE_WRITE,
             {_expression, uv.expression(), value.expression()});
     }
+
+    /// Size
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint2>(f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_SIZE, {_expression}));
+    }
 };
 
 /// Same as Expr<Image<T>>
@@ -153,6 +160,12 @@ public:
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
             {_expression, uvw.expression(), value.expression()});
+    }
+
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint3>(f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_SIZE, {_expression}));
     }
 };
 
@@ -378,6 +391,9 @@ public:
     void write(Expr<uint2> uv, V &&value) const noexcept {
         Expr<T>{_img}.write(uv, std::forward<V>(value));
     }
+    [[nodiscard]] auto size() const noexcept {
+        return Expr<T>{_img}.size();
+    }
 };
 
 template<typename T>
@@ -396,6 +412,9 @@ public:
     template<typename V>
     void write(Expr<uint3> uv, V &&value) const noexcept {
         Expr<T>{_img}.write(uv, std::forward<V>(value));
+    }
+    [[nodiscard]] auto size() const noexcept {
+        return Expr<T>{_img}.size();
     }
 };
 
