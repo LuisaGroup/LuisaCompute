@@ -31,10 +31,12 @@ template<typename Ite>
 struct BuilderFlag : public IOperatorNewBase {
     static constexpr bool vstdRangeBuilder = true;
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
+    decltype(auto)
     operator|(Dst &&dst) &;
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
+    decltype(auto)
     operator|(Dst &&dst) &&;
 };
 template<typename Ite>
@@ -42,10 +44,12 @@ struct RangeFlag : public IOperatorNewBase {
     static constexpr bool vstdRange = true;
     IteEndTag end() const { return {}; }
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
+    decltype(auto)
     operator|(Dst &&dst) &;
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
+    decltype(auto)
     operator|(Dst &&dst) &&;
 };
 
@@ -164,13 +168,14 @@ public:
     virtual void operator++() = 0;
     virtual T operator*() = 0;
 };
+namespace detail {
 template<typename Ite>
-class v_RangeImpl : public IRange<decltype(*std::declval<Ite>())> {
+class RangeImpl : public IRange<decltype(*std::declval<Ite>())> {
     using Value = decltype(*std::declval<Ite>());
     Ite ptr;
 
 public:
-    v_RangeImpl(Ite &&ptr) : ptr(std::forward<Ite>(ptr)) {}
+    RangeImpl(Ite &&ptr) : ptr(std::forward<Ite>(ptr)) {}
     IteRef<IRange<Value>> begin() override {
         ptr.begin();
         return {this};
@@ -182,8 +187,8 @@ public:
     Value operator*() override {
         return *ptr;
     }
-    v_RangeImpl(v_RangeImpl const &) = delete;
-    v_RangeImpl(v_RangeImpl &&) = default;
+    RangeImpl(RangeImpl const &) = delete;
+    RangeImpl(RangeImpl &&) = default;
 };
 template<typename T>
 class IRangePipeline : public detail::BuilderFlag<IRangePipeline<T>> {
@@ -195,11 +200,11 @@ public:
     virtual T value(IRange<T> &range) = 0;
 };
 template<typename T, typename Ite>
-class v_IRangePipelineImpl : public IRangePipeline<T> {
+class IRangePipelineImpl : public IRangePipeline<T> {
     Ite ite;
 
 public:
-    v_IRangePipelineImpl(Ite &&ite) : ite(std::forward<Ite>(ite)) {}
+    IRangePipelineImpl(Ite &&ite) : ite(std::forward<Ite>(ite)) {}
     void begin(IRange<T> &range) override { ite.begin(range); }
     bool is_end(IRange<T> &range) const override { return ite.is_end(range); }
     void next(IRange<T> &range) override { ite.next(range); }
@@ -217,7 +222,7 @@ public:
     auto value(Ite &&ite) { return *ite; }
 };
 template<typename FilterFunc>
-class v_FilterRange : public detail::BuilderFlag<v_FilterRange<FilterFunc>> {
+class FilterRange : public detail::BuilderFlag<FilterRange<FilterFunc>> {
 private:
     FilterFunc func;
     template<typename Ite>
@@ -249,12 +254,12 @@ public:
     decltype(auto) value(Ite &&ite) {
         return *ite;
     }
-    v_FilterRange(FilterFunc &&func)
+    FilterRange(FilterFunc &&func)
         : func(std::forward<FilterFunc>(func)) {
     }
 };
 template<typename GetValue>
-class v_TransformRange : public detail::BuilderFlag<v_TransformRange<GetValue>> {
+class TransformRange : public detail::BuilderFlag<TransformRange<GetValue>> {
     GetValue getValue;
 
 public:
@@ -262,7 +267,7 @@ public:
     void begin(Ite &&ite) {
         ite.begin();
     }
-    v_TransformRange(GetValue &&getValueFunc)
+    TransformRange(GetValue &&getValueFunc)
         : getValue(std::forward<GetValue>(getValueFunc)) {}
     template<typename Ite>
     bool is_end(Ite &&ite) const {
@@ -330,7 +335,7 @@ public:
 };
 
 template<typename Map>
-class v_CacheEndRange : public detail::RangeFlag<v_CacheEndRange<Map>> {
+class CacheEndRange : public detail::RangeFlag<CacheEndRange<Map>> {
 public:
     using IteBegin = decltype(std::declval<Map>().begin());
     using IteEnd = decltype(std::declval<Map>().begin());
@@ -340,10 +345,10 @@ private:
     optional<IteBegin> ite;
 
 public:
-    v_CacheEndRange(Map &&map)
+    CacheEndRange(Map &&map)
         : map(std::forward<Map>(map)) {
     }
-    IteRef<v_CacheEndRange> begin() {
+    IteRef<CacheEndRange> begin() {
         ite = map.begin();
         return {this};
     }
@@ -355,6 +360,7 @@ public:
         return **ite;
     }
 };
+}// namespace detail
 class range : public detail::RangeFlag<range> {
     int64 num;
     int64 b;
@@ -430,15 +436,16 @@ public:
         return **Ptr();
     }
 };
+namespace detail {
 template<typename... Ts>
-struct v_TupleIterator : public detail::RangeFlag<v_TupleIterator<Ts...>> {
+struct TupleIterator : public detail::RangeFlag<TupleIterator<Ts...>> {
     vstd::tuple<Ts...> ites;
     size_t index;
     using Sequencer = std::make_index_sequence<sizeof...(Ts)>;
     template<typename... TTs>
-    v_TupleIterator(TTs &&...args)
+    TupleIterator(TTs &&...args)
         : ites(std::forward<Ts>(args)...) {}
-    IteRef<v_TupleIterator> begin() {
+    IteRef<TupleIterator> begin() {
         auto &ite = ites.template get<0>();
         ite.begin();
         index = 0;
@@ -484,14 +491,14 @@ private:
 };
 
 template<typename A, typename B>
-struct v_PairIterator : public detail::RangeFlag<v_PairIterator<A, B>> {
+struct PairIterator : public detail::RangeFlag<PairIterator<A, B>> {
     A a;
     B b;
     bool ite;
-    v_PairIterator(
+    PairIterator(
         A &&a,
         B &&b) : a(std::forward<A>(a)), b(std::forward<B>(b)) {}
-    IteRef<v_PairIterator> begin() {
+    IteRef<PairIterator> begin() {
         a.begin();
         if (a == vstd::IteEndTag{}) {
             b.begin();
@@ -522,13 +529,13 @@ struct v_PairIterator : public detail::RangeFlag<v_PairIterator<A, B>> {
         }
     }
 };
-
+}// namespace detail
 template<typename Func>
-v_FilterRange<Func> FilterRange(Func &&func) {
+detail::FilterRange<Func> filter_range(Func &&func) {
     return {std::forward<Func>(func)};
 }
 template<typename GetValue>
-v_TransformRange<GetValue> TransformRange(GetValue &&func) {
+detail::TransformRange<GetValue> transform_range(GetValue &&func) {
     return {std::forward<GetValue>(func)};
 }
 // clang-format off
@@ -539,31 +546,31 @@ concept RangeMap = requires(T rval){
 };
 // clang-format on
 template<RangeMap Map>
-v_CacheEndRange<Map> CacheEndRange(Map &&map) {
+detail::CacheEndRange<Map> cache_end_range(Map &&map) {
     return {std::forward<Map>(map)};
 }
 template<typename Map>
     requires(std::remove_cvref_t<Map>::vstdRange)
-v_RangeImpl<Map> RangeImpl(Map &&map) {
+detail::RangeImpl<Map> range_impl(Map &&map) {
     return {std::forward<Map>(map)};
 }
 template<typename Map>
     requires(std::remove_cvref_t<Map>::vstdRange)
-v_RangeImpl<Map>
-    *NewRangeImpl(Map &&map) {
-    return new v_RangeImpl<Map>{std::forward<Map>(map)};
+auto new_range_impl(Map &&map) {
+    return new detail::RangeImpl<Map>{std::forward<Map>(map)};
 }
 
 template<typename Dst, typename Func>
-auto IRangePipelineImpl(Func &&func) -> v_IRangePipelineImpl<Dst, Func &&> {
+auto i_range_pipeline_impl(Func &&func) -> detail::IRangePipelineImpl<Dst, Func &&> {
     return {std::forward<Func &&>(func)};
 }
 template<typename... Ts>
-v_TupleIterator<Ts...> TupleIterator(Ts &&...ts) {
+detail::TupleIterator<Ts...> tuple_iterator(Ts &&...ts) {
     return {std::forward<Ts>(ts)...};
 }
+inline vstd::detail::ValueRange value_range() { return {}; }
 template<typename A, typename B>
-v_PairIterator<A, B> PairIterator(
+detail::PairIterator<A, B> pair_iterator(
     A &&a,
     B &&b) {
     return {std::forward<A>(a), std::forward<B>(b)};

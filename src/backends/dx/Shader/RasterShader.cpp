@@ -13,19 +13,19 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
         return {};
     } else {
         auto vertSpan = vertexKernel.arguments();
-        auto vertArgs = vstd::CacheEndRange(vstd::ite_range(vertSpan.begin() + 1, vertSpan.end())) |
-                        vstd::TransformRange(
+        auto vertArgs = vstd::cache_end_range(vstd::ite_range(vertSpan.begin() + 1, vertSpan.end())) |
+                        vstd::transform_range(
                             [&](Variable const &var) {
                                 return std::pair<Variable, Usage>{var, vertexKernel.variable_usage(var.uid())};
                             });
         auto pixelSpan = pixelKernel.arguments();
         auto pixelArgs =
             vstd::ite_range(pixelSpan.begin() + 1, pixelSpan.end()) |
-            vstd::TransformRange(
+            vstd::transform_range(
                 [&](Variable const &var) {
                     return std::pair<Variable, Usage>{var, pixelKernel.variable_usage(var.uid())};
                 });
-        auto args = vstd::RangeImpl(vstd::PairIterator(vertArgs, pixelArgs));
+        auto args = vstd::range_impl(vstd::pair_iterator(vertArgs, pixelArgs));
         return ShaderSerializer::SerializeKernel(args);
     }
 }
