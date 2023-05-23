@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
         auto light_intensity = max(dot(surface_normal, light_direction) +
                                        pow(max(0.f, dot(reflected_light_direction,
                                                         view_direction)),
-                                           16.f),
+                                           32.f),
                                    0.f);
         shaded_color *= light_intensity;
 
@@ -226,6 +226,7 @@ int main(int argc, char *argv[]) {
         auto p2 = def(make_float3(0.f));
         auto bbox = def<Bbox>(make_float3(-.48f), make_float3(.48f));
 
+        auto albedo = make_float3(.5f);
         auto color = def(make_float3(.2f, .4f, .6f));
         $if(intersect_cube(ray, bbox, p1, p2)) {
             p1 = p1 - bbox.min / (bbox.max - bbox.min);
@@ -238,52 +239,87 @@ int main(int argc, char *argv[]) {
                 auto normal = -compute_volume_gradient(bindless, hit_point, 1.f / volume_size);
                 auto to_light = normalize(make_float3(1.f));
                 $if(dot(normal, ray.direction) > 0.f & dot(normal, to_light) > 0.f) {
-                    color = calculate_shading(make_float3(.5f), -ray.direction, normal, to_light);
+                    color = calculate_shading(albedo, -ray.direction, normal, to_light);
                 }
                 $else {
-                    color = make_float3(0.f);
+                    color = .15f * albedo;
                 };
             };
         };
         return color;
     };
 
+    Callable tea = [](UInt v0, UInt v1) noexcept {
+        UInt s0 = def(0u);
+        for (uint n = 0u; n < 4u; n++) {
+            s0 += 0x9e3779b9u;
+            v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
+            v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
+        }
+        return v0;
+    };
+
+    auto make_sampler_states = device.compile<2>([&](ImageUInt seed_image) noexcept {
+        UInt2 p = dispatch_id().xy();
+        UInt state = tea(p.x, p.y);
+        seed_image.write(p, make_uint4(state));
+    });
+
+    Callable lcg = [](UInt &state) noexcept {
+        constexpr uint lcg_a = 1664525u;
+        constexpr uint lcg_c = 1013904223u;
+        state = lcg_a * state + lcg_c;
+        return cast<float>(state & 0x00ffffffu) *
+               (1.0f / static_cast<float>(0x01000000u));
+    };
+
     auto render = device.compile<2>([&](ImageFloat accum,
                                         BindlessVar bindless,
                                         Float3 camera_pos,
+                                        ImageUInt seeds,
                                         Float fov) noexcept {
-        auto color = def(make_float3(0.f));
-        auto samples = 2u;
-        $for(dy, samples) {
-            $for(dx, samples) {
-                auto jitter = make_float2(make_uint2(dx, dy)) + .5f;
-                color += trace(bindless, camera_pos, fov, jitter / cast<float>(samples));
-            };
-        };
-        auto scale = 1.f / cast<float>(samples * samples);
-        accum.write(dispatch_id().xy(), make_float4(color * scale, 1.f));
+        auto state = seeds.read(dispatch_id().xy()).x;
+        auto rx = lcg(state);
+        auto ry = lcg(state);
+        seeds.write(dispatch_id().xy(), make_uint4(state));
+        auto color = trace(bindless, camera_pos, fov, make_float2(rx, ry));
+        auto old = accum.read(dispatch_id().xy());
+        auto c = lerp(old.xyz(), color, 1.f / (old.w + 1.f));
+        accum.write(dispatch_id().xy(), make_float4(c, old.w + 1.f));
+    });
+
+    auto clear = device.compile<2>([&](ImageFloat accum) noexcept {
+        accum.write(dispatch_id().xy(), make_float4(0.f));
+    });
+
+    auto blit = device.compile<2>([&](ImageFloat accum, ImageFloat output) noexcept {
+        output.write(dispatch_id().xy(), make_float4(accum.read(dispatch_id().xy()).xyz(), 1.f));
     });
 
     static constexpr auto volume_size = 256u;
     static constexpr auto settings = PerlinSettings{
         .octave = 4, .power = 1.f, .frequency = 1.f};
 
+    static constexpr auto resolution = make_uint2(1024u);
+
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto bindless = device.create_bindless_array(1u);
     auto volume = device.create_volume<float>(PixelStorage::FLOAT1, make_uint3(volume_size));
+    auto seeds = device.create_image<uint>(PixelStorage::INT1, make_uint2(1024u));
     bindless.emplace_on_update(0u, volume, Sampler::linear_point_edge());
 
     stream << bindless.update()
            << make_perlin_noise(volume, settings)
-                  .dispatch(make_uint3(volume_size));
+                  .dispatch(make_uint3(volume_size))
+           << make_sampler_states(seeds).dispatch(resolution);
 
-    auto resolution = make_uint2(1024u);
     Window window{"Display", resolution};
     auto swapchain = device.create_swapchain(
         window.native_handle(), stream,
         resolution, false, true, 3u);
-    auto image = device.create_image<float>(
-        swapchain.backend_storage(), resolution);
+    auto accum = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto display = device.create_image<float>(swapchain.backend_storage(), resolution);
+    auto dirty = true;
 
     auto fov = 30.f;
     auto camera_pos = make_float3(2.f, -2.f, -2.f);
@@ -292,32 +328,48 @@ int main(int argc, char *argv[]) {
         window.poll_events();
         auto dt = static_cast<float>(clk.toc() * 1e-3f);
         clk.tic();
-        if (window.is_key_down(KEY_W)) {
-            auto R = rotation(make_float3(1.f, 0.f, 0.f), dt);
+        auto front = normalize(camera_pos);
+        auto right = normalize(cross(front, make_float3(0.f, 1.f, 0.f)));
+        auto up = normalize(cross(right, front));
+        if (window.is_key_down(KEY_W) && front.y < .95f) {
+            auto R = rotation(right, dt);
             camera_pos = make_float3x3(R) * camera_pos;
+            dirty = true;
         }
-        if (window.is_key_down(KEY_S)) {
-            auto R = rotation(make_float3(1.f, 0.f, 0.f), -dt);
+        if (window.is_key_down(KEY_S) && front.y > -.95f) {
+            auto R = rotation(right, -dt);
             camera_pos = make_float3x3(R) * camera_pos;
+            dirty = true;
         }
         if (window.is_key_down(KEY_A)) {
-            auto R = rotation(make_float3(0.f, 1.f, 0.f), -dt);
+            auto R = rotation(up, -dt);
             camera_pos = make_float3x3(R) * camera_pos;
+            dirty = true;
         }
         if (window.is_key_down(KEY_D)) {
-            auto R = rotation(make_float3(0.f, 1.f, 0.f), dt);
+            auto R = rotation(up, dt);
             camera_pos = make_float3x3(R) * camera_pos;
+            dirty = true;
         }
         if (window.is_key_down(KEY_MINUS)) {
             fov = clamp(fov * 1.02f, 5.f, 170.f);
+            dirty = true;
         }
         if (window.is_key_down(KEY_EQUAL)) {
             fov = clamp(fov / 1.02f, 5.f, 170.f);
+            dirty = true;
         }
-        LUISA_INFO("Camera: ({}, {}, {})", camera_pos.x, camera_pos.y, camera_pos.z);
-        stream << render(image, bindless, camera_pos, fov)
-                      .dispatch(resolution)
-               << swapchain.present(image);
+
+        CommandList cmds;
+        cmds.reserve(3u, 0u);
+
+        if (dirty) {
+            cmds << clear(accum).dispatch(resolution);
+            dirty = false;
+        }
+        cmds << render(accum, bindless, camera_pos, seeds, fov).dispatch(resolution)
+             << blit(accum, display).dispatch(resolution);
+        stream << cmds.commit() << swapchain.present(display);
     }
     stream << synchronize();
 }
