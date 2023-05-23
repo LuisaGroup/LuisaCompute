@@ -139,7 +139,7 @@ private:
 
 public:
     /// Construct from RefExpr
-    explicit Expr(const RefExpr *expr, const Expression *offset) noexcept : _expression{expr} {}
+    explicit Expr(const RefExpr *expr) noexcept : _expression{expr} {}
     /// Construct from VolumeView. Will create texture binding.
     Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
@@ -454,8 +454,7 @@ public:
 template<typename T>
 struct Var<Buffer<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Buffer<T>>{
-              detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
+        : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -463,8 +462,7 @@ struct Var<Buffer<T>> : public Expr<Buffer<T>> {
 template<typename T>
 struct Var<BufferView<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Buffer<T>>{
-              detail::FunctionBuilder::buffer(Type::of<Buffer<T>>())} {}
+        : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -481,7 +479,7 @@ struct Var<Image<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<ImageView<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{detail::FunctionBuilder::texture(Type::of<Image<T>>())} {}
+        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -497,7 +495,7 @@ struct Var<Volume<T>> : public Expr<Volume<T>> {
 template<typename T>
 struct Var<VolumeView<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{detail::FunctionBuilder::texture(Type::of<Volume<T>>())} {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -505,8 +503,7 @@ struct Var<VolumeView<T>> : public Expr<Volume<T>> {
 template<>
 struct Var<BindlessArray> : public Expr<BindlessArray> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<BindlessArray>{
-              detail::FunctionBuilder::current()->bindless_array()} {}
+        : Expr<BindlessArray>{detail::FunctionBuilder::current()->bindless_array()} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
