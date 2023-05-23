@@ -126,10 +126,18 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             str << "thdId"sv;
             break;
         case Variable::Tag::DISPATCH_SIZE:
-            str << "dsp_c.xyz"sv;
+            if (opt->funcType == CodegenStackData::FuncType::Kernel) {
+                str << "dsp_c.xyz"sv;
+            } else {
+                str << "dsp_c"sv;
+            }
             break;
         case Variable::Tag::KERNEL_ID:
-            str << "dsp_c.w"sv;
+        if (opt->funcType == CodegenStackData::FuncType::Kernel) {
+                str << "dsp_c.w"sv;
+            } else {
+                str << "ker"sv;
+            }
             break;
         case Variable::Tag::OBJECT_ID:
             LUISA_ASSERT(opt->isRaster, "object id only allowed in raster shader");
@@ -219,7 +227,7 @@ bool CodegenUtility::GetConstName(uint64 hash, ConstantData const &data, vstd::S
 void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str) {
     uint64 constCount = opt->GetConstCount(data.hash()).first;
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
-    str << "struct tc";
+    str << "struct tc"sv;
     vstd::to_string((constCount), str);
     uint64 varCount = 1;
     luisa::visit(
@@ -227,11 +235,10 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBui
             varCount = arr.size();
         },
         data.view());
-    str << "{\n";
+    str << "{\n"sv;
     str << CodegenUtility::GetBasicTypeName(data.view().index()) << " v[";
     vstd::to_string((varCount), str);
-    str << "];\n";
-    str << "};\n";
+    str << "];\n};\n"sv;
 }
 void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuilder &str) {
     auto &&view = data.view();
@@ -1042,6 +1049,7 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
         }
 
         if (func.tag() == Function::Tag::KERNEL) {
+            opt->funcType = CodegenStackData::FuncType::Kernel;
             result << "[numthreads("
                    << vstd::to_string(func.block_size().x)
                    << ','
@@ -1074,7 +1082,6 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
             if (cbufferNonEmpty) {
                 result << "Args a = _Global[0];\n"sv;
             }
-            opt->funcType = CodegenStackData::FuncType::Kernel;
             opt->arguments.clear();
             opt->arguments.reserve(func.arguments().size());
             size_t idx = 0;
@@ -1083,9 +1090,9 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
                 ++idx;
             }
         } else {
+            opt->funcType = CodegenStackData::FuncType::Callable;
             GetFunctionDecl(func, result);
             result << "{\n"sv;
-            opt->funcType = CodegenStackData::FuncType::Callable;
         }
         {
 
