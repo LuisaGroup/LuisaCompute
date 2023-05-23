@@ -236,11 +236,33 @@ on_load(function(target)
     end
 end)
 rule_end()
+
 rule("lc-rename-ext")
 on_load(function(target)
     target:set("basename", "lc-ext-" .. target:name())
 end)
 rule_end()
+
+rule("build_cargo")
+set_extensions(".toml")
+on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
+    local lib = import("lib")
+    local sb = lib.StringBuilder("cargo build -q ")
+    -- if backend_off then
+    sb:add("--no-default-features ")
+    -- end
+    sb:add("--manifest-path ")
+    sb:add(sourcefile):add(' ')
+    if not is_mode("debug") then
+        sb:add("--release ")
+    end
+    local cargo_cmd = sb:to_string()
+    print(cargo_cmd)
+	batchcmds:vrunv(cargo_cmd)
+    sb:dispose()
+end)
+rule_end()
+
 -- In-case of submod, when there is override rules, do not overload
 if _config_rules == nil then
     _config_rules = { "lc_basic_settings" }

@@ -84,7 +84,7 @@ function main(...)
 				sdk_path = find_clangcl()
 				toolchain = "clang-cl"
 			else
-				sdk_path = find_llvm()				
+				sdk_path = find_llvm()
 			end
 		end
 	else
@@ -104,6 +104,9 @@ function main(...)
 				toolchain = "gcc"
 			end
 		end
+	end
+	if my_is_host("macosx") then
+		sb:add('\tmm = "clang",\n\tmxx = "clang++",\n')
 	end
 	sb:add("\ttoolchain = \""):add(toolchain):add("\",\n")
 	if toolchain == "llvm" and sdk_path then
