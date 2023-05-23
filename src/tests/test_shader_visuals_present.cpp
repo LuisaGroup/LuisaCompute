@@ -40,10 +40,6 @@ int main(int argc, char *argv[]) {
         return make_float4(dot(p, make_float4(1.f)), p.yzw() + p.zwy() - p.wyz() - p.xxx()) * .5f;
     };
 
-    Callable reflect = [](Float3 I, Float3 N) noexcept {
-        return I - 2.f * dot(N, I) * N;
-    };
-
     Kernel2D render_kernel = [&](ImageFloat image, Float time) noexcept {
         Float d1, d2, d3;
         Float t;

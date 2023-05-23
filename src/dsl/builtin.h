@@ -1488,11 +1488,13 @@ template<typename T>
 }
 
 /// Reflect i about n, returns i - 2 * dot(n, i) * n.
-template<typename T>
-    requires is_dsl_v<T> && is_float_vector_expr_v<T>
-[[nodiscard]] inline auto reflect(T &&i, T &&n) noexcept {
+template<typename I, typename N>
+    requires any_dsl_v<I, N> &&
+             std::same_as<expr_value_t<I>, float3> &&
+             std::same_as<expr_value_t<N>, float3>
+[[nodiscard]] inline auto reflect(I &&i, N &&n) noexcept {
     return detail::make_vector_call<float>(
-        CallOp::REFLECT, std::forward<T>(i), std::forward<T>(n));
+        CallOp::REFLECT, std::forward<I>(i), std::forward<N>(n));
 }
 
 /// Return face forward vector.
