@@ -48,7 +48,7 @@ jobs:
           vulkan-query-version: 1.3.204.0
           vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
-      - name: "Setup xmake"
+      - name: "Setup XMake"
         uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
@@ -73,6 +73,10 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install llvm
+      - name: "Setup XMake"
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
       - name: "Configure and Build"
         run: |
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
