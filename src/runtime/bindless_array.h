@@ -29,6 +29,7 @@ class BindlessBuffer;
 
 template<typename T>
 struct Expr;
+
 // BindlessArray is a heap that contain references to buffer, 2d-image and 3d-image
 // every element can contain one buffer, one 2d-image and one 3d-image's reference
 // see test_bindless.cpp as example
@@ -73,6 +74,8 @@ public:
     BindlessArray &operator=(BindlessArray const &) noexcept = delete;
     // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
+    // whether there are any stashed updates
+    [[nodiscard]] auto dirty() const noexcept { return !_updates.empty(); }
     // on-update functions' operations will be committed by update()
     void emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
     void emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
@@ -83,8 +86,9 @@ public:
 
     template<typename T>
         requires is_buffer_or_view_v<std::remove_cvref_t<T>>
-    auto &emplace_on_update(size_t index, T &&buffer, size_t offset = 0) noexcept {
-        emplace_buffer_on_update(index, buffer.handle(), offset * buffer.stride());
+    auto &emplace_on_update(size_t index, T &&buffer) noexcept {
+        BufferView view{buffer};
+        emplace_buffer_on_update(index, view.handle(), view.offset_bytes());
         return *this;
     }
 
