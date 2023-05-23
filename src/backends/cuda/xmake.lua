@@ -14,18 +14,17 @@ on_load(function(target)
 	import("detect.sdks.find_cuda")
 	local cuda = find_cuda()
 	if cuda then
-		local linkdirs = cuda["linkdirs"]
-		if linkdirs then
-			for i,v in ipairs(linkdirs) do
-				target:add("linkdirs", v)
+		local function set(key, value)
+			if type(value) == "string" then
+				target:add(key, value)
+			elseif type(value) == "table" then
+				for i,v in ipairs(value) do
+					target:add(key, v)
+				end
 			end
 		end
-		local includedirs = cuda["includedirs"]
-		if includedirs then
-			for i,v in ipairs(includedirs) do
-				target:add("includedirs", v)
-			end
-		end
+		set("linkdirs", cuda["linkdirs"])
+		set("includedirs", cuda["includedirs"])
 		target:add("links", "nvrtc", "cudart")
 		target:add("syslinks", "cuda")
 	else
