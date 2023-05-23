@@ -11,13 +11,20 @@ end
 add_deps("lc-runtime")
 add_files("**.cpp","../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)
-	local cuda_path = os.getenv("CUDA_PATH")
-	if cuda_path then
-		target:add("includedirs", path.join(cuda_path, "include/"))
-		if is_plat("windows") then
-			target:add("linkdirs", path.join(cuda_path, "lib/x64/"))
-		elseif is_plat("linux") then
-			target:add("linkdirs", path.join(cuda_path, "lib64/"))
+	import("detect.sdks.find_cuda")
+	local cuda = find_cuda()
+	if cuda then
+		local linkdirs = cuda["linkdirs"]
+		if linkdirs then
+			for i,v in ipairs(linkdirs) do
+				target:add("linkdirs", v)
+			end
+		end
+		local includedirs = cuda["includedirs"]
+		if includedirs then
+			for i,v in ipairs(includedirs) do
+				target:add("includedirs", v)
+			end
 		end
 		target:add("links", "nvrtc", "cudart")
 		target:add("syslinks", "cuda")
