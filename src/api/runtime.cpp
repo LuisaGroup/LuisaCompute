@@ -333,7 +333,7 @@ namespace luisa::compute::detail {
             if (_callback != nullptr && _callback_ctx != nullptr) {
                 auto _callback = this->_callback;
                 auto _callback_ctx = this->_callback_ctx;
-                cmd_list.append([=]() {
+                cmd_list.add_callback([=]() {
                     _callback(_callback_ctx);
                 });
             }

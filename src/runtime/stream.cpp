@@ -98,7 +98,7 @@ Stream &Stream::Delegate::operator<<(SwapChain::Present &&p) && noexcept {
 }
 
 Stream::Delegate Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
-    _command_list.append(std::move(f));
+    _command_list.add_callback(std::move(f));
     return std::move(*this);
 }
 
