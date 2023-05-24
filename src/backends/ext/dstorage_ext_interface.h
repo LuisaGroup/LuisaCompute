@@ -1,9 +1,14 @@
 #pragma once
+
 #include <runtime/rhi/device_interface.h>
+
 namespace luisa::compute {
+
 class Stream;
 class DStorageFile;
+
 class DStorageExt : public DeviceExtension {
+
 protected:
     ~DStorageExt() noexcept = default;
 
@@ -29,4 +34,5 @@ public:
     [[nodiscard]] Stream create_stream() noexcept;
     [[nodiscard]] DStorageFile open_file(luisa::string_view path) noexcept;
 };
+
 }// namespace luisa::compute

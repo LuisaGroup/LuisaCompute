@@ -1,13 +1,15 @@
 #pragma once
+
 #include <runtime/rhi/device_interface.h>
 
 namespace luisa::compute {
+
 template<typename T>
 class Buffer;
+
 class Stream;
+
 class DenoiserExt : public DeviceExtension {
-protected:
-    ~DenoiserExt() noexcept = default;
 
 public:
     struct DenoiserMode {
@@ -20,6 +22,7 @@ public:
         //int aov_reflection_id = -1;
         //int aov_diffuse_id = -1;
     } _mode;
+
     struct DenoiserInput {
         const Buffer<float> *beauty = nullptr;
         const Buffer<float> *normal = nullptr;
@@ -29,7 +32,9 @@ public:
         Buffer<float> **aovs = nullptr;
         uint aov_size = 0;
     };
+
     static constexpr luisa::string_view name = "DenoiserExt";
+
     //A simple integration for denoising a single image.
     virtual void denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
                          Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> **aovs, uint aov_size) noexcept = 0;
@@ -42,4 +47,5 @@ public:
     //clear the memory usage on device and the internal states held. You should call this before a new initialization.
     virtual void destroy(Stream &stream) noexcept = 0;
 };
+
 }// namespace luisa::compute

@@ -6,8 +6,8 @@
 namespace luisa::compute::optix {
 
 // versions
-static constexpr auto VERSION = 70400u;
-static constexpr auto ABI_VERSION = 55u;
+static constexpr auto VERSION = 70500u;
+static constexpr auto ABI_VERSION = 60u;
 
 // types
 using TraversableHandle = unsigned long long;
@@ -70,6 +70,7 @@ enum Result : unsigned int {
     RESULT_ERROR_LIBRARY_NOT_FOUND = 7804u,
     RESULT_ERROR_ENTRY_SYMBOL_NOT_FOUND = 7805u,
     RESULT_ERROR_LIBRARY_UNLOAD_FAILURE = 7806u,
+    RESULT_ERROR_DEVICE_OUT_OF_MEMORY = 7807u,
     RESULT_ERROR_CUDA_ERROR = 7900u,
     RESULT_ERROR_INTERNAL_ERROR = 7990u,
     RESULT_ERROR_UNKNOWN = 7999u,
@@ -103,6 +104,7 @@ enum GeometryFlags : unsigned int {
     GEOMETRY_FLAG_NONE = 0u,
     GEOMETRY_FLAG_DISABLE_ANYHIT = 1u << 0u,
     GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1u,
+    GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 2u,
 };
 
 enum HitKind : unsigned int {
@@ -156,6 +158,7 @@ enum PrimitiveType : unsigned int {
     PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE = 0x2502u,
     PRIMITIVE_TYPE_ROUND_LINEAR = 0x2503u,
     PRIMITIVE_TYPE_ROUND_CATMULLROM = 0x2504u,
+    PRIMITIVE_TYPE_SPHERE = 0x2506u,
     PRIMITIVE_TYPE_TRIANGLE = 0x2531u,
 };
 
@@ -165,6 +168,7 @@ enum PrimitiveTypeFlags : unsigned int {
     PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BSPLINE = 1u << 2u,
     PRIMITIVE_TYPE_FLAGS_ROUND_LINEAR = 1u << 3u,
     PRIMITIVE_TYPE_FLAGS_ROUND_CATMULLROM = 1u << 4u,
+    PRIMITIVE_TYPE_FLAGS_SPHERE = 1u << 6u,
     PRIMITIVE_TYPE_FLAGS_TRIANGLE = 1u << 31u,
 };
 
@@ -188,6 +192,21 @@ struct BuildInputCurveArray {
     unsigned int flag;
     unsigned int primitiveIndexOffset;
     unsigned int endcapFlags;
+};
+
+struct BuildInputSphereArray {
+    const CUdeviceptr *vertexBuffers;
+    unsigned int vertexStrideInBytes;
+    unsigned int numVertices;
+    const CUdeviceptr *radiusBuffers;
+    unsigned int radiusStrideInBytes;
+    int singleRadius;
+    const unsigned int *flags;
+    unsigned int numSbtRecords;
+    CUdeviceptr sbtIndexOffsetBuffer;
+    unsigned int sbtIndexOffsetSizeInBytes;
+    unsigned int sbtIndexOffsetStrideInBytes;
+    unsigned int primitiveIndexOffset;
 };
 
 struct Aabb {
@@ -222,6 +241,7 @@ enum BuildInputType : unsigned int {
     BUILD_INPUT_TYPE_INSTANCES = 0x2143u,
     BUILD_INPUT_TYPE_INSTANCE_POINTERS = 0x2144u,
     BUILD_INPUT_TYPE_CURVES = 0x2145u,
+    BUILD_INPUT_TYPE_SPHERES = 0x2146u,
 };
 
 struct BuildInput {
@@ -229,6 +249,7 @@ struct BuildInput {
     union {
         BuildInputTriangleArray triangleArray;
         BuildInputCurveArray curveArray;
+        BuildInputSphereArray sphereArray;
         BuildInputCustomPrimitiveArray customPrimitiveArray;
         BuildInputInstanceArray instanceArray;
         char pad[1024];
@@ -347,6 +368,7 @@ enum PixelFormat : unsigned int {
     PIXEL_FORMAT_FLOAT4 = 0x2204u,
     PIXEL_FORMAT_UCHAR3 = 0x2205u,
     PIXEL_FORMAT_UCHAR4 = 0x2206u,
+    PIXEL_FORMAT_INTERNAL_GUIDE_LAYER = 0x2209u,
 };
 
 struct Image2D {
@@ -364,6 +386,8 @@ enum DenoiserModelKind : unsigned int {
     DENOISER_MODEL_KIND_AOV = 0x2324u,
     DENOISER_MODEL_KIND_TEMPORAL = 0x2325u,
     DENOISER_MODEL_KIND_TEMPORAL_AOV = 0x2326u,
+    DENOISER_MODEL_KIND_UPSCALE2X = 0x2327u,
+    DENOISER_MODEL_KIND_TEMPORAL_UPSCALE2X = 0x2328u,
 };
 
 struct DenoiserOptions {
@@ -375,6 +399,8 @@ struct DenoiserGuideLayer {
     Image2D albedo;
     Image2D normal;
     Image2D flow;
+    Image2D previousOutputInternalGuideLayer;
+    Image2D outputInternalGuideLayer;
 };
 
 struct DenoiserLayer {
@@ -383,11 +409,18 @@ struct DenoiserLayer {
     Image2D output;
 };
 
+enum DenoiserAlphaMode : unsigned int {
+    DENOISER_ALPHA_MODE_COPY = 0u,
+    DENOISER_ALPHA_MODE_ALPHA_AS_AOV = 1u,
+    DENOISER_ALPHA_MODE_FULL_DENOISE_PASS = 2u,
+};
+
 struct DenoiserParams {
-    unsigned int denoiseAlpha;
+    DenoiserAlphaMode denoiseAlpha;
     CUdeviceptr hdrIntensity;
     float blendFactor;
     CUdeviceptr hdrAverageColor;
+    unsigned int temporalModeUsePreviousLayers;
 };
 
 struct DenoiserSizes {
@@ -395,6 +428,9 @@ struct DenoiserSizes {
     size_t withOverlapScratchSizeInBytes;
     size_t withoutOverlapScratchSizeInBytes;
     unsigned int overlapWindowSizeInPixels;
+    size_t computeAverageColorSizeInBytes;
+    size_t computeIntensitySizeInBytes;
+    size_t internalGuideLayerPixelSizeInBytes;
 };
 
 enum RayFlags : unsigned int {
