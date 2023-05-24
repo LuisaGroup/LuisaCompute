@@ -192,10 +192,10 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE2D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint2
     BINDLESS_TEXTURE3D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,// (bindless_array, index: uint): expr->type()
-    BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, offset_bytes: uint): expr->type()
-    BINDLESS_BUFFER_SIZE,// (bindless_array) -> size
-    BINDLESS_BUFFER_TYPE,// (bindless_array) -> type
+    BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
+    BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
+    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint) -> size
+    BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> type
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)

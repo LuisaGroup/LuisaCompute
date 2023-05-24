@@ -202,16 +202,29 @@ public:
                 Type::of<T>(), CallOp::BINDLESS_BUFFER_READ,
                 {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto byte_address_read(I &&i) const noexcept {
+};
+
+class LC_DSL_API BindlessByteAddressBuffer {
+
+private:
+    const RefExpr *_array{nullptr};
+    const Expression *_index{nullptr};
+
+public:
+    BindlessByteAddressBuffer(const RefExpr *array, const Expression *index) noexcept
+        : _array{array}, _index{index} {}
+
+    template<typename T, typename I>
+        requires is_valid_buffer_element_v<T> && is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&offset) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(
                 Type::of<T>(), CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ,
-                {_array, _index, detail::extract_expression(std::forward<I>(i))}));
+                {_array, _index, detail::extract_expression(std::forward<I>(offset))}));
     }
 };
+
 /// Class of bindless 2D texture
 class LC_DSL_API BindlessTexture2D {
 
@@ -330,6 +343,14 @@ public:
         auto i = def(std::forward<I>(index));
         return detail::BindlessBuffer<T>{_expression, i.expression()};
     }
+
+    /// Get byte-address buffer at index
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto byte_address_buffer(I &&index) const noexcept {
+        auto i = def(std::forward<I>(index));
+        return detail::BindlessByteAddressBuffer{_expression, i.expression()};
+    }
 };
 
 template<typename T>
@@ -439,22 +460,25 @@ public:
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto tex2d(I &&index) const noexcept {
-        auto i = def(std::forward<I>(index));
-        return Expr<BindlessArray>{_array}.tex2d(i);
+        return Expr<BindlessArray>{_array}.tex2d(std::forward<I>(index));
     }
 
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto tex3d(I &&index) const noexcept {
-        auto i = def(std::forward<I>(index));
-        return Expr<BindlessArray>{_array}.tex3d(i);
+        return Expr<BindlessArray>{_array}.tex3d(std::forward<I>(index));
     }
 
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto buffer(I &&index) const noexcept {
-        auto i = def(std::forward<I>(index));
-        return Expr<BindlessArray>{_array}.buffer<T>(i);
+        return Expr<BindlessArray>{_array}.buffer<T>(std::forward<I>(index));
+    }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto byte_address_buffer(I &&index) const noexcept {
+        return Expr<BindlessArray>{_array}.byte_address_buffer(std::forward<I>(index));
     }
 };
 

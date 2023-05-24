@@ -146,7 +146,7 @@ void CUDADenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
     auto optix_ctx = _device->handle().optix_context();
     optix::DenoiserParams _params = {};
-    _params.denoiseAlpha = (uint)_mode.alphamode;//????????????????????????????????????????????????????????????
+    _params.denoiseAlpha = _mode.alphamode ? optix::DENOISER_ALPHA_MODE_ALPHA_AS_AOV : optix::DENOISER_ALPHA_MODE_COPY;
     _params.hdrIntensity = _intensity;
     _params.hdrAverageColor = _avg_color;
     _params.blendFactor = 0.0f;
