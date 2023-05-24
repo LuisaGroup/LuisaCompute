@@ -801,6 +801,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ",bdls)"sv;
             return;
         }
+        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
+            str << "READ_BUFFER_BYTES"sv;
+            opt->useBufferBindless = true;
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ",bdls)"sv;
+            return;
+        }
         case CallOp::ASSUME:
         case CallOp::UNREACHABLE: {
             return;

@@ -202,6 +202,15 @@ public:
                 Type::of<T>(), CallOp::BINDLESS_BUFFER_READ,
                 {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto byte_address_read(I &&i) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<T>(
+            f->call(
+                Type::of<T>(), CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ,
+                {_array, _index, detail::extract_expression(std::forward<I>(i))}));
+    }
 };
 /// Class of bindless 2D texture
 class LC_DSL_API BindlessTexture2D {
