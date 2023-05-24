@@ -773,6 +773,10 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
+        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
+            LUISA_ERROR("Not Implemented.");
+            break;
+        }
         case CallOp::BINDLESS_BUFFER_SIZE: {
             _scratch << "bindless_buffer_size<";
             _emit_type_name(expr->type());

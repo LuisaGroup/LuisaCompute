@@ -858,6 +858,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
+        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
+            LUISA_ERROR("Not Implemented.");
+            break;
+        }
         case CallOp::BINDLESS_BUFFER_SIZE: {
             _scratch << "lc_bindless_buffer_size<";
             _emit_type_name(expr->type());
