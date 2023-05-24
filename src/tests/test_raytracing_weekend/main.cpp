@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <core/clock.h>
+
 #include "rtweekend.h"
 
 #include "hittable_list.h"
@@ -169,11 +171,14 @@ int main(int argc, char *argv[]) {
 
     Shader2D<Image<uint>, Image<float>, uint> render = device.compile(render_kernel);
 
+    Clock clk;
     for (uint sample_index = 0u; sample_index < samples_per_pixel; sample_index++) {
         stream << render(seed_image, accum_image, sample_index)
                       .dispatch(resolution)
-               << [sample_index, samples_per_pixel] {
-                      LUISA_INFO("Samples: {} / {}", sample_index + 1u, samples_per_pixel);
+               << [sample_index, samples_per_pixel, &clk] {
+                      LUISA_INFO("Samples: {} / {} ({:.1f}s)",
+                                 sample_index + 1u, samples_per_pixel,
+                                 clk.toc() * 1e-3);
                   };
     }
 
