@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream();
     constexpr uint2 resolution = make_uint2(image_width, image_height);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    Image<float> accum_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
+    Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     luisa::vector<std::byte> host_image(accum_image.size_bytes());
 
     // Render
@@ -179,15 +179,16 @@ int main(int argc, char *argv[]) {
 
     // Gamma Correct
 
-    Kernel2D gamma_kernel = [&](ImageFloat accum_image) {
+    Kernel2D gamma_kernel = [&](ImageFloat accum_image, ImageFloat output) {
         UInt2 coord = dispatch_id().xy();
-        accum_image.write(coord, make_float4(sqrt(accum_image.read(coord).xyz()), 1.0f));
+        output.write(coord, make_float4(sqrt(accum_image.read(coord).xyz()), 1.0f));
     };
 
-    Shader2D<Image<float>> gamma_correct = device.compile(gamma_kernel);
+    Shader2D<Image<float>, Image<float>> gamma_correct = device.compile(gamma_kernel);
+    auto output_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
 
-    stream << gamma_correct(accum_image).dispatch(resolution);
-    stream << accum_image.copy_to(host_image.data())
+    stream << gamma_correct(accum_image, output_image).dispatch(resolution);
+    stream << output_image.copy_to(host_image.data())
            << synchronize();
     stbi_write_png("test_rt_weekend.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
