@@ -2,7 +2,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_COMPUTE_IR_SOURCES
             ast2ir.cpp ast2ir.h
             ir2ast.cpp ir2ast.h
-            codegen.cpp codegen.h)
+            # codegen.cpp codegen.h @Mike-Leo-Smith fix fix later
+            )
 
     add_library(luisa-compute-ir SHARED ${LUISA_COMPUTE_IR_SOURCES})
     target_link_libraries(luisa-compute-ir PUBLIC luisa-compute-ast luisa-compute-rust-meta)

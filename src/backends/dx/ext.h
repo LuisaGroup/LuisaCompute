@@ -1,11 +1,17 @@
 #pragma once
 #include <vstl/common.h>
 #include <backends/ext/tex_compress_ext.h>
-#include <backends/ext/native_resource_ext.h>
-#include <backends/ext/raster_ext.h>
+#include <backends/ext/native_resource_ext_interface.h>
+#include <backends/ext/raster_ext_interface.h>
 #include <backends/ext/dx_cuda_interop.h>
+#include <backends/ext/dstorage_ext_interface.h>
 #include <backends/dx/d3dx12.h>
+#include <core/dynamic_module.h>
+#include <dstorage/dstorage.h>
+using Microsoft::WRL::ComPtr;
+
 namespace lc::dx {
+class LCDevice;
 using namespace luisa::compute;
 class Device;
 class DxTexCompressExt final : public TexCompressExt, public vstd::IOperatorNewBase {
@@ -159,5 +165,28 @@ public:
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
     DxCudaInteropImpl(Device &device) : _device{device} {}
+};
+
+class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
+    luisa::DynamicModule dstorage_core_module;
+    luisa::DynamicModule dstorage_module;
+    ComPtr<IDStorageFactory> factory;
+    ComPtr<IDStorageCompressionCodec> compression_codec;
+    vstd::spin_mutex spin_mtx;
+    std::mutex mtx;
+    LCDevice *mdevice;
+    void InitFactory();
+
+public:
+    DeviceInterface *device() const noexcept;
+    DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
+    ResourceCreationInfo create_stream_handle() noexcept override;
+    File open_file_handle(luisa::string_view path) noexcept override;
+    void close_file_handle(uint64_t handle) noexcept override;
+    void set_config(bool hdd) noexcept override;
+    void gdeflate_compress(
+        luisa::span<std::byte const> input,
+        CompressQuality quality,
+        luisa::vector<std::byte> &result) noexcept override;
 };
 }// namespace lc::dx

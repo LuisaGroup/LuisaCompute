@@ -15,6 +15,7 @@
 #include <ast/atomic_ref_node.h>
 #include <core/logging.h>
 #include <runtime/context.h>
+#include <runtime/dispatch_buffer.h>
 
 namespace py = pybind11;
 using namespace luisa;
@@ -44,17 +45,21 @@ ManagedDevice::ManagedDevice(Device &&device) noexcept : device(std::move(device
     }
     device_count++;
 }
-ManagedDevice::ManagedDevice(ManagedDevice &&v) noexcept : device(std::move(v.device)), valid(false) {
-    std::swap(valid, v.valid);
+ManagedDevice::ManagedDevice(ManagedDevice &&v) noexcept : device(std::move(v.device)), valid(v.valid) {
+    v.valid = false;
 }
 ManagedDevice::~ManagedDevice() noexcept {
-    device_count--;
-    for (auto &&i : futures) {
-        i.wait();
-    }
-    futures.clear();
-    if (device_count == 0) {
-        thread_pool.destroy();
+    if (valid) {
+        device_count--;
+        for (auto &&i : futures) {
+            i.wait();
+        }
+        futures.clear();
+
+        if (device_count == 0) {
+            RefCounter::current = nullptr;
+            thread_pool.destroy();
+        }
     }
 }
 static std::filesystem::path output_path;
@@ -82,7 +87,11 @@ void export_runtime(py::module &m) {
             fmt.format.emplace_vertex_stream(fmt.attributes);
             fmt.attributes.clear();
         });
-
+    py::class_<BufferCreationInfo>(m, "BufferCreationInfo")
+        .def(py::init<>())
+        .def("element_stride", [](BufferCreationInfo &self) { return self.element_stride; })
+        .def("size_bytes", [](BufferCreationInfo &self) { return self.total_size_bytes; })
+        .def("handle", [](BufferCreationInfo &self) { return self.handle; });
     py::class_<Context>(m, "Context")
         .def(py::init<luisa::string>())
         .def("create_device", [](Context &self, luisa::string_view backend_name) {
@@ -172,9 +181,11 @@ void export_runtime(py::module &m) {
                 .allow_compaction = allow_compact,
                 .allow_update = allow_update}));
         });
-    m.def("get_bindless_handle", [](uint64 handle) {
-        return reinterpret_cast<ManagedBindless *>(handle)->GetHandle();
-    }, pyref);
+    m.def(
+        "get_bindless_handle", [](uint64 handle) {
+            return reinterpret_cast<ManagedBindless *>(handle)->GetHandle();
+        },
+        pyref);
     // py::class_<DeviceInterface::BuiltinBuffer>(m, "BuiltinBuffer")
     //     .def("handle", [](DeviceInterface::BuiltinBuffer &buffer) {
     //         return buffer.handle;
@@ -184,9 +195,13 @@ void export_runtime(py::module &m) {
     //     });
 
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
-        .def("create_shader", [](DeviceInterface &self, Function kernel) {
-            return self.create_shader({}, kernel).handle;
-        }, pyref)// TODO: support metaoptions
+        .def(
+            "create_shader", [](DeviceInterface &self, Function kernel) {
+                auto handle = self.create_shader({}, kernel).handle;
+                RefCounter::current->AddObject(handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_shader(handle); }, &self});
+                return handle;
+            },
+            pyref)// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;
             luisa::string dst_path_str;
@@ -300,31 +315,39 @@ void export_runtime(py::module &m) {
                                       ->create_raster_shader(fmt.format, vertex->function(), pixel->function(), option));
             }));
         })
-        .def("destroy_shader", &DeviceInterface::destroy_shader)
-        .def("create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
-            auto ptr = d.create_buffer(type, size).handle;
-            RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+        .def("destroy_shader", [](DeviceInterface &self, uint64_t handle) {
+            RefCounter::current->DeRef(handle);
+        })
+        .def(
+            "create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
+                auto ptr = d.create_buffer(type, size).handle;
+                RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+                return ptr;
+            },
+            pyref)
+        .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
+            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size);
+            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
-        }, pyref)
-        // .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
-        //     auto ptr = d.create_dispatch_buffer(dimension, size);
-        //     RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
-        //     return ptr;
-        // })
+        })
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
-        .def("create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
-            auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
-            RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
-            return ptr;
-        }, pyref)
+        .def(
+            "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
+                auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
+                RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
+                return ptr;
+            },
+            pyref)
         .def("destroy_texture", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
-        .def("create_bindless_array", [](DeviceInterface &d, size_t slots) {
-            return reinterpret_cast<uint64>(new_with_allocator<ManagedBindless>(&d, slots));
-        }, pyref)// size
+        .def(
+            "create_bindless_array", [](DeviceInterface &d, size_t slots) {
+                return reinterpret_cast<uint64>(new_with_allocator<ManagedBindless>(&d, slots));
+            },
+            pyref)// size
         .def("destroy_bindless_array", [](DeviceInterface &d, uint64 handle) {
             delete_with_allocator(reinterpret_cast<ManagedBindless *>(handle));
         })
@@ -415,6 +438,14 @@ void export_runtime(py::module &m) {
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
         .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
+        .def("dimension", [](FunctionBuilder &self) {
+            if (self.block_size().z > 1) {
+                return 3;
+            }else if (self.block_size().y > 1) {
+                return 2;
+            }
+            return 1;
+        })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
             auto eval = analyzer.back().try_eval(expr);
             return visit(
@@ -531,7 +562,9 @@ void export_runtime(py::module &m) {
                 self.node = self.node->access(member_index);
             },
             pyref)
-        .def("operate", [&](AtomicAccessChain &self, CallOp op, const luisa::vector<const Expression *> &args) -> Expression const * {
-            return self.node->operate(op, luisa::span<Expression const *const>{args});
-        }, pyref);
+        .def(
+            "operate", [&](AtomicAccessChain &self, CallOp op, const luisa::vector<const Expression *> &args) -> Expression const * {
+                return self.node->operate(op, luisa::span<Expression const *const>{args});
+            },
+            pyref);
 }

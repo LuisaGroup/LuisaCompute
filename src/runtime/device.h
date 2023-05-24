@@ -230,6 +230,7 @@ public:
         const RasterKernel<V, P> &kernel,
         const MeshFormat &mesh_format,
         const ShaderOption &option = {}) noexcept;
+
     template<typename V, typename P>
     void compile_to(
         const RasterKernel<V, P> &kernel,

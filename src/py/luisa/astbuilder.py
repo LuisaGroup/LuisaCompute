@@ -223,7 +223,7 @@ class ASTVisitor:
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val), 'r'
-        if lctype.is_buffer():
+        if lctype.is_buffer() or lctype.is_custom_buffer():
             return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0,
                                                          val.bytesize), 'l'  # offset defaults to 0
         if lctype.is_texture():
@@ -490,7 +490,7 @@ class ASTVisitor:
                 if type(c.pattern) == ast.MatchValue:
                     if type(c.pattern.value.value) != int:
                         raise TypeError(f"Match case condition must be int or uint, got {type(c.pattern.value.value)}")
-                    if case_map[c.pattern.value.value] == True:
+                    if case_map.get(c.pattern.value.value) == True:
                         raise SyntaxError("Case value can only have one.")
                     case_map[c.pattern.value.value] = True
                     build(c.pattern.value)
@@ -502,7 +502,7 @@ class ASTVisitor:
                         lcapi.builder().break_()
                     lcapi.end_branch()
                 else:
-                    if case_map["default"] == True:
+                    if case_map.get("default") == True:
                         raise SyntaxError("Case value can only have one.")
                     case_map["default"] = True
                     default_stmt = lcapi.builder().default_()

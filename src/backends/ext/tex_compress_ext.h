@@ -1,8 +1,13 @@
 #pragma once
 
-#include <runtime/device.h>
+#include <runtime/rhi/device_interface.h>
 
 namespace luisa::compute {
+template<typename T>
+class BufferView;
+
+template<typename T>
+class Image;
 
 class TexCompressExt : public DeviceExtension {
 

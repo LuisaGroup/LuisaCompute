@@ -53,14 +53,13 @@ public:
     /// Run a function async and return future of return value
     template<typename F>
         requires std::is_invocable_v<F>
-    // std::shared_future<R>
     auto async(F &&f) noexcept {
         using R = std::invoke_result_t<F>;
         auto promise = luisa::make_unique<std::promise<R>>(
             std::allocator_arg, luisa::allocator{});
         auto future = promise->get_future().share();
         _task_count.fetch_add(1u);
-        _dispatch([promise = std::move(promise), future, f = std::move(f), this]() mutable noexcept {
+        _dispatch([promise = std::move(promise), future, f = std::forward<F>(f), this]() mutable noexcept {
             if constexpr (std::same_as<R, void>) {
                 f();
                 promise->set_value();
@@ -93,7 +92,7 @@ public:
     template<typename F>
         requires std::is_invocable_v<F, uint, uint>
     void parallel(uint nx, uint ny, F &&f) noexcept {
-        parallel(nx * ny, [nx, f = std::move(f)](auto i) mutable noexcept {
+        parallel(nx * ny, [nx, f = std::forward<F>(f)](auto i) mutable noexcept {
             f(i % nx, i / nx);
         });
     }
@@ -102,7 +101,7 @@ public:
     template<typename F>
         requires std::is_invocable_v<F, uint, uint, uint>
     void parallel(uint nx, uint ny, uint nz, F &&f) noexcept {
-        parallel(nx * ny * nz, [nx, ny, f = std::move(f)](auto i) mutable noexcept {
+        parallel(nx * ny * nz, [nx, ny, f = std::forward<F>(f)](auto i) mutable noexcept {
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }

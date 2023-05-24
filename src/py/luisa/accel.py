@@ -134,14 +134,14 @@ class Accel:
 
     def update(self, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         stream.update_accel(self._accel)
         if sync:
             stream.synchronize()
 
     def update_instance_buffer(self, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         stream.update_instance_buffer(self._accel)
         if sync:
             stream.synchronize()

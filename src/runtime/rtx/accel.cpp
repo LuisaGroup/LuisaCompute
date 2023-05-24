@@ -46,7 +46,7 @@ luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
                                      update_instance_buffer_only);
 }
 
-void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
+void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
     auto index = static_cast<uint>(_mesh_handles.size());
     Modification modification{index};
     modification.set_primitive(mesh);
@@ -67,7 +67,7 @@ void Accel::pop_back() noexcept {
     }
 }
 
-void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
+void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",

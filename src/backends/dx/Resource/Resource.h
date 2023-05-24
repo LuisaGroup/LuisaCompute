@@ -42,12 +42,6 @@ public:
     virtual Tag GetTag() const = 0;
     virtual ~Resource() = default;
     virtual ID3D12Resource *GetResource() const { return nullptr; }
-    virtual bool IsNonSimulResource() const { return false; }
     virtual D3D12_RESOURCE_STATES GetInitState() const { return D3D12_RESOURCE_STATE_COMMON; }
-    virtual D3D12_RESOURCE_STATES GetNonSimulCurrentState() const {
-        static_assert(sizeof(D3D12_RESOURCE_STATES) == 4);
-        return static_cast<D3D12_RESOURCE_STATES>(std::numeric_limits<uint32_t>::max());
-    }
-    virtual void SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const {}
 };
 }// namespace lc::dx

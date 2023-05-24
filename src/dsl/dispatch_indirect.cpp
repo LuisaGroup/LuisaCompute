@@ -9,11 +9,11 @@ void IndirectDispatchBufferExprProxy::clear() const noexcept {
     Expr<IndirectDispatchBuffer>{_buffer}.clear();
 }
 
-void IndirectDispatchBufferExprProxy::dispatch_kernel(Expr<uint> kernel_id,
-                                                      Expr<uint3> block_size,
-                                                      Expr<uint3> dispatch_size) const noexcept {
+void IndirectDispatchBufferExprProxy::dispatch_kernel(
+    Expr<uint3> block_size,
+    Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept {
     Expr<IndirectDispatchBuffer>{_buffer}
-        .dispatch_kernel(kernel_id, block_size, dispatch_size);
+        .dispatch_kernel(block_size, dispatch_size, kernel_id);
 }
 
 }// namespace detail
@@ -28,9 +28,9 @@ void Expr<IndirectDispatchBuffer>::clear() const noexcept {
         {_expression});
 }
 
-void Expr<IndirectDispatchBuffer>::dispatch_kernel(Expr<uint> kernel_id,
-                                                   Expr<uint3> block_size,
-                                                   Expr<uint3> dispatch_size) const noexcept {
+void Expr<IndirectDispatchBuffer>::dispatch_kernel(
+    Expr<uint3> block_size,
+    Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL,
         {_expression,

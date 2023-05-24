@@ -40,6 +40,7 @@ class Image3D:
         self.bytesize = lcapi.pixel_storage_size(self.storage, width, height, volume)
         self.texture3DType = Texture3DType(dtype, channel)
         self.read = self.texture3DType.read
+        self.texture_size = self.texture2DType.texture_size
         self.write = self.texture3DType.write
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 3, width, height, volume, mip)
@@ -63,7 +64,7 @@ class Image3D:
 
     def copy_to_tex(self, tex, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert self.storage == tex.storage and self.width == tex.width and self.volume == tex.volume and self.height == tex.height
         cpcmd = lcapi.TextureCopyCommand.create(self.storage, self.handle, tex.handle, 0, 0,
                                                 lcapi.uint3(self.width, self.height, self.volume))
@@ -73,7 +74,7 @@ class Image3D:
 
     def copy_from_tex(self, tex, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert self.storage == tex.storage and self.width == tex.width and self.volume == tex.volume and self.height == tex.height
         cpcmd = lcapi.TextureCopyCommand.create(self.storage, tex.handle, self.handle, 0, 0,
                                                 lcapi.uint3(self.width, self.height, self.volume))
@@ -89,7 +90,7 @@ class Image3D:
 
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0,
                                                   lcapi.uint3(self.width, self.height, self.volume), arr)
@@ -99,7 +100,7 @@ class Image3D:
 
     def copy_to(self, arr, sync=True, stream=None):  # arr: numpy array
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0,
                                                     lcapi.uint3(self.width, self.height, self.volume), arr)
@@ -136,7 +137,11 @@ class Texture3DType:
 
     def __hash__(self):
         return hash(self.dtype) ^ hash(self.channel) ^ 127858794396757894
-
+    
+    @BuiltinFuncBuilder
+    def texture_size(self):
+        return uint3, lcapi.builder().call(to_lctype(uint3), lcapi.CallOp.TEXTURE_SIZE, [self.expr])
+    
     @staticmethod
     @cache
     def get_read_method(dtype):

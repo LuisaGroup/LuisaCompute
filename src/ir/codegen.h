@@ -98,7 +98,6 @@ private:
     void _generate_instr_comment(const ir::Node *node, uint indent) noexcept;
     void _generate_instr_debug(const ir::Node *node, uint indent) noexcept;
 
-
 private:
     CppSourceBuilder() noexcept = default;
 

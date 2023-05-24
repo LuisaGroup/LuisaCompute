@@ -27,13 +27,13 @@ public:
     ~SpanIterator() {}
 };
 template<typename K, typename V, typename Iterator>
-class PairIterator : public IEnumerable<std::pair<K, V>>, public IOperatorNewBase {
+class pair_iterator : public IEnumerable<std::pair<K, V>>, public IOperatorNewBase {
     Iterator ptr;
     Iterator end;
     size_t size;
 
 public:
-    PairIterator(
+    pair_iterator(
         Iterator const &cur,
         Iterator const &end,
         size_t size)
@@ -74,7 +74,7 @@ template<typename K, typename V, typename Hash, typename Compare, VEngine_AllocT
 Iterator<std::pair<K, V>> GetIterator(vstd::HashMap<K, V, Hash, Compare, allocType> const &map) {
     using IteratorType = decltype(std::declval(map).begin());
     return [&](void *ptr) {
-        return new (ptr) detail::PairIterator<K, V, IteratorType>(
+        return new (ptr) detail::pair_iterator<K, V, IteratorType>(
             map.begin(),
             map.end(),
             map.size());

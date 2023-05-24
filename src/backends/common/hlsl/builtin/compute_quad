@@ -1,0 +1,8 @@
+template<typename T>
+T _ddx(T x){
+return x-QuadReadAcrossX(x);
+}
+template<typename T>
+T _ddy(T x){
+return x-QuadReadAcrossY(x);
+}

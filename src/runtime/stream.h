@@ -61,10 +61,12 @@ public:
 
 private:
     friend class Device;
+    friend class DStorageExt;
     StreamTag _stream_tag{};
 
 private:
     explicit Stream(DeviceInterface *device, StreamTag stream_tag) noexcept;
+    explicit Stream(DeviceInterface *device, StreamTag stream_tag, const ResourceCreationInfo &stream_handle) noexcept;
     void _dispatch(CommandList &&command_buffer) noexcept;
     void _synchronize() noexcept;
 
@@ -92,15 +94,7 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
-        auto make_return = []<typename S>(S &&s) noexcept -> decltype(auto) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<S>, Stream>) {
-                return (s);
-            } else {
-                return Delegate{std::forward<S>(s)};
-            }
-        };
-        Delegate delegate{this};
-        return make_return(std::move(delegate) << std::move(args));
+        return Delegate{this} << std::move(args);
     }
 };
 

@@ -902,6 +902,33 @@ struct LCTexture3D {
 };
 
 template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_size(LCTexture2D<T> tex) noexcept {
+    lc_uint2 size;
+    asm("suq.width.b32 %0, [%1];"
+        : "=r"(size.x)
+        : "l"(tex.surface.handle));
+    asm("suq.height.b32 %0, [%1];"
+        : "=r"(size.y)
+        : "l"(tex.surface.handle));
+    return size;
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_size(LCTexture3D<T> tex) noexcept {
+    lc_uint3 size;
+    asm("suq.width.b32 %0, [%1];"
+        : "=r"(size.x)
+        : "l"(tex.surface.handle));
+    asm("suq.height.b32 %0, [%1];"
+        : "=r"(size.y)
+        : "l"(tex.surface.handle));
+    asm("suq.depth.b32 %0, [%1];"
+        : "=r"(size.z)
+        : "l"(tex.surface.handle));
+    return size;
+}
+
+template<typename T>
 [[nodiscard]] __device__ inline auto lc_texture_read(LCTexture2D<T> tex, lc_uint2 p) noexcept {
     return lc_surf2d_read<T>(tex.surface, p);
 }
@@ -2014,3 +2041,10 @@ __device__ inline void lc_synchronize_block() noexcept {
 }
 
 #endif
+
+// autodiff
+#define LC_GRAD_SHADOW_VARIABLE(x) auto x##_grad = lc_zero<decltype(x)>()
+#define LC_MARK_GRAD(x, dx) x##_grad = dx
+#define LC_GRAD(x) (x##_grad)
+#define LC_ACCUM_GRAD(x_grad, dx) lc_accumulate_grad(&(x_grad), (dx))
+#define LC_REQUIRES_GRAD(x) x##_grad = lc_zero<decltype(x##_grad)>()

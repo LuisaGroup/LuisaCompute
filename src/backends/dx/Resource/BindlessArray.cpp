@@ -65,14 +65,10 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         auto smpIdx = GlobalSamplers::GetIndex(samp);
         if constexpr (isTex2D) {
             indices.tex2D = AddIndex(handle);
-            bindGrp.tex2D = texIdx;
-            bindGrp.write_tex2d(tex->Width(), tex->Height());
-            bindGrp.write_samp2d(smpIdx);
+            bindGrp.write_samp2d(texIdx, smpIdx);
         } else {
             indices.tex3D = AddIndex(handle);
-            bindGrp.tex3D = texIdx;
-            bindGrp.write_tex3d(tex->Width(), tex->Height(), tex->Depth());
-            bindGrp.write_samp3d(smpIdx);
+            bindGrp.write_samp3d(texIdx, smpIdx);
         }
     };
     for (auto &&mod : mods) {

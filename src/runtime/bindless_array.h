@@ -17,18 +17,17 @@ namespace luisa::compute {
 class BindlessTexture2D;
 class BindlessTexture3D;
 class Command;
-class Device;
-class ManagedBindless;
 
 namespace detail {
 class BindlessArrayExprProxy;
-}
+}// namespace detail
 
 template<typename T>
 class BindlessBuffer;
 
 template<typename T>
 struct Expr;
+
 // BindlessArray is a heap that contain references to buffer, 2d-image and 3d-image
 // every element can contain one buffer, one 2d-image and one 3d-image's reference
 // see test_bindless.cpp as example
@@ -59,6 +58,9 @@ private:
     friend class Device;
     friend class ManagedBindless;
     BindlessArray(DeviceInterface *device, size_t size) noexcept;
+    void _emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
+    void _emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
+    void _emplace_tex3d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
 
 public:
     BindlessArray() noexcept = default;
@@ -73,28 +75,33 @@ public:
     BindlessArray &operator=(BindlessArray const &) noexcept = delete;
     // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
+    // whether there are any stashed updates
+    [[nodiscard]] auto dirty() const noexcept { return !_updates.empty(); }
     // on-update functions' operations will be committed by update()
-    void emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
-    void emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
-    void emplace_tex3d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
     BindlessArray &remove_buffer_on_update(size_t index) noexcept;
     BindlessArray &remove_tex2d_on_update(size_t index) noexcept;
     BindlessArray &remove_tex3d_on_update(size_t index) noexcept;
 
     template<typename T>
         requires is_buffer_or_view_v<std::remove_cvref_t<T>>
-    auto &emplace_on_update(size_t index, T &&buffer, size_t offset = 0) noexcept {
-        emplace_buffer_on_update(index, buffer.handle(), offset * buffer.stride());
+    auto &emplace_on_update(size_t index, T &&buffer) noexcept {
+        size_t offset_bytes;
+        if constexpr (is_buffer_view_v<std::remove_cvref_t<T>>) {
+            offset_bytes = buffer.offset_bytes();
+        } else {
+            offset_bytes = 0;
+        }
+        _emplace_buffer_on_update(index, buffer.handle(), offset_bytes);
         return *this;
     }
 
     auto &emplace_on_update(size_t index, const Image<float> &image, Sampler sampler) noexcept {
-        emplace_tex2d_on_update(index, image.handle(), sampler);
+        _emplace_tex2d_on_update(index, image.handle(), sampler);
         return *this;
     }
 
     auto &emplace_on_update(size_t index, const Volume<float> &volume, Sampler sampler) noexcept {
-        emplace_tex3d_on_update(index, volume.handle(), sampler);
+        _emplace_tex3d_on_update(index, volume.handle(), sampler);
         return *this;
     }
 

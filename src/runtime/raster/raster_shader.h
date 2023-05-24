@@ -3,7 +3,7 @@
 #include <runtime/shader.h>
 #include <runtime/raster/raster_state.h>
 #include <runtime/raster/depth_buffer.h>
-#include <backends/ext/raster_ext.h>
+#include <backends/ext/raster_ext.hpp>
 
 namespace luisa::compute {
 

@@ -46,9 +46,9 @@ int main(int argc, char *argv[]) {
         image.write(coord, make_float4(lerp(c.xyz(), 1.f, 0.2f), 1.0f));
     };
 
-    auto fill_image = device.compile(fill_image_kernel);
-    auto change_color = device.compile(change_color_kernel);
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
+    Shader2D<Image<float>> fill_image = device.compile(fill_image_kernel);
+    Shader2D<Image<float>> change_color = device.compile(change_color_kernel);
+    Image<float> device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
     std::vector<std::byte> download_image(1024u * 1024u * 4u);
 
     Stream stream = device.create_stream();
@@ -58,5 +58,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
 
-    auto volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
+    Volume<float> volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }

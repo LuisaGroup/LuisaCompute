@@ -1404,6 +1404,24 @@ template<typename X>
 [[nodiscard]] inline auto sign(X &&x) noexcept {
     return copysign(1.0f, std::forward<X>(x));
 }
+template<typename X>
+    requires is_dsl_v<X> && (is_scalar_v<expr_value_t<X>> || is_matrix_v<expr_value_t<X>> || is_vector_v<expr_value_t<X>>)
+[[nodiscard]] inline auto ddx(X &&x) noexcept {
+    using value_type = expr_value_t<X>;
+    return def<value_type>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<value_type>(), CallOp::DDX,
+            {LUISA_EXPR(x)}));
+}
+template<typename X>
+    requires is_dsl_v<X> && (is_scalar_v<expr_value_t<X>> || is_matrix_v<expr_value_t<X>> || is_vector_v<expr_value_t<X>>)
+[[nodiscard]] inline auto ddy(X &&x) noexcept {
+    using value_type = expr_value_t<X>;
+    return def<value_type>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<value_type>(), CallOp::DDY,
+            {LUISA_EXPR(x)}));
+}
 
 /// Cross product.
 template<typename X, typename Y>
@@ -1470,11 +1488,13 @@ template<typename T>
 }
 
 /// Reflect i about n, returns i - 2 * dot(n, i) * n.
-template<typename T>
-    requires is_dsl_v<T> && is_float_vector_expr_v<T>
-[[nodiscard]] inline auto reflect(T &&i, T &&n) noexcept {
+template<typename I, typename N>
+    requires any_dsl_v<I, N> &&
+             std::same_as<expr_value_t<I>, float3> &&
+             std::same_as<expr_value_t<N>, float3>
+[[nodiscard]] inline auto reflect(I &&i, N &&n) noexcept {
     return detail::make_vector_call<float>(
-        CallOp::REFLECT, std::forward<T>(i), std::forward<T>(n));
+        CallOp::REFLECT, std::forward<I>(i), std::forward<N>(n));
 }
 
 /// Return face forward vector.
@@ -1565,6 +1585,11 @@ void backward(T &&x, G &&grad) noexcept {
     auto expr_x = LUISA_EXPR(x);
     b->call(CallOp::GRADIENT_MARKER, {expr_x, LUISA_EXPR(grad)});
     b->call(CallOp::BACKWARD, {expr_x});
+}
+
+inline void discard() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_DISCARD, {});
 }
 
 /// Back-propagate gradient from the variable

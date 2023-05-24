@@ -29,7 +29,7 @@ void PyStream::add(luisa::unique_ptr<Command> &&cmd) noexcept {
 }
 
 void PyStream::execute() noexcept {
-    _data->buffer << [d = _data.get(), delegates = std::move(delegates)] {
+    _data->buffer.add_callback([d = _data.get(), delegates = std::move(delegates)] {
         // LUISA_INFO("before callback {}", reinterpret_cast<size_t>(d));
         // d->readbackDisposer.clear();
         // LUISA_INFO("after clear");
@@ -37,7 +37,7 @@ void PyStream::execute() noexcept {
             i();
         }
         // LUISA_INFO("after callback");
-    };
+    });
     _data->stream << _data->buffer.commit();
     _data->uploadDisposer.clear();
 }

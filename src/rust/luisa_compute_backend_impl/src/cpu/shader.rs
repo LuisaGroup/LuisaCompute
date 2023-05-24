@@ -1,6 +1,6 @@
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
-
+use crate::panic_abort;
 use crate::cpu::llvm::LLVM_PATH;
 use std::{
     env::{self, current_exe},
@@ -58,13 +58,16 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         Ok(s) => s == "1",
         Err(_) => false,
     };
-    if dump_src {
+    let source_file = if dump_src {
         let source_file = format!("{}/{}.cc", build_dir.display(), target);
         std::fs::write(&source_file, &source).map_err(|e| {
             eprintln!("fs::write({}) failed", source_file);
             e
         })?;
-    }
+        source_file
+    } else {
+        "-".to_string()
+    };
     // log::info!("compiling kernel {}", source_file);
     {
         let mut args: Vec<&str> = vec![];
@@ -82,7 +85,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         } else if cfg!(target_arch = "aarch64") {
             args.push("-DLUISA_ARCH_ARM64");
         } else {
-            panic!("unsupported target architecture");
+            panic_abort!("unsupported target architecture");
         }
         args.push("-ffast-math");
         args.push("-fno-rtti");
@@ -91,7 +94,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
         args.push("-emit-llvm");
         args.push("-x");
         args.push("c++");
-        args.push("-");
+        args.push(&source_file);
         args.push("-o");
         args.push(&target_lib);
         let clang = &LLVM_PATH.clang;
@@ -103,7 +106,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
             .stdout(Stdio::piped())
             .spawn()
             .expect("clang++ failed to start");
-        {
+        if source_file == "-" {
             let mut stdin = child.stdin.take().expect("failed to open stdin");
             stdin
                 .write_all(source.as_bytes())
@@ -122,7 +125,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
                         "clang++ output: {}",
                         String::from_utf8(output.stdout).unwrap(),
                     );
-                    panic!("compile failed")
+                    panic_abort!("compile failed")
                 }
             },
         }
@@ -155,7 +158,7 @@ impl ShaderImpl {
     ) -> Self {
         // unsafe {
         // let lib = libloading::Library::new(&path)
-        //     .unwrap_or_else(|_| panic!("cannot load library {:?}", &path));
+        //     .unwrap_or_else(|_| panic_abort!("cannot load library {:?}", &path));
         // let entry: libloading::Symbol<KernelFn> = lib.get(b"kernel_fn").unwrap();
         // let entry: libloading::Symbol<'static, KernelFn> = transmute(entry);
         let tic = std::time::Instant::now();

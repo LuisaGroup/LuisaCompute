@@ -14,12 +14,14 @@ class RWResource : public Resource {
     friend struct ResMap;
     vstd::unordered_map<Stream const *, RWInfo> _info;
     bool _non_simultaneous;
+    uint64_t _handle;
 
 protected:
     virtual ~RWResource();
     static RWResource *_get(uint64_t handle);
 
 public:
+    auto handle() const { return _handle; }
     static void set_usage(Stream *stream, RWResource *res, Usage usage, Range range);
     virtual void set(Stream *stream, Usage usage, Range range) {
         set_usage(stream, this, usage, range);

@@ -478,6 +478,7 @@ pub enum Func {
     DispatchSize,
 
     RequiresGradient,
+    Backward, // marks the beginning of backward pass
     Gradient,
     GradientMarker, // marks a (node, gradient) tuple
     AccGrad,        // grad (local), increment
@@ -927,9 +928,7 @@ pub enum Instruction {
         cases: CBoxedSlice<SwitchCase>,
     },
     AdScope {
-        forward: Pooled<BasicBlock>,
-        backward: Pooled<BasicBlock>,
-        epilogue: Pooled<BasicBlock>,
+        body: Pooled<BasicBlock>,
     },
     // RayQuery{
     //     ray: NodeRef,
@@ -1107,7 +1106,7 @@ impl BasicBlock {
     }
     pub fn push(&self, node: NodeRef) {
         // node.insert_before(self.last);
-        self.last.insert_before(node);
+        self.last.insert_before_self(node);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1127,6 +1126,32 @@ impl BasicBlock {
         for node in nodes {
             self.push(node);
         }
+    }
+    /// split the block into two at @at
+    /// @at is not transfered into the other block
+    pub fn split(&self, at: NodeRef, pools: &CArc<ModulePools>) -> Pooled<BasicBlock> {
+        let new_bb_start = at.get().next;
+        let second_last = self.last.get().prev;
+        let new_bb = pools.bb_pool.alloc(BasicBlock::new(pools));
+        new_bb.first.update(|first| {
+            first.next = new_bb_start;
+        });
+        new_bb.last.update(|last| {
+            last.prev = second_last;
+        });
+        second_last.update(|node| {
+            node.next = new_bb.last;
+        });
+        new_bb_start.update(|node| {
+            node.prev = new_bb.first;
+        });
+        at.update(|at| {
+            at.next = self.last;
+        });
+        self.last.update(|last| {
+            last.prev = at;
+        });
+        new_bb
     }
 }
 
@@ -1149,7 +1174,7 @@ impl NodeRef {
             _ => panic!("not user data node; found: {:?}", self.get().instruction),
         }
     }
-    pub fn is_user_data(&self)->bool {
+    pub fn is_user_data(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::UserData(_) => true,
             _ => false,
@@ -1208,7 +1233,7 @@ impl NodeRef {
             node.next = INVALID_REF;
         });
     }
-    pub fn insert_after(&self, node_ref: NodeRef) {
+    pub fn insert_after_self(&self, node_ref: NodeRef) {
         assert!(self.valid());
         assert!(!node_ref.is_linked());
         let next = self.get().next;
@@ -1219,7 +1244,7 @@ impl NodeRef {
             node.next = next;
         });
     }
-    pub fn insert_before(&self, node_ref: NodeRef) {
+    pub fn insert_before_self(&self, node_ref: NodeRef) {
         assert!(self.valid());
         assert!(!node_ref.is_linked());
         let prev = self.get().prev;
@@ -1233,6 +1258,7 @@ impl NodeRef {
     pub fn is_lvalue(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Local { .. } => true,
+            Instruction::Argument { by_value, .. } => !by_value,
             Instruction::Call(f, _) => *f == Func::GetElementPtr,
             _ => false,
         }
@@ -1257,19 +1283,23 @@ pub struct Module {
 }
 
 #[repr(C)]
+#[derive(Debug, Serialize, Clone)]
+pub struct CallableModuleRef(pub CArc<CallableModule>);
+
+#[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct CallableModule {
     pub module: Module,
+    pub ret_type: CArc<Type>,
     pub args: CBoxedSlice<NodeRef>,
     pub captures: CBoxedSlice<Capture>,
+    pub callables: CBoxedSlice<CallableModuleRef>,
     pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
 
-#[repr(C)]
-#[derive(Debug, Serialize, Clone)]
-pub struct CallableModuleRef(pub CArc<CallableModule>);
+
 
 impl PartialEq for CallableModuleRef {
     fn eq(&self, other: &Self) -> bool {
@@ -1322,7 +1352,7 @@ pub enum Binding {
     Accel(AccelBinding),
 }
 
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
 pub struct Capture {
     pub node: NodeRef,
@@ -1356,6 +1386,14 @@ pub struct KernelModule {
     pub pools: CArc<ModulePools>,
 }
 unsafe impl Send for KernelModule {}
+
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct BlockModule {
+    pub module: Module,
+}
+unsafe impl Send for BlockModule {}
+
 impl Module {
     pub fn from_fragment(entry: Pooled<BasicBlock>, pools: CArc<ModulePools>) -> Self {
         Self {
@@ -1389,14 +1427,8 @@ impl NodeCollector {
         self.nodes.push(node_ref);
         let inst = node_ref.get().instruction.as_ref();
         match inst {
-            Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
-            } => {
-                self.visit_block(*forward);
-                self.visit_block(*backward);
-                self.visit_block(*epilogue);
+            Instruction::AdScope { body } => {
+                self.visit_block(*body);
             }
             Instruction::If {
                 cond: _,
@@ -1538,7 +1570,7 @@ impl IrBuilder {
         self.insert_point = node;
     }
     pub fn append(&mut self, node: NodeRef) {
-        self.insert_point.insert_after(node);
+        self.insert_point.insert_after_self(node);
         self.insert_point = node;
     }
     pub fn append_block(&mut self, block: Pooled<BasicBlock>) {
@@ -1613,11 +1645,7 @@ impl IrBuilder {
     }
     pub fn extract(&mut self, node: NodeRef, index: usize, ret_type: CArc<Type>) -> NodeRef {
         let c = self.const_(Const::Int32(index as i32));
-        self.call(
-            Func::ExtractElement,
-            &[node, c],
-            ret_type,
-        )
+        self.call(Func::ExtractElement, &[node, c], ret_type)
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
         let node = Node::new(
@@ -1891,6 +1919,13 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
     CArc::into_raw(CArc::new(m))
 }
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_new_block_module(
+    m: BlockModule,
+) -> *mut CArcSharedBlock<BlockModule> {
+    CArc::into_raw(CArc::new(m))
+}
+
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBlock<Type> {
     CArc::into_raw(context::register_type(ty.clone()))
 }
@@ -1906,6 +1941,11 @@ pub mod debug {
 
     pub fn dump_ir_binary(module: &Module) -> Vec<u8> {
         bincode::serialize(module).unwrap()
+    }
+
+    pub fn dump_ir_human_readable(module: &Module) -> String {
+        let mut d = DisplayIR::new();
+        d.display_ir(module)
     }
 
     #[no_mangle]

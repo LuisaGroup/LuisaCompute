@@ -22,7 +22,7 @@
 // for validation
 namespace lc::validation {
 class Stream;
-}
+}// namespace lc::validation
 namespace luisa::compute {
 
 struct IndirectDispatchArg {
@@ -51,6 +51,7 @@ class RasterMesh;
 
 static constexpr uint64_t draw_raster_command_uuid = 10000;
 static constexpr uint64_t clear_depth_command_uuid = 10001;
+static constexpr uint64_t dstorage_command_uuid = 10002;
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
@@ -680,6 +681,77 @@ public:
     [[nodiscard]] auto value() const noexcept { return _value; }
 
     LUISA_MAKE_COMMAND_COMMON(ClearDepthCommand, StreamTag::GRAPHICS)
+};
+
+class DStorageReadCommand : public CustomCommand {
+public:
+    struct BufferEnqueue {
+        uint64_t buffer_handle;
+        size_t buffer_offset;
+    };
+    struct ImageEnqueue {
+        uint64_t image_handle;
+        uint32_t mip_level;
+    };
+    struct MemoryEnqueue {
+        void *dst_ptr;
+    };
+    struct FileSource {
+        uint64_t file_handle;
+        size_t file_offset;
+    };
+    struct MemorySource {
+        void const *src_ptr;
+    };
+    enum class Compression : uint32_t {
+        None,
+        GDeflate,
+    };
+    luisa::variant<FileSource, MemorySource> src;
+    size_t src_size;
+    size_t dst_size;
+    Compression compression;
+
+    using EnqueueCommand = luisa::variant<
+        BufferEnqueue,
+        ImageEnqueue,
+        MemoryEnqueue>;
+
+private:
+    EnqueueCommand _enqueue_cmd;
+
+public:
+    template<typename Arg>
+        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
+    explicit DStorageReadCommand(
+        uint64_t file_handle,
+        size_t file_offset,
+        size_t src_size,
+        size_t dst_size,
+        Compression compression,
+        Arg &&cmd)
+        : CustomCommand{dstorage_command_uuid},
+          src{FileSource{file_handle, file_offset}},
+          src_size{src_size},
+          dst_size{dst_size},
+          compression{compression},
+          _enqueue_cmd{std::forward<Arg>(cmd)} {}
+    template<typename Arg>
+        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
+    explicit DStorageReadCommand(
+        void const *src_ptr,
+        size_t src_size,
+        size_t dst_size,
+        Compression compression,
+        Arg &&cmd)
+        : CustomCommand{dstorage_command_uuid},
+          src{MemorySource{src_ptr}},
+          src_size{src_size},
+          dst_size{dst_size},
+          compression{compression},
+          _enqueue_cmd{std::forward<Arg>(cmd)} {}
+    [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
+    LUISA_MAKE_COMMAND_COMMON(DStorageReadCommand, StreamTag::CUSTOM)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE

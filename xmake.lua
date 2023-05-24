@@ -30,7 +30,8 @@ option_end()
 -- enable Vulkan backend
 option("vk_backend")
 set_values(true, false)
-set_default(true)
+-- TODO: vulkan backend not ready
+set_default(false)
 set_showmenu(true)
 option_end()
 -- enable NVIDIA-CUDA backend

@@ -626,27 +626,6 @@ pub enum StreamTag {
     Copy,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
-pub enum BackendErrorKind {
-    BackendNotFound,
-    KernelExecution,
-    KernelCompilation,
-    Network,
-    Other,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct BackendError {
-    pub kind: BackendErrorKind,
-    pub message: *mut c_char,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub enum Result<T> {
-    Ok(T),
-    Err(BackendError),
-}
-#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct LoggerMessage {
     pub target: *const c_char,
@@ -660,7 +639,8 @@ pub struct LibInterface {
     pub set_logger_callback: unsafe extern "C" fn(unsafe extern "C" fn(LoggerMessage)),
     pub create_context: unsafe extern "C" fn(*const c_char) -> Context,
     pub destroy_context: unsafe extern "C" fn(Context),
-    pub create_device: unsafe extern "C" fn(Context, *const c_char, *const c_char) -> DeviceInterface,
+    pub create_device:
+        unsafe extern "C" fn(Context, *const c_char, *const c_char) -> DeviceInterface,
     pub free_string: unsafe extern "C" fn(*mut c_char),
 }
 #[repr(C)]
@@ -668,26 +648,17 @@ pub struct LibInterface {
 pub struct DeviceInterface {
     pub device: Device,
     pub destroy_device: unsafe extern "C" fn(DeviceInterface),
-    pub create_buffer:
-        unsafe extern "C" fn(Device, *const c_void, usize) -> Result<CreatedBufferInfo>,
+    pub create_buffer: unsafe extern "C" fn(Device, *const c_void, usize) -> CreatedBufferInfo,
     pub destroy_buffer: unsafe extern "C" fn(Device, Buffer),
-    pub create_texture: unsafe extern "C" fn(
-        Device,
-        PixelFormat,
-        u32,
-        u32,
-        u32,
-        u32,
-        u32,
-    ) -> Result<CreatedResourceInfo>,
+    pub create_texture:
+        unsafe extern "C" fn(Device, PixelFormat, u32, u32, u32, u32, u32) -> CreatedResourceInfo,
     pub destroy_texture: unsafe extern "C" fn(Device, Texture),
-    pub create_bindless_array: unsafe extern "C" fn(Device, usize) -> Result<CreatedResourceInfo>,
+    pub create_bindless_array: unsafe extern "C" fn(Device, usize) -> CreatedResourceInfo,
     pub destroy_bindless_array: unsafe extern "C" fn(Device, BindlessArray),
-    pub create_stream: unsafe extern "C" fn(Device, StreamTag) -> Result<CreatedResourceInfo>,
+    pub create_stream: unsafe extern "C" fn(Device, StreamTag) -> CreatedResourceInfo,
     pub destroy_stream: unsafe extern "C" fn(Device, Stream),
-    pub synchronize_stream: unsafe extern "C" fn(Device, Stream) -> Result<u8>,
-    pub dispatch:
-        unsafe extern "C" fn(Device, Stream, CommandList, DispatchCallback, *mut u8) -> Result<u8>,
+    pub synchronize_stream: unsafe extern "C" fn(Device, Stream),
+    pub dispatch: unsafe extern "C" fn(Device, Stream, CommandList, DispatchCallback, *mut u8),
     pub create_swapchain: unsafe extern "C" fn(
         Device,
         u64,
@@ -697,23 +668,23 @@ pub struct DeviceInterface {
         bool,
         bool,
         u32,
-    ) -> Result<CreatedSwapchainInfo>,
-    pub present_display_in_stream:unsafe extern "C" fn(Device, Stream, Swapchain, Texture),
+    ) -> CreatedSwapchainInfo,
+    pub present_display_in_stream: unsafe extern "C" fn(Device, Stream, Swapchain, Texture),
     pub destroy_swapchain: unsafe extern "C" fn(Device, Swapchain),
     pub create_shader:
-        unsafe extern "C" fn(Device, KernelModule, &ShaderOption) -> Result<CreatedShaderInfo>,
+        unsafe extern "C" fn(Device, KernelModule, &ShaderOption) -> CreatedShaderInfo,
     pub destroy_shader: unsafe extern "C" fn(Device, Shader),
-    pub create_event: unsafe extern "C" fn(Device) -> Result<CreatedResourceInfo>,
+    pub create_event: unsafe extern "C" fn(Device) -> CreatedResourceInfo,
     pub destroy_event: unsafe extern "C" fn(Device, Event),
     pub signal_event: unsafe extern "C" fn(Device, Event, Stream),
-    pub synchronize_event: unsafe extern "C" fn(Device, Event) -> Result<u8>,
-    pub wait_event: unsafe extern "C" fn(Device, Event, Stream) -> Result<u8>,
-    pub create_mesh: unsafe extern "C" fn(Device, &AccelOption) -> Result<CreatedResourceInfo>,
+    pub synchronize_event: unsafe extern "C" fn(Device, Event),
+    pub wait_event: unsafe extern "C" fn(Device, Event, Stream),
+    pub create_mesh: unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_mesh: unsafe extern "C" fn(Device, Mesh),
     pub create_procedural_primitive:
-        unsafe extern "C" fn(Device, &AccelOption) -> Result<CreatedResourceInfo>,
+        unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_procedural_primitive: unsafe extern "C" fn(Device, ProceduralPrimitive),
-    pub create_accel: unsafe extern "C" fn(Device, &AccelOption) -> Result<CreatedResourceInfo>,
+    pub create_accel: unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_accel: unsafe extern "C" fn(Device, Accel),
     pub query: unsafe extern "C" fn(Device, *const c_char) -> *mut c_char,
 }

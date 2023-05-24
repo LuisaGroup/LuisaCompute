@@ -6,6 +6,7 @@
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
 #include <core/dynamic_module.h>
+#include <core/logging.h>
 namespace lc::hlsl {
 struct RegisterIndexer {
     virtual void init() = 0;
@@ -41,11 +42,49 @@ namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
-static vstd::string_view HLSLHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
-    return CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
-}
-static vstd::string_view RayTracingHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
-    return CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
+static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
+    builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
+    size_t immutable_size = builder.size();
+    if (ops.uses_raytracing()) {
+        builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
+    }
+    if (ops.test(CallOp::DETERMINANT)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("determinant", internalDataPath);
+    }
+    if (ops.test(CallOp::INVERSE)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
+    }
+    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
+    }
+    if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("resource_size", internalDataPath);
+    }
+    bool useBindless = false;
+    for (auto i : vstd::range(
+             luisa::to_underlying(CallOp::BINDLESS_TEXTURE2D_SAMPLE),
+             luisa::to_underlying(CallOp::BINDLESS_BUFFER_TYPE) + 1)) {
+        if (ops.test(static_cast<CallOp>(i))) {
+            useBindless = true;
+            break;
+        }
+    }
+    if (useBindless) {
+        builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
+    }
+    if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("accel_header", internalDataPath);
+    }
+    if (ops.test(CallOp::COPYSIGN)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("copy_sign", internalDataPath);
+    }
+    if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
+        builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
+    }
+    return immutable_size;
 }
 }// namespace detail
 // static thread_local vstd::unique_ptr<CodegenStackData> opt;
@@ -87,13 +126,21 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             str << "thdId"sv;
             break;
         case Variable::Tag::DISPATCH_SIZE:
-            str << "dsp_c.xyz"sv;
+            if (opt->funcType == CodegenStackData::FuncType::Kernel) {
+                str << "dsp_c.xyz"sv;
+            } else {
+                str << "dsp_c"sv;
+            }
             break;
         case Variable::Tag::KERNEL_ID:
-            str << "dsp_c.w"sv;
+        if (opt->funcType == CodegenStackData::FuncType::Kernel) {
+                str << "dsp_c.w"sv;
+            } else {
+                str << "ker"sv;
+            }
             break;
         case Variable::Tag::OBJECT_ID:
-            // assert(opt->funcType == CodegenStackData::FuncType::Vert);
+            LUISA_ASSERT(opt->isRaster, "object id only allowed in raster shader");
             str << "obj_id"sv;
             break;
         case Variable::Tag::LOCAL:
@@ -180,19 +227,18 @@ bool CodegenUtility::GetConstName(uint64 hash, ConstantData const &data, vstd::S
 void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str) {
     uint64 constCount = opt->GetConstCount(data.hash()).first;
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
-    str << "struct tc";
+    str << "struct tc"sv;
     vstd::to_string((constCount), str);
     uint64 varCount = 1;
     luisa::visit(
         [&](auto &&arr) {
-        varCount = arr.size();
+            varCount = arr.size();
         },
         data.view());
-    str << "{\n";
+    str << "{\n"sv;
     str << CodegenUtility::GetBasicTypeName(data.view().index()) << " v[";
     vstd::to_string((varCount), str);
-    str << "];\n";
-    str << "};\n";
+    str << "];\n};\n"sv;
 }
 void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuilder &str) {
     auto &&view = data.view();
@@ -203,11 +249,11 @@ void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuild
     str << "={{";
     luisa::visit(
         [&](auto &&arr) {
-        for (auto const &ele : arr) {
-            PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
-            prt(ele, str);
-            str << ',';
-        }
+            for (auto const &ele : arr) {
+                PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
+                prt(ele, str);
+                str << ',';
+            }
         },
         view);
     auto last = str.end() - 1;
@@ -443,7 +489,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::SELECT:
             str << "select"sv;
-            assert(args.size() == 3);
             str << '(';
             args[2]->accept(vis);
             str << ',';
@@ -608,53 +653,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::INVERSE:
             str << "inverse"sv;
             break;
-        // case CallOp::ATOMIC_EXCHANGE: {
-        //     if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
-        //         str << "_atomic_exchange_float"sv;
-        //     } else {
-        //         str << "_atomic_exchange"sv;
-        //     }
-        // } break;
-        // case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-        //     if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
-        //         str << "_atomic_compare_exchange_float"sv;
-        //     } else {
-        //         str << "_atomic_compare_exchange"sv;
-        //     }
-        // } break;
-        // case CallOp::ATOMIC_FETCH_ADD: {
-        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
-        //         str << "_atomic_add_float"sv;
-        //     else
-        //         str << "_atomic_add"sv;
-        // } break;
-        // case CallOp::ATOMIC_FETCH_SUB: {
-        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
-        //         str << "_atomic_sub_float"sv;
-        //     else
-        //         str << "_atomic_sub"sv;
-        // } break;
-        // case CallOp::ATOMIC_FETCH_AND: {
-        //     str << "_atomic_and"sv;
-        // } break;
-        // case CallOp::ATOMIC_FETCH_OR: {
-        //     str << "_atomic_or"sv;
-        // } break;
-        // case CallOp::ATOMIC_FETCH_XOR: {
-        //     str << "_atomic_xor"sv;
-        // } break;
-        // case CallOp::ATOMIC_FETCH_MIN: {
-        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
-        //         str << "_atomic_min_float"sv;
-        //     else
-        //         str << "_atomic_min"sv;
-        // } break;
-        // case CallOp::ATOMIC_FETCH_MAX: {
-        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
-        //         str << "_atomic_max_float"sv;
-        //     else
-        //         str << "_atomic_max"sv;
-        // } break;
         case CallOp::ATOMIC_EXCHANGE:
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
         case CallOp::ATOMIC_FETCH_ADD:
@@ -672,7 +670,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "Smptx";
             break;
         case CallOp::TEXTURE_WRITE:
-            assert(!opt->isRaster);
+            LUISA_ASSERT(!opt->isRaster, "texture-write can only be used in compute shader");
             str << "Writetx";
             break;
         case CallOp::MAKE_BOOL2:
@@ -750,7 +748,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_WRITE: {
-            assert(!opt->isRaster);
+            LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
             str << "bfwrite"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
@@ -758,6 +756,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else if (elem->is_matrix()) {
                 str << "Mat";
             }
+        } break;
+        case CallOp::BUFFER_SIZE: {
+            str << "bfsize"sv;
+        } break;
+        case CallOp::TEXTURE_SIZE: {
+            str << "texsize"sv;
         } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
             str << "TraceClosest"sv;
@@ -771,6 +775,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_TRACING_QUERY_ANY:
             str << "QueryAny"sv;
             break;
+        case CallOp::BINDLESS_BUFFER_SIZE: {
+            str << "bdlsBfSize"sv;
+            opt->useBufferBindless = true;
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            vstd::to_string(expr->type()->size(), str);
+            str << ",bdls)"sv;
+            return;
+        }
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "READ_BUFFER"sv;
             opt->useBufferBindless = true;
@@ -854,9 +870,25 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "GroupMemoryBarrierWithGroupSync()"sv;
             return;
         case CallOp::RASTER_DISCARD:
-            assert(opt->funcType == CodegenStackData::FuncType::Pixel);
+            LUISA_ASSERT(opt->funcType == CodegenStackData::FuncType::Pixel, "Raster-Discard can only be used in pixel shader");
             str << "discard";
             return;
+        case CallOp::DDX: {
+            if (opt->isRaster) {
+                LUISA_ASSERT(opt->funcType == CodegenStackData::FuncType::Pixel, "ddx can only be used in pixel shader");
+                str << "ddx"sv;
+            } else {
+                str << "_ddx"sv;
+            }
+        } break;
+        case CallOp::DDY: {
+            if (opt->isRaster) {
+                LUISA_ASSERT(opt->funcType == CodegenStackData::FuncType::Pixel, "ddy can only be used in pixel shader");
+                str << "ddy"sv;
+            } else {
+                str << "_ddy"sv;
+            }
+        } break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: {
             str << "InstMatrix("sv;
             args[0]->accept(vis);
@@ -890,10 +922,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
+            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
             str << "ClearDispInd"sv;
             break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
-            assert(!opt->isRaster);
+            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
             auto tp = args[1]->type();
             if (tp->is_scalar()) {
                 str << "EmplaceDispInd1D"sv;
@@ -984,7 +1017,7 @@ struct TypeNameStruct<luisa::Matrix<t>> {
 void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str) {
     vstd::VariantVisitor_t<basic_types>()(
         [&]<typename T>() {
-        TypeNameStruct<T>()(str);
+            TypeNameStruct<T>()(str);
         },
         typeIndex);
 }
@@ -1003,19 +1036,20 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             auto &&dataView = i.data.view();
             luisa::visit(
                 [&]<typename T>(vstd::span<T> const &sp) {
-                for (auto i : vstd::range(sp.size())) {
-                    auto &&value = sp[i];
-                    PrintValue<std::remove_cvref_t<T>>()(value, result);
-                    if (i != (sp.size() - 1)) {
-                        result << ',';
+                    for (auto i : vstd::range(sp.size())) {
+                        auto &&value = sp[i];
+                        PrintValue<std::remove_cvref_t<T>>()(value, result);
+                        if (i != (sp.size() - 1)) {
+                            result << ',';
+                        }
                     }
-                }
                 },
                 dataView);
             result << "};\n"sv;
         }
 
         if (func.tag() == Function::Tag::KERNEL) {
+            opt->funcType = CodegenStackData::FuncType::Kernel;
             result << "[numthreads("
                    << vstd::to_string(func.block_size().x)
                    << ','
@@ -1048,7 +1082,6 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
             if (cbufferNonEmpty) {
                 result << "Args a = _Global[0];\n"sv;
             }
-            opt->funcType = CodegenStackData::FuncType::Kernel;
             opt->arguments.clear();
             opt->arguments.reserve(func.arguments().size());
             size_t idx = 0;
@@ -1057,9 +1090,9 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
                 ++idx;
             }
         } else {
+            opt->funcType = CodegenStackData::FuncType::Callable;
             GetFunctionDecl(func, result);
             result << "{\n"sv;
-            opt->funcType = CodegenStackData::FuncType::Callable;
         }
         {
 
@@ -1284,6 +1317,7 @@ StructuredBuffer<Args> _Global:register(t0);
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str,
+    luisa::BinaryIO const *internalDataPath,
     bool isSpirV) {
     uint table_idx = isSpirV ? 2 : 1;
     auto add_prop = [&](ShaderVariableType svt) {
@@ -1303,37 +1337,22 @@ void CodegenUtility::GenerateBindless(
         str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << R"(
-float4 SampleTex2DLevel(const ByteAddressBuffer arr,const uint index,const float2 uv,const float level){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp2D(arr,index))];return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].SampleLevel(samp,uv,level);}
-float4 SampleTex2D(const ByteAddressBuffer arr,const uint index,const float2 uv){return SampleTex2DLevel(arr,index,uv,0);}
-float4 SampleTex2DGrad(const ByteAddressBuffer arr,const uint index,const float2 uv,const float2 ddx,const float2 ddy){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp2D(arr,index))];return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].SampleGrad(samp,uv,ddx,ddy);}
-#ifdef PS
-float4 SampleTex2DPixel(const ByteAddressBuffer arr,const uint index,const float2 uv){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp2D(arr,index))];return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].Sample(samp,uv);}
-#endif
-float4 ReadTex2DLevel(const ByteAddressBuffer arr,const uint index,const uint2 coord,const uint level){return _BindlessTex[NonUniformResourceIndex(ReadBdlsTex2D(arr,index))].Load(uint3(coord,level));}
-float4 ReadTex2D(const ByteAddressBuffer arr,const uint index,const uint2 coord){return ReadTex2DLevel(arr,index,coord,0);}
-uint2 Tex2DSize(const ByteAddressBuffer arr,const uint index){return ReadBdlsTex2DXY(arr,index);}
-uint2 Tex2DSizeLevel(const ByteAddressBuffer arr,const uint index,const uint level){return max(Tex2DSize(arr,index)>>level,1u);}
-)"sv;
+        str << CodegenUtility::ReadInternalHLSLFile("tex2d_bindless", internalDataPath);
     }
     if (opt->useTex3DBindless) {
         str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << R"(
-float4 SampleTex3DLevel(const ByteAddressBuffer arr,const uint index,const float3 uv,const float level){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp3D(arr,index))];return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].SampleLevel(samp,uv,level);}
-float4 SampleTex3D(const ByteAddressBuffer arr,const uint index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
-float4 SampleTex3DGrad(const ByteAddressBuffer arr,const uint index,const float3 uv,const float3 ddx,const float3 ddy){SamplerState samp=samplers[NonUniformResourceIndex(ReadBdlsSmp3D(arr,index))];return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].SampleGrad(samp,uv,ddx,ddy);}
-float4 ReadTex3DLevel(const ByteAddressBuffer arr,const uint index,const uint3 coord,const Lvl level){return _BindlessTex3D[NonUniformResourceIndex(ReadBdlsTex3D(arr,index))].Load(uint4(coord,level));}
-float4 ReadTex3D(const ByteAddressBuffer arr,const uint index,const uint3 coord){return ReadTex3DLevel(arr,index,coord,0);}
-uint3 Tex3DSize(const ByteAddressBuffer arr,const uint index){return ReadBdlsTex3DXYZ(arr,index);}
-uint3 Tex3DSizeLevel(const ByteAddressBuffer arr,const uint index,const uint level){return max(Tex3DSize(arr,index)>>level,1u);}
-)"sv;
+        str << CodegenUtility::ReadInternalHLSLFile("tex3d_bindless", internalDataPath);
     }
 }
 
 void CodegenUtility::PreprocessCodegenProperties(
-    CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
+    CodegenResult::Properties &properties,
+    vstd::StringBuilder &varData,
+    RegisterIndexer &registerCount,
+    luisa::BinaryIO const *internalDataPath,
+    bool cbufferNonEmpty,
     bool isRaster, bool isSpirv) {
     // 1,0,0
     registerCount.init();
@@ -1369,7 +1388,7 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0,
                 1});
     }
-    GenerateBindless(properties, varData, isSpirv);
+    GenerateBindless(properties, varData, internalDataPath, isSpirv);
 }
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
@@ -1436,7 +1455,6 @@ void CodegenUtility::CodegenProperties(
             if constexpr (rtBuffer) {
                 printInstBuffer.operator()<writable>();
                 properties.emplace_back(prop);
-
             } else {
                 print();
                 properties.emplace_back(prop);
@@ -1446,7 +1464,6 @@ void CodegenUtility::CodegenProperties(
             varData << ");\n"sv;
             r++;
         };
-
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
                 if (Writable(i)) {
@@ -1473,6 +1490,11 @@ void CodegenUtility::CodegenProperties(
                     genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
                 }
                 break;
+            case Type::Tag::CUSTOM: {
+                if (i.type()->description() == "LC_IndirectDispatchBuffer"sv) {
+                    genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                }
+            } break;
             default: break;
         }
     }
@@ -1508,7 +1530,6 @@ CodegenUtility::~CodegenUtility() {}
 
 CodegenResult CodegenUtility::Codegen(
     Function kernel, luisa::BinaryIO const *internalDataPath, bool isSpirV) {
-    assert(kernel.tag() == Function::Tag::KERNEL);
     opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
@@ -1522,15 +1543,11 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     opt->finalResult = &finalResult;
     finalResult.reserve(65500);
-    finalResult << detail::HLSLHeader(this, internalDataPath);
-    if (kernel.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(this, internalDataPath);
-    }
-
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
     opt->funcType = CodegenStackData::FuncType::Callable;
-    auto argRange = vstd::RangeImpl(vstd::CacheEndRange(kernel.arguments()) | vstd::ValueRange{});
+    auto argRange = vstd::range_impl(vstd::cache_end_range(kernel.arguments()) | vstd::value_range());
     if (nonEmptyCbuffer) {
         GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData);
     }
@@ -1543,11 +1560,10 @@ uint4 dsp_c;
         varData << "uint4 dsp_c:register(b0);\n"sv;
     }
     CodegenResult::Properties properties;
-    uint64 immutableHeaderSize = finalResult.size();
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false, isSpirV);
+    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV);
     CodegenProperties(properties, varData, kernel, 0, indexer);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << codegenData;
@@ -1579,10 +1595,9 @@ CodegenResult CodegenUtility::RasterCodegen(
     vstd::StringBuilder finalResult;
     opt->finalResult = &finalResult;
     finalResult.reserve(65500);
-    finalResult << detail::HLSLHeader(this, internalDataPath);
-    if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(this, internalDataPath);
-    }
+    auto opSet = vertFunc.propagated_builtin_callables();
+    opSet.propagate(pixelFunc.propagated_builtin_callables());
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, internalDataPath, finalResult, true);
     // Vertex
     codegenData << "struct v2p{\n"sv;
     auto v2pType = vertFunc.return_type();
@@ -1648,7 +1663,7 @@ uint obj_id:register(b0);
             for (auto &&j : meshFormat.attributes(i)) {
                 auto type = j.type;
                 auto idx = static_cast<size_t>(type);
-                assert(!bits[idx]);
+                LUISA_ASSERT(!bits[idx], "Internal error.");
                 bits[idx] = true;
                 auto name = vertexAttriName.begin()[idx];
                 if (idx >= 4) {
@@ -1689,8 +1704,8 @@ uint obj_id:register(b0);
 uint iid:SV_INSTANCEID;
 };
 )"sv;
-    auto vertRange = vstd::RangeImpl(vstd::CacheEndRange(vstd::ite_range(vertFunc.arguments().begin() + 1, vertFunc.arguments().end())) | vstd::ValueRange{});
-    auto pixelRange = vstd::RangeImpl(vstd::ite_range(pixelFunc.arguments().begin() + 1, pixelFunc.arguments().end()) | vstd::ValueRange{});
+    auto vertRange = vstd::range_impl(vstd::cache_end_range(vstd::ite_range(vertFunc.arguments().begin() + 1, vertFunc.arguments().end())) | vstd::value_range());
+    auto pixelRange = vstd::range_impl(vstd::ite_range(pixelFunc.arguments().begin() + 1, pixelFunc.arguments().end()) | vstd::value_range());
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
 
     bool nonEmptyCbuffer = IsCBufferNonEmpty(funcs);
@@ -1709,11 +1724,10 @@ uint iid:SV_INSTANCEID;
         GenerateCBuffer(funcs, varData);
     }
     CodegenResult::Properties properties;
-    uint64 immutableHeaderSize = finalResult.size();
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true, isSpirV);
+    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV);
     CodegenProperties(properties, varData, vertFunc, 1, indexer);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer);
     PostprocessCodegenProperties(finalResult);

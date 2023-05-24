@@ -19,7 +19,7 @@ public:
     template<typename T>
     [[nodiscard]] BufferView<T> allocate(size_t n) noexcept {
         static_assert(alignof(T) <= 16u);
-        std::lock_guard lock{_mutex};
+        std::scoped_lock lock{_mutex};
         auto size = n * sizeof(T);
         auto n_elem = (size + sizeof(float4) - 1u) / sizeof(float4);
         if (n_elem > _capacity) {// too big, will not use the arena

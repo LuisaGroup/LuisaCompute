@@ -1,21 +1,21 @@
-use std::panic::{RefUnwindSafe, UnwindSafe};
-use std::{
-    collections::VecDeque,
-    sync::{atomic::AtomicUsize, Arc},
-    thread::{self, JoinHandle},
-};
-use std::collections::{HashMap, HashSet};
-use luisa_compute_api_types as api;
 use api::{Argument, Sampler};
+use luisa_compute_api_types as api;
 use luisa_compute_ir::{
     context::type_hash,
     ir::{Binding, Capture},
 };
 use parking_lot::{Condvar, Mutex, RwLock};
 use rayon;
-
-use crate::BackendError;
-use luisa_compute_cpu_kernel_defs as defs;
+use std::panic::{RefUnwindSafe, UnwindSafe};
+use std::{
+    collections::VecDeque,
+    sync::{atomic::AtomicUsize, Arc},
+    thread::{self, JoinHandle},
+};
+use std::{
+    collections::{HashMap, HashSet},
+    process::abort,
+};
 
 use super::{
     accel::{AccelImpl, MeshImpl},
@@ -23,7 +23,9 @@ use super::{
     shader::ShaderImpl,
     texture::TextureImpl,
 };
+use crate::panic_abort;
 use bumpalo::Bump;
+use luisa_compute_cpu_kernel_defs as defs;
 
 #[derive(Clone)]
 struct Work {
@@ -41,9 +43,8 @@ struct StreamContext {
     sync: Condvar,
     work_count: AtomicUsize,
     finished_count: AtomicUsize,
-    error: Mutex<Option<BackendError>>,
+    error: Mutex<Option<String>>,
     staging_buffers: Mutex<(Bump, Vec<*mut u8>)>,
-
 }
 
 pub(super) struct StreamImpl {
@@ -101,25 +102,25 @@ impl StreamImpl {
             ctx,
         }
     }
-    pub(super) fn synchronize(&self) -> crate::Result<()> {
+    pub(super) fn has_error(&self) -> bool {
+        self.ctx.error.lock().is_some()
+    }
+    pub(super) fn synchronize(&self) {
         let mut guard = self.ctx.queue.lock();
         while self
             .ctx
             .work_count
             .load(std::sync::atomic::Ordering::Relaxed)
             > self
-            .ctx
-            .finished_count
-            .load(std::sync::atomic::Ordering::Relaxed)
+                .ctx
+                .finished_count
+                .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.ctx.sync.wait(&mut guard);
         }
-        let mut error = self.ctx.error.lock();
+        let error = self.ctx.error.lock();
         if error.is_some() {
-            let error = error.take().unwrap();
-            Err(error)
-        } else {
-            Ok(())
+            panic_abort!("{}", error.as_ref().unwrap());
         }
     }
     pub(super) fn enqueue(
@@ -164,7 +165,7 @@ impl StreamImpl {
                             }
                         }
                     });
-                    if let Err(e) = result {
+                    if let Err(_) = result {
                         log::error!("kernel execution aborted");
                     }
                 });
@@ -174,7 +175,9 @@ impl StreamImpl {
     unsafe fn allocate_staging_buffer(&self, ptr: *const u8, size: usize) {
         let mut lk = self.ctx.staging_buffers.lock();
         let (bump, buffers) = &mut *lk;
-        let buffer = bump.alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap()).as_ptr();
+        let buffer = bump
+            .alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap())
+            .as_ptr();
         std::ptr::copy_nonoverlapping(ptr, buffer, size);
         buffers.push(buffer);
     }
@@ -184,7 +187,6 @@ impl StreamImpl {
                 api::Command::BufferUpload(cmd) => {
                     let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
                     let _lk = buffer.lock.try_write().unwrap();
-                    let offset = cmd.offset;
                     let size = cmd.size;
                     self.allocate_staging_buffer(cmd.data, size);
                 }
@@ -207,6 +209,12 @@ impl StreamImpl {
             let (bump, buffers) = &mut *lk;
             let mut cnt = 0;
             for cmd in command_list {
+                {
+                    let err = self.ctx.error.lock();
+                    if err.is_some() {
+                        break;
+                    }
+                }
                 match cmd {
                     api::Command::BufferUpload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
@@ -455,9 +463,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 level as u8,
             )
         }
-        api::Argument::Uniform(uniform) => {
-            defs::KernelFnArg::Uniform(uniform.data)
-        }
+        api::Argument::Uniform(uniform) => defs::KernelFnArg::Uniform(uniform.data),
         api::Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
             defs::KernelFnArg::Accel(defs::Accel {
@@ -606,5 +612,5 @@ extern "C" fn set_instance_visibility(
 
 pub(crate) struct ShaderDispatchContext {
     pub(crate) shader: *const ShaderImpl,
-    pub(crate) error: *const Mutex<Option<BackendError>>,
+    pub(crate) error: *const Mutex<Option<String>>,
 }

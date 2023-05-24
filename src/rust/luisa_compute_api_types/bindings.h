@@ -19,14 +19,6 @@ typedef enum LCAccelUsageHint {
     LC_ACCEL_USAGE_HINT_FAST_BUILD,
 } LCAccelUsageHint;
 
-typedef enum LCBackendErrorKind {
-    LC_BACKEND_ERROR_KIND_BACKEND_NOT_FOUND,
-    LC_BACKEND_ERROR_KIND_KERNEL_EXECUTION,
-    LC_BACKEND_ERROR_KIND_KERNEL_COMPILATION,
-    LC_BACKEND_ERROR_KIND_NETWORK,
-    LC_BACKEND_ERROR_KIND_OTHER,
-} LCBackendErrorKind;
-
 typedef enum LCBindlessArrayUpdateOperation {
     LC_BINDLESS_ARRAY_UPDATE_OPERATION_NONE,
     LC_BINDLESS_ARRAY_UPDATE_OPERATION_EMPLACE,
@@ -452,126 +444,36 @@ typedef struct LCShaderOption {
     const char *name;
 } LCShaderOption;
 
-typedef struct LCBackendError {
-    enum LCBackendErrorKind kind;
-    char *message;
-} LCBackendError;
-
-typedef enum LCResult_CreatedBufferInfo_Tag {
-    LC_RESULT_CREATED_BUFFER_INFO_OK_CREATED_BUFFER_INFO,
-    LC_RESULT_CREATED_BUFFER_INFO_ERR_CREATED_BUFFER_INFO,
-} LCResult_CreatedBufferInfo_Tag;
-
-typedef struct LCResult_CreatedBufferInfo {
-    LCResult_CreatedBufferInfo_Tag tag;
-    union {
-        struct {
-            struct LCCreatedBufferInfo ok;
-        };
-        struct {
-            struct LCBackendError err;
-        };
-    };
-} LCResult_CreatedBufferInfo;
-
-typedef enum LCResult_CreatedResourceInfo_Tag {
-    LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-    LC_RESULT_CREATED_RESOURCE_INFO_ERR_CREATED_RESOURCE_INFO,
-} LCResult_CreatedResourceInfo_Tag;
-
-typedef struct LCResult_CreatedResourceInfo {
-    LCResult_CreatedResourceInfo_Tag tag;
-    union {
-        struct {
-            struct LCCreatedResourceInfo ok;
-        };
-        struct {
-            struct LCBackendError err;
-        };
-    };
-} LCResult_CreatedResourceInfo;
-
-typedef enum LCResult_u8_Tag {
-    LC_RESULT_U8_OK_U8,
-    LC_RESULT_U8_ERR_U8,
-} LCResult_u8_Tag;
-
-typedef struct LCResult_u8 {
-    LCResult_u8_Tag tag;
-    union {
-        struct {
-            uint8_t ok;
-        };
-        struct {
-            struct LCBackendError err;
-        };
-    };
-} LCResult_u8;
-
 typedef void (*LCDispatchCallback)(uint8_t*);
-
-typedef enum LCResult_CreatedSwapchainInfo_Tag {
-    LC_RESULT_CREATED_SWAPCHAIN_INFO_OK_CREATED_SWAPCHAIN_INFO,
-    LC_RESULT_CREATED_SWAPCHAIN_INFO_ERR_CREATED_SWAPCHAIN_INFO,
-} LCResult_CreatedSwapchainInfo_Tag;
-
-typedef struct LCResult_CreatedSwapchainInfo {
-    LCResult_CreatedSwapchainInfo_Tag tag;
-    union {
-        struct {
-            struct LCCreatedSwapchainInfo ok;
-        };
-        struct {
-            struct LCBackendError err;
-        };
-    };
-} LCResult_CreatedSwapchainInfo;
-
-typedef enum LCResult_CreatedShaderInfo_Tag {
-    LC_RESULT_CREATED_SHADER_INFO_OK_CREATED_SHADER_INFO,
-    LC_RESULT_CREATED_SHADER_INFO_ERR_CREATED_SHADER_INFO,
-} LCResult_CreatedShaderInfo_Tag;
-
-typedef struct LCResult_CreatedShaderInfo {
-    LCResult_CreatedShaderInfo_Tag tag;
-    union {
-        struct {
-            struct LCCreatedShaderInfo ok;
-        };
-        struct {
-            struct LCBackendError err;
-        };
-    };
-} LCResult_CreatedShaderInfo;
 
 typedef struct LCDeviceInterface {
     struct LCDevice device;
     void (*destroy_device)(struct LCDeviceInterface);
-    struct LCResult_CreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t);
+    struct LCCreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t);
     void (*destroy_buffer)(struct LCDevice, struct LCBuffer);
-    struct LCResult_CreatedResourceInfo (*create_texture)(struct LCDevice, enum LCPixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    struct LCCreatedResourceInfo (*create_texture)(struct LCDevice, enum LCPixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
     void (*destroy_texture)(struct LCDevice, struct LCTexture);
-    struct LCResult_CreatedResourceInfo (*create_bindless_array)(struct LCDevice, size_t);
+    struct LCCreatedResourceInfo (*create_bindless_array)(struct LCDevice, size_t);
     void (*destroy_bindless_array)(struct LCDevice, struct LCBindlessArray);
-    struct LCResult_CreatedResourceInfo (*create_stream)(struct LCDevice, enum LCStreamTag);
+    struct LCCreatedResourceInfo (*create_stream)(struct LCDevice, enum LCStreamTag);
     void (*destroy_stream)(struct LCDevice, struct LCStream);
-    struct LCResult_u8 (*synchronize_stream)(struct LCDevice, struct LCStream);
-    struct LCResult_u8 (*dispatch)(struct LCDevice, struct LCStream, struct LCCommandList, LCDispatchCallback, uint8_t*);
-    struct LCResult_CreatedSwapchainInfo (*create_swapchain)(struct LCDevice, uint64_t, struct LCStream, uint32_t, uint32_t, bool, bool, uint32_t);
+    void (*synchronize_stream)(struct LCDevice, struct LCStream);
+    void (*dispatch)(struct LCDevice, struct LCStream, struct LCCommandList, LCDispatchCallback, uint8_t*);
+    struct LCCreatedSwapchainInfo (*create_swapchain)(struct LCDevice, uint64_t, struct LCStream, uint32_t, uint32_t, bool, bool, uint32_t);
     void (*present_display_in_stream)(struct LCDevice, struct LCStream, struct LCSwapchain, struct LCTexture);
     void (*destroy_swapchain)(struct LCDevice, struct LCSwapchain);
-    struct LCResult_CreatedShaderInfo (*create_shader)(struct LCDevice, struct LCKernelModule, const struct LCShaderOption*);
+    struct LCCreatedShaderInfo (*create_shader)(struct LCDevice, struct LCKernelModule, const struct LCShaderOption*);
     void (*destroy_shader)(struct LCDevice, struct LCShader);
-    struct LCResult_CreatedResourceInfo (*create_event)(struct LCDevice);
+    struct LCCreatedResourceInfo (*create_event)(struct LCDevice);
     void (*destroy_event)(struct LCDevice, struct LCEvent);
     void (*signal_event)(struct LCDevice, struct LCEvent, struct LCStream);
-    struct LCResult_u8 (*synchronize_event)(struct LCDevice, struct LCEvent);
-    struct LCResult_u8 (*wait_event)(struct LCDevice, struct LCEvent, struct LCStream);
-    struct LCResult_CreatedResourceInfo (*create_mesh)(struct LCDevice, const struct LCAccelOption*);
+    void (*synchronize_event)(struct LCDevice, struct LCEvent);
+    void (*wait_event)(struct LCDevice, struct LCEvent, struct LCStream);
+    struct LCCreatedResourceInfo (*create_mesh)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_mesh)(struct LCDevice, struct LCMesh);
-    struct LCResult_CreatedResourceInfo (*create_procedural_primitive)(struct LCDevice, const struct LCAccelOption*);
+    struct LCCreatedResourceInfo (*create_procedural_primitive)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_procedural_primitive)(struct LCDevice, struct LCProceduralPrimitive);
-    struct LCResult_CreatedResourceInfo (*create_accel)(struct LCDevice, const struct LCAccelOption*);
+    struct LCCreatedResourceInfo (*create_accel)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_accel)(struct LCDevice, struct LCAccel);
     char *(*query)(struct LCDevice, const char*);
 } LCDeviceInterface;

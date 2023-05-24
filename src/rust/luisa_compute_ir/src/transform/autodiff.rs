@@ -24,7 +24,11 @@ use super::Transform;
 // Loop is not supported since users would use path replay[https://rgl.epfl.ch/publications/Vicini2021PathReplay] anyway
 struct GradTypeRecord {
     grad_type: CArc<Type>,
+    // save for later
+    // maybe we want to use tapes?
+    #[allow(dead_code)]
     primal_field_to_grad_field: HashMap<usize, usize>,
+    #[allow(dead_code)]
     grad_field_to_primal_field: HashMap<usize, usize>,
 }
 
@@ -269,7 +273,7 @@ impl<'a> StoreIntermediate<'a> {
                 Type::void(),
             );
             let st = new_node(&self.module.pools, st);
-            node.insert_after(st);
+            node.insert_after_self(st);
             self.intermediate.insert(node, local);
         } else {
             self.intermediate.insert(node, node);
@@ -418,7 +422,7 @@ impl Backward {
             node = self.intermediate_to_node[&node];
         }
         if let Some(grad_var) = self.grad(node) {
-            builder.call(Func::AccGrad, &[grad_var, grad], grad_var.type_().clone());
+            builder.call(Func::AccGrad, &[grad_var, grad], Type::void());
         }
         // } else {
         //     self.grads.insert(node, grad);
@@ -1721,48 +1725,119 @@ impl Backward {
 }
 
 pub struct Autodiff;
+fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
+    assert!(
+        module.kind == crate::ir::ModuleKind::Block,
+        "ad_transform_block should be applied to a block"
+    );
+    let mut store = StoreIntermediate::new(&module);
+    store.run();
+    let StoreIntermediate {
+        grads,
+        final_grad,
+        intermediate,
+        intermediate_to_node,
+        // backward_reachable,
+        // forward_reachable,
+        ..
+    } = store;
+    // dbg!(backward_reachable);
+    // dbg!(forward_reachable);
+    let mut backward = Backward {
+        grads,
+        final_grad,
+        intermediate,
+        intermediate_to_node,
+        pools: module.pools.clone(),
+    };
+    // dbg!(&backward.intermediate);
+    // dbg!(&backward.grads);
+    let fwd = module.entry;
 
+    let bwd = backward.run(&fwd);
+    fwd.merge(bwd);
+
+    // let mut display = display::DisplayIR::new();
+    // let fwd_src = display.display_ir(&module);
+    // print!("{}\n", fwd_src);
+
+    Module {
+        kind: ModuleKind::Block,
+        entry: fwd,
+        pools: module.pools,
+    }
+}
+fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
+    for node in block.iter() {
+        match node.get().instruction.as_ref() {
+            Instruction::AdScope { body } => {
+                let ad_block = Module {
+                    kind: ModuleKind::Block,
+                    entry: body.clone(),
+                    pools: pools.clone(),
+                };
+                let mut backward = None;
+                for node in body.iter() {
+                    match node.get().instruction.as_ref() {
+                        Instruction::Call(f, _) => {
+                            if *f == Func::Backward {
+                                if backward == None {
+                                    backward = Some(node);
+                                } else {
+                                    panic!("multiple backward calls inside AdScope!");
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let backward = backward.unwrap_or_else(|| {
+                    panic!("no backward call inside AdScope!");
+                });
+                let epilogue = body.split(backward, pools);
+                backward.remove();
+                let ad_block = ad_transform_block(ad_block);
+                assert_eq!(ad_block.entry.ptr, body.ptr);
+                body.merge(epilogue);
+            }
+            Instruction::If {
+                cond: _,
+                true_branch,
+                false_branch,
+            } => {
+                ad_transform_recursive(*true_branch, pools);
+                ad_transform_recursive(*false_branch, pools);
+            }
+            Instruction::GenericLoop {
+                prepare,
+                cond: _,
+                body,
+                update,
+            } => {
+                ad_transform_recursive(*prepare, pools);
+                ad_transform_recursive(*body, pools);
+                ad_transform_recursive(*update, pools);
+            }
+            Instruction::Loop { body, cond: _ } => {
+                ad_transform_recursive(*body, pools);
+            }
+            Instruction::Switch {
+                value: _,
+                default,
+                cases,
+            } => {
+                ad_transform_recursive(*default, pools);
+                for SwitchCase { value: _, block } in cases.iter() {
+                    ad_transform_recursive(*block, pools);
+                }
+            }
+            _ => {}
+        }
+    }
+}
 impl Transform for Autodiff {
     fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
-        assert!(
-            module.kind == crate::ir::ModuleKind::Block,
-            "autodiff should be applied to a block"
-        );
-        let mut store = StoreIntermediate::new(&module);
-        store.run();
-        let StoreIntermediate {
-            grads,
-            final_grad,
-            intermediate,
-            intermediate_to_node,
-            // backward_reachable,
-            // forward_reachable,
-            ..
-        } = store;
-        // dbg!(backward_reachable);
-        // dbg!(forward_reachable);
-        let mut backward = Backward {
-            grads,
-            final_grad,
-            intermediate,
-            intermediate_to_node,
-            pools: module.pools.clone(),
-        };
-        // dbg!(&backward.intermediate);
-        // dbg!(&backward.grads);
-        let fwd = module.entry;
-
-        let bwd = backward.run(&fwd);
-        fwd.merge(bwd);
-
-        // let mut display = display::DisplayIR::new();
-        // let fwd_src = display.display_ir(&module);
-        // print!("{}\n", fwd_src);
-
-        Module {
-            kind: ModuleKind::Block,
-            entry: fwd,
-            pools: module.pools,
-        }
+        ad_transform_recursive(module.entry, &module.pools);
+        module
     }
 }

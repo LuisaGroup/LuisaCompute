@@ -15,7 +15,7 @@ namespace luisa::compute {
 
 namespace detail {
 class FunctionBuilder;
-}
+}// namespace detail
 
 class LC_IR_API AST2IR {
 
@@ -33,11 +33,15 @@ private:
 
 private:
     luisa::unordered_map<uint64_t, ir::CArc<ir::Type>> _struct_types;// maps Type::hash() to ir::Type
-    luisa::unordered_map<uint64_t, ir::NodeRef> _constants;        // maps Constant::hash() to ir::NodeRef
-    luisa::unordered_map<uint32_t, ir::NodeRef> _variables;        // maps Variable::uid to ir::NodeRef
+    luisa::unordered_map<uint64_t, ir::NodeRef> _constants;          // maps Constant::hash() to ir::NodeRef
+    luisa::unordered_map<uint32_t, ir::NodeRef> _variables;          // maps Variable::uid to ir::NodeRef
     luisa::vector<ir::IrBuilder *> _builder_stack;
     Function _function;
     ir::CppOwnedCArc<ir::ModulePools> _pools;
+    // how to add using is_avalanching = void; for ir::NodeRef in cbindgen?
+    // or you'll have to use the inner size_t as key instead of ir::NodeRef itself. see src/core/stl/unordered_dense.h#L371
+    luisa::unordered_map<size_t, ir::NodeRef> assign_map;
+    [[nodiscard]] ir::NodeRef get_assign_rhs(ir::NodeRef lhs);
 
 private:
     template<typename T>
@@ -79,6 +83,7 @@ private:
     [[nodiscard]] ir::NodeRef _convert(const AssignStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const ForStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CommentStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const AutoDiffStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert_stmt(const Statement *stmt) noexcept;
     [[nodiscard]] ir::Module _convert_body() noexcept;
 

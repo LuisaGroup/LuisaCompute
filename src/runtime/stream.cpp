@@ -31,8 +31,7 @@ void Stream::_dispatch(CommandList &&list) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
-    Delegate delegate{this};
-    return std::move(delegate) << std::move(cmd);
+    return Delegate{this} << std::move(cmd);
 }
 
 void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
@@ -48,7 +47,10 @@ Stream &Stream::operator<<(Event::Wait &&wait) noexcept {
 }
 
 Stream::Stream(DeviceInterface *device, StreamTag stream_tag) noexcept
-    : Resource{device, Tag::STREAM, device->create_stream(stream_tag)},
+    : Stream{device, stream_tag, device->create_stream(stream_tag)} {}
+
+Stream::Stream(DeviceInterface *device, StreamTag stream_tag, const ResourceCreationInfo &handle) noexcept
+    : Resource{device, Tag::STREAM, handle},
       _stream_tag(stream_tag) {}
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
@@ -96,7 +98,7 @@ Stream &Stream::Delegate::operator<<(SwapChain::Present &&p) && noexcept {
 }
 
 Stream::Delegate Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
-    _command_list.append(std::move(f));
+    _command_list.add_callback(std::move(f));
     return std::move(*this);
 }
 
@@ -121,8 +123,7 @@ Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
-    Delegate delegate{this};
-    return std::move(delegate) << std::move(f);
+    return Delegate{this} << std::move(f);
 }
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {

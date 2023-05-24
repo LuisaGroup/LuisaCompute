@@ -20,6 +20,7 @@ class AccelExprProxy;
 
 // Accel is top-level acceleration structure(TLAS) for ray-tracing
 class LC_RUNTIME_API Accel final : public Resource {
+    friend class ManagedAccel;
 
 public:
     using BuildRequest = AccelBuildRequest;
@@ -35,6 +36,13 @@ private:
     explicit Accel(DeviceInterface *device, const AccelOption &option) noexcept;
     luisa::unique_ptr<Command> _build(Accel::BuildRequest request,
                                       bool update_instance_buffer_only) noexcept;
+    void _emplace_back_handle(uint64_t mesh_handle,
+                              float4x4 const &transform,
+                              uint8_t visibility_mask,
+                              bool opaque) noexcept;
+    void _set_handle(size_t index, uint64_t mesh_handle,
+                    float4x4 const &transform,
+                    uint8_t visibility_mask, bool opaque) noexcept;
 
 public:
     Accel() noexcept = default;
@@ -55,37 +63,28 @@ public:
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       bool opaque = true) noexcept {
-        emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque);
+        _emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque);
     }
 
     void emplace_back(const ProceduralPrimitive &prim,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu) noexcept {
-        emplace_back_handle(prim.handle(), transform, visibility_mask,
-                            false /* procedural geometry is always non-opaque */);
+        _emplace_back_handle(prim.handle(), transform, visibility_mask,
+                             false /* procedural geometry is always non-opaque */);
     }
-
-    void emplace_back_handle(uint64_t mesh_handle,
-                             float4x4 const &transform,
-                             uint8_t visibility_mask,
-                             bool opaque) noexcept;
 
     void set(size_t index, const Mesh &mesh,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
              bool opaque = true) noexcept {
-        set_handle(index, mesh.handle(), transform, visibility_mask, opaque);
+        _set_handle(index, mesh.handle(), transform, visibility_mask, opaque);
     }
 
     void set(size_t index, const ProceduralPrimitive &prim,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu) noexcept {
-        set_handle(index, prim.handle(), transform, visibility_mask, false);
+        _set_handle(index, prim.handle(), transform, visibility_mask, false);
     }
-
-    void set_handle(size_t index, uint64_t mesh_handle,
-                    float4x4 const &transform,
-                    uint8_t visibility_mask, bool opaque) noexcept;
 
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;

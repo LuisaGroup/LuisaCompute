@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -71,8 +71,8 @@ int main(int argc, char *argv[]) {
     Kernel2D raytracing_kernel = [&](BufferFloat4 image, AccelVar accel, UInt frame_index) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float2 p = (make_float2(coord) + rand(frame_index, coord)) /
-                     make_float2(dispatch_size().xy()) * 2.0f -
-                 1.0f;
+                       make_float2(dispatch_size().xy()) * 2.0f -
+                   1.0f;
         Float3 color = def<float3>(0.3f, 0.5f, 0.7f);
         Var<Ray> ray = make_ray(
             make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
@@ -95,6 +95,9 @@ int main(int argc, char *argv[]) {
         UInt3 ldr = make_uint3(round(saturate(linear_to_srgb(hdr)) * 255.0f));
         ldr_image.write(i, ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u));
     };
+    Kernel1D set_transform_kernel = [&](AccelVar accel, Float4x4 matrix, UInt offset) noexcept {
+        accel.set_instance_transform(dispatch_id().x + offset, matrix);
+    };
     Stream stream = device.create_stream();
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(3u);
     Buffer<Triangle> triangle_buffer = device.create_buffer<Triangle>(1u);
@@ -111,6 +114,7 @@ int main(int argc, char *argv[]) {
 
     Shader2D<Buffer<float4>, Buffer<uint>> colorspace_shader = device.compile(colorspace_kernel);
     Shader2D<Buffer<float4>, Accel, uint> raytracing_shader = device.compile(raytracing_kernel);
+    Shader1D<Accel, float4x4, uint> set_transform_shader = device.compile(set_transform_kernel);
 
     static constexpr uint width = 512u;
     static constexpr uint height = 512u;
@@ -125,17 +129,18 @@ int main(int argc, char *argv[]) {
         float t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
         float4x4 m = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
-                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
-        accel.set_transform_on_update(1u, m);
+                     rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
+
         stream << vertex_buffer.copy_from(vertices.data())
+               << set_transform_shader(accel, m, 1u).dispatch(1)
                << mesh.build()
                << accel.build()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
         if (i == 511u) {
             float4x4 mm = translation(make_float3(0.0f, 0.0f, 0.3f)) *
-                      rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f));
+                          rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f));
             accel.emplace_back(mesh, mm, true);
-            stream << accel.build();
+            stream << accel.update_instance_buffer();
         }
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)

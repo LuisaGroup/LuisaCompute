@@ -286,8 +286,7 @@ CMakeSettings.json
 **/__pycache__/**
 
 # white list
-!src/backends/dx/dx_support/dxcompiler.dll
-!src/backends/dx/dx_support/dxil.dll
+!src/backends/dx/dx_support/*.dll
 
 **/imgui.ini
 *.vcxproj

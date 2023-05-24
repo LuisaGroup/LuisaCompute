@@ -20,6 +20,7 @@ class Buffer:
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
         self.write = self.bufferType.write
+        self.buffer_size = self.bufferType.buffer_size
         self.dtype = dtype
         self.size = size
         lc_type = to_lctype(self.dtype)
@@ -63,7 +64,7 @@ class Buffer:
 
     def copy_from_list(self, arr, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert len(arr) == self.size
         lctype = to_lctype(self.dtype)
         packed_bytes = bytearray()
@@ -83,7 +84,7 @@ class Buffer:
 
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array or list
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         # numpy array of same data layout
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.BufferUploadCommand.create(
@@ -104,7 +105,7 @@ class Buffer:
     # arr: numpy array; user is resposible for data layout
     def copy_to(self, arr, sync=True, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, arr)
@@ -125,7 +126,7 @@ class Buffer:
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, packed_bytes)
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         stream.add(dlcmd)
         # stream.add_readback_buffer(packed_bytes)
         stream.synchronize()
@@ -166,6 +167,10 @@ class BufferType:
             return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BUFFER_READ, [self.expr, idx.expr])
 
         return read
+    
+    @BuiltinFuncBuilder
+    def buffer_size(self):
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr])
 
     @staticmethod
     @cache
@@ -176,40 +181,6 @@ class BufferType:
             return None, lcapi.builder().call(lcapi.CallOp.BUFFER_WRITE, [self.expr, idx.expr, value.expr])
 
         return write
-
-
-class IndirectBufferType:
-    def __init__(self, dtype):
-        self.dtype = dtype
-        self.luisa_type = lcapi.Type.from_(
-            "buffer<" + to_lctype(dtype).description() + ">")
-        self.clear = self.get_clear_func()
-        self.emplace = self.get_emplace_func()
-
-    def __eq__(self, other):
-        return type(other) is IndirectBufferType and self.dtype == other.dtype
-
-    def __hash__(self):
-        return hash(self.dtype) ^ 8965828349193294
-
-    @staticmethod
-    @cache
-    def get_clear_func():
-        @BuiltinFuncBuilder
-        def clear(self):
-            return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
-
-        return clear
-
-    @staticmethod
-    @cache
-    def get_emplace_func():
-        @BuiltinFuncBuilder
-        def emplace(self, block_size, size, id):
-            check_exact_signature([uint3, uint3, uint], [block_size, size, id], "emplace")
-            return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, id.expr])
-
-        return emplace
 
 
 def from_bytes(dtype, packed):
@@ -242,14 +213,19 @@ def from_bytes(dtype, packed):
     assert False
 
 
-class DispatchIndirectBuffer:
+class IndirectDispatchBuffer:
     def __init__(self, size: int):
-        self.dtype = CustomType("DispatchArgs")
-        self.bufferType = IndirectBufferType(self.dtype)
-        self.clear = self.bufferType.clear
-        self.emplace = self.bufferType.emplace
-        buffer = get_global_device().impl().create_dispatch_buffer(3, size)
+        self.dtype = CustomType("LC_IndirectKernelDispatch")
+        buffer = get_global_device().impl().create_dispatch_buffer(size)
         self.size = size
-        self.bytesize = buffer.size()
+        self.bytesize = buffer.size_bytes()
+        self.stride = buffer.element_stride()
         # instantiate buffer on device
         self.handle = buffer.handle()
+    @BuiltinFuncBuilder
+    def clear(self):
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
+    @BuiltinFuncBuilder
+    def dispatch_kernel(self, block_size, size, kernel_id):
+        check_exact_signature([uint3, uint3, uint], [block_size, size, kernel_id], "dispatch_kernel")
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, kernel_id.expr])

@@ -227,19 +227,9 @@ impl KernelSerializer {
                     cases,
                 }
             }
-            Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
-            } => {
-                let forward = self.serialize_block(forward);
-                let backward = self.serialize_block(backward);
-                let epilogue = self.serialize_block(epilogue);
-                SerializedInstruction::AdScope {
-                    forward,
-                    backward,
-                    epilogue,
-                }
+            Instruction::AdScope { body } => {
+                let body = self.serialize_block(body);
+                SerializedInstruction::AdScope { body }
             }
             Instruction::AdDetach(b) => {
                 let b = self.serialize_block(b);
@@ -261,6 +251,7 @@ impl KernelSerializer {
             Func::BlockId => SerializedFunc::BlockId,
             Func::DispatchId => SerializedFunc::DispatchId,
             Func::DispatchSize => SerializedFunc::DispatchSize,
+            Func::Backward => SerializedFunc::Backward,
             Func::RequiresGradient => SerializedFunc::RequiresGradient,
             Func::Gradient => SerializedFunc::Gradient,
             Func::GradientMarker => SerializedFunc::GradientMarker,
@@ -415,7 +406,7 @@ impl KernelSerializer {
             Func::ExtractElement => SerializedFunc::ExtractElement,
             Func::GetElementPtr => SerializedFunc::GetElementPtr,
             Func::Struct => SerializedFunc::Struct,
-            Func::Array=> SerializedFunc::Array,
+            Func::Array => SerializedFunc::Array,
             Func::Mat => SerializedFunc::Mat,
             Func::Mat2 => SerializedFunc::Mat2,
             Func::Mat3 => SerializedFunc::Mat3,

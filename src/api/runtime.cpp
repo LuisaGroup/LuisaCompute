@@ -333,7 +333,7 @@ namespace luisa::compute::detail {
             if (_callback != nullptr && _callback_ctx != nullptr) {
                 auto _callback = this->_callback;
                 auto _callback_ctx = this->_callback_ctx;
-                cmd_list.append([=]() {
+                cmd_list.add_callback([=]() {
                     _callback(_callback_ctx);
                 });
             }
@@ -475,7 +475,7 @@ LUISA_EXPORT_API LCCreatedShaderInfo
 luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto ir = reinterpret_cast<const ir::CArc<ir::KernelModule> *>(m.ptr);
+    auto ir = reinterpret_cast<const ir::KernelModule *>(m.ptr);
 
     auto shader_option = ShaderOption{
             .enable_cache = option.enable_cache,
@@ -484,7 +484,7 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
             .compile_only = option.compile_only,
             .name = luisa::string{option.name}};
 
-    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir->get());
+    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir);
     return LCCreatedShaderInfo{
             .resource = LCCreatedResourceInfo{
                     .handle = info.handle,
@@ -689,100 +689,27 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     auto device = luisa_compute_device_create(ctx, name, config);
     interface.device = device;
     interface.destroy_device = luisa_compute_device_interface_destroy;
-    interface.create_buffer = [](auto device, auto elem, auto count) -> LCResult_CreatedBufferInfo {
-        auto buffer = luisa_compute_buffer_create(device, elem, count);
-        return LCResult_CreatedBufferInfo{
-                .tag = LCResult_CreatedBufferInfo_Tag::LC_RESULT_CREATED_BUFFER_INFO_OK_CREATED_BUFFER_INFO,
-                .ok = buffer
-        };
-    };
-
+    interface.create_buffer = luisa_compute_buffer_create;
     interface.destroy_buffer = luisa_compute_buffer_destroy;
-    interface.create_texture = [](LCDevice device,
-                                  LCPixelFormat format, uint32_t dim,
-                                  uint32_t w, uint32_t h, uint32_t d,
-                                  uint32_t mips) -> LCResult_CreatedResourceInfo {
-        auto texture = luisa_compute_texture_create(device, format, dim, w, h, d, mips);
-        return LCResult_CreatedResourceInfo{
-                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-                .ok = texture
-        };
-    };
-    interface.destroy_buffer = luisa_compute_buffer_destroy;
-    interface.create_bindless_array = [](LCDevice device, size_t n) -> LCResult_CreatedResourceInfo {
-        auto array = luisa_compute_bindless_array_create(device, n);
-        return LCResult_CreatedResourceInfo{
-                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-                .ok = array
-        };
-    };
+    interface.create_texture = luisa_compute_texture_create;
+    interface.destroy_texture = luisa_compute_texture_destroy;
+    interface.create_bindless_array = luisa_compute_bindless_array_create;
     interface.destroy_bindless_array = luisa_compute_bindless_array_destroy;
-    interface.create_event = [](LCDevice device) -> LCResult_CreatedResourceInfo {
-        auto event = luisa_compute_event_create(device);
-        return LCResult_CreatedResourceInfo{
-                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-                .ok = event
-        };
-    };
+    interface.create_event = luisa_compute_event_create;
     interface.destroy_event = luisa_compute_event_destroy;
-    interface.wait_event = [](LCDevice device, LCEvent event, LCStream stream) -> LCResult_u8 {
-        luisa_compute_event_wait(device, event, stream);
-        return LCResult_u8{
-                .tag = LCResult_u8_Tag::LC_RESULT_U8_OK_U8,
-                .ok = 0
-        };
-    };
+    interface.wait_event = luisa_compute_event_wait;
     interface.signal_event = luisa_compute_event_signal;
-    interface.create_shader = [](LCDevice device, auto kernel, auto options) -> LCResult_CreatedShaderInfo {
-        auto shader = luisa_compute_shader_create(device, kernel, options);
-        return LCResult_CreatedShaderInfo{
-                .tag = LCResult_CreatedShaderInfo_Tag::LC_RESULT_CREATED_SHADER_INFO_OK_CREATED_SHADER_INFO,
-                .ok = shader
-        };
-    };
+    interface.create_shader = luisa_compute_shader_create;
     interface.destroy_shader = luisa_compute_shader_destroy;
-    interface.create_stream = [](LCDevice device, LCStreamTag tag) -> LCResult_CreatedResourceInfo {
-        auto stream = luisa_compute_stream_create(device, tag);
-        return LCResult_CreatedResourceInfo{
-                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-                .ok = stream
-        };
-    };
+    interface.create_stream = luisa_compute_stream_create;
+    interface.synchronize_stream = luisa_compute_stream_synchronize;
     interface.destroy_stream = luisa_compute_stream_destroy;
-    interface.dispatch = [](LCDevice device, LCStream stream, LCCommandList list, LCDispatchCallback cb,
-                            uint8_t *userdata) -> LCResult_u8 {
-        luisa_compute_stream_dispatch(device, stream, list, cb, userdata);
-        return LCResult_u8{
-                .tag = LCResult_u8_Tag::LC_RESULT_U8_OK_U8,
-                .ok = 0
-        };
-    };
-    interface.create_mesh = [](LCDevice device, const LCAccelOption *option) -> LCResult_CreatedResourceInfo {
-        auto mesh = luisa_compute_mesh_create(device, option);
-        return LCResult_CreatedResourceInfo{
-                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-                .ok = mesh
-        };
-    };
+    interface.dispatch = luisa_compute_stream_dispatch;
+    interface.create_mesh = luisa_compute_mesh_create;
     interface.destroy_mesh = luisa_compute_mesh_destroy;
-    interface.create_accel = [](LCDevice device, const LCAccelOption *option) -> LCResult_CreatedResourceInfo {
-        auto accel = luisa_compute_accel_create(device, option);
-        return LCResult_CreatedResourceInfo{
-                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-                .ok = accel
-        };
-    };
+    interface.create_accel = luisa_compute_accel_create;
     interface.destroy_accel = luisa_compute_accel_destroy;
-    interface.create_swapchain = [](LCDevice device, uint64_t window_handle, LCStream stream_handle, uint32_t width,
-                                    uint32_t height, bool allow_hdr, bool vsync,
-                                    uint32_t back_buffer_size) -> LCResult_CreatedSwapchainInfo {
-        auto swapchain = luisa_compute_swapchain_create(device, window_handle, stream_handle, width, height, allow_hdr,
-                                                        vsync, back_buffer_size);
-        return LCResult_CreatedSwapchainInfo{
-                .tag = LCResult_CreatedSwapchainInfo_Tag::LC_RESULT_CREATED_SWAPCHAIN_INFO_OK_CREATED_SWAPCHAIN_INFO,
-                .ok = swapchain
-        };
-    };
+    interface.create_swapchain = luisa_compute_swapchain_create;
     interface.present_display_in_stream = luisa_compute_swapchain_present;
     interface.destroy_swapchain = luisa_compute_swapchain_destroy;
 //    interface.create_procedural_primitive = [](LCDevice device, const LCProceduralPrimitiveOption* option) -> LCResult_CreatedResourceInfo {
@@ -795,6 +722,14 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
 //    interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
 //    interface.set_logger_callback = luisa_compute_set_logger_callback;
 //    interface.free_string = luisa_compute_free_c_string;
+    interface.query = [](LCDevice device, const char *query)->char * {
+        auto d = reinterpret_cast<RC<Device> *>(device._0);
+        auto result_s = d->object()->impl()->query(luisa::string_view{query});
+        char* result = (char*)malloc(result_s.size() + 1);
+        std::memcpy(result, result_s.data(), result_s.size() );
+        result[result_s.size()] = '\0';
+        return result;
+    };
     return interface;
 }
 

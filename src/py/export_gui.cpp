@@ -13,8 +13,9 @@ namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
 struct PyWindow : public vstd::IOperatorNewBase {
+    inline static vstd::unordered_set<vstd::optional<SwapChain> *> swapchains;
     vstd::optional<Window> window;
-    SwapChain chain;
+    vstd::optional<SwapChain> chain;
     enum class KeyState : uint8_t {
         None,
         Down,
@@ -25,6 +26,24 @@ struct PyWindow : public vstd::IOperatorNewBase {
     unordered_map<int, KeyState> key_states;
     float2 size;
     float2 cursur_pos;
+    PyWindow() {
+    }
+    PyWindow(PyWindow const &rhs) = delete;
+    PyWindow(PyWindow &&rhs)
+        : window{std::move(rhs.window)},
+          chain(std::move(rhs.chain)),
+          mouse_states(std::move(rhs.mouse_states)),
+          key_states(std::move(rhs.key_states)),
+          size(std::move(rhs.size)),
+          cursur_pos(std::move(rhs.cursur_pos)) {
+        swapchains.erase(&rhs.chain);
+        swapchains.insert(&chain);
+    }
+    ~PyWindow() {
+        if (chain) {
+            swapchains.erase(&chain);
+        }
+    }
 };
 void export_gui(py::module &m) {
     static constexpr int kPress = 1;
@@ -34,6 +53,11 @@ void export_gui(py::module &m) {
         if (iter == states.end()) return (int)PyWindow::KeyState::None;
         return (int)iter->second;
     };
+    m.def("delete_all_swapchain", []() {
+        for (auto &&i : PyWindow::swapchains) {
+            i->destroy();
+        }
+    });
     py::class_<PyWindow>(m, "PyWindow")
         .def(py::init<>())
         .def("key_event", [get_state](PyWindow &w, int key) {
@@ -87,6 +111,7 @@ void export_gui(py::module &m) {
                 w.cursur_pos.y = std::clamp(w.cursur_pos.y, 0.0f, 1.0f);
             });
             w.chain = device.device.create_swapchain(w.window->native_handle(), stream.stream(), {width, height}, false, vsync, 2);
+            PyWindow::swapchains.emplace(&w.chain);
         })
         .def("should_close", [](PyWindow &w) {
             return w.window->should_close();
@@ -94,7 +119,7 @@ void export_gui(py::module &m) {
         .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, uint width, uint height, uint level, PixelStorage storage) {
             auto view = ResourceGenerator::create_image_view<float>(handle, storage, level, {width, height});
             stream.execute();
-            stream.stream() << w.chain.present(view);
+            stream.stream() << w.chain->present(view);
             vector<int> remove_list;
             auto update_state = [&](auto &&states) {
                 for (auto &&i : states) {

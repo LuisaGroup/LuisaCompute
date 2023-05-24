@@ -22,7 +22,7 @@ MetalAccel::~MetalAccel() noexcept {
 }
 
 void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command) noexcept {
-    auto device = _update->device();
+    auto device = encoder.device();
     auto instance_count = command->instance_count();
     LUISA_ASSERT(instance_count > 0u, "Empty acceleration structure is not allowed.");
     if (auto size = instance_count * sizeof(MTL::AccelerationStructureInstanceDescriptor);
@@ -120,7 +120,13 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
         luisa::vector<NS::Object *> objects;
         objects.reserve(instance_count);
         std::transform(_primitives.begin(), _primitives.end(), std::back_inserter(objects),
-                       [](auto p) noexcept { return p->handle(); });
+                       [](auto p) noexcept {
+                           auto handle = p->handle();
+#ifndef NDEBUG
+                           LUISA_ASSERT(handle != nullptr, "Invalid primitive handle.");
+#endif
+                           return handle;
+                       });
         auto instances = NS::Array::array(objects.data(), objects.size());
         _descriptor->setInstancedAccelerationStructures(instances);
     }
@@ -212,10 +218,10 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
             }));
         });
         auto submitted_command_buffer = encoder.submit({});
+        submitted_command_buffer->waitUntilCompleted();
         // compact the acceleration structure
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
         compacted_handle->setLabel(name);
-        submitted_command_buffer->waitUntilCompleted();
         auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);

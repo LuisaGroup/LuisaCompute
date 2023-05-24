@@ -15,6 +15,33 @@
 
 namespace luisa::compute::cuda {
 
+namespace detail {
+
+[[nodiscard]] static auto glob_variables_with_grad(Function f) noexcept {
+    luisa::unordered_set<Variable> gradient_variables;
+    traverse_expressions<true>(
+        f.body(),
+        [&](auto expr) noexcept {
+            if (expr->tag() == Expression::Tag::CALL) {
+                if (auto call = static_cast<const CallExpr *>(expr);
+                    call->op() == CallOp::GRADIENT ||
+                    call->op() == CallOp::GRADIENT_MARKER ||
+                    call->op() == CallOp::REQUIRES_GRADIENT) {
+                    LUISA_ASSERT(call->arguments().size() >= 1u &&
+                                     call->arguments().front()->tag() == Expression::Tag::REF,
+                                 "Invalid gradient function call.");
+                    auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                    gradient_variables.emplace(v);
+                }
+            }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
+    return gradient_variables;
+}
+
+}// namespace detail
+
 class CUDACodegenAST::RayQueryLowering {
 
 public:
@@ -62,19 +89,19 @@ private:
         traverse_expressions<true>(
             f.body(),
             [this](auto expr) noexcept {
-            if (expr->tag() == Expression::Tag::CALL) {
-                auto call_expr = static_cast<const CallExpr *>(expr);
-                if (!call_expr->is_builtin()) {
-                    _collect_ray_query_statements(call_expr->custom());
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call_expr = static_cast<const CallExpr *>(expr);
+                    if (!call_expr->is_builtin()) {
+                        _collect_ray_query_statements(call_expr->custom());
+                    }
                 }
-            }
             },
             [this, f](auto s) noexcept {
-            if (s->tag() == Statement::Tag::RAY_QUERY) {
-                auto rq_stmt = static_cast<const RayQueryStmt *>(s);
-                _ray_query_statements.emplace(rq_stmt, f);
-            }
-        },
+                if (s->tag() == Statement::Tag::RAY_QUERY) {
+                    auto rq_stmt = static_cast<const RayQueryStmt *>(s);
+                    _ray_query_statements.emplace(rq_stmt, f);
+                }
+            },
             [](auto) noexcept {});
     }
 
@@ -86,27 +113,27 @@ private:
         traverse_expressions<true>(
             scope,
             [&](auto expr) noexcept {
-            if (expr->tag() == Expression::Tag::REF) {
-                auto v = static_cast<const RefExpr *>(expr)->variable();
-                if (inside_scope_stack.back()) {
-                    within_scope.emplace(v);
-                } else {
-                    without_scope.emplace(v);
+                if (expr->tag() == Expression::Tag::REF) {
+                    auto v = static_cast<const RefExpr *>(expr)->variable();
+                    if (inside_scope_stack.back()) {
+                        within_scope.emplace(v);
+                    } else {
+                        without_scope.emplace(v);
+                    }
                 }
-            }
             },
             [&inside_scope_stack, target_scopes](auto s) noexcept {
-            if (s->tag() == Statement::Tag::SCOPE) {
-                auto inside_targets = inside_scope_stack.back() |
-                                      std::find(target_scopes.begin(), target_scopes.end(), s) !=
-                                          target_scopes.end();
-                inside_scope_stack.emplace_back(inside_targets);
-            }
-        },
+                if (s->tag() == Statement::Tag::SCOPE) {
+                    auto inside_targets = inside_scope_stack.back() |
+                                          std::find(target_scopes.begin(), target_scopes.end(), s) !=
+                                              target_scopes.end();
+                    inside_scope_stack.emplace_back(inside_targets);
+                }
+            },
             [&inside_scope_stack](auto s) noexcept {
-            if (s->tag() == Statement::Tag::SCOPE) {
-                inside_scope_stack.pop_back();
-            }
+                if (s->tag() == Statement::Tag::SCOPE) {
+                    inside_scope_stack.pop_back();
+                }
             });
     }
 
@@ -129,27 +156,27 @@ private:
         traverse_expressions<true>(
             f.body(),
             [this, f](auto expr) noexcept {
-            if (expr->tag() == Expression::Tag::CALL) {
-                auto call_expr = static_cast<const CallExpr *>(expr);
-                if (!call_expr->is_builtin()) {// custom callables
-                    // prepare root resource list
-                    luisa::fixed_vector<const luisa::unordered_set<Variable> *, 16u> root_resources;
-                    for (auto arg : call_expr->arguments()) {
-                        if (arg->tag() == Expression::Tag::REF) {
-                            if (auto v = static_cast<const RefExpr *>(arg)->variable();
-                                v.is_resource()) {
-                                auto iter = _root_resources.find(FunctionResource{f, v});
-                                LUISA_ASSERT(iter != _root_resources.cend(),
-                                             "Failed to find root resource.");
-                                root_resources.emplace_back(&iter->second);
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call_expr = static_cast<const CallExpr *>(expr);
+                    if (!call_expr->is_builtin()) {// custom callables
+                        // prepare root resource list
+                        luisa::fixed_vector<const luisa::unordered_set<Variable> *, 16u> root_resources;
+                        for (auto arg : call_expr->arguments()) {
+                            if (arg->tag() == Expression::Tag::REF) {
+                                if (auto v = static_cast<const RefExpr *>(arg)->variable();
+                                    v.is_resource()) {
+                                    auto iter = _root_resources.find(FunctionResource{f, v});
+                                    LUISA_ASSERT(iter != _root_resources.cend(),
+                                                 "Failed to find root resource.");
+                                    root_resources.emplace_back(&iter->second);
+                                }
                             }
                         }
+                        // pass on to the callee
+                        _find_root_resources(
+                            call_expr->custom(), root_resources);
                     }
-                    // pass on to the callee
-                    _find_root_resources(
-                        call_expr->custom(), root_resources);
                 }
-            }
             },
             [](auto) noexcept {},
             [](auto) noexcept {});
@@ -265,11 +292,11 @@ private:
                 auto iter = std::partition(
                     captured_variables.begin(), captured_variables.end(),
                     [this, f](auto v) noexcept {
-                    LUISA_ASSERT(!v.is_resource() ||
-                                     _root_resources.contains({f, v}),
-                                 "Invalid variable.");
-                    return !v.is_resource() ||
-                           _root_resources.at({f, v}).size() != 1u;
+                        LUISA_ASSERT(!v.is_resource() ||
+                                         _root_resources.contains({f, v}),
+                                     "Invalid variable.");
+                        return !v.is_resource() ||
+                               _root_resources.at({f, v}).size() != 1u;
                     });
 
                 uniquely_identified_resources.reserve(
@@ -348,7 +375,7 @@ private:
                 std::stable_sort(
                     captured_elements.begin(), captured_elements.end(),
                     [](auto lhs, auto rhs) noexcept {
-                    return lhs.element_type->alignment() > rhs.element_type->alignment();
+                        return lhs.element_type->alignment() > rhs.element_type->alignment();
                     });
             }
         }
@@ -379,6 +406,7 @@ private:
             _codegen->_scratch << "\n};\n\n";
         }
 
+        auto grad_variables = detail::glob_variables_with_grad(f);
         auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
             // corner case: emit nothing if empty handler
             if (stmt->statements().empty()) { return; }
@@ -438,6 +466,12 @@ private:
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << "{};\n";
+                if (grad_variables.contains(v)) {
+                    _codegen->_emit_indent();
+                    _codegen->_scratch << "LC_GRAD_SHADOW_VARIABLE(";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ");\n";
+                }
             }
             // emit body
             _codegen->_emit_indent();
@@ -803,6 +837,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "lc_texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "lc_texture_write"; break;
+        case CallOp::TEXTURE_SIZE: _scratch << "lc_texture_size"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
@@ -882,15 +917,17 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::REDUCE_MAX: _scratch << "lc_reduce_max"; break;
         case CallOp::OUTER_PRODUCT: _scratch << "lc_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: _scratch << "lc_mat_comp_mul"; break;
-        case CallOp::REQUIRES_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::GRADIENT_MARKER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ACCUMULATE_GRADIENT: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::REQUIRES_GRADIENT: _scratch << "LC_REQUIRES_GRAD"; break;
+        case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
+        case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
+        case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
@@ -1069,6 +1106,10 @@ void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
     _ray_query_lowering->lower(stmt);
 }
 
+void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
+    stmt->body()->accept(*this);
+}
+
 void CUDACodegenAST::emit(Function f) {
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
@@ -1133,9 +1174,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         f.body(),
         [](auto) noexcept {},
         [&](auto stmt) noexcept {
-        if (stmt->tag() == Statement::Tag::RAY_QUERY) {
-            has_ray_query = true;
-        }
+            if (stmt->tag() == Statement::Tag::RAY_QUERY) {
+                has_ray_query = true;
+            }
         },
         [](auto) noexcept {});
 
@@ -1260,9 +1301,9 @@ static void collect_types_in_function(Function f,
     traverse_expressions<true>(
         f.body(),
         [&add](auto expr) noexcept {
-        if (auto type = expr->type()) {
-            add(add, type);
-        }
+            if (auto type = expr->type()) {
+                add(add, type);
+            }
         },
         [](auto) noexcept {},
         [](auto) noexcept {});
@@ -1504,12 +1545,12 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
     using namespace std::string_view_literals;
     luisa::visit(
         [count, this](auto ptr) {
-        detail::LiteralPrinter print{_scratch};
-        for (auto i = 0u; i < count; i++) {
-            if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
-            print(ptr[i]);
-            _scratch << ", ";
-        }
+            detail::LiteralPrinter print{_scratch};
+            for (auto i = 0u; i < count; i++) {
+                if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
+                print(ptr[i]);
+                _scratch << ", ";
+            }
         },
         c.data.view());
     if (count > 0u) {
@@ -1555,12 +1596,20 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _scratch << ");";
         }
     }
+    auto grad_vars = detail::glob_variables_with_grad(f);
     for (auto v : f.local_variables()) {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(f, v, false);
             _scratch << "{};";
+            if (grad_vars.contains(v)) {
+                _scratch << "\n";
+                _emit_indent();
+                _scratch << "LC_GRAD_SHADOW_VARIABLE(";
+                _emit_variable_name(v);
+                _scratch << ");";
+            }
         }
     }
 }

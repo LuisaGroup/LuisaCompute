@@ -11,17 +11,15 @@ class IndirectDispatchBuffer;
 
 LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::IndirectKernelDispatch,
                             "LC_IndirectKernelDispatch")
-
 LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::IndirectDispatchBuffer,
-                            "buffer<LC_IndirectKernelDispatch>")
-
+                            "LC_IndirectDispatchBuffer")
 namespace luisa::compute {
 
 namespace detail {
 class IndirectDispatchBufferExprProxy;
-}
+}// namespace detail
 
-class IndirectDispatchBuffer final : public Resource {
+class LC_RUNTIME_API IndirectDispatchBuffer final : public Resource {
 
 private:
     size_t _capacity{};
@@ -40,7 +38,7 @@ public:
                                  device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity)} {
     }
     IndirectDispatchBuffer() noexcept = default;
-    ~IndirectDispatchBuffer() noexcept override;
+    ~IndirectDispatchBuffer() noexcept;
     IndirectDispatchBuffer(IndirectDispatchBuffer &&) noexcept = default;
     IndirectDispatchBuffer(IndirectDispatchBuffer const &) noexcept = delete;
     IndirectDispatchBuffer &operator=(IndirectDispatchBuffer &&rhs) noexcept {

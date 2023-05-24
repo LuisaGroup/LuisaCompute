@@ -1,128 +1,6 @@
 #pragma pack_matrix(row_major)
 #define INFINITY_f (1.#INF)
-#define LC_IndirectKernelDispatch uint
 SamplerState samplers[16]:register(s0,space1);
-float determinant(float2x2 m){
-return m[0][0]*m[1][1]-m[1][0]*m[0][1];
-}
-float determinant(float3x4 m){
-return m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z)-m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z)+m[2].x*(m[0].y*m[1].z-m[1].y*m[0].z);
-}
-float determinant(float4x4 m){
-float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
-float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
-float coef03=m[1].z*m[2].w-m[2].z*m[1].w;
-float coef04=m[2].y*m[3].w-m[3].y*m[2].w;
-float coef06=m[1].y*m[3].w-m[3].y*m[1].w;
-float coef07=m[1].y*m[2].w-m[2].y*m[1].w;
-float coef08=m[2].y*m[3].z-m[3].y*m[2].z;
-float coef10=m[1].y*m[3].z-m[3].y*m[1].z;
-float coef11=m[1].y*m[2].z-m[2].y*m[1].z;
-float coef12=m[2].x*m[3].w-m[3].x*m[2].w;
-float coef14=m[1].x*m[3].w-m[3].x*m[1].w;
-float coef15=m[1].x*m[2].w-m[2].x*m[1].w;
-float coef16=m[2].x*m[3].z-m[3].x*m[2].z;
-float coef18=m[1].x*m[3].z-m[3].x*m[1].z;
-float coef19=m[1].x*m[2].z-m[2].x*m[1].z;
-float coef20=m[2].x*m[3].y-m[3].x*m[2].y;
-float coef22=m[1].x*m[3].y-m[3].x*m[1].y;
-float coef23=m[1].x*m[2].y-m[2].x*m[1].y;
-float4 fac0=float4(coef00,coef00,coef02,coef03);
-float4 fac1=float4(coef04,coef04,coef06,coef07);
-float4 fac2=float4(coef08,coef08,coef10,coef11);
-float4 fac3=float4(coef12,coef12,coef14,coef15);
-float4 fac4=float4(coef16,coef16,coef18,coef19);
-float4 fac5=float4(coef20,coef20,coef22,coef23);
-float4 Vec0=float4(m[1].x,m[0].x,m[0].x,m[0].x);
-float4 Vec1=float4(m[1].y,m[0].y,m[0].y,m[0].y);
-float4 Vec2=float4(m[1].z,m[0].z,m[0].z,m[0].z);
-float4 Vec3=float4(m[1].w,m[0].w,m[0].w,m[0].w);
-float4 inv0=Vec1*fac0-Vec2*fac1+Vec3*fac2;
-float4 inv1=Vec0*fac0-Vec2*fac3+Vec3*fac4;
-float4 inv2=Vec0*fac1-Vec1*fac3+Vec3*fac5;
-float4 inv3=Vec0*fac2-Vec1*fac4+Vec2*fac5;
-float4 sign_a=float4(+1.0f,-1.0f,+1.0f,-1.0f);
-float4 sign_b=float4(-1.0f,+1.0f,-1.0f,+1.0f);
-float4 inv_0=inv0*sign_a;
-float4 inv_1=inv1*sign_b;
-float4 inv_2=inv2*sign_a;
-float4 inv_3=inv3*sign_b;
-float4 dot0=m[0]*float4(inv_0.x,inv_1.x,inv_2.x,inv_3.x);
-return dot0.x+dot0.y+dot0.z+dot0.w;
-}
-float2x2 inverse(float2x2 m){
-float one_over_determinant=1.0f/(m[0][0]*m[1][1]-m[1][0]*m[0][1]);
-return float2x2(m[1][1]*one_over_determinant,
--m[0][1]*one_over_determinant,
--m[1][0]*one_over_determinant,
-+m[0][0]*one_over_determinant);
-}
-float3x4 inverse(float3x4 m){
-float one_over_determinant=1.0f /
-(m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z) -
-m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z) +
-m[2].x*(m[0].y*m[1].z-m[1].y*m[0].z));
-return float3x4(
-(m[1].y*m[2].z-m[2].y*m[1].z)*one_over_determinant,
-(m[2].y*m[0].z-m[0].y*m[2].z)*one_over_determinant,
-(m[0].y*m[1].z-m[1].y*m[0].z)*one_over_determinant,
-0,
-(m[2].x*m[1].z-m[1].x*m[2].z)*one_over_determinant,
-(m[0].x*m[2].z-m[2].x*m[0].z)*one_over_determinant,
-(m[1].x*m[0].z-m[0].x*m[1].z)*one_over_determinant,
-0,
-(m[1].x*m[2].y-m[2].x*m[1].y)*one_over_determinant,
-(m[2].x*m[0].y-m[0].x*m[2].y)*one_over_determinant,
-(m[0].x*m[1].y-m[1].x*m[0].y)*one_over_determinant,
-0);
-}
-float4x4 inverse(float4x4 m){
-float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
-float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
-float coef03=m[1].z*m[2].w-m[2].z*m[1].w;
-float coef04=m[2].y*m[3].w-m[3].y*m[2].w;
-float coef06=m[1].y*m[3].w-m[3].y*m[1].w;
-float coef07=m[1].y*m[2].w-m[2].y*m[1].w;
-float coef08=m[2].y*m[3].z-m[3].y*m[2].z;
-float coef10=m[1].y*m[3].z-m[3].y*m[1].z;
-float coef11=m[1].y*m[2].z-m[2].y*m[1].z;
-float coef12=m[2].x*m[3].w-m[3].x*m[2].w;
-float coef14=m[1].x*m[3].w-m[3].x*m[1].w;
-float coef15=m[1].x*m[2].w-m[2].x*m[1].w;
-float coef16=m[2].x*m[3].z-m[3].x*m[2].z;
-float coef18=m[1].x*m[3].z-m[3].x*m[1].z;
-float coef19=m[1].x*m[2].z-m[2].x*m[1].z;
-float coef20=m[2].x*m[3].y-m[3].x*m[2].y;
-float coef22=m[1].x*m[3].y-m[3].x*m[1].y;
-float coef23=m[1].x*m[2].y-m[2].x*m[1].y;
-float4 fac0=float4(coef00,coef00,coef02,coef03);
-float4 fac1=float4(coef04,coef04,coef06,coef07);
-float4 fac2=float4(coef08,coef08,coef10,coef11);
-float4 fac3=float4(coef12,coef12,coef14,coef15);
-float4 fac4=float4(coef16,coef16,coef18,coef19);
-float4 fac5=float4(coef20,coef20,coef22,coef23);
-float4 Vec0=float4(m[1].x,m[0].x,m[0].x,m[0].x);
-float4 Vec1=float4(m[1].y,m[0].y,m[0].y,m[0].y);
-float4 Vec2=float4(m[1].z,m[0].z,m[0].z,m[0].z);
-float4 Vec3=float4(m[1].w,m[0].w,m[0].w,m[0].w);
-float4 inv0=Vec1*fac0-Vec2*fac1+Vec3*fac2;
-float4 inv1=Vec0*fac0-Vec2*fac3+Vec3*fac4;
-float4 inv2=Vec0*fac1-Vec1*fac3+Vec3*fac5;
-float4 inv3=Vec0*fac2-Vec1*fac4+Vec2*fac5;
-float4 sign_a=float4(+1.0f,-1.0f,+1.0f,-1.0f);
-float4 sign_b=float4(-1.0f,+1.0f,-1.0f,+1.0f);
-float4 inv_0=inv0*sign_a;
-float4 inv_1=inv1*sign_b;
-float4 inv_2=inv2*sign_a;
-float4 inv_3=inv3*sign_b;
-float4 dot0=m[0]*float4(inv_0.x,inv_1.x,inv_2.x,inv_3.x);
-float dot1=dot0.x+dot0.y+dot0.z+dot0.w;
-float one_over_determinant=1.0f/dot1;
-return float4x4(inv_0*one_over_determinant,
-inv_1*one_over_determinant,
-inv_2*one_over_determinant,
-inv_3*one_over_determinant);
-}
 template<typename T>
 T _acosh(T v){return log(v+sqrt(v*v-1.0));}
 template<typename T>
@@ -133,14 +11,6 @@ template<typename T>
 T _exp10(T v){return pow(10,v);};
 template<typename T>
 float _length_sqr(T x){return dot(x,x);}
-float copysign(float a,float b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float2 copysign(float2 a,float2 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float3 copysign(float3 a,float3 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float4 copysign(float4 a,float4 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float16_t copysign(float16_t a,float16_t b){return copysign((float)a,(float)b);}
-float16_t copysign(float16_t2 a,float16_t2 b){return copysign((float2)a,(float2)b);}
-float16_t copysign(float16_t3 a,float16_t3 b){return copysign((float3)a,(float3)b);}
-float16_t copysign(float16_t4 a,float16_t4 b){return copysign((float4)a,(float4)b);}
 template<typename T>
 T _fma(T a,T b,T c){return a*b+c;}
 // TODO
@@ -190,41 +60,11 @@ row_major float4x4 m;
 #define bfwriteMat(bf,idx,value) bf[idx].m=value
 #define Smptx(tex,uv) tex[uv]
 #define Writetx(tex,uv,value) tex[uv]=value
-uint ReadBdlsBuffer(ByteAddressBuffer s,uint idx){
-return s.Load(24*idx);
-}
-uint ReadBdlsTex2D(ByteAddressBuffer s,uint idx){
-return s.Load(24*idx+4);
-}
-uint ReadBdlsTex3D(ByteAddressBuffer s,uint idx){
-return s.Load(24*idx+8);
-}
-uint2 ReadBdlsTex2DXY(ByteAddressBuffer s,uint idx){
-uint xy=s.Load(24*idx+12);
-uint x=(xy>>16);
-uint y=(xy&65535);
-return uint2(x,y);
-}
-uint3 ReadBdlsTex3DXYZ(ByteAddressBuffer s,uint idx){
-uint xy=s.Load(24*idx+16);
-uint smp=s.Load(24*idx+20);
-uint x=(xy>>16);
-uint y=(xy&65535);
-uint z=(smp>>16);
-return uint3(x,y,z);
-}
-uint ReadBdlsSmp3D(ByteAddressBuffer s,uint idx){
-uint smp=s.Load(24*idx+20);
-smp=(smp>>8);
-return smp&255;
-}
-uint ReadBdlsSmp2D(ByteAddressBuffer s,uint idx){
-uint smp=s.Load(24*idx+20);
-return smp&255;
-}
 template<typename T>
 T fract(T x){return x-floor(x);}
-#define READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(ReadBdlsBuffer(arr,arrIdx))].Load<type>(size*idx)
+struct Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
+struct Hit1{uint v0;uint v1;float2 v2;float v3;};
+struct Hit2{uint v0;uint v1;};
 struct MeshInst {
 float4 p0;
 float4 p1;
@@ -235,69 +75,3 @@ uint InstanceContributionToHitGroupIndex:24;
 uint Flags:8;
 uint2 accelStructPtr;
 };
-template<typename T>
-float4x4 InstMatrix(T instBuffer,uint index){
-MeshInst v=instBuffer[index];
-return float4x4(
-float4(v.p0.x,v.p1.x,v.p2.x,0),
-float4(v.p0.y,v.p1.y,v.p2.y,0),
-float4(v.p0.z,v.p1.z,v.p2.z,0),
-float4(v.p0.w,v.p1.w,v.p2.w,1));
-}
-void SetInstTransform(inout MeshInst i,float4x4 mat){
-i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
-i.p1=float4(mat[0].y,mat[1].y,mat[2].y,mat[3].y);
-i.p2=float4(mat[0].z,mat[1].z,mat[2].z,mat[3].z);
-}
-void SetAccelTransform(RWStructuredBuffer<MeshInst> buffer,uint index,float4x4 mat){
-SetInstTransform(buffer[index],mat);
-}
-void SetAccelVis(RWStructuredBuffer<MeshInst> buffer,uint index,uint mask){
-buffer[index].InstanceMask=mask;
-}
-void SetAccelOpaque(RWStructuredBuffer<MeshInst> buffer,uint index,bool opaque){
-buffer[index].Flags=select(opaque,4,8);
-}
-struct Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
-struct Hit1{uint v0;uint v1;float2 v2;float v3;};
-struct Hit2{uint v0;uint v1;};
-void ClearDispInd(RWStructuredBuffer<uint> buffer){buffer[0]=0;}
-void EmplaceDispInd3D(RWStructuredBuffer<uint> buffer,uint3 blk,uint3 size,uint ker){
-uint idx;
-uint3 dispSize=(size+blk-1)/blk;
-InterlockedAdd(buffer[0],1,idx);
-idx=idx*7+1;
-buffer[idx]=size.x;
-buffer[idx+1]=size.y;
-buffer[idx+2]=size.z;
-buffer[idx+3]=ker;
-buffer[idx+4]=dispSize.x;
-buffer[idx+5]=dispSize.y;
-buffer[idx+6]=dispSize.z;
-}
-void EmplaceDispInd2D(RWStructuredBuffer<uint> buffer,uint2 blk,uint2 size,uint ker){
-uint idx;
-uint2 dispSize=(size+blk-1)/blk;
-InterlockedAdd(buffer[0],1,idx);
-idx=idx*7+1;
-buffer[idx]=size.x;
-buffer[idx+1]=size.y;
-buffer[idx+2]=1;
-buffer[idx+3]=ker;
-buffer[idx+4]=dispSize.x;
-buffer[idx+5]=dispSize.y;
-buffer[idx+6]=1;
-}
-void EmplaceDispInd1D(RWStructuredBuffer<uint> buffer,uint blk,uint size,uint ker){
-uint idx;
-uint dispSize=(size+blk-1)/blk;
-InterlockedAdd(buffer[0],1,idx);
-idx=idx*7+1;
-buffer[idx]=size;
-buffer[idx+1]=1;
-buffer[idx+2]=1;
-buffer[idx+3]=ker;
-buffer[idx+4]=dispSize;
-buffer[idx+5]=1;
-buffer[idx+6]=1;
-}

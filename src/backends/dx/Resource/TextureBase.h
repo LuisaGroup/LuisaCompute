@@ -54,9 +54,6 @@ public:
         D3D12_RESOURCE_STATES initState);
     virtual ~TextureBase();
     TextureBase(TextureBase &&) = default;
-    D3D12_RESOURCE_STATES GetNonSimulCurrentState() const override;
-    void SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const override;
-    bool IsNonSimulResource() const override { return true; }
     KILL_COPY_CONSTRUCT(TextureBase)
 };
 }// namespace lc::dx

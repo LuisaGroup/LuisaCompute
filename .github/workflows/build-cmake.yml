@@ -46,7 +46,7 @@ jobs:
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
           vulkan-query-version: 1.3.204.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loaders
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Configure and Build"
         run: |
@@ -69,12 +69,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-11, macos-12 ]
-        compiler: [ homebrew-clang, system-clang ]
+        os: [ macos-12, macos-13 ]
+        compiler: [ homebrew-clang ]
         config: [ Release, Debug ]
-        exclude:
-          - os: macos-11
-            compiler: system-clang
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
     steps:
@@ -83,12 +80,12 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja opencv llvm sccache glfw
+          brew install cmake ninja llvm sccache glfw
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
           vulkan-query-version: 1.3.204.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loaders
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Configure and Build"
         run: |
@@ -124,7 +121,7 @@ jobs:
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
           vulkan-query-version: 1.3.204.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loaders
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Configure and Build"
         shell: cmd

@@ -39,6 +39,7 @@ class Image2D:
         self.bytesize = lcapi.pixel_storage_size(self.storage, width, height, 1)
         self.texture2DType = Texture2DType(dtype, channel)
         self.read = self.texture2DType.read
+        self.texture_size = self.texture2DType.texture_size
         self.write = self.texture2DType.write
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, mip)
@@ -111,7 +112,7 @@ class Image2D:
 
     def copy_to_tex(self, tex, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert self.storage == tex.storage and self.width == tex.width and self.height == tex.height
         cpcmd = lcapi.TextureCopyCommand.create(self.storage, self.handle, tex.handle, 0, 0,
                                                 lcapi.uint3(self.width, self.height, 1))
@@ -121,7 +122,7 @@ class Image2D:
 
     def copy_from_tex(self, tex, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert self.storage == tex.storage and self.width == tex.width and self.height == tex.height
         cpcmd = lcapi.TextureCopyCommand.create(self.storage, tex.handle, self.handle, 0, 0,
                                                 lcapi.uint3(self.width, self.height, 1))
@@ -137,7 +138,7 @@ class Image2D:
 
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width, self.height, 1),
                                                   arr)
@@ -148,7 +149,7 @@ class Image2D:
 
     def copy_to(self, arr, sync=True, stream=None):  # arr: numpy array
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0,
                                                     lcapi.uint3(self.width, self.height, 1), arr)
@@ -185,7 +186,11 @@ class Texture2DType:
 
     def __hash__(self):
         return hash(self.dtype) ^ hash(self.channel) ^ 127858794396757894
-
+    
+    @BuiltinFuncBuilder
+    def texture_size(self):
+        return uint2, lcapi.builder().call(to_lctype(uint2), lcapi.CallOp.TEXTURE_SIZE, [self.expr])
+            
     @staticmethod
     @cache
     def get_read_method(dtype):

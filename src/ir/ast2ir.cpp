@@ -1,7 +1,7 @@
 //
 // Created by Mike Smith on 2022/10/17.
 //
-
+#include <fstream>
 #include <core/logging.h>
 #include <ir/ast2ir.h>
 #include <ast/function_builder.h>
@@ -53,7 +53,8 @@ ir::Module AST2IR::_convert_body() noexcept {
     return ir::Module{.kind = _function.tag() == Function::Tag::KERNEL ?
                                   ir::ModuleKind::Kernel :
                                   ir::ModuleKind::Function,
-                      .entry = bb};
+                      .entry = bb,
+                      .pools = _pools.clone()};
 }
 
 luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function function) noexcept {
@@ -75,39 +76,39 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
             luisa::visit(
                 luisa::overloaded{
                     [&](luisa::monostate) noexcept {
-                LUISA_ERROR_WITH_LOCATION("unbound argument found in bound_arguments.");
+                        LUISA_ERROR_WITH_LOCATION("unbound argument found in bound_arguments.");
                     },
                     [&](Function::BufferBinding b) noexcept {
-                ir::Capture capture{};
-                capture.node = node;
-                capture.binding.tag = ir::Binding::Tag::Buffer;
-                capture.binding.buffer._0.handle = b.handle;
-                capture.binding.buffer._0.offset = b.offset;
-                capture.binding.buffer._0.size = b.size;
-                captures.ptr[i] = capture;
-                },
-                [&](Function::TextureBinding b) noexcept {
-                ir::Capture capture{};
-                capture.node = node;
-                capture.binding.tag = ir::Binding::Tag::Texture;
-                capture.binding.texture._0.handle = b.handle;
-                capture.binding.texture._0.level = b.level;
-                captures.ptr[i] = capture;
-                },
-                [&](Function::BindlessArrayBinding b) noexcept {
-                ir::Capture capture{};
-                capture.node = node;
-                capture.binding.tag = ir::Binding::Tag::BindlessArray;
-                capture.binding.bindless_array._0.handle = b.handle;
-                captures.ptr[i] = capture;
-            },
-                [&](Function::AccelBinding b) noexcept {
-                ir::Capture capture{};
-                capture.node = node;
-                capture.binding.tag = ir::Binding::Tag::Accel;
-                capture.binding.accel._0.handle = b.handle;
-                captures.ptr[i] = capture;
-                },
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Buffer;
+                        capture.binding.buffer._0.handle = b.handle;
+                        capture.binding.buffer._0.offset = b.offset;
+                        capture.binding.buffer._0.size = b.size;
+                        captures.ptr[i] = capture;
+                    },
+                    [&](Function::TextureBinding b) noexcept {
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Texture;
+                        capture.binding.texture._0.handle = b.handle;
+                        capture.binding.texture._0.level = b.level;
+                        captures.ptr[i] = capture;
+                    },
+                    [&](Function::BindlessArrayBinding b) noexcept {
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::BindlessArray;
+                        capture.binding.bindless_array._0.handle = b.handle;
+                        captures.ptr[i] = capture;
+                    },
+                    [&](Function::AccelBinding b) noexcept {
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Accel;
+                        capture.binding.accel._0.handle = b.handle;
+                        captures.ptr[i] = capture;
+                    },
                 },
                 binding);
         }
@@ -128,8 +129,24 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
             shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
         auto module = _convert_body();
+
+        LUISA_INFO("creating autodiff pipeline");
+        auto autodiff_pipeline = ir::luisa_compute_ir_transform_pipeline_new();
+        LUISA_INFO("adding autodiff transform");
+        ir::luisa_compute_ir_transform_pipeline_add_transform(autodiff_pipeline, "autodiff");
+        LUISA_INFO("converting module");
+        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, module);
+        //
+        auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
+        std::ofstream out2{"autodiff_ir_dump_instant.txt"};
+        out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
+        //
+        LUISA_INFO("destroying pipeline");
+        ir::luisa_compute_ir_transform_pipeline_destroy(autodiff_pipeline);
+        LUISA_INFO("autodiff done");
+
         return ir::luisa_compute_ir_new_kernel_module(
-            ir::KernelModule{.module = module,
+            ir::KernelModule{.module = converted_module,
                              .captures = captures,
                              .args = non_captures,
                              .shared = shared,
@@ -140,7 +157,7 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
     });
     return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(m),
             [](auto p) noexcept {
-        luisa::delete_with_allocator(p);
+                luisa::delete_with_allocator(p);
             }};
 }
 
@@ -204,8 +221,9 @@ ir::NodeRef AST2IR::_convert_stmt(const Statement *stmt) noexcept {
         case Statement::Tag::FOR: return _convert(static_cast<const ForStmt *>(stmt)); break;
         case Statement::Tag::COMMENT: return _convert(static_cast<const CommentStmt *>(stmt)); break;
         case Statement::Tag::RAY_QUERY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case Statement::Tag::AUTO_DIFF: return _convert(static_cast<const AutoDiffStmt *>(stmt)); break;
     }
-    LUISA_ERROR_WITH_LOCATION("Invalid statement tag.");
+    LUISA_ERROR_WITH_LOCATION("Invalid statement tag: {}.", to_underlying(stmt->tag()));
 }
 
 ir::IrBuilder *AST2IR::_current_builder() noexcept {
@@ -308,12 +326,12 @@ ir::NodeRef AST2IR::_convert_constant(const ConstantData &data) noexcept {
         .tag = ir::Const::Tag::Generic,
         .generic = luisa::visit(
             [this](auto view) noexcept {
-        using T = typename decltype(view)::value_type;
-        auto type = _convert_type(Type::from(luisa::format(
-            "array<{},{}>", Type::of<T>()->description(), view.size())));
-        auto slice = _boxed_slice<uint8_t>(view.size_bytes());
-        std::memcpy(slice.ptr, view.data(), view.size_bytes());
-        return ir::Const::Generic_Body{slice, type};
+                using T = typename decltype(view)::value_type;
+                auto type = _convert_type(Type::from(luisa::format(
+                    "array<{},{}>", Type::of<T>()->description(), view.size())));
+                auto slice = _boxed_slice<uint8_t>(view.size_bytes());
+                std::memcpy(slice.ptr, view.data(), view.size_bytes());
+                return ir::Const::Generic_Body{slice, type};
             },
             data.view())};
     auto node = ir::luisa_compute_ir_build_const(b, c);
@@ -324,47 +342,47 @@ ir::NodeRef AST2IR::_convert_constant(const ConstantData &data) noexcept {
 ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
     return luisa::visit(
         [&](auto x) noexcept {
-        using T = std::decay_t<decltype(x)>;
-        LUISA_ASSERT(*Type::of<T>() == *expr->type(),
-                     "Type mismatch: '{}' vs. '{}'.",
-                     Type::of<T>()->description(),
-                     expr->type()->description());
-        if constexpr (is_scalar_v<T>) {
-            auto c = [&]() noexcept -> ir::Const {
-                if (x == static_cast<T>(0)) {
-                    ir::Const cc{};
-                    cc.tag = ir::Const::Tag::Zero;
-                    cc.zero = {_convert_type(expr->type())};
-                    return cc;
-                }
-                if constexpr (std::is_same_v<T, bool>) {
-                    return ir::Const{.tag = ir::Const::Tag::Bool, .bool_ = {x}};
-                } else if constexpr (std::is_same_v<T, float>) {
-                    return ir::Const{.tag = ir::Const::Tag::Float32, .float32 = {x}};
-                } else if constexpr (std::is_same_v<T, int>) {
-                    return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
-                } else if constexpr (std::is_same_v<T, uint>) {
-                    return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
-                } else {
-                    static_assert(always_false_v<T>, "Unsupported scalar type.");
-                }
-            }();
-            auto b = _current_builder();
-            return ir::luisa_compute_ir_build_const(b, c);
-        } else {
-            auto salt = luisa::hash_value("__ast2ir_literal");// FIXME: use which hash??
-            auto hash = luisa::hash_value(x, luisa::hash_value(expr->type()->hash(), salt));
-            if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
-            auto slice = _boxed_slice<uint8_t>(sizeof(T));
-            std::memcpy(slice.ptr, &x, sizeof(T));
-            auto c = ir::Const{};
-            c.tag = ir::Const::Tag::Generic;
-            c.generic = {slice, _convert_type(expr->type())};
-            auto b = _current_builder();
-            auto node = ir::luisa_compute_ir_build_const(b, c);
-            _constants.emplace(hash, node);
-            return node;
-        }
+            using T = std::decay_t<decltype(x)>;
+            LUISA_ASSERT(*Type::of<T>() == *expr->type(),
+                         "Type mismatch: '{}' vs. '{}'.",
+                         Type::of<T>()->description(),
+                         expr->type()->description());
+            if constexpr (is_scalar_v<T>) {
+                auto c = [&]() noexcept -> ir::Const {
+                    if (x == static_cast<T>(0)) {
+                        ir::Const cc{};
+                        cc.tag = ir::Const::Tag::Zero;
+                        cc.zero = {_convert_type(expr->type())};
+                        return cc;
+                    }
+                    if constexpr (std::is_same_v<T, bool>) {
+                        return ir::Const{.tag = ir::Const::Tag::Bool, .bool_ = {x}};
+                    } else if constexpr (std::is_same_v<T, float>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float32, .float32 = {x}};
+                    } else if constexpr (std::is_same_v<T, int>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
+                    } else if constexpr (std::is_same_v<T, uint>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else {
+                        static_assert(always_false_v<T>, "Unsupported scalar type.");
+                    }
+                }();
+                auto b = _current_builder();
+                return ir::luisa_compute_ir_build_const(b, c);
+            } else {
+                auto salt = luisa::hash_value("__ast2ir_literal");// FIXME: use which hash??
+                auto hash = luisa::hash_value(x, luisa::hash_value(expr->type()->hash(), salt));
+                if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
+                auto slice = _boxed_slice<uint8_t>(sizeof(T));
+                std::memcpy(slice.ptr, &x, sizeof(T));
+                auto c = ir::Const{};
+                c.tag = ir::Const::Tag::Generic;
+                c.generic = {slice, _convert_type(expr->type())};
+                auto b = _current_builder();
+                auto node = ir::luisa_compute_ir_build_const(b, c);
+                _constants.emplace(hash, node);
+                return node;
+            }
         },
         expr->value());
 }
@@ -501,6 +519,19 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             _convert_type(callable.return_type()));
         return _cast(expr->type(), callable.return_type(), call);
     }
+
+    // CallOp::ONE compiles to ConstExpr instead of CallExpr
+    // this is TOO ad-hoc, when to refactor
+    if (expr->op() == CallOp::ONE) {
+        auto type = _convert_type(expr->type());
+        auto c = ir::Const{
+            .tag = ir::Const::Tag::One,
+            .one = ir::Const::One_Body{
+                ._0 = type,
+            }};
+        return ir::luisa_compute_ir_build_const(_current_builder(), c);
+    }
+
     // built-in
     auto tag = [expr] {
         switch (expr->op()) {
@@ -627,6 +658,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::BINDLESS_BUFFER_TYPE: return ir::Func::Tag::BindlessBufferType;
             case CallOp::REQUIRES_GRADIENT: return ir::Func::Tag::RequiresGradient;
             case CallOp::GRADIENT: return ir::Func::Tag::Gradient;
+            case CallOp::BACKWARD: return ir::Func::Tag::Backward;
             case CallOp::GRADIENT_MARKER: return ir::Func::Tag::GradientMarker;
             case CallOp::ACCUMULATE_GRADIENT: return ir::Func::Tag::AccGrad;
             case CallOp::DETACH: return ir::Func::Tag::Detach;
@@ -743,6 +775,14 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     //            }
     //        }
     //    }
+    else if (expr->op() == CallOp::GRADIENT_MARKER) {
+        LUISA_VERBOSE("using gradient marker arg emplace");
+
+        args.reserve(2);
+        args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[0])));
+        // args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[1])));
+        args.emplace_back(_convert_expr(expr->arguments()[1]));
+    }
     else {
         LUISA_VERBOSE("using default arg emplace");
         args.reserve(expr->arguments().size());
@@ -960,6 +1000,7 @@ ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
     auto lhs = _convert_expr(stmt->lhs());
     auto rhs = _cast(stmt->lhs()->type(), stmt->rhs()->type(),
                      _convert_expr(stmt->rhs()));
+    assign_map[lhs._0] = rhs;
     auto instr = ir::luisa_compute_ir_new_instruction(
         ir::Instruction{.tag = ir::Instruction::Tag::Update,
                         .update = {.var = lhs, .value = rhs}});
@@ -1032,6 +1073,23 @@ ir::NodeRef AST2IR::_convert(const CommentStmt *stmt) noexcept {
         ir::Node{.type_ = _convert_type(nullptr).clone(),
                  .instruction = instr});
     ir::luisa_compute_ir_append_node(b, node);
+    return node;
+}
+
+ir::NodeRef AST2IR::_convert(const AutoDiffStmt *stmt) noexcept {
+    auto body = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->body()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto instr = ir::luisa_compute_ir_new_instruction(ir::Instruction{
+        .tag = ir::Instruction::Tag::AdScope,
+        .ad_scope = ir::Instruction::AdScope_Body{
+            .body = body}});
+    auto node = ir::luisa_compute_ir_new_node(
+        _pools.clone(),
+        ir::Node{.type_ = _convert_type(nullptr).clone(),
+                 .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
     return node;
 }
 
@@ -1210,47 +1268,55 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
 ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcept {
     return luisa::visit(
         [&](auto x) noexcept {
-        using T = std::decay_t<decltype(x)>;
-        LUISA_ASSERT(*Type::of<T>() == *type,
-                     "Type mismatch: '{}' vs. '{}'.",
-                     Type::of<T>()->description(),
-                     type->description());
-        if constexpr (is_scalar_v<T>) {
-            auto c = [&]() noexcept -> ir::Const {
-                if (x == static_cast<T>(0)) {
-                    ir::Const cc{.tag = ir::Const::Tag::Zero};
-                    cc.zero = {_convert_type(type).clone()};
-                    return cc;
-                }
-                if constexpr (std::is_same_v<T, bool>) {
-                    return ir::Const{.tag = ir::Const::Tag::Bool, .bool_ = {x}};
-                } else if constexpr (std::is_same_v<T, float>) {
-                    return ir::Const{.tag = ir::Const::Tag::Float32, .float32 = {x}};
-                } else if constexpr (std::is_same_v<T, int>) {
-                    return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
-                } else if constexpr (std::is_same_v<T, uint>) {
-                    return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
-                } else {
-                    static_assert(always_false_v<T>, "Unsupported scalar type.");
-                }
-            }();
-            auto b = _current_builder();
-            return ir::luisa_compute_ir_build_const(b, c);
-        } else {
-            auto salt = luisa::hash_value("__ast2ir_literal");
-            auto hash = luisa::hash_combine({luisa::hash_value(x), type->hash()}, salt);
-            if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
-            auto slice = _boxed_slice<uint8_t>(sizeof(T));
-            std::memcpy(slice.ptr, &x, sizeof(T));
-            auto c = ir::Const{.tag = ir::Const::Tag::Generic};
-            c.generic = {slice, _convert_type(type).clone()};
-            auto b = _current_builder();
-            auto node = ir::luisa_compute_ir_build_const(b, c);
-            _constants.emplace(hash, node);
-            return node;
-        }
+            using T = std::decay_t<decltype(x)>;
+            LUISA_ASSERT(*Type::of<T>() == *type,
+                         "Type mismatch: '{}' vs. '{}'.",
+                         Type::of<T>()->description(),
+                         type->description());
+            if constexpr (is_scalar_v<T>) {
+                auto c = [&]() noexcept -> ir::Const {
+                    if (x == static_cast<T>(0)) {
+                        ir::Const cc{.tag = ir::Const::Tag::Zero};
+                        cc.zero = {_convert_type(type).clone()};
+                        return cc;
+                    }
+                    if constexpr (std::is_same_v<T, bool>) {
+                        return ir::Const{.tag = ir::Const::Tag::Bool, .bool_ = {x}};
+                    } else if constexpr (std::is_same_v<T, float>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float32, .float32 = {x}};
+                    } else if constexpr (std::is_same_v<T, int>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
+                    } else if constexpr (std::is_same_v<T, uint>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else {
+                        static_assert(always_false_v<T>, "Unsupported scalar type.");
+                    }
+                }();
+                auto b = _current_builder();
+                return ir::luisa_compute_ir_build_const(b, c);
+            } else {
+                auto salt = luisa::hash_value("__ast2ir_literal");
+                auto hash = luisa::hash_combine({luisa::hash_value(x), type->hash()}, salt);
+                if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
+                auto slice = _boxed_slice<uint8_t>(sizeof(T));
+                std::memcpy(slice.ptr, &x, sizeof(T));
+                auto c = ir::Const{.tag = ir::Const::Tag::Generic};
+                c.generic = {slice, _convert_type(type).clone()};
+                auto b = _current_builder();
+                auto node = ir::luisa_compute_ir_build_const(b, c);
+                _constants.emplace(hash, node);
+                return node;
+            }
         },
         value);
+}
+
+[[nodiscard]] ir::NodeRef AST2IR::get_assign_rhs(ir::NodeRef lhs) {
+    if (auto it = assign_map.find(lhs._0); it != nullptr) {
+        return it->second;
+    } else {
+        return lhs;
+    }
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {

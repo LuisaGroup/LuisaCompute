@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::panic_abort;
 use lazy_static::lazy_static;
 use libloading::Symbol;
 use serde::{Deserialize, Serialize};
@@ -65,7 +66,7 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
@@ -100,7 +101,6 @@ pub type LLVMOrcMaterializationUnitRef = *mut LLVMOrcOpaqueMaterializationUnit;
 
 use crate::cpu::shader::ShaderImpl;
 use crate::cpu::stream::ShaderDispatchContext;
-use crate::{BackendError, BackendErrorKind};
 use libc::{c_char, c_void, size_t};
 use parking_lot::{Mutex, ReentrantMutex};
 
@@ -210,9 +210,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -221,9 +221,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -233,7 +233,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -268,7 +268,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -278,7 +278,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -301,9 +301,9 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
 }
@@ -332,7 +332,11 @@ impl LLVMPaths {
         }
     }
     pub fn get() -> LLVMPaths {
-        let cur = current_exe().unwrap().parent().unwrap().join(PATH_CACHE_FILE);
+        let cur = current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(PATH_CACHE_FILE);
         let paths = if cur.exists() {
             let file = File::open(&cur).unwrap();
             let reader = BufReader::new(file);
@@ -348,7 +352,7 @@ impl LLVMPaths {
                     match var("LUISA_CLANG_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++");
+                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++")
                         }
                     }
                 }),
@@ -359,7 +363,7 @@ impl LLVMPaths {
                     match var("LUISA_LLVM_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of LLVM");
+                            panic_abort!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of LLVM")
                         }
                     }
                 }),
@@ -430,8 +434,8 @@ fn llvm_lib_path() -> &'static str {
 #[allow(non_snake_case)]
 impl LibLLVM {
     fn new() -> Self {
-        if cfg!(not(target_arch = "x86_64")) {
-            panic!("only x86_64 is supported");
+        if cfg!(all(not(target_arch = "x86_64"), not(target_arch = "aarch64"))) {
+            panic_abort!("only x86_64 and aarch64 are supported");
         }
         unsafe {
             let lib = libloading::Library::new(&llvm_lib_path()).unwrap();
@@ -442,14 +446,48 @@ impl LibLLVM {
             let LLVMParseBitcodeInContext2 = lift(lib.get(b"LLVMParseBitcodeInContext2").unwrap());
             let LLVMDumpModule = lift(lib.get(b"LLVMDumpModule").unwrap());
             let LLVMLinkInMCJIT = lift(lib.get(b"LLVMLinkInMCJIT").unwrap());
-            let LLVMInitializeNativeTarget = lift(lib.get(b"LLVMInitializeX86Target").unwrap());
-            let LLVMInitializeNativeTargetInfo =
-                lift(lib.get(b"LLVMInitializeX86TargetInfo").unwrap());
-            let LLVMInitializeNativeTargetMC = lift(lib.get(b"LLVMInitializeX86TargetMC").unwrap());
-            let LLVMInitializeNativeTargetMCA =
-                lift(lib.get(b"LLVMInitializeX86TargetMCA").unwrap());
-            let LLVMInitializeNativeAsmPrinter =
-                lift(lib.get(b"LLVMInitializeX86AsmPrinter").unwrap());
+
+            let LLVMInitializeNativeTarget = lift(lib.get(if cfg!(target_arch = "x86_64") {
+                b"LLVMInitializeX86Target"
+            } else if cfg!(target_arch = "aarch64") {
+                b"LLVMInitializeAArch64Target"
+            } else {
+                unreachable!()
+            }).unwrap());
+
+            let LLVMInitializeNativeTargetInfo = lift(lib.get(if cfg!(target_arch = "x86_64") {
+                b"LLVMInitializeX86TargetInfo"
+            } else if cfg!(target_arch = "aarch64") {
+                b"LLVMInitializeAArch64TargetInfo"
+            } else {
+                unreachable!()
+            }).unwrap());
+
+            let LLVMInitializeNativeTargetMC = lift(lib.get(
+                if cfg!(target_arch = "x86_64") {
+                    b"LLVMInitializeX86TargetMC"
+                } else if cfg!(target_arch = "aarch64") {
+                    b"LLVMInitializeAArch64TargetMC"
+                } else {
+                    unreachable!()
+                }
+            ).unwrap());
+
+            let LLVMInitializeNativeTargetMCA = lift(lib.get(if cfg!(target_arch = "x86_64") {
+                b"LLVMInitializeX86TargetMCA"
+            } else if cfg!(target_arch = "aarch64") {
+                b"LLVMInitializeAArch64TargetMC"
+            } else {
+                unreachable!()
+            }).unwrap());
+
+            let LLVMInitializeNativeAsmPrinter = lift(lib.get(if cfg!(target_arch = "x86_64") {
+                b"LLVMInitializeX86AsmPrinter"
+            } else if cfg!(target_arch = "aarch64") {
+                b"LLVMInitializeAArch64AsmPrinter"
+            } else {
+                unreachable!()
+            }).unwrap());
 
             let LLVMContextDispose = lift(lib.get(b"LLVMContextDispose").unwrap());
             let LLVMDisposeModule = lift(lib.get(b"LLVMDisposeModule").unwrap());
@@ -595,7 +633,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             if (lib.LLVMParseBitcodeInContext2)(ctx, bc_buffer, &mut module as *mut LLVMModuleRef)
                 != 0
             {
-                panic!("LLVMParseBitcodeInContext2 failed");
+                panic_abort!("LLVMParseBitcodeInContext2 failed");
             }
             // let mut msg: *mut i8 = std::ptr::null_mut();
             // if (lib.LLVMParseIRInContext)(
@@ -605,7 +643,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             //     &mut msg as *mut *mut i8,
             // ) != 0
             // {
-            //     panic!("LLVMParseIRInContext failed");
+            //     panic_abort!("LLVMParseIRInContext failed");
             // }
             // let pass = CString::new("default<O3>").unwrap();
             // let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
@@ -741,10 +779,7 @@ impl Context {
                     let shader = &*shader;
                     let mut err = (&*ctx.error).lock();
                     if err.is_none() {
-                        *err = Some(BackendError {
-                            kind: BackendErrorKind::KernelExecution,
-                            message: shader.messages[msg as usize].clone(),
-                        });
+                        *err = Some(shader.messages[msg as usize].clone());
                     }
                 }
                 panic!("##lc_kernel##");
@@ -772,10 +807,7 @@ impl Context {
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
                     let mut err = (&*ctx.error).lock();
                     if err.is_none() {
-                        *err = Some(BackendError {
-                            kind: BackendErrorKind::KernelExecution,
-                            message: display,
-                        });
+                        *err = Some(display);
                     }
                 }
                 panic!("##lc_kernel##");
@@ -840,20 +872,32 @@ impl Context {
 }
 
 fn target_name() -> String {
-    "x86-64".to_string()
+    if cfg!(target_arch = "x86_64") {
+        "x86-64".to_string()
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64".to_string()
+    } else {
+        panic_abort!("unsupported target")
+    }
 }
 
 fn cpu_features() -> Vec<String> {
-    // "+avx,+avx2,+fma,+popcnt,+sse4.1,+sse4.2,+sse4a".to_string()
-    vec![
-        "avx".into(),
-        "avx2".into(),
-        "fma".into(),
-        "popcnt".into(),
-        "sse4.1".into(),
-        "sse4.2".into(),
-        "sse4a".into(),
-    ]
+    if cfg!(target_arch = "x86_64") {
+        // "+avx,+avx2,+fma,+popcnt,+sse4.1,+sse4.2,+sse4a".to_string()
+        vec![
+            "avx".into(),
+            "avx2".into(),
+            "fma".into(),
+            "popcnt".into(),
+            "sse4.1".into(),
+            "sse4.2".into(),
+            "sse4a".into(),
+        ]
+    } else if cfg!(target_arch = "aarch64") {
+        vec!["neon".into()]
+    } else {
+        panic_abort!("unsupported target")
+    }
 }
 
 fn target_triple() -> String {
@@ -862,9 +906,15 @@ fn target_triple() -> String {
     } else if cfg!(target_os = "linux") {
         "x86_64-unknown-linux-gnu".to_string()
     } else if cfg!(target_os = "macos") {
-        "x86_64-apple-darwin".to_string()
+        if cfg!(target_arch = "x86_64") {
+            "x86_64-apple-darwin".to_string()
+        } else if cfg!(target_arch = "aarch64") {
+            "aarch64-apple-darwin".to_string()
+        } else {
+            panic_abort!("unsupported target")
+        }
     } else {
-        panic!("unsupported target");
+        panic_abort!("unsupported target")
     }
 }
 

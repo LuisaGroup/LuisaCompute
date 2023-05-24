@@ -29,6 +29,8 @@ vstd::string Resource::get_tag_name(Tag tag) const {
             return "swap-chain";
         case Tag::DEPTH_BUFFER:
             return "depth-buffer";
+        case Tag::DSTORAGE_FILE:
+            return "direct-storage file";
         default:
             return "unknown-resource";
     }

@@ -26,6 +26,7 @@
 #include <ext.h>
 #include <backends/common/hlsl/binding_to_arg.h>
 #include <runtime/context.h>
+#include <DXRuntime/DStorageCommandQueue.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -43,7 +44,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DxTexCompressExt(&device->nativeDevice);
         },
         [](DeviceExtension *ext) {
-            delete static_cast<DxTexCompressExt *>(ext);
+        delete static_cast<DxTexCompressExt *>(ext);
         });
     exts.try_emplace(
         NativeResourceExt::name,
@@ -51,7 +52,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DxNativeResourceExt(device, &device->nativeDevice);
         },
         [](DeviceExtension *ext) {
-            delete static_cast<DxNativeResourceExt *>(ext);
+        delete static_cast<DxNativeResourceExt *>(ext);
         });
     exts.try_emplace(
         RasterExt::name,
@@ -59,7 +60,15 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DxRasterExt(device->nativeDevice);
         },
         [](DeviceExtension *ext) {
-            delete static_cast<DxRasterExt *>(ext);
+        delete static_cast<DxRasterExt *>(ext);
+        });
+    exts.try_emplace(
+        DStorageExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DStorageExtImpl(device->context().runtime_directory(), device);
+        },
+        [](DeviceExtension *ext) {
+        delete static_cast<DStorageExtImpl *>(ext);
         });
 }
 LCDevice::~LCDevice() {
@@ -157,15 +166,15 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
         &nativeDevice,
         nativeDevice.defaultAllocator.get(),
         [&] {
-            switch (type) {
-                case compute::StreamTag::COMPUTE:
-                    return D3D12_COMMAND_LIST_TYPE_COMPUTE;
-                case compute::StreamTag::GRAPHICS:
-                    return D3D12_COMMAND_LIST_TYPE_DIRECT;
-                case compute::StreamTag::COPY:
-                    return D3D12_COMMAND_LIST_TYPE_COPY;
-            }
-            LUISA_ERROR_WITH_LOCATION("Unreachable.");
+        switch (type) {
+            case compute::StreamTag::COMPUTE:
+                return D3D12_COMMAND_LIST_TYPE_COMPUTE;
+            case compute::StreamTag::GRAPHICS:
+                return D3D12_COMMAND_LIST_TYPE_DIRECT;
+            case compute::StreamTag::COPY:
+                return D3D12_COMMAND_LIST_TYPE_COPY;
+        }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());
     info.handle = reinterpret_cast<uint64>(res);
     info.native_handle = res->queue.Queue();
@@ -173,14 +182,38 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
 }
 
 void LCDevice::destroy_stream(uint64 handle) noexcept {
-    delete reinterpret_cast<LCCmdBuffer *>(handle);
+    auto queue = reinterpret_cast<CmdQueueBase *>(handle);
+    switch (queue->Tag()) {
+        case CmdQueueTag::MainCmd:
+            delete static_cast<LCCmdBuffer *>(queue);
+            break;
+        case CmdQueueTag::DStorage:
+            delete static_cast<DStorageCommandQueue *>(queue);
+            break;
+    }
 }
 void LCDevice::synchronize_stream(uint64 stream_handle) noexcept {
-    reinterpret_cast<LCCmdBuffer *>(stream_handle)->Sync();
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    switch (queue->Tag()) {
+        case CmdQueueTag::MainCmd:
+            static_cast<LCCmdBuffer *>(queue)->Sync();
+            break;
+        case CmdQueueTag::DStorage:
+            static_cast<DStorageCommandQueue *>(queue)->Complete();
+            break;
+    }
 }
 void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
-    reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute(std::move(list), nativeDevice.maxAllocatorCount);
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    switch (queue->Tag()) {
+        case CmdQueueTag::MainCmd:
+            reinterpret_cast<LCCmdBuffer *>(stream_handle)
+                ->Execute(std::move(list), nativeDevice.maxAllocatorCount);
+            break;
+        case CmdQueueTag::DStorage:
+            static_cast<DStorageCommandQueue *>(queue)->Execute(std::move(list));
+            break;
+    }
 }
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
@@ -271,11 +304,24 @@ void LCDevice::destroy_event(uint64 handle) noexcept {
     delete reinterpret_cast<LCEvent *>(handle);
 }
 void LCDevice::signal_event(uint64 handle, uint64 stream_handle) noexcept {
-    reinterpret_cast<LCEvent *>(handle)->Signal(
-        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    switch (queue->Tag()) {
+        case CmdQueueTag::MainCmd:
+            reinterpret_cast<LCEvent *>(handle)->Signal(
+                &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
+            break;
+        case CmdQueueTag::DStorage:
+            reinterpret_cast<LCEvent *>(handle)->Signal(
+                reinterpret_cast<DStorageCommandQueue *>(stream_handle));
+            break;
+    }
 }
 
 void LCDevice::wait_event(uint64 handle, uint64 stream_handle) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("Wait command not allowed in Direct-Storage.");
+    }
     reinterpret_cast<LCEvent *>(handle)->Wait(
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
 }
@@ -319,6 +365,10 @@ SwapChainCreationInfo LCDevice::create_swap_chain(
     bool allow_hdr,
     bool vsync,
     uint back_buffer_size) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("swapchain not allowed in Direct-Storage.");
+    }
     SwapChainCreationInfo info;
     auto res = new LCSwapChain(
         &nativeDevice,
@@ -339,6 +389,10 @@ void LCDevice::destroy_swap_chain(uint64 handle) noexcept {
     delete reinterpret_cast<LCSwapChain *>(handle);
 }
 void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_handle, uint64 image_handle) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("present not allowed in Direct-Storage.");
+    }
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Present(
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
@@ -422,7 +476,7 @@ void DxRasterExt::warm_up_pipeline_cache(
     const RasterState &state) noexcept {
     LUISA_ASSERT(render_target_formats.size() > 8, "Render target format must be less than 8");
     GFXFormat rtvs[8];
-    for(auto i : vstd::range(render_target_formats.size())){
+    for (auto i : vstd::range(render_target_formats.size())) {
         rtvs[i] = TextureBase::ToGFXFormat(render_target_formats[i]);
     }
     reinterpret_cast<RasterShader *>(shader_handle)->GetPSO({rtvs, render_target_formats.size()}, depth_format, state);

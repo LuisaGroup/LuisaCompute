@@ -206,27 +206,14 @@ impl DisplayIR {
                 self.output += "}";
             }
             Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
+                body,
             } => {
                 self.output += "AdScope {\n";
-                for node in forward.nodes().iter() {
+                for node in body.nodes().iter() {
                     self.display(*node, ident + 1, false);
                 }
                 self.add_ident(ident);
-                self.output += "} {\n";
-
-                for node in backward.nodes().iter() {
-                    self.display(*node, ident + 1, false);
-                }
-
-                self.add_ident(ident);
-                self.output += "} {\n";
-                for node in epilogue.nodes().iter() {
-                    self.display(*node, ident + 1, false);
-                }
-                self.add_ident(ident);
+                self.output += "}";
             }
             Instruction::AdDetach(bb) => {
                 self.output += "AdDetach {\n";
@@ -236,7 +223,7 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::Comment(_) => todo!(),
+            Instruction::Comment(_) => {},
             Instruction::Return(_) => todo!(),
         }
         if !no_new_line {

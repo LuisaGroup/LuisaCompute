@@ -161,3 +161,22 @@ end
 function char(str)
 	return libc.byteof(libc.dataptr(str), 0)
 end
+function to_byte_array(input, out)
+	if input:size() <= 0 then
+		return
+	end
+	local cut = char(',')
+	local str_ptr
+	local str_size
+	if type(input) == "string" then
+		str_ptr = libc.dataptr(input)
+		str_size = #input
+	else
+		str_ptr = input:caddr()
+		str_size = input:size()
+	end
+	for i = 0, (str_size - 1) do
+		out:add(tostring(libc.byteof(str_ptr, i))):add_char(cut)
+	end
+	out:erase(1)
+end

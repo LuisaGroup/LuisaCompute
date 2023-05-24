@@ -66,7 +66,7 @@ class BindlessArray:
 
     def update(self, sync=False, stream=None):
         if stream is None:
-            stream = globalvars.stream
+            stream = globalvars.vars.stream
         stream.update_bindless(self.array)
         if sync:
             stream.synchronize()
@@ -98,6 +98,11 @@ class BindlessArray:
     def texture2d_sample_grad(self, texture2d_index, uv, ddx, ddy):
         check_exact_signature([uint, float2, float2, float2], [texture2d_index, uv, ddx, ddy], "texture2d_sample_grad")
         return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE_GRAD, [self.expr, texture2d_index.expr, uv.expr, ddx.expr, ddy.expr])
+
+    @BuiltinFuncBuilder
+    def buffer_size(self, buffer_index):
+        check_exact_signature([uint], [buffer_index], "texture2d_size")
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BINDLESS_BUFFER_SIZE, [self.expr, buffer_index.expr])
 
     @BuiltinFuncBuilder
     def texture2d_size(self, texture2d_index):

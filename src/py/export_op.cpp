@@ -112,6 +112,8 @@ void export_op(py::module &m) {
 
         .value("CROSS", CallOp::CROSS)
         .value("DOT", CallOp::DOT)
+        .value("DDX", CallOp::DDX)
+        .value("DDY", CallOp::DDY)
         .value("LENGTH", CallOp::LENGTH)
         .value("LENGTH_SQUARED", CallOp::LENGTH_SQUARED)
         .value("NORMALIZE", CallOp::NORMALIZE)
@@ -136,8 +138,10 @@ void export_op(py::module &m) {
 
         .value("BUFFER_READ", CallOp::BUFFER_READ)    /// [(buffer, index) -> value]: reads the index-th element in buffer
         .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+        .value("BUFFER_SIZE", CallOp::BUFFER_SIZE)    /// [(buffer, index) -> UINT]: writes value into the index-th element of buffer
         .value("TEXTURE_READ", CallOp::TEXTURE_READ)  /// [(texture, coord) -> value]
         .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)/// [(texture, coord, value) -> void]
+        .value("TEXTURE_SIZE", CallOp::TEXTURE_SIZE)
 
         .value("BINDLESS_TEXTURE2D_SAMPLE", CallOp::BINDLESS_TEXTURE2D_SAMPLE)            //(bindless_array, index: uint, uv: float2): float4
         .value("BINDLESS_TEXTURE2D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float2, level: float): float4
@@ -149,6 +153,7 @@ void export_op(py::module &m) {
         .value("BINDLESS_TEXTURE3D_READ", CallOp::BINDLESS_TEXTURE3D_READ)                //(bindless_array, index: uint, coord: uint3): float4
         .value("BINDLESS_TEXTURE2D_READ_LEVEL", CallOp::BINDLESS_TEXTURE2D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint2, level: uint): float4
         .value("BINDLESS_TEXTURE3D_READ_LEVEL", CallOp::BINDLESS_TEXTURE3D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint3, level: uint): float4
+        .value("BINDLESS_BUFFER_SIZE", CallOp::BINDLESS_BUFFER_SIZE)                      //(bindless_array, index: uint): uint
         .value("BINDLESS_TEXTURE2D_SIZE", CallOp::BINDLESS_TEXTURE2D_SIZE)                //(bindless_array, index: uint): uint2
         .value("BINDLESS_TEXTURE3D_SIZE", CallOp::BINDLESS_TEXTURE3D_SIZE)                //(bindless_array, index: uint): uint3
         .value("BINDLESS_TEXTURE2D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL)    //(bindless_array, index: uint, level: uint): uint2

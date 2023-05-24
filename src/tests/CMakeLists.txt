@@ -65,6 +65,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_mpm88 test_mpm88.cpp)
     luisa_compute_add_executable(test_mpm3d test_mpm3d.cpp)
     luisa_compute_add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
+    luisa_compute_add_executable(test_texture3d test_texture3d.cpp)
 endif ()
 
 # GUI interaction with wxWidgets

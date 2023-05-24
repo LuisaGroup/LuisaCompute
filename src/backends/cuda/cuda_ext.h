@@ -22,25 +22,25 @@ class CUDADenoiserExt : public DenoiserExt {
     CUdeviceptr _state = 0;
     uint2 _resolution;
     optix::DenoiserGuideLayer _guideLayer = {};
-    void _denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output, 
-        Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> *aovs, uint aov_size);
-    void _init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution);
-    void _process(Stream &stream, DenoiserInput input);
-    void _get_result(Stream &stream, Buffer<float> &output, int index);
-    void _destroy(Stream &stream);
+    void _denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
+                  Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> *aovs, uint aov_size) noexcept;
+    void _init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept;
+    void _process(Stream &stream, DenoiserInput input) noexcept;
+    void _get_result(Stream &stream, Buffer<float> &output, int index) noexcept;
+    void _destroy(Stream &stream) noexcept;
 
 public:
-    CUDADenoiserExt(CUDADevice *device) : _device(device) {
+    CUDADenoiserExt(CUDADevice *device) noexcept : _device(device) {
     }
-    ~CUDADenoiserExt() {
+    ~CUDADenoiserExt() noexcept {
     }
-    void init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) override;
-    
-    void process(Stream &stream, DenoiserInput input) override;
-    
-    void get_result(Stream &stream, Buffer<float> &output, int index) override;
-    void destroy(Stream &stream) override;
-    void denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output, 
-        Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> **aovs, uint aov_size) override;
+    void init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept override;
+
+    void process(Stream &stream, DenoiserInput input) noexcept override;
+
+    void get_result(Stream &stream, Buffer<float> &output, int index) noexcept override;
+    void destroy(Stream &stream) noexcept override;
+    void denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
+                 Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> **aovs, uint aov_size) noexcept override;
 };
 }// namespace luisa::compute::cuda

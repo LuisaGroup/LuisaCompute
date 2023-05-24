@@ -32,6 +32,7 @@ if (WIN32)
             DXRuntime/CommandBuffer.cpp DXRuntime/CommandBuffer.h
             DXRuntime/CommandQueue.cpp DXRuntime/CommandQueue.h
             DXRuntime/Device.cpp DXRuntime/Device.h
+            DXRuntime/DStorageCommandQueue.cpp DXRuntime/DStorageCommandQueue.h
             DXRuntime/DxPtr.h
             DXRuntime/GlobalSamplers.cpp DXRuntime/GlobalSamplers.h
             DXRuntime/ResourceStateTracker.cpp DXRuntime/ResourceStateTracker.h

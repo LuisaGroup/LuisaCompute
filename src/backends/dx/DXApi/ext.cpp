@@ -7,6 +7,10 @@
 #include <Resource/ExternalBuffer.h>
 #include <Resource/ExternalTexture.h>
 #include <Resource/ExternalDepth.h>
+#include <Resource/Buffer.h>
+#include <DXApi/LCEvent.h>
+#include <DXApi/LCDevice.h>
+#include <DXRuntime/DStorageCommandQueue.h>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -128,5 +132,132 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
+void DStorageExtImpl::InitFactory() {
+    {
+        std::lock_guard lck{spin_mtx};
+        if (factory) [[likely]] {
+            return;
+        }
+    }
+    std::lock_guard lck{mtx};
+    if (factory) [[unlikely]] {
+        return;
+    }
+    HRESULT(WINAPI * DStorageGetFactory)
+    (REFIID riid, _COM_Outptr_ void **ppv);
+    if (!dstorage_module || !dstorage_core_module) {
+        LUISA_WARNING("Direct-Storage DLL not found.");
+        return;
+    }
+    DStorageGetFactory = dstorage_module.function<std::remove_pointer_t<decltype(DStorageGetFactory)>>("DStorageGetFactory");
+    DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf()));
+}
+DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept
+    : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
+      dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
+      mdevice{device} {
+}
+ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
+    InitFactory();
+    ResourceCreationInfo r;
+    auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice};
+    r.handle = reinterpret_cast<uint64_t>(ptr);
+    r.native_handle = nullptr;
+    return r;
+}
+DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
+    InitFactory();
+    ComPtr<IDStorageFile> file;
+    luisa::vector<wchar_t> wstr;
+    wstr.push_back_uninitialized(path.size() + 1);
+    wstr[path.size()] = 0;
+    for (size_t i = 0; i < path.size(); ++i) {
+        wstr[i] = path[i];
+    }
+    HRESULT hr = factory->OpenFile(wstr.data(), IID_PPV_ARGS(file.GetAddressOf()));
+    DStorageExtImpl::File f;
+    if (FAILED(hr)) {
+        f.invalidate();
+        return f;
+    }
+    size_t length;
+    BY_HANDLE_FILE_INFORMATION info{};
+    ThrowIfFailed(file->GetFileInformation(&info));
+    if constexpr (sizeof(size_t) > sizeof(DWORD)) {
+        length = info.nFileSizeHigh;
+        length <<= (sizeof(DWORD) * 8);
+        length |= info.nFileSizeLow;
+    } else {
+        length = info.nFileSizeLow;
+    }
+    if (length == 0) {
+        f.invalidate();
+        return f;
+    }
+    f.native_handle = file.Get();
+    f.handle = reinterpret_cast<uint64_t>(new DStorageFileImpl{std::move(file), length});
+    f.size_bytes = length;
+    return f;
+}
+DeviceInterface *DStorageExtImpl::device() const noexcept {
+    return mdevice;
+}
+void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
+    delete reinterpret_cast<DStorageFileImpl *>(handle);
+}
+void DStorageExtImpl::gdeflate_compress(
+    luisa::span<std::byte const> input,
+    CompressQuality quality,
+    luisa::vector<std::byte> &result) noexcept {
+    constexpr DSTORAGE_COMPRESSION qua[] = {
+        DSTORAGE_COMPRESSION_FASTEST,
+        DSTORAGE_COMPRESSION_DEFAULT,
+        DSTORAGE_COMPRESSION_BEST_RATIO};
 
+    result.clear();
+    size_t out_size{};
+    [&]() {
+        {
+            std::lock_guard lck{spin_mtx};
+            if (compression_codec) [[likely]] {
+                return;
+            }
+        }
+        std::lock_guard lck{mtx};
+        if (compression_codec) [[unlikely]] {
+            return;
+        }
+        HRESULT(WINAPI * DStorageCreateCompressionCodec)
+        (DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void **ppv);
+        DStorageCreateCompressionCodec = dstorage_module.function<std::remove_pointer_t<decltype(DStorageCreateCompressionCodec)>>("DStorageCreateCompressionCodec");
+        DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE, std::thread::hardware_concurrency(), IID_PPV_ARGS(compression_codec.GetAddressOf()));
+    }();
+    result.push_back_uninitialized(compression_codec->CompressBufferBound(input.size()));
+    ThrowIfFailed(compression_codec->CompressBuffer(
+        input.data(),
+        input.size(),
+        qua[luisa::to_underlying(quality)],
+        result.data(),
+        result.size(),
+        &out_size));
+    result.resize(out_size);
+}
+void DStorageExtImpl::set_config(bool hdd) noexcept {
+    std::lock_guard lck{mtx};
+    if (factory) [[unlikely]] {
+        LUISA_ERROR("set_config can only be called before first open_file and create_stream");
+    }
+    HRESULT(WINAPI * DStorageSetConfiguration1)
+    (DSTORAGE_CONFIGURATION1 const *configuration);
+    DStorageSetConfiguration1 = dstorage_module.function<std::remove_pointer_t<decltype(DStorageSetConfiguration1)>>("DStorageSetConfiguration1");
+    if (hdd) {
+        DSTORAGE_CONFIGURATION1 cfg{
+            .DisableBypassIO = true,
+            .ForceFileBuffering = true};
+        DStorageSetConfiguration1(&cfg);
+    } else {
+        DSTORAGE_CONFIGURATION1 cfg{};
+        DStorageSetConfiguration1(&cfg);
+    }
+}
 }// namespace lc::dx
