@@ -36,7 +36,7 @@ Bool hittable_list::hit(const ray& r, Float t_min, Float t_max, hit_record& rec)
             closest_so_far = temp_rec.t;
             rec = temp_rec;
         };
-    };
+    }
 
     return hit_anything;
 }

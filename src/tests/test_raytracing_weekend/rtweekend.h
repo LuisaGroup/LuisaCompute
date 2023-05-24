@@ -35,26 +35,26 @@ UInt tea(UInt v0, UInt v1) noexcept {
         v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
     }
     return v0;
-};
+}
 
 Float frand(UInt &state) noexcept {
     constexpr uint lcg_a = 1664525u;
     constexpr uint lcg_c = 1013904223u;
     state = lcg_a * state + lcg_c;
     return cast<float>(state & 0x00ffffffu) * (1.0f / static_cast<float>(0x01000000u));
-};
+}
 
 Float frand(UInt &state, Float min, Float max) noexcept {
     return min + (max-min)*frand(state);
-};
+}
 
 Float3 random_float3(UInt &seed) {
     return make_float3(frand(seed), frand(seed), frand(seed));
-};
+}
 
 Float3 random_float3(UInt &seed, Float min, Float max) {
     return make_float3(frand(seed, min, max), frand(seed, min, max), frand(seed, min, max));
-};
+}
 
 Float3 random_in_unit_sphere(UInt &seed) {
     Float3 p;
@@ -63,7 +63,7 @@ Float3 random_in_unit_sphere(UInt &seed) {
         $if (length_squared(p) < 1.0f) { $break; };
     };
     return p;
-};
+}
 
 Float3 random_unit_vector(UInt &seed) {
     return normalize(random_in_unit_sphere(seed));

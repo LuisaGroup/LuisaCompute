@@ -55,11 +55,23 @@ void MetalStream::dispatch(CommandList &&list) noexcept {
         LUISA_WARNING_WITH_LOCATION(
             "MetalStream::dispatch: Command list is empty.");
     } else {
+        constexpr auto max_commands_per_dispatch = 16u;
         MetalCommandEncoder encoder{this};
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
-        for (auto &command : commands) { command->accept(encoder); }
-        encoder.submit(std::move(callbacks));
+        auto command_count = 0u;
+        for (auto &command : commands) {
+            command->accept(encoder);
+            command_count++;
+            if (command_count % max_commands_per_dispatch == 0u ||
+                command_count == commands.size()) {
+                if (command_count == commands.size()) {
+                    encoder.submit(std::exchange(callbacks, {}));
+                } else {
+                    encoder.submit({});
+                }
+            }
+        }
     }
 }
 
