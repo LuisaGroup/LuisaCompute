@@ -43,7 +43,7 @@ public:
     }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
-        return TextureUploadCommand::create(
+        return luisa::make_unique<TextureUploadCommand>(
             _handle, _storage, _level, _size, data);
     }
 
@@ -73,7 +73,7 @@ public:
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
             _error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
         }
-        return BufferToTextureCopyCommand::create(
+        return luisa::make_unique<BufferToTextureCopyCommand>(
             buffer.handle(), buffer.offset_bytes(),
             _handle, _storage, _level, _size);
     }
@@ -83,13 +83,13 @@ public:
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
             _error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
         }
-        return TextureToBufferCopyCommand::create(
+        return luisa::make_unique<TextureToBufferCopyCommand>(
             buffer.handle(), buffer.offset_bytes(),
             _handle, _storage, _level, _size);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
-        return TextureDownloadCommand::create(
+        return luisa::make_unique<TextureDownloadCommand>(
             _handle, _storage, _level, _size, data);
     }
 

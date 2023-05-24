@@ -41,7 +41,7 @@ luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
     _modifications.clear();
     pdqsort(modifications.begin(), modifications.end(),
             [](auto &&lhs, auto &&rhs) noexcept { return lhs.index < rhs.index; });
-    return AccelBuildCommand::create(handle(), static_cast<uint>(_mesh_handles.size()),
+    return luisa::make_unique<AccelBuildCommand>(handle(), static_cast<uint>(_mesh_handles.size()),
                                      request, std::move(modifications),
                                      update_instance_buffer_only);
 }

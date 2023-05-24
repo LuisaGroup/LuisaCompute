@@ -158,18 +158,18 @@ public:
     // commands
     // copy buffer's data to pointer
     [[nodiscard]] auto copy_to(void *data) const noexcept {
-        return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
+        return luisa::make_unique<BufferDownloadCommand>(_handle, offset_bytes(), size_bytes(), data);
     }
     // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept {
-        return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
+        return luisa::make_unique<BufferUploadCommand>(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
     // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         if (source.size() != this->size()) [[unlikely]] {
             detail::error_buffer_copy_sizes_mismatch(source.size(), this->size());
         }
-        return BufferCopyCommand::create(
+        return luisa::make_unique<BufferCopyCommand>(
             source.handle(), this->handle(),
             source.offset_bytes(), this->offset_bytes(),
             this->size_bytes());

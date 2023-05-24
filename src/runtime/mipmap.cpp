@@ -37,7 +37,7 @@ MipmapView::MipmapView(uint64_t handle, uint3 size, uint32_t level, PixelStorage
             to_underlying(src._storage),
             to_underlying(_storage));
     }
-    return TextureCopyCommand::create(
+    return luisa::make_unique<TextureCopyCommand>(
         _storage, src._handle, _handle, src._level, _level, _size);
 }
 

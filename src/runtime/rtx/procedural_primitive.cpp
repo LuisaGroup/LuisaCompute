@@ -11,7 +11,7 @@ ProceduralPrimitive::ProceduralPrimitive(DeviceInterface *device, BufferView<AAB
 }
 
 luisa::unique_ptr<Command> ProceduralPrimitive::build(AccelBuildRequest request) noexcept {
-    return ProceduralPrimitiveBuildCommand::create(handle(), request, _aabb_buffer, _aabb_buffer_offset, _aabb_buffer_size);
+    return luisa::make_unique<ProceduralPrimitiveBuildCommand>(handle(), request, _aabb_buffer, _aabb_buffer_offset, _aabb_buffer_size);
 }
 
 ProceduralPrimitive::~ProceduralPrimitive() noexcept {

@@ -100,7 +100,7 @@ luisa::unique_ptr<Command> BindlessArray::update() noexcept {
     mods.reserve(_updates.size());
     for (auto m : _updates) { mods.emplace_back(m); }
     _updates.clear();
-    return BindlessArrayUpdateCommand::create(handle(), std::move(mods));
+    return luisa::make_unique<BindlessArrayUpdateCommand>(handle(), std::move(mods));
 }
 
 BindlessArray::~BindlessArray() noexcept {

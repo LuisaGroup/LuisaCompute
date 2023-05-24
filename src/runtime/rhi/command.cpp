@@ -20,8 +20,7 @@ DrawRasterSceneCommand::DrawRasterSceneCommand(
     vector<RasterMesh> &&scene,
     Viewport viewport,
     const RasterState &raster_state) noexcept
-    : CustomCommand{draw_raster_command_uuid},
-      ShaderDispatchCommandBase{shader_handle, std::move(argument_buffer), argument_count}, _rtv_texs{rtv_textures}, _rtv_count{rtv_count}, _dsv_tex{dsv_texture}, _scene{std::move(scene)}, _viewport{viewport}, _raster_state{raster_state} {
+    : ShaderDispatchCommandBase{shader_handle, std::move(argument_buffer), argument_count}, _rtv_texs{rtv_textures}, _rtv_count{rtv_count}, _dsv_tex{dsv_texture}, _scene{std::move(scene)}, _viewport{viewport}, _raster_state{raster_state} {
 }
 
 DrawRasterSceneCommand::DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept = default;

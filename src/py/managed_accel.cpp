@@ -118,7 +118,7 @@ void ManagedAccel::update(PyStream &stream) noexcept {
         auto &m = i.second;
         m.multi_visit(
             [&](MeshUpdateCmd const &cmd) {
-                stream.add(MeshBuildCommand::create(
+                stream.add(luisa::make_unique<MeshBuildCommand>(
                     i.first,
                     AccelBuildRequest::PREFER_UPDATE,
                     cmd.vertex_buffer,
@@ -130,7 +130,7 @@ void ManagedAccel::update(PyStream &stream) noexcept {
                     cmd.triangle_buffer_size));
             },
             [&](ProceduralUpdateCmd const &cmd) {
-                stream.add(ProceduralPrimitiveBuildCommand::create(
+                stream.add(luisa::make_unique<ProceduralPrimitiveBuildCommand>(
                     i.first,
                     AccelBuildRequest::PREFER_UPDATE,
                     cmd.aabb_buffer,

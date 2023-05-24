@@ -76,22 +76,14 @@ struct MutableCommandVisitor {
 class Command;
 class CommandList;
 
-#define LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)                        \
-    template<typename... Args>                                       \
-        requires(std::is_constructible_v<Cmd, Args && ...>)          \
-    [[nodiscard]] static auto create(Args &&...args) noexcept {      \
-        return luisa::make_unique<Cmd>(std::forward<Args>(args)...); \
-    }
-
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT()                                                \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON(Cmd, Type) \
-    friend class CmdDeser;                   \
-    friend class CmdSer;                     \
-    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)    \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)    \
+#define LUISA_MAKE_COMMAND_COMMON(Type) \
+    friend class CmdDeser;              \
+    friend class CmdSer;                \
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT()  \
     StreamTag stream_tag() const noexcept override { return Type; }
 
 class Command {
@@ -169,7 +161,7 @@ public:
     [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
     [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
     [[nodiscard]] auto indirect_dispatch_size() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
-    LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
 class BufferUploadCommand final : public Command {
@@ -196,7 +188,7 @@ public:
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_COMMAND_COMMON(BufferUploadCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class BufferDownloadCommand final : public Command {
@@ -220,7 +212,7 @@ public:
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_COMMAND_COMMON(BufferDownloadCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class BufferCopyCommand final : public Command {
@@ -247,7 +239,7 @@ public:
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
     [[nodiscard]] auto dst_offset() const noexcept { return _dst_offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    LUISA_MAKE_COMMAND_COMMON(BufferCopyCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class BufferToTextureCopyCommand final : public Command {
@@ -279,7 +271,7 @@ public:
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
-    LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class TextureToBufferCopyCommand final : public Command {
@@ -311,7 +303,7 @@ public:
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
-    LUISA_MAKE_COMMAND_COMMON(TextureToBufferCopyCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class TextureCopyCommand final : public Command {
@@ -341,7 +333,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
-    LUISA_MAKE_COMMAND_COMMON(TextureCopyCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class TextureUploadCommand final : public Command {
@@ -369,7 +361,7 @@ public:
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class TextureDownloadCommand final : public Command {
@@ -397,7 +389,7 @@ public:
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 enum struct AccelBuildRequest : uint32_t {
@@ -442,7 +434,7 @@ public:
     [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
     [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
     [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
-    LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand, StreamTag::COMPUTE)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
 class ProceduralPrimitiveBuildCommand final : public Command {
@@ -466,7 +458,7 @@ public:
     [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
     [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
     [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
-    LUISA_MAKE_COMMAND_COMMON(ProceduralPrimitiveBuildCommand, StreamTag::COMPUTE)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
 class AccelBuildCommand final : public Command {
@@ -545,7 +537,7 @@ public:
     [[nodiscard]] auto instance_count() const noexcept { return _instance_count; }
     [[nodiscard]] auto modifications() const noexcept { return luisa::span{_modifications}; }
     [[nodiscard]] auto update_instance_buffer_only() const noexcept { return _update_instance_buffer_only; }
-    LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand, StreamTag::COMPUTE)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
 class BindlessArrayUpdateCommand final : public Command {
@@ -618,19 +610,16 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto steal_modifications() noexcept { return std::move(_modifications); }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
-    LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand, StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
 class CustomCommand : public Command {
     friend lc::validation::Stream;
 
-private:
-    uint64_t _uuid{};
-
 public:
-    explicit CustomCommand(uint64_t uuid) noexcept
-        : Command{Command::Tag::ECustomCommand}, _uuid{uuid} {}
-    [[nodiscard]] auto uuid() const noexcept { return _uuid; }
+    explicit CustomCommand() noexcept
+        : Command{Command::Tag::ECustomCommand} {}
+    [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
 };
 
 class LC_RUNTIME_API DrawRasterSceneCommand final : public CustomCommand, public ShaderDispatchCommandBase {
@@ -664,7 +653,8 @@ public:
     [[nodiscard]] auto const &raster_state() const noexcept { return _raster_state; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }
-    LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
+    uint64_t uuid() const noexcept override { return draw_raster_command_uuid; }
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::GRAPHICS)
 };
 
 class ClearDepthCommand final : public CustomCommand {
@@ -674,13 +664,13 @@ class ClearDepthCommand final : public CustomCommand {
 
 public:
     explicit ClearDepthCommand(uint64_t handle, float value) noexcept
-        : CustomCommand{clear_depth_command_uuid},
-          _handle{handle}, _value(value) {
+        : _handle{handle}, _value(value) {
     }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto value() const noexcept { return _value; }
+    uint64_t uuid() const noexcept override { return clear_depth_command_uuid; }
 
-    LUISA_MAKE_COMMAND_COMMON(ClearDepthCommand, StreamTag::GRAPHICS)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::GRAPHICS)
 };
 
 class DStorageReadCommand : public CustomCommand {
@@ -730,8 +720,7 @@ public:
         size_t dst_size,
         Compression compression,
         Arg &&cmd)
-        : CustomCommand{dstorage_command_uuid},
-          src{FileSource{file_handle, file_offset}},
+        : src{FileSource{file_handle, file_offset}},
           src_size{src_size},
           dst_size{dst_size},
           compression{compression},
@@ -744,14 +733,14 @@ public:
         size_t dst_size,
         Compression compression,
         Arg &&cmd)
-        : CustomCommand{dstorage_command_uuid},
-          src{MemorySource{src_ptr}},
+        : src{MemorySource{src_ptr}},
           src_size{src_size},
           dst_size{dst_size},
           compression{compression},
           _enqueue_cmd{std::forward<Arg>(cmd)} {}
     [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
-    LUISA_MAKE_COMMAND_COMMON(DStorageReadCommand, StreamTag::CUSTOM)
+    uint64_t uuid() const noexcept override { return dstorage_command_uuid; }
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::CUSTOM)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
