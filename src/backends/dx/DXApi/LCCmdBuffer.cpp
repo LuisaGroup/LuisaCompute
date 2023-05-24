@@ -16,6 +16,8 @@
 #include <runtime/rtx/aabb.h>
 #include <Resource/DepthBuffer.h>
 #include <vstl/atomic.h>
+#include <backends/ext/raster_cmd.h>
+
 namespace lc::dx {
 using Argument = luisa::compute::Argument;
 template<typename Visitor>

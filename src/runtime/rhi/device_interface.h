@@ -49,7 +49,7 @@ struct DeviceConfig {
 
 class DeviceExtension {
 protected:
-    virtual ~DeviceExtension() noexcept = default;
+    ~DeviceExtension() noexcept = default;
 };
 
 class LC_RUNTIME_API DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {

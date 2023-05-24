@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/mathematics.h>
 #include <runtime/rhi/pixel.h>
 #include <runtime/rhi/resource.h>
 #include <runtime/mipmap.h>

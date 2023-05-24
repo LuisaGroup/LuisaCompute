@@ -15,10 +15,8 @@
 #include <ast/usage.h>
 #include <runtime/rhi/pixel.h>
 #include <runtime/rhi/stream_tag.h>
-#include <runtime/raster/viewport.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/rhi/argument.h>
-#include <runtime/raster/raster_state.h>
 // for validation
 namespace lc::validation {
 class Stream;
@@ -28,10 +26,6 @@ namespace luisa::compute {
 struct IndirectDispatchArg {
     uint64_t handle;
 };
-
-class CmdDeser;
-class CmdSer;
-class RasterMesh;
 
 #define LUISA_COMPUTE_RUNTIME_COMMANDS   \
     BufferUploadCommand,                 \
@@ -621,131 +615,5 @@ public:
         : Command{Command::Tag::ECustomCommand} {}
     [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
 };
-
-class LC_RUNTIME_API DrawRasterSceneCommand final : public CustomCommand, public ShaderDispatchCommandBase {
-    friend lc::validation::Stream;
-
-private:
-    std::array<Argument::Texture, 8u> _rtv_texs;
-    size_t _rtv_count;
-    Argument::Texture _dsv_tex;
-    luisa::vector<RasterMesh> _scene;
-    Viewport _viewport;
-    RasterState _raster_state;
-
-public:
-    DrawRasterSceneCommand(uint64_t shader_handle,
-                           luisa::vector<std::byte> &&argument_buffer,
-                           size_t argument_count,
-                           std::array<Argument::Texture, 8u> rtv_textures,
-                           size_t rtv_count,
-                           Argument::Texture dsv_texture,
-                           luisa::vector<RasterMesh> &&scene,
-                           Viewport viewport,
-                           const RasterState &raster_state) noexcept;
-
-public:
-    DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
-    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
-    ~DrawRasterSceneCommand() noexcept override;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
-    [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
-    [[nodiscard]] auto const &raster_state() const noexcept { return _raster_state; }
-    [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
-    [[nodiscard]] auto viewport() const noexcept { return _viewport; }
-    uint64_t uuid() const noexcept override { return draw_raster_command_uuid; }
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::GRAPHICS)
-};
-
-class ClearDepthCommand final : public CustomCommand {
-    friend lc::validation::Stream;
-    uint64_t _handle;
-    float _value;
-
-public:
-    explicit ClearDepthCommand(uint64_t handle, float value) noexcept
-        : _handle{handle}, _value(value) {
-    }
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto value() const noexcept { return _value; }
-    uint64_t uuid() const noexcept override { return clear_depth_command_uuid; }
-
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::GRAPHICS)
-};
-
-class DStorageReadCommand : public CustomCommand {
-public:
-    struct BufferEnqueue {
-        uint64_t buffer_handle;
-        size_t buffer_offset;
-    };
-    struct ImageEnqueue {
-        uint64_t image_handle;
-        uint32_t mip_level;
-    };
-    struct MemoryEnqueue {
-        void *dst_ptr;
-    };
-    struct FileSource {
-        uint64_t file_handle;
-        size_t file_offset;
-    };
-    struct MemorySource {
-        void const *src_ptr;
-    };
-    enum class Compression : uint32_t {
-        None,
-        GDeflate,
-    };
-    luisa::variant<FileSource, MemorySource> src;
-    size_t src_size;
-    size_t dst_size;
-    Compression compression;
-
-    using EnqueueCommand = luisa::variant<
-        BufferEnqueue,
-        ImageEnqueue,
-        MemoryEnqueue>;
-
-private:
-    EnqueueCommand _enqueue_cmd;
-
-public:
-    template<typename Arg>
-        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
-    explicit DStorageReadCommand(
-        uint64_t file_handle,
-        size_t file_offset,
-        size_t src_size,
-        size_t dst_size,
-        Compression compression,
-        Arg &&cmd)
-        : src{FileSource{file_handle, file_offset}},
-          src_size{src_size},
-          dst_size{dst_size},
-          compression{compression},
-          _enqueue_cmd{std::forward<Arg>(cmd)} {}
-    template<typename Arg>
-        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
-    explicit DStorageReadCommand(
-        void const *src_ptr,
-        size_t src_size,
-        size_t dst_size,
-        Compression compression,
-        Arg &&cmd)
-        : src{MemorySource{src_ptr}},
-          src_size{src_size},
-          dst_size{dst_size},
-          compression{compression},
-          _enqueue_cmd{std::forward<Arg>(cmd)} {}
-    [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
-    uint64_t uuid() const noexcept override { return dstorage_command_uuid; }
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::CUSTOM)
-};
-
-#undef LUISA_MAKE_COMMAND_COMMON_CREATE
-#undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
-#undef LUISA_MAKE_COMMAND_COMMON_RECYCLE
-#undef LUISA_MAKE_COMMAND_COMMON
 
 }// namespace luisa::compute

@@ -4,7 +4,7 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/rhi/command.h>
+#include <backends/ext/dstorage_cmd.h>
 
 namespace luisa::compute {
 

@@ -4,6 +4,7 @@
 #include <backends/ext/dstorage_ext_interface.h>
 #include <Resource/TextureBase.h>
 #include <Resource/Buffer.h>
+#include <backends/ext/dstorage_cmd.h>
 namespace lc::dx {
 void DStorageCommandQueue::ExecuteThread() {
     while (enabled) {

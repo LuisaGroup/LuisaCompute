@@ -9,6 +9,7 @@
 #include <runtime/raster/raster_scene.h>
 #include <runtime/rhi/argument.h>
 #include <core/logging.h>
+#include <backends/ext/raster_cmd.h>
 
 namespace luisa::compute {
 

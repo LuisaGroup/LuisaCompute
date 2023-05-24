@@ -3,6 +3,7 @@
 #include <ast/function.h>
 #include <runtime/rhi/command.h>
 #include <runtime/raster/viewport.h>
+#include <backends/ext/raster_cmd.h>
 
 namespace luisa::compute {
 

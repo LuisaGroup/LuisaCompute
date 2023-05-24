@@ -1,7 +1,7 @@
 #pragma once
 
 #include <runtime/rhi/device_interface.h>
-
+#include <runtime/raster/raster_state.h>
 namespace luisa::compute {
 class MeshFormat;
 class RasterExt : public DeviceExtension {

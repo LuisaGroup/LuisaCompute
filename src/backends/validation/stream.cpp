@@ -13,6 +13,8 @@
 #include <core/logging.h>
 #include <runtime/raster/raster_scene.h>
 #include <runtime/rtx/aabb.h>
+#include <backends/ext/raster_cmd.h>
+
 namespace lc::validation {
 Stream::Stream(uint64_t handle, StreamTag stream_tag) : RWResource{handle, Tag::STREAM, false}, _stream_tag{stream_tag} {}
 void Stream::signal(Event *evt) {
