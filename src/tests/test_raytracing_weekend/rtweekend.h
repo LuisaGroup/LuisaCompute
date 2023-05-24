@@ -1,5 +1,4 @@
-#ifndef RTWEEKEND_H
-#define RTWEEKEND_H
+#pragma once
 
 #include <runtime/context.h>
 #include <runtime/stream.h>
@@ -24,7 +23,7 @@ inline float random_float() {
 
 inline float random_float(float min, float max) {
     // Returns a random real in [min,max).
-    return min + (max-min)*random_float();
+    return min + (max - min) * random_float();
 }
 
 UInt tea(UInt v0, UInt v1) noexcept {
@@ -45,7 +44,7 @@ Float frand(UInt &state) noexcept {
 }
 
 Float frand(UInt &state, Float min, Float max) noexcept {
-    return min + (max-min)*frand(state);
+    return min + (max - min) * frand(state);
 }
 
 Float3 random_float3(UInt &seed) {
@@ -60,7 +59,7 @@ Float3 random_in_unit_sphere(UInt &seed) {
     Float3 p;
     $loop {
         p = random_float3(seed, -1.0f, 1.0f);
-        $if (length_squared(p) < 1.0f) { $break; };
+        $if(length_squared(p) < 1.0f) { $break; };
     };
     return p;
 }
@@ -75,7 +74,7 @@ Float3 random_in_unit_disk(UInt &seed) {
         Float x = frand(seed, -1, 1);
         Float y = frand(seed, -1, 1);
         p = make_float3(x, y, 0.0f);
-        $if (length_squared(p) < 1) { $break; };
+        $if(length_squared(p) < 1) { $break; };
     };
     return p;
 }
@@ -86,18 +85,16 @@ Bool near_zero(Float3 e) {
     return (abs(e.x) < s) & (abs(e.y) < s) & (abs(e.z) < s);
 }
 
-Float3 ray_reflect(const Float3& v, const Float3& n) {
-    return v - 2.0f*dot(v,n)*n;
+Float3 ray_reflect(const Float3 &v, const Float3 &n) {
+    return v - 2.0f * dot(v, n) * n;
 }
 
-Float3 ray_refract(const Float3& uv, const Float3& n, Float etai_over_etat) {
+Float3 ray_refract(const Float3 &uv, const Float3 &n, Float etai_over_etat) {
     Float cos_theta = min(dot(-uv, n), 1.0f);
-    Float3 r_out_perp =  etai_over_etat * (uv + cos_theta*n);
+    Float3 r_out_perp = etai_over_etat * (uv + cos_theta * n);
     Float3 r_out_parallel = -sqrt(abs(1.0f - length_squared(r_out_perp))) * n;
     return r_out_perp + r_out_parallel;
 }
 
 class material;
 vector<shared_ptr<material>> materials;
-
-#endif

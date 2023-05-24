@@ -1,5 +1,4 @@
-#ifndef HITTABLE_H
-#define HITTABLE_H
+#pragma once
 
 #include "ray.h"
 
@@ -14,15 +13,13 @@ public:
     Float t;
     Bool front_face;
 
-    inline void set_face_normal(const ray& r, const Float3& outward_normal) {
+    inline void set_face_normal(const ray &r, const Float3 &outward_normal) {
         front_face = dot(r.direction(), outward_normal) < 0;
         normal = select(-outward_normal, outward_normal, front_face);
     }
 };
 
 class hittable {
-    public:
-        virtual Bool hit(const ray& r, Float t_min, Float t_max, hit_record& rec) const = 0;
+public:
+    virtual Bool hit(const ray &r, Float t_min, Float t_max, hit_record &rec) const = 0;
 };
-
-#endif
