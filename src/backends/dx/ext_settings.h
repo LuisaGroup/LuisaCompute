@@ -1,7 +1,6 @@
 #pragma once
 #include <runtime/context.h>
 #include <d3d12.h>
-#include <dxgi.h>
 #include <dxgi1_4.h>
 #include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>

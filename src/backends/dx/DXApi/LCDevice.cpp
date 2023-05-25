@@ -81,7 +81,7 @@ LCDevice::~LCDevice() {
 //    return r;
 //}
 void *LCDevice::native_handle() const noexcept {
-    return nativeDevice.device;
+    return nativeDevice.device.Get();
 }
 
 BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {

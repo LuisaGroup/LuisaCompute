@@ -46,7 +46,6 @@ TopAccel::TopAccel(Device *device, AccelOption const &option)
     topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
     topLevelBuildDesc.Inputs.NumDescs = 0;
 }
-
 void TopAccel::UpdateMesh(
     MeshHandle *handle) {
     auto instIndex = handle->accelIndex;
@@ -272,7 +271,7 @@ void TopAccel::Build(
         if (!setDesc.empty()) {
             dataBuffer->CopyData(setBuffer.offset, {reinterpret_cast<uint8_t const *>(setDesc.data()), setDesc.size_bytes()});
         }
-        if (!modifications.empty()){
+        if (!modifications.empty()) {
             dataBuffer->CopyData(setBuffer.offset + setDesc.size_bytes(), {reinterpret_cast<uint8_t const *>(modifications.data()), modifications.size_bytes()});
         }
         BindProperty properties[3];

@@ -68,5 +68,8 @@ public:
         Device *device,
         uint arraySize);
     ~BindlessArray();
+    ID3D12Resource *GetResource() const override {
+        return buffer.GetResource();
+    }
 };
 }// namespace lc::dx
