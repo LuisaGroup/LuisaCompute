@@ -35,10 +35,10 @@ public:
 
     void push_if(Expr<bool> pred, Expr<T> value) noexcept {
         Shared<uint> index{1};
-        index.write(0u, 0u);
+        $if(thread_x() == 0u) { index.write(0u, 0u); };
         sync_block();
-        auto inc = ite(pred, 1u, 0u);
-        auto local_index = index.atomic(0).fetch_add(inc);
+        auto local_index = def(0u);
+        $if(pred) { local_index = index.atomic(0).fetch_add(1u); };
         sync_block();
         $if(thread_x() == 0u) {
             auto local_count = index.read(0u);
