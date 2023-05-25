@@ -673,7 +673,7 @@ public:
             cmd->modifications());
     }
     void visit(const DXCustomCmd *cmd) noexcept {
-        const_cast<DXCustomCmd *>(cmd)->execute(
+        cmd->execute(
             device->adapter.Get(),
             device->dxgiFactory.Get(),
             device->device.Get(),

@@ -96,6 +96,7 @@ public:
     float2 jitter;
     float sharpness;
     float delta_time;
+    mutable FfxFsr2DispatchDescription dispatch_params{};
     FSRCommand(
         FfxFsr2Context *context,
         UpscaleSetup *upscale_setup,
@@ -140,42 +141,8 @@ public:
         IDXGIAdapter1 *adapter,
         IDXGIFactory4 *dxgi_factory,
         ID3D12Device *device,
-        ID3D12GraphicsCommandList4 *command_list) noexcept override {
-        FfxFsr2DispatchDescription dispatch_params{};
+        ID3D12GraphicsCommandList4 *command_list) const noexcept override {
         dispatch_params.commandList = ffxGetCommandListDX12(command_list);
-        dispatch_params.color = get_image_resource(context, upscale_setup->unresolved_color_resource, L"FSR2_InputColor");
-        dispatch_params.depth = get_image_resource(context, upscale_setup->depthbuffer_resource, L"FSR2_InputDepth");
-        dispatch_params.motionVectors = get_image_resource(context, upscale_setup->motionvector_resource, L"FSR2_InputMotionVectors");
-        dispatch_params.exposure = ffxGetResourceDX12(context, nullptr, L"FSR2_InputExposure");
-        if (upscale_setup->reactive_map_resource) {
-            dispatch_params.reactive = get_image_resource(context, upscale_setup->reactive_map_resource, L"FSR2_InputReactiveMap");
-        } else {
-            dispatch_params.reactive = ffxGetResourceDX12(context, nullptr, L"FSR2_EmptyInputReactiveMap");
-        }
-
-        if (upscale_setup->transparency_and_composition_resource) {
-            dispatch_params.transparencyAndComposition = get_image_resource(context, upscale_setup->transparency_and_composition_resource, L"FSR2_TransparencyAndCompositionMap");
-        } else {
-            dispatch_params.transparencyAndComposition = ffxGetResourceDX12(context, nullptr, L"FSR2_EmptyTransparencyAndCompositionMap");
-        }
-
-        dispatch_params.output = get_image_resource(context, upscale_setup->resolved_color_resource, L"FSR2_OutputUpscaledColor", FFX_RESOURCE_STATE_UNORDERED_ACCESS);
-        dispatch_params.jitterOffset.x = jitter.x;
-        dispatch_params.jitterOffset.y = jitter.y;
-        uint2 render_size = upscale_setup->unresolved_color_resource.size();
-        uint2 display_size = upscale_setup->resolved_color_resource.size();
-        dispatch_params.motionVectorScale.x = (float)render_size.x;
-        dispatch_params.motionVectorScale.y = (float)render_size.y;
-        dispatch_params.reset = upscale_setup->cam.reset;
-        dispatch_params.enableSharpening = sharpness > 1e-6f;
-        dispatch_params.sharpness = sharpness;
-        dispatch_params.frameTimeDelta = delta_time;
-        dispatch_params.preExposure = 1.0f;
-        dispatch_params.renderSize.width = render_size.x;
-        dispatch_params.renderSize.height = render_size.y;
-        dispatch_params.cameraNear = upscale_setup->cam.far_plane;// depth is inverted
-        dispatch_params.cameraFar = upscale_setup->cam.near_plane;// depth is inverted
-        dispatch_params.cameraFovAngleVertical = upscale_setup->cam.fov;
         fsr_assert(ffxFsr2ContextDispatch(context, &dispatch_params));
     }
 };
