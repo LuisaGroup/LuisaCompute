@@ -2,6 +2,7 @@
 // Created by Mike on 5/25/2023.
 //
 
+#include <random>
 #include <luisa-compute.h>
 
 using namespace luisa;
@@ -32,11 +33,11 @@ public:
 
     void push(Expr<T> value) noexcept {
         auto index = _counter->atomic(0u).fetch_add(1u);
-        _buffer->write(index, value);
+        _buffer->write(index % static_cast<uint>(_buffer.size()), value);
     }
 
     void reset(CommandList &list) noexcept {
-        list << _reset().dispatch(1u);
+        //        list << _reset().dispatch(1u);
     }
 };
 
@@ -51,22 +52,7 @@ int main(int argc, char *argv[]) {
     }
     Device device = context.create_device(argv[1]);
 
-    Callable tea = [](UInt v0, UInt v1) noexcept {
-        UInt s0 = def(0u);
-        for (uint n = 0u; n < 4u; n++) {
-            s0 += 0x9e3779b9u;
-            v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
-            v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
-        }
-        return v0;
-    };
-
-    auto make_sampler = device.compile<1>([&tea](BufferUInt seed_buffer, UInt seed) noexcept {
-        auto state = tea(dispatch_x(), seed);
-        seed_buffer.write(dispatch_x(), state);
-    });
-
-    static constexpr auto queue_size = 4_M;
+    static constexpr auto queue_size = 16_M;
     AtomicQueue<float> q1{device, queue_size};
     AtomicQueue<float> q2{device, queue_size};
 
@@ -108,24 +94,32 @@ int main(int argc, char *argv[]) {
         };
     });
 
-    auto sampler_state_buffer = device.create_buffer<uint>(queue_size);
     auto stream = device.create_stream();
+    auto sampler_state_buffer = device.create_buffer<uint>(queue_size);
 
-    auto do_test = [&](auto &&shader, auto name, auto iterations) noexcept {
-        stream << make_sampler(sampler_state_buffer, 0x19980810u).dispatch(queue_size)
+    luisa::vector<uint> sampler_seeds(queue_size);
+    std::generate(sampler_seeds.begin(), sampler_seeds.end(),
+                  std::mt19937{std::random_device{}()});
+
+    auto do_test = [&](auto &&shader, auto name_in, auto iterations) noexcept {
+        auto name = luisa::string_view{name_in};
+
+        shader.set_name(name);
+        stream << sampler_state_buffer.copy_from(sampler_seeds.data())
                << synchronize();
 
         Clock clk;
         for (auto i = 0u; i < iterations; i++) {
             CommandList list;
+            list.reserve(3u, 0u);
             q1.reset(list);
             q2.reset(list);
             list << shader(sampler_state_buffer).dispatch(queue_size);
             stream << list.commit();
         }
         stream << synchronize();
-        if (auto n = luisa::string_view{name}; !n.empty()) {
-            LUISA_INFO("{}: {} ms", n, clk.toc());
+        if (!name.empty()) {
+            LUISA_INFO("{}: {} ms", name, clk.toc());
         }
     };
 
