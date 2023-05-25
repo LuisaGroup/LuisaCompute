@@ -14,6 +14,13 @@ public:
     struct ResourceUsage {
         UsedResource::ResourceHandle resource;
         D3D12_RESOURCE_STATES required_state;
+        template<typename Arg>
+            requires(std::is_constructible_v<UsedResource::ResourceHandle, Arg &&>)
+        ResourceUsage(
+            Arg &&resource,
+            D3D12_RESOURCE_STATES required_state)
+            : resource{std::forward<Arg>(resource)},
+              required_state{required_state} {}
     };
 
 private:
@@ -24,7 +31,7 @@ private:
         IDXGIAdapter1 *adapter,
         IDXGIFactory4 *dxgi_factory,
         ID3D12Device *device,
-        ID3D12GraphicsCommandList4 *command_list) const noexcept = 0;
+        ID3D12GraphicsCommandList4 *command_list) noexcept = 0;
 
 protected:
     luisa::vector<ResourceUsage> resource_usages;
