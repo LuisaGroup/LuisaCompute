@@ -14,6 +14,7 @@
 #include <runtime/raster/raster_scene.h>
 #include <runtime/rtx/aabb.h>
 #include <backends/ext/raster_cmd.h>
+#include <backends/ext/dstorage_cmd.h>
 
 namespace lc::validation {
 Stream::Stream(uint64_t handle, StreamTag stream_tag) : RWResource{handle, Tag::STREAM, false}, _stream_tag{stream_tag} {}
@@ -170,16 +171,50 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                 }
                 luisa::visit(
                     [&]<typename T>(T &t) {
-                    if constexpr (std::is_same_v<T, BufferView<uint>>) {
-                        mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
-                    }
+                        if constexpr (std::is_same_v<T, BufferView<uint>>) {
+                            mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
+                        }
                     },
                     i._index_buffer);
             }
         } break;
-        default:
-            LUISA_ERROR("Custom command not supported by validation layer.");
-            break;
+        case dstorage_command_uuid: {
+            auto c = static_cast<DStorageReadCommand *>(cmd);
+            luisa::visit(
+                [&]<typename T>(T const &t) {
+                    if constexpr (std::is_same_v<T, DStorageReadCommand::FileSource>) {
+                        mark_handle(t.file_handle, Usage::READ, Range{});
+                    }
+                },
+                c->src);
+            luisa::visit(
+                [&]<typename T>(T const &t) {
+                    if constexpr (std::is_same_v<DStorageReadCommand::BufferEnqueue, T>) {
+                        mark_handle(t.buffer_handle, Usage::WRITE, Range{t.buffer_offset, c->dst_size});
+                    } else if constexpr (std::is_same_v<DStorageReadCommand::ImageEnqueue, T>) {
+                        mark_handle(t.image_handle, Usage::WRITE, Range{t.mip_level, 1});
+                    }
+                },
+                c->enqueue_cmd());
+
+        } break;
+        case custom_dispatch_uuid: {
+            auto c = static_cast<CustomDispatchCommand *>(cmd);
+            for (auto &i : c->used_resources()) {
+                luisa::visit(
+                    [&]<typename T>(T const &t) {
+                        if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                            mark_handle(t.handle, i.resource_usage, Range{t.offset, t.size});
+                        } else if constexpr (std::is_same_v<T, Argument::Texture>) {
+                            mark_handle(t.handle, i.resource_usage, Range{t.level, 1});
+                        } else {
+                            mark_handle(t.handle, i.resource_usage, Range{});
+                        }
+                    },
+                    i.resource);
+            }
+        } break;
+        default: break;
     }
 }
 void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {

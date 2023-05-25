@@ -12,7 +12,8 @@ LCSwapChain::LCSwapChain(
     uint height,
     bool allowHDR,
     bool vsync,
-    uint backBufferCount) : vsync(vsync) {
+    uint backBufferCount)
+    : Resource(device), vsync(vsync) {
     auto frameCount = backBufferCount + 1;
     vstd::push_back_func(
         m_renderTargets,

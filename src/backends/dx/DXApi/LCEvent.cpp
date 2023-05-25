@@ -4,7 +4,7 @@
 #include <DXRuntime/DStorageCommandQueue.h>
 namespace lc::dx {
 LCEvent::LCEvent(Device *device)
-    : device(device) {
+    : Resource(device) {
     ThrowIfFailed(device->device->CreateFence(
         0,
         D3D12_FENCE_FLAG_NONE,
@@ -16,8 +16,8 @@ LCEvent::~LCEvent() {
 void LCEvent::Sync() const {
     std::unique_lock lck(eventMtx);
     while (finishedEvent < fenceIndex) {
-            cv.wait(lck);
-        }
+        cv.wait(lck);
+    }
 }
 void LCEvent::Signal(CommandQueue *queue) const {
     std::lock_guard lck(eventMtx);

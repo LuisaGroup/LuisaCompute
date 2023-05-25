@@ -57,7 +57,7 @@ bool BottomAccel::RequireCompact() const {
 BottomAccel::BottomAccel(
     Device *device,
     AccelOption const &option)
-    : device(device) {
+    : Resource(device) {
     auto GetPreset = [&] {
         switch (option.hint) {
             case AccelOption::UsageHint::FAST_TRACE:

@@ -1,4 +1,4 @@
-#include "../ext.h"
+#include "ext.h"
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>
 #include <Resource/RenderTexture.h>
@@ -11,6 +11,7 @@
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/DStorageCommandQueue.h>
+#include <DXApi/TypeCheck.h>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -80,7 +81,7 @@ BufferCreationInfo DxNativeResourceExt::register_external_buffer(
         reinterpret_cast<ID3D12Resource *>(external_ptr),
         *reinterpret_cast<D3D12_RESOURCE_STATES const *>(custom_data)));
     BufferCreationInfo info;
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     info.element_stride = element->size();
     info.total_size_bytes = element->size() * elem_count;

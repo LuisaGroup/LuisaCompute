@@ -13,6 +13,5 @@ public:
     D3D12_RESOURCE_STATES GetInitState() const override {
         return D3D12_RESOURCE_STATE_PRESENT;
     }
-    VSTD_SELF_PTR
 };
 }// namespace lc::dx

@@ -68,6 +68,5 @@ public:
         Device *device,
         uint arraySize);
     ~BindlessArray();
-    VSTD_SELF_PTR
 };
 }// namespace lc::dx

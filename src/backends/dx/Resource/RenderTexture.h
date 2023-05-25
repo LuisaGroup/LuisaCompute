@@ -34,6 +34,5 @@ public:
     Tag GetTag() const override { return Tag::RenderTexture; }
     uint GetGlobalSRVIndex(uint mipOffset = 0) const override;
     uint GetGlobalUAVIndex(uint mipLevel) const override;
-    VSTD_SELF_PTR
 };
 }// namespace lc::dx

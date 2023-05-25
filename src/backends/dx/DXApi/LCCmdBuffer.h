@@ -44,9 +44,8 @@ struct ReorderFuncTable {
         reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
     }
 };
-class LCCmdBuffer final : public CmdQueueBase, public vstd::IOperatorNewBase {
+class LCCmdBuffer final : public CmdQueueBase{
 protected:
-    Device *device;
     ResourceStateTracker tracker;
     std::atomic_uint64_t lastFence{0};
     ReorderFuncTable reorderFuncTable;

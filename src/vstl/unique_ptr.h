@@ -9,10 +9,6 @@ struct unique_ptr_deleter {
     void operator()(T *ptr) const noexcept {
         if constexpr (std::is_base_of_v<IDisposable, T>) {
             ptr->Dispose();
-        } else if constexpr (std::is_base_of_v<ISelfPtr, T>) {
-            auto selfPtr = ptr->SelfPtr();
-            vstd::destruct(ptr);
-            vengine_free(selfPtr);
         } else {
             vstd::destruct(ptr);
             vengine_free(ptr);

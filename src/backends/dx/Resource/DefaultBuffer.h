@@ -31,6 +31,5 @@ public:
 	}
 	DefaultBuffer(DefaultBuffer&&) = default;
 	KILL_COPY_CONSTRUCT(DefaultBuffer)
-	VSTD_SELF_PTR
 };
 }// namespace lc::dx

@@ -14,7 +14,7 @@
 #include <Resource/BottomAccel.h>
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
-#include "../ext.h"
+#include "ext.h"
 #include <backends/common/hlsl/hlsl_codegen.h>
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
@@ -23,10 +23,10 @@
 #include <Resource/ExternalBuffer.h>
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
-#include <ext.h>
 #include <backends/common/hlsl/binding_to_arg.h>
 #include <runtime/context.h>
 #include <DXRuntime/DStorageCommandQueue.h>
+#include <DXApi/TypeCheck.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -104,7 +104,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
                 nativeDevice.defaultAllocator.get()));
         info.element_stride = element->size();
     }
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     return info;
 }
@@ -140,7 +140,7 @@ ResourceCreationInfo LCDevice::create_texture(
             mipmap_levels,
             allowUAV,
             nativeDevice.defaultAllocator.get()));
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     return info;
 }
@@ -153,7 +153,7 @@ void LCDevice::destroy_texture(uint64 handle) noexcept {
 ResourceCreationInfo LCDevice::create_bindless_array(size_t size) noexcept {
     ResourceCreationInfo info;
     auto res = new BindlessArray(&nativeDevice, size);
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     return info;
 }
@@ -176,7 +176,7 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
         }
         LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->queue.Queue();
     return info;
 }
@@ -296,7 +296,7 @@ void LCDevice::destroy_shader(uint64 handle) noexcept {
 ResourceCreationInfo LCDevice::create_event() noexcept {
     ResourceCreationInfo info;
     auto res = new LCEvent(&nativeDevice);
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->Fence();
     return info;
 }
@@ -337,7 +337,7 @@ void LCDevice::destroy_procedural_primitive(uint64 handle) noexcept {
 ResourceCreationInfo LCDevice::create_mesh(const AccelOption &option) noexcept {
     ResourceCreationInfo info;
     auto res = new BottomAccel(&nativeDevice, option);
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = nullptr;
     return info;
 }
@@ -350,7 +350,7 @@ ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept 
         &nativeDevice,
         option);
 
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = nullptr;
     return info;
 }
@@ -380,7 +380,7 @@ SwapChainCreationInfo LCDevice::create_swap_chain(
         allow_hdr,
         vsync,
         back_buffer_size);
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->swapChain.Get();
     info.storage = PixelStorage::BYTE4;
     return info;
@@ -492,7 +492,7 @@ ResourceCreationInfo DxRasterExt::create_depth_buffer(DepthFormat format, uint w
                 &nativeDevice,
                 width, height,
                 format, nativeDevice.defaultAllocator.get()));
-    info.handle = reinterpret_cast<uint64>(res);
+    info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     return info;
 }

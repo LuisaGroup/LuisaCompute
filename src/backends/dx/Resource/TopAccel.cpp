@@ -20,7 +20,7 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
 }
 }// namespace detail
 TopAccel::TopAccel(Device *device, AccelOption const &option)
-    : device(device) {
+    : Resource(device) {
     //TODO: allow_compact not supported
     // option.allow_compaction = false;
     auto GetPreset = [&] {

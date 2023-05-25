@@ -5,12 +5,13 @@
 #include <Resource/SwapChain.h>
 #include <DXRuntime/CommandQueue.h>
 namespace lc::dx {
-class LCSwapChain : public vstd::IOperatorNewBase {
+class LCSwapChain : public Resource {
 public:
     vstd::vector<SwapChain> m_renderTargets;
     ComPtr<IDXGISwapChain3> swapChain;
     uint64 frameIndex = 0;
     bool vsync;
+    Tag GetTag() const override { return Tag::SwapChain; }
     LCSwapChain(
         Device *device,
         CommandQueue *queue,

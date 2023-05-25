@@ -1,7 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 namespace lc::dx {
-class Resource : public vstd::ISelfPtr {
+class Resource : public vstd::IOperatorNewBase {
 public:
     enum class Tag : uint8_t {
         None,
@@ -12,11 +12,14 @@ public:
         DescriptorHeap,
         BindlessArray,
         Mesh,
+        Accel,
         SwapChain,
         DepthBuffer,
         ExternalBuffer,
         ExternalTexture,
-        ExternalDepth
+        ExternalDepth,
+        CommandQueue,
+        Event,
     };
 
 protected:

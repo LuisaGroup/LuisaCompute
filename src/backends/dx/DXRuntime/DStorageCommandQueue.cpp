@@ -85,40 +85,40 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
             DSTORAGE_REQUEST request{};
             luisa::visit(
                 [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, DStorageReadCommand::FileSource>) {
-                    auto file = reinterpret_cast<DStorageFileImpl *>(t.file_handle);
-                    request.Source.File.Source = file->file.Get();
-                    request.Source.File.Offset = t.file_offset;
-                    request.Source.File.Size = cmd->src_size;
-                    if (!fileQueueUsed) {
-                        fileQueueUsed = true;
-                        if (!fileQueue) {
-                            DSTORAGE_QUEUE_DESC queue_desc{
-                                .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
-                                .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-                                .Priority = DSTORAGE_PRIORITY_NORMAL,
-                                .Device = device->device.Get()};
-                            ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(fileQueue.GetAddressOf())));
+                    if constexpr (std::is_same_v<T, DStorageReadCommand::FileSource>) {
+                        auto file = reinterpret_cast<DStorageFileImpl *>(t.file_handle);
+                        request.Source.File.Source = file->file.Get();
+                        request.Source.File.Offset = t.file_offset;
+                        request.Source.File.Size = cmd->src_size;
+                        if (!fileQueueUsed) {
+                            fileQueueUsed = true;
+                            if (!fileQueue) {
+                                DSTORAGE_QUEUE_DESC queue_desc{
+                                    .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
+                                    .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
+                                    .Priority = DSTORAGE_PRIORITY_NORMAL,
+                                    .Device = device->device.Get()};
+                                ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(fileQueue.GetAddressOf())));
+                            }
                         }
-                    }
-                    queue = fileQueue.Get();
-                } else {
-                    request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
-                    request.Source.Memory.Source = t.src_ptr;
-                    request.Source.Memory.Size = cmd->src_size;
-                    if (!memQueueUsed) {
-                        memQueueUsed = true;
-                        if (!memQueue) {
-                            DSTORAGE_QUEUE_DESC queue_desc{
-                                .SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY,
-                                .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-                                .Priority = DSTORAGE_PRIORITY_NORMAL,
-                                .Device = device->device.Get()};
-                            ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(memQueue.GetAddressOf())));
+                        queue = fileQueue.Get();
+                    } else {
+                        request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
+                        request.Source.Memory.Source = t.src_ptr;
+                        request.Source.Memory.Size = cmd->src_size;
+                        if (!memQueueUsed) {
+                            memQueueUsed = true;
+                            if (!memQueue) {
+                                DSTORAGE_QUEUE_DESC queue_desc{
+                                    .SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY,
+                                    .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
+                                    .Priority = DSTORAGE_PRIORITY_NORMAL,
+                                    .Device = device->device.Get()};
+                                ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(memQueue.GetAddressOf())));
+                            }
                         }
+                        queue = memQueue.Get();
                     }
-                    queue = memQueue.Get();
-                }
                 },
                 cmd->src);
             auto set_compress = [&](size_t size) {
@@ -200,9 +200,8 @@ void DStorageCommandQueue::Complete() {
     Complete(lastFrame);
 }
 DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *device)
-    : device(device),
+    : CmdQueueBase(device, CmdQueueTag::DStorage),
       factory{factory},
-      CmdQueueBase(CmdQueueTag::DStorage),
       thd([this] { ExecuteThread(); }) {
 }
 void DStorageCommandQueue::Signal(ID3D12Fence *fence, UINT64 value) {

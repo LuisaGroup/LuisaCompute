@@ -46,6 +46,7 @@ struct IndirectDispatchArg {
 static constexpr uint64_t draw_raster_command_uuid = 10000;
 static constexpr uint64_t clear_depth_command_uuid = 10001;
 static constexpr uint64_t dstorage_command_uuid = 10002;
+static constexpr uint64_t custom_dispatch_uuid = 10003;
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
@@ -614,6 +615,38 @@ public:
     explicit CustomCommand() noexcept
         : Command{Command::Tag::ECustomCommand} {}
     [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
+};
+// For custom shader-dispatch or pass
+class CustomDispatchCommand : public CustomCommand {
+public:
+    struct UsedResource {
+        using ResourceHandle = luisa::variant<
+            Argument::Buffer,
+            Argument::Texture,
+            Argument::BindlessArray,
+            Argument::Accel>;
+        ResourceHandle resource;
+        Usage resource_usage;
+    };
+
+private:
+    StreamTag _stream_tag;
+
+protected:
+    luisa::vector<UsedResource> _used_resources;
+
+public:
+    explicit CustomDispatchCommand(
+        StreamTag stream_tag) noexcept
+        : _stream_tag{stream_tag} {
+    }
+    [[nodiscard]] auto used_resources() const noexcept {
+        return luisa::span{_used_resources};
+    }
+    uint64_t uuid() const noexcept override {
+        return custom_dispatch_uuid;
+    }
+    LUISA_MAKE_COMMAND_COMMON(_stream_tag)
 };
 
 }// namespace luisa::compute

@@ -124,8 +124,6 @@ private:
     size_t _layer_count = 0;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
-    size_t _arg_idx;
-    uint64_t _shader_handle;
     size_t _dispatch_layer;
     bool _use_bindless_in_pass;
     bool _use_accel_in_pass;
@@ -520,6 +518,80 @@ private:
         }
     }
     FuncTable _func_table;
+    void visit(const CustomDispatchCommand *command) noexcept {
+        _dispatch_read_handle.clear();
+        _dispatch_write_handle.clear();
+        _use_bindless_in_pass = false;
+        _use_accel_in_pass = false;
+        _dispatch_layer = 0;
+        for (auto &i : command->used_resources()) {
+            luisa::visit(
+                [&]<typename T>(T const &t) {
+                    if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                        add_dispatch_handle(
+                            t.handle,
+                            ResourceType::Texture_Buffer,
+                            Range(t.offset, t.size),
+                            ((uint)i.resource_usage & (uint)Usage::WRITE) != 0);
+                    } else if constexpr (std::is_same_v<T, Argument::Texture>) {
+                        add_dispatch_handle(
+                            t.handle,
+                            ResourceType::Texture_Buffer,
+                            Range(t.level, 1),
+                            ((uint)i.resource_usage & (uint)Usage::WRITE) != 0);
+
+                    } else if constexpr (std::is_same_v<T, Argument::BindlessArray>) {
+                        _use_bindless_in_pass = true;
+                        vstd::fixed_vector<uint64_t, 16> requiredState;
+                        {
+                            _func_table.lock_bindless(t.handle);
+                            auto unlocker = vstd::scope_exit([&] {
+                                _func_table.unlock_bindless(t.handle);
+                            });
+                            for (auto &&res : _write_res_map) {
+                                if (_func_table.is_res_in_bindless(t.handle, res)) {
+                                    requiredState.emplace_back(res);
+                                }
+                            }
+                        }
+                        for (auto &&i : requiredState) {
+                            add_dispatch_handle(
+                                i,
+                                ResourceType::Texture_Buffer,
+                                Range{},
+                                false);
+                        }
+                        add_dispatch_handle(
+                            t.handle,
+                            ResourceType::Bindless,
+                            Range(),
+                            false);
+                    } else {
+                        _use_accel_in_pass = true;
+                        add_dispatch_handle(
+                            t.handle,
+                            ResourceType::Accel,
+                            Range(),
+                            false);
+                    }
+                },
+                i.resource);
+        }
+        for (auto &&i : _dispatch_read_handle) {
+            set_read_layer(i.second, i.first, _dispatch_layer);
+        }
+        for (auto &&i : _dispatch_write_handle) {
+            set_write_layer(i.second, i.first, _dispatch_layer);
+        }
+        add_command(command, _dispatch_layer);
+        if (_use_bindless_in_pass) {
+            _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
+        }
+        if (_use_accel_in_pass) {
+            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+        }
+    }
+
     template<bool contain_binding, typename... Callbacks>
     void visit(const ShaderDispatchCommandBase *command, const Command *cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
         _dispatch_read_handle.clear();
@@ -527,8 +599,7 @@ private:
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
-        _arg_idx = 0;
-        _shader_handle = shader_handle;
+        size_t arg_idx = 0;
         using Argument = ShaderDispatchCommandBase::Argument;
         using Tag = Argument::Tag;
         auto ite_arg = [&](auto &&i) {
@@ -539,8 +610,8 @@ private:
                         bf.handle,
                         ResourceType::Texture_Buffer,
                         Range(bf.offset, bf.size),
-                        ((uint)_func_table.get_usage(_shader_handle, _arg_idx) & (uint)Usage::WRITE) != 0);
-                    ++_arg_idx;
+                        ((uint)_func_table.get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0);
+                    ++arg_idx;
                 } break;
                 case Tag::TEXTURE: {
                     auto &&tex = i.texture;
@@ -548,11 +619,11 @@ private:
                         tex.handle,
                         ResourceType::Texture_Buffer,
                         Range(tex.level),
-                        ((uint)_func_table.get_usage(_shader_handle, _arg_idx) & (uint)Usage::WRITE) != 0);
-                    ++_arg_idx;
+                        ((uint)_func_table.get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0);
+                    ++arg_idx;
                 } break;
                 case Tag::UNIFORM: {
-                    ++_arg_idx;
+                    ++arg_idx;
                 } break;
                 case Tag::BINDLESS_ARRAY: {
                     auto &&arr = i.bindless_array;
@@ -581,7 +652,7 @@ private:
                         ResourceType::Bindless,
                         Range(),
                         false);
-                    ++_arg_idx;
+                    ++arg_idx;
                 } break;
                 case Tag::ACCEL: {
                     auto &&acc = i.accel;
@@ -591,7 +662,7 @@ private:
                         ResourceType::Accel,
                         Range(),
                         false);
-                    ++_arg_idx;
+                    ++arg_idx;
                 } break;
             }
         };
@@ -786,6 +857,9 @@ public:
                 break;
             case draw_raster_command_uuid:
                 visit(static_cast<DrawRasterSceneCommand const *>(command));
+                break;
+            case custom_dispatch_uuid:
+                visit(static_cast<CustomDispatchCommand const *>(command));
                 break;
             default:
                 LUISA_ERROR("Custom command not supported by reorder.");

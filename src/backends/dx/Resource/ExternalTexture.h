@@ -33,6 +33,5 @@ public:
         return initState;
     }
     Tag GetTag() const override { return Tag::ExternalTexture; }
-    VSTD_SELF_PTR
 };
 }// namespace lc::dx

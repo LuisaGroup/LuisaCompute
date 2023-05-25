@@ -23,6 +23,5 @@ public:
         return Tag::ExternalBuffer;
     }
     KILL_COPY_CONSTRUCT(ExternalBuffer)
-    VSTD_SELF_PTR
 };
 }// namespace lc::dx

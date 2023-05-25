@@ -13,7 +13,7 @@ public:
     size_t size_bytes;
     DStorageFileImpl(ComPtr<IDStorageFile> &&file, size_t size_bytes) : file{std::move(file)}, size_bytes{size_bytes} {}
 };
-class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase {
+class DStorageCommandQueue : public CmdQueueBase{
     struct WaitQueueHandle {
         HANDLE handles[2];
     };
@@ -32,7 +32,6 @@ class DStorageCommandQueue : public CmdQueueBase, public vstd::IOperatorNewBase 
                       bool wakeupThread)
             : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
     };
-    Device *device;
     IDStorageFactory *factory;
     std::mutex mtx;
     std::mutex exec_mtx;

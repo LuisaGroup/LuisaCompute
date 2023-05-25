@@ -3,6 +3,7 @@
 #include <EASTL/shared_ptr.h>
 #include <runtime/rhi/command.h>
 #include <runtime/device.h>
+#include <Resource/Resource.h>
 using namespace luisa::compute;
 namespace lc::dx {
 class DefaultBuffer;
@@ -13,13 +14,12 @@ class ResourceStateTracker;
 class Mesh;
 class BottomAccel;
 class MeshHandle;
-class TopAccel : public vstd::IOperatorNewBase {
+class TopAccel : public Resource {
 
     friend class BottomAccel;
     friend class BboxAccel;
     vstd::unique_ptr<DefaultBuffer> instBuffer;
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
-    Device *device;
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc;
     struct Instance {
@@ -49,6 +49,7 @@ public:
     bool RequireCompact() const;
     TopAccel(Device *device, luisa::compute::AccelOption const &option);
     uint Length() const { return topLevelBuildDesc.Inputs.NumDescs; }
+    Tag GetTag() const override { return Tag::Accel; }
 
     DefaultBuffer const *GetAccelBuffer() const {
         return accelBuffer.get();

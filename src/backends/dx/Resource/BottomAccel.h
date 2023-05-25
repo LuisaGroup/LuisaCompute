@@ -29,11 +29,10 @@ public:
     static MeshHandle *AllocateHandle();
     static void DestroyHandle(MeshHandle *handle);
 };
-class BottomAccel : public vstd::IOperatorNewBase {
+class BottomAccel : public Resource {
     friend class TopAccel;
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
     uint64 compactSize;
-    Device *device;
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS hint;
     bool update = false;
     vstd::fixed_vector<MeshHandle *, 2> handles;
@@ -43,6 +42,7 @@ class BottomAccel : public vstd::IOperatorNewBase {
     void SyncTopAccel();
 
 public:
+    Tag GetTag() const override { return Tag::Mesh; }
     struct MeshOptions {
         Buffer const *vHandle;
         size_t vOffset;

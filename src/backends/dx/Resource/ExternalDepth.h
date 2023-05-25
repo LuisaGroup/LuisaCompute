@@ -30,6 +30,5 @@ public:
     ~ExternalDepth();
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;
     uint GetGlobalSRVIndex(uint mipOffset = 0) const override;
-    VSTD_SELF_PTR
 };
 }// namespace lc::dx

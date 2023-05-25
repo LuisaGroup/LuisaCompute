@@ -26,6 +26,5 @@ public:
 	}
 	ReadbackBuffer(ReadbackBuffer&&) = default;
 	KILL_COPY_CONSTRUCT(ReadbackBuffer)
-	VSTD_SELF_PTR
 };
 }// namespace lc::dx

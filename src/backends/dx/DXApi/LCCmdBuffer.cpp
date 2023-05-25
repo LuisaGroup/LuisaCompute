@@ -816,8 +816,7 @@ LCCmdBuffer::LCCmdBuffer(
     Device *device,
     GpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
-    : CmdQueueBase{CmdQueueTag::MainCmd},
-      device(device),
+    : CmdQueueBase{device, CmdQueueTag::MainCmd},
       reorder({}),
       queue(
           device,

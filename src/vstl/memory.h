@@ -31,14 +31,6 @@ inline void vengine_delete(T *ptr) noexcept {
 
 namespace vstd {
 // Not correctly implemented and could lead to memory leaks
-
-class ISelfPtr : public IOperatorNewBase {
-public:
-    virtual ~ISelfPtr() = default;
-    virtual void *SelfPtr() = 0;
-};
-#define VSTD_SELF_PTR \
-    void *SelfPtr() override { return this; }
 template<typename T>
 struct DynamicObject {
     template<typename... Args>

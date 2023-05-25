@@ -25,7 +25,6 @@ public:
 	}
 	UploadBuffer(UploadBuffer&&) = default;
 	KILL_COPY_CONSTRUCT(UploadBuffer)
-	VSTD_SELF_PTR
 };
 
 }// namespace lc::dx

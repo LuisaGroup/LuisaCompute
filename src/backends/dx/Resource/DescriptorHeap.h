@@ -35,7 +35,7 @@ public:
     void CreateSampler(D3D12_SAMPLER_DESC const &desc, uint64 index);
     ~DescriptorHeap();
     Tag GetTag() const override { return Tag::DescriptorHeap; }
-    VSTD_SELF_PTR
+    
 };
 struct DescriptorHeapView {
     DescriptorHeap const *heap;
