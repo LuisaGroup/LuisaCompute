@@ -634,7 +634,7 @@ public:
     explicit CustomDispatchCommand() noexcept {}
     [[nodiscard]] virtual size_t used_resources_size() const noexcept = 0;
     [[nodiscard]] virtual UsedResource used_resource(size_t index) const noexcept = 0;
-    uint64_t uuid() const noexcept override {
+    [[nodiscard]] uint64_t uuid() const noexcept override {
         return custom_dispatch_uuid;
     }
     virtual ~CustomDispatchCommand() noexcept = default;
