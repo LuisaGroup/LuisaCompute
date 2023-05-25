@@ -10,8 +10,19 @@
 namespace luisa::compute {
 
 namespace detail {
+
 LC_DSL_API void local_array_error_sizes_missmatch(size_t lhs, size_t rhs) noexcept;
+
+template<typename T>
+[[nodiscard]] inline auto local_array_choose_type(size_t n) noexcept {
+    auto elem = Type::of<T>();
+    if (n == 1u) { return elem; }
+    return elem->is_scalar() && n > 1u && n <= 4u ?
+               Type::vector(elem, n) :
+               Type::array(elem, n);
 }
+
+}// namespace detail
 
 template<typename T>
 class Local {
@@ -23,14 +34,14 @@ private:
 public:
     explicit Local(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->local(
-              Type::array(Type::of<T>(), n))},
+              detail::local_array_choose_type<T>(n))},
           _size{n} {}
 
     Local(Local &&) noexcept = default;
     Local(const Local &another) noexcept
         : _size{another._size} {
         auto fb = detail::FunctionBuilder::current();
-        _expression = fb->local(Type::array(Type::of<T>(), _size));
+        _expression = fb->local(detail::local_array_choose_type<T>(_size));
         fb->assign(_expression, another._expression);
     }
     Local &operator=(const Local &rhs) noexcept {
@@ -48,26 +59,15 @@ public:
         return *this;
     }
 
-    template<typename U>
-        requires is_array_expr_v<U>
-    Local &operator=(U &&rhs) noexcept {
-        constexpr auto n = array_expr_dimension_v<U>;
-        if (_size != n) [[unlikely]] {
-            detail::local_array_error_sizes_missmatch(_size, n);
-        }
-        detail::FunctionBuilder::current()->assign(
-            _expression, rhs._expression);
-        return *this;
-    }
-
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     template<typename U>
         requires is_integral_expr_v<U>
     [[nodiscard]] Var<T> &operator[](U &&index) const noexcept {
-        auto i = def(std::forward<U>(index));
         auto f = detail::FunctionBuilder::current();
+        if (_size == 1u) { return *f->create_temporary<Var<T>>(_expression); }
+        auto i = def(std::forward<U>(index));
         auto expr = f->access(
             Type::of<T>(), _expression, i.expression());
         return *f->create_temporary<Var<T>>(expr);
