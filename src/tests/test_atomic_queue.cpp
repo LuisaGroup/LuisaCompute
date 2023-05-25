@@ -3,6 +3,8 @@
 //
 
 #include <random>
+#include <iostream>
+
 #include <luisa-compute.h>
 
 using namespace luisa;
@@ -31,10 +33,26 @@ public:
         _reset = device.compile<1>([this] { _counter->write(0u, 0u); });
     }
 
-    void push(Expr<T> value) noexcept {
-        auto index = _counter->atomic(0u).fetch_add(1u);
-        _buffer->write(index, value);
+    void push_if(Expr<bool> pred, Expr<T> value) noexcept {
+        Shared<uint> index{1};
+        index.write(0u, 0u);
+        sync_block();
+        auto inc = ite(pred, 1u, 0u);
+        auto local_index = index.atomic(0).fetch_add(inc);
+        sync_block();
+        $if(thread_x() == 0u) {
+            auto local_count = index.read(0u);
+            auto global_offset = _counter->atomic(0u).fetch_add(local_count);
+            index.write(0u, global_offset);
+        };
+        sync_block();
+        $if(pred) {
+            auto global_index = index.read(0u) + local_index;
+            _buffer->write(global_index, value);
+        };
     }
+
+    void push(Expr<T> value) noexcept { push_if(true, value); }
 
     void reset(CommandList &list) noexcept {
         list << _reset().dispatch(1u);
@@ -86,12 +104,9 @@ int main(int argc, char *argv[]) {
         auto seed = seed_buffer.read(x);
         auto r = lcg(seed);
         seed_buffer.write(x, seed);
-        $if(r < .5f) {
-            q1.push(r);
-        }
-        $else {
-            q2.push(r);
-        };
+        auto pred = r < .5f;
+        q1.push_if(pred, r);
+        q2.push_if(!pred, r);
     });
 
     auto stream = device.create_stream();
@@ -129,7 +144,7 @@ int main(int argc, char *argv[]) {
     do_test(test_select, "", 64u);
 
     // test
-    do_test(test_single, "single", 1000u);
-    do_test(test_double, "double", 1000u);
-    do_test(test_select, "select", 1000u);
+    do_test(test_single, "single", 1024u);
+    do_test(test_double, "double", 1024u);
+    do_test(test_select, "select", 1024u);
 }
