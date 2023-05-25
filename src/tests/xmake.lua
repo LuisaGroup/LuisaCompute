@@ -67,7 +67,9 @@ test_proj("test_select_device", true)
 test_proj("test_dstorage", true)
 test_proj("test_indirect", true)
 test_proj("test_texture3d", true)
-if get_config("dx_backend") then
+local enable_fsr2
+-- enable_fsr2 = true
+if get_config("dx_backend") and enable_fsr2 then
 	test_proj("test_dx_fsr2", true, function()
 		add_linkdirs("FidelityFX-FSR2/bin/ffx_fsr2_api")
 		add_syslinks("Advapi32", "User32")
