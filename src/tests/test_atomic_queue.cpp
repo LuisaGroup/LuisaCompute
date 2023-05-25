@@ -33,11 +33,11 @@ public:
 
     void push(Expr<T> value) noexcept {
         auto index = _counter->atomic(0u).fetch_add(1u);
-        _buffer->write(index % static_cast<uint>(_buffer.size()), value);
+        _buffer->write(index, value);
     }
 
     void reset(CommandList &list) noexcept {
-        //        list << _reset().dispatch(1u);
+        list << _reset().dispatch(1u);
     }
 };
 
