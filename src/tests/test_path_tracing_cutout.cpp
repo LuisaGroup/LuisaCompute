@@ -102,7 +102,8 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << mesh.build();
+               << mesh.build()
+               << [indices = std::move(indices)]() {};
     }
 
     AccelOption accel_option{.hint = AccelOption::UsageHint::FAST_TRACE,

@@ -373,6 +373,7 @@ public:
     vstd::vector<ButtomCompactCmd> *updateAccel;
     vstd::vector<D3D12_VERTEX_BUFFER_VIEW> *vbv;
     BottomAccelData *bottomAccelData;
+    vstd::func_ptr_t<void(Device *, CommandBufferBuilder *)> after_custom_cmd{};
 
     void visit(const BufferUploadCommand *cmd) noexcept override {
         BufferView bf(
@@ -677,6 +678,7 @@ public:
             device->dxgiFactory.Get(),
             device->device.Get(),
             bd->GetCB()->CmdList());
+        after_custom_cmd(device, bd);
     }
     void visit(const CustomCommand *cmd) noexcept override {
         switch (cmd->uuid()) {
@@ -867,6 +869,12 @@ void LCCmdBuffer::Execute(
         visitor.vbv = &vbv;
         visitor.device = device;
         visitor.stateTracker = &tracker;
+        visitor.after_custom_cmd = [](Device *device, CommandBufferBuilder *bd) {
+            ID3D12DescriptorHeap *h[2] = {
+                device->globalHeap->GetHeap(),
+                device->samplerHeap->GetHeap()};
+            bd->GetCB()->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+        };
         auto cmdBuffer = allocator->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
         visitor.bd = &cmdBuilder;
