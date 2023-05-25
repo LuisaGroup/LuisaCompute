@@ -615,6 +615,7 @@ public:
     explicit CustomCommand() noexcept
         : Command{Command::Tag::ECustomCommand} {}
     [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
+    virtual ~CustomCommand() noexcept = default;
 };
 // For custom shader-dispatch or pass
 class CustomDispatchCommand : public CustomCommand {
@@ -629,24 +630,17 @@ public:
         Usage resource_usage;
     };
 
-private:
-    StreamTag _stream_tag;
-
-protected:
-    luisa::vector<UsedResource> _used_resources;
-
 public:
-    explicit CustomDispatchCommand(
-        StreamTag stream_tag) noexcept
-        : _stream_tag{stream_tag} {
-    }
-    [[nodiscard]] auto used_resources() const noexcept {
-        return luisa::span{_used_resources};
-    }
+    explicit CustomDispatchCommand() noexcept {}
+    [[nodiscard]] virtual size_t used_resources_size() const noexcept = 0;
+    [[nodiscard]] virtual UsedResource used_resource(size_t index) const noexcept = 0;
     uint64_t uuid() const noexcept override {
         return custom_dispatch_uuid;
     }
-    LUISA_MAKE_COMMAND_COMMON(_stream_tag)
+    virtual ~CustomDispatchCommand() noexcept = default;
+    friend class CmdDeser;
+    friend class CmdSer;
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };
 
 }// namespace luisa::compute

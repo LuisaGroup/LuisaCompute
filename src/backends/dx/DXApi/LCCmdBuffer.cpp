@@ -168,8 +168,14 @@ public:
         }
     };
     void visit(const DXCustomCmd *cmd) noexcept {
-        for (auto &&i : cmd->_resource_states) {
-            stateTracker->RecordState(reinterpret_cast<Resource const *>(i.resource_handle), i.required_state);
+        for (auto &&i : cmd->resource_usages) {
+            uint64_t handle =
+                luisa::visit(
+                    [](auto &&t) -> uint64_t {
+                        return t.handle;
+                    },
+                    i.resource);
+            stateTracker->RecordState(reinterpret_cast<Resource const *>(handle), i.required_state);
         }
     }
     void visit(const BufferUploadCommand *cmd) noexcept override {
@@ -666,7 +672,7 @@ public:
             cmd->modifications());
     }
     void visit(const DXCustomCmd *cmd) noexcept {
-        cmd->_callback(
+        cmd->execute(
             device->adapter.Get(),
             device->dxgiFactory.Get(),
             device->device.Get(),

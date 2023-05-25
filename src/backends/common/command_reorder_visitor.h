@@ -524,7 +524,8 @@ private:
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
-        for (auto &i : command->used_resources()) {
+        for (size_t idx = 0; idx < command->used_resources_size(); ++idx) {
+            auto &&i = command->used_resource(idx);
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<T, Argument::Buffer>) {

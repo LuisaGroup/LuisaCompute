@@ -200,7 +200,8 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case custom_dispatch_uuid: {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
-            for (auto &i : c->used_resources()) {
+            for (size_t idx = 0; idx < c->used_resources_size(); ++idx) {
+                auto &&i = c->used_resource(idx);
                 luisa::visit(
                     [&]<typename T>(T const &t) {
                         if constexpr (std::is_same_v<T, Argument::Buffer>) {
