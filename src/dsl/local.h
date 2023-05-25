@@ -16,8 +16,8 @@ LC_DSL_API void local_array_error_sizes_missmatch(size_t lhs, size_t rhs) noexce
 template<typename T>
 [[nodiscard]] inline auto local_array_choose_type(size_t n) noexcept {
     auto elem = Type::of<T>();
-    if (n == 1u) { return elem; }
-    return elem->is_scalar() && n > 1u && n <= 4u ?
+    if (n <= 1u) { return elem; }
+    return elem->is_scalar() && n <= 4u ?
                Type::vector(elem, n) :
                Type::array(elem, n);
 }
