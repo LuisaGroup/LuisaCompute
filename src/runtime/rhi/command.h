@@ -643,7 +643,7 @@ public:
     [[nodiscard]] auto used_resources() const noexcept {
         return luisa::span{_used_resources};
     }
-    uint64_t uuid() const noexcept override {
+    [[nodiscard]] uint64_t uuid() const noexcept override {
         return custom_dispatch_uuid;
     }
     LUISA_MAKE_COMMAND_COMMON(_stream_tag)
