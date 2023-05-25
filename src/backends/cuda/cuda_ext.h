@@ -9,6 +9,7 @@
 #include <runtime/buffer.h>
 
 namespace luisa::compute::cuda {
+
 class CUDADenoiserExt : public DenoiserExt {
     CUDADevice *_device;
     std::vector<optix::DenoiserLayer> _layers;
@@ -43,4 +44,5 @@ public:
     void denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
                  Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> **aovs, uint aov_size) noexcept override;
 };
+
 }// namespace luisa::compute::cuda
