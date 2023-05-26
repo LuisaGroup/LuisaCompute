@@ -21,8 +21,8 @@ void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
 DeviceInterface *DStorageExtImpl::device() const noexcept {
     return _impl->device();
 }
-ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
-    auto p = _impl->create_stream_handle();
+ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
+    auto p = _impl->create_stream_handle(option);
     if (!p.valid()) return p;
     new Stream(p.handle, StreamTag::CUSTOM);
     StreamOption opt;

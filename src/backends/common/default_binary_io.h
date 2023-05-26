@@ -8,7 +8,9 @@
 #include <core/dynamic_module.h>
 
 namespace luisa::compute {
+
 class DefaultBinaryIO final : public BinaryIO {
+
 public:
     friend class LockedBinaryFileStream;
     friend class DStorageLockedFileStream;

@@ -12,6 +12,7 @@ if (CUDAToolkit_FOUND)
             cuda_buffer.cpp cuda_buffer.h
             cuda_stream.cpp cuda_stream.h
             cuda_device.cpp cuda_device.h
+            cuda_dstorage.cpp cuda_dstorage.h
             cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_texture.cpp cuda_texture.h

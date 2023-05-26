@@ -16,10 +16,7 @@ public:
     void close_file_handle(uint64_t handle) noexcept override;
     PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept override;
     void unpin_host_memory(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_stream_handle() noexcept override;
-    void set_config(bool hdd) noexcept override {
-        _impl->set_config(hdd);
-    }
+    ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
     DStorageExtImpl(DStorageExt *ext);
     void compress(const void *data, size_t size_bytes,
                   Compression algorithm,

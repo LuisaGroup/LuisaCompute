@@ -2,7 +2,9 @@
 #include <backends/common/default_binary_io.h>
 #include <core/logging.h>
 #include <core/binary_file_stream.h>
+
 namespace luisa::compute {
+
 class LockedBinaryFileStream : public BinaryStream {
 
 private:
@@ -14,7 +16,7 @@ public:
     explicit LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
         : _stream{file, length},
           _binary_io{binary_io},
-          _idx{std::move(idx)} {}
+          _idx{idx} {}
     ~LockedBinaryFileStream() noexcept override {
         _binary_io->_unlock(_idx, false);
     }

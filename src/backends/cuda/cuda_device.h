@@ -17,6 +17,9 @@
 
 namespace luisa::compute::cuda {
 
+class CUDADenoiserExt;
+class CUDADStorageExt;
+
 /**
  * @brief CUDA device
  * 
@@ -77,23 +80,6 @@ public:
     };
 
 private:
-    struct Ext {
-        using Ctor = vstd::func_ptr_t<DeviceExtension *(CUDADevice *)>;
-        using Dtor = vstd::func_ptr_t<void(DeviceExtension *)>;
-        DeviceExtension *ext;
-        Ctor ctor;
-        Dtor dtor;
-        Ext(Ctor ctor, Dtor dtor) : ext{nullptr}, ctor{ctor}, dtor{dtor} {}
-        Ext(Ext const &) = delete;
-        Ext(Ext &&rhs) : ext{rhs.ext}, ctor{rhs.ctor}, dtor{rhs.dtor} {
-            rhs.ext = nullptr;
-        }
-        ~Ext() {
-            if (ext) {
-                dtor(ext);
-            }
-        }
-    };
     Handle _handle;
     CUmodule _builtin_kernel_module{nullptr};
     CUfunction _accel_update_function{nullptr};
@@ -102,8 +88,12 @@ private:
     luisa::unique_ptr<CUDACompiler> _compiler;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
-    std::mutex extMtx;
-    vstd::unordered_map<vstd::string, Ext> exts;
+
+private:
+    // extensions
+    std::mutex _ext_mutex;
+    luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
+    luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
 
 private:
     [[nodiscard]] ShaderCreationInfo _create_shader(const string &source,

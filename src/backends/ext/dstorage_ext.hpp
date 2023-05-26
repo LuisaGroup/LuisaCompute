@@ -238,8 +238,8 @@ inline DStorageFile DStorageExt::pin_memory(void *ptr, size_t size_bytes) noexce
     return DStorageFile{this, this->pin_host_memory(ptr, size_bytes)};
 }
 
-inline Stream DStorageExt::create_stream() noexcept {
-    return Stream{this->device(), StreamTag::CUSTOM, this->create_stream_handle()};
+inline Stream DStorageExt::create_stream(const DStorageStreamOption &option) noexcept {
+    return Stream{this->device(), StreamTag::CUSTOM, this->create_stream_handle(option)};
 }
 
 }// namespace luisa::compute

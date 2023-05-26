@@ -35,10 +35,12 @@
 #include <backends/cuda/cuda_shader_native.h>
 #include <backends/cuda/cuda_shader_optix.h>
 #include <backends/cuda/cuda_shader_metadata.h>
-#include <backends/cuda/cuda_ext.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_swapchain.h>
 #include <backends/cuda/cuda_builtin_embedded.h>
+
+#include <backends/cuda/cuda_dstorage.h>
+#include <backends/cuda/cuda_ext.h>
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_DUMP_SOURCE 1
@@ -91,16 +93,7 @@ namespace luisa::compute::cuda {
 CUDADevice::CUDADevice(Context &&ctx,
                        size_t device_id,
                        const BinaryIO *io) noexcept
-    : DeviceInterface{std::move(ctx)},
-      _handle{device_id}, _io{io} {
-    exts.try_emplace(
-        DenoiserExt::name,
-        [](CUDADevice *device) -> DeviceExtension * {
-            return new CUDADenoiserExt(device);
-        },
-        [](DeviceExtension *ext) {
-            delete static_cast<CUDADenoiserExt *>(ext);
-        });
+    : DeviceInterface{std::move(ctx)}, _handle{device_id}, _io{io} {
     // provide a default binary IO
     if (_io == nullptr) {
         _default_io = luisa::make_unique<DefaultBinaryIO>(context());
@@ -488,26 +481,26 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     for (auto &&arg : kernel.bound_arguments()) {
         luisa::visit(
             [&bound_arguments]<typename T>(T binding) noexcept {
-            ShaderDispatchCommand::Argument argument{};
-            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
-                argument.buffer.handle = binding.handle;
-                argument.buffer.offset = binding.offset;
-                argument.buffer.size = binding.size;
-            } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
-                argument.texture.handle = binding.handle;
-                argument.texture.level = binding.level;
-            } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
-                argument.bindless_array.handle = binding.handle;
-            } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
-                argument.accel.handle = binding.handle;
-            } else {
-                LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
-            }
-            bound_arguments.emplace_back(argument);
+                ShaderDispatchCommand::Argument argument{};
+                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
+                    argument.buffer.handle = binding.handle;
+                    argument.buffer.offset = binding.offset;
+                    argument.buffer.size = binding.size;
+                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
+                    argument.texture.handle = binding.handle;
+                    argument.texture.level = binding.level;
+                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
+                    argument.bindless_array.handle = binding.handle;
+                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
+                    argument.accel.handle = binding.handle;
+                } else {
+                    LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
+                }
+                bound_arguments.emplace_back(argument);
             },
             arg);
     }
@@ -741,17 +734,19 @@ string CUDADevice::query(luisa::string_view property) noexcept {
 }
 
 DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
-    
-   auto ite = exts.find(name);
-    if (ite == exts.end()) return nullptr;
-    auto &v = ite->second;
-    {
-        std::lock_guard lck{extMtx};
-        if (v.ext == nullptr) {
-            v.ext = v.ctor(this);
-        }
+
+#define LUISA_COMPUTE_CREATE_CUDA_EXTENSION(ext, v)                         \
+    if (name == ext##Ext::name) {                                           \
+        std::scoped_lock lock{_ext_mutex};                                  \
+        if (v == nullptr) { v = luisa::make_unique<CUDA##ext##Ext>(this); } \
+        return v.get();                                                     \
     }
-    return v.ext;
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(Denoiser, _denoiser_ext)
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
+#undef LUISA_COMPUTE_CREATE_CUDA_EXTENSION
+
+    LUISA_WARNING_WITH_LOCATION("Unknown device extension '{}'.", name);
+    return nullptr;
 }
 
 CUDADevice::Handle::Handle(size_t index) noexcept {
