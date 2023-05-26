@@ -21,7 +21,7 @@ public:
     void compress(const void *data, size_t size_bytes,
                   Compression algorithm,
                   CompressionQuality quality,
-                  vector<std::byte> &result) noexcept override;
+                  luisa::vector<std::byte> &result) noexcept override;
 };
 
 }// namespace lc::validation

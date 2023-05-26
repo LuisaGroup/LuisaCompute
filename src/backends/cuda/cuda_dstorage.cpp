@@ -96,7 +96,6 @@ CUDAMappedFile::CUDAMappedFile(luisa::string_view path) noexcept
     LUISA_CHECK_CUDA(cuMemHostRegister(
         _mapped_pointer, _size_bytes,
         CU_MEMHOSTREGISTER_DEVICEMAP |
-            CU_MEMHOSTREGISTER_IOMEMORY |
             CU_MEMHOSTREGISTER_READ_ONLY));
     LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
         &_device_address, _mapped_pointer, 0));
