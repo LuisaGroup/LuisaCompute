@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from .types import dtype_of, to_lctype, nameof
-
-
+from .atomic import int_atomic_functions, float_atomic_functions
+from .types import uint, uint, short, ushort
 class Array:
     def __init__(self, arr):
         if type(arr) is Array:
@@ -75,6 +75,13 @@ class SharedArrayType:
         self.dtype = dtype
         assert type(size) is int and size > 0
         self.luisa_type = lcapi.Type.from_(f'array<{to_lctype(dtype).description()},{self.size}>')
+        # disable atomic operations if it's not an int buffer
+        if dtype in {int, uint, short, ushort}:
+            for f in int_atomic_functions:
+                setattr(self, f.__name__, f)
+        if dtype == float:
+            for f in float_atomic_functions:
+                setattr(self, f.__name__, f)
 
     def __repr__(self):
         return f'SharedArrayType({self.size},{nameof(self.dtype)})'

@@ -10,7 +10,6 @@ from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_t
 from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtypes
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
-from .array import ArrayType, SharedArrayType
 from .struct import StructType
 
 
@@ -193,9 +192,9 @@ class ASTVisitor:
         build(node.value)
         node.lr = node.value.lr
         build(node.slice)
-        if type(node.value.dtype) is ArrayType:
+        if type(node.value.dtype).__name__ == "ArrayType":
             node.dtype = node.value.dtype.dtype
-        elif type(node.value.dtype) is SharedArrayType:
+        elif type(node.value.dtype).__name__ == "SharedArrayType":
             node.dtype = node.value.dtype.dtype
         elif node.value.dtype in vector_dtypes:
             node.dtype = element_of(node.value.dtype)
@@ -317,7 +316,8 @@ class ASTVisitor:
             dtype = rhs.dtype  # craete variable with same type as rhs
             # store type & ptr info into name
             # ref type
-            if isinstance(rhs.dtype, SharedArrayType):
+            
+            if type(rhs.dtype).__name__ == "SharedArrayType":
                 ctx().local_variable[lhs.id] = VariableInfo(dtype, rhs.expr)
                 lhs.expr = rhs.expr
                 lhs.dtype = dtype
@@ -535,7 +535,7 @@ class ASTVisitor:
     @staticmethod
     def build_range_for(node):
         if len(node.iter.args) not in {1, 2, 3}:
-            raise TypeError(f"'range' expects 1/2/3 arguments, got {en(node.iter.args)}")
+            raise TypeError(f"'range' expects 1/2/3 arguments, got {len(node.iter.args)}")
         for x in node.iter.args:
             build(x)
             assert x.dtype in {int, uint, short, ushort}
@@ -592,7 +592,7 @@ class ASTVisitor:
             lcapi.end_branch()
             return v
         build(node.iter)
-        if type(node.iter.dtype) is ArrayType or node.iter.dtype in {*vector_dtypes, *matrix_dtypes}:
+        if type(node.iter.dtype).__name__ == "ArrayType" or node.iter.dtype in {*vector_dtypes, *matrix_dtypes}:
             v = build.build_container_for(node)
             lcapi.end_branch()
             return v

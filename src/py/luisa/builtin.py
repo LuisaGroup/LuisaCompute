@@ -6,7 +6,6 @@ import functools
 from . import globalvars
 from types import SimpleNamespace
 import ast
-from .array import ArrayType, SharedArrayType
 from .struct import StructType
 
 
@@ -255,7 +254,7 @@ def builtin_type_cast(dtype, *args):
     # default construct without arguments
     if len(args) == 0:
         # construct variable without initialization
-        if type(dtype) == SharedArrayType:
+        if type(dtype).__name__ == "SharedArrayType":
             return dtype, lcapi.builder().shared(to_lctype(dtype))
         else:
             return dtype, lcapi.builder().local(to_lctype(dtype))
@@ -720,7 +719,7 @@ for name in ('transpose', 'inverse'):
 
 def _len(name, *args):
     assert len(args) == 1
-    if type(args[0].dtype) is ArrayType or args[0].dtype in vector_and_matrix_dtypes:
+    if type(args[0].dtype).__name__ == "ArrayType" or args[0].dtype in vector_and_matrix_dtypes:
         return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
     raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
 

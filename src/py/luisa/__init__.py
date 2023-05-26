@@ -2,7 +2,8 @@ from .dylibs import lcapi
 from . import globalvars
 from .types import half, short, ushort, half2, short2, ushort2, half3, short3, ushort3, half4, short4, ushort4
 
-from .func import func, save_raster_shader
+from .func import func
+from .raster_func import save_raster_shader
 from .mathtypes import *
 from .array import array, ArrayType, SharedArrayType
 from .struct import struct, StructType
