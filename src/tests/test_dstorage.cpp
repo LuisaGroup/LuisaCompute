@@ -15,9 +15,14 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    // Direct Storage only supported for dx currently.
-    Device device = context.create_device("dx");
-    DStorageExt *dstorage_ext = device.extension<DStorageExt>();
+
+    if (argc <= 1) {
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    Device device = context.create_device(argv[1]);
+
+    auto dstorage_ext = device.extension<DStorageExt>();
     Stream dstorage_stream = dstorage_ext->create_stream();
     Stream compute_stream = device.create_stream();
     Event event = device.create_event();

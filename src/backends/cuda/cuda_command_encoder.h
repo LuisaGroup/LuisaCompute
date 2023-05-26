@@ -6,10 +6,12 @@
 
 #include <cuda.h>
 
-#include <runtime/rhi/command.h>
-#include <backends/cuda/cuda_stream.h>
 #include <nvtx3/nvToolsExt.h>
 #include <nvtx3/nvToolsExtCuda.h>
+
+#include <runtime/rhi/command.h>
+#include <backends/ext/dstorage_cmd.h>
+#include <backends/cuda/cuda_stream.h>
 
 namespace luisa::compute::cuda {
 
@@ -24,6 +26,9 @@ class CUDACommandEncoder : public MutableCommandVisitor {
 private:
     CUDAStream *_stream;
     luisa::vector<CUDACallbackContext *> _callbacks;
+
+private:
+    void visit(DStorageReadCommand *command) noexcept;
 
 public:
     explicit CUDACommandEncoder(CUDAStream *stream) noexcept

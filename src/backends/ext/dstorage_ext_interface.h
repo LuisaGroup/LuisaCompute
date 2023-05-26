@@ -38,9 +38,15 @@ protected:
     friend class lc::validation::DStorageExtImpl;
     struct FileCreationInfo : public ResourceCreationInfo {
         size_t size_bytes;
+        [[nodiscard]] static auto make_invalid() noexcept {
+            return FileCreationInfo{ResourceCreationInfo::make_invalid(), 0u};
+        }
     };
     struct PinnedMemoryInfo : public ResourceCreationInfo {
         size_t size_bytes;
+        [[nodiscard]] static auto make_invalid() noexcept {
+            return PinnedMemoryInfo{ResourceCreationInfo::make_invalid(), 0u};
+        }
     };
 
 protected:

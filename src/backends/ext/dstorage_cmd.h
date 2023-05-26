@@ -2,6 +2,7 @@
 
 #include <runtime/rhi/command.h>
 #include <backends/ext/registry.h>
+#include <backends/ext/dstorage_ext_interface.h>
 
 namespace luisa::compute {
 
