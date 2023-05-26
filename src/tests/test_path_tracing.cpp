@@ -92,8 +92,7 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << mesh.build()
-               << [indices = std::move(indices)]() {};
+               << mesh.build();
     }
 
     Accel accel = device.create_accel({});

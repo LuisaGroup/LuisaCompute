@@ -16,6 +16,7 @@
 #include <tests/common/cornell_box.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/common/tiny_obj_loader.h>
+#include <tests/common/projection.hpp>
 // #include <ffx_fsr2_interface.h>
 using namespace luisa;
 using namespace luisa::compute;
@@ -92,25 +93,10 @@ void fsr2_message(FfxFsr2MsgType type, const wchar_t *message) {
 class FSRCommand : public DXCustomCmd {
 public:
     FfxFsr2Context *context;
-    UpscaleSetup *upscale_setup;
     float2 jitter;
     float sharpness;
     float delta_time;
     mutable FfxFsr2DispatchDescription dispatch_params{};
-    FSRCommand(
-        FfxFsr2Context *context,
-        UpscaleSetup *upscale_setup,
-        float2 jitter,
-        float sharpness,
-        float delta_time)
-        : context{context},
-          upscale_setup{upscale_setup},
-          jitter{jitter},
-          sharpness{sharpness},
-          delta_time{delta_time} {}
-    StreamTag stream_tag() const noexcept override {
-        return StreamTag::COMPUTE;
-    }
     template<typename T>
     FfxResource get_image_resource(
         FfxFsr2Context *context,
@@ -136,6 +122,53 @@ public:
                 break;
         }
         return ffxGetResourceDX12(context, reinterpret_cast<ID3D12Resource *>(image.native_handle()), name, state);
+    }
+    FSRCommand(
+        FfxFsr2Context *context,
+        UpscaleSetup *upscale_setup,
+        float2 jitter,
+        float sharpness,
+        float delta_time)
+        : jitter{jitter},
+          context{context},
+          sharpness{sharpness},
+          delta_time{delta_time} {
+        dispatch_params.color = get_image_resource(context, upscale_setup->unresolved_color_resource, L"FSR2_InputColor");
+        dispatch_params.depth = get_image_resource(context, upscale_setup->depthbuffer_resource, L"FSR2_InputDepth");
+        dispatch_params.motionVectors = get_image_resource(context, upscale_setup->motionvector_resource, L"FSR2_InputMotionVectors");
+        dispatch_params.exposure = ffxGetResourceDX12(context, nullptr, L"FSR2_InputExposure");
+
+        if (upscale_setup->reactive_map_resource) {
+            dispatch_params.reactive = get_image_resource(context, upscale_setup->reactive_map_resource, L"FSR2_InputReactiveMap");
+        } else {
+            dispatch_params.reactive = ffxGetResourceDX12(context, nullptr, L"FSR2_EmptyInputReactiveMap");
+        }
+
+        if (upscale_setup->transparency_and_composition_resource) {
+            dispatch_params.transparencyAndComposition = get_image_resource(context, upscale_setup->transparency_and_composition_resource, L"FSR2_TransparencyAndCompositionMap");
+        } else {
+            dispatch_params.transparencyAndComposition = ffxGetResourceDX12(context, nullptr, L"FSR2_EmptyTransparencyAndCompositionMap");
+        }
+        uint2 render_size = upscale_setup->unresolved_color_resource.size();
+        dispatch_params.output = get_image_resource(context, upscale_setup->resolved_color_resource, L"FSR2_OutputUpscaledColor", FFX_RESOURCE_STATE_UNORDERED_ACCESS);
+        dispatch_params.jitterOffset.x = jitter.x;
+        dispatch_params.jitterOffset.y = jitter.y;
+        dispatch_params.motionVectorScale.x = (float)render_size.x;
+        dispatch_params.motionVectorScale.y = (float)render_size.y;
+        dispatch_params.reset = false;
+        dispatch_params.enableSharpening = sharpness > 1e-5;
+        dispatch_params.sharpness = sharpness;
+        dispatch_params.frameTimeDelta = delta_time;
+        dispatch_params.preExposure = 1.0f;
+        dispatch_params.renderSize.width = render_size.x;
+        dispatch_params.renderSize.height = render_size.y;
+        // depth inverted
+        dispatch_params.cameraFar = upscale_setup->cam.near_plane;
+        dispatch_params.cameraNear = upscale_setup->cam.far_plane;
+        dispatch_params.cameraFovAngleVertical = upscale_setup->cam.fov;
+    }
+    StreamTag stream_tag() const noexcept override {
+        return StreamTag::COMPUTE;
     }
     void execute(
         IDXGIAdapter1 *adapter,
@@ -206,17 +239,13 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << mesh.build()
-               << [indices = std::move(indices)]() {};
+               << mesh.build();
     }
 
     Accel accel = device.create_accel({});
     for (Mesh &m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }
-    stream << heap.update()
-           << accel.build()
-           << synchronize();
 
     Constant materials{
         make_float3(0.725f, 0.710f, 0.680f),// floor
@@ -270,12 +299,7 @@ int main(int argc, char *argv[]) {
     };
 
     static constexpr float fov = radians(27.8f);
-    Callable generate_ray = [](Float2 p) noexcept {
-        static constexpr float3 origin = make_float3(-0.01f, 0.995f, 5.0f);
-        Float3 pixel = origin + make_float3(p * tan(0.5f * fov), -1.0f);
-        Float3 direction = normalize(pixel - origin);
-        return make_ray(origin, direction);
-    };
+    static constexpr float3 cam_origin = make_float3(-0.01f, 0.995f, 5.0f);
 
     Callable cosine_sample_hemisphere = [](Float2 u) noexcept {
         Float r = sqrt(u.x);
@@ -287,15 +311,17 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, AccelVar accel, UInt2 resolution, Float2 jitter) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, AccelVar accel, UInt2 resolution, Float4x4 inverse_vp, Float4x4 vp, Float2 jitter) noexcept {
         set_block_size(16u, 16u, 1u);
         UInt2 coord = dispatch_id().xy();
-        Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
-        Float2 pixel = (make_float2(coord) + make_float2(0.5) + jitter) / frame_size * 2.0f - 1.0f;
+        Float2 pixel = (make_float2(coord) + 0.5f + jitter * -1.0f) / make_float2(resolution.x.cast<float>(), resolution.y.cast<float>()) * 2.0f - 1.0f;
+
         Float3 radiance = def(make_float3(0.0f));
         Float depth_value = 0.0f;
-        Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
+        Float4 dst_pos = inverse_vp * make_float4(pixel, 0.5f, 1.0f);
+        dst_pos /= dst_pos.w;
+        Var<Ray> ray = make_ray(cam_origin, normalize(dst_pos.xyz() - cam_origin), 1e-3f, 1000.0f);
         Float3 beta = def(make_float3(1.0f));
         Float pdf_bsdf = def(0.0f);
         constexpr float3 light_position = make_float3(-0.24f, 1.98f, 0.16f);
@@ -308,14 +334,15 @@ int main(int argc, char *argv[]) {
             // trace
             Var<TriangleHit> hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
-            $if(depth == 0) {
-                depth_value = hit.committed_ray_t * abs(dot(ray->direction(), make_float3(0, 0, -1.f)));
-            };
             Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
             Float3 p0 = vertex_buffer->read(triangle.i0);
             Float3 p1 = vertex_buffer->read(triangle.i1);
             Float3 p2 = vertex_buffer->read(triangle.i2);
             Float3 p = hit->interpolate(p0, p1, p2);
+            $if(depth == 0) {
+                Float4 proj_pos = vp * make_float4(p, 1.0f);
+                depth_value = proj_pos.z / proj_pos.w;
+            };
             Float3 n = normalize(cross(p1 - p0, p2 - p0));
             Float cos_wi = dot(-ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
@@ -373,18 +400,29 @@ int main(int argc, char *argv[]) {
         };
         seed_image.write(coord, make_uint4(state));
         $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance * 1.5f, 0.0f, 30.0f), 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance * 2.5f, 0.0f, 30.0f), 1.0f));
         depth_image.write(dispatch_id().xy(), make_float4(depth_value));
+    };
+    constexpr uint tex_heap_index = 42;
+    Kernel2D bilinear_upscaling_kernel = [&](Var<BindlessArray> heap, ImageVar<float> img) {
+        UInt2 coord = dispatch_id().xy();
+        Float2 uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
+        img.write(coord, make_float4(heap.tex2d(tex_heap_index).sample(uv).xyz(), 1.0f));
     };
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
+    auto bilinear_upscaling_shader = device.compile(bilinear_upscaling_kernel);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, render_resolution);
     stream << make_sampler_shader(seed_image).dispatch(render_resolution);
+    float4x4 view = inverse(translation(cam_origin) * rotation(make_float3(1, 0, 0), pi));
+    float4x4 proj = perspective_lh(fov, 1, 1000.0f, 1e-3f);
+    float4x4 view_proj = proj * view;
+    float4x4 inverse_vp = inverse(view_proj);
     ///////////////////////////// Path Tracing
     FfxFsr2Context fsr2_context;
     FfxFsr2ContextDescription fsr2_desc{
         // depth is inverted
-        .flags = FFX_FSR2_ENABLE_DEPTH_INVERTED,
+        .flags = FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FSR2_ENABLE_DEPTH_INVERTED,
         .maxRenderSize = FfxDimensions2D{render_width, render_height},
         .displaySize = FfxDimensions2D{display_width, display_height},
         .device = device.impl()->native_handle(),
@@ -419,12 +457,21 @@ int main(int argc, char *argv[]) {
     auto clear = [&](Image<float> const &image) {
         return clear_shader(image).dispatch(image.size());
     };
+    heap.emplace_on_update(tex_heap_index, upload_setup.unresolved_color_resource, Sampler::linear_point_edge());
     float delta_time{};
     Clock clk;
     const uint jitter_phase_count = ffxFsr2GetJitterPhaseCount(render_width, display_width);
     float sharpness = 0;
     uint frame_count = 0;
-    stream << clear(upload_setup.unresolved_color_resource);
+    stream << heap.update() << accel.build();
+    bool use_fsr2 = true;
+    window.set_key_callback([&](Key key, KeyModifiers modifiers, Action action) {
+        if (action == Action::ACTION_PRESSED) {
+            if (key == Key::KEY_SPACE) {
+                use_fsr2 = !use_fsr2;
+            }
+        }
+    });
     while (!window.should_close()) {
         window.poll_events();
         delta_time = clk.toc();
@@ -436,19 +483,25 @@ int main(int argc, char *argv[]) {
         upload_setup.cam.fov = fov;
         upload_setup.cam.reset = (frame_count == 0);
         fsr_assert(ffxFsr2GetJitterOffset(&jitter.x, &jitter.y, frame_count++, jitter_phase_count));
-        cmdlist << clear(upload_setup.motionvector_resource)
-                << clear(upload_setup.depthbuffer_resource)
-                //     [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, AccelVar accel, UInt2 resolution, Float2 jitter) noexcept {
-
-                << raytracing_shader(upload_setup.unresolved_color_resource, seed_image, upload_setup.depthbuffer_resource, accel, render_resolution, jitter)
-                       .dispatch(render_resolution)
-
-                << luisa::make_unique<FSRCommand>(
-                       &fsr2_context,
-                       &upload_setup,
-                       jitter,
-                       sharpness,
-                       std::max<float>(delta_time, 1e-5f));
+        if (!use_fsr2) {
+            jitter = float2{};
+        }
+        cmdlist
+            << clear(upload_setup.unresolved_color_resource)
+            << clear(upload_setup.motionvector_resource)
+            << clear(upload_setup.depthbuffer_resource)
+            << raytracing_shader(upload_setup.unresolved_color_resource, seed_image, upload_setup.depthbuffer_resource, accel, render_resolution, inverse_vp, view_proj, jitter)
+                   .dispatch(render_resolution);
+        if (use_fsr2) {
+            cmdlist << luisa::make_unique<FSRCommand>(
+                &fsr2_context,
+                &upload_setup,
+                jitter,
+                sharpness,
+                std::max<float>(delta_time, 1e-5f));
+        } else {
+            cmdlist << bilinear_upscaling_shader(heap, upload_setup.resolved_color_resource).dispatch(upload_setup.resolved_color_resource.size());
+        }
         stream << cmdlist.commit() << swap_chain.present(upload_setup.resolved_color_resource);
     }
     stream << synchronize();

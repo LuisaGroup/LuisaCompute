@@ -260,6 +260,55 @@ private:
         }
         return layer;
     }
+    void set_read_layer(
+        ResourceHandle *src_handle,
+        Range range,
+        int64_t layer) {
+        switch (src_handle->type) {
+            case ResourceType::Mesh:
+            case ResourceType::Accel: {
+                auto handle = static_cast<NoRangeHandle *>(src_handle);
+                handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
+            } break;
+            case ResourceType::Bindless: {
+                auto handle = static_cast<BindlessHandle *>(src_handle);
+                handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
+            } break;
+            default: {
+                auto handle = static_cast<RangeHandle *>(src_handle);
+                auto ite = handle->views.try_emplace(range);
+                if (ite.second) {
+                    ite.first->second.read_layer = layer;
+                } else {
+                    ite.first->second.read_layer = std::max<int64_t>(ite.first->second.read_layer, layer);
+                }
+                _write_res_map.erase(src_handle->handle);
+            } break;
+        }
+    }
+    void set_write_layer(
+        ResourceHandle *dst_handle,
+        Range range,
+        int64_t layer) {
+        switch (dst_handle->type) {
+            case ResourceType::Mesh:
+            case ResourceType::Accel: {
+                auto handle = static_cast<NoRangeHandle *>(dst_handle);
+                handle->view.write_layer = layer;
+            } break;
+            case ResourceType::Bindless: {
+                auto handle = static_cast<BindlessHandle *>(dst_handle);
+                handle->view.write_layer = layer;
+            } break;
+            default: {
+                auto handle = static_cast<RangeHandle *>(dst_handle);
+                auto ite = handle->views.try_emplace(range);
+                ite.first->second.write_layer = layer;
+                _write_res_map.insert(dst_handle->handle);
+            } break;
+        }
+    }
+
     size_t set_write(
         ResourceHandle *dst_handle,
         Range range) {
@@ -428,53 +477,6 @@ private:
         static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
         _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
         return layer;
-    }
-
-    void set_read_layer(
-        ResourceHandle *src_handle,
-        Range range,
-        int64_t layer) {
-        switch (src_handle->type) {
-            case ResourceType::Mesh:
-            case ResourceType::Accel: {
-                auto handle = static_cast<NoRangeHandle *>(src_handle);
-                handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
-            } break;
-            case ResourceType::Bindless: {
-                auto handle = static_cast<BindlessHandle *>(src_handle);
-                handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
-            } break;
-            default: {
-                auto handle = static_cast<RangeHandle *>(src_handle);
-                auto emplace_result = handle->views.try_emplace(range);
-                if (emplace_result.second) {
-                    emplace_result.first->second.read_layer = layer;
-                } else {
-                    emplace_result.first->second.read_layer = std::max<int64_t>(emplace_result.first->second.read_layer, layer);
-                }
-            } break;
-        }
-    }
-    void set_write_layer(
-        ResourceHandle *dst_handle,
-        Range range,
-        int64_t layer) {
-        switch (dst_handle->type) {
-            case ResourceType::Mesh:
-            case ResourceType::Accel: {
-                auto handle = static_cast<NoRangeHandle *>(dst_handle);
-                handle->view.write_layer = layer;
-            } break;
-            case ResourceType::Bindless: {
-                auto handle = static_cast<BindlessHandle *>(dst_handle);
-                handle->view.write_layer = layer;
-            } break;
-            default: {
-                auto handle = static_cast<RangeHandle *>(dst_handle);
-                auto emplace_result = handle->views.try_emplace(range);
-                emplace_result.first->second.write_layer = layer;
-            } break;
-        }
     }
     void add_dispatch_handle(
         uint64_t handle,
