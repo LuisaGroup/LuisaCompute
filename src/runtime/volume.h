@@ -168,17 +168,27 @@ VolumeView(const Volume<T> &) -> VolumeView<T>;
 template<typename T>
 VolumeView(VolumeView<T>) -> VolumeView<T>;
 
-template<typename T>
-struct is_volume : std::false_type {};
+namespace detail {
 
 template<typename T>
-struct is_volume<Volume<T>> : std::true_type {};
+struct is_volume_impl : std::false_type {};
 
 template<typename T>
-struct is_volume_view : std::false_type {};
+struct is_volume_impl<Volume<T>> : std::true_type {};
 
 template<typename T>
-struct is_volume_view<VolumeView<T>> : std::true_type {};
+struct is_volume_view_impl : std::false_type {};
+
+template<typename T>
+struct is_volume_view_impl<VolumeView<T>> : std::true_type {};
+
+}// namespace detail
+
+template<typename T>
+using is_volume = detail::is_volume_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using is_volume_view = detail::is_volume_view_impl<std::remove_cvref_t<T>>;
 
 template<typename T>
 using is_volume_or_view = std::disjunction<is_volume<T>, is_volume_view<T>>;

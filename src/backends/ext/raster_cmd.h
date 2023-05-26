@@ -1,7 +1,9 @@
 #pragma once
+
 #include <runtime/rhi/command.h>
 #include <runtime/raster/raster_state.h>
 #include <runtime/raster/raster_scene.h>
+#include <backends/ext/registry.h>
 
 namespace luisa::compute {
 
@@ -42,7 +44,7 @@ public:
         return luisa::span{_scene};
     }
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }
-    uint64_t uuid() const noexcept override { return draw_raster_command_uuid; }
+    [[nodiscard]] uint64_t uuid() const noexcept override { return to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::GRAPHICS)
 };
 
@@ -57,8 +59,9 @@ public:
     }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto value() const noexcept { return _value; }
-    uint64_t uuid() const noexcept override { return clear_depth_command_uuid; }
+    [[nodiscard]] uint64_t uuid() const noexcept override { return to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH); }
 
     LUISA_MAKE_COMMAND_COMMON(StreamTag::GRAPHICS)
 };
+
 }// namespace luisa::compute

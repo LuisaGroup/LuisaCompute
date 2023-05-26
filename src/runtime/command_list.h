@@ -15,17 +15,12 @@
 
 namespace luisa::compute {
 
-class CmdDeser;
-class CmdSer;
-
 namespace detail {
 class CommandListConverter;
 }// namespace detail
 
 class LC_RUNTIME_API CommandList : concepts::Noncopyable {
 
-    friend class CmdDeser;
-    friend class CmdSer;
     friend class detail::CommandListConverter;
 
 public:

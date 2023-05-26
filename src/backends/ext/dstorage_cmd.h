@@ -1,73 +1,70 @@
 #pragma once
-#include <runtime/rhi/command.h>
-namespace luisa::compute {
-class DStorageReadCommand : public CustomCommand {
-public:
-    struct BufferEnqueue {
-        uint64_t buffer_handle;
-        size_t buffer_offset;
-    };
-    struct ImageEnqueue {
-        uint64_t image_handle;
-        uint32_t mip_level;
-    };
-    struct MemoryEnqueue {
-        void *dst_ptr;
-    };
-    struct FileSource {
-        uint64_t file_handle;
-        size_t file_offset;
-    };
-    struct MemorySource {
-        void const *src_ptr;
-    };
-    enum class Compression : uint32_t {
-        None,
-        GDeflate,
-    };
-    luisa::variant<FileSource, MemorySource> src;
-    size_t src_size;
-    size_t dst_size;
-    Compression compression;
 
-    using EnqueueCommand = luisa::variant<
-        BufferEnqueue,
-        ImageEnqueue,
-        MemoryEnqueue>;
+#include <runtime/rhi/command.h>
+#include <backends/ext/registry.h>
+
+namespace luisa::compute {
+
+class DStorageReadCommand : public CustomCommand {
+
+public:
+    struct FileSource {
+        uint64_t handle;
+        size_t offset_bytes;
+        size_t size_bytes;
+    };
+
+    struct MemorySource {
+        uint64_t handle;
+        size_t offset_bytes;
+        size_t size_bytes;
+    };
+
+    using Source = luisa::variant<
+        FileSource,
+        MemorySource>;
+
+    struct BufferRequest {
+        uint64_t handle;
+        size_t offset_bytes;
+        size_t size_bytes;
+    };
+
+    struct TextureRequest {
+        uint64_t handle;
+        uint32_t level;
+        uint32_t size[3u];
+    };
+
+    struct MemoryRequest {
+        void *data;
+        size_t size_bytes;
+    };
+
+    using Request = luisa::variant<
+        BufferRequest,
+        TextureRequest,
+        MemoryRequest>;
+
+    using Compression = DStorageCompression;
 
 private:
-    EnqueueCommand _enqueue_cmd;
+    Source _source;
+    Request _request;
+    Compression _compression;
 
 public:
-    template<typename Arg>
-        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
-    explicit DStorageReadCommand(
-        uint64_t file_handle,
-        size_t file_offset,
-        size_t src_size,
-        size_t dst_size,
-        Compression compression,
-        Arg &&cmd)
-        : src{FileSource{file_handle, file_offset}},
-          src_size{src_size},
-          dst_size{dst_size},
-          compression{compression},
-          _enqueue_cmd{std::forward<Arg>(cmd)} {}
-    template<typename Arg>
-        requires(std::is_constructible_v<EnqueueCommand, Arg &&>)
-    explicit DStorageReadCommand(
-        void const *src_ptr,
-        size_t src_size,
-        size_t dst_size,
-        Compression compression,
-        Arg &&cmd)
-        : src{MemorySource{src_ptr}},
-          src_size{src_size},
-          dst_size{dst_size},
-          compression{compression},
-          _enqueue_cmd{std::forward<Arg>(cmd)} {}
-    [[nodiscard]] auto const &enqueue_cmd() const { return _enqueue_cmd; }
-    uint64_t uuid() const noexcept override { return dstorage_command_uuid; }
+    DStorageReadCommand(Source source,
+                        Request request,
+                        Compression compression) noexcept
+        : _source{source},
+          _request{request},
+          _compression{compression} {}
+    [[nodiscard]] const auto &source() const noexcept { return _source; }
+    [[nodiscard]] const auto &request() const noexcept { return _request; }
+    [[nodiscard]] auto compression() const noexcept { return _compression; }
+    [[nodiscard]] uint64_t uuid() const noexcept override { return to_underlying(CustomCommandUUID::DSTORAGE_READ); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::CUSTOM)
 };
+
 }// namespace luisa::compute

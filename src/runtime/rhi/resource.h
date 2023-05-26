@@ -115,7 +115,8 @@ public:
         RASTER_SHADER,
         SWAP_CHAIN,
         DEPTH_BUFFER,
-        DSTORAGE_FILE
+        DSTORAGE_FILE,
+        DSTORAGE_PINNED_MEMORY,
     };
 
 private:

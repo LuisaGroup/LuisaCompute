@@ -18,10 +18,12 @@
 #include <runtime/rhi/stream_tag.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/rhi/argument.h>
+
 // for validation
 namespace lc::validation {
 class Stream;
 }// namespace lc::validation
+
 namespace luisa::compute {
 
 struct IndirectDispatchArg {
@@ -43,11 +45,6 @@ struct IndirectDispatchArg {
         ProceduralPrimitiveBuildCommand, \
         BindlessArrayUpdateCommand,      \
         CustomCommand
-
-static constexpr uint64_t draw_raster_command_uuid = 10000;
-static constexpr uint64_t clear_depth_command_uuid = 10001;
-static constexpr uint64_t dstorage_command_uuid = 10002;
-static constexpr uint64_t custom_dispatch_uuid = 10003;
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
@@ -77,8 +74,6 @@ class CommandList;
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
 #define LUISA_MAKE_COMMAND_COMMON(Type) \
-    friend class CmdDeser;              \
-    friend class CmdSer;                \
     LUISA_MAKE_COMMAND_COMMON_ACCEPT()  \
     StreamTag stream_tag() const noexcept override { return Type; }
 
@@ -610,16 +605,19 @@ public:
 };
 
 class CustomCommand : public Command {
+
     friend lc::validation::Stream;
 
 public:
     explicit CustomCommand() noexcept
         : Command{Command::Tag::ECustomCommand} {}
     [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
-    virtual ~CustomCommand() noexcept = default;
+    ~CustomCommand() noexcept override = default;
 };
+
 // For custom shader-dispatch or pass
 class CustomDispatchCommand : public CustomCommand {
+
 public:
     using ResourceHandle = luisa::variant<
         Argument::Buffer,
@@ -628,16 +626,10 @@ public:
         Argument::Accel>;
 
 public:
-    using TraversalArgsCallback = luisa::move_only_function<void(ResourceHandle const &resource_handle, Usage usage)>;
-    explicit CustomDispatchCommand() noexcept {}
-    virtual void traversal_arguments(TraversalArgsCallback const &func) const noexcept = 0;
-
-    [[nodiscard]] uint64_t uuid() const noexcept override {
-        return custom_dispatch_uuid;
-    }
-    virtual ~CustomDispatchCommand() noexcept = default;
-    friend class CmdDeser;
-    friend class CmdSer;
+    using TraversalArgsCallback = luisa::move_only_function<void(const ResourceHandle &resource_handle, Usage usage)>;
+    explicit CustomDispatchCommand() noexcept = default;
+    virtual void traversal_arguments(const TraversalArgsCallback &func) const noexcept = 0;
+    ~CustomDispatchCommand() noexcept override = default;
     LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };
 

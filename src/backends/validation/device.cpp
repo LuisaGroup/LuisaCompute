@@ -15,6 +15,7 @@
 #include "dstorage_ext_impl.h"
 #include <core/logging.h>
 #include <runtime/rhi/command.h>
+#include <backends/ext/registry.h>
 namespace lc::validation {
 static vstd::unordered_map<uint64_t, StreamOption> stream_options;
 static std::mutex stream_mtx;
@@ -109,8 +110,8 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                 break;
             case StreamTag::GRAPHICS:
                 opt.func = StreamFunc::All;
-                opt.supported_custom.emplace(draw_raster_command_uuid);
-                opt.supported_custom.emplace(clear_depth_command_uuid);
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH));
                 break;
             case StreamTag::COPY:
                 opt.func = static_cast<StreamFunc>(

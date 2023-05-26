@@ -138,6 +138,7 @@ private:
     friend class detail::MipmapView;
     friend class DepthBuffer;
     friend class ResourceGenerator;
+
     constexpr ImageView(
         uint64_t handle,
         PixelStorage storage,
@@ -182,17 +183,27 @@ ImageView(const Image<T> &) -> ImageView<T>;
 template<typename T>
 ImageView(ImageView<T>) -> ImageView<T>;
 
-template<typename T>
-struct is_image : std::false_type {};
+namespace detail {
 
 template<typename T>
-struct is_image<Image<T>> : std::true_type {};
+struct is_image_impl : std::false_type {};
 
 template<typename T>
-struct is_image_view : std::false_type {};
+struct is_image_impl<Image<T>> : std::true_type {};
 
 template<typename T>
-struct is_image_view<ImageView<T>> : std::true_type {};
+struct is_image_view_impl : std::false_type {};
+
+template<typename T>
+struct is_image_view_impl<ImageView<T>> : std::true_type {};
+
+}
+
+template<typename T>
+using is_image = detail::is_image_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using is_image_view = detail::is_image_view_impl<std::remove_cvref_t<T>>;
 
 template<typename T>
 using is_image_or_view = std::disjunction<is_image<T>, is_image_view<T>>;

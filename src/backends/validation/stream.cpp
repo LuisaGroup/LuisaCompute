@@ -152,11 +152,11 @@ void Stream::mark_handle(uint64_t v, Usage usage, Range range) {
 };
 void Stream::custom(DeviceInterface *dev, Command *cmd) {
     switch (static_cast<CustomCommand *>(cmd)->uuid()) {
-        case clear_depth_command_uuid: {
+        case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH): {
             auto c = static_cast<ClearDepthCommand *>(cmd);
             mark_handle(c->_handle, Usage::WRITE, Range{});
         } break;
-        case draw_raster_command_uuid: {
+        case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
             auto c = static_cast<DrawRasterSceneCommand *>(cmd);
             mark_shader_dispatch(dev, c, false);
             if (c->_dsv_tex.handle != invalid_resource_handle) {
@@ -178,27 +178,25 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                     i._index_buffer);
             }
         } break;
-        case dstorage_command_uuid: {
+        case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);
             luisa::visit(
-                [&]<typename T>(T const &t) {
-                    if constexpr (std::is_same_v<T, DStorageReadCommand::FileSource>) {
-                        mark_handle(t.file_handle, Usage::READ, Range{});
-                    }
+                [&](auto t) {
+                    mark_handle(t.handle, Usage::READ, Range{});
                 },
-                c->src);
+                c->source());
             luisa::visit(
                 [&]<typename T>(T const &t) {
-                    if constexpr (std::is_same_v<DStorageReadCommand::BufferEnqueue, T>) {
-                        mark_handle(t.buffer_handle, Usage::WRITE, Range{t.buffer_offset, c->dst_size});
-                    } else if constexpr (std::is_same_v<DStorageReadCommand::ImageEnqueue, T>) {
-                        mark_handle(t.image_handle, Usage::WRITE, Range{t.mip_level, 1});
+                    if constexpr (std::is_same_v<DStorageReadCommand::BufferRequest, T>) {
+                        mark_handle(t.handle, Usage::WRITE, Range{t.offset_bytes, t.size_bytes});
+                    } else if constexpr (std::is_same_v<DStorageReadCommand::TextureRequest, T>) {
+                        mark_handle(t.handle, Usage::WRITE, Range{t.level, 1});
                     }
                 },
-                c->enqueue_cmd());
+                c->request());
 
         } break;
-        case custom_dispatch_uuid: {
+        case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
                 c->traversal_arguments([&](auto&& resource, Usage usage) {
                 luisa::visit(
@@ -307,11 +305,11 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::ECustomCommand: {
                 auto custom_cmd = static_cast<CustomCommand *>(cmd);
                 switch (custom_cmd->uuid()) {
-                    case draw_raster_command_uuid:
-                    case clear_depth_command_uuid:
+                    case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
+                    case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
                         Device::check_stream(handle(), StreamFunc::Graphics, custom_cmd->uuid());
                         break;
-                    case dstorage_command_uuid:
+                    case to_underlying(CustomCommandUUID::DSTORAGE_READ):
                         Device::check_stream(handle(), StreamFunc::Custom, custom_cmd->uuid());
                         break;
                 }

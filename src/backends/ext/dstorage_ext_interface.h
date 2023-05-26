@@ -2,37 +2,61 @@
 
 #include <runtime/rhi/device_interface.h>
 
+namespace lc::validation {
+class DStorageExtImpl;
+}
+
 namespace luisa::compute {
 
 class Stream;
 class DStorageFile;
 
+enum class DStorageCompression : uint {
+    None,
+    GDeflate,
+};
+
+enum class DStorageCompressionQuality : uint {
+    Fastest,
+    Default,
+    Best
+};
+
 class DStorageExt : public DeviceExtension {
+
+public:
+    static constexpr luisa::string_view name = "DStorageExt";
+    using Compression = DStorageCompression;
+    using CompressionQuality = DStorageCompressionQuality;
+
+protected:
+    friend class DStorageFile;
+    friend class lc::validation::DStorageExtImpl;
+    struct FileCreationInfo : public ResourceCreationInfo {
+        size_t size_bytes;
+    };
+    struct PinnedMemoryInfo : public ResourceCreationInfo {
+        size_t size_bytes;
+    };
 
 protected:
     ~DStorageExt() noexcept = default;
+    [[nodiscard]] virtual DeviceInterface *device() const noexcept = 0;
+    virtual ResourceCreationInfo create_stream_handle() noexcept = 0;
+    virtual FileCreationInfo open_file_handle(luisa::string_view path) noexcept = 0;
+    virtual void close_file_handle(uint64_t handle) noexcept = 0;
+    virtual PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept = 0;
+    virtual void unpin_host_memory(uint64_t handle) noexcept = 0;
 
 public:
-    enum class CompressQuality : uint {
-        Fastest,
-        Default,
-        Best
-    };
-    static constexpr luisa::string_view name = "DStorageExt";
-    struct File : public ResourceCreationInfo {
-        size_t size_bytes;
-    };
-    virtual void set_config(bool is_hdd_hardware) noexcept = 0;
-    virtual DeviceInterface *device() const noexcept = 0;
-    virtual File open_file_handle(luisa::string_view path) noexcept = 0;
-    virtual void close_file_handle(uint64_t handle) noexcept = 0;
-    virtual ResourceCreationInfo create_stream_handle() noexcept = 0;
-    virtual void gdeflate_compress(
-        luisa::span<std::byte const> input,
-        CompressQuality quality,
-        luisa::vector<std::byte> &result) noexcept = 0;
     [[nodiscard]] Stream create_stream() noexcept;
     [[nodiscard]] DStorageFile open_file(luisa::string_view path) noexcept;
+    [[nodiscard]] DStorageFile pin_memory(void *data, size_t size_bytes) noexcept;
+
+    virtual void set_config(bool is_hdd_hardware) noexcept = 0;// FIXME: this should not appear here
+    virtual void compress(const void *data, size_t size_bytes,
+                          Compression algorithm, CompressionQuality quality,
+                          luisa::vector<std::byte> &result) noexcept = 0;
 };
 
 }// namespace luisa::compute
