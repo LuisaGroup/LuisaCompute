@@ -83,7 +83,7 @@ CUDAMappedFile::CUDAMappedFile(luisa::string_view path) noexcept
         close(file_handle);
         return;
     }
-    auto mapped_address = mmap(nullptr, file_stat.st_size, PROT_READ, MAP_SHARED, file_handle, 0);
+    auto mapped_address = mmap(nullptr, file_stat.st_size, PROT_READ, MAP_PRIVATE, file_handle, 0);
     if (mapped_address == MAP_FAILED) {
         LUISA_WARNING_WITH_LOCATION("Failed to map file: {}", file_name);
         close(file_handle);
