@@ -93,9 +93,6 @@ void fsr2_message(FfxFsr2MsgType type, const wchar_t *message) {
 class FSRCommand : public DXCustomCmd {
 public:
     FfxFsr2Context *context;
-    float2 jitter;
-    float sharpness;
-    float delta_time;
     mutable FfxFsr2DispatchDescription dispatch_params{};
     template<typename T>
     FfxResource get_image_resource(
@@ -129,10 +126,7 @@ public:
         float2 jitter,
         float sharpness,
         float delta_time)
-        : jitter{jitter},
-          context{context},
-          sharpness{sharpness},
-          delta_time{delta_time} {
+        : context{context} {
         dispatch_params.color = get_image_resource(context, upscale_setup->unresolved_color_resource, L"FSR2_InputColor");
         dispatch_params.depth = get_image_resource(context, upscale_setup->depthbuffer_resource, L"FSR2_InputDepth");
         dispatch_params.motionVectors = get_image_resource(context, upscale_setup->motionvector_resource, L"FSR2_InputMotionVectors");
@@ -187,7 +181,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device("dx");
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     constexpr uint32_t display_width = 1024, display_height = 1024;
-    constexpr uint32_t render_width = display_width / 2, render_height = display_height / 2;
+    constexpr uint32_t render_width = display_width / 4, render_height = display_height / 4;
     const uint2 display_resolution{display_width, display_height};
     const uint2 render_resolution{render_width, render_height};
     Kernel2D clear_kernel = [](ImageVar<float> image) {
@@ -461,7 +455,7 @@ int main(int argc, char *argv[]) {
     float delta_time{};
     Clock clk;
     const uint jitter_phase_count = ffxFsr2GetJitterPhaseCount(render_width, display_width);
-    float sharpness = 0;
+    float sharpness = 0.05f;
     uint frame_count = 0;
     stream << heap.update() << accel.build();
     bool use_fsr2 = true;
