@@ -2,6 +2,7 @@
 // Created by Mike on 5/26/2023.
 //
 
+#include <cuda.h>
 #include <backends/cuda/cuda_dstorage.h>
 
 namespace luisa::compute::cuda {
