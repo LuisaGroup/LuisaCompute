@@ -20,7 +20,6 @@ public:
     bool operator==(IteEndTag tag) const {
         return ptr->operator==(tag);
     }
-    bool operator!=(IteEndTag tag) const { return !operator==(tag); }
 };
 namespace detail {
 template<typename Ite, typename Builder>
@@ -74,7 +73,6 @@ public:
     bool operator==(IteEndTag) const {
         return builder.is_end(ite);
     }
-    bool operator!=(IteEndTag tag) const { return !operator==(tag); }
 };
 template<typename T, typename Ite>
 struct BuilderHolder : RangeFlag<BuilderHolder<T, Ite>> {

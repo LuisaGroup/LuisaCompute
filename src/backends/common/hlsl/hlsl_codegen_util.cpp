@@ -662,7 +662,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::ATOMIC_FETCH_XOR:
         case CallOp::ATOMIC_FETCH_MIN:
         case CallOp::ATOMIC_FETCH_MAX: {
-            auto &chain = opt->GetAtomicFunc(expr->op(), args[0]->type(), expr->type(), args);
+            auto rootVar = static_cast<RefExpr const*>(args[0]);
+            auto &chain = opt->GetAtomicFunc(expr->op(), rootVar->variable(), expr->type(), args);
             chain.call_this_func(args, str, vis);
             return;
         }
@@ -1552,8 +1553,9 @@ CodegenResult CodegenUtility::Codegen(
 
     vstd::StringBuilder codegenData;
     vstd::StringBuilder varData;
+    vstd::StringBuilder incrementalFunc;
     vstd::StringBuilder finalResult;
-    opt->finalResult = &finalResult;
+    opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
@@ -1578,7 +1580,7 @@ uint4 dsp_c;
     PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV);
     CodegenProperties(properties, varData, kernel, 0, indexer);
     PostprocessCodegenProperties(finalResult);
-    finalResult << varData << codegenData;
+    finalResult << varData << incrementalFunc << codegenData;
     return {
         std::move(finalResult),
         std::move(properties),
@@ -1605,7 +1607,8 @@ CodegenResult CodegenUtility::RasterCodegen(
     vstd::StringBuilder codegenData;
     vstd::StringBuilder varData;
     vstd::StringBuilder finalResult;
-    opt->finalResult = &finalResult;
+    vstd::StringBuilder incrementalFunc;
+    opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
@@ -1743,7 +1746,7 @@ uint iid:SV_INSTANCEID;
     CodegenProperties(properties, varData, vertFunc, 1, indexer);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer);
     PostprocessCodegenProperties(finalResult);
-    finalResult << varData << codegenData;
+    finalResult << varData << incrementalFunc << codegenData;
     return {
         std::move(finalResult),
         std::move(properties),

@@ -30,7 +30,7 @@ public:
 
 private:
     CallOp _op;
-    Type const *_root_type;
+    Variable _root_var;
     vstd::vector<Node> _nodes;
     size_t _hash;
     vstd::string _func_name;
@@ -40,7 +40,7 @@ private:
 public:
     AccessChain(
         CallOp op,
-        Type const *root_type,
+        Variable const &root_var,
         luisa::span<Expression const *const> access_expr);
     AccessChain(AccessChain const &) = delete;
     AccessChain(AccessChain &&) = default;

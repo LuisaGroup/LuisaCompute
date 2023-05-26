@@ -7,7 +7,7 @@ namespace lc::hlsl {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
     CodegenUtility *util;
-    vstd::StringBuilder *finalResult;
+    vstd::StringBuilder *incrementalFunc;
     luisa::compute::Function kernel;
     vstd::unordered_map<Type const *, uint64> structTypes;
     vstd::unordered_map<uint64, uint64> constTypes;
@@ -46,7 +46,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     CodegenStackData();
     AccessChain const &GetAtomicFunc(
         CallOp op,
-        Type const *rootType,
+        Variable const &rootVar,
         Type const *retType,
         luisa::span<Expression const *const> exprs);
     void Clear();

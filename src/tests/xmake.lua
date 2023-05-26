@@ -67,6 +67,8 @@ test_proj("test_select_device", true)
 test_proj("test_dstorage", true)
 test_proj("test_indirect", true)
 test_proj("test_texture3d", true)
+test_proj("test_atomic_queue", true)
+test_proj("test_shared_memory", true)
 local enable_fsr2
 -- enable_fsr2 = true
 if get_config("dx_backend") and enable_fsr2 then

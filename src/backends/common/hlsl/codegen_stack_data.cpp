@@ -179,7 +179,7 @@ if(r==old) return old;
 }})"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     CallOp op,
-    Type const *rootType,
+    Variable const &rootVar,
     Type const *retType,
     luisa::span<Expression const *const> exprs) {
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
@@ -243,12 +243,12 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
 
     AccessChain chain{
         op,
-        rootType,
+        rootVar,
         exprs.subspan(0, exprs.size() - extra_arg_size)};
     auto iter = atomicsFuncs.emplace(std::move(chain));
     if (iter.second) {
         iter.first->init_name();
-        iter.first->gen_func_impl(util, tmp, exprs.subspan(exprs.size() - extra_arg_size, extra_arg_size), *finalResult);
+        iter.first->gen_func_impl(util, tmp, exprs.subspan(exprs.size() - extra_arg_size, extra_arg_size), *incrementalFunc);
     }
     return *iter.first;
 }
