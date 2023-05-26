@@ -12,6 +12,7 @@
 #include <core/stl/memory.h>
 #include <core/stl/variant.h>
 #include <core/stl/string.h>
+#include <core/stl/functional.h>
 #include <ast/usage.h>
 #include <runtime/rhi/pixel.h>
 #include <runtime/rhi/stream_tag.h>
@@ -620,20 +621,17 @@ public:
 // For custom shader-dispatch or pass
 class CustomDispatchCommand : public CustomCommand {
 public:
-    struct UsedResource {
-        using ResourceHandle = luisa::variant<
-            Argument::Buffer,
-            Argument::Texture,
-            Argument::BindlessArray,
-            Argument::Accel>;
-        ResourceHandle resource;
-        Usage resource_usage;
-    };
+    using ResourceHandle = luisa::variant<
+        Argument::Buffer,
+        Argument::Texture,
+        Argument::BindlessArray,
+        Argument::Accel>;
 
 public:
+    using TraversalArgsCallback = luisa::move_only_function<void(ResourceHandle const &resource_handle, Usage usage)>;
     explicit CustomDispatchCommand() noexcept {}
-    [[nodiscard]] virtual size_t used_resources_size() const noexcept = 0;
-    [[nodiscard]] virtual UsedResource used_resource(size_t index) const noexcept = 0;
+    virtual void traversal_arguments(TraversalArgsCallback const &func) const noexcept = 0;
+
     [[nodiscard]] uint64_t uuid() const noexcept override {
         return custom_dispatch_uuid;
     }

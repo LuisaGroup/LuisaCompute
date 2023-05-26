@@ -526,8 +526,7 @@ private:
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
-        for (size_t idx = 0; idx < command->used_resources_size(); ++idx) {
-            auto &&i = command->used_resource(idx);
+        command->traversal_arguments([&](auto&& resource, Usage usage) {
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<T, Argument::Buffer>) {
@@ -535,13 +534,13 @@ private:
                             t.handle,
                             ResourceType::Texture_Buffer,
                             Range(t.offset, t.size),
-                            ((uint)i.resource_usage & (uint)Usage::WRITE) != 0);
+                            ((uint)usage & (uint)Usage::WRITE) != 0);
                     } else if constexpr (std::is_same_v<T, Argument::Texture>) {
                         add_dispatch_handle(
                             t.handle,
                             ResourceType::Texture_Buffer,
                             Range(t.level, 1),
-                            ((uint)i.resource_usage & (uint)Usage::WRITE) != 0);
+                            ((uint)usage & (uint)Usage::WRITE) != 0);
 
                     } else if constexpr (std::is_same_v<T, Argument::BindlessArray>) {
                         _use_bindless_in_pass = true;
@@ -578,8 +577,8 @@ private:
                             false);
                     }
                 },
-                i.resource);
-        }
+                resource);
+        });
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
         }

@@ -200,20 +200,19 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case custom_dispatch_uuid: {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
-            for (size_t idx = 0; idx < c->used_resources_size(); ++idx) {
-                auto &&i = c->used_resource(idx);
+                c->traversal_arguments([&](auto&& resource, Usage usage) {
                 luisa::visit(
                     [&]<typename T>(T const &t) {
                         if constexpr (std::is_same_v<T, Argument::Buffer>) {
-                            mark_handle(t.handle, i.resource_usage, Range{t.offset, t.size});
+                            mark_handle(t.handle, usage, Range{t.offset, t.size});
                         } else if constexpr (std::is_same_v<T, Argument::Texture>) {
-                            mark_handle(t.handle, i.resource_usage, Range{t.level, 1});
+                            mark_handle(t.handle, usage, Range{t.level, 1});
                         } else {
-                            mark_handle(t.handle, i.resource_usage, Range{});
+                            mark_handle(t.handle, usage, Range{});
                         }
                     },
-                    i.resource);
-            }
+                    resource);
+            });
         } break;
         default: break;
     }

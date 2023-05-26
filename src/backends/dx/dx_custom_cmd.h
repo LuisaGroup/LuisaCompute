@@ -12,10 +12,10 @@ namespace luisa::compute {
 class DXCustomCmd : public CustomDispatchCommand {
 public:
     struct ResourceUsage {
-        UsedResource::ResourceHandle resource;
+        ResourceHandle resource;
         D3D12_RESOURCE_STATES required_state;
         template<typename Arg>
-            requires(std::is_constructible_v<UsedResource::ResourceHandle, Arg &&>)
+            requires(std::is_constructible_v<ResourceHandle, Arg &&>)
         ResourceUsage(
             Arg &&resource,
             D3D12_RESOURCE_STATES required_state)
@@ -38,41 +38,37 @@ protected:
 
 public:
     virtual ~DXCustomCmd() noexcept = default;
-    size_t used_resources_size() const noexcept override {
-        return resource_usages.size();
-    }
-    UsedResource used_resource(size_t index) const noexcept override {
-        auto &&v = resource_usages[index];
-        Usage resource_usage;
-        switch (v.required_state) {
-            case D3D12_RESOURCE_STATE_COMMON:
-            case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
-                resource_usage = Usage::READ_WRITE;
-                break;
-            case D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER:
-            case D3D12_RESOURCE_STATE_INDEX_BUFFER:
-            case D3D12_RESOURCE_STATE_DEPTH_READ:
-            case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
-            case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
-            case D3D12_RESOURCE_STATE_STREAM_OUT:
-            case D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT:
-            case D3D12_RESOURCE_STATE_COPY_SOURCE:
-            case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
-            case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
-            case D3D12_RESOURCE_STATE_GENERIC_READ:
-            case D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE:
-            case D3D12_RESOURCE_STATE_VIDEO_DECODE_READ:
-            case D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ:
-            case D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ:
-                resource_usage = Usage::READ;
-                break;
-            default:
-                resource_usage = Usage::WRITE;
-                break;
+    void traversal_arguments(TraversalArgsCallback const &func) const noexcept override {
+        for (auto &v : resource_usages) {
+            Usage resource_usage;
+            switch (v.required_state) {
+                case D3D12_RESOURCE_STATE_COMMON:
+                case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
+                    resource_usage = Usage::READ_WRITE;
+                    break;
+                case D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER:
+                case D3D12_RESOURCE_STATE_INDEX_BUFFER:
+                case D3D12_RESOURCE_STATE_DEPTH_READ:
+                case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+                case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+                case D3D12_RESOURCE_STATE_STREAM_OUT:
+                case D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT:
+                case D3D12_RESOURCE_STATE_COPY_SOURCE:
+                case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
+                case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
+                case D3D12_RESOURCE_STATE_GENERIC_READ:
+                case D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE:
+                case D3D12_RESOURCE_STATE_VIDEO_DECODE_READ:
+                case D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ:
+                case D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ:
+                    resource_usage = Usage::READ;
+                    break;
+                default:
+                    resource_usage = Usage::WRITE;
+                    break;
+            }
+            func(v.resource, resource_usage);
         }
-        return UsedResource{
-            v.resource,
-            resource_usage};
     }
     DXCustomCmd() noexcept = default;
 };
