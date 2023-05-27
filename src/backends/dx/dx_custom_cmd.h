@@ -3,6 +3,7 @@
 #include <core/stl/functional.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <backends/ext/registry.h>
 namespace lc::dx {
 class LCCmdBuffer;
 class LCPreProcessVisitor;
@@ -71,5 +72,8 @@ public:
         }
     }
     DXCustomCmd() noexcept = default;
+    uint64_t uuid() const noexcept override{
+        return luisa::to_underlying(CustomCommandUUID::CUSTOM_DISPATCH);
+    }
 };
 }// namespace luisa::compute
