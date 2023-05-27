@@ -313,15 +313,17 @@ public:
 
     void visit(const CustomCommand *cmd) noexcept override {
         switch (cmd->uuid()) {
-            case clear_depth_command_uuid:
+            case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
                 visit(static_cast<ClearDepthCommand const *>(cmd));
                 break;
-            case draw_raster_command_uuid:
+            case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
                 visit(static_cast<DrawRasterSceneCommand const *>(cmd));
                 break;
-            case custom_dispatch_uuid:
+            case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
                 break;
+            default:
+                LUISA_ERROR("Custom command not supported by this queue.");
         }
     }
 
@@ -682,15 +684,17 @@ public:
     }
     void visit(const CustomCommand *cmd) noexcept override {
         switch (cmd->uuid()) {
-            case clear_depth_command_uuid:
+            case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
                 visit(static_cast<ClearDepthCommand const *>(cmd));
                 break;
-            case draw_raster_command_uuid:
+            case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
                 visit(static_cast<DrawRasterSceneCommand const *>(cmd));
                 break;
-            case custom_dispatch_uuid:
+            case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
                 break;
+            default:
+                LUISA_ERROR("Custom command not supported by this queue.");
         }
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {

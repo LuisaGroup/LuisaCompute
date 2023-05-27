@@ -175,18 +175,29 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     vstd::spin_mutex spin_mtx;
     std::mutex mtx;
     LCDevice *mdevice;
-    void InitFactory();
+    bool is_hdd = false;
+    void init_factory();
+    void init_factory_nolock();
+    void DStorageExtImpl::set_config(bool hdd) noexcept;
 
 public:
     DeviceInterface *device() const noexcept;
     DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
-    ResourceCreationInfo create_stream_handle() noexcept override;
-    File open_file_handle(luisa::string_view path) noexcept override;
+    ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
+    FileCreationInfo open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
-    void set_config(bool hdd) noexcept override;
-    void gdeflate_compress(
-        luisa::span<std::byte const> input,
-        CompressQuality quality,
+    PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept override {
+        // no pin memory in dx yet
+        PinnedMemoryInfo info;
+        info.handle = reinterpret_cast<uint64_t>(ptr);
+        info.native_handle = ptr;
+        info.size_bytes = size_bytes;
+        return info;
+    }
+    void unpin_host_memory(uint64_t handle) noexcept override {}
+    void compress(
+        const void *data, size_t size_bytes,
+        Compression algorithm, CompressionQuality quality,
         luisa::vector<std::byte> &result) noexcept override;
 };
 }// namespace lc::dx

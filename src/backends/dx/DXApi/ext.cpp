@@ -133,7 +133,17 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
-void DStorageExtImpl::InitFactory() {
+void DStorageExtImpl::init_factory_nolock() {
+    HRESULT(WINAPI * DStorageGetFactory)
+    (REFIID riid, _COM_Outptr_ void **ppv);
+    if (!dstorage_module || !dstorage_core_module) {
+        LUISA_WARNING("Direct-Storage DLL not found.");
+        return;
+    }
+    DStorageGetFactory = dstorage_module.function<std::remove_pointer_t<decltype(DStorageGetFactory)>>("DStorageGetFactory");
+    DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf()));
+}
+void DStorageExtImpl::init_factory() {
     {
         std::lock_guard lck{spin_mtx};
         if (factory) [[likely]] {
@@ -144,30 +154,23 @@ void DStorageExtImpl::InitFactory() {
     if (factory) [[unlikely]] {
         return;
     }
-    HRESULT(WINAPI * DStorageGetFactory)
-    (REFIID riid, _COM_Outptr_ void **ppv);
-    if (!dstorage_module || !dstorage_core_module) {
-        LUISA_WARNING("Direct-Storage DLL not found.");
-        return;
-    }
-    DStorageGetFactory = dstorage_module.function<std::remove_pointer_t<decltype(DStorageGetFactory)>>("DStorageGetFactory");
-    DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf()));
+    init_factory_nolock();
 }
 DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept
     : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
       dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
       mdevice{device} {
 }
-ResourceCreationInfo DStorageExtImpl::create_stream_handle() noexcept {
-    InitFactory();
+ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
+    set_config(option.supports_hdd);
     ResourceCreationInfo r;
     auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice};
     r.handle = reinterpret_cast<uint64_t>(ptr);
     r.native_handle = nullptr;
     return r;
 }
-DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
-    InitFactory();
+DStorageExtImpl::FileCreationInfo DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
+    init_factory();
     ComPtr<IDStorageFile> file;
     luisa::vector<wchar_t> wstr;
     wstr.push_back_uninitialized(path.size() + 1);
@@ -176,7 +179,7 @@ DStorageExtImpl::File DStorageExtImpl::open_file_handle(luisa::string_view path)
         wstr[i] = path[i];
     }
     HRESULT hr = factory->OpenFile(wstr.data(), IID_PPV_ARGS(file.GetAddressOf()));
-    DStorageExtImpl::File f;
+    DStorageExtImpl::FileCreationInfo f;
     if (FAILED(hr)) {
         f.invalidate();
         return f;
@@ -206,9 +209,9 @@ DeviceInterface *DStorageExtImpl::device() const noexcept {
 void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     delete reinterpret_cast<DStorageFileImpl *>(handle);
 }
-void DStorageExtImpl::gdeflate_compress(
-    luisa::span<std::byte const> input,
-    CompressQuality quality,
+void DStorageExtImpl::compress(
+    const void *data, size_t size_bytes,
+    Compression algorithm, CompressionQuality quality,
     luisa::vector<std::byte> &result) noexcept {
     constexpr DSTORAGE_COMPRESSION qua[] = {
         DSTORAGE_COMPRESSION_FASTEST,
@@ -233,10 +236,10 @@ void DStorageExtImpl::gdeflate_compress(
         DStorageCreateCompressionCodec = dstorage_module.function<std::remove_pointer_t<decltype(DStorageCreateCompressionCodec)>>("DStorageCreateCompressionCodec");
         DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE, std::thread::hardware_concurrency(), IID_PPV_ARGS(compression_codec.GetAddressOf()));
     }();
-    result.push_back_uninitialized(compression_codec->CompressBufferBound(input.size()));
+    result.push_back_uninitialized(compression_codec->CompressBufferBound(size_bytes));
     ThrowIfFailed(compression_codec->CompressBuffer(
-        input.data(),
-        input.size(),
+        data,
+        size_bytes,
         qua[luisa::to_underlying(quality)],
         result.data(),
         result.size(),
@@ -245,6 +248,13 @@ void DStorageExtImpl::gdeflate_compress(
 }
 void DStorageExtImpl::set_config(bool hdd) noexcept {
     std::lock_guard lck{mtx};
+    if (hdd == is_hdd) {
+        if (!factory) {
+            init_factory_nolock();
+        }
+        return;
+    }
+    is_hdd = hdd;
     if (factory) [[unlikely]] {
         LUISA_ERROR("set_config can only be called before first open_file and create_stream");
     }
@@ -260,5 +270,6 @@ void DStorageExtImpl::set_config(bool hdd) noexcept {
         DSTORAGE_CONFIGURATION1 cfg{};
         DStorageSetConfiguration1(&cfg);
     }
+    init_factory_nolock();
 }
 }// namespace lc::dx

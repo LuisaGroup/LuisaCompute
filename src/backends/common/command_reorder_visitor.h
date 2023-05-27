@@ -526,7 +526,7 @@ private:
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
-        command->traversal_arguments([&](auto&& resource, Usage usage) {
+        command->traversal_arguments([&](auto &&resource, Usage usage) {
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<T, Argument::Buffer>) {
@@ -854,13 +854,13 @@ public:
 
     void visit(const CustomCommand *command) noexcept override {
         switch (command->uuid()) {
-            case clear_depth_command_uuid:
+            case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
                 visit(static_cast<ClearDepthCommand const *>(command));
                 break;
-            case draw_raster_command_uuid:
+            case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
                 visit(static_cast<DrawRasterSceneCommand const *>(command));
                 break;
-            case custom_dispatch_uuid:
+            case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<CustomDispatchCommand const *>(command));
                 break;
             default:

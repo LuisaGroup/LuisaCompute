@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
     }
     Device device = context.create_device(argv[1]);
 
-    auto dstorage_ext = device.extension<DStorageExt>();
+    DStorageExt *dstorage_ext = device.extension<DStorageExt>();
     Stream dstorage_stream = dstorage_ext->create_stream();
     Stream compute_stream = device.create_stream();
     Event event = device.create_event();
@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
         luisa::vector<uint8_t> out_pixels(width * height * 4u);
         Clock clock{};
-        auto pinned_pixels = dstorage_ext->pin_memory(pixels.data(), pixels.size_bytes());
+        DStorageFile pinned_pixels = dstorage_ext->pin_memory(pixels.data(), pixels.size_bytes());
         dstorage_stream << pinned_pixels.copy_to(img) << synchronize();
         double time = clock.toc();
         LUISA_INFO("Texture read time: {} ms", time);
@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
         luisa::vector<uint8_t> out_pixels(width * height * 4u);
         Clock decompress_clock{};
-        auto pinned_pixels = dstorage_ext->pin_memory(compressed_pixels.data(), compressed_pixels.size_bytes());
+        DStorageFile pinned_pixels = dstorage_ext->pin_memory(compressed_pixels.data(), compressed_pixels.size_bytes());
         dstorage_stream << pinned_pixels.decompress_to(img)
                         << synchronize();
         double decompress_time = decompress_clock.toc();
