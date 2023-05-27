@@ -252,7 +252,7 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
     LUISA_ASSERT(command->compression() == DStorageCompression::None,
                  "DStorageReadCommand does not support compression.");
 
-    auto [device_ptr, host_ptr, size_bytes] = luisa::visit(
+    auto ret = luisa::visit(
         [](auto src) noexcept {
             using T = std::remove_cvref_t<decltype(src)>;
             auto request_offset_bytes = src.offset_bytes;
@@ -278,6 +278,11 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
             }
         },
         command->source());
+
+    // clang doesn't like structured bindings in lambda capture
+    auto device_ptr = std::get<0>(ret);
+    auto host_ptr = std::get<1>(ret);
+    auto size_bytes = std::get<2>(ret);
 
     luisa::visit(
         [size_bytes, device_ptr, host_ptr, this](auto dst) noexcept {
