@@ -178,7 +178,7 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     bool is_hdd = false;
     void init_factory();
     void init_factory_nolock();
-    void DStorageExtImpl::set_config(bool hdd) noexcept;
+    void set_config(bool hdd) noexcept;
 
 public:
     DeviceInterface *device() const noexcept;
