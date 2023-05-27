@@ -35,7 +35,7 @@ add_subdirectory(common)
 add_subdirectory(validation)
 
 if (LUISA_COMPUTE_ENABLE_DX)
-#    add_subdirectory(dx)
+    add_subdirectory(dx)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_METAL)

@@ -331,7 +331,9 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
                         dst.size_bytes, size_bytes);
                 }
                 auto valid_size = std::min(dst.size_bytes, size_bytes);
-                add_callback(MemcpyCallbackContext::create(p, host_ptr, valid_size));
+                LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(p),
+                                               reinterpret_cast<CUdeviceptr>(host_ptr),
+                                               valid_size, _stream->handle()));
             } else {
                 LUISA_ERROR_WITH_LOCATION("Unreachable.");
             }

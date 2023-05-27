@@ -20,9 +20,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    Device device = context.create_device(argv[1]);
+    auto device = context.create_device(argv[1]);
+    auto dstorage_ext = device.extension<DStorageExt>();
 
-    DStorageExt *dstorage_ext = device.extension<DStorageExt>();
     Stream dstorage_stream = dstorage_ext->create_stream();
     Stream compute_stream = device.create_stream();
     Event event = device.create_event();
@@ -89,7 +89,7 @@ int main(int argc, char *argv[]) {
         compute_stream << img.copy_to(out_pixels.data()) << synchronize();
         stbi_write_png("test_dstorage_texture.png", width, height, 4, out_pixels.data(), 0);
     }
-    LUISA_INFO("Texture result read to test_dstorage_texture.png.");
+    LUISA_INFO("Texture result written to test_dstorage_texture.png.");
     LUISA_INFO("Start test texture compress and decompress.");
     luisa::vector<std::byte> compressed_pixels;
     Clock compress_clock{};

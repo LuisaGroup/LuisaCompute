@@ -780,6 +780,13 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, _device));
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, _device));
 
+    auto can_map_host_memory = 0;
+    auto unified_addressing = 0;
+    LUISA_CHECK_CUDA(cuDeviceGetAttribute(&can_map_host_memory, CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY, _device));
+    LUISA_CHECK_CUDA(cuDeviceGetAttribute(&unified_addressing, CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING, _device));
+    LUISA_INFO("Device {} can map host memory: {}", index, can_map_host_memory != 0);
+    LUISA_INFO("Device {} supports unified addressing: {}", index, unified_addressing != 0);
+
     auto format_uuid = [](auto uuid) noexcept {
         luisa::string result;
         result.reserve(36u);
