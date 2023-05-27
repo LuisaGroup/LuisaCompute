@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.25...3.26)
-cmake_policy(VERSION 3.25)
+cmake_minimum_required(VERSION 3.23...3.26)
+cmake_policy(VERSION 3.23)
 
 set(CMAKE_POLICY_DEFAULT_CMP0042 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
@@ -96,7 +96,7 @@ if (LUISA_COMPUTE_ENABLE_METAL)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA)
-    find_package(CUDAToolkit QUIET)
+    find_package(CUDAToolkit 11.7 QUIET)
     if (NOT CUDAToolkit_FOUND)
         report_feature_not_available(CUDA "CUDA backend")
     endif ()
@@ -114,6 +114,10 @@ if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
         report_feature_not_available(CPU "CPU backend")
         report_feature_not_available(REMOTE "Remote backend")
     endif ()
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    option(LUISA_COMPUTE_DOWNLOAD_NVCOMP "Download the nvCOMP library for CUDA GPU decompression" OFF)
 endif ()
 
 if (SKBUILD)

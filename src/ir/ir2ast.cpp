@@ -838,6 +838,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
         }
     }
     // 其余情况生成 literal
+    LUISA_ERROR_WITH_LOCATION("Error.");
 }
 
 const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept {

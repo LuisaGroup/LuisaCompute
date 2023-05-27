@@ -3,6 +3,9 @@
 //
 
 #include <cuda.h>
+
+#include <core/clock.h>
+#include <core/magic_enum.h>
 #include <backends/cuda/cuda_dstorage.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
@@ -11,6 +14,45 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#endif
+
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+#include <gdeflate/gdeflate_cpu.h>
+#include <nvcomp/gdeflate.h>
+
+namespace luisa::compute::cuda::detail {
+
+[[nodiscard]] inline auto to_string(nvcompStatus_t status) noexcept {
+    using namespace std::string_view_literals;
+    switch (status) {
+        case nvcompSuccess: return "Success"sv;
+        case nvcompErrorInvalidValue: return "ErrorInvalidValue"sv;
+        case nvcompErrorNotSupported: return "ErrorNotSupported"sv;
+        case nvcompErrorCannotDecompress: return "ErrorCannotDecompress"sv;
+        case nvcompErrorBadChecksum: return "ErrorBadChecksum"sv;
+        case nvcompErrorCannotVerifyChecksums: return "ErrorCannotVerifyChecksums"sv;
+        case nvcompErrorOutputBufferTooSmall: return "ErrorOutputBufferTooSmall"sv;
+        case nvcompErrorWrongHeaderLength: return "ErrorWrongHeaderLength"sv;
+        case nvcompErrorAlignment: return "ErrorAlignment"sv;
+        case nvcompErrorChunkSizeTooLarge: return "ErrorChunkSizeTooLarge"sv;
+        case nvcompErrorCudaError: return "CudaError"sv;
+        case nvcompErrorInternal: return "ErrorInternal"sv;
+        default: break;
+    }
+    return "Unknown"sv;
+}
+
+}// namespace luisa::compute::cuda::detail
+
+#define LUISA_CHECK_NVCOMP(...)                                 \
+    do {                                                        \
+        if (auto ec = __VA_ARGS__; ec != nvcompSuccess) {       \
+            LUISA_ERROR_WITH_LOCATION(                          \
+                "nvCOMP error: {}",                             \
+                ::luisa::compute::cuda::detail::to_string(ec)); \
+        }                                                       \
+    } while (false)
+
 #endif
 
 namespace luisa::compute::cuda {
@@ -125,11 +167,77 @@ CUDAMappedFile::~CUDAMappedFile() noexcept {
 #endif
 }
 
+namespace detail {
+
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+static void compress_gdeflate_cpu(const std::byte *data, size_t size,
+                                  DStorageCompressionQuality quality,
+                                  vector<std::byte> &result) noexcept {
+
+    Clock clk;
+    auto chunk_size = nvcompGdeflateCompressionMaxAllowedChunkSize;
+    nvcompBatchedGdeflateOpts_t options{};
+    switch (quality) {
+        case DStorageCompressionQuality::Fastest: options.algo = 0; break;
+        case DStorageCompressionQuality::Default: options.algo = 0; break;
+        case DStorageCompressionQuality::Best: options.algo = 1; break;
+    }
+    size_t max_output_chunk_size = 0u;
+    LUISA_CHECK_NVCOMP(nvcompBatchedGdeflateCompressGetMaxOutputChunkSize(
+        chunk_size, options, &max_output_chunk_size));
+    auto max_chunk_count = (size + chunk_size - 1u) / chunk_size;
+    result.reserve(std::min(static_cast<size_t>(.1 * static_cast<double>(size)),
+                            max_output_chunk_size * max_chunk_count));
+    auto accum_output_size = 0u;
+    LUISA_INFO("Max output bytes per chunk: {}.", max_output_chunk_size);
+    for (size_t input_offset = 0u; input_offset < size; input_offset += chunk_size) {
+        auto input_size = std::min(size - input_offset, chunk_size);
+        auto input_ptr = static_cast<const void *>(data + input_offset);
+        result.resize(accum_output_size + max_output_chunk_size);
+        auto output_ptr = static_cast<void *>(result.data() + accum_output_size);
+        auto chunk_output_size = static_cast<size_t>(0u);
+        gdeflate::compressCPU(&input_ptr, &input_size, chunk_size,
+                              1u, &output_ptr, &chunk_output_size);
+        accum_output_size += chunk_output_size;
+    }
+    result.resize(accum_output_size);
+
+    auto ratio = static_cast<double>(accum_output_size) / static_cast<double>(size);
+    auto wasted_bytes = result.capacity() - accum_output_size;
+    LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}, "
+               "{} bytes wasted in allocation) in {} ms.",
+               size, accum_output_size, ratio, wasted_bytes, clk.toc());
+}
+#endif
+
+}// namespace detail
+
 void CUDADStorageExt::compress(const void *data, size_t size_bytes,
                                DStorageExt::Compression algorithm,
                                DStorageExt::CompressionQuality quality,
                                vector<std::byte> &result) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not supported.");
+    switch (algorithm) {
+        case DStorageCompression::None: {
+            LUISA_WARNING_WITH_LOCATION(
+                "Compression algorithm is set to None. The data "
+                "will be simply copied without compression.");
+            result.resize(size_bytes);
+            std::memcpy(result.data(), data, size_bytes);
+            break;
+        }
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+        case DStorageCompression::GDeflate: {
+            detail::compress_gdeflate_cpu(
+                static_cast<const std::byte *>(data),
+                size_bytes, quality, result);
+            break;
+        }
+#endif
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "Unsupported compression algorithm: {}",
+                to_string(algorithm));
+    }
 }
 
 ResourceCreationInfo CUDADStorageExt::create_stream_handle(const DStorageStreamOption &option) noexcept {

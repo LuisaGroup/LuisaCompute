@@ -1,6 +1,7 @@
-find_package(CUDAToolkit)
+find_package(CUDAToolkit 11.7)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
+
     set(LUISA_COMPUTE_CUDA_SOURCES
 
             ../common/default_binary_io.cpp ../common/default_binary_io.h
@@ -35,11 +36,56 @@ if (CUDAToolkit_FOUND)
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
-            CUDA::nvrtc
             luisa-compute-vulkan-swapchain)
+    if (TARGET CUDA::nvrtc_static)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc_static)
+    else ()
+        message(WARNING "CUDA::nvrtc_static not found. Using CUDA::nvrtc instead. This may cause DLL dependency issues.")
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
+    endif ()
     if (WIN32)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
+
+    # nvCOMP
+    if (LUISA_COMPUTE_DOWNLOAD_NVCOMP)
+        if (WIN32)
+            set(NVCOMP_PLATFORM "windows")
+            set(NVCOMP_EXT "zip")
+        else ()
+            set(NVCOMP_PLATFORM "x86_64")
+            set(NVCOMP_EXT "tgz")
+        endif ()
+        set(NVCOMP_VERSION "2.6.1")
+        set(NVCOMP_DOWNLOAD_URL "https://developer.download.nvidia.com/compute/nvcomp/${NVCOMP_VERSION}/local_installers/nvcomp_${NVCOMP_VERSION}_${NVCOMP_PLATFORM}_${CUDAToolkit_VERSION_MAJOR}.x.${NVCOMP_EXT}")
+        message(STATUS "Downloading nvcomp from ${NVCOMP_DOWNLOAD_URL}")
+        include(FetchContent)
+        FetchContent_Declare(nvcomp URL ${NVCOMP_DOWNLOAD_URL})
+        FetchContent_MakeAvailable(nvcomp)
+        FetchContent_GetProperties(nvcomp)
+        set(nvcomp_DIR ${nvcomp_SOURCE_DIR}/lib/cmake/nvcomp)
+    endif ()
+
+    find_package(nvcomp CONFIG)
+    if (NOT nvcomp_FOUND)
+        message(WARNING "nvcomp not found. The CUDA backend will be built without GPU compression support.")
+    else ()
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVCOMP=1)
+        set(NVCOMP_TARGETS
+                nvcomp::nvcomp
+                nvcomp::nvcomp_bitcomp
+                nvcomp::nvcomp_gdeflate
+                nvcomp::nvcomp_gdeflate_cpu)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE ${NVCOMP_TARGETS})
+        foreach (target ${NVCOMP_TARGETS})
+            add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:${target}>
+                    $<TARGET_FILE_DIR:luisa-compute-core>)
+            install(FILES $<TARGET_FILE:${target}> DESTINATION ${CMAKE_INSTALL_BINDIR})
+        endforeach ()
+    endif ()
+
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "CUDA not found. The CUDA backend will not be built.")
 else ()
