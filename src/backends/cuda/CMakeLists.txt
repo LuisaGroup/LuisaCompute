@@ -39,11 +39,13 @@ if (CUDAToolkit_FOUND)
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain)
 
-    if (TARGET CUDA::nvrtc_static)
-        target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc_static)
-    else ()
-        message(WARNING "CUDA::nvrtc_static not found. Using CUDA::nvrtc instead. This may cause DLL dependency issues.")
-        target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
+    if (UNIX AND NOT APPLE) # FIXME: trouble with nvrtc_static on Windows due to the mismatch of runtime library...
+        if (TARGET CUDA::nvrtc_static)
+            target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc_static)
+        else ()
+            message(WARNING "CUDA::nvrtc_static not found. Using CUDA::nvrtc instead. This may cause DLL dependency issues.")
+            target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
+        endif ()
     endif ()
 
     if (WIN32)
