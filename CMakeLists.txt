@@ -74,6 +74,8 @@ endif ()
 # validate the options
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
+find_package(Threads REQUIRED)
+
 function(report_feature_not_available option_name feature_name)
     if (LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
         message(WARNING "The ${feature_name} is not available. The ${feature_name} will be disabled.")

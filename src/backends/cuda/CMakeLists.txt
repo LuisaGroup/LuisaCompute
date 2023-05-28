@@ -1,4 +1,5 @@
-find_package(CUDAToolkit 11.7 CONFIG)
+find_package(CUDAToolkit 11.7)
+
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
 
@@ -33,20 +34,18 @@ if (CUDAToolkit_FOUND)
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h)
 
-    # nvrtc_static -> nvptxcompiler_static -> Threads::Threads
-    find_package(Threads CONFIG REQUIRED)
-
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
-            Threads::Threads
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain)
+
     if (TARGET CUDA::nvrtc_static)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc_static)
     else ()
         message(WARNING "CUDA::nvrtc_static not found. Using CUDA::nvrtc instead. This may cause DLL dependency issues.")
         target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
     endif ()
+
     if (WIN32)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
