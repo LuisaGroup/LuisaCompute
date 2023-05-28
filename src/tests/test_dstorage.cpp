@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Start test texture compress and decompress.");
     luisa::vector<std::byte> compressed_pixels;
     Clock compress_clock{};
-    auto compression = DStorageCompression::Cascaded;
+    auto compression = DStorageCompression::GDeflate;
     dstorage_ext->compress(pixels.data(), luisa::span{pixels}.size_bytes(), compression,
                            DStorageCompressionQuality::Best, compressed_pixels);
     double compress_time = compress_clock.toc();
