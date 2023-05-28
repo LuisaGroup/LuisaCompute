@@ -14,6 +14,77 @@
 
 namespace luisa::compute {
 
+enum struct DecompressorID : uint {
+    GDeflate = 4u,
+};
+
+struct GDeflateFileHeader {
+
+    static constexpr auto default_chunk_size = 1u << 16u;
+    static constexpr auto max_chunk_count = (1u << 16u) - 1u;
+
+    uint8_t decompressor_id;
+    uint8_t magic;
+    uint16_t chunk_count;
+    uint32_t chunk_size_index : 2;
+    uint32_t last_chunk_size : 18;
+    uint32_t reserved : 12;
+
+    [[nodiscard]] static auto create(size_t uncompressed_size) noexcept {
+        auto n = (uncompressed_size + default_chunk_size - 1u) / default_chunk_size;
+        LUISA_ASSERT(n <= max_chunk_count,
+                     "Too many chunks. ({} > {})",
+                     n, max_chunk_count);
+        GDeflateFileHeader header{};
+        header.decompressor_id = to_underlying(DecompressorID::GDeflate);
+        header.magic = header.decompressor_id ^ 0xffu;
+        header.chunk_count = static_cast<uint16_t>(n);
+        header.chunk_size_index = 1u;
+        header.last_chunk_size = static_cast<uint32_t>(uncompressed_size % default_chunk_size);
+        header.reserved = 0u;
+        return header;
+    }
+
+    [[nodiscard]] auto valid() const noexcept {
+        return decompressor_id == to_underlying(DecompressorID::GDeflate) &&
+               decompressor_id == (magic ^ 0xffu) &&
+               chunk_size_index == 1u;
+    }
+
+    [[nodiscard]] auto uncompressed_size() const noexcept {
+        return chunk_count == 0u ?
+                   static_cast<size_t>(0u) :
+                   static_cast<size_t>(chunk_count - 1u) * default_chunk_size + last_chunk_size;
+    }
+};
+
+inline void decode_gdeflate_stream(const GDeflateFileHeader *header,
+                                   const void *input, void *output,
+                                   const void **input_chunk_ptrs,
+                                   size_t *input_chunk_sizes,
+                                   void **output_chunk_ptrs) noexcept {
+    auto chunk_offsets = reinterpret_cast<const uint32_t *>(header + 1u);
+    LUISA_ASSERT(header->uncompressed_size() == chunk_offsets[0],
+                 "Uncompressed size mismatch. ({} != {})",
+                 header->uncompressed_size(), chunk_offsets[0]);
+    auto chunk_count = header->chunk_count;
+    if (chunk_count == 0u) { return; }
+    auto chunk_data = reinterpret_cast<const std::byte *>(
+        static_cast<const std::byte *>(input) +
+        sizeof(GDeflateFileHeader) +
+        sizeof(uint) * header->chunk_count);
+    auto accum_chunk_size = 0u;
+    auto output_ptr = static_cast<std::byte *>(output);
+    for (auto i = 0u; i < chunk_count; i++) {
+        auto chunk_size = chunk_offsets[(i + 1u) % chunk_count] - accum_chunk_size;
+        input_chunk_ptrs[i] = chunk_data + accum_chunk_size;
+        input_chunk_sizes[i] = chunk_size;
+        output_chunk_ptrs[i] = output_ptr;
+        accum_chunk_size += chunk_size;
+        output_ptr += GDeflateFileHeader::default_chunk_size;
+    }
+}
+
 class DStorageFileView {
 
 private:
@@ -121,8 +192,9 @@ public:
     }
 
     template<typename T>
-    [[nodiscard]] auto copy_to(luisa::span<T> data) const noexcept {
-        return copy_to(data.data(), data.size_bytes());
+    [[nodiscard]] auto copy_to(luisa::span<T> data,
+                               DStorageCompression compression = DStorageCompression::None) const noexcept {
+        return copy_to(data.data(), data.size_bytes(), compression);
     }
 
     template<typename ResourceOrView>
@@ -218,11 +290,11 @@ public:
     }
 };
 
-DStorageFileView::DStorageFileView(const DStorageFile &file) noexcept
+inline DStorageFileView::DStorageFileView(const DStorageFile &file) noexcept
     : DStorageFileView{file.handle(), 0u, file.size_bytes(),
                        file.tag() == Resource::Tag::DSTORAGE_PINNED_MEMORY} {}
 
-DStorageFileView::DStorageFileView(const DStorageFile &file, size_t offset_bytes, size_t size_bytes) noexcept
+inline DStorageFileView::DStorageFileView(const DStorageFile &file, size_t offset_bytes, size_t size_bytes) noexcept
     : DStorageFileView{file.handle(), offset_bytes, size_bytes,
                        file.tag() == Resource::Tag::DSTORAGE_PINNED_MEMORY} {
     LUISA_ASSERT(offset_bytes < file.size_bytes() &&

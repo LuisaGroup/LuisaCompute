@@ -773,6 +773,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
             index, device_count, device_count - 1);
         index = device_count - 1;
     }
+    _device_index = index;
     LUISA_CHECK_CUDA(cuDeviceGet(&_device, index));
     auto compute_cap_major = 0;
     auto compute_cap_minor = 0;

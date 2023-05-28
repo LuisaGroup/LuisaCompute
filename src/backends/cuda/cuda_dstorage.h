@@ -7,6 +7,45 @@
 #include <backends/ext/dstorage_ext_interface.h>
 #include <backends/cuda/cuda_device.h>
 
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+#include <gdeflate/gdeflate_cpu.h>
+#include <nvcomp/gdeflate.hpp>
+
+namespace luisa::compute::cuda::detail {
+
+[[nodiscard]] inline auto to_string(nvcompStatus_t status) noexcept {
+    using namespace std::string_view_literals;
+    switch (status) {
+        case nvcompSuccess: return "Success"sv;
+        case nvcompErrorInvalidValue: return "ErrorInvalidValue"sv;
+        case nvcompErrorNotSupported: return "ErrorNotSupported"sv;
+        case nvcompErrorCannotDecompress: return "ErrorCannotDecompress"sv;
+        case nvcompErrorBadChecksum: return "ErrorBadChecksum"sv;
+        case nvcompErrorCannotVerifyChecksums: return "ErrorCannotVerifyChecksums"sv;
+        case nvcompErrorOutputBufferTooSmall: return "ErrorOutputBufferTooSmall"sv;
+        case nvcompErrorWrongHeaderLength: return "ErrorWrongHeaderLength"sv;
+        case nvcompErrorAlignment: return "ErrorAlignment"sv;
+        case nvcompErrorChunkSizeTooLarge: return "ErrorChunkSizeTooLarge"sv;
+        case nvcompErrorCudaError: return "CudaError"sv;
+        case nvcompErrorInternal: return "ErrorInternal"sv;
+        default: break;
+    }
+    return "Unknown"sv;
+}
+
+}// namespace luisa::compute::cuda::detail
+
+#define LUISA_CHECK_NVCOMP(...)                                 \
+    do {                                                        \
+        if (auto ec = __VA_ARGS__; ec != nvcompSuccess) {       \
+            LUISA_ERROR_WITH_LOCATION(                          \
+                "nvCOMP error: {}",                             \
+                ::luisa::compute::cuda::detail::to_string(ec)); \
+        }                                                       \
+    } while (false)
+
+#endif
+
 namespace luisa::compute::cuda {
 
 class CUDAMappedFile {

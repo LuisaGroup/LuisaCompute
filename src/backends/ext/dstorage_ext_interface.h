@@ -4,7 +4,7 @@
 
 namespace lc::validation {
 class DStorageExtImpl;
-}
+}// namespace lc::validation
 
 namespace luisa::compute {
 

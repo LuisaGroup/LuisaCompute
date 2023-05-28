@@ -101,10 +101,11 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Texture compress time: {} ms, before compress size: {} bytes, after compress size: {} bytes", compress_time, pixels.size_bytes(), compressed_pixels.size_bytes());
     {
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
-        luisa::vector<uint8_t> out_pixels(width * height * 4u);
+        luisa::vector<std::byte> out_pixels(width * height * 4u);
         Clock decompress_clock{};
         DStorageFile pinned_pixels = dstorage_ext->pin_memory(compressed_pixels.data(), compressed_pixels.size_bytes());
         dstorage_stream << pinned_pixels.decompress_to(img)
+                        // << pinned_pixels.decompress_to(luisa::span{out_pixels})
                         << synchronize();
         double decompress_time = decompress_clock.toc();
         LUISA_INFO("Texture decompress time: {} ms", decompress_time);

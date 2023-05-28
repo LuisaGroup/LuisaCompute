@@ -56,6 +56,7 @@ public:
     private:
         CUcontext _context{nullptr};
         CUdevice _device{0};
+        uint32_t _device_index{};
         uint32_t _compute_capability{};
         uint32_t _driver_version{};
         CUuuid _uuid{};
@@ -71,6 +72,7 @@ public:
         Handle &operator=(Handle &&) noexcept = delete;
         Handle &operator=(const Handle &) noexcept = delete;
         [[nodiscard]] std::string_view name() const noexcept;
+        [[nodiscard]] auto index() const noexcept { return _device_index; }
         [[nodiscard]] auto uuid() const noexcept { return _uuid; }
         [[nodiscard]] auto device() const noexcept { return _device; }
         [[nodiscard]] auto context() const noexcept { return _context; }

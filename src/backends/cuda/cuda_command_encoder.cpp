@@ -2,7 +2,9 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include <core/magic_enum.h>
 #include <runtime/command_list.h>
+#include <backends/ext/dstorage_ext.hpp>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
@@ -43,33 +45,6 @@ public:
 
     void recycle() noexcept override {
         for (auto &&f : _functions) { f(); }
-        _object_pool().destroy(this);
-    }
-};
-
-class MemcpyCallbackContext : public CUDACallbackContext {
-
-private:
-    void *_dst;
-    const void *_src;
-    size_t _size;
-
-private:
-    [[nodiscard]] static auto &_object_pool() noexcept {
-        static Pool<MemcpyCallbackContext, true> pool;
-        return pool;
-    }
-
-public:
-    MemcpyCallbackContext(void *dst, const void *src, size_t size) noexcept
-        : _dst{dst}, _src{src}, _size{size} {}
-
-    [[nodiscard]] static auto create(void *dst, const void *src, size_t size) noexcept {
-        return _object_pool().create(dst, src, size);
-    }
-
-    void recycle() noexcept override {
-        std::memcpy(_dst, _src, _size);
         _object_pool().destroy(this);
     }
 };
@@ -119,23 +94,39 @@ void CUDACommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
     reinterpret_cast<CUDAShader *>(command->handle())->launch(*this, command);
 }
 
-void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
-    auto mipmap_array = reinterpret_cast<CUDATexture *>(command->texture());
-    auto array = mipmap_array->level(command->level());
+namespace detail {
+
+static void memcpy_buffer_to_texture(CUdeviceptr buffer, size_t buffer_offset, size_t buffer_total_size,
+                                     CUarray array, PixelStorage array_storage, uint3 array_size,
+                                     CUstream stream) noexcept {
     CUDA_MEMCPY3D copy{};
-    auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
-    auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
+    auto pitch = pixel_storage_size(array_storage, make_uint3(array_size.x, 1u, 1u));
+    auto height = pixel_storage_size(array_storage, make_uint3(array_size.xy(), 1u)) / pitch;
+    auto full_size = pixel_storage_size(array_storage, array_size);
+    LUISA_ASSERT(buffer_offset < buffer_total_size &&
+                     buffer_total_size - buffer_offset >= full_size,
+                 "Buffer size too small for texture copy.");
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.srcDevice = reinterpret_cast<const CUDABuffer *>(command->buffer())->handle() +
-                     command->buffer_offset();
+    copy.srcDevice = buffer + buffer_offset;
     copy.srcPitch = pitch;
     copy.srcHeight = height;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.dstArray = array;
     copy.WidthInBytes = pitch;
     copy.Height = height;
-    copy.Depth = command->size().z;
-    LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+    copy.Depth = array_size.z;
+    LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, stream));
+}
+
+}// namespace detail
+
+void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
+    auto mipmap_array = reinterpret_cast<CUDATexture *>(command->texture());
+    auto array = mipmap_array->level(command->level());
+    auto buffer = reinterpret_cast<const CUDABuffer *>(command->buffer());
+    detail::memcpy_buffer_to_texture(
+        buffer->handle(), command->buffer_offset(), buffer->size(),
+        array, command->storage(), command->size(), _stream->handle());
 }
 
 void CUDACommandEncoder::visit(TextureUploadCommand *command) noexcept {
@@ -248,11 +239,206 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
     }
 }
 
-void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
-    LUISA_ASSERT(command->compression() == DStorageCompression::None,
-                 "DStorageReadCommand does not support compression.");
+namespace detail {
 
-    auto ret = luisa::visit(
+using DSBufferRequest = DStorageReadCommand::BufferRequest;
+using DSTextureRequest = DStorageReadCommand::TextureRequest;
+using DSMemoryRequest = DStorageReadCommand::MemoryRequest;
+
+static void dstorage_copy(const void *input_host_ptr,
+                          CUdeviceptr input_device_ptr,
+                          size_t input_size,
+                          DStorageReadCommand::Request output_request,
+                          CUstream stream) noexcept {
+
+    if (luisa::holds_alternative<DSBufferRequest>(output_request)) {
+        auto dst = luisa::get<DSBufferRequest>(output_request);
+        auto buffer = reinterpret_cast<const CUDABuffer *>(dst.handle);
+        LUISA_ASSERT(dst.offset_bytes < buffer->size() &&
+                         input_size <= buffer->size() - dst.offset_bytes,
+                     "DStorageReadCommand out of range.");
+        auto dst_addr = buffer->handle() + dst.offset_bytes;
+        if (dst.size_bytes != input_size) {
+            LUISA_WARNING_WITH_LOCATION(
+                "DStorageReadCommand size mismatch: "
+                "input size = {}, output size = {}.",
+                input_size, dst.size_bytes);
+        }
+        auto valid_size = std::min(dst.size_bytes, input_size);
+        LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dst_addr, input_device_ptr, valid_size, stream));
+    } else if (luisa::holds_alternative<DSTextureRequest>(output_request)) {
+        auto dst = luisa::get<DSTextureRequest>(output_request);
+        auto texture = reinterpret_cast<const CUDATexture *>(dst.handle);
+        auto size = make_uint3(dst.size[0], dst.size[1], dst.size[2]);
+        LUISA_ASSERT(all(size == max(texture->size() >> dst.level, 1u)),
+                     "DStorageReadCommand size mismatch.");
+        auto array = texture->level(dst.level);
+        detail::memcpy_buffer_to_texture(
+            input_device_ptr, 0u, input_size,
+            array, texture->storage(), size, stream);
+    } else if (luisa::holds_alternative<DSMemoryRequest>(output_request)) {
+        auto dst = luisa::get<DSMemoryRequest>(output_request);
+        auto p = static_cast<std::byte *>(dst.data);
+        if (dst.size_bytes != input_size) {
+            LUISA_WARNING_WITH_LOCATION(
+                "DStorageReadCommand size mismatch: "
+                "input size = {}, output size = {}.",
+                input_size, dst.size_bytes);
+        }
+        auto valid_size = std::min(dst.size_bytes, input_size);
+        LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(p),
+                                       reinterpret_cast<CUdeviceptr>(input_host_ptr),
+                                       valid_size, stream));
+    } else {
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
+    }
+}
+
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+
+static void dstorage_decompress_gdeflate(const void *input_host_ptr,
+                                         CUdeviceptr input_device_ptr,
+                                         size_t input_size,
+                                         DStorageReadCommand::Request output_request,
+                                         CUDACommandEncoder &encoder) noexcept {
+
+    auto stream = encoder.stream()->handle();
+    auto decompress_to_buffer = [&](const GDeflateFileHeader *header,
+                                    CUdeviceptr in_ptr, size_t in_size,
+                                    CUdeviceptr out_ptr, size_t out_size) noexcept {
+        auto device_index = static_cast<int>(encoder.stream()->device()->handle().index());
+        auto manager = luisa::new_with_allocator<nvcomp::GdeflateManager>(
+            GDeflateFileHeader::default_chunk_size, 0,
+            encoder.stream()->handle(), device_index);
+
+        auto config = manager->configure_decompression(reinterpret_cast<const uint8_t *>(in_ptr));
+        auto temp_buffer_size = manager->get_required_scratch_buffer_size();
+        LUISA_INFO("nvcomp gdeflate decompression temp buffer size = {} bytes.", temp_buffer_size);
+        auto temp_buffer = static_cast<CUdeviceptr>(0u);
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, stream));
+        manager->decompress(reinterpret_cast<uint8_t *>(out_ptr),
+                            reinterpret_cast<const uint8_t *>(in_ptr), config);
+        LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, stream));
+
+        //        auto temp_bytes = static_cast<size_t>(0u);
+        //        LUISA_CHECK_NVCOMP(nvcompBatchedGdeflateCompressGetTempSize(
+        //            1u, nvcompGdeflateCompressionMaxAllowedChunkSize,
+        //            nvcompBatchedGdeflateDefaultOpts, &temp_bytes));
+        //        struct alignas(16u) DecompressContext {
+        //            CUdeviceptr in_ptr;
+        //            size_t in_size;
+        //            CUdeviceptr out_ptr;
+        //            size_t out_size;
+        //        };
+        //        auto ctx_and_temp_buffer = static_cast<CUdeviceptr>(0u);
+        //        LUISA_CHECK_CUDA(cuMemAllocAsync(&ctx_and_temp_buffer, temp_bytes + sizeof(DecompressContext), stream));
+        //        encoder.with_upload_buffer(sizeof(DecompressContext), [&](CUDAHostBufferPool::View *view) noexcept {
+        //            auto ctx = reinterpret_cast<DecompressContext *>(view->address());
+        //            ctx->in_ptr = in_ptr;
+        //            ctx->in_size = in_size;
+        //            ctx->out_ptr = out_ptr;
+        //            ctx->out_size = out_size;
+        //            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(ctx_and_temp_buffer, view->address(),
+        //                                               sizeof(DecompressContext), stream));
+        //            auto device_ctx = reinterpret_cast<DecompressContext *>(ctx_and_temp_buffer);
+        //            auto device_compressed_ptrs = reinterpret_cast<const void *const *>(&device_ctx->in_ptr);
+        //            auto device_compressed_bytes = &device_ctx->in_size;
+        //            auto device_uncompressed_ptrs = reinterpret_cast<void *const *>(&device_ctx->out_ptr);
+        //            auto device_uncompressed_bytes = &device_ctx->out_size;
+        //            auto device_temp_ptr = reinterpret_cast<void *>(ctx_and_temp_buffer + sizeof(DecompressContext));
+        //            LUISA_CHECK_NVCOMP(nvcompBatchedGdeflateDecompressAsync(
+        //                device_compressed_ptrs, device_compressed_bytes,
+        //                device_uncompressed_bytes, nullptr, 1u,
+        //                device_temp_ptr, temp_bytes,
+        //                device_uncompressed_ptrs, nullptr, stream));
+        //        });
+        //        LUISA_CHECK_CUDA(cuMemFreeAsync(ctx_and_temp_buffer, stream));
+    };
+
+    if (luisa::holds_alternative<DSBufferRequest>(output_request)) {
+        auto dst = luisa::get<DSBufferRequest>(output_request);
+        auto buffer = reinterpret_cast<const CUDABuffer *>(dst.handle);
+        LUISA_ASSERT(dst.offset_bytes < buffer->size() &&
+                         input_size <= buffer->size() - dst.offset_bytes,
+                     "DStorageReadCommand out of range.");
+        auto dst_addr = buffer->handle() + dst.offset_bytes;
+        decompress_to_buffer(reinterpret_cast<const GDeflateFileHeader *>(input_host_ptr),
+                             input_device_ptr, input_size, dst_addr, dst.size_bytes);
+    } else if (luisa::holds_alternative<DSTextureRequest>(output_request)) {
+        auto dst = luisa::get<DSTextureRequest>(output_request);
+        auto texture = reinterpret_cast<const CUDATexture *>(dst.handle);
+        auto size = make_uint3(dst.size[0], dst.size[1], dst.size[2]);
+        LUISA_ASSERT(all(size == max(texture->size() >> dst.level, 1u)),
+                     "DStorageReadCommand size mismatch.");
+        auto array = texture->level(dst.level);
+        auto storage = texture->storage();
+        auto temp_buffer_size = pixel_storage_size(storage, size);
+        auto temp_buffer = static_cast<CUdeviceptr>(0ull);
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, stream));
+        decompress_to_buffer(reinterpret_cast<const GDeflateFileHeader *>(input_host_ptr),
+                             input_device_ptr, input_size, temp_buffer, temp_buffer_size);
+        detail::memcpy_buffer_to_texture(
+            temp_buffer, 0u, temp_buffer_size,
+            array, storage, size, stream);
+        LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, stream));
+    } else if (luisa::holds_alternative<DSMemoryRequest>(output_request)) {
+
+        auto dst = luisa::get<DSMemoryRequest>(output_request);
+        auto input_header = static_cast<const GDeflateFileHeader *>(input_host_ptr);
+        auto chunk_offsets = reinterpret_cast<const uint32_t *>(
+            static_cast<const std::byte *>(input_host_ptr) + sizeof(GDeflateFileHeader));
+        LUISA_ASSERT(input_header->uncompressed_size() == chunk_offsets[0] &&
+                         dst.size_bytes >= input_header->uncompressed_size(),
+                     "DStorageReadCommand size mismatch.");
+
+        struct DecompressContext {
+            const void **in_ptrs;
+            size_t *in_sizes;
+            void **out_ptrs;
+            size_t *out_sizes;
+            size_t chunk_count;
+        };
+        auto ctx_offset_in_ptrs = sizeof(DecompressContext);
+        auto ctx_offset_in_sizes = ctx_offset_in_ptrs + sizeof(const void *) * input_header->chunk_count;
+        auto ctx_offset_out_ptrs = ctx_offset_in_sizes + sizeof(size_t) * input_header->chunk_count;
+        auto ctx_offset_out_sizes = ctx_offset_out_ptrs + sizeof(void *) * input_header->chunk_count;
+        auto ctx_size = ctx_offset_out_sizes + sizeof(size_t) * input_header->chunk_count;
+
+        auto ctx_memory = luisa::allocate_with_allocator<std::byte>(ctx_size);
+        auto ctx = reinterpret_cast<DecompressContext *>(ctx_memory);
+        ctx->chunk_count = input_header->chunk_count;
+        ctx->in_ptrs = reinterpret_cast<const void **>(ctx_memory + ctx_offset_in_ptrs);
+        ctx->in_sizes = reinterpret_cast<size_t *>(ctx_memory + ctx_offset_in_sizes);
+        ctx->out_ptrs = reinterpret_cast<void **>(ctx_memory + ctx_offset_out_ptrs);
+        ctx->out_sizes = reinterpret_cast<size_t *>(ctx_memory + ctx_offset_out_sizes);
+
+        decode_gdeflate_stream(static_cast<const GDeflateFileHeader *>(input_host_ptr),
+                               input_host_ptr, dst.data, ctx->in_ptrs, ctx->in_sizes, ctx->out_ptrs);
+
+        auto decompress = [](void *ctx_memory) noexcept {
+            auto ctx = static_cast<const DecompressContext *>(ctx_memory);
+            try {
+                gdeflate::decompressCPU(ctx->in_ptrs, ctx->in_sizes,
+                                        ctx->chunk_count,
+                                        ctx->out_ptrs, ctx->out_sizes);
+            } catch (const std::exception &e) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Failed to decompress data: {}",
+                    e.what());
+            }
+            luisa::deallocate_with_allocator(static_cast<std::byte *>(ctx_memory));
+        };
+        decompress(ctx_memory);
+    } else {
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
+    }
+}
+#endif
+
+}// namespace detail
+
+void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
+    auto [device_ptr, host_ptr, size] = luisa::visit(
         [](auto src) noexcept {
             using T = std::remove_cvref_t<decltype(src)>;
             auto request_offset_bytes = src.offset_bytes;
@@ -279,66 +465,24 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
         },
         command->source());
 
-    // clang doesn't like structured bindings in lambda capture
-    auto device_ptr = std::get<0>(ret);
-    auto host_ptr = std::get<1>(ret);
-    auto size_bytes = std::get<2>(ret);
-
-    luisa::visit(
-        [size_bytes, device_ptr, host_ptr, this](auto dst) noexcept {
-            using T = std::remove_cvref_t<decltype(dst)>;
-            if constexpr (std::is_same_v<T, DStorageReadCommand::BufferRequest>) {
-                auto buffer = reinterpret_cast<const CUDABuffer *>(dst.handle);
-                LUISA_ASSERT(dst.offset_bytes < buffer->size() &&
-                                 size_bytes <= buffer->size() - dst.offset_bytes,
-                             "DStorageReadCommand out of range.");
-                auto dst_addr = buffer->handle() + dst.offset_bytes;
-                if (dst.size_bytes != size_bytes) {
-                    LUISA_WARNING_WITH_LOCATION(
-                        "DStorageReadCommand size mismatch: "
-                        "request size = {}, "
-                        "actual size = {}.",
-                        dst.size_bytes, size_bytes);
-                }
-                auto valid_size = std::min(dst.size_bytes, size_bytes);
-                LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dst_addr, device_ptr, valid_size, _stream->handle()));
-            } else if constexpr (std::is_same_v<T, DStorageReadCommand::TextureRequest>) {
-                auto texture = reinterpret_cast<const CUDATexture *>(dst.handle);
-                auto size = make_uint3(dst.size[0], dst.size[1], dst.size[2]);
-                LUISA_ASSERT(all(size == max(texture->size() >> dst.level, 1u)),
-                             "DStorageReadCommand size mismatch.");
-                auto array = texture->level(dst.level);
-                CUDA_MEMCPY3D copy{};
-                auto pitch = pixel_storage_size(texture->storage(), make_uint3(size.x, 1u, 1u));
-                auto height = pixel_storage_size(texture->storage(), make_uint3(size.xy(), 1u)) / pitch;
-                copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-                copy.srcDevice = device_ptr;
-                copy.srcPitch = pitch;
-                copy.srcHeight = height;
-                copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
-                copy.dstArray = array;
-                copy.WidthInBytes = pitch;
-                copy.Height = height;
-                copy.Depth = size.z;
-                LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
-            } else if constexpr (std::is_same_v<T, DStorageReadCommand::MemoryRequest>) {
-                auto p = reinterpret_cast<std::byte *>(dst.data);
-                if (dst.size_bytes != size_bytes) {
-                    LUISA_WARNING_WITH_LOCATION(
-                        "DStorageReadCommand size mismatch: "
-                        "request size = {}, "
-                        "actual size = {}.",
-                        dst.size_bytes, size_bytes);
-                }
-                auto valid_size = std::min(dst.size_bytes, size_bytes);
-                LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(p),
-                                               reinterpret_cast<CUdeviceptr>(host_ptr),
-                                               valid_size, _stream->handle()));
-            } else {
-                LUISA_ERROR_WITH_LOCATION("Unreachable.");
-            }
-        },
-        command->request());
+    // copy or decompress
+    switch (auto compression = command->compression()) {
+        case DStorageCompression::None:
+            detail::dstorage_copy(
+                host_ptr, device_ptr, size,
+                command->request(), _stream->handle());
+            break;
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+        case DStorageCompression::GDeflate:
+            detail::dstorage_decompress_gdeflate(
+                host_ptr, device_ptr, size,
+                command->request(), *this);
+            break;
+#endif
+        default: LUISA_ERROR_WITH_LOCATION(
+            "Unsupported DStorage compression method {}.",
+            to_string(compression));
+    }
 }
 
 }// namespace luisa::compute::cuda

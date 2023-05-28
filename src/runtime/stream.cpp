@@ -31,7 +31,8 @@ void Stream::_dispatch(CommandList &&list) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
-    return Delegate{this} << std::move(cmd);
+    Delegate delegate{this};
+    return std::move(delegate) << std::move(cmd);
 }
 
 void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }

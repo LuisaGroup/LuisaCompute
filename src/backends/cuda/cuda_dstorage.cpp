@@ -6,6 +6,8 @@
 
 #include <core/clock.h>
 #include <core/magic_enum.h>
+
+#include <backends/ext/dstorage_ext.hpp>
 #include <backends/cuda/cuda_dstorage.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
@@ -14,45 +16,6 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
-#endif
-
-#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
-#include <gdeflate/gdeflate_cpu.h>
-#include <nvcomp/gdeflate.h>
-
-namespace luisa::compute::cuda::detail {
-
-[[nodiscard]] inline auto to_string(nvcompStatus_t status) noexcept {
-    using namespace std::string_view_literals;
-    switch (status) {
-        case nvcompSuccess: return "Success"sv;
-        case nvcompErrorInvalidValue: return "ErrorInvalidValue"sv;
-        case nvcompErrorNotSupported: return "ErrorNotSupported"sv;
-        case nvcompErrorCannotDecompress: return "ErrorCannotDecompress"sv;
-        case nvcompErrorBadChecksum: return "ErrorBadChecksum"sv;
-        case nvcompErrorCannotVerifyChecksums: return "ErrorCannotVerifyChecksums"sv;
-        case nvcompErrorOutputBufferTooSmall: return "ErrorOutputBufferTooSmall"sv;
-        case nvcompErrorWrongHeaderLength: return "ErrorWrongHeaderLength"sv;
-        case nvcompErrorAlignment: return "ErrorAlignment"sv;
-        case nvcompErrorChunkSizeTooLarge: return "ErrorChunkSizeTooLarge"sv;
-        case nvcompErrorCudaError: return "CudaError"sv;
-        case nvcompErrorInternal: return "ErrorInternal"sv;
-        default: break;
-    }
-    return "Unknown"sv;
-}
-
-}// namespace luisa::compute::cuda::detail
-
-#define LUISA_CHECK_NVCOMP(...)                                 \
-    do {                                                        \
-        if (auto ec = __VA_ARGS__; ec != nvcompSuccess) {       \
-            LUISA_ERROR_WITH_LOCATION(                          \
-                "nvCOMP error: {}",                             \
-                ::luisa::compute::cuda::detail::to_string(ec)); \
-        }                                                       \
-    } while (false)
-
 #endif
 
 namespace luisa::compute::cuda {
@@ -169,13 +132,8 @@ CUDAMappedFile::~CUDAMappedFile() noexcept {
 
 namespace detail {
 
-#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
-static void compress_gdeflate_cpu(const std::byte *data, size_t size,
-                                  DStorageCompressionQuality quality,
-                                  vector<std::byte> &result) noexcept {
-
-    Clock clk;
-    auto chunk_size = nvcompGdeflateCompressionMaxAllowedChunkSize;
+[[nodiscard]] inline auto gdeflate_max_output_chunk_size(size_t input_chunk_size,
+                                                         DStorageCompressionQuality quality) noexcept {
     nvcompBatchedGdeflateOpts_t options{};
     switch (quality) {
         case DStorageCompressionQuality::Fastest: options.algo = 0; break;
@@ -184,29 +142,83 @@ static void compress_gdeflate_cpu(const std::byte *data, size_t size,
     }
     size_t max_output_chunk_size = 0u;
     LUISA_CHECK_NVCOMP(nvcompBatchedGdeflateCompressGetMaxOutputChunkSize(
-        chunk_size, options, &max_output_chunk_size));
-    auto max_chunk_count = (size + chunk_size - 1u) / chunk_size;
-    result.reserve(std::min(static_cast<size_t>(.1 * static_cast<double>(size)),
-                            max_output_chunk_size * max_chunk_count));
-    auto accum_output_size = 0u;
-    LUISA_INFO("Max output bytes per chunk: {}.", max_output_chunk_size);
-    for (size_t input_offset = 0u; input_offset < size; input_offset += chunk_size) {
-        auto input_size = std::min(size - input_offset, chunk_size);
-        auto input_ptr = static_cast<const void *>(data + input_offset);
-        result.resize(accum_output_size + max_output_chunk_size);
-        auto output_ptr = static_cast<void *>(result.data() + accum_output_size);
-        auto chunk_output_size = static_cast<size_t>(0u);
-        gdeflate::compressCPU(&input_ptr, &input_size, chunk_size,
-                              1u, &output_ptr, &chunk_output_size);
-        accum_output_size += chunk_output_size;
-    }
-    result.resize(accum_output_size);
+        input_chunk_size, options, &max_output_chunk_size));
+    return max_output_chunk_size;
+}
 
-    auto ratio = static_cast<double>(accum_output_size) / static_cast<double>(size);
-    auto wasted_bytes = result.capacity() - accum_output_size;
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+static void compress_gdeflate_cpu(const std::byte *data, size_t size,
+                                  DStorageCompressionQuality quality,
+                                  vector<std::byte> &result) noexcept {
+    Clock clk;
+    auto chunk_size = GDeflateFileHeader::default_chunk_size;
+    auto max_output_chunk_size = gdeflate_max_output_chunk_size(chunk_size, quality);
+    auto chunk_count = (size + chunk_size - 1u) / chunk_size;
+
+    constexpr auto chunks_per_dispatch = 32u;
+    luisa::vector<std::byte> compressed_chunks[chunks_per_dispatch];
+    for (auto &c : compressed_chunks) { c.resize(max_output_chunk_size); }
+
+    constexpr auto header_size = sizeof(GDeflateFileHeader);
+    result.resize(sizeof(GDeflateFileHeader) + chunk_count * sizeof(uint) +
+                  std::min(static_cast<size_t>(.1 * static_cast<double>(size)),
+                           max_output_chunk_size * chunk_count));
+
+    auto compressed_size = 0u;
+    for (auto chunk = 0u; chunk < chunk_count; chunk += chunks_per_dispatch) {
+        const void *input_ptrs[chunks_per_dispatch];
+        size_t input_sizes[chunks_per_dispatch];
+        void *output_ptrs[chunks_per_dispatch];
+        size_t output_sizes[chunks_per_dispatch];
+        auto dispatch_chunks = std::min<size_t>(chunks_per_dispatch, chunk_count - chunk);
+        for (auto i = 0u; i < dispatch_chunks; i++) {
+            auto chunk_index = chunk + i;
+            input_ptrs[i] = data + chunk_index * chunk_size;
+            input_sizes[i] = std::min<size_t>(chunk_size, size - chunk_index * chunk_size);
+            output_ptrs[i] = compressed_chunks[i].data();
+            output_sizes[i] = 0u;
+        }
+        try {
+            gdeflate::compressCPU(input_ptrs, input_sizes,
+                                  chunk_size, dispatch_chunks,
+                                  output_ptrs, output_sizes);
+        } catch (const std::exception &e) {
+            LUISA_ERROR_WITH_LOCATION("Failed to compress chunk {}: {}.",
+                                      chunk, e.what());
+        }
+        auto chunk_offsets = reinterpret_cast<uint *>(result.data() + header_size);
+        for (auto i = 0u; i < dispatch_chunks; i++) {
+            chunk_offsets[chunk + i] = compressed_size;
+            auto compressed_chunk_size = output_sizes[i];
+            compressed_size += compressed_chunk_size;
+        }
+        result.resize(header_size + chunk_count * sizeof(uint) + compressed_size);
+        for (auto i = 0u; i < dispatch_chunks; i++) {
+            auto compressed_chunk_offset = chunk_offsets[chunk + i];
+            auto compressed_chunk_size = output_sizes[i];
+            std::memcpy(result.data() + header_size +
+                            chunk_count * sizeof(uint) +
+                            compressed_chunk_offset,
+                        compressed_chunks[i].data(),
+                        compressed_chunk_size);
+        }
+    }
+    result.resize(header_size + chunk_count * sizeof(uint) + compressed_size);
+
+    struct GDeflateHeaderWithSize {
+        GDeflateFileHeader header;
+        uint compressed_size;
+    };
+    GDeflateHeaderWithSize header{
+        GDeflateFileHeader::create(compressed_size),
+        compressed_size};
+    std::memcpy(result.data(), &header, sizeof(GDeflateHeaderWithSize));
+
+    auto ratio = static_cast<double>(result.size()) / static_cast<double>(size);
+    auto wasted_bytes = result.capacity() - result.size();
     LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}, "
                "{} bytes wasted in allocation) in {} ms.",
-               size, accum_output_size, ratio, wasted_bytes, clk.toc());
+               size, result.size(), ratio, wasted_bytes, clk.toc());
 }
 #endif
 
