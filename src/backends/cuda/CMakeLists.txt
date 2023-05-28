@@ -39,7 +39,10 @@ if (CUDAToolkit_FOUND)
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain)
 
-    if (UNIX AND NOT APPLE) # FIXME: trouble with nvrtc_static on Windows due to the mismatch of runtime library...
+    if (WIN32)
+        # FIXME: trouble with nvrtc_static on Windows due to the mismatch of runtime library...
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
+    else ()
         if (TARGET CUDA::nvrtc_static)
             target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc_static)
         else ()
@@ -65,7 +68,7 @@ if (CUDAToolkit_FOUND)
         set(NVCOMP_DOWNLOAD_URL "https://developer.download.nvidia.com/compute/nvcomp/${NVCOMP_VERSION}/local_installers/nvcomp_${NVCOMP_VERSION}_${NVCOMP_PLATFORM}_${CUDAToolkit_VERSION_MAJOR}.x.${NVCOMP_EXT}")
         message(STATUS "Downloading nvcomp from ${NVCOMP_DOWNLOAD_URL}")
         include(FetchContent)
-        FetchContent_Declare(nvcomp URL ${NVCOMP_DOWNLOAD_URL})
+        FetchContent_Declare(nvcomp URL ${NVCOMP_DOWNLOAD_URL} DOWNLOAD_EXTRACT_TIMESTAMP ON)
         FetchContent_MakeAvailable(nvcomp)
         FetchContent_GetProperties(nvcomp)
         set(nvcomp_DIR ${nvcomp_SOURCE_DIR}/lib/cmake/nvcomp)
