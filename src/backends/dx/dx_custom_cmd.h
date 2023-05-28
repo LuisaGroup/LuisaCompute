@@ -42,37 +42,33 @@ public:
     void traversal_arguments(TraversalArgsCallback const &func) const noexcept override {
         for (auto &v : resource_usages) {
             Usage resource_usage;
-            switch (v.required_state) {
-                case D3D12_RESOURCE_STATE_COMMON:
-                case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
-                    resource_usage = Usage::READ_WRITE;
-                    break;
-                case D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER:
-                case D3D12_RESOURCE_STATE_INDEX_BUFFER:
-                case D3D12_RESOURCE_STATE_DEPTH_READ:
-                case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
-                case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
-                case D3D12_RESOURCE_STATE_STREAM_OUT:
-                case D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT:
-                case D3D12_RESOURCE_STATE_COPY_SOURCE:
-                case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
-                case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
-                case D3D12_RESOURCE_STATE_GENERIC_READ:
-                case D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE:
-                case D3D12_RESOURCE_STATE_VIDEO_DECODE_READ:
-                case D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ:
-                case D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ:
-                    resource_usage = Usage::READ;
-                    break;
-                default:
-                    resource_usage = Usage::WRITE;
-                    break;
+            constexpr auto read_state =
+                D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER |
+                D3D12_RESOURCE_STATE_INDEX_BUFFER |
+                D3D12_RESOURCE_STATE_DEPTH_READ |
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+                D3D12_RESOURCE_STATE_STREAM_OUT |
+                D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT |
+                D3D12_RESOURCE_STATE_COPY_SOURCE |
+                D3D12_RESOURCE_STATE_RESOLVE_SOURCE |
+                D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE |
+                D3D12_RESOURCE_STATE_VIDEO_DECODE_READ |
+                D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ |
+                D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ;
+            constexpr auto rw_state = D3D12_RESOURCE_STATE_COMMON | D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            if ((v.required_state & rw_state) != 0) {
+                resource_usage = Usage::READ_WRITE;
+            } else if ((v.required_state & read_state) != 0) {
+                resource_usage = Usage::READ;
+            } else {
+                resource_usage = Usage::WRITE;
             }
             func(v.resource, resource_usage);
         }
     }
     DXCustomCmd() noexcept = default;
-    uint64_t uuid() const noexcept override{
+    uint64_t uuid() const noexcept override {
         return luisa::to_underlying(CustomCommandUUID::CUSTOM_DISPATCH);
     }
 };
