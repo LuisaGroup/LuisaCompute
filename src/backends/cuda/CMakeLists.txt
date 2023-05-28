@@ -74,8 +74,7 @@ if (CUDAToolkit_FOUND)
         set(NVCOMP_TARGETS
                 nvcomp::nvcomp
                 nvcomp::nvcomp_bitcomp
-                nvcomp::nvcomp_gdeflate
-                nvcomp::nvcomp_gdeflate_cpu)
+                nvcomp::nvcomp_gdeflate)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE ${NVCOMP_TARGETS})
         foreach (target ${NVCOMP_TARGETS})
             add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD

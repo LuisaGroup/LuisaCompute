@@ -8,7 +8,7 @@
 #include <backends/cuda/cuda_device.h>
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
-#include <gdeflate/gdeflate_cpu.h>
+
 #include <nvcomp/gdeflate.hpp>
 
 namespace luisa::compute::cuda::detail {
@@ -47,6 +47,23 @@ namespace luisa::compute::cuda::detail {
 #endif
 
 namespace luisa::compute::cuda {
+
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+class CUDACompressionStream : public CUDAStream {
+
+private:
+    nvcomp::GdeflateManager _gdeflate;
+
+public:
+    explicit CUDACompressionStream(CUDADevice *device) noexcept
+        : CUDAStream{device},
+          _gdeflate{nvcompGdeflateCompressionMaxAllowedChunkSize, 0,
+                    handle(), static_cast<int>(device->handle().index())} {}
+    [[nodiscard]] auto gdeflate() noexcept { return &_gdeflate; }
+};
+#else
+using CUDACompressionStream = CUDAStream;
+#endif
 
 class CUDAMappedFile {
 

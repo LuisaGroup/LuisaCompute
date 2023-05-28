@@ -38,7 +38,7 @@ private:
 
 public:
     explicit CUDAStream(CUDADevice *device) noexcept;
-    ~CUDAStream() noexcept;
+    virtual ~CUDAStream() noexcept;
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }

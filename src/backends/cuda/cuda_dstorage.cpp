@@ -7,11 +7,10 @@
 #include <core/clock.h>
 #include <core/magic_enum.h>
 
-#include <backends/ext/dstorage_ext.hpp>
 #include <backends/cuda/cuda_dstorage.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
-#include <Windows.h>
+#include <windows.h>
 #else
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -132,93 +131,45 @@ CUDAMappedFile::~CUDAMappedFile() noexcept {
 
 namespace detail {
 
-[[nodiscard]] inline auto gdeflate_max_output_chunk_size(size_t input_chunk_size,
-                                                         DStorageCompressionQuality quality) noexcept {
-    nvcompBatchedGdeflateOpts_t options{};
-    switch (quality) {
-        case DStorageCompressionQuality::Fastest: options.algo = 0; break;
-        case DStorageCompressionQuality::Default: options.algo = 0; break;
-        case DStorageCompressionQuality::Best: options.algo = 1; break;
-    }
-    size_t max_output_chunk_size = 0u;
-    LUISA_CHECK_NVCOMP(nvcompBatchedGdeflateCompressGetMaxOutputChunkSize(
-        input_chunk_size, options, &max_output_chunk_size));
-    return max_output_chunk_size;
-}
-
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
-static void compress_gdeflate_cpu(const std::byte *data, size_t size,
+static void compress_gdeflate_cpu(CUDADevice *device,
+                                  const std::byte *data, size_t size,
                                   DStorageCompressionQuality quality,
                                   vector<std::byte> &result) noexcept {
     Clock clk;
-    auto chunk_size = GDeflateFileHeader::default_chunk_size;
-    auto max_output_chunk_size = gdeflate_max_output_chunk_size(chunk_size, quality);
-    auto chunk_count = (size + chunk_size - 1u) / chunk_size;
-
-    constexpr auto chunks_per_dispatch = 32u;
-    luisa::vector<std::byte> compressed_chunks[chunks_per_dispatch];
-    for (auto &c : compressed_chunks) { c.resize(max_output_chunk_size); }
-
-    constexpr auto header_size = sizeof(GDeflateFileHeader);
-    result.resize(sizeof(GDeflateFileHeader) + chunk_count * sizeof(uint) +
-                  std::min(static_cast<size_t>(.1 * static_cast<double>(size)),
-                           max_output_chunk_size * chunk_count));
-
-    auto compressed_size = 0u;
-    for (auto chunk = 0u; chunk < chunk_count; chunk += chunks_per_dispatch) {
-        const void *input_ptrs[chunks_per_dispatch];
-        size_t input_sizes[chunks_per_dispatch];
-        void *output_ptrs[chunks_per_dispatch];
-        size_t output_sizes[chunks_per_dispatch];
-        auto dispatch_chunks = std::min<size_t>(chunks_per_dispatch, chunk_count - chunk);
-        for (auto i = 0u; i < dispatch_chunks; i++) {
-            auto chunk_index = chunk + i;
-            input_ptrs[i] = data + chunk_index * chunk_size;
-            input_sizes[i] = std::min<size_t>(chunk_size, size - chunk_index * chunk_size);
-            output_ptrs[i] = compressed_chunks[i].data();
-            output_sizes[i] = 0u;
-        }
+    device->with_handle([&] {
         try {
-            gdeflate::compressCPU(input_ptrs, input_sizes,
-                                  chunk_size, dispatch_chunks,
-                                  output_ptrs, output_sizes);
+            // FIXME: nvCOMP does not support compression quality other than default
+            // auto algo = quality == DStorageCompressionQuality::Best ? 1 : 0;
+            nvcomp::GdeflateManager manager{nvcompGdeflateCompressionMaxAllowedChunkSize, 0};
+            auto config = manager.configure_compression(size);
+            auto max_output_size = luisa::align(config.max_compressed_buffer_size, 16u);
+            auto scratch_size = luisa::align(manager.get_required_scratch_buffer_size(), 16u);
+            auto temp_buffer = static_cast<CUdeviceptr>(0u);
+            auto temp_buffer_size = max_output_size + scratch_size + size;
+            LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, nullptr));
+            auto output_buffer = temp_buffer;
+            auto scratch_buffer = output_buffer + max_output_size;
+            manager.set_scratch_buffer(reinterpret_cast<uint8_t *>(scratch_buffer));
+            auto input_buffer = scratch_buffer + scratch_size;
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(input_buffer, data, size, nullptr));
+            manager.compress(reinterpret_cast<const uint8_t *>(input_buffer),
+                             reinterpret_cast<uint8_t *>(output_buffer), config);
+            result.resize(max_output_size);
+            LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(result.data(), output_buffer, max_output_size, nullptr));
+            LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, nullptr));
+            LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
+            auto compressed_size = manager.get_compressed_output_size(reinterpret_cast<uint8_t *>(result.data()));
+            result.resize(compressed_size);
         } catch (const std::exception &e) {
-            LUISA_ERROR_WITH_LOCATION("Failed to compress chunk {}: {}.",
-                                      chunk, e.what());
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to compress data using nvCOMP: {}",
+                e.what());
         }
-        auto chunk_offsets = reinterpret_cast<uint *>(result.data() + header_size);
-        for (auto i = 0u; i < dispatch_chunks; i++) {
-            chunk_offsets[chunk + i] = compressed_size;
-            auto compressed_chunk_size = output_sizes[i];
-            compressed_size += compressed_chunk_size;
-        }
-        result.resize(header_size + chunk_count * sizeof(uint) + compressed_size);
-        for (auto i = 0u; i < dispatch_chunks; i++) {
-            auto compressed_chunk_offset = chunk_offsets[chunk + i];
-            auto compressed_chunk_size = output_sizes[i];
-            std::memcpy(result.data() + header_size +
-                            chunk_count * sizeof(uint) +
-                            compressed_chunk_offset,
-                        compressed_chunks[i].data(),
-                        compressed_chunk_size);
-        }
-    }
-    result.resize(header_size + chunk_count * sizeof(uint) + compressed_size);
-
-    struct GDeflateHeaderWithSize {
-        GDeflateFileHeader header;
-        uint compressed_size;
-    };
-    GDeflateHeaderWithSize header{
-        GDeflateFileHeader::create(compressed_size),
-        compressed_size};
-    std::memcpy(result.data(), &header, sizeof(GDeflateHeaderWithSize));
-
+    });
     auto ratio = static_cast<double>(result.size()) / static_cast<double>(size);
-    auto wasted_bytes = result.capacity() - result.size();
-    LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}, "
-               "{} bytes wasted in allocation) in {} ms.",
-               size, result.size(), ratio, wasted_bytes, clk.toc());
+    LUISA_INFO("Compressed {}B to {}B (ratio = {}) in {} ms.",
+               size, result.size(), ratio, clk.toc());
 }
 #endif
 
@@ -240,6 +191,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
         case DStorageCompression::GDeflate: {
             detail::compress_gdeflate_cpu(
+                _device,
                 static_cast<const std::byte *>(data),
                 size_bytes, quality, result);
             break;
@@ -253,7 +205,13 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
 }
 
 ResourceCreationInfo CUDADStorageExt::create_stream_handle(const DStorageStreamOption &option) noexcept {
-    return _device->create_stream(StreamTag::CUSTOM);
+    auto p = _device->with_handle([this] {
+        return luisa::new_with_allocator<CUDACompressionStream>(_device);
+    });
+    ResourceCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(p);
+    info.native_handle = p;
+    return info;
 }
 
 DStorageExt::FileCreationInfo CUDADStorageExt::open_file_handle(luisa::string_view path) noexcept {
