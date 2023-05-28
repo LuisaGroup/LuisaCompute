@@ -1,3 +1,5 @@
+#include <fstream>
+
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
@@ -93,29 +95,32 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Start test texture compress and decompress.");
     luisa::vector<std::byte> compressed_pixels;
     Clock compress_clock{};
-    dstorage_ext->compress(pixels.data(), luisa::span{pixels}.size_bytes(),
-                           DStorageCompression::GDeflate,
-                           DStorageCompressionQuality::Best,
-                           compressed_pixels);
+    auto compression = DStorageCompression::Cascaded;
+    dstorage_ext->compress(pixels.data(), luisa::span{pixels}.size_bytes(), compression,
+                           DStorageCompressionQuality::Best, compressed_pixels);
     double compress_time = compress_clock.toc();
+    {
+        std::ofstream file{"test_dstorage_texture_compressed.gdeflate", std::ios::binary};
+        file.write(reinterpret_cast<const char *>(compressed_pixels.data()),
+                   static_cast<ssize_t>(compressed_pixels.size_bytes()));
+    }
     LUISA_INFO("Texture compress time: {} ms, before compress size: {} bytes, after compress size: {} bytes", compress_time, pixels.size_bytes(), compressed_pixels.size_bytes());
     {
         Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
         luisa::vector<std::byte> out_pixels(width * height * 4u);
         Clock decompress_clock{};
         DStorageFile pinned_pixels = dstorage_ext->pin_memory(compressed_pixels.data(), compressed_pixels.size_bytes());
-        dstorage_stream << pinned_pixels.decompress_to(img)
+        dstorage_stream << pinned_pixels.decompress_to(img, compression)
                         << synchronize();
         double decompress_time = decompress_clock.toc();
         LUISA_INFO("Texture decompress time: {} ms", decompress_time);
         compute_stream << img.copy_to(out_pixels.data()) << synchronize();
         stbi_write_png("test_dstorage_texture_decompressed.png", width, height, 4, out_pixels.data(), 0);
         decompress_clock.tic();
-        dstorage_stream << pinned_pixels.decompress_to(luisa::span{out_pixels})
+        dstorage_stream << pinned_pixels.decompress_to(luisa::span{out_pixels}, compression)
                         << synchronize();
         decompress_time = decompress_clock.toc();
         LUISA_INFO("Memory decompress time: {} ms", decompress_time);
         stbi_write_png("test_dstorage_texture_decompressed_memory.png", width, height, 4, out_pixels.data(), 0);
     }
-    LUISA_INFO("Decompressed texture result read to test_dstorage_texture_decompressed.png.");
 }

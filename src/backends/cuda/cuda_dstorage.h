@@ -10,6 +10,11 @@
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
 
 #include <nvcomp/gdeflate.hpp>
+#include <nvcomp/lz4.hpp>
+#include <nvcomp/snappy.hpp>
+#include <nvcomp/cascaded.hpp>
+#include <nvcomp/bitcomp.hpp>
+#include <nvcomp/ans.hpp>
 
 namespace luisa::compute::cuda::detail {
 
@@ -49,17 +54,85 @@ namespace luisa::compute::cuda::detail {
 namespace luisa::compute::cuda {
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+
 class CUDACompressionStream : public CUDAStream {
 
 private:
-    nvcomp::GdeflateManager _gdeflate;
+    spin_mutex _mutex;
+    luisa::unique_ptr<nvcomp::GdeflateManager> _gdeflate;
+    luisa::unique_ptr<nvcomp::CascadedManager> _cascaded;
+    luisa::unique_ptr<nvcomp::LZ4Manager> _lz4;
+    luisa::unique_ptr<nvcomp::SnappyManager> _snappy;
+    luisa::unique_ptr<nvcomp::BitcompManager> _bitcomp;
+    luisa::unique_ptr<nvcomp::ANSManager> _ans;
 
 public:
     explicit CUDACompressionStream(CUDADevice *device) noexcept
-        : CUDAStream{device},
-          _gdeflate{nvcompGdeflateCompressionMaxAllowedChunkSize, 0,
-                    handle(), static_cast<int>(device->handle().index())} {}
-    [[nodiscard]] auto gdeflate() noexcept { return &_gdeflate; }
+        : CUDAStream{device} {}
+    [[nodiscard]] auto gdeflate() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (!_gdeflate) {
+            _gdeflate = luisa::make_unique<nvcomp::GdeflateManager>(
+                nvcompGdeflateCompressionMaxAllowedChunkSize, 0,
+                handle(), static_cast<int>(device()->handle().index()));
+        }
+        return _gdeflate.get();
+    }
+    [[nodiscard]] auto cascaded() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (!_cascaded) {
+            _cascaded = luisa::make_unique<nvcomp::CascadedManager>(
+                nvcompBatchedCascadedDefaultOpts, handle(),
+                static_cast<int>(device()->handle().index()));
+        }
+        return _cascaded.get();
+    }
+    [[nodiscard]] auto lz4() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (!_lz4) {
+            _lz4 = luisa::make_unique<nvcomp::LZ4Manager>(
+                64_k, NVCOMP_TYPE_CHAR, handle(),
+                static_cast<int>(device()->handle().index()));
+        }
+        return _lz4.get();
+    }
+    [[nodiscard]] auto snappy() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (!_snappy) {
+            _snappy = luisa::make_unique<nvcomp::SnappyManager>(
+                64_k, handle(), static_cast<int>(device()->handle().index()));
+        }
+        return _snappy.get();
+    }
+    [[nodiscard]] auto bitcomp() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (!_bitcomp) {
+            _bitcomp = luisa::make_unique<nvcomp::BitcompManager>(
+                NVCOMP_TYPE_CHAR, 0, handle(),
+                static_cast<int>(device()->handle().index()));
+        }
+        return _bitcomp.get();
+    }
+    [[nodiscard]] auto ans() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (!_ans) {
+            _ans = luisa::make_unique<nvcomp::ANSManager>(
+                64_k, handle(), static_cast<int>(device()->handle().index()));
+        }
+        return _ans.get();
+    }
+    [[nodiscard]] nvcomp::PimplManager *compressor(DStorageCompression algorithm) noexcept {
+        switch (algorithm) {
+            case DStorageCompression::GDeflate: return gdeflate();
+            case DStorageCompression::Cascaded: return cascaded();
+            case DStorageCompression::LZ4: return lz4();
+            case DStorageCompression::Snappy: return snappy();
+            case DStorageCompression::Bitcomp: return bitcomp();
+            case DStorageCompression::ANS: return ans();
+            default: break;
+        }
+        return nullptr;
+    }
 };
 #else
 using CUDACompressionStream = CUDAStream;

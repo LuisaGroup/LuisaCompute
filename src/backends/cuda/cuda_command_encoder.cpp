@@ -299,17 +299,22 @@ static void dstorage_copy(const void *input_host_ptr,
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
 
-static void dstorage_decompress_gdeflate(CUdeviceptr input_device_ptr,
-                                         size_t input_size,
-                                         DStorageReadCommand::Request output_request,
-                                         CUDACommandEncoder &encoder) noexcept {
+static void dstorage_decompress(DStorageCompression algorithm,
+                                CUdeviceptr input_device_ptr, size_t input_size,
+                                DStorageReadCommand::Request output_request,
+                                CUDACommandEncoder &encoder) noexcept {
 
     auto stream = encoder.stream()->handle();
     auto decompress_to_buffer = [&](CUdeviceptr in_ptr, size_t in_size,
                                     CUdeviceptr out_ptr, size_t out_size) noexcept {
         auto comp_stream = dynamic_cast<CUDACompressionStream *>(encoder.stream());
-        LUISA_ASSERT(comp_stream != nullptr, "DStorageReadCommand must be used with a compression stream.");
-        auto manager = comp_stream->gdeflate();
+        LUISA_ASSERT(comp_stream != nullptr,
+                     "DStorageReadCommand must be used "
+                     "with a compression stream.");
+        auto manager = comp_stream->compressor(algorithm);
+        LUISA_ASSERT(manager != nullptr,
+                     "Failed to get the compression manager for {}.",
+                     luisa::to_string(algorithm));
         auto config = manager->configure_decompression(reinterpret_cast<const uint8_t *>(in_ptr));
         auto temp_buffer = static_cast<CUdeviceptr>(0u);
         if (auto temp_buffer_size = manager->get_required_scratch_buffer_size()) {
@@ -399,15 +404,16 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
                 command->request(), _stream->handle());
             break;
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
-        case DStorageCompression::GDeflate:
-            detail::dstorage_decompress_gdeflate(
-                device_ptr, size,
+        default:
+            detail::dstorage_decompress(
+                compression, device_ptr, size,
                 command->request(), *this);
             break;
-#endif
+#else
         default: LUISA_ERROR_WITH_LOCATION(
             "Unsupported DStorage compression method {}.",
             to_string(compression));
+#endif
     }
 }
 

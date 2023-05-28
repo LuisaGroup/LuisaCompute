@@ -132,44 +132,35 @@ CUDAMappedFile::~CUDAMappedFile() noexcept {
 namespace detail {
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
-static void compress_gdeflate_cpu(CUDADevice *device,
-                                  const std::byte *data, size_t size,
-                                  DStorageCompressionQuality quality,
-                                  vector<std::byte> &result) noexcept {
-    Clock clk;
-    device->with_handle([&] {
-        try {
-            // FIXME: nvCOMP does not support compression quality other than default
-            // auto algo = quality == DStorageCompressionQuality::Best ? 1 : 0;
-            nvcomp::GdeflateManager manager{nvcompGdeflateCompressionMaxAllowedChunkSize, 0};
-            auto config = manager.configure_compression(size);
-            auto max_output_size = luisa::align(config.max_compressed_buffer_size, 16u);
-            auto scratch_size = luisa::align(manager.get_required_scratch_buffer_size(), 16u);
-            auto temp_buffer = static_cast<CUdeviceptr>(0u);
-            auto temp_buffer_size = max_output_size + scratch_size + size;
-            LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, nullptr));
-            auto output_buffer = temp_buffer;
-            auto scratch_buffer = output_buffer + max_output_size;
-            manager.set_scratch_buffer(reinterpret_cast<uint8_t *>(scratch_buffer));
-            auto input_buffer = scratch_buffer + scratch_size;
-            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(input_buffer, data, size, nullptr));
-            manager.compress(reinterpret_cast<const uint8_t *>(input_buffer),
-                             reinterpret_cast<uint8_t *>(output_buffer), config);
-            result.resize(max_output_size);
-            LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(result.data(), output_buffer, max_output_size, nullptr));
-            LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, nullptr));
-            LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
-            auto compressed_size = manager.get_compressed_output_size(reinterpret_cast<uint8_t *>(result.data()));
-            result.resize(compressed_size);
-        } catch (const std::exception &e) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Failed to compress data using nvCOMP: {}",
-                e.what());
-        }
-    });
-    auto ratio = static_cast<double>(result.size()) / static_cast<double>(size);
-    LUISA_INFO("Compressed {}B to {}B (ratio = {}) in {} ms.",
-               size, result.size(), ratio, clk.toc());
+static void cuda_compress_cpu(nvcomp::PimplManager &manager,
+                              const std::byte *data, size_t size,
+                              DStorageCompressionQuality quality,
+                              vector<std::byte> &result) noexcept {
+    try {
+        auto config = manager.configure_compression(size);
+        auto max_output_size = luisa::align(config.max_compressed_buffer_size, 16u);
+        auto scratch_size = luisa::align(manager.get_required_scratch_buffer_size(), 16u);
+        auto temp_buffer = static_cast<CUdeviceptr>(0u);
+        auto temp_buffer_size = max_output_size + scratch_size + size;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, nullptr));
+        auto output_buffer = temp_buffer;
+        auto scratch_buffer = output_buffer + max_output_size;
+        manager.set_scratch_buffer(reinterpret_cast<uint8_t *>(scratch_buffer));
+        auto input_buffer = scratch_buffer + scratch_size;
+        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(input_buffer, data, size, nullptr));
+        manager.compress(reinterpret_cast<const uint8_t *>(input_buffer),
+                         reinterpret_cast<uint8_t *>(output_buffer), config);
+        result.resize(max_output_size);
+        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(result.data(), output_buffer, max_output_size, nullptr));
+        LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, nullptr));
+        LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
+        auto compressed_size = manager.get_compressed_output_size(reinterpret_cast<uint8_t *>(result.data()));
+        result.resize(compressed_size);
+    } catch (const std::exception &e) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to compress data using nvCOMP: {}",
+            e.what());
+    }
 }
 #endif
 
@@ -179,6 +170,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
                                DStorageExt::Compression algorithm,
                                DStorageExt::CompressionQuality quality,
                                vector<std::byte> &result) noexcept {
+    Clock clk;
     switch (algorithm) {
         case DStorageCompression::None: {
             LUISA_WARNING_WITH_LOCATION(
@@ -190,10 +182,65 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
         }
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
         case DStorageCompression::GDeflate: {
-            detail::compress_gdeflate_cpu(
-                _device,
-                static_cast<const std::byte *>(data),
-                size_bytes, quality, result);
+            _device->with_handle([&] {
+                // FIXME: nvCOMP does not support compression quality other than default
+                // auto algo = quality == DStorageCompressionQuality::Best ? 1 : 0;
+                nvcomp::GdeflateManager manager{nvcompGdeflateCompressionMaxAllowedChunkSize, 0};
+                detail::cuda_compress_cpu(
+                    manager,
+                    static_cast<const std::byte *>(data),
+                    size_bytes, quality, result);
+            });
+            break;
+        }
+        case DStorageCompression::Cascaded: {
+            _device->with_handle([&] {
+                nvcomp::CascadedManager manager;
+                detail::cuda_compress_cpu(
+                    manager,
+                    static_cast<const std::byte *>(data),
+                    size_bytes, quality, result);
+            });
+            break;
+        }
+        case DStorageCompression::LZ4: {
+            _device->with_handle([&] {
+                nvcomp::LZ4Manager manager{64_k, NVCOMP_TYPE_CHAR};
+                detail::cuda_compress_cpu(
+                    manager,
+                    static_cast<const std::byte *>(data),
+                    size_bytes, quality, result);
+            });
+            break;
+        }
+        case DStorageCompression::Snappy: {
+            _device->with_handle([&] {
+                nvcomp::SnappyManager manager{64_k};
+                detail::cuda_compress_cpu(
+                    manager,
+                    static_cast<const std::byte *>(data),
+                    size_bytes, quality, result);
+            });
+            break;
+        }
+        case DStorageCompression::Bitcomp: {
+            _device->with_handle([&] {
+                nvcomp::BitcompManager manager{NVCOMP_TYPE_CHAR};
+                detail::cuda_compress_cpu(
+                    manager,
+                    static_cast<const std::byte *>(data),
+                    size_bytes, quality, result);
+            });
+            break;
+        }
+        case DStorageCompression::ANS: {
+            _device->with_handle([&] {
+                nvcomp::ANSManager manager{64_k};
+                detail::cuda_compress_cpu(
+                    manager,
+                    static_cast<const std::byte *>(data),
+                    size_bytes, quality, result);
+            });
             break;
         }
 #endif
@@ -202,6 +249,10 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
                 "Unsupported compression algorithm: {}",
                 to_string(algorithm));
     }
+
+    auto ratio = static_cast<double>(result.size()) / static_cast<double>(size_bytes);
+    LUISA_INFO("Compressed {}B to {}B (ratio = {}) with {} in {} ms.",
+               size_bytes, result.size(), ratio, to_string(algorithm), clk.toc());
 }
 
 ResourceCreationInfo CUDADStorageExt::create_stream_handle(const DStorageStreamOption &option) noexcept {

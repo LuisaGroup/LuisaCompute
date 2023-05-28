@@ -14,6 +14,11 @@ class DStorageFile;
 enum class DStorageCompression : uint {
     None,
     GDeflate,
+    Cascaded,
+    LZ4,
+    Snappy,
+    Bitcomp,
+    ANS
 };
 
 enum class DStorageCompressionQuality : uint {
