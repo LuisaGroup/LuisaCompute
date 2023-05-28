@@ -305,7 +305,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                 GetTypeName(*type.element(), str, usage);
                 vstd::to_string((type.dimension()), str);
             } else {
-                str << 'w';
+                str << "_w"sv;
                 GetTypeName(*type.element(), str, usage);
                 vstd::to_string(3, str);
             }
@@ -325,7 +325,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             auto ele = type.element();
             if (ele->is_matrix()) {
                 auto n = vstd::to_string(ele->dimension());
-                str << "WrappedFloat"sv << n << 'x' << n;
+                str << "_WrappedFloat"sv << n << 'x' << n;
             } else {
                 vstd::StringBuilder typeName;
                 if (ele->is_vector() && ele->dimension() == 3) {
@@ -609,7 +609,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "floor"sv;
             break;
         case CallOp::FRACT:
-            str << "fract"sv;
+            str << "_fract"sv;
             break;
         case CallOp::TRUNC:
             str << "trunc"sv;
@@ -621,7 +621,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_fma"sv;
             break;
         case CallOp::COPYSIGN:
-            str << "copysign"sv;
+            str << "_copysign"sv;
             break;
         case CallOp::CROSS:
             str << "cross"sv;
@@ -645,13 +645,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "reflect"sv;
             break;
         case CallOp::DETERMINANT:
-            str << "determinant"sv;
+            str << "_determinant"sv;
             break;
         case CallOp::TRANSPOSE:
             str << "_transpose"sv;
             break;
         case CallOp::INVERSE:
-            str << "inverse"sv;
+            str << "_inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE:
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
@@ -668,11 +668,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::TEXTURE_READ:
-            str << "Smptx";
+            str << "_Smptx";
             break;
         case CallOp::TEXTURE_WRITE:
             LUISA_ASSERT(!opt->isRaster, "texture-write can only be used in compute shader");
-            str << "Writetx";
+            str << "_Writetx";
             break;
         case CallOp::MAKE_BOOL2:
         case CallOp::MAKE_BOOL3:
@@ -740,7 +740,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
-            str << "bfread"sv;
+            str << "_bfread"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
@@ -750,7 +750,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_WRITE: {
             LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
-            str << "bfwrite"sv;
+            str << "_bfwrite"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
@@ -759,25 +759,25 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_SIZE: {
-            str << "bfsize"sv;
+            str << "_bfsize"sv;
         } break;
         case CallOp::TEXTURE_SIZE: {
-            str << "texsize"sv;
+            str << "_texsize"sv;
         } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
-            str << "TraceClosest"sv;
+            str << "_TraceClosest"sv;
             break;
         case CallOp::RAY_TRACING_TRACE_ANY:
-            str << "TraceAny"sv;
+            str << "_TraceAny"sv;
             break;
         case CallOp::RAY_TRACING_QUERY_ALL:
-            str << "QueryAll"sv;
+            str << "_QueryAll"sv;
             break;
         case CallOp::RAY_TRACING_QUERY_ANY:
-            str << "QueryAny"sv;
+            str << "_QueryAny"sv;
             break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
-            str << "bdlsBfSize"sv;
+            str << "_bdlsBfSize"sv;
             opt->useBufferBindless = true;
             str << '(';
             for (auto &&i : args) {
@@ -789,7 +789,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::BINDLESS_BUFFER_READ: {
-            str << "READ_BUFFER"sv;
+            str << "_READ_BUFFER"sv;
             opt->useBufferBindless = true;
             str << '(';
             for (auto &&i : args) {
@@ -803,7 +803,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
-            str << "READ_BUFFER_BYTES"sv;
+            str << "_READ_BUFFER_BYTES"sv;
             opt->useBufferBindless = true;
             str << '(';
             for (auto &&i : args) {
@@ -821,63 +821,63 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
             opt->useTex2DBindless = true;
             if (opt->isPixelShader) {
-                str << "SampleTex2DPixel"sv;
+                str << "_SampleTex2DPixel"sv;
             } else {
-                str << "SampleTex2D"sv;
+                str << "_SampleTex2D"sv;
             }
             break;
 
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
             opt->useTex2DBindless = true;
-            str << "SampleTex2DLevel"sv;
+            str << "_SampleTex2DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
             opt->useTex2DBindless = true;
-            str << "SampleTex2DGrad"sv;
+            str << "_SampleTex2DGrad"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE:
             opt->useTex3DBindless = true;
-            str << "SampleTex3D"sv;
+            str << "_SampleTex3D"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
             opt->useTex3DBindless = true;
-            str << "SampleTex3DLevel"sv;
+            str << "_SampleTex3DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
             opt->useTex3DBindless = true;
-            str << "SampleTex3DGrad"sv;
+            str << "_SampleTex3DGrad"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_READ:
             opt->useTex2DBindless = true;
-            str << "ReadTex2D"sv;
+            str << "_ReadTex2D"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL:
             opt->useTex2DBindless = true;
-            str << "ReadTex2DLevel"sv;
+            str << "_ReadTex2DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_READ:
             opt->useTex3DBindless = true;
-            str << "ReadTex3D"sv;
+            str << "_ReadTex3D"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL:
             opt->useTex3DBindless = true;
-            str << "ReadTex3DLevel"sv;
+            str << "_ReadTex3DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE:
             opt->useTex2DBindless = true;
-            str << "Tex2DSize"sv;
+            str << "_Tex2DSize"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
             opt->useTex2DBindless = true;
-            str << "Tex2DSizeLevel"sv;
+            str << "_Tex2DSizeLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE:
             opt->useTex3DBindless = true;
-            str << "Tex3DSize"sv;
+            str << "_Tex3DSize"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
             opt->useTex3DBindless = true;
-            str << "Tex3DSizeLevel"sv;
+            str << "_Tex3DSizeLevel"sv;
             break;
         case CallOp::SYNCHRONIZE_BLOCK:
             str << "GroupMemoryBarrierWithGroupSync()"sv;
@@ -903,7 +903,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: {
-            str << "InstMatrix("sv;
+            str << "_InstMatrix("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -911,7 +911,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
-            str << "SetAccelTransform("sv;
+            str << "_SetAccelTransform("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -919,7 +919,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: {
-            str << "SetAccelVis("sv;
+            str << "_SetAccelVis("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -927,7 +927,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
-            str << "SetAccelOpaque("sv;
+            str << "_SetAccelOpaque("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -936,34 +936,34 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "ClearDispInd"sv;
+            str << "_ClearDispInd"sv;
             break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
             auto tp = args[1]->type();
             if (tp->is_scalar()) {
-                str << "EmplaceDispInd1D"sv;
+                str << "_EmplaceDispInd1D"sv;
             } else if (tp->dimension() == 2) {
-                str << "EmplaceDispInd2D"sv;
+                str << "_EmplaceDispInd2D"sv;
             } else {
-                str << "EmplaceDispInd3D"sv;
+                str << "_EmplaceDispInd3D"sv;
             }
         } break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
-            str << "RayQueryGetWorldRay<"sv;
+            str << "_RayQueryGetWorldRay<"sv;
             GetTypeName(*expr->type(), str, Usage::NONE, false);
             str << ',';
             GetTypeName(*args[0]->type(), str, Usage::NONE, false);
             str << '>';
             break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
-            str << "GetTriangleCandidateHit"sv;
+            str << "_GetTriangleCandidateHit"sv;
             break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT:
-            str << "GetProceduralCandidateHit"sv;
+            str << "_GetProceduralCandidateHit"sv;
             break;
         case CallOp::RAY_QUERY_COMMITTED_HIT:
-            str << "GetCommitedHit"sv;
+            str << "_GetCommitedHit"sv;
             break;
         case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             args[0]->accept(vis);
@@ -1452,9 +1452,9 @@ void CodegenUtility::CodegenProperties(
         };
         auto printInstBuffer = [&]<bool writable>() {
             if constexpr (writable)
-                varData << "RWStructuredBuffer<MeshInst> "sv;
+                varData << "RWStructuredBuffer<_MeshInst> "sv;
             else
-                varData << "StructuredBuffer<MeshInst> "sv;
+                varData << "StructuredBuffer<_MeshInst> "sv;
             GetVariableName(i, varData);
             varData << "Inst"sv;
         };

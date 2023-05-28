@@ -1,8 +1,8 @@
-float copysign(float a,float b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float2 copysign(float2 a,float2 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float3 copysign(float3 a,float3 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float4 copysign(float4 a,float4 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
-float16_t copysign(float16_t a,float16_t b){return copysign((float)a,(float)b);}
-float16_t copysign(float16_t2 a,float16_t2 b){return copysign((float2)a,(float2)b);}
-float16_t copysign(float16_t3 a,float16_t3 b){return copysign((float3)a,(float3)b);}
-float16_t copysign(float16_t4 a,float16_t4 b){return copysign((float4)a,(float4)b);}
+float _copysign(float a,float b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float2 _copysign(float2 a,float2 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float3 _copysign(float3 a,float3 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float4 _copysign(float4 a,float4 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float16_t _copysign(float16_t a,float16_t b){return _copysign((float)a,(float)b);}
+float16_t _copysign(float16_t2 a,float16_t2 b){return _copysign((float2)a,(float2)b);}
+float16_t _copysign(float16_t3 a,float16_t3 b){return _copysign((float3)a,(float3)b);}
+float16_t _copysign(float16_t4 a,float16_t4 b){return _copysign((float4)a,(float4)b);}

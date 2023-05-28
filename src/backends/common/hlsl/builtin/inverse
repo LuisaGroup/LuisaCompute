@@ -1,11 +1,11 @@
-float2x2 inverse(float2x2 m){
+float2x2 _inverse(float2x2 m){
 float one_over_determinant=1.0f/(m[0][0]*m[1][1]-m[1][0]*m[0][1]);
 return float2x2(m[1][1]*one_over_determinant,
 -m[0][1]*one_over_determinant,
 -m[1][0]*one_over_determinant,
 +m[0][0]*one_over_determinant);
 }
-float3x4 inverse(float3x4 m){
+float3x4 _inverse(float3x4 m){
 float one_over_determinant=1.0f /
 (m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z) -
 m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z) +
@@ -24,7 +24,7 @@ return float3x4(
 (m[0].x*m[1].y-m[1].x*m[0].y)*one_over_determinant,
 0);
 }
-float4x4 inverse(float4x4 m){
+float4x4 _inverse(float4x4 m){
 float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
 float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
 float coef03=m[1].z*m[2].w-m[2].z*m[1].w;

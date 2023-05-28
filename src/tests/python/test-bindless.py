@@ -48,9 +48,9 @@ useless_buffer = Buffer(1, float4)
 bindless_array.emplace(55, useless_buffer)
 
 gui = GUI("Test Bindless", res)
+bindless_array.update()
 while gui.running():
     # 更新bindless到GPU
-    bindless_array.update()
     write_texture(input_tex, dispatch_size=(16, 16, 1))
     read_texture(bindless_array, display_tex, dispatch_size=(*res, 1))
     gui.set_image(display_tex)

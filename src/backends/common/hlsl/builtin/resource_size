@@ -1,40 +1,40 @@
 template<typename T>
-uint bfsize(T b){
+uint _bfsize(T b){
 uint c,s;
 b.GetDimensions(c,s);
 return c;
 }
-uint2 texsize(Texture2D<float4> t){
+uint2 _texsize(Texture2D<float4> t){
 uint2 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,mip);
 return s;
 }
-uint2 texsize(Texture2D<uint4> t){
+uint2 _texsize(Texture2D<uint4> t){
 uint2 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,mip);
 return s;
 }
-uint2 texsize(Texture2D<int4> t){
+uint2 _texsize(Texture2D<int4> t){
 uint2 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,mip);
 return s;
 }
-uint3 texsize(Texture3D<float4> t){
+uint3 _texsize(Texture3D<float4> t){
 uint3 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,s.z,mip);
 return s;
 }
-uint3 texsize(Texture3D<uint4> t){
+uint3 _texsize(Texture3D<uint4> t){
 uint3 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,s.z,mip);
 return s;
 }
-uint3 texsize(Texture3D<int4> t){
+uint3 _texsize(Texture3D<int4> t){
 uint3 s;
 uint mip;
 t.GetDimensions(0,s.x,s.y,s.z,mip);

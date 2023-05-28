@@ -1,10 +1,10 @@
-float determinant(float2x2 m){
+float _determinant(float2x2 m){
 return m[0][0]*m[1][1]-m[1][0]*m[0][1];
 }
-float determinant(float3x4 m){
+float _determinant(float3x4 m){
 return m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z)-m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z)+m[2].x*(m[0].y*m[1].z-m[1].y*m[0].z);
 }
-float determinant(float4x4 m){
+float _determinant(float4x4 m){
 float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
 float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
 float coef03=m[1].z*m[2].w-m[2].z*m[1].w;

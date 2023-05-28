@@ -14,9 +14,9 @@ CodegenStackData::CodegenStackData()
         "int3"sv, "int4"sv);
     structReplaceName.try_emplace(
         "uint3"sv, "uint4"sv);
-    internalStruct.emplace(Type::of<CommittedHit>(), "Hit0");
-    internalStruct.emplace(Type::of<TriangleHit>(), "Hit1");
-    internalStruct.emplace(Type::of<ProceduralHit>(), "Hit2");
+    internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
+    internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
+    internalStruct.emplace(Type::of<ProceduralHit>(), "_Hit2");
 }
 void CodegenStackData::Clear() {
     tempSwitchExpr = nullptr;

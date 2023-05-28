@@ -31,40 +31,40 @@ float4x3 mm=transpose(m);
 return _float3x3(mm[0],mm[1],mm[2]);
 }
 float4x4 _transpose(float4x4 m){return transpose(m);}
-float4x4 Mul(float4x4 a,float4x4 b){return mul(a,b);}
-float3x4 Mul(float3x4 a,float3x4 b){return mul(a,float4x4(b,0,0,0,0));}
-float2x2 Mul(float2x2 a,float2x2 b){return mul(a,b);}
-float4 Mul(float4x4 b,float4 a){return mul(a,b);}
-float3 Mul(float3x4 b,float3 a){return mul(a,b).xyz;}
-float2 Mul(float2x2 b,float2 a){return mul(a,b);}
-float16_t4 Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
-float16_t3 Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
-float16_t2 Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
-struct wbool3 {bool3 v; bool a;};
-struct wfloat3 {float3 v; float a;};
-struct wuint3 {uint3 v; uint a;};
-struct wint3 {int3 v; int a;};
-struct WrappedFloat2x2 {row_major float2x2 m;};
-struct WrappedFloat3x3 {
+float4x4 _Mul(float4x4 a,float4x4 b){return mul(a,b);}
+float3x4 _Mul(float3x4 a,float3x4 b){return mul(a,float4x4(b,0,0,0,0));}
+float2x2 _Mul(float2x2 a,float2x2 b){return mul(a,b);}
+float4 _Mul(float4x4 b,float4 a){return mul(a,b);}
+float3 _Mul(float3x4 b,float3 a){return mul(a,b).xyz;}
+float2 _Mul(float2x2 b,float2 a){return mul(a,b);}
+float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
+float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
+float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
+struct _wbool3 {bool3 v; bool a;};
+struct _wfloat3 {float3 v; float a;};
+struct _wuint3 {uint3 v; uint a;};
+struct _wint3 {int3 v; int a;};
+struct _WrappedFloat2x2 {row_major float2x2 m;};
+struct _WrappedFloat3x3 {
 row_major float3x4 m;
 };
-struct WrappedFloat4x4 {
+struct _WrappedFloat4x4 {
 row_major float4x4 m;
 };
-#define bfread(bf,idx) bf[idx]
-#define bfreadVec3(bf,idx) bf[idx].xyz
-#define bfreadMat(bf,idx) bf[idx].m
-#define bfwrite(bf,idx,value) bf[idx]=value
-#define bfwriteVec3(bf,idx,value) bf[idx]=float4(value,0)
-#define bfwriteMat(bf,idx,value) bf[idx].m=value
-#define Smptx(tex,uv) tex[uv]
-#define Writetx(tex,uv,value) tex[uv]=value
+#define _bfread(bf,idx) bf[idx]
+#define _bfreadVec3(bf,idx) bf[idx].xyz
+#define _bfreadMat(bf,idx) bf[idx].m
+#define _bfwrite(bf,idx,value) bf[idx]=value
+#define _bfwriteVec3(bf,idx,value) bf[idx]=float4(value,0)
+#define _bfwriteMat(bf,idx,value) bf[idx].m=value
+#define _Smptx(tex,uv) tex[uv]
+#define _Writetx(tex,uv,value) tex[uv]=value
 template<typename T>
-T fract(T x){return x-floor(x);}
-struct Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
-struct Hit1{uint v0;uint v1;float2 v2;float v3;};
-struct Hit2{uint v0;uint v1;};
-struct MeshInst {
+T _fract(T x){return x-floor(x);}
+struct _Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
+struct _Hit1{uint v0;uint v1;float2 v2;float v3;};
+struct _Hit2{uint v0;uint v1;};
+struct _MeshInst {
 float4 p0;
 float4 p1;
 float4 p2;
