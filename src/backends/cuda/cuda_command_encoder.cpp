@@ -229,9 +229,12 @@ void CUDACommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
 
 void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
     switch (command->uuid()) {
-        case to_underlying(CustomCommandUUID::DSTORAGE_READ):
-            visit(static_cast<DStorageReadCommand *>(command));
+        case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
+            auto ds_command = dynamic_cast<DStorageReadCommand *>(command);
+            LUISA_ASSERT(ds_command != nullptr, "Invalid DStorageReadCommand.");
+            visit(ds_command);
             break;
+        }
         default:
             LUISA_ERROR_WITH_LOCATION("Custom command (UUID = 0x{:04x}) "
                                       "is not supported on CUDA.",
@@ -296,8 +299,7 @@ static void dstorage_copy(const void *input_host_ptr,
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
 
-static void dstorage_decompress_gdeflate(const void *input_host_ptr,
-                                         CUdeviceptr input_device_ptr,
+static void dstorage_decompress_gdeflate(CUdeviceptr input_device_ptr,
                                          size_t input_size,
                                          DStorageReadCommand::Request output_request,
                                          CUDACommandEncoder &encoder) noexcept {
@@ -399,7 +401,7 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
         case DStorageCompression::GDeflate:
             detail::dstorage_decompress_gdeflate(
-                host_ptr, device_ptr, size,
+                device_ptr, size,
                 command->request(), *this);
             break;
 #endif
