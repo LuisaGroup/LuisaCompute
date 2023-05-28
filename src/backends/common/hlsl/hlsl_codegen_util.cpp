@@ -1388,7 +1388,7 @@ void CodegenUtility::PreprocessCodegenProperties(
     }
     properties.emplace_back(
         Property{
-            ShaderVariableType::SampHeap,
+            ShaderVariableType::SamplerHeap,
             1u,
             0u,
             16u});
@@ -1462,9 +1462,9 @@ void CodegenUtility::CodegenProperties(
             auto &&r = registerCount.get((uint8_t)regisT);
             Property prop = {
                 .type = sT,
-                .spaceIndex = 0,
-                .registerIndex = r,
-                .arrSize = 1};
+                .space_index = 0,
+                .register_index = r,
+                .array_size = 1};
             if constexpr (rtBuffer) {
                 printInstBuffer.operator()<writable>();
                 properties.emplace_back(prop);

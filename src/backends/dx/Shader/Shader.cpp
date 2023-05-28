@@ -19,19 +19,8 @@ SavedArgument::SavedArgument(Function kernel, Variable const &var)
     varUsage = kernel.variable_usage(var.uid());
 }
 SavedArgument::SavedArgument(Type const *type) {
-    tag = type->tag();
-    switch (type->tag()) {
-        case Type::Tag::BUFFER:
-        case Type::Tag::TEXTURE:
-            structSize = type->element()->size();
-            break;
-        case Type::Tag::BINDLESS_ARRAY:
-        case Type::Tag::ACCEL:
-            structSize = 0;
-            break;
-        default:
-            structSize = type->size();
-            break;
+    if (luisa::to_underlying(type->tag()) < luisa::to_underlying(Type::Tag::BUFFER)) {
+        structSize = type->size();
     }
 }
 
@@ -98,7 +87,7 @@ void Shader::SetComputeResource(
         case hlsl::ShaderVariableType::UAVBufferHeap:
         case hlsl::ShaderVariableType::UAVTextureHeap:
         case hlsl::ShaderVariableType::CBVBufferHeap:
-        case hlsl::ShaderVariableType::SampHeap:
+        case hlsl::ShaderVariableType::SamplerHeap:
         case hlsl::ShaderVariableType::SRVBufferHeap:
         case hlsl::ShaderVariableType::SRVTextureHeap: {
             cmdList->SetComputeRootDescriptorTable(
@@ -160,7 +149,7 @@ void Shader::SetRasterResource(
         case hlsl::ShaderVariableType::UAVBufferHeap:
         case hlsl::ShaderVariableType::UAVTextureHeap:
         case hlsl::ShaderVariableType::CBVBufferHeap:
-        case hlsl::ShaderVariableType::SampHeap:
+        case hlsl::ShaderVariableType::SamplerHeap:
         case hlsl::ShaderVariableType::SRVBufferHeap:
         case hlsl::ShaderVariableType::SRVTextureHeap: {
             cmdList->SetGraphicsRootDescriptorTable(

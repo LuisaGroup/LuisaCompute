@@ -13,7 +13,6 @@ template<typename T>
 float _length_sqr(T x){return dot(x,x);}
 template<typename T>
 T _fma(T a,T b,T c){return a*b+c;}
-// TODO
 float2x2 _float2x2(float3x4 v){return float2x2(v[0].xy,v[1].xy);}
 float2x2 _float2x2(float4x4 v){return float2x2(v[0].xy,v[1].xy);}
 float3x4 _float3x3(float2x2 v){return float3x4(v[0],0,0,v[1],0,0,0,0,0,0);}
