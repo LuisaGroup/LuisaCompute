@@ -94,6 +94,7 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
+        // No Delegate{this}<< here, may boom GCC
         Delegate delegate{this};
         return std::move(delegate) << std::move(args);
     }

@@ -31,6 +31,7 @@ void Stream::_dispatch(CommandList &&list) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
+    // No Delegate{this}<< here, may boom GCC
     Delegate delegate{this};
     return std::move(delegate) << std::move(cmd);
 }
@@ -124,7 +125,9 @@ Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 }
 
 Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
-    return Delegate{this} << std::move(f);
+    // No Delegate{this}<< here, may boom GCC
+    Delegate delegate{this};
+    return std::move(delegate) << std::move(f);
 }
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
