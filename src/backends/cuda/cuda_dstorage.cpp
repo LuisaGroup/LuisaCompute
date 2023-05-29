@@ -17,8 +17,6 @@
 #include <unistd.h>
 #endif
 
-#include <cufile.h>
-
 namespace luisa::compute::cuda {
 
 CUDAPinnedMemory::CUDAPinnedMemory(void *p, size_t size) noexcept
