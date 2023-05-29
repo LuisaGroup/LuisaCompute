@@ -54,7 +54,7 @@ jobs:
           xmake-version: latest
       - name: "Configure and Build"
         run: |
-          xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --cuda=$CUDA_PATH --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
 
   build-macos:

@@ -12,7 +12,7 @@ add_deps("lc-runtime")
 add_files("**.cpp","../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)
 	import("detect.sdks.find_cuda")
-	local cuda = find_cuda.main()
+	local cuda = find_cuda()
 	if cuda then
 		local function set(key, value)
 			if type(value) == "string" then
