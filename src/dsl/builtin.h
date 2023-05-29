@@ -1619,4 +1619,5 @@ inline void sync_block() noexcept {
 #undef LUISA_EXPR
 
 }// namespace dsl
+
 }// namespace luisa::compute

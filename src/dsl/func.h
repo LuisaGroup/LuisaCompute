@@ -412,6 +412,7 @@ private:
     luisa::shared_ptr<ExternalFunction> _func;
 
 private:
+    // FIXME: support for resources
     template<typename T>
     struct UsageOf {
         static constexpr auto value = Usage::READ;
