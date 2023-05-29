@@ -11,6 +11,7 @@
 namespace luisa::compute::metal {
 
 class MetalCompiler;
+class MetalDStorageExt;
 
 class MetalDevice : public DeviceInterface {
 
@@ -24,6 +25,10 @@ private:
     const BinaryIO *_io{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler;
     bool _inqueue_buffer_limit;
+
+private:
+    std::mutex _ext_mutex;
+    luisa::unique_ptr<MetalDStorageExt> _dstorage_ext;
 
 public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }

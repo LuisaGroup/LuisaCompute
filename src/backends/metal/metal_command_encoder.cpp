@@ -258,8 +258,10 @@ void MetalCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
     _prepare_command_buffer();
-    LUISA_ERROR_WITH_LOCATION(// TODO: implement custom command
-        "Custom command is not supported in Metal backend.");
+    LUISA_ERROR_WITH_LOCATION(
+        "Custom command (uuid = 0x{:04x}) is not "
+        "supported in Metal backend.",
+        command->uuid());
 }
 
 }// namespace luisa::compute::metal

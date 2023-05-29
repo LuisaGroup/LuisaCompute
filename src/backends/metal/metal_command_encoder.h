@@ -6,6 +6,7 @@
 
 #include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
+#include <backends/ext/dstorage_cmd.h>
 #include <backends/metal/metal_api.h>
 #include <backends/metal/metal_stream.h>
 

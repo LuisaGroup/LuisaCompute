@@ -12,16 +12,35 @@
 namespace luisa::compute::metal {
 
 MetalStream::MetalStream(MTL::Device *device,
-                         StreamTag tag [[maybe_unused]],
                          size_t max_commands) noexcept
     : _queue{max_commands == 0u ?
                  device->newCommandQueue() :
-                 device->newCommandQueue(max_commands)},
-      _upload_pool{device, 64_M, true},
-      _download_pool{device, 32_M, false} {}
+                 device->newCommandQueue(max_commands)} {}
 
 MetalStream::~MetalStream() noexcept {
     _queue->release();
+}
+
+MetalStageBufferPool *MetalStream::upload_pool() noexcept {
+    {
+        std::scoped_lock lock{_upload_pool_creation_mutex};
+        if (_upload_pool == nullptr) {
+            _upload_pool = luisa::make_unique<MetalStageBufferPool>(
+                _queue->device(), 64_M, true);
+        }
+    }
+    return _upload_pool.get();
+}
+
+MetalStageBufferPool *MetalStream::download_pool() noexcept {
+    {
+        std::scoped_lock lock{_download_pool_creation_mutex};
+        if (_download_pool == nullptr) {
+            _download_pool = luisa::make_unique<MetalStageBufferPool>(
+                _queue->device(), 32_M, false);
+        }
+    }
+    return _download_pool.get();
 }
 
 void MetalStream::signal(MetalEvent *event) noexcept {

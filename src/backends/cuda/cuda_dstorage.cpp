@@ -270,7 +270,7 @@ DStorageExt::FileCreationInfo CUDADStorageExt::open_file_handle(luisa::string_vi
         return luisa::new_with_allocator<CUDAMappedFile>(path);
     });
     if (file->mapped_pointer() == nullptr) {
-        luisa::delete_with_allocator<CUDAMappedFile>(file);
+        luisa::delete_with_allocator(file);
         return DStorageExt::FileCreationInfo::make_invalid();
     }
     DStorageExt::FileCreationInfo info{};

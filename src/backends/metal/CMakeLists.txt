@@ -36,14 +36,17 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_mesh.cpp metal_mesh.h
             metal_accel.cpp metal_accel.h
             metal_buffer.cpp metal_buffer.h
-            )
+            metal_dstorage.cpp metal_dstorage.h)
 
     if (LUISA_COMPUTE_ENABLE_RUST)
         list(APPEND METAL_SOURCES metal_codegen_ir.cpp metal_codegen_ir.h)
     endif ()
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
+
+    find_library(COMPRESSION_LIB Compression)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
+            ${COMPRESSION_LIB}
             "-framework Foundation"
             "-framework Metal"
             "-framework QuartzCore"

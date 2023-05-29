@@ -18,7 +18,11 @@ enum class DStorageCompression : uint {
     LZ4,
     Snappy,
     Bitcomp,
-    ANS
+    ANS,
+    Zlib,
+    LZFSE,
+    LZMA,
+    LZBitmap
 };
 
 enum class DStorageCompressionQuality : uint {
@@ -57,10 +61,10 @@ protected:
 protected:
     ~DStorageExt() noexcept = default;
     [[nodiscard]] virtual DeviceInterface *device() const noexcept = 0;
-    virtual ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept = 0;
-    virtual FileCreationInfo open_file_handle(luisa::string_view path) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept = 0;
+    [[nodiscard]] virtual FileCreationInfo open_file_handle(luisa::string_view path) noexcept = 0;
     virtual void close_file_handle(uint64_t handle) noexcept = 0;
-    virtual PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept = 0;
+    [[nodiscard]] virtual PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept = 0;
     virtual void unpin_host_memory(uint64_t handle) noexcept = 0;
 
 public:

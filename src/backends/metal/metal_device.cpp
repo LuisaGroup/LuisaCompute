@@ -22,6 +22,7 @@
 #include <backends/metal/metal_mesh.h>
 #include <backends/metal/metal_procedural_primitive.h>
 #include <backends/metal/metal_shader.h>
+#include <backends/metal/metal_dstorage.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
@@ -257,7 +258,7 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
     return with_autorelease_pool([=, this] {
         auto stream = new_with_allocator<MetalStream>(
-            _handle, stream_tag, _inqueue_buffer_limit ? 4u : 0u);
+            _handle, _inqueue_buffer_limit ? 4u : 0u);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(stream);
         info.native_handle = stream;
@@ -529,6 +530,11 @@ string MetalDevice::query(luisa::string_view property) noexcept {
 }
 
 DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
+    if (name == DStorageExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (!_dstorage_ext) { _dstorage_ext = luisa::make_unique<MetalDStorageExt>(this); }
+        return _dstorage_ext.get();
+    }
     LUISA_WARNING_WITH_LOCATION("Device extension \"{}\" is not supported on Metal.", name);
     return nullptr;
 }
@@ -589,8 +595,10 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 swapchain->set_name(name);
                 break;
             }
+                // TODO
             case Resource::Tag::DEPTH_BUFFER: break;
             case Resource::Tag::DSTORAGE_FILE: break;
+            case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
         }
     });
 }
