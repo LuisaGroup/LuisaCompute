@@ -360,7 +360,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         // codegen
         StringScratch scratch;
         MetalCodegenAST codegen{scratch};
-        codegen.emit(kernel);
+        codegen.emit(kernel, option.native_include);
 
         // create shader
         auto pipeline = _compiler->compile(scratch.string_view(), option, metadata);

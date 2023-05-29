@@ -40,7 +40,11 @@ float2 get_uv(float2 coord, float2 size){
 }
     )";
     } else if (device_name == "metal") {
-        // TODO
+        option.native_include = R"(
+[[nodiscard]] inline auto get_uv(float2 coord, float2 size) {
+    return (coord + .5f) / size;
+}
+    )";
     }
     Shader2D<> shader = device.compile(kernel, option);
     stream << shader().dispatch(resolution)

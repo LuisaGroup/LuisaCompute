@@ -63,7 +63,7 @@ private:
 
 public:
     explicit MetalCodegenAST(StringScratch &scratch) noexcept;
-    void emit(Function kernel) noexcept;
+    void emit(Function kernel, luisa::string_view native_include) noexcept;
     [[nodiscard]] static size_t type_size_bytes(const Type *type) noexcept;
 };
 

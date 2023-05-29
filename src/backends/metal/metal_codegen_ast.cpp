@@ -489,7 +489,7 @@ void MetalCodegenAST::_emit_constant(const Function::Constant &c) noexcept {
     _scratch << "};\n\n";
 }
 
-void MetalCodegenAST::emit(Function kernel) noexcept {
+void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) noexcept {
 
     // emit device library
     _scratch << luisa::string_view{luisa_metal_builtin_metal_device_lib,
@@ -498,6 +498,13 @@ void MetalCodegenAST::emit(Function kernel) noexcept {
 
     // emit types
     _emit_type_decls(kernel);
+
+    // emit native include
+    if (!native_include.empty()) {
+        _scratch << "\n/* native include begin */\n\n"
+                 << native_include
+                 << "\n/* native include end */\n\n";
+    }
 
     // collect functions
     luisa::vector<Function> functions;
@@ -682,6 +689,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
 
     switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "callable_" << hash_to_string(expr->custom().hash()); break;
+        case CallOp::EXTERNAL: _scratch << expr->external()->name(); break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::SELECT: _scratch << "lc_select"; break;

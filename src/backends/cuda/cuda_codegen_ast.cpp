@@ -1136,13 +1136,14 @@ void CUDACodegenAST::emit(Function f, luisa::string_view native_include) {
              << f.block_size().z << ")\n\n"
              << "#include \"device_library.h\"\n\n";
 
+    _emit_type_decl(f);
+
     if (!native_include.empty()) {
-        _scratch << "/* native include begin */\n\n"
+        _scratch << "\n/* native include begin */\n\n"
                  << native_include
                  << "\n/* native include end */\n\n";
     }
 
-    _emit_type_decl(f);
     _emit_function(f);
 }
 
