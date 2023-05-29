@@ -76,7 +76,7 @@ CUDAMappedFile::CUDAMappedFile(luisa::string_view path) noexcept
     _mapped_pointer = mapped_address;
     _size_bytes = file_size.QuadPart;
 #else
-    auto file_handle = open(file_name.c_str(), O_RDONLY | O_DIRECT, S_IRUSR);
+    auto file_handle = open(file_name.c_str(), O_RDONLY, S_IRUSR);
     if (file_handle == -1) {
         LUISA_WARNING_WITH_LOCATION("Failed to open file: {}", file_name);
         return;
