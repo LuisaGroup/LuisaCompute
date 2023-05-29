@@ -34,7 +34,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
+    static constexpr uint n = 1024u * 1024u;
     Device device = context.create_device(argv[1]);
+    Buffer<float> buffer = device.create_buffer<float>(n);
 
     Callable load = [](BufferVar<float> buffer, Var<uint> index) noexcept {
         return buffer.read(index);
@@ -51,14 +53,12 @@ int main(int argc, char *argv[]) {
     Kernel1D kernel_def = [&](BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
         set_block_size(256u);
         UInt index = dispatch_id().x;
-        store(result, index, add(load(source, index), x));
+        auto xx = load(buffer, index);
+        store(result, index, add(load(source, index), x) + xx);
     };
     Shader1D<Buffer<float>, Buffer<float>, float> kernel = device.compile(kernel_def);
 
-    static constexpr uint n = 1024u * 1024u;
-
     Stream stream = device.create_stream();
-    Buffer<float> buffer = device.create_buffer<float>(n);
     Buffer<float> result_buffer = device.create_buffer<float>(n);
 
     std::vector<float> data(n);

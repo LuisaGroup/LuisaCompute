@@ -46,11 +46,16 @@ public:
     /// Construct from RefExpr
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
+
     /// Construct from BufferView. Will call buffer_binding() to bind buffer
     Expr(BufferView<T> buffer) noexcept
         : _expression{detail::FunctionBuilder::current()->buffer_binding(
               Type::of<Buffer<T>>(), buffer.handle(),
               buffer.offset_bytes(), buffer.size_bytes())} {}
+
+    /// Contruct from Buffer. Will call buffer_binding() to bind buffer
+    Expr(const Buffer<T> &buffer) noexcept
+        : Expr{BufferView{buffer}} {}
 
     /// Return RefExpr
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
@@ -95,10 +100,16 @@ private:
 public:
     /// Construct from RefExpr
     explicit Expr(const RefExpr *expr) noexcept : _expression{expr} {}
+
     /// Construct from ImageView. Will create texture binding.
     Expr(ImageView<T> image) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
               Type::of<Image<T>>(), image.handle(), image.level())} {}
+
+    /// Construct from Image. Will create texture binding.
+    Expr(const Image<T> &image) noexcept
+        : Expr{ImageView{image}} {}
+
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
     /// Read at (u, v)
@@ -140,10 +151,15 @@ private:
 public:
     /// Construct from RefExpr
     explicit Expr(const RefExpr *expr) noexcept : _expression{expr} {}
+
     /// Construct from VolumeView. Will create texture binding.
     Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
               Type::of<Volume<T>>(), volume.handle(), volume.level())} {}
+
+    /// Construct from Volume. Will create texture binding.
+    Expr(const Volume<T> &volume) noexcept
+        : Expr{VolumeView{volume}} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
