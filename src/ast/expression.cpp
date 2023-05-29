@@ -68,16 +68,18 @@ void CallExpr::_mark() const noexcept {
                 arg->mark(Usage::READ);
             }
         }
-    } else if (_op == CallOp::EXTERNAL) {
-
+    } else if (is_external()) {
+        auto f = external();
+        for (auto i = 0u; i < _arguments.size(); i++) {
+            _arguments[i]->mark(f->argument_usages()[i]);
+        }
     } else {
-        auto custom = luisa::get<0>(_func);
-        auto args = custom->arguments();
+        auto args = custom().arguments();
         for (auto i = 0u; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
                 arg.is_reference() || arg.is_resource() ?
-                    custom->variable_usage(arg.uid()) :
+                    custom().variable_usage(arg.uid()) :
                     Usage::READ);
         }
     }
@@ -89,12 +91,17 @@ uint64_t CallExpr::_compute_hash() const noexcept {
         hash = hash_value(a->hash(), hash);
     }
     if (_op == CallOp::CUSTOM) {
-        hash = hash_value(luisa::get<0>(_func)->hash(), hash);
+        hash = hash_value(custom().hash(), hash);
     } else if (_op == CallOp::EXTERNAL) {
-        //TODO
+        hash = hash_value(external()->hash(), hash);
     }
     return hash;
 }
+
+CallExpr::CallExpr(const Type *type, CallOp builtin, CallExpr::ArgumentList args) noexcept
+    : Expression{Tag::CALL, type},
+      _arguments{std::move(args)},
+      _op{builtin} { _mark(); }
 
 CallExpr::CallExpr(const Type *type, Function callable, CallExpr::ArgumentList args) noexcept
     : Expression{Tag::CALL, type},
@@ -102,21 +109,22 @@ CallExpr::CallExpr(const Type *type, Function callable, CallExpr::ArgumentList a
       _func{callable.builder()},
       _op{CallOp::CUSTOM} { _mark(); }
 
-CallExpr::CallExpr(const Type *type, CallOp builtin, CallExpr::ArgumentList args) noexcept
+CallExpr::CallExpr(const Type *type, const ExternalFunction *external, ArgumentList args) noexcept
     : Expression{Tag::CALL, type},
       _arguments{std::move(args)},
-      _func{},
-      _op{builtin} { _mark(); }
-CallExpr::CallExpr(const Type *type, luisa::string external_name, ArgumentList args) noexcept
-    : Expression{Tag::CALL, type},
-      _arguments{std::move(args)},
-      _func{std::move(external_name)},
-      _op{CallOp::EXTERNAL} {
+      _func{external},
+      _op{CallOp::EXTERNAL} { _mark(); }
+
+Function CallExpr::custom() const noexcept {
+    LUISA_ASSERT(is_custom(), "Not a custom function.");
+    return Function{luisa::get<CustomCallee>(_func)};
 }
-Function CallExpr::custom() const noexcept { return Function{luisa::get<0>(_func)}; }
-luisa::string_view CallExpr::external() const noexcept {
-    return luisa::get<1>(_func);
+
+const ExternalFunction *CallExpr::external() const noexcept {
+    LUISA_ASSERT(is_external(), "Not an external function.");
+    return luisa::get<ExternalCallee>(_func);
 }
+
 uint64_t UnaryExpr::_compute_hash() const noexcept {
     return hash_combine({static_cast<uint64_t>(_op), _operand->hash()});
 }

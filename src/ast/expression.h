@@ -18,6 +18,8 @@ class Statement;
 class Function;
 struct ExprVisitor;
 
+class ExternalFunction;
+
 namespace detail {
 class FunctionBuilder;
 }// namespace detail
@@ -348,10 +350,18 @@ class LC_AST_API CallExpr final : public Expression {
 public:
     using ArgumentList = luisa::vector<const Expression *>;
 
+    using CustomCallee = const detail::FunctionBuilder *;
+    using ExternalCallee = const ExternalFunction *;
+
+    using Callee = luisa::variant<
+        luisa::monostate,
+        CustomCallee,
+        ExternalCallee>;
+
 private:
     ArgumentList _arguments;
-    luisa::variant<const detail::FunctionBuilder *, luisa::string> _func;
     CallOp _op;
+    Callee _func;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -382,14 +392,14 @@ public:
      * @param external_name external function name
      * @param args arguments of function
      */
-    CallExpr(const Type *type, luisa::string external_name, ArgumentList args) noexcept;
+    CallExpr(const Type *type, const ExternalFunction *external, ArgumentList args) noexcept;
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op > CallOp::EXTERNAL; }
-    [[nodiscard]] auto is_custom() const noexcept {return _op == CallOp::CUSTOM;}
-    [[nodiscard]] auto is_external() const noexcept {return _op == CallOp::EXTERNAL;}
+    [[nodiscard]] auto is_custom() const noexcept { return _op == CallOp::CUSTOM; }
+    [[nodiscard]] auto is_external() const noexcept { return _op == CallOp::EXTERNAL; }
     [[nodiscard]] Function custom() const noexcept;
-    [[nodiscard]] luisa::string_view external() const noexcept;
+    [[nodiscard]] const ExternalFunction *external() const noexcept;
     LUISA_EXPRESSION_COMMON()
 };
 

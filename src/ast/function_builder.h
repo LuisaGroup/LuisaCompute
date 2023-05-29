@@ -13,6 +13,7 @@
 #include <ast/expression.h>
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
+#include <ast/external_function.h>
 
 namespace lc::validation {
 class Device;
@@ -84,6 +85,7 @@ private:
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
     luisa::vector<Binding> _bound_arguments;
+    luisa::vector<luisa::shared_ptr<const ExternalFunction>> _used_external_functions;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Variable> _local_variables;
     luisa::vector<Variable> _shared_variables;
@@ -185,6 +187,8 @@ public:
     [[nodiscard]] auto cpu_callbacks() const noexcept { return luisa::span{_cpu_callbacks}; }
     /// Return a span of custom callables.
     [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
+    /// Return a span of external callables.
+    [[nodiscard]] auto external_callables() const noexcept { return luisa::span{_used_external_functions}; }
     /// Return a CallOpSet of builtin callables that are directly called.
     [[nodiscard]] auto direct_builtin_callables() const noexcept { return _direct_builtin_callables; }
     /// Return a CallOpSet of builtin callables that are directly called.
@@ -306,13 +310,19 @@ public:
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, luisa::span<const Expression *const> args) noexcept;
     /// Create call expression
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, luisa::span<const Expression *const> args) noexcept;
-    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, luisa::string external_name, luisa::span<const Expression *const> args) noexcept;
     /// Call function
     void call(CallOp call_op, luisa::span<const Expression *const> args) noexcept;
     /// Call custom function
     void call(Function custom, luisa::span<const Expression *const> args) noexcept;
+
     /// Call external function
-    void call(luisa::string external_name, luisa::span<const Expression *const> args) noexcept;
+    void call(luisa::shared_ptr<const ExternalFunction> func,
+              luisa::span<const Expression *const> args) noexcept;
+
+    /// Call external function
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */,
+                                       luisa::shared_ptr<const ExternalFunction> func,
+                                       luisa::span<const Expression *const> args) noexcept;
 
     // statements
     /// Add break statement

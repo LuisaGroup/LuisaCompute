@@ -3,6 +3,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         atomic_ref_node.cpp atomic_ref_node.h
         constant_data.cpp constant_data.h
         expression.cpp expression.h
+        external_function.cpp external_function.h
         function.cpp function.h
         function_builder.cpp function_builder.h
         interface.h

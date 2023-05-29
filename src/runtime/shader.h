@@ -7,6 +7,7 @@
 #ifdef LUISA_ENABLE_IR
 #include "ir/ir2ast.h"
 #endif
+
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
 #include <runtime/rhi/resource.h>

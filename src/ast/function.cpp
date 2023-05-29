@@ -63,6 +63,11 @@ Function::custom_callables() const noexcept {
     return _builder->custom_callables();
 }
 
+luisa::span<const luisa::shared_ptr<const ExternalFunction>>
+Function::external_callables() const noexcept {
+    return _builder->external_callables();
+}
+
 CallOpSet Function::direct_builtin_callables() const noexcept {
     return _builder->direct_builtin_callables();
 }

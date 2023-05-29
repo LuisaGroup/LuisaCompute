@@ -502,18 +502,30 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
     }
     return expr;
 }
-const CallExpr *FunctionBuilder::call(const Type *type, luisa::string external_name, luisa::span<const Expression *const> args) noexcept {
+
+const CallExpr *FunctionBuilder::call(const Type *type,
+                                      luisa::shared_ptr<const ExternalFunction> func,
+                                      luisa::span<const Expression *const> args) noexcept {
     auto expr = _create_expression<CallExpr>(
-        type, std::move(external_name), CallExpr::ArgumentList{args.begin(), args.end()});
+        type, func.get(),
+        CallExpr::ArgumentList{args.begin(), args.end()});
+    if (auto iter = std::find(_used_external_functions.cbegin(),
+                              _used_external_functions.cend(), func);
+        iter == _used_external_functions.cend()) {
+        _used_external_functions.emplace_back(std::move(func));
+    }
     if (type == nullptr) {
         _void_expr(expr);
         return nullptr;
     }
     return expr;
 }
-void FunctionBuilder::call(luisa::string external_name, luisa::span<const Expression *const> args) noexcept {
-    call(nullptr, std::move(external_name), args);
+
+void FunctionBuilder::call(luisa::shared_ptr<const ExternalFunction> func,
+                           luisa::span<const Expression *const> args) noexcept {
+    _void_expr(call(nullptr, std::move(func), args));
 }
+
 // call custom functions
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::span<const Expression *const> args) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {

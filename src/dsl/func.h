@@ -5,6 +5,8 @@
 #pragma once
 
 #include <type_traits>
+#include <core/stl/memory.h>
+#include <ast/external_function.h>
 #include <runtime/rhi/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
@@ -387,13 +389,16 @@ public:
         }
     }
 };
+
 // TODO: External callable
 template<typename T>
 class ExternalCallable {
     static_assert(always_false_v<T>);
 };
+
 template<typename Ret, typename... Args>
 class ExternalCallable<Ret(Args...)> {
+
     static_assert(
         std::negation_v<std::disjunction<
             is_buffer_or_view<Ret>,
@@ -404,24 +409,44 @@ class ExternalCallable<Ret(Args...)> {
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
 private:
-    luisa::string _name;
+    luisa::shared_ptr<ExternalFunction> _func;
+
+private:
+    template<typename T>
+    struct UsageOf {
+        static constexpr auto value = Usage::READ;
+    };
+
+    template<typename T>
+    struct UsageOf<T &> {
+        static constexpr auto value = Usage::READ_WRITE;
+    };
+
+    template<typename T>
+    struct UsageOf<const T &> {
+        static constexpr auto value = Usage::READ;
+    };
 
 public:
-    ExternalCallable(luisa::string name) noexcept : _name{std::move(name)} {}
-    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    ExternalCallable(luisa::string name) noexcept
+        : _func{luisa::make_shared<ExternalFunction>(
+              std::move(name), Type::of<Ret>(),
+              luisa::vector<const Type *>{Type::of<Args>()...},
+              luisa::vector<Usage>{UsageOf<Args>::value...})} {}
+
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         detail::CallableInvoke invoke;
         static_cast<void>((invoke << ... << args));
         if constexpr (std::is_same_v<Ret, void>) {
-            detail::FunctionBuilder::current()->call(
-                _name, invoke.args());
+            detail::FunctionBuilder::current()->call(_func, invoke.args());
         } else {
             return def<Ret>(
                 detail::FunctionBuilder::current()->call(
-                    Type::of<Ret>(), _name, invoke.args()));
+                    Type::of<Ret>(), _func, invoke.args()));
         }
     }
 };
+
 namespace detail {
 
 template<typename R, typename... Args>

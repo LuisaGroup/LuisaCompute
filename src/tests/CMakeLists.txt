@@ -51,6 +51,7 @@ luisa_compute_add_executable(test_sdf_renderer test_sdf_renderer.cpp)
 luisa_compute_add_executable(test_procedural test_procedural.cpp)
 luisa_compute_add_executable(test_procedural_callable test_procedural_callable.cpp)
 luisa_compute_add_executable(test_mipmap test_mipmap.cpp)
+luisa_compute_add_executable(test_native_include test_native_include.cpp)
 luisa_compute_add_executable(test_select_device test_select_device.cpp)
 luisa_compute_add_executable(test_raytracing_weekend test_raytracing_weekend/main.cpp)
 

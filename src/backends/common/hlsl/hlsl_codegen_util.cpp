@@ -481,7 +481,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         case CallOp::EXTERNAL:
-            str << expr->external();
+            str << expr->external()->name();
             break;
         case CallOp::ALL:
             str << "all"sv;

@@ -18,6 +18,8 @@ class FunctionBuilder;
 class ScopeStmt;
 class Expression;
 
+class ExternalFunction;
+
 /**
  * @brief Function class
  * 
@@ -132,6 +134,8 @@ public:
     [[nodiscard]] luisa::span<const Variable> unbound_arguments() const noexcept;
     /// Return custom callables
     [[nodiscard]] luisa::span<const luisa::shared_ptr<const detail::FunctionBuilder>> custom_callables() const noexcept;
+    /// Return external callables
+    [[nodiscard]] luisa::span<const luisa::shared_ptr<const ExternalFunction>> external_callables() const noexcept;
     /// Return builtin callables that are *directly* used by this function
     [[nodiscard]] CallOpSet direct_builtin_callables() const noexcept;
     /// Return builtin callables that are used by this function and the functions it calls
