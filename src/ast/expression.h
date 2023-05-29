@@ -20,7 +20,7 @@ struct ExprVisitor;
 
 namespace detail {
 class FunctionBuilder;
-}
+}// namespace detail
 
 /**
  * @brief Base expression class
@@ -350,7 +350,7 @@ public:
 
 private:
     ArgumentList _arguments;
-    const detail::FunctionBuilder *_custom;
+    luisa::variant<const detail::FunctionBuilder *, luisa::string> _func;
     CallOp _op;
 
 protected:
@@ -375,10 +375,21 @@ public:
      * @param args arguments of function
      */
     CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept;
+    /**
+     * @brief Construct a new CallExpr object calling external function
+     * 
+     * @param type type
+     * @param external_name external function name
+     * @param args arguments of function
+     */
+    CallExpr(const Type *type, luisa::string external_name, ArgumentList args) noexcept;
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
-    [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
+    [[nodiscard]] auto is_builtin() const noexcept { return _op > CallOp::EXTERNAL; }
+    [[nodiscard]] auto is_custom() const noexcept {return _op == CallOp::CUSTOM;}
+    [[nodiscard]] auto is_external() const noexcept {return _op == CallOp::EXTERNAL;}
     [[nodiscard]] Function custom() const noexcept;
+    [[nodiscard]] luisa::string_view external() const noexcept;
     LUISA_EXPRESSION_COMMON()
 };
 

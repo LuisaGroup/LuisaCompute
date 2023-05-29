@@ -306,10 +306,13 @@ public:
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, luisa::span<const Expression *const> args) noexcept;
     /// Create call expression
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, luisa::string external_name, luisa::span<const Expression *const> args) noexcept;
     /// Call function
     void call(CallOp call_op, luisa::span<const Expression *const> args) noexcept;
     /// Call custom function
     void call(Function custom, luisa::span<const Expression *const> args) noexcept;
+    /// Call external function
+    void call(luisa::string external_name, luisa::span<const Expression *const> args) noexcept;
 
     // statements
     /// Add break statement

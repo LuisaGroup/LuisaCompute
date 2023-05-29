@@ -44,7 +44,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DxTexCompressExt(&device->nativeDevice);
         },
         [](DeviceExtension *ext) {
-        delete static_cast<DxTexCompressExt *>(ext);
+            delete static_cast<DxTexCompressExt *>(ext);
         });
     exts.try_emplace(
         NativeResourceExt::name,
@@ -52,7 +52,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DxNativeResourceExt(device, &device->nativeDevice);
         },
         [](DeviceExtension *ext) {
-        delete static_cast<DxNativeResourceExt *>(ext);
+            delete static_cast<DxNativeResourceExt *>(ext);
         });
     exts.try_emplace(
         RasterExt::name,
@@ -60,7 +60,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DxRasterExt(device->nativeDevice);
         },
         [](DeviceExtension *ext) {
-        delete static_cast<DxRasterExt *>(ext);
+            delete static_cast<DxRasterExt *>(ext);
         });
     exts.try_emplace(
         DStorageExt::name,
@@ -68,7 +68,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             return new DStorageExtImpl(device->context().runtime_directory(), device);
         },
         [](DeviceExtension *ext) {
-        delete static_cast<DStorageExtImpl *>(ext);
+            delete static_cast<DStorageExtImpl *>(ext);
         });
 }
 LCDevice::~LCDevice() {
@@ -166,15 +166,15 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
         &nativeDevice,
         nativeDevice.defaultAllocator.get(),
         [&] {
-        switch (type) {
-            case compute::StreamTag::COMPUTE:
-                return D3D12_COMMAND_LIST_TYPE_COMPUTE;
-            case compute::StreamTag::GRAPHICS:
-                return D3D12_COMMAND_LIST_TYPE_DIRECT;
-            case compute::StreamTag::COPY:
-                return D3D12_COMMAND_LIST_TYPE_COPY;
-        }
-        LUISA_ERROR_WITH_LOCATION("Unreachable.");
+            switch (type) {
+                case compute::StreamTag::COMPUTE:
+                    return D3D12_COMMAND_LIST_TYPE_COMPUTE;
+                case compute::StreamTag::GRAPHICS:
+                    return D3D12_COMMAND_LIST_TYPE_DIRECT;
+                case compute::StreamTag::COPY:
+                    return D3D12_COMMAND_LIST_TYPE_COPY;
+            }
+            LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());
     info.handle = resource_to_handle(res);
     info.native_handle = res->queue.Queue();
@@ -219,7 +219,7 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
     // Clock clk;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, false);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, option.native_include, false);
     // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -403,7 +403,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo, false);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo, option.native_include, false);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());

@@ -99,12 +99,13 @@ public:
         Function kernel,
         uint offset,
         RegisterIndexer &registerCount);
-    CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath, bool isSpirV);
+    CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, bool isSpirV);
     CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
         luisa::BinaryIO const *internalDataPath,
+        luisa::string_view native_code,
         bool isSpirV);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
     vstd::StringBuilder GetNewTempVarName();

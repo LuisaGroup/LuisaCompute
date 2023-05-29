@@ -133,7 +133,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             }
             break;
         case Variable::Tag::KERNEL_ID:
-        if (opt->funcType == CodegenStackData::FuncType::Kernel) {
+            if (opt->funcType == CodegenStackData::FuncType::Kernel) {
                 str << "dsp_c.w"sv;
             } else {
                 str << "ker"sv;
@@ -185,7 +185,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             }
             break;
         case Variable::Tag::SHARED:
-            str << 's';
+            str << "_s"sv;
             vstd::to_string(id, str);
             break;
         case Variable::Tag::REFERENCE:
@@ -193,19 +193,19 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             vstd::to_string(id, str);
             break;
         case Variable::Tag::BUFFER:
-            str << 'b';
+            str << "_b"sv;
             vstd::to_string(id, str);
             break;
         case Variable::Tag::TEXTURE:
-            str << 't';
+            str << "_t"sv;
             vstd::to_string(id, str);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            str << "ba"sv;
+            str << "_ba"sv;
             vstd::to_string(id, str);
             break;
         case Variable::Tag::ACCEL:
-            str << "ac"sv;
+            str << "_ac"sv;
             vstd::to_string(id, str);
             break;
         default:
@@ -480,7 +480,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             str << ')';
             return;
-
+        case CallOp::EXTERNAL:
+            str << expr->external();
+            break;
         case CallOp::ALL:
             str << "all"sv;
             break;
@@ -662,7 +664,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::ATOMIC_FETCH_XOR:
         case CallOp::ATOMIC_FETCH_MIN:
         case CallOp::ATOMIC_FETCH_MAX: {
-            auto rootVar = static_cast<RefExpr const*>(args[0]);
+            auto rootVar = static_cast<RefExpr const *>(args[0]);
             auto &chain = opt->GetAtomicFunc(expr->op(), rootVar->variable(), expr->type(), args);
             chain.call_this_func(args, str, vis);
             return;
@@ -1542,7 +1544,7 @@ CodegenUtility::CodegenUtility() {}
 CodegenUtility::~CodegenUtility() {}
 
 CodegenResult CodegenUtility::Codegen(
-    Function kernel, luisa::BinaryIO const *internalDataPath, bool isSpirV) {
+    Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, bool isSpirV) {
     opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
@@ -1558,6 +1560,7 @@ CodegenResult CodegenUtility::Codegen(
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
+    finalResult << native_code;
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
     opt->funcType = CodegenStackData::FuncType::Callable;
@@ -1595,6 +1598,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     Function vertFunc,
     Function pixelFunc,
     luisa::BinaryIO const *internalDataPath,
+    luisa::string_view native_code,
     bool isSpirV) {
     opt = CodegenStackData::Allocate(this);
     // CodegenStackData::ThreadLocalSpirv() = false;
@@ -1613,6 +1617,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
     uint64 immutableHeaderSize = detail::AddHeader(opSet, internalDataPath, finalResult, true);
+    finalResult << native_code;
     // Vertex
     codegenData << "struct v2p{\n"sv;
     auto v2pType = vertFunc.return_type();

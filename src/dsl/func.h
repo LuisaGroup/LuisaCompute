@@ -230,8 +230,7 @@ public:
                 std::invoke(std::forward<decltype(def)>(def),
                             static_cast<detail::prototype_to_creation_t<
                                 std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
-            }
-            (std::forward<Def>(def), std::index_sequence_for<Args...>{});
+            }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
     }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
@@ -278,6 +277,7 @@ struct Kernel3D<void(Args...)> : LUISA_KERNEL_BASE(3);
 namespace detail {
 /// Callable invoke
 class CallableInvoke {
+    friend class ExternalCallableInvoke;
 
 public:
     static constexpr auto max_argument_count = 64u;
@@ -370,8 +370,8 @@ public:
 
     /// Get the underlying AST
     [[nodiscard]] auto function() const noexcept { return Function{_builder.get()}; }
-    [[nodiscard]] auto const &function_builder() const &noexcept { return _builder; }
-    [[nodiscard]] auto &&function_builder() &&noexcept { return std::move(_builder); }
+    [[nodiscard]] auto const &function_builder() const & noexcept { return _builder; }
+    [[nodiscard]] auto &&function_builder() && noexcept { return std::move(_builder); }
 
     /// Call the callable.
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
@@ -387,7 +387,41 @@ public:
         }
     }
 };
+// TODO: External callable
+template<typename T>
+class ExternalCallable {
+    static_assert(always_false_v<T>);
+};
+template<typename Ret, typename... Args>
+class ExternalCallable<Ret(Args...)> {
+    static_assert(
+        std::negation_v<std::disjunction<
+            is_buffer_or_view<Ret>,
+            is_image_or_view<Ret>,
+            is_volume_or_view<Ret>>>,
+        "Callables may not return buffers, "
+        "images or volumes (or their views).");
+    static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
+private:
+    luisa::string _name;
+
+public:
+    ExternalCallable(luisa::string name) noexcept : _name{std::move(name)} {}
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
+        detail::CallableInvoke invoke;
+        static_cast<void>((invoke << ... << args));
+        if constexpr (std::is_same_v<Ret, void>) {
+            detail::FunctionBuilder::current()->call(
+                _name, invoke.args());
+        } else {
+            return def<Ret>(
+                detail::FunctionBuilder::current()->call(
+                    Type::of<Ret>(), _name, invoke.args()));
+        }
+    }
+};
 namespace detail {
 
 template<typename R, typename... Args>

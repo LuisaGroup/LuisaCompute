@@ -82,6 +82,7 @@ struct TypePromotion {
 enum struct CallOp : uint32_t {
 
     CUSTOM,
+    EXTERNAL,
 
     ALL,// (boolN)
     ANY,// (boolN)

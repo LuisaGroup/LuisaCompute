@@ -95,6 +95,9 @@ struct ShaderOption {
     /// \sa DeviceConfig
     /// \sa BinaryIO
     luisa::string name;
+    /// \brief A native-code include
+    /// \details If provided, backend will include this string to code before code-gen
+    luisa::string native_include;
 };
 
 class LC_RUNTIME_API Resource {

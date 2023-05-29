@@ -221,13 +221,13 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                return *_arguments[i].type() == *type &&
-                       binding.handle == handle &&
-                       binding.offset == offset_bytes;
-            } else {
-                return false;
-            }
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                        return *_arguments[i].type() == *type &&
+                               binding.handle == handle &&
+                               binding.offset == offset_bytes;
+                    } else {
+                        return false;
+                    }
                 },
                 _bound_arguments[i])) {
             auto &binding = luisa::get<Function::BufferBinding>(_bound_arguments[i]);
@@ -367,13 +367,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-            if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                return *_arguments[i].type() == *type &&
-                       binding.handle == handle &&
-                       binding.level == level;
-            } else {
-                return false;
-            }
+                    if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                        return *_arguments[i].type() == *type &&
+                               binding.handle == handle &&
+                               binding.level == level;
+                    } else {
+                        return false;
+                    }
                 },
                 _bound_arguments[i])) {
             return _ref(_arguments[i]);
@@ -429,11 +429,11 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-            if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                return binding.handle == handle;
-            } else {
-                return false;
-            }
+                    if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                        return binding.handle == handle;
+                    } else {
+                        return false;
+                    }
                 },
                 _bound_arguments[i])) {
             return _ref(_arguments[i]);
@@ -456,11 +456,11 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-            if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                return binding.handle == handle;
-            } else {
-                return false;
-            }
+                    if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                        return binding.handle == handle;
+                    } else {
+                        return false;
+                    }
                 },
                 _bound_arguments[i])) {
             return _ref(_arguments[i]);
@@ -502,7 +502,18 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
     }
     return expr;
 }
-
+const CallExpr *FunctionBuilder::call(const Type *type, luisa::string external_name, luisa::span<const Expression *const> args) noexcept {
+    auto expr = _create_expression<CallExpr>(
+        type, std::move(external_name), CallExpr::ArgumentList{args.begin(), args.end()});
+    if (type == nullptr) {
+        _void_expr(expr);
+        return nullptr;
+    }
+    return expr;
+}
+void FunctionBuilder::call(luisa::string external_name, luisa::span<const Expression *const> args) noexcept {
+    call(nullptr, std::move(external_name), args);
+}
 // call custom functions
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::span<const Expression *const> args) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {
