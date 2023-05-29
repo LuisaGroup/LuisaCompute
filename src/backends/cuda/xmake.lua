@@ -12,7 +12,7 @@ add_deps("lc-runtime")
 add_files("**.cpp","../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)
 	import("detect.sdks.find_cuda")
-	local cuda = find_cuda()
+	local cuda = find_cuda.main()
 	if cuda then
 		local function set(key, value)
 			if type(value) == "string" then
@@ -25,8 +25,7 @@ on_load(function(target)
 		end
 		set("linkdirs", cuda["linkdirs"])
 		set("includedirs", cuda["includedirs"])
-		target:add("links", "nvrtc", "cudart")
-		target:add("syslinks", "cuda")
+		target:add("links", "nvrtc", "cuda")
 	else
 		target:set("enabled", false)
 		return
