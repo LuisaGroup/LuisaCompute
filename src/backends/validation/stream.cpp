@@ -21,7 +21,7 @@ Stream::Stream(uint64_t handle, StreamTag stream_tag) : RWResource{handle, Tag::
 void Stream::signal(Event *evt) {
     evt->signaled.force_emplace(this, _executed_layer);
 }
-uint64_t Stream::stream_synced_frame(Stream const *stream) const {
+uint64_t Stream::stream_synced_frame(Stream *stream) const {
     auto iter = waited_stream.find(stream);
     if (iter == waited_stream.end()) {
         return stream->synced_layer();
@@ -59,28 +59,20 @@ void Stream::check_compete() {
                 // Texture type
                 if (res->non_simultaneous()) {
                     LUISA_ERROR(
-                        "Non-simultaneous resource {} is not allowed to be {} by {} and {} by {} simultaneously.",
+                        "Non simultaneous-accessible resource {} is not allowed to be {} by {} and {} by {} simultaneously.",
                         res->get_name(),
                         detail::usage_name(stream_iter.second.usage),
                         other_stream->get_name(),
                         detail::usage_name(iter.second.usage),
                         get_name());
-                }
-                // others, buffer, etc
-                else if ((luisa::to_underlying(stream_iter.second.usage) & luisa::to_underlying(iter.second.usage) & luisa::to_underlying(Usage::WRITE)) != 0) {
-                    for (auto &&i : iter.second.ranges) {
-                        for (auto &&j : stream_iter.second.ranges) {
-                            if (Range::collide(i, j)) {
-                                LUISA_ERROR(
-                                    "Resource {} is not allowed to be {} by {} and {} by {} simultaneously.",
-                                    res->get_name(),
-                                    detail::usage_name(stream_iter.second.usage),
-                                    other_stream->get_name(),
-                                    detail::usage_name(iter.second.usage),
-                                    get_name());
-                            }
-                        }
-                    }
+                } else {
+                    LUISA_WARNING(
+                        "Simultaneous-accessible resource {} is used to be {} by {} and {} by {} simultaneously.",
+                        res->get_name(),
+                        detail::usage_name(stream_iter.second.usage),
+                        other_stream->get_name(),
+                        detail::usage_name(iter.second.usage),
+                        get_name());
                 }
             }
         }
@@ -180,17 +172,41 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);
+            auto check_range = [&](uint64_t handle, Range range) -> vstd::optional<std::pair<Range, Range>> {
+                auto add_range = vstd::scope_exit([&] {
+                    dstorage_range_check.try_emplace(handle).first->second.emplace_back(range);
+                });
+                auto iter = dstorage_range_check.find(handle);
+                if (iter == dstorage_range_check.end()) return {};
+                for (auto &&i : iter->second) {
+                    if (Range::collide(i, range)) return std::pair<Range, Range>{i, range};
+                }
+                return {};
+            };
             luisa::visit(
                 [&](auto t) {
                     mark_handle(t.handle, Usage::READ, Range{});
                 },
                 c->source());
+            auto log_error = [&](uint64_t handle, auto &&check_result) {
+                LUISA_ERROR("Resource {} read conflict from range: ({}, {}) to ({}, {})", RWResource::get<RWResource>(handle)->get_name(),
+                            check_result->first.min, check_result->first.max,
+                            check_result->second.min, check_result->second.max);
+            };
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<DStorageReadCommand::BufferRequest, T>) {
                         mark_handle(t.handle, Usage::WRITE, Range{t.offset_bytes, t.size_bytes});
+                        auto check_result = check_range(t.handle, Range{t.offset_bytes, t.size_bytes});
+                        if (check_result) [[unlikely]] {
+                            log_error(t.handle, check_result);
+                        }
                     } else if constexpr (std::is_same_v<DStorageReadCommand::TextureRequest, T>) {
                         mark_handle(t.handle, Usage::WRITE, Range{t.level, 1});
+                        auto check_result = check_range(t.handle, Range{t.level, 1});
+                        if (check_result) [[unlikely]] {
+                            log_error(t.handle, check_result);
+                        }
                     }
                 },
                 c->request());
@@ -198,7 +214,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
-                c->traversal_arguments([&](auto&& resource, Usage usage) {
+            c->traversal_arguments([&](auto &&resource, Usage usage) {
                 luisa::visit(
                     [&]<typename T>(T const &t) {
                         if constexpr (std::is_same_v<T, Argument::Buffer>) {
@@ -218,6 +234,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
 void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
     _executed_layer++;
     res_usages.clear();
+    dstorage_range_check.clear();
     using CmdTag = luisa::compute::Command::Tag;
     for (auto &&cmd_ptr : cmd_list.commands()) {
         Command *cmd = cmd_ptr.get();
@@ -320,10 +337,15 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
     }
 }
 void Stream::sync_layer(uint64_t layer) {
-    _synced_layer = std::max(_synced_layer, layer);
+    if (_synced_layer >= layer) return;
+    for (auto &&i : waited_stream) {
+        i.first->sync_layer(i.second);
+    }
+    waited_stream.clear();
+    _synced_layer = layer;
 }
 void Stream::sync() {
-    _synced_layer = _executed_layer;
+    sync_layer(_executed_layer);
 }
 void Event::sync() {
     for (auto &&i : signaled) {

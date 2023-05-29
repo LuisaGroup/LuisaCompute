@@ -40,16 +40,9 @@ void RWResource::set_usage(Stream *stream, RWResource *res, Usage usage, Range r
         if (stream->executed_layer() > info.last_frame) {
             info.last_frame = stream->executed_layer();
             info.usage = usage;
-            info.ranges.clear();
         } else {
             info.usage = static_cast<Usage>(luisa::to_underlying(info.usage) | luisa::to_underlying(usage));
         }
-        [&] {
-            for (auto &&i : info.ranges) {
-                if (i == range) return;
-            }
-            info.ranges.emplace_back(range);
-            }();
     }
 }
 RWResource::~RWResource() {

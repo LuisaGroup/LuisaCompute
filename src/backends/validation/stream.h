@@ -18,14 +18,16 @@ class Stream : public RWResource {
     StreamTag _stream_tag;
     uint64_t _executed_layer{0};
     uint64_t _synced_layer{0};
-    vstd::unordered_map<Stream const *, uint64_t> waited_stream;
-    uint64_t stream_synced_frame(Stream const *stream) const;
+    // other streams waiting for this stream
+    vstd::unordered_map<Stream *, uint64_t> waited_stream;
+    vstd::unordered_map<uint64_t, vstd::vector<Range>> dstorage_range_check;
+    uint64_t stream_synced_frame(Stream *stream) const;
     void mark_handle(uint64_t v, Usage usage, Range range);
     void custom(DeviceInterface *dev, Command *cmd);
     void mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd, bool contain_bindings);
 
 public:
-    vstd::unordered_map<RWResource const *, CompeteResource> res_usages;
+    vstd::unordered_map<RWResource *, CompeteResource> res_usages;
     auto executed_layer() const { return _executed_layer; }
     auto synced_layer() const { return _synced_layer; }
     vstd::string stream_tag() const;

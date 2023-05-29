@@ -8,11 +8,10 @@ using namespace luisa::compute;
 struct RWInfo {
     Usage usage{Usage::NONE};
     uint64_t last_frame{0};
-    vstd::vector<Range> ranges;
 };
 class RWResource : public Resource {
     friend struct ResMap;
-    vstd::unordered_map<Stream const *, RWInfo> _info;
+    vstd::unordered_map<Stream *, RWInfo> _info;
     bool _non_simultaneous;
     uint64_t _handle;
 

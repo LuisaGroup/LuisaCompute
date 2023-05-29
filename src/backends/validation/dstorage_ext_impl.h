@@ -9,6 +9,7 @@ using namespace luisa::compute;
 
 class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     DStorageExt *_impl;
+    DeviceInterface *_self;
 
 public:
     DeviceInterface *device() const noexcept override;
@@ -17,7 +18,7 @@ public:
     PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept override;
     void unpin_host_memory(uint64_t handle) noexcept override;
     ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
-    DStorageExtImpl(DStorageExt *ext);
+    DStorageExtImpl(DStorageExt *ext, DeviceInterface *self);
     void compress(const void *data, size_t size_bytes,
                   Compression algorithm,
                   CompressionQuality quality,

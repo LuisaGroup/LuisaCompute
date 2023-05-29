@@ -19,7 +19,7 @@ void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     RWResource::dispose(handle);
 }
 DeviceInterface *DStorageExtImpl::device() const noexcept {
-    return _impl->device();
+    return _self;
 }
 ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
     auto p = _impl->create_stream_handle(option);
@@ -34,7 +34,7 @@ ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamO
     Device::add_custom_stream(p.handle, std::move(opt));
     return p;
 }
-DStorageExtImpl::DStorageExtImpl(DStorageExt *ext) : _impl{ext} {}
+DStorageExtImpl::DStorageExtImpl(DStorageExt *ext, DeviceInterface *self) : _impl{ext}, _self{self} {}
 
 DStorageExt::PinnedMemoryInfo DStorageExtImpl::pin_host_memory(void *ptr, size_t size_bytes) noexcept {
     auto p = _impl->pin_host_memory(ptr, size_bytes);

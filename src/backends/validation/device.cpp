@@ -37,7 +37,7 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
                 }}});
     }
     if (dstorage_ext) {
-        auto dstorage_impl = new DStorageExtImpl(dstorage_ext);
+        auto dstorage_impl = new DStorageExtImpl(dstorage_ext, this);
         exts.try_emplace(
             DStorageExt::name,
             ExtPtr{
