@@ -389,36 +389,36 @@ template<bool allow_update_expected_metadata>
     return ptx_data;
 }
 
-ShaderCreationInfo CUDADevice::_create_shader(const string &source,
-                                              ShaderOption option,
+ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
+                                              const string &source, const ShaderOption &option,
                                               luisa::span<const char *const> nvrtc_options,
                                               const CUDAShaderMetadata &expected_metadata,
                                               luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept {
 
     // generate a default name if not specified
-    auto uses_user_path = !option.name.empty();
-    if (!uses_user_path) { option.name = luisa::format("kernel_{:016x}.ptx",
+    auto uses_user_path = !name.empty();
+    if (!uses_user_path) { name = luisa::format("kernel_{:016x}.ptx",
                                                        expected_metadata.checksum); }
-    if (!option.name.ends_with(".ptx") &&
-        !option.name.ends_with(".PTX")) { option.name.append(".ptx"); }
+    if (!name.ends_with(".ptx") &&
+        !name.ends_with(".PTX")) { name.append(".ptx"); }
 
     // try disk cache
     auto ptx = [&] {
         luisa::unique_ptr<BinaryStream> ptx_stream;
         if (uses_user_path) {
-            ptx_stream = _io->read_shader_bytecode(option.name);
+            ptx_stream = _io->read_shader_bytecode(name);
         } else if (option.enable_cache) {
-            ptx_stream = _io->read_shader_cache(option.name);
+            ptx_stream = _io->read_shader_cache(name);
         }
         return load_shader_ptx<false>(
-            ptx_stream.get(), option.name, false, expected_metadata);
+            ptx_stream.get(), name, false, expected_metadata);
     }();
 
     // compile if not found in cache
     if (ptx.empty()) {
 #if LUISA_CUDA_DUMP_SOURCE
         luisa::span src_data{reinterpret_cast<const std::byte *>(source.data()), source.size()};
-        auto src_name = luisa::format("{}.cu", option.name);
+        auto src_name = luisa::format("{}.cu", name);
         if (uses_user_path) {
             _io->write_shader_bytecode(src_name, src_data);
         } else if (option.enable_cache) {
@@ -429,9 +429,9 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
         if (!ptx.empty()) {
             luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
             if (uses_user_path) {
-                _io->write_shader_bytecode(option.name, ptx_data);
+                _io->write_shader_bytecode(name, ptx_data);
             } else if (option.enable_cache) {
-                _io->write_shader_cache(option.name, ptx_data);
+                _io->write_shader_cache(name, ptx_data);
             }
         }
     }
@@ -457,7 +457,7 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
             std::move(bound_arguments));
     });
 #ifndef NDEBUG
-    p->set_name(std::move(option.name));
+    p->set_name(std::move(name));
 #endif
     ShaderCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
@@ -472,7 +472,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     Clock clk;
     StringScratch scratch;
     CUDACodegenAST codegen{scratch};
-    codegen.emit(kernel);
+    codegen.emit(kernel, option.native_include);
     LUISA_INFO("Generated CUDA source in {} ms.", clk.toc());
 
     // process bound arguments
@@ -559,7 +559,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
     };
-    return _create_shader(scratch.string(), option, nvrtc_options,
+    return _create_shader(option.name, scratch.string(),
+                          option, nvrtc_options,
                           metadata, std::move(bound_arguments));
 }
 

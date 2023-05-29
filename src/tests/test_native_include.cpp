@@ -33,7 +33,12 @@ float2 get_uv(float2 coord, float2 size){
 }
     )";
     } else if (device_name == "cuda") {
-        // TODO
+        // native CUDA code
+        option.native_include = R"(
+[[nodiscard]] __device__ inline auto get_uv(lc_float2 coord, lc_float2 size) noexcept {
+    return (coord + .5f) / size;
+}
+    )";
     } else if (device_name == "metal") {
         // TODO
     }

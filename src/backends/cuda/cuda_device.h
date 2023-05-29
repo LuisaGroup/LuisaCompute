@@ -98,16 +98,14 @@ private:
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
 
 private:
-    [[nodiscard]] ShaderCreationInfo _create_shader(const string &source,
-                                                    ShaderOption option,
+    [[nodiscard]] ShaderCreationInfo _create_shader(luisa::string name,
+                                                    const string &source, const ShaderOption &option,
                                                     luisa::span<const char *const> nvrtc_options,
                                                     const CUDAShaderMetadata &expected_metadata,
                                                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
 
 public:
-    CUDADevice(Context &&ctx,
-               size_t device_id,
-               const BinaryIO *io) noexcept;
+    CUDADevice(Context &&ctx, size_t device_id, const BinaryIO *io) noexcept;
     ~CUDADevice() noexcept override;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
     template<typename F>

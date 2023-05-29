@@ -27,7 +27,7 @@ namespace detail {
                     call->op() == CallOp::GRADIENT ||
                     call->op() == CallOp::GRADIENT_MARKER ||
                     call->op() == CallOp::REQUIRES_GRADIENT) {
-                    LUISA_ASSERT(call->arguments().size() >= 1u &&
+                    LUISA_ASSERT(!call->arguments().empty() &&
                                      call->arguments().front()->tag() == Expression::Tag::REF,
                                  "Invalid gradient function call.");
                     auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
@@ -767,6 +767,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
+        case CallOp::EXTERNAL: _scratch << expr->external()->name(); break;
         case CallOp::ALL: _scratch << "lc_all"; break;
         case CallOp::ANY: _scratch << "lc_any"; break;
         case CallOp::SELECT: _scratch << "lc_select"; break;
@@ -1114,7 +1115,7 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void CUDACodegenAST::emit(Function f) {
+void CUDACodegenAST::emit(Function f, luisa::string_view native_include) {
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
@@ -1134,6 +1135,13 @@ void CUDACodegenAST::emit(Function f) {
              << f.block_size().y << ", "
              << f.block_size().z << ")\n\n"
              << "#include \"device_library.h\"\n\n";
+
+    if (!native_include.empty()) {
+        _scratch << "/* native include begin */\n\n"
+                 << native_include
+                 << "\n/* native include end */\n\n";
+    }
+
     _emit_type_decl(f);
     _emit_function(f);
 }

@@ -80,7 +80,7 @@ private:
 public:
     explicit CUDACodegenAST(StringScratch &scratch) noexcept;
     ~CUDACodegenAST() noexcept override;
-    void emit(Function f);
+    void emit(Function f, luisa::string_view native_include);
 };
 
 }// namespace luisa::compute::cuda
