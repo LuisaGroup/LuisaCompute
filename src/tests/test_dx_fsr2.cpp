@@ -147,8 +147,8 @@ public:
         dispatch_params.output = get_image_resource(context, upscale_setup->resolved_color_resource, L"FSR2_OutputUpscaledColor", FFX_RESOURCE_STATE_UNORDERED_ACCESS);
         dispatch_params.jitterOffset.x = jitter.x;
         dispatch_params.jitterOffset.y = jitter.y;
-        dispatch_params.motionVectorScale.x = (float)render_size.x;
-        dispatch_params.motionVectorScale.y = (float)render_size.y;
+        dispatch_params.motionVectorScale.x = -(float)render_size.x;
+        dispatch_params.motionVectorScale.y = -(float)render_size.y;
         dispatch_params.reset = false;
         dispatch_params.enableSharpening = sharpness > 1e-5;
         dispatch_params.sharpness = sharpness;
@@ -157,8 +157,8 @@ public:
         dispatch_params.renderSize.width = render_size.x;
         dispatch_params.renderSize.height = render_size.y;
         // depth inverted
-        dispatch_params.cameraFar = upscale_setup->cam.near_plane;
         dispatch_params.cameraNear = upscale_setup->cam.far_plane;
+        dispatch_params.cameraFar = upscale_setup->cam.near_plane;
         dispatch_params.cameraFovAngleVertical = upscale_setup->cam.fov;
     }
     StreamTag stream_tag() const noexcept override {
@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device("dx");
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     constexpr uint32_t display_width = 1024, display_height = 1024;
-    constexpr uint32_t render_width = display_width / 4, render_height = display_height / 4;
+    constexpr uint32_t render_width = display_width / 2, render_height = display_height / 2;
     const uint2 display_resolution{display_width, display_height};
     const uint2 render_resolution{render_width, render_height};
     Kernel2D clear_kernel = [](ImageVar<float> image) {
@@ -235,6 +235,8 @@ int main(int argc, char *argv[]) {
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build();
     }
+    uint cube_inst = static_cast<uint>(meshes.size() - 3u);
+    uint tall_inst = static_cast<uint>(meshes.size() - 2u);
 
     Accel accel = device.create_accel({});
     for (Mesh &m : meshes) {
@@ -304,98 +306,56 @@ int main(int argc, char *argv[]) {
     Callable balanced_heuristic = [](Float pdf_a, Float pdf_b) noexcept {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
-
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, AccelVar accel, UInt2 resolution, Float4x4 inverse_vp, Float4x4 vp, Float2 jitter) noexcept {
+    Callable aces_tonemapping = [](Float3 x) noexcept {
+        static constexpr float a = 2.51f;
+        static constexpr float b = 0.03f;
+        static constexpr float c = 2.43f;
+        static constexpr float d = 0.59f;
+        static constexpr float e = 0.14f;
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
+    };
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, ImageFloat mv_tex, AccelVar accel, Float4x4 inverse_vp, Float4x4 vp, Float2 jitter, BufferVar<float4x4> last_obj_mats) noexcept {
         set_block_size(16u, 16u, 1u);
         UInt2 coord = dispatch_id().xy();
+        UInt2 resolution = dispatch_size().xy();
         UInt state = seed_image.read(coord).x;
         Float2 pixel = (make_float2(coord) + 0.5f + jitter * -1.0f) / make_float2(resolution.x.cast<float>(), resolution.y.cast<float>()) * 2.0f - 1.0f;
 
-        Float3 radiance = def(make_float3(0.0f));
-        Float depth_value = 0.0f;
+        Float3 radiance;
+        Float2 mv;
+        Float depth_value;
         Float4 dst_pos = inverse_vp * make_float4(pixel, 0.5f, 1.0f);
         dst_pos /= dst_pos.w;
-        Var<Ray> ray = make_ray(cam_origin, normalize(dst_pos.xyz() - cam_origin), 1e-3f, 1000.0f);
+        Var<Ray> ray = make_ray(cam_origin, normalize(dst_pos.xyz() - cam_origin), 0.3f, 1000.0f);
         Float3 beta = def(make_float3(1.0f));
         Float pdf_bsdf = def(0.0f);
-        constexpr float3 light_position = make_float3(-0.24f, 1.98f, 0.16f);
-        constexpr float3 light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
-        constexpr float3 light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
-        constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
-        Float light_area = length(cross(light_u, light_v));
-        Float3 light_normal = normalize(cross(light_u, light_v));
-        $for(depth, 10u) {
-            // trace
-            Var<TriangleHit> hit = accel.trace_closest(ray);
-            $if(hit->miss()) { $break; };
+        // trace
+        Var<TriangleHit> hit = accel.trace_closest(ray);
+        $if(!hit->miss()) {
             Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
             Float3 p0 = vertex_buffer->read(triangle.i0);
             Float3 p1 = vertex_buffer->read(triangle.i1);
             Float3 p2 = vertex_buffer->read(triangle.i2);
-            Float3 p = hit->interpolate(p0, p1, p2);
-            $if(depth == 0) {
-                Float4 proj_pos = vp * make_float4(p, 1.0f);
-                depth_value = proj_pos.z / proj_pos.w;
-            };
-            Float3 n = normalize(cross(p1 - p0, p2 - p0));
-            Float cos_wi = dot(-ray->direction(), n);
-            $if(cos_wi < 1e-4f) { $break; };
-
-            // hit light
-            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                $if(depth == 0u) {
-                    radiance += light_emission;
-                }
-                $else {
-                    Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
-                    Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                    radiance += mis_weight * beta * light_emission;
-                };
-                $break;
-            };
-
-            // sample light
-            Float ux_light = lcg(state);
-            Float uy_light = lcg(state);
-            Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
-            Float3 pp = offset_ray_origin(p, n);
-            Float3 pp_light = offset_ray_origin(p_light, light_normal);
-            Float d_light = distance(pp, pp_light);
-            Float3 wi_light = normalize(pp_light - pp);
-            Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-            Bool occluded = accel.trace_any(shadow_ray);
-            Float cos_wi_light = dot(wi_light, n);
-            Float cos_light = -dot(light_normal, wi_light);
-            Float3 albedo = materials.read(hit.inst);
-            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                Float pdf_light = (d_light * d_light) / (light_area * cos_light);
-                Float pdf_bsdf = cos_wi_light * inv_pi;
-                Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                Float3 bsdf = albedo * inv_pi * cos_wi_light;
-                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-            };
-
-            // sample BSDF
-            Var<Onb> onb = make_onb(n);
-            Float ux = lcg(state);
-            Float uy = lcg(state);
-            Float3 new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
-            ray = make_ray(pp, new_direction);
-            beta *= albedo;
-            pdf_bsdf = cos_wi * inv_pi;
-
-            // rr
-            Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-            $if(l == 0.0f) { $break; };
-            Float q = max(l, 0.05f);
-            Float r = lcg(state);
-            $if(r >= q) { $break; };
-            beta *= 1.0f / q;
+            Float3 local_pos = hit->interpolate(p0, p1, p2);
+            Float3 world_pos = (accel.instance_transform(hit.inst) * make_float4(local_pos, 1.f)).xyz();
+            Float4 proj_pos = vp * make_float4(world_pos, 1.0f);
+            depth_value = proj_pos.z / proj_pos.w;
+            Float4x4 last_obj_mat = last_obj_mats.read(hit.inst);
+            Float4 last_world_pos = last_obj_mat * make_float4(local_pos, 1.f);
+            Float4 last_proj_pos = vp * last_world_pos;
+            Float2 last_uv = (last_proj_pos.xy() / last_proj_pos.w) * 0.5f + 0.5f;
+            Float2 curr_uv = (proj_pos.xy() / proj_pos.w) * 0.5f + 0.5f;
+            mv = curr_uv - last_uv;
+            UInt color_seed = tea(hit.inst, hit.prim);
+            radiance.x = lcg(color_seed);
+            radiance.y = lcg(color_seed);
+            radiance.z = lcg(color_seed);
+            radiance = aces_tonemapping(radiance);
         };
         seed_image.write(coord, make_uint4(state));
-        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance * 2.5f, 0.0f, 30.0f), 1.0f));
-        depth_image.write(dispatch_id().xy(), make_float4(depth_value));
+        image.write(coord, make_float4(radiance, 1.f));
+        depth_image.write(coord, make_float4(depth_value));
+        mv_tex.write(coord, make_float4(mv, 0.f, 0.f));
     };
     constexpr uint tex_heap_index = 42;
     Kernel2D bilinear_upscaling_kernel = [&](Var<BindlessArray> heap, ImageVar<float> img) {
@@ -403,20 +363,27 @@ int main(int argc, char *argv[]) {
         Float2 uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
         img.write(coord, make_float4(heap.tex2d(tex_heap_index).sample(uv).xyz(), 1.0f));
     };
+    Kernel1D set_obj_mat_kernel = [&](BufferVar<float4x4> buffer, AccelVar accel) {
+        UInt coord = dispatch_id().x;
+        buffer.write(coord, accel.instance_transform(coord));
+    };
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
     auto bilinear_upscaling_shader = device.compile(bilinear_upscaling_kernel);
+    auto set_obj_mat_shader = device.compile(set_obj_mat_kernel);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, render_resolution);
+    Buffer<float4x4> last_obj_mat = device.create_buffer<float4x4>(meshes.size());
+
     stream << make_sampler_shader(seed_image).dispatch(render_resolution);
     float4x4 view = inverse(translation(cam_origin) * rotation(make_float3(1, 0, 0), pi));
-    float4x4 proj = perspective_lh(fov, 1, 1000.0f, 1e-3f);
+    float4x4 proj = perspective_lh(fov, 1, 1000.0f, 0.3f);
     float4x4 view_proj = proj * view;
     float4x4 inverse_vp = inverse(view_proj);
     ///////////////////////////// Path Tracing
     FfxFsr2Context fsr2_context;
     FfxFsr2ContextDescription fsr2_desc{
         // depth is inverted
-        .flags = FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FSR2_ENABLE_DEPTH_INVERTED,
+        .flags = FFX_FSR2_ENABLE_DEPTH_INVERTED,
         .maxRenderSize = FfxDimensions2D{render_width, render_height},
         .displaySize = FfxDimensions2D{display_width, display_height},
         .device = device.impl()->native_handle(),
@@ -434,7 +401,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         display_resolution,
-        false, false, 3)};
+        false)};
     UpscaleSetup upload_setup;
     upload_setup.unresolved_color_resource = device.create_image<float>(
         PixelStorage::BYTE4,
@@ -457,22 +424,30 @@ int main(int argc, char *argv[]) {
     const uint jitter_phase_count = ffxFsr2GetJitterPhaseCount(render_width, display_width);
     float sharpness = 0.05f;
     uint frame_count = 0;
-    stream << heap.update() << accel.build();
+    stream << heap.update() << accel.update_instance_buffer() << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
     bool use_fsr2 = true;
     window.set_key_callback([&](Key key, KeyModifiers modifiers, Action action) {
         if (action == Action::ACTION_PRESSED) {
-            if (key == Key::KEY_SPACE) {
-                use_fsr2 = !use_fsr2;
+            switch (key) {
+                case Key::KEY_SPACE:
+                    use_fsr2 = !use_fsr2;
+                    break;
             }
         }
     });
+    double time = 0;
     while (!window.should_close()) {
+        float4x4 t = translation(make_float3(0.f, 0.25f + (sin(time * 0.003f) * 0.5f + 0.5f) * 0.5f, 0.f));
+        accel.set_transform_on_update(tall_inst, t);
+        t = rotation(make_float3(0, 1, 0), time * 0.001f);
+        accel.set_transform_on_update(cube_inst, t);
         window.poll_events();
         delta_time = clk.toc();
+        time += delta_time;
         clk.tic();
         CommandList cmdlist{};
         float2 jitter;
-        upload_setup.cam.near_plane = 1e-3f;
+        upload_setup.cam.near_plane = 0.3f;
         upload_setup.cam.far_plane = 1000.f;
         upload_setup.cam.fov = fov;
         upload_setup.cam.reset = (frame_count == 0);
@@ -481,11 +456,19 @@ int main(int argc, char *argv[]) {
             jitter = float2{};
         }
         cmdlist
-            << clear(upload_setup.unresolved_color_resource)
-            << clear(upload_setup.motionvector_resource)
-            << clear(upload_setup.depthbuffer_resource)
-            << raytracing_shader(upload_setup.unresolved_color_resource, seed_image, upload_setup.depthbuffer_resource, accel, render_resolution, inverse_vp, view_proj, jitter)
-                   .dispatch(render_resolution);
+            << accel.build()
+            << raytracing_shader(
+                   upload_setup.unresolved_color_resource,
+                   seed_image,
+                   upload_setup.depthbuffer_resource,
+                   upload_setup.motionvector_resource,
+                   accel,
+                   inverse_vp,
+                   view_proj, jitter,
+                   last_obj_mat)
+                   .dispatch(render_resolution)
+            << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
+
         if (use_fsr2) {
             cmdlist << luisa::make_unique<FSRCommand>(
                 &fsr2_context,

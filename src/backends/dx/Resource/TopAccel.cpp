@@ -163,6 +163,12 @@ void TopAccel::PreProcessInst(
             tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
     }
+    if (!accelBuffer) {
+        device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
+        if (GenerateNewBuffer(tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
+            topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
+        }
+    }
 }
 
 size_t TopAccel::PreProcess(
