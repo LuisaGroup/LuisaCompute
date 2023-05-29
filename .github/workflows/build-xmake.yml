@@ -35,9 +35,11 @@ jobs:
             sudo apt-get -y install libc++-${{ matrix.toolchain.version }}-dev libc++abi-${{ matrix.toolchain.version }}-dev
           fi
       - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.10
-        with:
-          linux-local-args: '["--toolkit"]'
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+          sudo dpkg -i cuda-keyring_1.0-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda
       - name: "Setup Python"
         uses: actions/setup-python@v4
         with:
