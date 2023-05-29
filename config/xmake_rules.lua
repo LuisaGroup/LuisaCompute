@@ -1,23 +1,39 @@
 -- Add project's include directories
-function add_lc_includedirs(lc_dir, is_public)
-	add_includedirs(
-	--[[spdlog]]
-		path.join(lc_dir, "src/ext/spdlog/include"),
-	--[[mimalloc]]
-		path.join(lc_dir, "src/ext/EASTL/packages/mimalloc/include"),
-	--[[eastl]]
-		path.join(lc_dir, "src/ext/EASTL/include"), path.join(lc_dir, "src/ext/EASTL/packages/EABase/include/Common"),
-	--[[lc-core]]
-		path.join(lc_dir, "src"), path.join(lc_dir, "src/ext/xxHash"), path.join(lc_dir, "src/ext/magic_enum/include"), path.join(lc_dir, "src/ext/parallel-hashmap"), 
-		
-	{
-		public = is_public
-	})
-end
+rule("add_lc_includedirs")
+on_load(function(target)
+	local is_public = target:values("lc_is_public")
+	if is_public == nil then
+		utils.error("'lc_is_public' must be set before call add_lc_includedirs")
+		return
+	end
+	local lc_dir = target:values("lc_dir") or false
+	if not lc_dir then
+		utils.error("'lc_dir' must be set before call add_lc_includedirs")
+		return
+	end
+	target:add("includedirs", 
+		--[[spdlog]]
+		path.join(lc_dir,"src/ext/spdlog/include"),
+		--[[mimalloc]]
+		path.join(lc_dir,"src/ext/EASTL/packages/mimalloc/include"),
+		--[[eastl]]
+		path.join(lc_dir,"src/ext/EASTL/include"), path.join(lc_dir,"src/ext/EASTL/packages/EABase/include/Common"),
+		--[[lc-core]]
+		path.join(lc_dir,"src"), path.join(lc_dir,"src/ext/xxHash"), path.join(lc_dir,"src/ext/magic_enum/include"), path.join(lc_dir,"src/ext/parallel-hashmap"),
+		{
+			public = is_public
+		})
+end)
+rule_end()
 
--- Add project's defines
-function add_lc_defines(lc_dir, is_public)
-	add_defines(
+rule("add_lc_defines")
+on_load(function(target)
+	local is_public = target:values("lc_is_public") or false
+	if is_public == nil then
+		utils.error("'lc_is_public' must be set before call add_lc_defines")
+		return
+	end
+	target:add("defines", 
 	--[[spdlog]]
 		"SPDLOG_NO_EXCEPTIONS", "SPDLOG_NO_THREAD_ID", "SPDLOG_DISABLE_DEFAULT_LOGGER",
 		"FMT_SHARED", "SPDLOG_SHARED_LIB", "FMT_CONSTEVAL=constexpr", "FMT_USE_CONSTEXPR=1",
@@ -34,8 +50,8 @@ function add_lc_defines(lc_dir, is_public)
 		"EASTL_MOVE_SEMANTICS_ENABLED", "EASTL_VARIADIC_TEMPLATES_ENABLED", "EASTL_VARIABLE_TEMPLATES_ENABLED",
 		"EASTL_INLINE_VARIABLE_ENABLED", "EASTL_HAVE_CPP11_TYPE_TRAITS", "EASTL_INLINE_NAMESPACES_ENABLED",
 		"EASTL_ALLOCATOR_EXPLICIT_ENABLED", "EA_DLL", "EASTL_USER_DEFINED_ALLOCATOR",
-		
 	{
 		public = is_public
 	})
-end
+end)
+rule_end()

@@ -7,6 +7,7 @@
 #include <vstl/pdqsort.h>
 #include <core/dynamic_module.h>
 #include <core/logging.h>
+#include <ast/external_function.h>
 namespace lc::hlsl {
 struct RegisterIndexer {
     virtual void init() = 0;
