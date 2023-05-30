@@ -1,8 +1,4 @@
 target("lcapi")
-local my_table = {
-	project_kind = "shared",
-	enable_exception = true
-}
 on_load(function(target)
 	local function split_str(str, chr, func)
 		for part in string.gmatch(str, "([^" .. chr .. "]+)") do
@@ -25,11 +21,17 @@ on_load(function(target)
 			target:add("links", v)
 		end)
 	end
+	local function rela(p)
+		return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
+	end
+	target:add("includedirs", rela("../ext/stb/"), rela("../ext/pybind11/include"))
 end)
 
-_config_project(my_table)
+_config_project({
+	project_kind = "shared",
+	enable_exception = true
+})
 add_files("*.cpp")
-add_includedirs("../ext/stb/", "../ext/pybind11/include")
 add_deps("lc-runtime", "lc-gui")
 after_build(function(target)
 	if is_plat("windows") then
