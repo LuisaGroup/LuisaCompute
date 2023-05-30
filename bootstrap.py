@@ -761,11 +761,11 @@ def parse_cli_args(args):
         parsed_args['mode'] = 'reldbg'
         positional_args.remove('reldbg')
 
-    if 'ignore_submod' in positional_args:
-        parsed_args['ignore_submod'] = True
-        positional_args.remove('ignore_submod')
+    if 'ignore-submodules' in positional_args:
+        parsed_args['ignore-submodules'] = True
+        positional_args.remove('ignore-submodules')
     else:
-        parsed_args['ignore_submod'] = False
+        parsed_args['ignore-submodules'] = False
 
     if positional_args:
         print_red(f'Invalid positional arguments: {positional_args}')
@@ -875,7 +875,7 @@ def parse_cli_args(args):
         if keyword_args['ignore-submodules']:
             print_red(
                 f'"--ignore-submodules" requires no arguments. The specified value(s) {keyword_args["ignore-submodules"]} will be ignored.')
-        parsed_args['ignore_submodules'] = True
+        parsed_args['ignore-submodules'] = True
 
     if 'skip-installed' in keyword_args:
         if keyword_args['skip-installed']:
