@@ -293,7 +293,7 @@ void CppSourceBuilder::_collect_phis(const ir::BasicBlock *bb) noexcept {
                 break;
             }
             default: break;
-        }
+        }   
     });
 }
 
