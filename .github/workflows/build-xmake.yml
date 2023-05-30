@@ -11,8 +11,8 @@ jobs:
         toolchain:
           - { name: gcc, version: 11 }
           - { name: gcc, version: 12 }
-          - { name: clang, version: 14 }
-          - { name: clang, version: 15 }
+          - { name: llvm, version: 14 }
+          - { name: llvm, version: 15 }
         # - { name: clang, version: 16 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
@@ -92,7 +92,7 @@ jobs:
       matrix:
         os: [ 2019, 2022 ]
         config: [ release, debug ]
-        compiler: [ msvc, clang, clang-cl ]
+        compiler: [ msvc, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: windows-${{ matrix.os }}
     steps:
