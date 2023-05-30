@@ -11,8 +11,8 @@ jobs:
         toolchain:
           - { name: gcc, version: 11 }
           - { name: gcc, version: 12 }
-          - { name: llvm, version: 14 }
-          - { name: llvm, version: 15 }
+          - { name: clang, version: 14 }
+          - { name: clang, version: 15 }
         # - { name: clang, version: 16 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
@@ -56,7 +56,7 @@ jobs:
           xmake-version: latest
       - name: "Configure and Build"
         run: |
-          xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --cuda=$CUDA_PATH --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
 
   build-macos:
@@ -64,7 +64,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-12, macos-13 ]
-        compiler: [ homebrew-clang, system-clang ]
+        compiler: [ homebrew-, system-clang ]
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
