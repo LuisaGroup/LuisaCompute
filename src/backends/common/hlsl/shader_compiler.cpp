@@ -89,10 +89,11 @@ template<typename Vec>
 static void AddCompileFlags(Vec &args) {
     vstd::push_back_all(
         args,
-        {L"-Gfa",
-         L"-all-resources-bound",
+        {DXC_ARG_AVOID_FLOW_CONTROL,
+         DXC_ARG_ALL_RESOURCES_BOUND,
          L"-no-warnings",
          L"-enable-16bit-types",
+         DXC_ARG_PACK_MATRIX_ROW_MAJOR,
          L"-HV 2021"});
 }
 template<typename Vec>
@@ -131,7 +132,7 @@ CompileResult ShaderCompiler::compile_compute(
         AddUnsafeMathFlags(args);
     }
     if (optimize) {
-        args.emplace_back(L"-O3");
+        args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
     return compile(code, args);
 }
@@ -156,7 +157,7 @@ RasterBin ShaderCompiler::compile_raster(
         AddUnsafeMathFlags(args);
     }
     if (optimize) {
-        args.emplace_back(L"-O3");
+        args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
     args.emplace_back(L"/T");
     auto size = args.size();
@@ -193,7 +194,7 @@ CompileResult ShaderCompiler::CompileRayTracing(
          L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {
-        args.emplace_back(L"-O3");
+        args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
     return compile(code, args);
 }*/

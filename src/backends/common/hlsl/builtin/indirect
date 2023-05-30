@@ -1,5 +1,5 @@
-#define LC_IndirectKernelDispatch uint
-#define LC_IndirectDispatchBuffer RWStructuredBuffer<uint>
+#define _LC_IndirectKernelDispatch uint
+#define _LC_IndirectDispatchBuffer RWStructuredBuffer<uint>
 void _ClearDispInd(RWStructuredBuffer<uint> buffer){buffer[0]=0;}
 void _EmplaceDispInd3D(RWStructuredBuffer<uint> buffer,uint3 blk,uint3 size,uint kid){
 uint idx;

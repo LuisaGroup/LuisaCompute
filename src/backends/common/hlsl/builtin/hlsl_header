@@ -1,5 +1,4 @@
-#pragma pack_matrix(row_major)
-#define INFINITY_f (1.#INF)
+#define _INF_f (1.#INF)
 SamplerState samplers[16]:register(s0,space1);
 template<typename T>
 T _acosh(T v){return log(v+sqrt(v*v-1.0));}

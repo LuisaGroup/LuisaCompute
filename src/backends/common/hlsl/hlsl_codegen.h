@@ -167,7 +167,7 @@ struct PrintValue<float> {
             LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
         }
         if (luisa::isinf(v)) [[unlikely]] {
-            str.append(v < 0.0f ? "(-INFINITY_f)" : "(INFINITY_f)");
+            str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
         } else {
             vstd::to_string(v, str);
         }

@@ -364,7 +364,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "RaytracingAccelerationStructure"sv;
         } break;
         case Type::Tag::CUSTOM: {
-            str << type.description();
+            str << '_' << type.description();
         } break;
         default:
             LUISA_ERROR_WITH_LOCATION("Bad.");

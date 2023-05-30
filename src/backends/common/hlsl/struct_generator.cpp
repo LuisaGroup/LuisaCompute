@@ -112,10 +112,10 @@ StructGenerator::StructGenerator(
       util(util),
       structureType{structureType} {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
-        structName = "S";
+        structName = "_S"sv;
         vstd::to_string(structIdx, structName);
     } else {
-        structName = "A";
+        structName = "_A"sv;
         vstd::to_string(structIdx, structName);
     }
 }
