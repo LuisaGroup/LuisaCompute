@@ -255,7 +255,6 @@ private:
                     ite.first->second.read_layer = std::max<int64_t>(ite.first->second.read_layer, layer);
                 else
                     ite.first->second.read_layer = layer;
-                _write_res_map.erase(src_handle->handle);
             } break;
         }
         return layer;
@@ -282,7 +281,6 @@ private:
                 } else {
                     ite.first->second.read_layer = std::max<int64_t>(ite.first->second.read_layer, layer);
                 }
-                _write_res_map.erase(src_handle->handle);
             } break;
         }
     }
@@ -394,7 +392,6 @@ private:
                         view_ptr->read_layer = layer;
                     };
                 }
-                _write_res_map.erase(src_handle->handle);
             } break;
         }
 
