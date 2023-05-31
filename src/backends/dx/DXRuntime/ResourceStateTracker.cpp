@@ -4,19 +4,21 @@
 namespace lc::dx {
 namespace detail {
 static bool IsReadState(D3D12_RESOURCE_STATES state) {
-    switch (state) {
-        case D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER:
-        case D3D12_RESOURCE_STATE_INDEX_BUFFER:
-        case D3D12_RESOURCE_STATE_DEPTH_READ:
-        case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
-        case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
-        case D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT:
-        case D3D12_RESOURCE_STATE_COPY_SOURCE:
-        case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
-            return true;
-        default:
-            return false;
-    }
+    constexpr auto read_state =
+        D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER |
+        D3D12_RESOURCE_STATE_INDEX_BUFFER |
+        D3D12_RESOURCE_STATE_DEPTH_READ |
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+        D3D12_RESOURCE_STATE_STREAM_OUT |
+        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT |
+        D3D12_RESOURCE_STATE_COPY_SOURCE |
+        D3D12_RESOURCE_STATE_RESOLVE_SOURCE |
+        D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE |
+        D3D12_RESOURCE_STATE_VIDEO_DECODE_READ |
+        D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ |
+        D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ;
+    return (state & read_state) != 0;
 }
 static bool IsUAV(D3D12_RESOURCE_STATES state) {
     switch (state) {
@@ -48,7 +50,7 @@ D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const 
     if (iter != stateMap.end()) {
         return iter->second.curState;
     }
-        return res->GetInitState();
+    return res->GetInitState();
 }
 ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;
@@ -63,7 +65,7 @@ void ResourceStateTracker::RecordState(
             if (isWrite) {
                 writeStateMap.emplace(resource);
             }
-            auto initState= resource->GetInitState();
+            auto initState = resource->GetInitState();
             return State{
                 .fence = lock ? fenceCount : 0,
                 .lastState = initState,

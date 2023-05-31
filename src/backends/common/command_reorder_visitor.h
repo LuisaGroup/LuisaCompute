@@ -34,7 +34,7 @@ concept ReorderFuncTable =
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.shader_bindings(uint64_v))>);
     };
 
-template<ReorderFuncTable FuncTable, bool supportConcurrentCopy>
+template<ReorderFuncTable FuncTable, bool supportConcurrentCopy, size_t fixedVectorSize = 2>
 class CommandReorderVisitor : public CommandVisitor {
 
 public:
@@ -120,7 +120,7 @@ private:
     int64_t _max_mesh_level = -1;
     int64_t _max_accel_read_level = -1;
     int64_t _max_accel_write_level = -1;
-    vstd::vector<vstd::fixed_vector<Command const *, 4>> _cmd_lists;
+    vstd::vector<vstd::fixed_vector<Command const *, fixedVectorSize>> _cmd_lists;
     size_t _layer_count = 0;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
