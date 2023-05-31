@@ -1096,7 +1096,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
                 }
             }
             if (cbufferNonEmpty) {
-                result << "Args a = _Global[0];\n"sv;
+                result << "_Args a = _Global[0];\n"sv;
             }
             opt->arguments.clear();
             opt->arguments.reserve(func.arguments().size());
@@ -1151,7 +1151,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
     GetTypeName(*retType, retName, Usage::READ);
     result << "template<typename T>\n"sv << retName << " vert(T vt){\n"sv;
     if (cBufferNonEmpty) {
-        result << "Args a = _Global[0];\n"sv;
+        result << "_Args a = _Global[0];\n"sv;
     }
     GetTypeName(*args[0].type(), result, Usage::NONE);
     result << " vv;\n"sv;
@@ -1214,7 +1214,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
     GetTypeName(*retType, retName, Usage::READ);
     result << retName << " pixel(v2p p){\n"sv;
     if (cBufferNonEmpty) {
-        result << "Args a = _Global[0];\n"sv;
+        result << "_Args a = _Global[0];\n"sv;
     }
     opt->funcType = CodegenStackData::FuncType::Pixel;
     opt->pixelFirstArgIsStruct = pixel.arguments()[0].type()->is_structure();
@@ -1305,7 +1305,7 @@ bool CodegenUtility::IsCBufferNonEmpty(Function f) {
 void CodegenUtility::GenerateCBuffer(
     std::initializer_list<vstd::IRange<Variable> *> fs,
     vstd::StringBuilder &result) {
-    result << "struct Args{\n"sv;
+    result << "struct _Args{\n"sv;
     size_t align = 0;
     size_t size = 0;
     for (auto &&f : fs) {
@@ -1327,7 +1327,7 @@ void CodegenUtility::GenerateCBuffer(
         size += size_cache;
     }
     result << R"(};
-StructuredBuffer<Args> _Global:register(t0);
+StructuredBuffer<_Args> _Global:register(t0);
 )"sv;
 }
 void CodegenUtility::GenerateBindless(
