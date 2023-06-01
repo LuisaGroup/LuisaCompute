@@ -434,6 +434,8 @@ void MetalDStorageExt::compress(const void *data, size_t size_bytes,
                                 Compression algorithm, CompressionQuality quality,
                                 luisa::vector<std::byte> &result) noexcept {
 
+    // FIXME: need MTLCompressionContext to correctly create the file headers
+
     Clock clk;
 
     if (size_bytes == 0u) {
