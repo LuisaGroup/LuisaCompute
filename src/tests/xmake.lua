@@ -71,26 +71,54 @@ test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
 local enable_fsr2
+local enable_xess
+-- Super-sampling example
+-- For FSR2, you need to clone https://github.com/GPUOpen-Effects/FidelityFX-FSR2 into this directory and compile
+-- For XeSS, you need to clone https://github.com/intel/xess release package into this directory
 -- enable_fsr2 = true
-if get_config("dx_backend") and enable_fsr2 then
-	test_proj("test_dx_fsr2", true, function()
-		add_linkdirs("FidelityFX-FSR2/bin/ffx_fsr2_api")
-		add_syslinks("Advapi32", "User32")
-		if is_mode("debug") then
-			add_links("ffx_fsr2_api_dx12_x64d", "ffx_fsr2_api_x64d")
+-- enable_xess = true
+if get_config("dx_backend") and (enable_fsr2 or enable_xess) then
+	test_proj("test_dx_supersampling", true, function()
+		if enable_fsr2 then
+			set_values("option", 1)
 		else
-			add_links("ffx_fsr2_api_dx12_x64", "ffx_fsr2_api_x64")
+			set_values("option", 2)
 		end
-		add_includedirs("FidelityFX-FSR2/src/ffx-fsr2-api")
+		on_load(function(target)
+			local function rela(p)
+				return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
+			end
+			local option = target:values("option")
+			if option == 1 then
+				target:add("linkdirs", rela("FidelityFX-FSR2/bin/ffx_fsr2_api"))
+				target:add("syslinks", "Advapi32", "User32")
+				if is_mode("debug") then
+					target:add("links", "ffx_fsr2_api_dx12_x64d", "ffx_fsr2_api_x64d")
+				else
+					target:add("links", "ffx_fsr2_api_dx12_x64", "ffx_fsr2_api_x64")
+				end
+				target:add("includedirs", rela("FidelityFX-FSR2/src/ffx-fsr2-api"))
+				target:add("defines", "ENABLE_FSR")
+			elseif option == 2 then
+				target:add("links", rela("xess/lib/libxess"))
+				target:add("includedirs", rela("xess/inc"))
+			end
+		end)
 		after_build(function(target)
 			local bin_dir = target:targetdir()
-			local src_dir = path.join(os.scriptdir(), "FidelityFX-FSR2/bin")
-			if is_mode("debug") then
-				os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64d.dll"), bin_dir)
-				os.cp(path.join(src_dir, "ffx_fsr2_api_x64d.dll"), bin_dir)
+			local option = target:values("option")
+			if option == 1 then
+				local src_dir = path.join(os.scriptdir(), "FidelityFX-FSR2/bin")
+				if is_mode("debug") then
+					os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64d.dll"), bin_dir)
+					os.cp(path.join(src_dir, "ffx_fsr2_api_x64d.dll"), bin_dir)
+				else
+					os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64.dll"), bin_dir)
+					os.cp(path.join(src_dir, "ffx_fsr2_api_x64.dll"), bin_dir)
+				end
 			else
-				os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64.dll"), bin_dir)
-				os.cp(path.join(src_dir, "ffx_fsr2_api_x64.dll"), bin_dir)
+				local src_dir = path.join(os.scriptdir(), "xess/bin")
+				os.cp(path.join(src_dir, "*.dll"), bin_dir)
 			end
 		end)
 	end)

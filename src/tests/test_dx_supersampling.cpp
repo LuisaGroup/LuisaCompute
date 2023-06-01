@@ -11,8 +11,12 @@
 #include <backends/dx/dx_custom_cmd.h>
 // Make sure FSR2 is under this dir
 #include <core/magic_enum.h>
+#ifdef ENABLE_FSR
 #include <ffx_fsr2.h>
 #include <dx12/ffx_fsr2_dx12.h>
+#else
+#include <xess/xess_d3d12.h>
+#endif
 #include <tests/common/cornell_box.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/common/tiny_obj_loader.h>
@@ -50,6 +54,7 @@ struct UpscaleSetup {
     Image<float> transparency_and_composition_resource;// input4
     Image<float> resolved_color_resource;              // output
 };
+#ifdef ENABLE_FSR
 void fsr_assert(FfxErrorCode code) {
     if (code != FFX_OK) [[unlikely]] {
 #define FSR2_LOG(x) LUISA_ERROR("FSR error code: {}", #x)
@@ -149,7 +154,7 @@ public:
         dispatch_params.jitterOffset.y = jitter.y;
         dispatch_params.motionVectorScale.x = -(float)render_size.x;
         dispatch_params.motionVectorScale.y = -(float)render_size.y;
-        dispatch_params.reset = false;
+        dispatch_params.reset = upscale_setup->cam.reset;
         dispatch_params.enableSharpening = sharpness > 1e-5;
         dispatch_params.sharpness = sharpness;
         dispatch_params.frameTimeDelta = delta_time;
@@ -173,17 +178,113 @@ public:
         fsr_assert(ffxFsr2ContextDispatch(context, &dispatch_params));
     }
 };
+#else
+void xess_assert(xess_result_t code) {
+    if (code != XESS_RESULT_SUCCESS) [[unlikely]] {
+#define XESS_LOG(x) LUISA_ERROR("FSR error code: {}", #x)
+        switch (code) {
+            case XESS_RESULT_WARNING_NONEXISTING_FOLDER: XESS_LOG(XESS_RESULT_WARNING_NONEXISTING_FOLDER); break;
+            case XESS_RESULT_WARNING_OLD_DRIVER: XESS_LOG(XESS_RESULT_WARNING_OLD_DRIVER); break;
+            case XESS_RESULT_ERROR_UNSUPPORTED_DEVICE: XESS_LOG(XESS_RESULT_ERROR_UNSUPPORTED_DEVICE); break;
+            case XESS_RESULT_ERROR_UNSUPPORTED_DRIVER: XESS_LOG(XESS_RESULT_ERROR_UNSUPPORTED_DRIVER); break;
+            case XESS_RESULT_ERROR_UNINITIALIZED: XESS_LOG(XESS_RESULT_ERROR_UNINITIALIZED); break;
+            case XESS_RESULT_ERROR_INVALID_ARGUMENT: XESS_LOG(XESS_RESULT_ERROR_INVALID_ARGUMENT); break;
+            case XESS_RESULT_ERROR_DEVICE_OUT_OF_MEMORY: XESS_LOG(XESS_RESULT_ERROR_DEVICE_OUT_OF_MEMORY); break;
+            case XESS_RESULT_ERROR_DEVICE: XESS_LOG(XESS_RESULT_ERROR_DEVICE); break;
+            case XESS_RESULT_ERROR_NOT_IMPLEMENTED: XESS_LOG(XESS_RESULT_ERROR_NOT_IMPLEMENTED); break;
+            case XESS_RESULT_ERROR_INVALID_CONTEXT: XESS_LOG(XESS_RESULT_ERROR_INVALID_CONTEXT); break;
+            case XESS_RESULT_ERROR_OPERATION_IN_PROGRESS: XESS_LOG(XESS_RESULT_ERROR_OPERATION_IN_PROGRESS); break;
+            case XESS_RESULT_ERROR_UNSUPPORTED: XESS_LOG(XESS_RESULT_ERROR_UNSUPPORTED); break;
+            case XESS_RESULT_ERROR_CANT_LOAD_LIBRARY: XESS_LOG(XESS_RESULT_ERROR_CANT_LOAD_LIBRARY); break;
+            case XESS_RESULT_ERROR_UNKNOWN: XESS_LOG(XESS_RESULT_ERROR_UNKNOWN); break;
+        }
+#undef XESS_LOG
+    }
+}
+// From official sample
+struct XessJitter {
+    luisa::vector<float2> halton_samples;
+    size_t jitter_index = 0;
+    float get_corput(uint index, uint base) {
+        float result = 0;
+        float bk = 1.f;
+        while (index > 0) {
+            bk /= (float)base;
+            result += (float)(index % base) * bk;
+            index /= base;
+        }
+        return result;
+    }
 
+    void generate_halton(uint base1, uint base2,
+                         uint start_index, uint count, float offset1, float offset2) {
+        halton_samples.reserve(count);
+        for (uint a = start_index; a < count + start_index; ++a) {
+            halton_samples.emplace_back(get_corput(a, base1) + offset1, get_corput(a, base2) + offset2);
+        }
+    }
+
+    XessJitter() {
+        jitter_index = 0;
+        halton_samples.clear();
+        generate_halton(2, 3, 1, 32, -0.5f, -0.5f);
+    }
+
+    void reset() {
+        jitter_index = 0;
+    }
+
+    void frame_move() {
+        jitter_index = (jitter_index + 1) % halton_samples.size();
+    }
+    float2 get_jitter_values() const {
+        return halton_samples[jitter_index];
+    }
+};
+class XessCommand : public DXCustomCmd {
+public:
+    xess_context_handle_t xess_context{};
+    xess_d3d12_execute_params_t exec_params{};
+    ID3D12Resource *get_resource(Image<float> const &img, D3D12_RESOURCE_STATES state) {
+        resource_usages.emplace_back(Argument::Texture{img.handle(), 0}, state);
+        return reinterpret_cast<ID3D12Resource *>(img.native_handle());
+    }
+    XessCommand(
+        xess_context_handle_t xess_context,
+        UpscaleSetup *upscale_setup,
+        float2 jitter,
+        float sharpness,
+        float delta_time) : xess_context{xess_context} {
+        exec_params.pColorTexture = get_resource(upscale_setup->unresolved_color_resource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        exec_params.pVelocityTexture = get_resource(upscale_setup->motionvector_resource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        exec_params.pDepthTexture = get_resource(upscale_setup->depthbuffer_resource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        exec_params.pOutputTexture = get_resource(upscale_setup->resolved_color_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        exec_params.jitterOffsetX = jitter.x;
+        exec_params.jitterOffsetY = jitter.y;
+        exec_params.exposureScale = 1;
+        exec_params.resetHistory = upscale_setup->cam.reset;
+        auto input_size = upscale_setup->unresolved_color_resource.size();
+        exec_params.inputWidth = input_size.x;
+        exec_params.inputHeight = input_size.y;
+    }
+    StreamTag stream_tag() const noexcept override {
+        return StreamTag::COMPUTE;
+    }
+    void execute(
+        IDXGIAdapter1 *adapter,
+        IDXGIFactory4 *dxgi_factory,
+        ID3D12Device *device,
+        ID3D12GraphicsCommandList4 *command_list) const noexcept override {
+        xess_assert(xessD3D12Execute(xess_context, command_list, &exec_params));
+    }
+};
+#endif
 int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
     Device device = context.create_device("dx");
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
-    constexpr uint32_t display_width = 1024, display_height = 1024;
-    constexpr uint32_t render_width = display_width / 2, render_height = display_height / 2;
-    const uint2 display_resolution{display_width, display_height};
-    const uint2 render_resolution{render_width, render_height};
     Kernel2D clear_kernel = [](ImageVar<float> image) {
         image.write(dispatch_id().xy(), make_float4(0, 0, 0, 0));
     };
@@ -221,7 +322,7 @@ int main(int argc, char *argv[]) {
     luisa::vector<Buffer<Triangle>> triangle_buffers;
     for (auto &&shape : obj_reader.GetShapes()) {
         uint index = static_cast<uint>(meshes.size());
-        std::vector<tinyobj::index_t> const &t = shape.mesh.indices;
+        auto const &t = shape.mesh.indices;
         uint triangle_count = t.size() / 3u;
         LUISA_INFO(
             "Processing shape '{}' at index {} with {} triangle(s).",
@@ -314,7 +415,7 @@ int main(int argc, char *argv[]) {
         static constexpr float e = 0.14f;
         return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
     };
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, ImageFloat mv_tex, AccelVar accel, Float4x4 inverse_vp, Float4x4 vp, Float2 jitter, BufferVar<float4x4> last_obj_mats) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, ImageFloat depth_image, ImageFloat mv_tex, AccelVar accel, Float4x4 inverse_vp, Float4x4 vp, Float2 jitter, BufferVar<float4x4> last_obj_mats, Float2 motion_vectors_scale) noexcept {
         set_block_size(16u, 16u, 1u);
         UInt2 coord = dispatch_id().xy();
         UInt2 resolution = dispatch_size().xy();
@@ -346,6 +447,7 @@ int main(int argc, char *argv[]) {
             Float2 last_uv = (last_proj_pos.xy() / last_proj_pos.w) * 0.5f + 0.5f;
             Float2 curr_uv = (proj_pos.xy() / proj_pos.w) * 0.5f + 0.5f;
             mv = curr_uv - last_uv;
+            mv *= motion_vectors_scale;
             UInt color_seed = tea(hit.inst, hit.prim);
             radiance.x = lcg(color_seed);
             radiance.y = lcg(color_seed);
@@ -357,7 +459,7 @@ int main(int argc, char *argv[]) {
         depth_image.write(coord, make_float4(depth_value));
         mv_tex.write(coord, make_float4(mv, 0.f, 0.f));
     };
-    constexpr uint tex_heap_index = 42;
+    constexpr uint tex_heap_index = 0;
     Kernel2D bilinear_upscaling_kernel = [&](Var<BindlessArray> heap, ImageVar<float> img) {
         UInt2 coord = dispatch_id().xy();
         Float2 uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
@@ -367,19 +469,13 @@ int main(int argc, char *argv[]) {
         UInt coord = dispatch_id().x;
         buffer.write(coord, accel.instance_transform(coord));
     };
-    auto raytracing_shader = device.compile(raytracing_kernel);
-    auto make_sampler_shader = device.compile(make_sampler_kernel);
-    auto bilinear_upscaling_shader = device.compile(bilinear_upscaling_kernel);
-    auto set_obj_mat_shader = device.compile(set_obj_mat_kernel);
-    Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, render_resolution);
-    Buffer<float4x4> last_obj_mat = device.create_buffer<float4x4>(meshes.size());
-
-    stream << make_sampler_shader(seed_image).dispatch(render_resolution);
-    float4x4 view = inverse(translation(cam_origin) * rotation(make_float3(1, 0, 0), pi));
-    float4x4 proj = perspective_lh(fov, 1, 1000.0f, 0.3f);
-    float4x4 view_proj = proj * view;
-    float4x4 inverse_vp = inverse(view_proj);
     ///////////////////////////// Path Tracing
+    uint render_width;
+    uint render_height;
+    constexpr uint display_width = 1024, display_height = 1024;
+    const uint2 display_resolution{display_width, display_height};
+    luisa::string window_name;
+#ifdef ENABLE_FSR
     FfxFsr2Context fsr2_context;
     FfxFsr2ContextDescription fsr2_desc{
         // depth is inverted
@@ -396,7 +492,41 @@ int main(int argc, char *argv[]) {
         scratch_buffer.data(),
         scratch_buffer.size()));
     fsr_assert(ffxFsr2ContextCreate(&fsr2_context, &fsr2_desc));
-    Window window{"FSR2 Path Tracing", display_resolution};
+    const uint jitter_phase_count = ffxFsr2GetJitterPhaseCount(render_width, display_width);
+    render_width = display_width / 2;
+    render_height = display_height / 2;
+    window_name = "FSR2";
+#else
+    XessJitter xess_jitter;
+    xess_context_handle_t xess_context;
+    xess_d3d12_init_params_t xess_init_params{};
+    xess_assert(xessD3D12CreateContext(reinterpret_cast<ID3D12Device *>(device.impl()->native_handle()), &xess_context));
+    xess_init_params.outputResolution = {display_width, display_height};
+    xess_init_params.qualitySetting = XESS_QUALITY_SETTING_PERFORMANCE;
+    xess_init_params.initFlags = XESS_INIT_FLAG_INVERTED_DEPTH;
+    xess_2d_t output_res{display_width, display_height};
+    xess_2d_t input_res{};
+    xessGetInputResolution(xess_context, &output_res, xess_init_params.qualitySetting, &input_res);
+    render_width = input_res.x;
+    render_height = input_res.y;
+    xess_assert(xessD3D12Init(xess_context, &xess_init_params));
+    window_name = "XeSS";
+#endif
+    const uint2 render_resolution{render_width, render_height};
+
+    auto raytracing_shader = device.compile(raytracing_kernel);
+    auto make_sampler_shader = device.compile(make_sampler_kernel);
+    auto bilinear_upscaling_shader = device.compile(bilinear_upscaling_kernel);
+    auto set_obj_mat_shader = device.compile(set_obj_mat_kernel);
+    Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, render_resolution);
+    Buffer<float4x4> last_obj_mat = device.create_buffer<float4x4>(meshes.size());
+
+    stream << make_sampler_shader(seed_image).dispatch(render_resolution);
+    float4x4 view = inverse(translation(cam_origin) * rotation(make_float3(1, 0, 0), pi));
+    float4x4 proj = perspective_lh(fov, 1, 1000.0f, 0.3f);
+    float4x4 view_proj = proj * view;
+    float4x4 inverse_vp = inverse(view_proj);
+    Window window{window_name, display_resolution};
     SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
@@ -421,18 +551,19 @@ int main(int argc, char *argv[]) {
     heap.emplace_on_update(tex_heap_index, upload_setup.unresolved_color_resource, Sampler::linear_point_edge());
     float delta_time{};
     Clock clk;
-    const uint jitter_phase_count = ffxFsr2GetJitterPhaseCount(render_width, display_width);
     float sharpness = 0.05f;
     uint frame_count = 0;
     stream << heap.update() << accel.update_instance_buffer() << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
-    bool use_fsr2 = true;
+    bool use_super_sampling = true;
+    float2 mv_scale{};
+    bool reset = true;
     window.set_key_callback([&](Key key, KeyModifiers modifiers, Action action) {
-        if (action == Action::ACTION_PRESSED) {
-            switch (key) {
-                case Key::KEY_SPACE:
-                    use_fsr2 = !use_fsr2;
-                    break;
-            }
+        if (action != Action::ACTION_PRESSED) return;
+        switch (key) {
+            case Key::KEY_SPACE:
+                use_super_sampling = !use_super_sampling;
+                reset = true;
+                break;
         }
     });
     double time = 0;
@@ -450,9 +581,18 @@ int main(int argc, char *argv[]) {
         upload_setup.cam.near_plane = 0.3f;
         upload_setup.cam.far_plane = 1000.f;
         upload_setup.cam.fov = fov;
-        upload_setup.cam.reset = (frame_count == 0);
-        fsr_assert(ffxFsr2GetJitterOffset(&jitter.x, &jitter.y, frame_count++, jitter_phase_count));
-        if (!use_fsr2) {
+        upload_setup.cam.reset = reset;
+        reset = false;
+#ifdef ENABLE_FSR
+        fsr_assert(ffxFsr2GetJitterOffset(&jitter.x, &jitter.y, frame_count, jitter_phase_count));
+        mv_scale = float2{1, 1};
+#else
+        jitter = xess_jitter.get_jitter_values();
+        xess_jitter.frame_move();
+        mv_scale = float2{-1, -1} * make_float2(render_resolution);
+#endif
+        frame_count++;
+        if (!use_super_sampling) {
             jitter = float2{};
         }
         cmdlist
@@ -465,22 +605,38 @@ int main(int argc, char *argv[]) {
                    accel,
                    inverse_vp,
                    view_proj, jitter,
-                   last_obj_mat)
+                   last_obj_mat,
+                   mv_scale)
                    .dispatch(render_resolution)
             << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
 
-        if (use_fsr2) {
+        if (use_super_sampling) {
+#ifdef ENABLE_FSR
             cmdlist << luisa::make_unique<FSRCommand>(
                 &fsr2_context,
                 &upload_setup,
                 jitter,
                 sharpness,
                 std::max<float>(delta_time, 1e-5f));
+#else
+            cmdlist << luisa::make_unique<XessCommand>(
+                xess_context,
+                &upload_setup,
+                jitter,
+                sharpness,
+                std::max<float>(delta_time, 1e-5f));
+//TODO
+#endif
+
         } else {
             cmdlist << bilinear_upscaling_shader(heap, upload_setup.resolved_color_resource).dispatch(upload_setup.resolved_color_resource.size());
         }
         stream << cmdlist.commit() << swap_chain.present(upload_setup.resolved_color_resource);
     }
     stream << synchronize();
+#ifdef ENABLE_FSR
     fsr_assert(ffxFsr2ContextDestroy(&fsr2_context));
+#else
+    xess_assert(xessDestroyContext(xess_context));
+#endif
 }
