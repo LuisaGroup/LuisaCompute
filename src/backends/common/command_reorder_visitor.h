@@ -516,6 +516,7 @@ private:
             _dispatch_read_handle.emplace_back(range, h);
         }
     }
+
     FuncTable _func_table;
     void visit(const CustomDispatchCommand *command) noexcept {
         _dispatch_read_handle.clear();
@@ -523,9 +524,8 @@ private:
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
-        for (auto &&i : *command) {
-            auto &&resource = i.first;
-            auto &&usage = i.second;
+
+        auto f = [&](auto &resource, auto usage) noexcept {
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<T, Argument::Buffer>) {
@@ -573,7 +573,9 @@ private:
                     }
                 },
                 resource);
-        }
+        };
+        command->traverse_arguments(f);
+
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
         }

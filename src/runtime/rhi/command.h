@@ -634,7 +634,25 @@ public:
 public:
     explicit CustomDispatchCommand() noexcept = default;
     ~CustomDispatchCommand() noexcept override = default;
+
     virtual void traverse_arguments(ArgumentVisitor &visitor) const noexcept = 0;
+
+    template<typename F>
+        requires(!std::derived_from<std::remove_cvref_t<F>, ArgumentVisitor>)
+    void traverse_arguments(F &&f) const noexcept {
+        class Adapter final : public ArgumentVisitor {
+        private:
+            F &_f;
+        public:
+            explicit Adapter(F &f) noexcept : _f{f} {}
+            void visit(const CustomDispatchCommand::ResourceHandle &resource, Usage usage) noexcept override {
+               _f(resource, usage);
+            }
+        };
+        Adapter adapter{f};
+        this->traverse_arguments(adapter);
+    }
+
     LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };
 
