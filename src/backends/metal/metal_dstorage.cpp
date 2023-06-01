@@ -98,7 +98,7 @@ MTL::IOFileHandle *MetalFileHandle::handle(DStorageCompression compression) noex
     }
 
     if (handle) {
-        LUISA_INFO("Opened file handle (URL: {}) with {}.",
+        LUISA_INFO("Opened file handle (URL: {}) with compression method {}.",
                    _url->description()->utf8String(),
                    to_string(compression));
         return handle;
@@ -106,13 +106,13 @@ MTL::IOFileHandle *MetalFileHandle::handle(DStorageCompression compression) noex
 
     if (error) {
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to open file handle (URL: {}) with {}: {}",
+            "Failed to open file handle (URL: {}) with compression method {}: {}",
             _url->description()->utf8String(),
             to_string(compression),
             error->localizedDescription()->utf8String());
     } else {
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to open file handle (URL: {}) with {}.",
+            "Failed to open file handle (URL: {}) with compression method {}.",
             _url->description()->utf8String(),
             to_string(compression));
     }
@@ -184,7 +184,7 @@ void MetalIOStream::set_name(luisa::string_view name) noexcept {
 class MetalIOCommandEncoder final : public MetalCommandEncoder {
 
 private:
-    MTL::IOCommandBuffer *_io_command_buffer;
+    MTL::IOCommandBuffer *_io_command_buffer{nullptr};
 
 private:
     [[nodiscard]] auto _io_stream() noexcept { return static_cast<MetalIOStream *>(stream()); }
@@ -223,8 +223,35 @@ private:
 
     void _copy_from_memory(MTL::Buffer *buffer, size_t offset,
                            DStorageReadCommand::Request request) noexcept {
-        _prepare_command_buffer();
-        LUISA_ERROR_WITH_LOCATION("Unsupported request type.");
+        auto encoder = command_buffer()->blitCommandEncoder();
+        if (luisa::holds_alternative<DStorageReadCommand::BufferRequest>(request)) {
+            auto r = luisa::get<DStorageReadCommand::BufferRequest>(request);
+            auto dst = reinterpret_cast<MetalBuffer *>(r.handle);
+            encoder->copyFromBuffer(buffer, offset, dst->handle(), r.offset_bytes, r.size_bytes);
+        } else if (luisa::holds_alternative<DStorageReadCommand::TextureRequest>(request)) {
+            auto r = luisa::get<DStorageReadCommand::TextureRequest>(request);
+            auto dst = reinterpret_cast<MetalTexture *>(r.handle);
+            auto size = make_uint3(r.size[0], r.size[1], r.size[2]);
+            auto pitch_size = pixel_storage_size(dst->storage(), make_uint3(size.x, 1u, 1u));
+            auto image_size = pixel_storage_size(dst->storage(), make_uint3(size.xy(), 1u));
+            encoder->copyFromBuffer(buffer, offset, pitch_size, image_size,
+                                    MTL::Size{r.size[0], r.size[1], r.size[2]},
+                                    dst->handle(), 0u, r.level, MTL::Origin{0, 0, 0});
+        } else if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(request)) {
+            auto r = luisa::get<DStorageReadCommand::MemoryRequest>(request);
+            with_download_buffer(r.size_bytes, [&](auto download_buffer) noexcept {
+                encoder->copyFromBuffer(buffer, offset,
+                                        download_buffer->buffer(),
+                                        download_buffer->offset(),
+                                        r.size_bytes);
+                add_callback(FunctionCallbackContext::create([download_buffer, data = r.data, size = r.size_bytes] {
+                    memcpy(data, download_buffer->data(), size);
+                }));
+            });
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Unsupported request type.");
+        }
+        encoder->endEncoding();
     }
 
 public:
@@ -421,7 +448,9 @@ void MetalDStorageExt::compress(const void *data, size_t size_bytes,
     }
 
     auto algo = detail::compression_cpu_select_algorithm(algorithm);
-    LUISA_ASSERT(algo.has_value(), "Unsupported compression algorithm.");
+    LUISA_ASSERT(algo.has_value(),
+                 "Unsupported compression algorithm: {}.",
+                 to_string(algorithm));
 
     // initialize the compression stream
     compression_stream stream{};
