@@ -17,6 +17,7 @@ namespace luisa::compute::metal {
 class MetalEvent;
 class MetalTexture;
 class MetalSwapchain;
+class MetalCommandEncoder;
 
 class MetalStream {
 
@@ -32,13 +33,16 @@ private:
     luisa::queue<CallbackContainer> _callback_lists;
     spin_mutex _callback_mutex;
 
+protected:
+    virtual void _encode(MetalCommandEncoder &encoder, Command *command) noexcept;
+
 public:
     MetalStream(MTL::Device *device, size_t max_commands) noexcept;
     virtual ~MetalStream() noexcept;
     void signal(MetalEvent *event) noexcept;
     void wait(MetalEvent *event) noexcept;
     void synchronize() noexcept;
-    virtual void dispatch(CommandList &&list) noexcept;
+    void dispatch(CommandList &&list) noexcept;
     void present(MetalSwapchain *swapchain, MetalTexture *image) noexcept;
     virtual void set_name(luisa::string_view name) noexcept;
     [[nodiscard]] auto device() const noexcept { return _queue->device(); }

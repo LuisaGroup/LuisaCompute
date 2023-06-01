@@ -143,7 +143,30 @@ void Stream::mark_handle(uint64_t v, Usage usage, Range range) {
     if (v != invalid_resource_handle) {
         RWResource::get<RWResource>(v)->set(this, usage, range);
     }
+}
+
+class CustomDispatchArgumentVisitor : public CustomDispatchCommand::ArgumentVisitor {
+
+private:
+    Stream *_stream;
+
+public:
+    explicit CustomDispatchArgumentVisitor(Stream *stream) noexcept : _stream{stream} {}
+    void visit(const CustomDispatchCommand::ResourceHandle &resource, Usage usage) noexcept override {
+        luisa::visit(
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                    _stream->mark_handle(t.handle, usage, Range{t.offset, t.size});
+                } else if constexpr (std::is_same_v<T, Argument::Texture>) {
+                    _stream->mark_handle(t.handle, usage, Range{t.level, 1});
+                } else {
+                    _stream->mark_handle(t.handle, usage, Range{});
+                }
+            },
+            resource);
+    }
 };
+
 void Stream::custom(DeviceInterface *dev, Command *cmd) {
     switch (static_cast<CustomCommand *>(cmd)->uuid()) {
         case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH): {
@@ -216,21 +239,8 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
-            for (auto &&i : *c) {
-                auto &&resource = i.first;
-                auto &&usage = i.second;
-                luisa::visit(
-                    [&]<typename T>(T const &t) {
-                        if constexpr (std::is_same_v<T, Argument::Buffer>) {
-                            mark_handle(t.handle, usage, Range{t.offset, t.size});
-                        } else if constexpr (std::is_same_v<T, Argument::Texture>) {
-                            mark_handle(t.handle, usage, Range{t.level, 1});
-                        } else {
-                            mark_handle(t.handle, usage, Range{});
-                        }
-                    },
-                    resource);
-            };
+            CustomDispatchArgumentVisitor visitor{this};
+            c->traverse_arguments(visitor);
         } break;
         default: break;
     }

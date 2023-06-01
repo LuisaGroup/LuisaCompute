@@ -14,7 +14,14 @@ struct CompeteResource {
     Usage usage{Usage::NONE};
     vstd::vector<Range> ranges;
 };
+
+class CustomDispatchArgumentVisitor;
+
 class Stream : public RWResource {
+
+    friend class CustomDispatchArgumentVisitor;
+
+private:
     StreamTag _stream_tag;
     uint64_t _executed_layer{0};
     uint64_t _synced_layer{0};
