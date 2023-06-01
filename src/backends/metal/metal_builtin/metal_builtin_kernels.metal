@@ -115,7 +115,7 @@ static_assert(sizeof(BindlessSlotModification) == 64u, "");
                                       constant const uint &n,
                                       uint tid [[thread_position_in_grid]]) {
     if (tid < n) {
-        constexpr auto op_none = 0u;
+        [[maybe_unused]] constexpr auto op_none = 0u;
         constexpr auto op_update = 1u;
         constexpr auto op_remove = 2u;
         auto m = mods[tid];

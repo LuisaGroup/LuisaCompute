@@ -59,6 +59,8 @@ public:
     void set_name(luisa::string_view name) noexcept;
 };
 
+class MetalIOCommandEncoder;
+
 class MetalIOStream : public MetalStream {
 
 public:
@@ -66,11 +68,24 @@ public:
 
 private:
     MTL::IOCommandQueue *_io_queue;
+    MTL::SharedEvent *_io_event;
+    size_t _event_value{0ull};
+    spin_mutex _event_mutex;
+
+private:
+    void _encode(MetalCommandEncoder &encoder, Command *command) noexcept override;
 
 public:
     explicit MetalIOStream(MTL::Device *device) noexcept;
     ~MetalIOStream() noexcept override;
     [[nodiscard]] auto valid() const noexcept { return _io_queue != nullptr; }
+    [[nodiscard]] auto io_queue() const noexcept { return _io_queue; }
+    [[nodiscard]] auto io_event() const noexcept { return _io_event; }
+    [[nodiscard]] uint64_t signal(MTL::IOCommandBuffer *command_buffer) noexcept;
+    void signal(MetalEvent *event) noexcept override;
+    void wait(MetalEvent *event) noexcept override;
+    void synchronize() noexcept override;
+    void dispatch(CommandList &&list) noexcept override;
     void set_name(luisa::string_view name) noexcept override;
 };
 

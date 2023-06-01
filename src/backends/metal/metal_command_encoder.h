@@ -19,12 +19,13 @@ private:
     MTL::CommandBuffer *_command_buffer{nullptr};
     luisa::vector<MetalCallbackContext *> _callbacks;
 
-private:
+protected:
     void _prepare_command_buffer() noexcept;
 
 public:
     explicit MetalCommandEncoder(MetalStream *stream) noexcept;
     ~MetalCommandEncoder() noexcept override = default;
+    [[nodiscard]] auto stream() const noexcept { return _stream; }
     [[nodiscard]] auto device() const noexcept { return _stream->device(); }
     [[nodiscard]] MTL::CommandBuffer *command_buffer() noexcept;
     void visit(BufferUploadCommand *command) noexcept override;
@@ -42,7 +43,7 @@ public:
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
     void add_callback(MetalCallbackContext *cb) noexcept;
-    MTL::CommandBuffer *submit(CommandList::CallbackContainer &&user_callbacks) noexcept;
+    virtual MTL::CommandBuffer *submit(CommandList::CallbackContainer &&user_callbacks) noexcept;
 
     template<typename F>
     void with_upload_buffer(size_t size, F &&f) noexcept {

@@ -8,6 +8,10 @@
 #include <core/clock.h>
 #include <core/magic_enum.h>
 #include <backends/metal/metal_device.h>
+#include <backends/metal/metal_buffer.h>
+#include <backends/metal/metal_texture.h>
+#include <backends/metal/metal_event.h>
+#include <backends/metal/metal_command_encoder.h>
 #include <backends/metal/metal_dstorage.h>
 
 namespace luisa::compute::metal {
@@ -50,7 +54,15 @@ MetalPinnedMemory::~MetalPinnedMemory() noexcept {
 }
 
 void MetalPinnedMemory::set_name(luisa::string_view name) noexcept {
-    // TODO: set name
+    if (name.empty()) {
+        _device_buffer->setLabel(nullptr);
+    } else {
+        auto ns_name = NS::String::alloc()->init(
+            const_cast<char *>(name.data()), name.size(),
+            NS::UTF8StringEncoding, false);
+        _device_buffer->setLabel(ns_name);
+        ns_name->release();
+    }
 }
 
 MetalFileHandle::MetalFileHandle(MTL::Device *device,
@@ -60,7 +72,7 @@ MetalFileHandle::MetalFileHandle(MTL::Device *device,
     auto ns_path = NS::String::alloc()->init(
         const_cast<char *>(path.data()), path.size(),
         NS::UTF8StringEncoding, false);
-    _url = NS::URL::fileURLWithPath(ns_path);
+    _url = NS::URL::fileURLWithPath(ns_path)->retain();
     ns_path->release();
 }
 
@@ -113,11 +125,29 @@ MetalFileHandle::~MetalFileHandle() noexcept {
 }
 
 void MetalFileHandle::set_name(luisa::string_view name) noexcept {
-    // TODO
+    std::scoped_lock lock{_mutex};
+    if (name.empty()) {
+        for (auto [_, handle] : _handles) { handle->setLabel(nullptr); }
+    } else {
+        for (auto [c, handle] : _handles) {
+            auto compression = static_cast<DStorageCompression>(c);
+            auto name_with_compression = luisa::format(
+                "{} (compression = {})",
+                name, luisa::to_string(compression));
+            auto mtl_name = NS::String::alloc()->init(
+                name_with_compression.data(),
+                name_with_compression.size(),
+                NS::UTF8StringEncoding, false);
+            handle->setLabel(mtl_name);
+            mtl_name->release();
+        }
+    }
 }
 
 MetalIOStream::MetalIOStream(MTL::Device *device) noexcept
-    : MetalStream{device, 0u}, _io_queue{nullptr} {
+    : MetalStream{device, 0u},
+      _io_queue{nullptr},
+      _io_event{nullptr} {
     auto desc = MTL::IOCommandQueueDescriptor::alloc()->init();
     desc->setType(MTL::IOCommandQueueTypeConcurrent);
     desc->setPriority(MTL::IOPriorityNormal);
@@ -128,12 +158,14 @@ MetalIOStream::MetalIOStream(MTL::Device *device) noexcept
             "Failed to create IO command queue: {}",
             error->localizedDescription()->utf8String());
     } else {
+        _io_event = device->newSharedEvent();
         LUISA_INFO("Created IO command queue.");
     }
 }
 
 MetalIOStream::~MetalIOStream() noexcept {
     if (_io_queue) { _io_queue->release(); }
+    if (_io_event) { _io_event->release(); }
 }
 
 void MetalIOStream::set_name(luisa::string_view name) noexcept {
@@ -147,6 +179,142 @@ void MetalIOStream::set_name(luisa::string_view name) noexcept {
         mtl_name->release();
     }
     MetalStream::set_name(name);
+}
+
+class MetalIOCommandEncoder final : public MetalCommandEncoder {
+
+private:
+    MTL::IOCommandBuffer *_io_command_buffer;
+
+private:
+    [[nodiscard]] auto _io_stream() noexcept { return static_cast<MetalIOStream *>(stream()); }
+
+    void _prepare_io_command_buffer() noexcept {
+        if (!_io_command_buffer) {
+            auto queue = _io_stream()->io_queue();
+            _io_command_buffer = queue->commandBufferWithUnretainedReferences();
+        }
+    }
+
+    void _copy_from_file(MTL::IOFileHandle *handle, size_t offset,
+                         DStorageReadCommand::Request request) noexcept {
+        _prepare_io_command_buffer();
+        if (luisa::holds_alternative<DStorageReadCommand::BufferRequest>(request)) {
+            auto r = luisa::get<DStorageReadCommand::BufferRequest>(request);
+            auto buffer = reinterpret_cast<MetalBuffer *>(r.handle);
+            _io_command_buffer->loadBuffer(buffer->handle(), r.offset_bytes, r.size_bytes, handle, offset);
+        } else if (luisa::holds_alternative<DStorageReadCommand::TextureRequest>(request)) {
+            auto r = luisa::get<DStorageReadCommand::TextureRequest>(request);
+            auto texture = reinterpret_cast<MetalTexture *>(r.handle);
+            auto size = make_uint3(r.size[0], r.size[1], r.size[2]);
+            auto pitch_size = pixel_storage_size(texture->storage(), make_uint3(size.x, 1u, 1u));
+            auto image_size = pixel_storage_size(texture->storage(), make_uint3(size.xy(), 1u));
+            _io_command_buffer->loadTexture(texture->handle(), 0u, r.level,
+                                            MTL::Size{r.size[0], r.size[1], r.size[2]},
+                                            pitch_size, image_size, MTL::Origin{0, 0, 0},
+                                            handle, offset);
+        } else if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(request)) {
+            auto r = luisa::get<DStorageReadCommand::MemoryRequest>(request);
+            _io_command_buffer->loadBytes(r.data, r.size_bytes, handle, offset);
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Unsupported request type.");
+        }
+    }
+
+    void _copy_from_memory(MTL::Buffer *buffer, size_t offset,
+                           DStorageReadCommand::Request request) noexcept {
+        _prepare_command_buffer();
+        LUISA_ERROR_WITH_LOCATION("Unsupported request type.");
+    }
+
+public:
+    using MetalCommandEncoder::MetalCommandEncoder;
+    MTL::CommandBuffer *submit(CommandList::CallbackContainer &&user_callbacks) noexcept override {
+        if (!user_callbacks.empty()) { _prepare_io_command_buffer(); }
+        if (_io_command_buffer) {
+            auto stream = _io_stream();
+            auto io_event_value = stream->signal(_io_command_buffer);
+            _io_command_buffer->commit();
+            command_buffer()->encodeWait(stream->io_event(), io_event_value);
+        }
+        return MetalCommandEncoder::submit(std::move(user_callbacks));
+    }
+
+    void visit(DStorageReadCommand *command) noexcept {
+        if (luisa::holds_alternative<DStorageReadCommand::FileSource>(command->source())) {
+            auto src = luisa::get<DStorageReadCommand::FileSource>(command->source());
+            auto file = reinterpret_cast<MetalFileHandle *>(src.handle);
+            LUISA_ASSERT(src.offset_bytes < file->size() &&
+                             src.size_bytes <= file->size() - src.offset_bytes,
+                         "Invalid offset or size for DStorageReadCommand.");
+            auto file_handle = file->handle(command->compression());
+            LUISA_ASSERT(file_handle != nullptr, "Failed to open file handle.");
+            _copy_from_file(file_handle, src.offset_bytes, command->request());
+        } else if (luisa::holds_alternative<DStorageReadCommand::MemorySource>(command->source())) {
+            auto src = luisa::get<DStorageReadCommand::MemorySource>(command->source());
+            auto memory = reinterpret_cast<MetalPinnedMemory *>(src.handle);
+            LUISA_ASSERT(src.offset_bytes < memory->size() &&
+                             src.size_bytes <= memory->size() - src.offset_bytes,
+                         "Invalid offset or size for DStorageReadCommand.");
+            _copy_from_memory(memory->device_buffer(),
+                              src.offset_bytes + memory->device_buffer_offset(),
+                              command->request());
+        } else {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid source type for DStorageReadCommand.");
+        }
+    }
+};
+
+void MetalIOStream::dispatch(CommandList &&list) noexcept {
+    MetalIOCommandEncoder encoder{this};
+    _do_dispatch(encoder, std::move(list));
+}
+
+void MetalIOStream::_encode(MetalCommandEncoder &encoder,
+                            Command *command) noexcept {
+    LUISA_ASSERT(command->tag() == Command::Tag::ECustomCommand &&
+                     static_cast<CustomCommand *>(command)->uuid() ==
+                         to_underlying(CustomCommandUUID::DSTORAGE_READ),
+                 "Invalid command type for MetalIOStream.");
+    auto io_encoder = dynamic_cast<MetalIOCommandEncoder *>(&encoder);
+    LUISA_ASSERT(io_encoder != nullptr, "Invalid encoder type for MetalIOStream.");
+    io_encoder->visit(static_cast<DStorageReadCommand *>(command));
+}
+
+uint64_t MetalIOStream::signal(MTL::IOCommandBuffer *command_buffer) noexcept {
+    auto io_event_value = [this] {
+        std::scoped_lock lock{_event_mutex};
+        return ++_event_value;
+    }();
+    command_buffer->signalEvent(_io_event, io_event_value);
+    return io_event_value;
+}
+
+void MetalIOStream::signal(MetalEvent *event) noexcept {
+    auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
+    auto io_event_value = signal(io_command_buffer);
+    auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
+    command_buffer->encodeWait(_io_event, io_event_value);
+    event->signal(command_buffer);
+    command_buffer->commit();
+}
+
+void MetalIOStream::wait(MetalEvent *event) noexcept {
+    auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
+    io_command_buffer->wait(event->handle(), event->value_to_wait());
+    io_command_buffer->commit();
+    MetalStream::wait(event);
+}
+
+void MetalIOStream::synchronize() noexcept {
+    auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
+    auto io_event_value = signal(io_command_buffer);
+    io_command_buffer->commit();
+    auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
+    command_buffer->encodeWait(_io_event, io_event_value);
+    command_buffer->commit();
+    command_buffer->waitUntilCompleted();
 }
 
 MetalDStorageExt::MetalDStorageExt(MetalDevice *device) noexcept

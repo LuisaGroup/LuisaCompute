@@ -44,11 +44,15 @@ MetalStageBufferPool *MetalStream::download_pool() noexcept {
 }
 
 void MetalStream::signal(MetalEvent *event) noexcept {
-    event->signal(_queue);
+    auto command_buffer = _queue->commandBufferWithUnretainedReferences();
+    event->signal(command_buffer);
+    command_buffer->commit();
 }
 
 void MetalStream::wait(MetalEvent *event) noexcept {
-    event->wait(_queue);
+    auto command_buffer = _queue->commandBufferWithUnretainedReferences();
+    event->wait(command_buffer);
+    command_buffer->commit();
 }
 
 void MetalStream::synchronize() noexcept {
@@ -69,21 +73,27 @@ void MetalStream::set_name(luisa::string_view name) noexcept {
     }
 }
 
-void MetalStream::_encode(MetalCommandEncoder &encoder, Command *command) noexcept {
+void MetalStream::_encode(MetalCommandEncoder &encoder,
+                          Command *command) noexcept {
     command->accept(encoder);
 }
 
-void MetalStream::dispatch(CommandList &&list) noexcept {
+void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
+                               CommandList &&list) noexcept {
     if (list.empty()) {
         LUISA_WARNING_WITH_LOCATION(
             "MetalStream::dispatch: Command list is empty.");
     } else {
-        MetalCommandEncoder encoder{this};
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
         for (auto &command : commands) { _encode(encoder, command.get()); }
-        encoder.submit(std::exchange(callbacks, {}));
+        encoder.submit(std::move(callbacks));
     }
+}
+
+void MetalStream::dispatch(CommandList &&list) noexcept {
+    MetalCommandEncoder encoder{this};
+    _do_dispatch(encoder, std::move(list));
 }
 
 void MetalStream::present(MetalSwapchain *swapchain, MetalTexture *image) noexcept {

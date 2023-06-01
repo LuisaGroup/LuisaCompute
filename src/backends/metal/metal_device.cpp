@@ -589,16 +589,29 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 shader->set_name(name);
                 break;
             }
-            case Resource::Tag::RASTER_SHADER: break;
+            case Resource::Tag::RASTER_SHADER: {
+                // TODO
+                break;
+            }
             case Resource::Tag::SWAP_CHAIN: {
                 auto swapchain = reinterpret_cast<MetalSwapchain *>(resource_handle);
                 swapchain->set_name(name);
                 break;
             }
+            case Resource::Tag::DEPTH_BUFFER: {
                 // TODO
-            case Resource::Tag::DEPTH_BUFFER: break;
-            case Resource::Tag::DSTORAGE_FILE: break;
-            case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
+                break;
+            }
+            case Resource::Tag::DSTORAGE_FILE: {
+                auto file = reinterpret_cast<MetalFileHandle *>(resource_handle);
+                file->set_name(name);
+                break;
+            }
+            case Resource::Tag::DSTORAGE_PINNED_MEMORY: {
+                auto mem = reinterpret_cast<MetalPinnedMemory *>(resource_handle);
+                mem->set_name(name);
+                break;
+            }
         }
     });
 }
