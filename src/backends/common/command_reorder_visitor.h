@@ -541,7 +541,6 @@ private:
 
                     } else if constexpr (std::is_same_v<T, Argument::BindlessArray>) {
                         _use_bindless_in_pass = true;
-                        vstd::fixed_vector<uint64_t, 16> requiredState;
                         {
                             _func_table.lock_bindless(t.handle);
                             auto unlocker = vstd::scope_exit([&] {
@@ -549,16 +548,13 @@ private:
                             });
                             for (auto &&res : _write_res_map) {
                                 if (_func_table.is_res_in_bindless(t.handle, res)) {
-                                    requiredState.emplace_back(res);
+                                    add_dispatch_handle(
+                                        res,
+                                        ResourceType::Texture_Buffer,
+                                        Range{},
+                                        false);
                                 }
                             }
-                        }
-                        for (auto &&i : requiredState) {
-                            add_dispatch_handle(
-                                i,
-                                ResourceType::Texture_Buffer,
-                                Range{},
-                                false);
                         }
                         add_dispatch_handle(
                             t.handle,
@@ -627,7 +623,6 @@ private:
                 case Tag::BINDLESS_ARRAY: {
                     auto &&arr = i.bindless_array;
                     _use_bindless_in_pass = true;
-                    vstd::fixed_vector<uint64_t, 16> requiredState;
                     {
                         _func_table.lock_bindless(arr.handle);
                         auto unlocker = vstd::scope_exit([&] {
@@ -635,16 +630,13 @@ private:
                         });
                         for (auto &&res : _write_res_map) {
                             if (_func_table.is_res_in_bindless(arr.handle, res)) {
-                                requiredState.emplace_back(res);
+                                add_dispatch_handle(
+                                    res,
+                                    ResourceType::Texture_Buffer,
+                                    Range{},
+                                    false);
                             }
                         }
-                    }
-                    for (auto &&i : requiredState) {
-                        add_dispatch_handle(
-                            i,
-                            ResourceType::Texture_Buffer,
-                            Range{},
-                            false);
                     }
                     add_dispatch_handle(
                         arr.handle,

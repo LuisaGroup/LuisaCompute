@@ -42,31 +42,35 @@ uint64_t RefExpr::_compute_hash() const noexcept {
 
 void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
-        if (_op == CallOp::BUFFER_WRITE ||
-            _op == CallOp::TEXTURE_WRITE ||
-            _op == CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
-            _op == CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY ||
-            _op == CallOp::RAY_TRACING_SET_INSTANCE_OPACITY ||
-            _op == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
-            _op == CallOp::RAY_QUERY_COMMIT_PROCEDURAL ||
-            _op == CallOp::RAY_QUERY_TERMINATE ||
-            _op == CallOp::ATOMIC_EXCHANGE ||
-            _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
-            _op == CallOp::ATOMIC_FETCH_ADD ||
-            _op == CallOp::ATOMIC_FETCH_SUB ||
-            _op == CallOp::ATOMIC_FETCH_AND ||
-            _op == CallOp::ATOMIC_FETCH_OR ||
-            _op == CallOp::ATOMIC_FETCH_XOR ||
-            _op == CallOp::ATOMIC_FETCH_MIN ||
-            _op == CallOp::ATOMIC_FETCH_MAX) {// TODO: autodiff
-            _arguments[0]->mark(Usage::WRITE);
-            for (auto i = 1u; i < _arguments.size(); i++) {
-                _arguments[i]->mark(Usage::READ);
-            }
-        } else {
-            for (auto arg : _arguments) {
-                arg->mark(Usage::READ);
-            }
+        switch (_op) {
+            case CallOp::BUFFER_WRITE:
+            case CallOp::TEXTURE_WRITE:
+            case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
+            case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+            case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
+            case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
+            case CallOp::RAY_QUERY_TERMINATE:
+            case CallOp::ATOMIC_EXCHANGE:
+            case CallOp::ATOMIC_COMPARE_EXCHANGE:
+            case CallOp::ATOMIC_FETCH_ADD:
+            case CallOp::ATOMIC_FETCH_SUB:
+            case CallOp::ATOMIC_FETCH_AND:
+            case CallOp::ATOMIC_FETCH_OR:
+            case CallOp::ATOMIC_FETCH_XOR:
+            case CallOp::ATOMIC_FETCH_MIN:
+            case CallOp::ATOMIC_FETCH_MAX:
+            case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
+            case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL:
+                _arguments[0]->mark(Usage::WRITE);
+                for (auto i = 1u; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
+            default:
+                for (auto arg : _arguments) {
+                    arg->mark(Usage::READ);
+                }
         }
     } else if (is_external()) {
         auto f = external();
