@@ -430,6 +430,27 @@ compression_cpu_select_algorithm(DStorageCompression c) noexcept {
 
 }// namespace detail
 
+struct MetalCompressionChunkMetadata {
+    uint64_t requires_compression : 8u;
+    uint64_t unknown : 56u;
+    size_t file_offset;
+    size_t compressed_size;
+};
+
+struct MetalCompressionFileHeader {
+
+    static constexpr auto metal_compression_magic = 0xbadc0feeu;
+    using ChunkMetadata = MetalCompressionChunkMetadata;
+
+    uint magic;
+    uint padding;
+    size_t chunk_size;
+    size_t chunk_count;
+    [[no_unique_address]] ChunkMetadata chunk_metadata[];
+};
+
+static_assert(sizeof(MetalCompressionFileHeader) == 24u);
+
 void MetalDStorageExt::compress(const void *data, size_t size_bytes,
                                 Compression algorithm, CompressionQuality quality,
                                 luisa::vector<std::byte> &result) noexcept {
