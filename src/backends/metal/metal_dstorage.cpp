@@ -278,6 +278,8 @@ public:
             LUISA_ASSERT(file_handle != nullptr, "Failed to open file handle.");
             _copy_from_file(file_handle, src.offset_bytes, command->request());
         } else if (luisa::holds_alternative<DStorageReadCommand::MemorySource>(command->source())) {
+            LUISA_ASSERT(command->compression() == DStorageCompression::None,
+                         "Memory source does not support compression.");
             auto src = luisa::get<DStorageReadCommand::MemorySource>(command->source());
             auto memory = reinterpret_cast<MetalPinnedMemory *>(src.handle);
             LUISA_ASSERT(src.offset_bytes < memory->size() &&

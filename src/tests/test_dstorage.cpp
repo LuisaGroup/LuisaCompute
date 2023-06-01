@@ -95,12 +95,12 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Start test texture compress and decompress.");
     luisa::vector<std::byte> compressed_pixels;
     Clock compress_clock{};
-    auto compression = DStorageCompression::GDeflate;
+    auto compression = DStorageCompression::Zlib;
     dstorage_ext->compress(pixels.data(), luisa::span{pixels}.size_bytes(), compression,
                            DStorageCompressionQuality::Best, compressed_pixels);
     double compress_time = compress_clock.toc();
     {
-        std::ofstream file{"test_dstorage_texture_compressed.gdeflate", std::ios::binary};
+        std::ofstream file{"test_dstorage_texture_compressed.zip", std::ios::binary};
         file.write(reinterpret_cast<const char *>(compressed_pixels.data()),
                    static_cast<ssize_t>(compressed_pixels.size_bytes()));
     }
