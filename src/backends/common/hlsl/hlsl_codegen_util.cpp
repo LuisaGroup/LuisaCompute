@@ -1545,7 +1545,7 @@ CodegenUtility::CodegenUtility() {}
 CodegenUtility::~CodegenUtility() {}
 
 CodegenResult CodegenUtility::Codegen(
-    Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, bool isSpirV) {
+    Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, uint custom_mask, bool isSpirV) {
     opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
@@ -1561,7 +1561,9 @@ CodegenResult CodegenUtility::Codegen(
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
-    finalResult << native_code;
+    finalResult << native_code << "\n//"sv;
+    vstd::to_string(custom_mask);
+    finalResult << '\n';
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
     opt->funcType = CodegenStackData::FuncType::Callable;
@@ -1600,6 +1602,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     Function pixelFunc,
     luisa::BinaryIO const *internalDataPath,
     luisa::string_view native_code,
+    uint custom_mask,
     bool isSpirV) {
     opt = CodegenStackData::Allocate(this);
     // CodegenStackData::ThreadLocalSpirv() = false;
@@ -1618,7 +1621,9 @@ CodegenResult CodegenUtility::RasterCodegen(
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
     uint64 immutableHeaderSize = detail::AddHeader(opSet, internalDataPath, finalResult, true);
-    finalResult << native_code;
+    finalResult << native_code << "\n//"sv;
+    vstd::to_string(custom_mask);
+    finalResult << '\n';
     // Vertex
     codegenData << "struct v2p{\n"sv;
     auto v2pType = vertFunc.return_type();

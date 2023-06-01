@@ -20,7 +20,7 @@ private:
     vstd::string structName;
     size_t idx;
     void InitAsStruct(
-        vstd::Iterator<Type const *const> const &vars,
+        vstd::span<Type const *const> const &vars,
         size_t structIdx,
         Callback const &visitor);
     void InitAsArray(

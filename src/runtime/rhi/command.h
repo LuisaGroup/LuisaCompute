@@ -617,18 +617,40 @@ public:
 
 // For custom shader-dispatch or pass
 class CustomDispatchCommand : public CustomCommand {
-
 public:
     using ResourceHandle = luisa::variant<
         Argument::Buffer,
         Argument::Texture,
         Argument::BindlessArray,
         Argument::Accel>;
+    struct IteratorImpl {
+        virtual std::pair<ResourceHandle, Usage> get() noexcept = 0;
+        virtual void next() noexcept = 0;
+        virtual bool end() const noexcept = 0;
+    };
+    struct IterEndTag {};
+    struct Iterator {
+        luisa::unique_ptr<IteratorImpl> iter;
+        void operator++() const noexcept {
+            iter->next();
+        }
+        bool operator==(IterEndTag) const noexcept {
+            return iter->end();
+        }
+        std::pair<ResourceHandle, Usage> operator*() const noexcept {
+            return iter->get();
+        }
+    };
+
+protected:
+    virtual luisa::unique_ptr<IteratorImpl> argument_iterator() const noexcept = 0;
 
 public:
-    using TraversalArgsCallback = luisa::move_only_function<void(const ResourceHandle &resource_handle, Usage usage)>;
+    [[nodiscard]] Iterator begin() const noexcept {
+        return {argument_iterator()};
+    }
+    [[nodiscard]] IterEndTag end() const noexcept { return {}; }
     explicit CustomDispatchCommand() noexcept = default;
-    virtual void traversal_arguments(const TraversalArgsCallback &func) const noexcept = 0;
     ~CustomDispatchCommand() noexcept override = default;
     LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };

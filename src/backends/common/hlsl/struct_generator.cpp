@@ -2,7 +2,6 @@
 #include "codegen_stack_data.h"
 #include "struct_generator.h"
 #include "hlsl_codegen.h"
-#include "common_iterator.h"
 namespace lc::hlsl {
 /*
 size_t StructureType::size() const {
@@ -54,13 +53,13 @@ void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &alignCount, 
 }
 
 void StructGenerator::InitAsStruct(
-    vstd::Iterator<Type const *const> const &vars,
+    vstd::span<Type const *const> const &vars,
     size_t structIdx,
     Callback const &visitor) {
     size_t alignCount = 0;
     size_t structSize = 0;
     structDesc.reserve(256);
-    auto szOpt = vars.Get()->Length();
+    auto szOpt = vars.size();
 
     size_t maxAlign = 4;
     auto Align = [&](size_t tarAlign) {
@@ -68,8 +67,7 @@ void StructGenerator::InitAsStruct(
         ProvideAlignVariable(tarAlign, alignCount, structSize, structDesc);
     };
     size_t varIdx = 0;
-    for (; vars; vars++) {
-        auto &&i = *vars;
+    for (auto &&i : vars) {
         Align(i->alignment());
         switch (i->tag()) {
             case Type::Tag::STRUCTURE:
@@ -99,7 +97,7 @@ void StructGenerator::InitAsArray(
 }
 void StructGenerator::Init(Callback const &visitor) {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
-        InitAsStruct(vstd::GetIterator(structureType->members()), idx, visitor);
+        InitAsStruct(structureType->members(), idx, visitor);
     } else {
         InitAsArray(structureType, idx, visitor);
     }

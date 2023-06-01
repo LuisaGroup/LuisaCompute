@@ -216,7 +216,9 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
-            c->traversal_arguments([&](auto &&resource, Usage usage) {
+            for (auto &&i : *c) {
+                auto &&resource = i.first;
+                auto &&usage = i.second;
                 luisa::visit(
                     [&]<typename T>(T const &t) {
                         if constexpr (std::is_same_v<T, Argument::Buffer>) {
@@ -228,7 +230,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                         }
                     },
                     resource);
-            });
+            };
         } break;
         default: break;
     }

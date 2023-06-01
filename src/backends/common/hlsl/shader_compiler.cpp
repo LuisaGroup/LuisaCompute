@@ -99,14 +99,14 @@ static void AddCompileFlags(Vec &args) {
 template<typename Vec>
 static void AddUnsafeMathFlags(Vec &args) {
     // unsafe opt may conflict with dxc
-    // vstd::push_back_all(
-    //     args,
-    //     {L"-opt-enable",
-    //      L"-funsafe-math-optimizations",
-    //      L"-opt-enable",
-    //      L"-fassociative-math",
-    //      L"-opt-enable",
-    //      L"-freciprocal-math"});
+    vstd::push_back_all(
+        args,
+        {L"-opt-enable",
+         L"-funsafe-math-optimizations",
+         L"-opt-enable",
+         L"-fassociative-math",
+         L"-opt-enable",
+         L"-freciprocal-math"});
 }
 CompileResult ShaderCompiler::compile_compute(
     vstd::string_view code,

@@ -38,10 +38,17 @@ protected:
     luisa::vector<ResourceUsage> resource_usages;
 
 public:
-    virtual ~DXCustomCmd() noexcept = default;
-    void traversal_arguments(TraversalArgsCallback const &func) const noexcept override {
-        for (auto &v : resource_usages) {
-            Usage resource_usage;
+    struct DxIterator : public IteratorImpl {
+        using Iter = luisa::vector<ResourceUsage>::const_iterator;
+        Iter iter;
+        Iter end_iter;
+        DxIterator(luisa::vector<ResourceUsage> const &vec) {
+            iter = vec.begin();
+            end_iter = vec.end();
+        }
+        std::pair<ResourceHandle, Usage> get() noexcept override {
+            auto &&v = *iter;
+            std::pair<ResourceHandle, Usage> r;
             constexpr auto read_state =
                 D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER |
                 D3D12_RESOURCE_STATE_INDEX_BUFFER |
@@ -58,14 +65,25 @@ public:
                 D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ;
             constexpr auto rw_state = D3D12_RESOURCE_STATE_COMMON | D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
             if ((v.required_state & rw_state) != 0) {
-                resource_usage = Usage::READ_WRITE;
+                r.second = Usage::READ_WRITE;
             } else if ((v.required_state & read_state) != 0) {
-                resource_usage = Usage::READ;
+                r.second = Usage::READ;
             } else {
-                resource_usage = Usage::WRITE;
+                r.second = Usage::WRITE;
             }
-            func(v.resource, resource_usage);
+            r.first = v.resource;
+            return r;
         }
+        void next() noexcept override {
+            ++iter;
+        }
+        bool end() const noexcept override {
+            return iter == end_iter;
+        }
+    };
+    virtual ~DXCustomCmd() noexcept = default;
+    luisa::unique_ptr<IteratorImpl> argument_iterator() const noexcept override {
+        return luisa::make_unique<DxIterator>(resource_usages);
     }
     DXCustomCmd() noexcept = default;
     uint64_t uuid() const noexcept override {

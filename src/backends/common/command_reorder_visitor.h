@@ -523,7 +523,9 @@ private:
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
-        command->traversal_arguments([&](auto &&resource, Usage usage) {
+        for (auto &&i : *command) {
+            auto &&resource = i.first;
+            auto &&usage = i.second;
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<T, Argument::Buffer>) {
@@ -571,7 +573,7 @@ private:
                     }
                 },
                 resource);
-        });
+        }
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
         }

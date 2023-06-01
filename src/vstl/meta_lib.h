@@ -386,21 +386,13 @@ struct array_meta<T[N]> {
 
 template<typename T>
     requires(std::is_bounded_array_v<T>)
-constexpr size_t array_count(T const &t) {
+consteval size_t array_count(T const &t) {
     return array_meta<T>::array_size;
 }
 template<typename T>
     requires(std::is_bounded_array_v<T>)
-constexpr size_t array_byte_size(T const &t) {
+consteval size_t array_byte_size(T const &t) {
     return array_meta<T>::byte_size;
-}
-
-template<typename A, typename B, typename C, typename... Args>
-decltype(auto) select(A &&a, B &&b, C &&c, Args &&...args) {
-    if (c(std::forward<Args>(args)...)) {
-        return b(std::forward<Args>(args)...);
-    }
-    return a(std::forward<Args>(args)...);
 }
 class IDisposable {
 protected:
@@ -410,184 +402,7 @@ protected:
 public:
     virtual void Dispose() = 0;
 };
-namespace detail {
-class SBOInterface {
-public:
-    virtual void Copy(void *dstPtr, void *srcPtr) const = 0;
-    virtual void Move(void *dstPtr, void *srcPtr) const = 0;
-    virtual void *GetOffset(void *src) const = 0;
-    virtual void *GetFallback(void *src) const = 0;
-    virtual void *Malloc(void *src) const = 0;
-};
-}// namespace detail
-template<typename I, size_t sboSize = 48, size_t align = sizeof(size_t)>
-class SBO {
-    eastl::aligned_storage_t<sboSize, align> buffer;
-    I *ptr;
-    //void(Src, Dest)
-    using InterfaceStorage = eastl::aligned_storage_t<sizeof(detail::SBOInterface), alignof(detail::SBOInterface)>;
-    InterfaceStorage storage;
-    detail::SBOInterface const *GetInterface() const {
-        return reinterpret_cast<detail::SBOInterface const *>(&storage);
-    }
-
-public:
-    template<typename Func>
-    static constexpr bool CtorFunc() {
-        if constexpr (!std::is_invocable_v<Func, void *>) {
-            return false;
-        } else {
-            using T = std::invoke_result_t<Func, void *>;
-            return std::is_pointer_v<T> && std::is_base_of_v<I, std::remove_pointer_t<T>>;
-        }
-    }
-    I *operator->() const {
-        return ptr;
-    }
-    I &operator*() const { return *ptr; }
-    I *Get() const {
-        return ptr;
-    }
-
-    template<typename Func>
-        requires(CtorFunc<Func>())
-    SBO(Func &&func) {
-        using T = std::remove_pointer_t<std::invoke_result_t<Func, void *>>;
-        constexpr size_t sz = sizeof(T);
-        void *originPtr;
-        if constexpr (sz > sboSize) {
-            originPtr = vengine_malloc(sz);
-        } else {
-            originPtr = &buffer;
-        }
-        func(originPtr);
-        ptr = std::launder(reinterpret_cast<T *>(originPtr));
-        class Inter : public detail::SBOInterface {
-        public:
-            void Copy(void *dstPtr, void *srcPtr) const override {
-                if constexpr (std::is_copy_constructible_v<T>) {
-                    new (dstPtr) T(*reinterpret_cast<T const *>(srcPtr));
-                } else {
-                    assert(false);
-                }
-            }
-            void Move(void *dstPtr, void *srcPtr) const override {
-                if constexpr (std::is_move_constructible_v<T>) {
-                    new (dstPtr) T(std::move(*reinterpret_cast<T *>(srcPtr)));
-                } else {
-                    assert(false);
-                }
-            }
-            void *GetFallback(void *src) const override {
-                T *ptr = reinterpret_cast<T *>(src);
-                I *offsetPtr = static_cast<I *>(ptr);
-                return offsetPtr;
-            }
-            void *GetOffset(void *src) const override {
-                I *ptr = reinterpret_cast<I *>(src);
-                T *offsetPtr = static_cast<T *>(ptr);
-                return offsetPtr;
-            }
-            void *Malloc(void *src) const override {
-                void *originPtr = vengine_malloc(sz);
-                Copy(originPtr, src);
-                return static_cast<I *>(reinterpret_cast<T *>(originPtr));
-            }
-        };
-        new (&storage) Inter();
-    }
-    SBO(SBO &&sbo)
-        : storage(sbo.storage) {
-        auto it = GetInterface();
-        auto sboOriginPtr = it->GetOffset(sbo.ptr);
-        if (sboOriginPtr == &sbo.buffer) {
-            auto originPtr = &buffer;
-            it->Move(originPtr, sboOriginPtr);
-            ptr = reinterpret_cast<I *>(it->GetFallback(originPtr));
-        } else {
-            ptr = sbo.ptr;
-        }
-        sbo.ptr = nullptr;
-    }
-    SBO(SBO const &sbo)
-        : storage(sbo.storage) {
-        auto it = GetInterface();
-        auto sboOriginPtr = it->GetOffset(sbo.ptr);
-        if (sboOriginPtr == &sbo.buffer) {
-            auto originPtr = &buffer;
-            it->Copy(originPtr, sboOriginPtr);
-            ptr = reinterpret_cast<I *>(it->GetFallback(originPtr));
-        } else {
-            ptr = reinterpret_cast<I *>(it->Malloc(sboOriginPtr));
-        }
-    }
-    ~SBO() {
-        if (!ptr) return;
-        ptr->~I();
-        auto originPtr = GetInterface()->GetOffset(ptr);
-        if (originPtr != &buffer) {
-            vengine_free(originPtr);
-        }
-    }
-};
-template<typename T>
-class IEnumerable {
-public:
-    virtual T GetValue() = 0;
-    virtual bool End() = 0;
-    virtual void GetNext() = 0;
-    virtual optional<size_t> Length() { return {}; }
-    virtual ~IEnumerable() {}
-};
 struct IteEndTag {};
-
-template<typename T>
-class Iterator {
-private:
-    using PtrType = SBO<IEnumerable<T>>;
-    PtrType ptr;
-
-public:
-    IEnumerable<T> *Get() const { return ptr.Get(); }
-    template<typename Func>
-        requires(PtrType::template CtorFunc<Func>())
-    Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
-    Iterator(Iterator const &) = delete;
-    Iterator(Iterator &&v) : ptr(std::move(v.ptr)) {}
-    ~Iterator() {
-    }
-    T operator*() const {
-        return ptr->GetValue();
-    }
-    void operator++() const {
-        ptr->GetNext();
-    }
-    void operator++(int) const {
-        ptr->GetNext();
-    }
-    bool operator==(IteEndTag) const {
-        return ptr->End();
-    }
-    bool operator!=(IteEndTag) const {
-        return !ptr->End();
-    }
-    operator bool() const { return operator!=({}); }
-};
-template<typename T>
-    requires(!std::is_reference_v<T>)
-struct MoveIterator {
-    T *t;
-    MoveIterator(T &&t) : t(&t) {}
-    MoveIterator(T &t) : t(&t) {}
-    MoveIterator(MoveIterator &&) = delete;
-    MoveIterator(MoveIterator const &) = delete;
-    decltype(auto) begin() {
-        return std::move(*t).begin();
-    }
-    decltype(auto) end() {
-        return std::move(*t).end();
-    }
-};
 template<typename T>
 struct disposer {
 private:
@@ -620,27 +435,11 @@ template<typename T>
 decltype(auto) get_const_lvalue(T &&data) {
     return static_cast<std::remove_reference_t<T> const &>(data);
 }
-template<typename A, typename B>
-decltype(auto) array_same(A &&a, B &&b) {
-    auto aSize = a.size();
-    auto bSize = b.size();
-    if (aSize != bSize) return false;
-    auto ite = a.begin();
-    auto end = a.end();
-    auto oIte = b.begin();
-    auto oEnd = b.end();
-    while (ite != end && oIte != oEnd) {
-        if (*ite != *oIte) return false;
-        ++ite;
-        ++oIte;
-    }
-    return true;
-}
 namespace detail {
 template<VE_SUB_TEMPLATE map, bool reverse, typename... Tar>
 struct AnyMap {
     template<typename T, typename... Args>
-    static constexpr bool Run() {
+    static consteval bool Run() {
         if constexpr ((map<T, Tar...>::value) ^ reverse) {
             return true;
         } else if constexpr (sizeof...(Args) == 0) {
@@ -651,7 +450,7 @@ struct AnyMap {
     }
 };
 template<size_t... size>
-constexpr size_t max_size() {
+consteval size_t max_size() {
     auto sizes = {size...};
     size_t v = 0;
     for (auto i : sizes) {
