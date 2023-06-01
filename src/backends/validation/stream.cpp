@@ -78,7 +78,9 @@ void Stream::check_compete() {
         }
     }
 }
+std::mutex stream_global_lock;
 void Stream::dispatch() {
+    std::lock_guard lck{stream_global_lock};
     _executed_layer++;
     res_usages.clear();
 }
@@ -232,6 +234,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
     }
 }
 void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
+    std::lock_guard lck{stream_global_lock};
     _executed_layer++;
     res_usages.clear();
     dstorage_range_check.clear();
