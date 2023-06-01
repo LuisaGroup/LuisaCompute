@@ -473,6 +473,8 @@ int main(int argc, char *argv[]) {
     uint render_width;
     uint render_height;
     constexpr uint display_width = 1024, display_height = 1024;
+    render_width = display_width / 2;
+    render_height = display_height / 2;
     const uint2 display_resolution{display_width, display_height};
     luisa::string window_name;
 #ifdef ENABLE_FSR
@@ -493,8 +495,6 @@ int main(int argc, char *argv[]) {
         scratch_buffer.size()));
     fsr_assert(ffxFsr2ContextCreate(&fsr2_context, &fsr2_desc));
     const uint jitter_phase_count = ffxFsr2GetJitterPhaseCount(render_width, display_width);
-    render_width = display_width / 2;
-    render_height = display_height / 2;
     window_name = "FSR2";
 #else
     XessJitter xess_jitter;
@@ -553,7 +553,7 @@ int main(int argc, char *argv[]) {
     Clock clk;
     float sharpness = 0.05f;
     uint frame_count = 0;
-    stream << heap.update() << accel.update_instance_buffer() << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
+    stream << heap.update() << accel.build() << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
     bool use_super_sampling = true;
     float2 mv_scale{};
     bool reset = true;
@@ -596,7 +596,6 @@ int main(int argc, char *argv[]) {
             jitter = float2{};
         }
         cmdlist
-            << accel.build()
             << raytracing_shader(
                    upload_setup.unresolved_color_resource,
                    seed_image,
@@ -608,7 +607,8 @@ int main(int argc, char *argv[]) {
                    last_obj_mat,
                    mv_scale)
                    .dispatch(render_resolution)
-            << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
+            << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size())
+            << accel.build();
 
         if (use_super_sampling) {
 #ifdef ENABLE_FSR

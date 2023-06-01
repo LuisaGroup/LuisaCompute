@@ -31,7 +31,7 @@ Accel::~Accel() noexcept {
 }
 
 luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
-                                  bool update_instance_buffer_only) noexcept {
+                                         bool update_instance_buffer_only) noexcept {
     if (_mesh_handles.empty()) { LUISA_ERROR_WITH_LOCATION(
         "Building acceleration structure without instances."); }
     // collect modifications
@@ -42,8 +42,8 @@ luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
     pdqsort(modifications.begin(), modifications.end(),
             [](auto &&lhs, auto &&rhs) noexcept { return lhs.index < rhs.index; });
     return luisa::make_unique<AccelBuildCommand>(handle(), static_cast<uint>(_mesh_handles.size()),
-                                     request, std::move(modifications),
-                                     update_instance_buffer_only);
+                                                 request, std::move(modifications),
+                                                 update_instance_buffer_only);
 }
 
 void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {

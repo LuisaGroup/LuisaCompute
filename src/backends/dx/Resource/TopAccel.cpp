@@ -119,8 +119,9 @@ void TopAccel::PreProcessInst(
     CommandBufferBuilder &builder,
     uint64 size,
     vstd::span<AccelBuildCommand::Modification const> const &modifications) {
-    if (topLevelBuildDesc.Inputs.NumDescs != size) update = false;
-    topLevelBuildDesc.Inputs.NumDescs = size;
+    auto &&input = topLevelBuildDesc.Inputs;
+    if (input.NumDescs != size) update = false;
+    input.NumDescs = size;
     allInstance.resize(size);
     setDesc.clear();
     vstd::push_back_all(setDesc, modifications);
@@ -158,16 +159,9 @@ void TopAccel::PreProcessInst(
     }
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
-    auto &&input = topLevelBuildDesc.Inputs;
     if (GenerateNewBuffer(
             tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
-        topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
-    }
-    if (!accelBuffer) {
-        device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
-        if (GenerateNewBuffer(tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
-            topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
-        }
+        input.InstanceDescs = instBuffer->GetAddress();
     }
 }
 
@@ -179,10 +173,11 @@ size_t TopAccel::PreProcess(
     bool update) {
     update &= this->update;
     auto refreshUpdate = vstd::scope_exit([&] { this->update &= update; });
-    if ((uint)(topLevelBuildDesc.Inputs.Flags &
+    auto &&input = topLevelBuildDesc.Inputs;
+    if ((uint)(input.Flags &
                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) == 0 ||
-        topLevelBuildDesc.Inputs.NumDescs != size) update = false;
-    topLevelBuildDesc.Inputs.NumDescs = size;
+        input.NumDescs != size) update = false;
+    input.NumDescs = size;
     allInstance.resize(size);
     vstd::span<AccelBuildCommand::Modification> mutable_mod{
         const_cast<AccelBuildCommand::Modification *>(modifications.data()),
@@ -221,10 +216,9 @@ size_t TopAccel::PreProcess(
     }
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
-    auto &&input = topLevelBuildDesc.Inputs;
     if (GenerateNewBuffer(
             tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
-        topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
+        input.InstanceDescs = instBuffer->GetAddress();
     }
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
     if (GenerateNewBuffer(tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
@@ -233,11 +227,11 @@ size_t TopAccel::PreProcess(
     }
     if (update) {
         topLevelBuildDesc.SourceAccelerationStructureData = topLevelBuildDesc.DestAccelerationStructureData;
-        topLevelBuildDesc.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+        input.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
     } else {
         topLevelBuildDesc.SourceAccelerationStructureData = 0;
-        topLevelBuildDesc.Inputs.Flags =
-            (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)topLevelBuildDesc.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
+        input.Flags =
+            (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)input.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
     }
     tracker.RecordState(
         GetAccelBuffer(),

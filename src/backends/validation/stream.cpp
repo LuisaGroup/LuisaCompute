@@ -292,7 +292,15 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::EAccelBuildCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 auto c = static_cast<AccelBuildCommand *>(cmd);
-                RWResource::get<Accel>(c->handle())->modify(c->instance_count(), this, c->modifications());
+                auto accel = RWResource::get<Accel>(c->handle());
+                if (c->update_instance_buffer_only()) {
+                    if (!accel->init_build) [[unlikely]] {
+                        LUISA_ERROR("Accel should been fully build before any other operations.");
+                    }
+                } else {
+                    accel->init_build = true;
+                }
+                accel->modify(c->instance_count(), this, c->modifications());
                 mark_handle(c->_handle, Usage::WRITE, Range{});
             } break;
             case CmdTag::EMeshBuildCommand: {
