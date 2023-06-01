@@ -40,6 +40,9 @@ void MetalBindlessArray::set_name(luisa::string_view name) noexcept {
 
 void MetalBindlessArray::update(MetalCommandEncoder &encoder,
                                 BindlessArrayUpdateCommand *cmd) noexcept {
+
+    std::scoped_lock lock{_mutex};
+
     using Mod = BindlessArrayUpdateCommand::Modification;
     auto mods = cmd->steal_modifications();
     for (auto &m : mods) {
@@ -119,6 +122,7 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
 }
 
 void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encoder) noexcept {
+    std::scoped_lock lock{_mutex};
     encoder->useResource(_array, MTL::ResourceUsageRead);
     _buffer_tracker.traverse([encoder](auto resource) noexcept {
         encoder->useResource(reinterpret_cast<MTL::Buffer *>(resource),

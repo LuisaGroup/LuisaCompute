@@ -22,7 +22,7 @@ MetalShader::MetalShader(NS::SharedPtr<MTL::ComputePipelineState> handle,
       _block_size{block_size.x, block_size.y, block_size.z} {}
 
 MetalShader::~MetalShader() noexcept {
-    if (_name != nullptr) { _name->release(); }
+    if (_name) { _name->release(); }
 }
 
 Usage MetalShader::argument_usage(uint index) const noexcept {
@@ -34,7 +34,8 @@ Usage MetalShader::argument_usage(uint index) const noexcept {
 }
 
 void MetalShader::set_name(luisa::string_view name) noexcept {
-    if (_name != nullptr) {
+    std::scoped_lock lock{_name_mutex};
+    if (_name) {
         _name->release();
         _name = nullptr;
     }
@@ -54,7 +55,10 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 
     auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(
         MTL::DispatchTypeConcurrent);
-    if (_name != nullptr) { compute_encoder->setLabel(_name); }
+    {
+        std::scoped_lock lock{_name_mutex};
+        compute_encoder->setLabel(_name);
+    }
     compute_encoder->setComputePipelineState(_handle.get());
 
     // encode arguments

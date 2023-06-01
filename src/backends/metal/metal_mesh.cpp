@@ -26,6 +26,8 @@ void MetalMesh::_do_add_resources(luisa::vector<MTL::Resource *> &resources) con
 
 void MetalMesh::build(MetalCommandEncoder &encoder, MeshBuildCommand *command) noexcept {
 
+    std::scoped_lock lock{mutex()};
+
     auto vertex_buffer = reinterpret_cast<MetalBuffer *>(command->vertex_buffer());
     auto vertex_buffer_handle = vertex_buffer->handle();
     auto vertex_buffer_offset = command->vertex_buffer_offset();

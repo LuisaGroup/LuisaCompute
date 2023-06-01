@@ -31,6 +31,7 @@ public:
     };
 
 private:
+    std::mutex _mutex;
     MTL::Buffer *_array;
     MTL::ComputePipelineState *_update;
     luisa::vector<MTL::Buffer *> _buffer_slots;

@@ -25,6 +25,9 @@ void MetalProceduralPrimitive::_do_add_resources(luisa::vector<MTL::Resource *> 
 
 void MetalProceduralPrimitive::build(MetalCommandEncoder &encoder,
                                      ProceduralPrimitiveBuildCommand *command) noexcept {
+
+    std::scoped_lock lock{mutex()};
+
     auto aabb_buffer = reinterpret_cast<MetalBuffer *>(command->aabb_buffer());
     auto aabb_buffer_handle = aabb_buffer->handle();
     auto aabb_buffer_offset = command->aabb_buffer_offset();

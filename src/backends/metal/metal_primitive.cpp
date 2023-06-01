@@ -31,7 +31,8 @@ MTL::AccelerationStructureUsage MetalPrimitive::usage() const noexcept {
     return static_cast<MTL::AccelerationStructureUsage>(u);
 }
 
-void MetalPrimitive::add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept {
+void MetalPrimitive::add_resources(luisa::vector<MTL::Resource *> &resources) noexcept {
+    std::scoped_lock lock{_mutex};
     resources.emplace_back(_handle);
     _do_add_resources(resources);
 }
@@ -50,12 +51,9 @@ void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
                                                    MTL::ResourceStorageModePrivate);
         }
     }
-    auto name = _name.empty() ?
-                    nullptr :
-                    NS::String::string(_name.c_str(), NS::UTF8StringEncoding);
     if (_handle != nullptr) { _handle->release(); }
     _handle = device->newAccelerationStructure(sizes.accelerationStructureSize);
-    _handle->setLabel(name);
+    _handle->setLabel(_name);
     auto build_buffer = device->newBuffer(sizes.buildScratchBufferSize,
                                           MTL::ResourceHazardTrackingModeTracked |
                                               MTL::ResourceStorageModePrivate);
@@ -87,7 +85,7 @@ void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
         auto submitted_command_buffer = encoder.submit({});
         submitted_command_buffer->waitUntilCompleted();
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
-        compacted_handle->setLabel(name);
+        compacted_handle->setLabel(_name);
         auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
@@ -121,6 +119,20 @@ void MetalPrimitive::_do_update(MetalCommandEncoder &encoder,
         update_buffer->release();
         descriptor->release();
     }));
+}
+
+void MetalPrimitive::set_name(luisa::string_view name) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (_name) {
+        _name->release();
+        _name = nullptr;
+    }
+    if (!name.empty()) {
+        _name = NS::String::alloc()->init(
+            const_cast<char *>(name.data()), name.size(),
+            NS::UTF8StringEncoding, false);
+    }
+    if (_handle) { _handle->setLabel(_name); }
 }
 
 }// namespace luisa::compute::metal

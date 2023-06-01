@@ -19,9 +19,13 @@ MetalAccel::~MetalAccel() noexcept {
     if (_instance_buffer) { _instance_buffer->release(); }
     if (_update_buffer) { _update_buffer->release(); }
     if (_descriptor) { _descriptor->release(); }
+    if (_name) { _name->release(); }
 }
 
 void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command) noexcept {
+
+    std::scoped_lock lock{_mutex};
+
     auto device = encoder.device();
     auto instance_count = command->instance_count();
     LUISA_ASSERT(instance_count > 0u, "Empty acceleration structure is not allowed.");
@@ -175,12 +179,9 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
                                                    MTL::ResourceHazardTrackingModeTracked);
         }
     }
-    auto name = _name.empty() ?
-                    nullptr :
-                    NS::String::string(_name.c_str(), NS::UTF8StringEncoding);
     if (_handle != nullptr) { _handle->release(); }
     _handle = device->newAccelerationStructure(sizes.accelerationStructureSize);
-    _handle->setLabel(name);
+    _handle->setLabel(_name);
     auto build_buffer = device->newBuffer(sizes.buildScratchBufferSize,
                                           MTL::ResourceStorageModePrivate |
                                               MTL::ResourceHazardTrackingModeTracked);
@@ -221,7 +222,7 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
         submitted_command_buffer->waitUntilCompleted();
         // compact the acceleration structure
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
-        compacted_handle->setLabel(name);
+        compacted_handle->setLabel(_name);
         auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
@@ -234,10 +235,25 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     }
 }
 
-void MetalAccel::set_name(luisa::string_view name) noexcept { _name = name; }
+void MetalAccel::set_name(luisa::string_view name) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (_name) {
+        _name->release();
+        _name = nullptr;
+    }
+    if (!name.empty()) {
+        _name = NS::String::alloc()->init(
+            const_cast<char *>(name.data()), name.size(),
+            NS::UTF8StringEncoding, false);
+    }
+    if (_handle) { _handle->setLabel(_name); }
+}
 
 void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
                                       MTL::ComputeCommandEncoder *command_encoder) noexcept {
+
+    std::scoped_lock lock{_mutex};
+
     _descriptor->retain();
     _handle->retain();
     _instance_buffer->retain();

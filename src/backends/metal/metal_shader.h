@@ -22,6 +22,7 @@ private:
     luisa::vector<Argument> _bound_arguments;
     uint _block_size[3];
     luisa::vector<std::byte> _argument_buffer;
+    mutable spin_mutex _name_mutex;
     NS::String *_name{nullptr};
 
 public:

@@ -21,6 +21,7 @@ public:
     static constexpr auto reserved_primitive_count = 1024u;
 
 private:
+    std::mutex _mutex;
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_instance_buffer{nullptr};
     MTL::Buffer *_update_buffer{nullptr};
@@ -28,7 +29,7 @@ private:
     MTL::ComputePipelineState *_update;
     luisa::vector<MetalPrimitive *> _primitives;
     luisa::vector<MTL::Resource *> _resources;
-    luisa::string _name;
+    NS::String *_name{nullptr};
     AccelOption _option;
     bool _requires_rebuild{true};
 

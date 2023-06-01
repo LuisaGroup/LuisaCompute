@@ -25,8 +25,8 @@ public:
 
 private:
     MTL::CommandQueue *_queue;
-    std::mutex _upload_pool_creation_mutex;
-    std::mutex _download_pool_creation_mutex;
+    spin_mutex _upload_pool_creation_mutex;
+    spin_mutex _download_pool_creation_mutex;
     luisa::unique_ptr<MetalStageBufferPool> _upload_pool;
     luisa::unique_ptr<MetalStageBufferPool> _download_pool;
     luisa::queue<CallbackContainer> _callback_lists;
