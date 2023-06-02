@@ -125,7 +125,7 @@ void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     auto array = mipmap_array->level(command->level());
     auto buffer = reinterpret_cast<const CUDABuffer *>(command->buffer());
     detail::memcpy_buffer_to_texture(
-        buffer->handle(), command->buffer_offset(), buffer->size(),
+        buffer->handle(), command->buffer_offset(), buffer->size_bytes(),
         array, command->storage(), command->size(), _stream->handle());
 }
 
@@ -257,8 +257,8 @@ static void dstorage_copy(const void *input_host_ptr,
     if (luisa::holds_alternative<DSBufferRequest>(output_request)) {
         auto dst = luisa::get<DSBufferRequest>(output_request);
         auto buffer = reinterpret_cast<const CUDABuffer *>(dst.handle);
-        LUISA_ASSERT(dst.offset_bytes < buffer->size() &&
-                         input_size <= buffer->size() - dst.offset_bytes,
+        LUISA_ASSERT(dst.offset_bytes < buffer->size_bytes() &&
+                         input_size <= buffer->size_bytes() - dst.offset_bytes,
                      "DStorageReadCommand out of range.");
         auto dst_addr = buffer->handle() + dst.offset_bytes;
         if (dst.size_bytes != input_size) {
@@ -330,8 +330,8 @@ static void dstorage_decompress(DStorageCompression algorithm,
     if (luisa::holds_alternative<DSBufferRequest>(output_request)) {
         auto dst = luisa::get<DSBufferRequest>(output_request);
         auto buffer = reinterpret_cast<const CUDABuffer *>(dst.handle);
-        LUISA_ASSERT(dst.offset_bytes < buffer->size() &&
-                         input_size <= buffer->size() - dst.offset_bytes,
+        LUISA_ASSERT(dst.offset_bytes < buffer->size_bytes() &&
+                         input_size <= buffer->size_bytes() - dst.offset_bytes,
                      "DStorageReadCommand out of range.");
         auto dst_addr = buffer->handle() + dst.offset_bytes;
         decompress_to_buffer(input_device_ptr, input_size, dst_addr, dst.size_bytes);

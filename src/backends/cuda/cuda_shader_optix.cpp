@@ -375,6 +375,9 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         for (auto &&arg : _bound_arguments) { encode_argument(arg); }
         for (auto &&arg : command->arguments()) { encode_argument(arg); }
         auto s = command->dispatch_size();
+        auto ds_and_kid = make_uint4(s, 0u);
+        auto ptr = allocate_argument(sizeof(ds_and_kid));
+        std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
         auto cuda_stream = encoder.stream()->handle();
         if (argument_buffer->is_pooled()) [[likely]] {// if the argument buffer is pooled, we can use the device pointer directly
             auto device_argument_buffer = 0ull;

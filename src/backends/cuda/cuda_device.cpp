@@ -14,6 +14,7 @@
 #include <core/binary_io.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/bindless_array.h>
+#include <runtime/dispatch_buffer.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -132,6 +133,19 @@ CUDADevice::CUDADevice(Context &&ctx,
             &_instance_handle_update_function, _builtin_kernel_module,
             "update_accel_instance_handles"));
     });
+
+    // load cudadevrt
+#ifdef LUISA_PLATFORM_WINDOWS
+    auto device_runtime_lib_path = context().runtime_directory() / "cudadevrt.lib";
+#else
+    auto device_runtime_lib_path = context().runtime_directory() / "libcudadevrt.a";
+#endif
+    std::ifstream devrt_file{device_runtime_lib_path, std::ios::binary};
+    LUISA_ASSERT(devrt_file.is_open(),
+                 "Failed to load CUDA device runtime library: {}",
+                 device_runtime_lib_path.string());
+    _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
+                                       std::istreambuf_iterator<char>{}};
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -143,13 +157,24 @@ CUDADevice::~CUDADevice() noexcept {
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_count) noexcept {
     BufferCreationInfo info{};
-    info.element_stride = CUDACompiler::type_size(element);
-    info.total_size_bytes = info.element_stride * elem_count;
-    auto buffer = with_handle([size = info.total_size_bytes] {
-        return new_with_allocator<CUDABuffer>(size);
-    });
-    info.handle = reinterpret_cast<uint64_t>(buffer);
-    info.native_handle = buffer;
+    elem_count = std::max<size_t>(elem_count, 1u);
+    if (element == Type::of<IndirectKernelDispatch>()) {
+        auto buffer = with_handle([elem_count] {
+            return new_with_allocator<CUDAIndirectDispatchBuffer>(elem_count);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = buffer;
+        info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
+        info.total_size_bytes = buffer->size_bytes();
+    } else {
+        info.element_stride = CUDACompiler::type_size(element);
+        info.total_size_bytes = info.element_stride * elem_count;
+        auto buffer = with_handle([size = info.total_size_bytes] {
+            return new_with_allocator<CUDABuffer>(size);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = buffer;
+    }
     return info;
 }
 
@@ -163,7 +188,7 @@ BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, 
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-    with_handle([buffer = reinterpret_cast<CUDABuffer *>(handle)] {
+    with_handle([buffer = reinterpret_cast<CUDABufferBase *>(handle)] {
         delete_with_allocator(buffer);
     });
 }
@@ -451,7 +476,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
                 std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main",
+            this, ptx.data(), ptx.size(), "kernel_main",
             expected_metadata.block_size,
             expected_metadata.argument_usages,
             std::move(bound_arguments));
@@ -622,9 +647,8 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
                 metadata.argument_usages);
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main",
-            metadata.block_size,
-            metadata.argument_usages);
+            this, ptx.data(), ptx.size(), "kernel_main",
+            metadata.block_size, metadata.argument_usages);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -867,7 +891,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                  name = luisa::string{name}]() mutable noexcept {
         switch (tag) {
             case Resource::Tag::BUFFER:
-                reinterpret_cast<CUDABuffer *>(handle)->set_name(std::move(name));
+                reinterpret_cast<CUDABufferBase *>(handle)->set_name(std::move(name));
                 break;
             case Resource::Tag::TEXTURE:
                 reinterpret_cast<CUDATexture *>(handle)->set_name(std::move(name));
@@ -898,6 +922,8 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
 #endif
                 break;
             case Resource::Tag::DEPTH_BUFFER: break;
+            case Resource::Tag::DSTORAGE_FILE: break;
+            case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
         }
     });
 }

@@ -18,8 +18,10 @@ public:
     Expr(const IndirectDispatchBuffer &buffer) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     void clear() const noexcept;
-    // return kernel_id
     void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
+    void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
+        dispatch_kernel(block_size, dispatch_size, 0u);
+    }
 };
 
 Expr(const IndirectDispatchBuffer &) -> Expr<IndirectDispatchBuffer>;
@@ -52,6 +54,10 @@ public:
     void clear() const noexcept;
     // return kernel_id
     void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
+
+    void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
+        dispatch_kernel(block_size, dispatch_size, 0u);
+    }
 };
 
 }// namespace detail

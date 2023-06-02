@@ -249,7 +249,7 @@ public:
         size_t afterSize = argBuffer->size();
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
         if (cmd->is_indirect()) {
-            auto buffer = reinterpret_cast<Buffer *>(cmd->indirect_dispatch_size().handle);
+            auto buffer = reinterpret_cast<Buffer *>(cmd->indirect_dispatch().handle);
             stateTracker->RecordState(buffer, stateTracker->ReadState(ResourceReadUsage::IndirectArgs));
         }
     }
@@ -480,7 +480,7 @@ public:
             DecodeCmd(cmd->arguments(), visitor);
         };
         if (cmd->is_indirect()) {
-            auto &&t = cmd->indirect_dispatch_size();
+            auto &&t = cmd->indirect_dispatch();
             auto buffer = reinterpret_cast<Buffer *>(t.handle);
             bindProps->emplace_back();
             BeforeDispatch();

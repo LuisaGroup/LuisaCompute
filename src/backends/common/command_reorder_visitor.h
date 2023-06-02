@@ -744,7 +744,7 @@ public:
     void visit(const ShaderDispatchCommand *command) noexcept override {
         visit<true>(command, command, command->handle(), [&] {
             if (command->is_indirect()) {
-                auto &&t = command->indirect_dispatch_size();
+                auto &&t = command->indirect_dispatch();
                 add_dispatch_handle(
                     t.handle,
                     ResourceType::Texture_Buffer,

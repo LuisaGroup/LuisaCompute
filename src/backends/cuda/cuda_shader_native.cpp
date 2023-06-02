@@ -2,9 +2,11 @@
 // Created by Mike on 3/18/2023.
 //
 
+#include <fstream>
+
 #include <runtime/rhi/command.h>
 #include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_texture.h>
@@ -14,7 +16,8 @@
 
 namespace luisa::compute::cuda {
 
-CUDAShaderNative::CUDAShaderNative(const char *ptx, size_t ptx_size,
+CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
+                                   const char *ptx, size_t ptx_size,
                                    const char *entry, uint3 block_size,
                                    luisa::vector<Usage> argument_usages,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
@@ -23,7 +26,33 @@ CUDAShaderNative::CUDAShaderNative(const char *ptx, size_t ptx_size,
       _block_size{block_size.x, block_size.y, block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 
-    auto ret = cuModuleLoadData(&_module, ptx);
+    auto load_ptx = [&](const char *ptx, size_t ptx_size) noexcept {
+        CUlinkState link_state{};
+        size_t cubin_size;
+        void *cubin = nullptr;
+        LUISA_CHECK_CUDA(cuLinkCreate(0u, nullptr, nullptr, &link_state));
+        LUISA_CHECK_CUDA(cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
+                                       const_cast<char *>(device->cudadevrt_library().data()),
+                                       device->cudadevrt_library().size(),
+                                       "cudadevrt", 0u, nullptr, nullptr));
+        auto ret = cuLinkAddData(link_state, CU_JIT_INPUT_PTX,
+                                 const_cast<char *>(ptx), ptx_size,
+                                 "kernel_main.ptx", 0u, nullptr, nullptr);
+        if (ret != CUDA_SUCCESS) {
+            LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
+            return ret;
+        }
+        LUISA_CHECK_CUDA(cuLinkComplete(link_state, &cubin, &cubin_size));
+        LUISA_CHECK_CUDA(cuModuleLoadData(&_module, cubin));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
+        if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
+            _indirect_function = nullptr;
+        }
+        LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
+        return CUDA_SUCCESS;
+    };
+
+    auto ret = load_ptx(ptx, ptx_size);
     if (ret == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
 
         LUISA_WARNING_WITH_LOCATION(
@@ -44,10 +73,9 @@ CUDAShaderNative::CUDAShaderNative(const char *ptx, size_t ptx_size,
             for (; isdigit(s[end]); end++) {}
             s.replace(begin, end - begin, "0");
         }
-        ret = cuModuleLoadData(&_module, s.c_str());
+        ret = load_ptx(s.c_str(), s.size());
     }
     LUISA_CHECK_CUDA(ret);
-    LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
 }
 
 CUDAShaderNative::~CUDAShaderNative() noexcept {
@@ -56,32 +84,33 @@ CUDAShaderNative::~CUDAShaderNative() noexcept {
 
 void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
 
-    // TODO: support indirect dispatch
-    LUISA_ASSERT(!command->is_indirect(), "Indirect dispatch is not supported on CUDA backend.");
-
     static thread_local std::array<std::byte, 65536u> argument_buffer;// should be enough
-    static thread_local std::array<void *, 256u> arguments;           // should be enough, too
 
     auto argument_buffer_offset = static_cast<size_t>(0u);
-    auto argument_count = 0u;
     auto allocate_argument = [&](size_t bytes) noexcept {
         static constexpr auto alignment = 16u;
         auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
-        LUISA_ASSERT(offset + bytes <= argument_buffer.size() &&
-                         argument_count < arguments.size(),
+        LUISA_ASSERT(offset + bytes <= argument_buffer.size(),
                      "Too many arguments in ShaderDispatchCommand");
         argument_buffer_offset = offset + bytes;
-        return arguments[argument_count++] = argument_buffer.data() + offset;
+        return argument_buffer.data() + offset;
     };
 
     auto encode_argument = [&allocate_argument, command](const auto &arg) noexcept {
         using Tag = ShaderDispatchCommand::Argument::Tag;
         switch (arg.tag) {
             case Tag::BUFFER: {
-                auto buffer = reinterpret_cast<const CUDABuffer *>(arg.buffer.handle);
-                auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
-                auto ptr = allocate_argument(sizeof(binding));
-                std::memcpy(ptr, &binding, sizeof(binding));
+                if (reinterpret_cast<const CUDABufferBase *>(arg.buffer.handle)->is_indirect()) {
+                    auto buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(arg.buffer.handle);
+                    auto binding = buffer->binding();
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                } else {
+                    auto buffer = reinterpret_cast<const CUDABuffer *>(arg.buffer.handle);
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                }
                 break;
             }
             case Tag::TEXTURE: {
@@ -115,21 +144,38 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
     };
     for (auto &&arg : _bound_arguments) { encode_argument(arg); }
     for (auto &&arg : command->arguments()) { encode_argument(arg); }
-    // the last argument is the launch size
-    auto launch_size = command->dispatch_size();
-    auto ptr = allocate_argument(sizeof(launch_size));
-    std::memcpy(ptr, &launch_size, sizeof(launch_size));
-    // launch configuration
-    auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-    auto blocks = (launch_size + block_size - 1u) / block_size;
     // launch
     auto cuda_stream = encoder.stream()->handle();
-    LUISA_CHECK_CUDA(cuLaunchKernel(
-        _function,
-        blocks.x, blocks.y, blocks.z,
-        block_size.x, block_size.y, block_size.z,
-        0u, cuda_stream,
-        arguments.data(), nullptr));
+    if (command->is_indirect()) {
+        LUISA_ASSERT(_indirect_function != nullptr,
+                     "Indirect dispatch is not supported by this shader.");
+        auto indirect_buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(
+                                   command->indirect_dispatch().handle);
+        auto indirect_buffer_handle = indirect_buffer->handle();
+        void *arguments[] = {argument_buffer.data(), &indirect_buffer_handle};
+        static constexpr auto block_size = 64u;
+        auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+        LUISA_CHECK_CUDA(cuLaunchKernel(
+            _indirect_function,
+            static_cast<uint>(block_count), 1u, 1u,
+            block_size, 1u, 1u,
+            0u, cuda_stream, arguments, nullptr));
+    } else {
+        // the last argument is the launch size
+        auto launch_size_and_kernel_id = make_uint4(command->dispatch_size(), 0u);
+        auto ptr = allocate_argument(sizeof(launch_size_and_kernel_id));
+        std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
+        // launch configuration
+        auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+        auto blocks = (command->dispatch_size() + block_size - 1u) / block_size;
+        auto arguments = static_cast<void *>(argument_buffer.data());
+        LUISA_CHECK_CUDA(cuLaunchKernel(
+            _function,
+            blocks.x, blocks.y, blocks.z,
+            block_size.x, block_size.y, block_size.z,
+            0u, cuda_stream,
+            &arguments, nullptr));
+    }
 }
 
 }// namespace luisa::compute::cuda

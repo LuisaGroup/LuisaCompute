@@ -90,6 +90,7 @@ private:
     luisa::unique_ptr<CUDACompiler> _compiler;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
+    luisa::string _cudadevrt_library;
 
 private:
     // extensions
@@ -117,6 +118,7 @@ public:
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
     [[nodiscard]] auto instance_handle_update_function() const noexcept { return _instance_handle_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
+    [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }
     bool is_c_api() const noexcept override { return false; }
