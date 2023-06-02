@@ -75,12 +75,10 @@ void test_buffer_io(Device &device) noexcept {
 TEST_CASE("buffer_io") {
     auto argv = luisa::test::argv();
     Context context{argv[0]};
-    SUBCASE("cuda") {
-        Device device = context.create_device("cuda");
-        test_buffer_io(device);
-    }
-    SUBCASE("dx") {
-        Device device = context.create_device("dx");
-        test_buffer_io(device);
+    for (auto &&backend : context.installed_backends()) {
+        SUBCASE(backend.c_str()) {
+            Device device = context.create_device(backend);
+            test_buffer_io(device);
+        }
     }
 }

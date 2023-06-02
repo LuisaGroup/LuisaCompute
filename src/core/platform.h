@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/dll_export.h>
+#include <core/intrin.h>
 
 #ifdef __cplusplus
 
@@ -34,6 +35,8 @@ struct TraceItem {
 };
 
 [[nodiscard]] LC_CORE_API LUISA_NEVER_INLINE luisa::vector<TraceItem> backtrace() noexcept;
+
+[[nodiscard]] LC_CORE_API luisa::string cpu_name() noexcept;
 
 }// namespace luisa
 
