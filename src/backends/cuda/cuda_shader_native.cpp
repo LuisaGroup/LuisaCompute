@@ -31,13 +31,16 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
         size_t cubin_size;
         void *cubin = nullptr;
         LUISA_CHECK_CUDA(cuLinkCreate(0u, nullptr, nullptr, &link_state));
-        LUISA_CHECK_CUDA(cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
-                                       const_cast<char *>(device->cudadevrt_library().data()),
-                                       device->cudadevrt_library().size(),
-                                       "cudadevrt", 0u, nullptr, nullptr));
+        auto devrt = device->cudadevrt_library();
+        if (!devrt.empty()) {
+            LUISA_CHECK_CUDA(cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
+                                           const_cast<char *>(device->cudadevrt_library().data()),
+                                           device->cudadevrt_library().size(),
+                                           "cudadevrt", 0u, nullptr, nullptr));
+        }
         auto ret = cuLinkAddData(link_state, CU_JIT_INPUT_PTX,
                                  const_cast<char *>(ptx), ptx_size,
-                                 "kernel_main.ptx", 0u, nullptr, nullptr);
+                                 "my_kernel.ptx", 0u, nullptr, nullptr);
         if (ret != CUDA_SUCCESS) {
             LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
             return ret;
@@ -45,8 +48,13 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
         LUISA_CHECK_CUDA(cuLinkComplete(link_state, &cubin, &cubin_size));
         LUISA_CHECK_CUDA(cuModuleLoadData(&_module, cubin));
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
-        if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
-            _indirect_function = nullptr;
+        if (!devrt.empty()) {
+            if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to find kernel_launcher() in the PTX module. "
+                    "Indirect dispatch will not be available for this kernel.");
+                _indirect_function = nullptr;
+            }
         }
         LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
         return CUDA_SUCCESS;

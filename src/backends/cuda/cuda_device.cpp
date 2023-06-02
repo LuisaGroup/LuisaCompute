@@ -141,11 +141,15 @@ CUDADevice::CUDADevice(Context &&ctx,
     auto device_runtime_lib_path = context().runtime_directory() / "libcudadevrt.a";
 #endif
     std::ifstream devrt_file{device_runtime_lib_path, std::ios::binary};
-    LUISA_ASSERT(devrt_file.is_open(),
-                 "Failed to load CUDA device runtime library: {}",
-                 device_runtime_lib_path.string());
-    _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
-                                       std::istreambuf_iterator<char>{}};
+    if (!devrt_file.is_open()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to load CUDA device runtime library '{}'. "
+            "Indirect kernel dispatch will not be available.",
+            device_runtime_lib_path.string());
+    } else {
+        _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
+                                           std::istreambuf_iterator<char>{}};
+    }
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -496,7 +500,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // codegen
     Clock clk;
     StringScratch scratch;
-    CUDACodegenAST codegen{scratch};
+    CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
     codegen.emit(kernel, option.native_include);
     LUISA_INFO("Generated CUDA source in {} ms.", clk.toc());
 

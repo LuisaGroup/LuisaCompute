@@ -1260,22 +1260,24 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
 
-    // generate meta-function that launches the kernel with dynamic parallelism
-    if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
-        _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
-                 << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
-                 << "  if (i < indirect.header()->size) {\n"
-                 << "    auto args = params;\n"
-                 << "    auto d = indirect.dispatches()[i];\n"
-                 << "    args.ls_kid = d.dispatch_size_and_kernel_id;\n"
-                 << "    auto block_size = d.block_size;\n"
-                 << "    auto dispatch_size = lc_make_uint3(d.dispatch_size_and_kernel_id);\n"
-                 << "    auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
-                 << "    auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
-                 << "    auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
-                 << "    kernel_main<<<nb, bs>>>(args);\n"
-                 << "  }\n"
-                 << "}\n\n";
+    if (_allow_indirect_dispatch) {
+        // generate meta-function that launches the kernel with dynamic parallelism
+        if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
+            _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
+                     << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
+                     << "  if (i < indirect.header()->size) {\n"
+                     << "    auto args = params;\n"
+                     << "    auto d = indirect.dispatches()[i];\n"
+                     << "    args.ls_kid = d.dispatch_size_and_kernel_id;\n"
+                     << "    auto block_size = d.block_size;\n"
+                     << "    auto dispatch_size = lc_make_uint3(d.dispatch_size_and_kernel_id);\n"
+                     << "    auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
+                     << "    auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
+                     << "    auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
+                     << "    kernel_main<<<nb, bs>>>(args);\n"
+                     << "  }\n"
+                     << "}\n\n";
+        }
     }
 }
 
@@ -1666,8 +1668,8 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
 
-CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
-    : _scratch{scratch},
+CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept
+    : _scratch{scratch}, _allow_indirect_dispatch{allow_indirect},
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
