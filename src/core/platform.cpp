@@ -164,11 +164,10 @@ luisa::vector<TraceItem> backtrace() noexcept { return {}; }
 #endif
 
 luisa::string cpu_name() noexcept {
-    uint32_t brand[12];
-    if (!__get_cpuid_max(0x80000004u, nullptr)) { return "Unknown x86_64"; }
-    __cpuid(&brand[0], 0x80000002u);
-    __cpuid(&brand[4], 0x80000003u);
-    __cpuid(&brand[8], 0x80000004u);
+    int32_t brand[12];
+    __cpuid(&brand[0], 0x80000002);
+    __cpuid(&brand[4], 0x80000003);
+    __cpuid(&brand[8], 0x80000004);
     return reinterpret_cast<const char *>(brand);
 }
 

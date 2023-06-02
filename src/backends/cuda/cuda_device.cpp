@@ -398,7 +398,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
     // generate a default name if not specified
     auto uses_user_path = !name.empty();
     if (!uses_user_path) { name = luisa::format("kernel_{:016x}.ptx",
-                                                       expected_metadata.checksum); }
+                                                expected_metadata.checksum); }
     if (!name.ends_with(".ptx") &&
         !name.ends_with(".PTX")) { name.append(".ptx"); }
 
@@ -750,13 +750,22 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
     return nullptr;
 }
 
-CUDADevice::Handle::Handle(size_t index) noexcept {
+namespace detail {
+
+static void initialize() {
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {
         LUISA_CHECK_CUDA(cuInit(0));
         static_cast<void>(optix::api());
     });
+}
+
+}// namespace detail
+
+CUDADevice::Handle::Handle(size_t index) noexcept {
+
+    detail::initialize();
 
     // cuda
     auto driver_version = 0;
@@ -918,6 +927,7 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
     names.clear();
     auto device_count = 0;
+    luisa::compute::cuda::detail::initialize();
     LUISA_CHECK_CUDA(cuDeviceGetCount(&device_count));
     if (device_count > 0) {
         names.reserve(device_count);
