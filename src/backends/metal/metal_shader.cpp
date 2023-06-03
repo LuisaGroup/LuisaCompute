@@ -159,6 +159,10 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(
             command->indirect_dispatch().handle);
 
+        for (auto arg : _bound_arguments) { encode(arg); }
+        for (auto arg : command->arguments()) { encode(arg); }
+        auto argument_size = luisa::align(argument_offset, argument_alignment);
+
         // update indirect command buffer
         {
             auto command_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
@@ -168,20 +172,18 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             struct ICB {
                 uint64_t dispatch_buffer;
+                size_t command_buffer_capacity;
                 MTL::ResourceID command_buffer;
                 MTL::ResourceID pipeline_state;
             };
             ICB icb{.dispatch_buffer = indirect_buffer->dispatch_buffer()->gpuAddress(),
+                    .command_buffer_capacity = indirect_buffer->capacity(),
                     .command_buffer = indirect_buffer->command_buffer()->gpuResourceID(),
                     .pipeline_state = _handle.indirect_entry->gpuResourceID()};
             command_encoder->setComputePipelineState(_prepare_indirect);
             command_encoder->setBytes(&icb, sizeof(icb), 0u);
-
-            for (auto arg : _bound_arguments) { encode(arg); }
-            for (auto arg : command->arguments()) { encode(arg); }
             command_encoder->useResource(indirect_buffer->dispatch_buffer(), MTL::ResourceUsageRead);
             command_encoder->useResource(indirect_buffer->command_buffer(), MTL::ResourceUsageWrite);
-            auto argument_size = luisa::align(argument_offset, argument_alignment);
             command_encoder->setBytes(argument_buffer.data(), argument_size, 1u);
             constexpr auto block_size = MetalDevice::prepare_indirect_dispatches_block_size;
             auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;

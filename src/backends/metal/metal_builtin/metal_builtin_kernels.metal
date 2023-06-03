@@ -176,28 +176,30 @@ struct alignas(16) ICBSlot {
 
 struct ICB {
     device const void *__restrict__ buffer;
+    ulong capacity;
     command_buffer command_buffer;
     compute_pipeline_state pipeline_state;
 };
 
-static_assert(sizeof(ICB) == 24u);
+static_assert(sizeof(ICB) == 32u);
 
 [[kernel]] void prepare_indirect_dispatches(constant ICB &icb,
                                             constant void *__restrict__ kernel_args,
                                             uint tid [[thread_position_in_grid]]) {
-    auto header = static_cast<device const ICBHeader *>(icb.buffer);
-    if (tid < header->count) {
-        auto slots = reinterpret_cast<device const ICBSlot *>(header + 1u);
-        auto slot = slots[tid];
-        auto block_size = slot.block_size;
-        auto dispatch_size = slot.dispatch_size_and_kernel_id.xyz;
-        auto kernel_id = slot.dispatch_size_and_kernel_id.w;
+    if (tid < icb.capacity) {
         compute_command cmd{icb.command_buffer, tid};
         cmd.reset();
-        cmd.set_compute_pipeline_state(icb.pipeline_state);
-        cmd.set_kernel_buffer(kernel_args, 0u);
-        cmd.set_kernel_buffer(&(slots[tid].dispatch_size_and_kernel_id), 1u);
-        auto block_count = (dispatch_size + block_size - 1u) / block_size;
-        cmd.concurrent_dispatch_threadgroups(block_count, block_size);
+        auto header = static_cast<device const ICBHeader *>(icb.buffer);
+        if (tid < header->count) {
+            auto slots = reinterpret_cast<device const ICBSlot *>(header + 1u);
+            auto slot = slots[tid];
+            auto block_size = slot.block_size;
+            auto dispatch_size = slot.dispatch_size_and_kernel_id.xyz;
+            cmd.set_compute_pipeline_state(icb.pipeline_state);
+            cmd.set_kernel_buffer(kernel_args, 0u);
+            cmd.set_kernel_buffer(&(slots[tid].dispatch_size_and_kernel_id), 1u);
+            auto block_count = (dispatch_size + block_size - 1u) / block_size;
+            cmd.concurrent_dispatch_threadgroups(block_count, block_size);
+        }
     }
 }

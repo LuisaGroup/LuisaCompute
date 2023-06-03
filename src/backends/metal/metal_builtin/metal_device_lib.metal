@@ -969,7 +969,7 @@ struct LCIndirectDispatchBuffer {
     size_t capacity;
 
     [[nodiscard]] auto header() const { return static_cast<device LCIndirectHeader *>(buffer); }
-    [[nodiscard]] auto slots() const { return reinterpret_cast<device LCIndirectSlot *>(header()); }
+    [[nodiscard]] auto slots() const { return reinterpret_cast<device LCIndirectSlot *>(header() + 1u); }
 };
 
 void lc_indirect_dispatch_clear(LCIndirectDispatchBuffer buffer) {
@@ -979,5 +979,7 @@ void lc_indirect_dispatch_clear(LCIndirectDispatchBuffer buffer) {
 void lc_indirect_dispatch_emplace(LCIndirectDispatchBuffer buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id) {
     auto count = reinterpret_cast<device atomic_uint *>(&(buffer.header()->count));
     auto index = atomic_fetch_add_explicit(count, 1u, memory_order_relaxed);
-    buffer.slots()[index] = {block_size, uint4(dispatch_size, kernel_id)};
+    if (index < buffer.capacity) {
+        buffer.slots()[index] = {block_size, uint4(dispatch_size, kernel_id)};
+    }
 }
