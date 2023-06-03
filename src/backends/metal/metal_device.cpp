@@ -85,8 +85,8 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     // compute pipelines
     auto compute_pipeline_desc = MTL::ComputePipelineDescriptor::alloc()->init();
     compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
-    compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(256u);
-    auto create_builtin_compute_shader = [&](auto name) noexcept {
+    auto create_builtin_compute_shader = [&](auto name, auto block_size) noexcept {
+        compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(block_size);
         auto function_desc = MTL::FunctionDescriptor::alloc()->init();
         function_desc->setName(name);
         function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
@@ -116,9 +116,12 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
         function->release();
         return pipeline;
     };
-    _builtin_update_bindless_slots = create_builtin_compute_shader(MTLSTR("update_bindless_array"));
-    _builtin_update_accel_instances = create_builtin_compute_shader(MTLSTR("update_accel_instances"));
-    _builtin_prepare_indirect_dispatches = create_builtin_compute_shader(MTLSTR("prepare_indirect_dispatches"));
+    _builtin_update_bindless_slots = create_builtin_compute_shader(
+        MTLSTR("update_bindless_array"), update_bindless_slots_block_size);
+    _builtin_update_accel_instances = create_builtin_compute_shader(
+        MTLSTR("update_accel_instances"), update_accel_instances_block_size);
+    _builtin_prepare_indirect_dispatches = create_builtin_compute_shader(
+        MTLSTR("prepare_indirect_dispatches"), prepare_indirect_dispatches_block_size);
     compute_pipeline_desc->release();
 
     // render pipeline

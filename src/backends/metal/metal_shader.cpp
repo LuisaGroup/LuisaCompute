@@ -167,11 +167,11 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                 if (_indirect_name) { command_encoder->setLabel(_indirect_name); }
             }
             struct ICB {
-                MetalIndirectDispatchBuffer::Binding dispatch_buffer;
+                uint64_t dispatch_buffer;
                 MTL::ResourceID command_buffer;
                 MTL::ResourceID pipeline_state;
             };
-            ICB icb{.dispatch_buffer = indirect_buffer->binding(),
+            ICB icb{.dispatch_buffer = indirect_buffer->dispatch_buffer()->gpuAddress(),
                     .command_buffer = indirect_buffer->command_buffer()->gpuResourceID(),
                     .pipeline_state = _handle.indirect_entry->gpuResourceID()};
             command_encoder->setComputePipelineState(_prepare_indirect);
@@ -181,10 +181,11 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             for (auto arg : command->arguments()) { encode(arg); }
             command_encoder->useResource(indirect_buffer->dispatch_buffer(), MTL::ResourceUsageRead);
             command_encoder->useResource(indirect_buffer->command_buffer(), MTL::ResourceUsageWrite);
-            command_encoder->setBytes(argument_buffer.data(), luisa::align(argument_offset, argument_alignment), 1u);
-            constexpr auto indirect_block_size = 256u;
-            auto indirect_block_count = (indirect_buffer->capacity() + indirect_block_size - 1u) / indirect_block_size;
-            command_encoder->dispatchThreadgroups(MTL::Size{indirect_block_count, 1u, 1u}, MTL::Size{256u, 1u, 1u});
+            auto argument_size = luisa::align(argument_offset, argument_alignment);
+            command_encoder->setBytes(argument_buffer.data(), argument_size, 1u);
+            constexpr auto block_size = MetalDevice::prepare_indirect_dispatches_block_size;
+            auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+            command_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u}, MTL::Size{block_size, 1u, 1u});
             command_encoder->endEncoding();
 
             auto blit_encoder = encoder.command_buffer()->blitCommandEncoder();

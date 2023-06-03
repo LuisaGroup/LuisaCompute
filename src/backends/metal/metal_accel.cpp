@@ -69,7 +69,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
             compute_encoder->setBuffer(_instance_buffer, 0u, 0u);
             compute_encoder->setBuffer(mod_buffer->buffer(), mod_buffer->offset(), 1u);
             compute_encoder->setBytes(&n, sizeof(n), 2u);
-            constexpr auto block_size = 256u;
+            constexpr auto block_size = MetalDevice::update_accel_instances_block_size;
             auto block_count = (n + block_size - 1u) / block_size;
             compute_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u},
                                                   MTL::Size{block_size, 1u, 1u});

@@ -15,6 +15,11 @@ class MetalDStorageExt;
 
 class MetalDevice : public DeviceInterface {
 
+public:
+    static constexpr auto update_bindless_slots_block_size = 256u;
+    static constexpr auto update_accel_instances_block_size = 256u;
+    static constexpr auto prepare_indirect_dispatches_block_size = 64u;
+
 private:
     MTL::Device *_handle{nullptr};
     MTL::ComputePipelineState *_builtin_update_bindless_slots{nullptr};
