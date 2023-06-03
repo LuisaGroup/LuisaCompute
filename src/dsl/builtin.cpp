@@ -7,7 +7,7 @@
 
 namespace luisa::compute::detail {
 
-void validate_block_size(uint x, uint y, uint z) noexcept {
+LC_DSL_API void validate_block_size(uint x, uint y, uint z) noexcept {
     auto size = make_uint3(x, y, z);
     LUISA_ASSERT(all(size >= 1u && size <= 1024u),
                  "Invalid block size ({}, {}, {}). "
