@@ -19,6 +19,7 @@ private:
     MTL::Device *_handle{nullptr};
     MTL::ComputePipelineState *_builtin_update_bindless_slots{nullptr};
     MTL::ComputePipelineState *_builtin_update_accel_instances{nullptr};
+    MTL::ComputePipelineState *_builtin_prepare_indirect_dispatches{nullptr};
     MTL::RenderPipelineState *_builtin_swapchain_present_ldr{nullptr};
     MTL::RenderPipelineState *_builtin_swapchain_present_hdr{nullptr};
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
@@ -35,6 +36,7 @@ public:
     [[nodiscard]] auto io() const noexcept { return _io; }
     [[nodiscard]] auto builtin_update_bindless_slots() const noexcept { return _builtin_update_bindless_slots; }
     [[nodiscard]] auto builtin_update_accel_instances() const noexcept { return _builtin_update_accel_instances; }
+    [[nodiscard]] auto builtin_prepare_indirect_dispatches() const noexcept { return _builtin_prepare_indirect_dispatches; }
     [[nodiscard]] auto builtin_swapchain_present_ldr() const noexcept { return _builtin_swapchain_present_ldr; }
     [[nodiscard]] auto builtin_swapchain_present_hdr() const noexcept { return _builtin_swapchain_present_hdr; }
 

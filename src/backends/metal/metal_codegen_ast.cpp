@@ -7,6 +7,7 @@
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
 #include <dsl/rtx/ray_query.h>
+#include <runtime/dispatch_buffer.h>
 #include <backends/metal/metal_builtin_embedded.h>
 #include <backends/metal/metal_codegen_ast.h>
 
@@ -95,7 +96,8 @@ MetalCodegenAST::MetalCodegenAST(StringScratch &scratch) noexcept
       _procedural_hit_type{Type::of<ProceduralHit>()},
       _committed_hit_type{Type::of<CommittedHit>()},
       _ray_query_all_type{Type::of<RayQueryAll>()},
-      _ray_query_any_type{Type::of<RayQueryAny>()} {}
+      _ray_query_any_type{Type::of<RayQueryAny>()},
+      _indirect_dispatch_buffer_type{Type::of<IndirectDispatchBuffer>()} {}
 
 size_t MetalCodegenAST::type_size_bytes(const Type *type) noexcept {
     if (!type->is_custom()) { return type->size(); }
@@ -165,7 +167,8 @@ void MetalCodegenAST::_emit_type_decls(Function kernel) noexcept {
             type != _procedural_hit_type &&
             type != _committed_hit_type &&
             type != _ray_query_all_type &&
-            type != _ray_query_any_type) {
+            type != _ray_query_any_type &&
+            type != _indirect_dispatch_buffer_type) {
             _scratch << "struct alignas(" << type->alignment() << ") ";
             _emit_type_name(type);
             _scratch << " {\n";
@@ -308,6 +311,8 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
             if (type == _ray_query_all_type ||
                 type == _ray_query_any_type) {
                 _scratch << "LCRayQuery";
+            } else if (type == _indirect_dispatch_buffer_type) {
+                _scratch << "LCIndirectDispatchBuffer";
             } else {
                 LUISA_ERROR_WITH_LOCATION(
                     "Unsupported custom type: {}.",
@@ -331,6 +336,7 @@ void MetalCodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ds"; break;
+        case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 }
@@ -357,21 +363,22 @@ void MetalCodegenAST::_emit_function() noexcept {
             _emit_variable_name(arg);
             _scratch << ";\n";
         }
-        _scratch << "  alignas(16) uint3 ds;\n"
+        _scratch << "};\n\n";
+
+        // emit argument buffer with dispatch size
+        _scratch << "struct ArgumentsWithDispatchSize {\n"
+                 << "  alignas(16) Arguments args;\n"
+                 << "  alignas(16) uint3 dispatch_size;\n"
                  << "};\n\n";
 
         // emit function signature and prelude
-        _scratch << "[[kernel]]\n"
-                 << "void kernel_main(constant Arguments &args,\n"
-                 << "                 uint3 tid [[thread_position_in_threadgroup]],\n"
-                 << "                 uint3 bid [[threadgroup_position_in_grid]],\n"
-                 << "                 uint3 did [[thread_position_in_grid]],\n"
-                 << "                 uint3 bs [[threads_per_threadgroup]]) {\n\n"
+        _scratch << "void kernel_main_impl(constant Arguments &args,\n"
+                 << "                      uint3 tid, uint3 bid, uint3 did,\n"
+                 << "                      uint3 bs, uint3 ds, uint kid) {\n\n"
                  << "  lc_assume("
                  << "bs.x == " << _function.block_size().x << " && "
                  << "bs.y == " << _function.block_size().y << " && "
                  << "bs.z == " << _function.block_size().z << ");\n"
-                 << "  auto ds = args.ds;\n"
                  << "  if (!all(did < ds)) { return; }\n\n"
                  << "  /* kernel arguments */\n";
         for (auto arg : _function.arguments()) {
@@ -464,6 +471,32 @@ void MetalCodegenAST::_emit_function() noexcept {
     for (auto s : _function.body()->statements()) { s->accept(*this); }
     _scratch << "\n  /* function body end */\n";
     _scratch << "}\n\n";
+
+    // emit direct and indirect specializations
+    if (_function.tag() == Function::Tag::KERNEL) {
+        // direct dispatch
+        _scratch << "[[kernel]] /* direct kernel dispatch entry */\n"
+                 << "void kernel_main(\n"
+                 << "    constant ArgumentsWithDispatchSize &args,\n"
+                 << "    uint3 tid [[thread_position_in_threadgroup]],\n"
+                 << "    uint3 bid [[threadgroup_position_in_grid]],\n"
+                 << "    uint3 did [[thread_position_in_grid]],\n"
+                 << "    uint3 bs [[threads_per_threadgroup]]) {\n"
+                 << "  auto ds = args.dispatch_size;\n"
+                 << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u);\n"
+                 << "}\n\n";
+        // indirect dispatch
+        _scratch << "[[kernel]] /* indirect kernel dispatch entry */\n"
+                 << "void kernel_main_indirect(\n"
+                 << "    constant Arguments &args,\n"
+                 << "    device uint4 &ds_kid,\n"
+                 << "    uint3 tid [[thread_position_in_threadgroup]],\n"
+                 << "    uint3 bid [[threadgroup_position_in_grid]],\n"
+                 << "    uint3 did [[thread_position_in_grid]],\n"
+                 << "    uint3 bs [[threads_per_threadgroup]]) {\n"
+                 << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w);\n"
+                 << "}\n\n";
+    }
 }
 
 void MetalCodegenAST::_emit_constant(const Function::Constant &c) noexcept {
@@ -859,8 +892,8 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_dispatch_clear"; break;
+        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_emplace"; break;
         case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }

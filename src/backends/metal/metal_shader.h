@@ -9,7 +9,13 @@
 
 namespace luisa::compute::metal {
 
+class MetalDevice;
 class MetalCommandEncoder;
+
+struct MetalShaderHandle {
+    NS::SharedPtr<MTL::ComputePipelineState> entry;
+    NS::SharedPtr<MTL::ComputePipelineState> indirect_entry;
+};
 
 class MetalShader {
 
@@ -17,16 +23,18 @@ public:
     using Argument = ShaderDispatchCommand::Argument;
 
 private:
-    NS::SharedPtr<MTL::ComputePipelineState> _handle;
+    MetalShaderHandle _handle;
     luisa::vector<Usage> _argument_usages;
     luisa::vector<Argument> _bound_arguments;
     uint _block_size[3];
-    luisa::vector<std::byte> _argument_buffer;
     mutable spin_mutex _name_mutex;
     NS::String *_name{nullptr};
+    NS::String *_indirect_name{nullptr};
+    MTL::ComputePipelineState *_prepare_indirect;
 
 public:
-    MetalShader(NS::SharedPtr<MTL::ComputePipelineState> handle,
+    MetalShader(MetalDevice *device,
+                MetalShaderHandle handle,
                 luisa::vector<Usage> argument_usages,
                 luisa::vector<Argument> bound_arguments,
                 uint3 block_size) noexcept;

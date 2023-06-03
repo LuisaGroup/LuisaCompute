@@ -18,34 +18,39 @@ class MetalCompiler {
 
 public:
     using Cache = LRUCache<uint64_t /* hash */,
-                           NS::SharedPtr<MTL::ComputePipelineState>>;
+                           MetalShaderHandle>;
     static constexpr auto max_cache_item_count = 64u;
+
+private:
+    struct PipelineDescriptorHandle {
+        NS::SharedPtr<MTL::ComputePipelineDescriptor> entry;
+        NS::SharedPtr<MTL::ComputePipelineDescriptor> indirect_entry;
+    };
 
 private:
     const MetalDevice *_device;
     mutable Cache _cache;
 
 private:
-    [[nodiscard]] NS::SharedPtr<MTL::ComputePipelineState>
+    [[nodiscard]] MetalShaderHandle
     _load_disk_archive(luisa::string_view name, bool is_aot,
                        MetalShaderMetadata &metadata) const noexcept;
 
     void _store_disk_archive(luisa::string_view name, bool is_aot,
-                             MTL::ComputePipelineDescriptor *pipeline_desc,
+                             const PipelineDescriptorHandle &desc,
                              const MetalShaderMetadata &metadata) const noexcept;
 
-    [[nodiscard]] std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
-                            NS::SharedPtr<MTL::ComputePipelineState>>
-    _load_kernel_from_library(MTL::Library *library, uint3 block_size) const noexcept;
+    [[nodiscard]] std::pair<PipelineDescriptorHandle, MetalShaderHandle>
+    _load_kernels_from_library(MTL::Library *library, uint3 block_size) const noexcept;
 
 public:
     explicit MetalCompiler(const MetalDevice *device) noexcept;
 
-    [[nodiscard]] NS::SharedPtr<MTL::ComputePipelineState> compile(
+    [[nodiscard]] MetalShaderHandle compile(
         luisa::string_view src, const ShaderOption &option,
         MetalShaderMetadata &metadata) const noexcept;
 
-    [[nodiscard]] NS::SharedPtr<MTL::ComputePipelineState> load(
+    [[nodiscard]] MetalShaderHandle load(
         luisa::string_view name, MetalShaderMetadata &metadata) const noexcept;
 };
 

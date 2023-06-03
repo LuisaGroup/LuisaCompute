@@ -40,7 +40,7 @@ MetalCompiler::MetalCompiler(const MetalDevice *device) noexcept
     : _device{device}, _cache{max_cache_item_count} {}
 
 void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
-                                        MTL::ComputePipelineDescriptor *pipeline_desc,
+                                        const PipelineDescriptorHandle &desc,
                                         const MetalShaderMetadata &metadata) const noexcept {
 
     // create a binary archive
@@ -55,10 +55,18 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
             name, error->localizedDescription()->utf8String());
         return;
     }
-    archive->addComputePipelineFunctions(pipeline_desc, &error);
+    archive->addComputePipelineFunctions(desc.entry.get(), &error);
     if (error != nullptr) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to store Metal shader "
+            "archive for '{}': {}.",
+            name, error->localizedDescription()->utf8String());
+        return;
+    }
+    archive->addComputePipelineFunctions(desc.indirect_entry.get(), &error);
+    if (error != nullptr) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to store Metal shader (indirect dispatch version) "
             "archive for '{}': {}.",
             name, error->localizedDescription()->utf8String());
         return;
@@ -121,7 +129,7 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
     }
 }
 
-NS::SharedPtr<MTL::ComputePipelineState>
+MetalShaderHandle
 MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
                                   MetalShaderMetadata &metadata) const noexcept {
 
@@ -223,47 +231,56 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     }
 
     // load kernel
-    auto [pipeline_desc, pipeline] = _load_kernel_from_library(library.get(), metadata.block_size);
-    if (pipeline) { LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc()); }
+    auto [pipeline_desc, pipeline] = _load_kernels_from_library(library.get(), metadata.block_size);
+    if (pipeline.entry && pipeline.indirect_entry) {
+        LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc());
+    }
     return pipeline;
 }
 
-std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
-          NS::SharedPtr<MTL::ComputePipelineState>>
-MetalCompiler::_load_kernel_from_library(MTL::Library *library, uint3 block_size) const noexcept {
+std::pair<MetalCompiler::PipelineDescriptorHandle, MetalShaderHandle>
+MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_size) const noexcept {
 
-    auto compute_pipeline_desc = NS::TransferPtr(MTL::ComputePipelineDescriptor::alloc()->init());
-    compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
-    compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(block_size.x * block_size.y * block_size.z);
-
-    NS::Error *error = nullptr;
-
-    auto function_desc = MTL::FunctionDescriptor::alloc()->init();
-    function_desc->setName(MTLSTR("kernel_main"));
-    function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
-    auto function = NS::TransferPtr(library->newFunction(function_desc, &error));
-    function_desc->release();
-    if (error != nullptr) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Error during creating Metal compute function: {}.",
-            error->localizedDescription()->utf8String());
-        return {};
-    }
-
-    compute_pipeline_desc->setComputeFunction(function.get());
-    auto pipeline = NS::TransferPtr(_device->handle()->newComputePipelineState(
-        compute_pipeline_desc.get(), MTL::PipelineOptionNone, nullptr, &error));
-    if (error != nullptr) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Error during creating Metal compute pipeline: {}.",
-            error->localizedDescription()->utf8String());
-    }
-    return {compute_pipeline_desc, pipeline};
+    auto load = [&](NS::String *name) noexcept -> std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
+                                                            NS::SharedPtr<MTL::ComputePipelineState>> {
+        auto compute_pipeline_desc = NS::TransferPtr(MTL::ComputePipelineDescriptor::alloc()->init());
+        compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
+        compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(block_size.x * block_size.y * block_size.z);
+        NS::Error *error = nullptr;
+        auto function_desc = MTL::FunctionDescriptor::alloc()->init();
+        function_desc->setName(name);
+        function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
+        auto function = NS::TransferPtr(library->newFunction(function_desc, &error));
+        function_desc->release();
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Error during creating Metal compute function: {}.",
+                error->localizedDescription()->utf8String());
+            return {};
+        }
+        compute_pipeline_desc->setComputeFunction(function.get());
+        auto pipeline = NS::TransferPtr(_device->handle()->newComputePipelineState(
+            compute_pipeline_desc.get(), MTL::PipelineOptionNone, nullptr, &error));
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Error during creating Metal compute pipeline: {}.",
+                error->localizedDescription()->utf8String());
+        }
+        return std::make_pair(std::move(compute_pipeline_desc),
+                              std::move(pipeline));
+    };
+    auto [compute_pipeline_desc, pipeline] = load(MTLSTR("kernel_main"));
+    auto [compute_pipeline_desc_indirect, pipeline_indirect] = load(MTLSTR("kernel_main_indirect"));
+    return std::make_pair(
+        PipelineDescriptorHandle{std::move(compute_pipeline_desc),
+                                 std::move(compute_pipeline_desc_indirect)},
+        MetalShaderHandle{std::move(pipeline),
+                          std::move(pipeline_indirect)});
 }
 
-NS::SharedPtr<MTL::ComputePipelineState> MetalCompiler::compile(
-    luisa::string_view src, const ShaderOption &option,
-    MetalShaderMetadata &metadata) const noexcept {
+MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
+                                         const ShaderOption &option,
+                                         MetalShaderMetadata &metadata) const noexcept {
 
     return with_autorelease_pool([&] {
         auto src_hash = luisa::hash_value(src);
@@ -284,7 +301,8 @@ NS::SharedPtr<MTL::ComputePipelineState> MetalCompiler::compile(
 
         // try disk cache
         if (uses_cache) {
-            if (auto pso = _load_disk_archive(name, is_aot, metadata)) {
+            if (auto pso = _load_disk_archive(name, is_aot, metadata);
+                pso.entry && pso.indirect_entry) {
                 _cache.update(hash, pso);
                 return pso;
             }
@@ -324,26 +342,28 @@ NS::SharedPtr<MTL::ComputePipelineState> MetalCompiler::compile(
         }
         LUISA_ASSERT(library, "Failed to compile Metal shader '{}'.", name);
 
-        auto [pso_desc, pso] = _load_kernel_from_library(
+        auto [pso_desc, pso] = _load_kernels_from_library(
             library.get(), metadata.block_size);
 
         // create pso
-        LUISA_ASSERT(pso, "Failed to create Metal compute pipeline for '{}'.", name);
+        LUISA_ASSERT(pso.entry && pso.indirect_entry,
+                     "Failed to create Metal compute pipeline for '{}'.", name);
 
         // store the library
         if (uses_cache) {
-            _store_disk_archive(name, is_aot, pso_desc.get(), metadata);
+            _store_disk_archive(name, is_aot, pso_desc, metadata);
         }
         _cache.update(hash, pso);
         return pso;
     });
 }
 
-NS::SharedPtr<MTL::ComputePipelineState> MetalCompiler::load(
-    luisa::string_view name, MetalShaderMetadata &metadata) const noexcept {
+MetalShaderHandle MetalCompiler::load(luisa::string_view name,
+                                      MetalShaderMetadata &metadata) const noexcept {
     return with_autorelease_pool([&] {
         auto pso = _load_disk_archive(name, true, metadata);
-        LUISA_ASSERT(pso, "Failed to load Metal shader archive for '{}'.", name);
+        LUISA_ASSERT(pso.entry && pso.indirect_entry,
+                     "Failed to load Metal shader archive for '{}'.", name);
         _cache.update(metadata.checksum, pso);
         return pso;
     });
