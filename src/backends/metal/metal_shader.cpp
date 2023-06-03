@@ -190,10 +190,11 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             command_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u}, MTL::Size{block_size, 1u, 1u});
             command_encoder->endEncoding();
 
-            auto blit_encoder = encoder.command_buffer()->blitCommandEncoder();
-            blit_encoder->optimizeIndirectCommandBuffer(indirect_buffer->command_buffer(),
-                                                        NS::Range{0u, indirect_buffer->capacity()});
-            blit_encoder->endEncoding();
+            // TODO: is this necessary?
+            // auto blit_encoder = encoder.command_buffer()->blitCommandEncoder();
+            // blit_encoder->optimizeIndirectCommandBuffer(indirect_buffer->command_buffer(),
+            //                                             NS::Range{0u, indirect_buffer->capacity()});
+            // blit_encoder->endEncoding();
         }
 
         // dispatch indirect

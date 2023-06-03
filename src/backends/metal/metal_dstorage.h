@@ -55,6 +55,7 @@ public:
     MetalFileHandle &operator=(MetalFileHandle &&) noexcept = delete;
     MetalFileHandle &operator=(const MetalFileHandle &) noexcept = delete;
     [[nodiscard]] auto size() const noexcept { return _size_bytes; }
+    [[nodiscard]] auto url() const noexcept { return _url; }
     [[nodiscard]] MTL::IOFileHandle *handle(DStorageCompression compression) noexcept;
     void set_name(luisa::string_view name) noexcept;
 };
@@ -81,7 +82,7 @@ public:
     [[nodiscard]] auto valid() const noexcept { return _io_queue != nullptr; }
     [[nodiscard]] auto io_queue() const noexcept { return _io_queue; }
     [[nodiscard]] auto io_event() const noexcept { return _io_event; }
-    [[nodiscard]] uint64_t signal(MTL::IOCommandBuffer *command_buffer) noexcept;
+    void barrier(MTL::CommandBuffer *command_buffer) noexcept;
     void signal(MetalEvent *event) noexcept override;
     void wait(MetalEvent *event) noexcept override;
     void synchronize() noexcept override;

@@ -86,8 +86,8 @@ MTL::IOFileHandle *MetalFileHandle::handle(DStorageCompression compression) noex
         // create the handle if not found
         switch (compression) {
             case DStorageCompression::None: handle = _device->newIOHandle(_url, &error); break;
+            case DStorageCompression::GDeflate: handle = _device->newIOHandle(_url, MTL::IOCompressionMethodZlib, &error); break;
             case DStorageCompression::LZ4: handle = _device->newIOHandle(_url, MTL::IOCompressionMethodLZ4, &error); break;
-            case DStorageCompression::Zlib: handle = _device->newIOHandle(_url, MTL::IOCompressionMethodZlib, &error); break;
             case DStorageCompression::LZFSE: handle = _device->newIOHandle(_url, MTL::IOCompressionMethodLZFSE, &error); break;
             case DStorageCompression::LZMA: handle = _device->newIOHandle(_url, MTL::IOCompressionMethodLZMA, &error); break;
             case DStorageCompression::LZBitmap: handle = _device->newIOHandle(_url, MTL::IOCompressionMethodLZBitmap, &error); break;
@@ -257,12 +257,12 @@ private:
 public:
     using MetalCommandEncoder::MetalCommandEncoder;
     MTL::CommandBuffer *submit(CommandList::CallbackContainer &&user_callbacks) noexcept override {
-        if (!user_callbacks.empty()) { _prepare_io_command_buffer(); }
         if (_io_command_buffer) {
-            auto stream = _io_stream();
-            auto io_event_value = stream->signal(_io_command_buffer);
             _io_command_buffer->commit();
-            command_buffer()->encodeWait(stream->io_event(), io_event_value);
+            _io_command_buffer = nullptr;
+        }
+        if (!user_callbacks.empty()) {
+            _io_stream()->barrier(command_buffer());
         }
         return MetalCommandEncoder::submit(std::move(user_callbacks));
     }
@@ -311,37 +311,39 @@ void MetalIOStream::_encode(MetalCommandEncoder &encoder,
     io_encoder->visit(static_cast<DStorageReadCommand *>(command));
 }
 
-uint64_t MetalIOStream::signal(MTL::IOCommandBuffer *command_buffer) noexcept {
+void MetalIOStream::barrier(MTL::CommandBuffer *command_buffer) noexcept {
+    _io_queue->enqueueBarrier();
     auto io_event_value = [this] {
         std::scoped_lock lock{_event_mutex};
         return ++_event_value;
     }();
-    command_buffer->signalEvent(_io_event, io_event_value);
-    return io_event_value;
+    auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
+    io_command_buffer->signalEvent(_io_event, io_event_value);
+    io_command_buffer->commit();
+    command_buffer->encodeWait(_io_event, io_event_value);
 }
 
 void MetalIOStream::signal(MetalEvent *event) noexcept {
-    auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
-    auto io_event_value = signal(io_command_buffer);
     auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
-    command_buffer->encodeWait(_io_event, io_event_value);
+    barrier(command_buffer);
     event->signal(command_buffer);
     command_buffer->commit();
 }
 
 void MetalIOStream::wait(MetalEvent *event) noexcept {
+    auto value_to_wait = event->value_to_wait();
     auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
-    io_command_buffer->wait(event->handle(), event->value_to_wait());
+    io_command_buffer->wait(event->handle(), value_to_wait);
     io_command_buffer->commit();
-    MetalStream::wait(event);
+    _io_queue->enqueueBarrier();
+    auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
+    command_buffer->encodeWait(event->handle(), value_to_wait);
+    command_buffer->commit();
 }
 
 void MetalIOStream::synchronize() noexcept {
-    auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
-    auto io_event_value = signal(io_command_buffer);
-    io_command_buffer->commit();
     auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
-    command_buffer->encodeWait(_io_event, io_event_value);
+    barrier(command_buffer);
     command_buffer->commit();
     command_buffer->waitUntilCompleted();
 }
@@ -418,11 +420,11 @@ namespace detail {
 [[nodiscard]] inline luisa::optional<compression_algorithm>
 compression_cpu_select_algorithm(DStorageCompression c) noexcept {
     switch (c) {
+        case DStorageCompression::GDeflate: return COMPRESSION_ZLIB;
         case DStorageCompression::LZ4: return COMPRESSION_LZ4;
-        case DStorageCompression::Zlib: return COMPRESSION_ZLIB;
         case DStorageCompression::LZFSE: return COMPRESSION_LZFSE;
         case DStorageCompression::LZMA: return COMPRESSION_LZMA;
-        case DStorageCompression::LZBitmap: return COMPRESSION_LZ4_RAW;
+        case DStorageCompression::LZBitmap: return COMPRESSION_LZBITMAP;
         default: break;
     }
     return luisa::nullopt;
@@ -431,8 +433,7 @@ compression_cpu_select_algorithm(DStorageCompression c) noexcept {
 }// namespace detail
 
 struct MetalCompressionChunkMetadata {
-    uint64_t requires_compression : 8u;
-    uint64_t unknown : 56u;
+    uint64_t is_compressed;
     size_t file_offset;
     size_t compressed_size;
 };
@@ -450,6 +451,47 @@ struct MetalCompressionFileHeader {
 };
 
 static_assert(sizeof(MetalCompressionFileHeader) == 24u);
+
+namespace detail {
+
+[[nodiscard]] auto metal_dstorage_compress_chunk(compression_algorithm algo,
+                                                 const void *chunk_data, size_t chunk_size_bytes,
+                                                 luisa::vector<std::byte> &result) noexcept {
+
+    auto file_offset = result.size();
+    result.resize(result.size() + chunk_size_bytes);
+
+    // initialize the compression stream
+    compression_stream stream{};
+    auto stream_state = compression_stream_init(&stream, COMPRESSION_STREAM_ENCODE, algo);
+
+    LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK,
+                 "Failed to initialize compression stream.");
+
+    // set input
+    stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data() + file_offset);
+    stream.dst_size = result.size_bytes() - file_offset;
+    stream.src_ptr = reinterpret_cast<const uint8_t *>(chunk_data);
+    stream.src_size = chunk_size_bytes;
+
+    for (; stream_state != COMPRESSION_STATUS_END;
+         stream_state = compression_stream_process(&stream, COMPRESSION_STREAM_FINALIZE)) {
+        LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK, "Failed to compress data.");
+        auto offset = stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data());
+        result.resize(result.size_bytes() * 2u);
+        stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data() + offset);
+        stream.dst_size = result.size_bytes() - offset;
+    }
+    result.resize(stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data()));
+    compression_stream_destroy(&stream);
+
+    return MetalCompressionChunkMetadata{
+        .is_compressed = 1u,
+        .file_offset = file_offset,
+        .compressed_size = result.size() - file_offset};
+}
+
+}// namespace detail
 
 void MetalDStorageExt::compress(const void *data, size_t size_bytes,
                                 Compression algorithm, CompressionQuality quality,
@@ -477,41 +519,35 @@ void MetalDStorageExt::compress(const void *data, size_t size_bytes,
                  "Unsupported compression algorithm: {}.",
                  to_string(algorithm));
 
-    // initialize the compression stream
-    compression_stream stream{};
-    auto stream_state = compression_stream_init(
-        &stream, COMPRESSION_STREAM_ENCODE, algo.value());
+    auto chunk_size = MTL::IOCompressionContextDefaultChunkSize();
+    auto chunk_count = (size_bytes + chunk_size - 1u) / chunk_size;
 
-    LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK,
-                 "Failed to initialize compression stream.");
+    auto reserved_size = std::bit_ceil(std::max<size_t>(
+        static_cast<size_t>(.2 * static_cast<double>(size_bytes)), chunk_size));
+    result.reserve(sizeof(MetalCompressionFileHeader) +
+                   sizeof(MetalCompressionChunkMetadata) * chunk_count +
+                   reserved_size);
+    result.resize(sizeof(MetalCompressionFileHeader) +
+                  sizeof(MetalCompressionChunkMetadata) * chunk_count);
 
-    // set input
-    result.resize(std::bit_ceil(std::max<size_t>(
-        static_cast<size_t>(.2 * static_cast<double>(size_bytes)), 1u << 16u)));
-    stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data());
-    stream.dst_size = result.size_bytes();
-    stream.src_ptr = reinterpret_cast<const uint8_t *>(data);
-    stream.src_size = size_bytes;
+    *reinterpret_cast<MetalCompressionFileHeader *>(result.data()) = {
+        .magic = MetalCompressionFileHeader::metal_compression_magic,
+        .padding = 0u,
+        .chunk_size = chunk_size,
+        .chunk_count = chunk_count,
+    };
 
-    for (; stream_state != COMPRESSION_STATUS_END;
-         stream_state = compression_stream_process(
-             &stream, COMPRESSION_STREAM_FINALIZE)) {
-        LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK,
-                     "Failed to compress data.");
-        auto offset = stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data());
-        result.resize(result.size_bytes() * 2u);
-        stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data()) + offset;
-        stream.dst_size = result.size_bytes() - offset;
+    for (auto chunk = 0u; chunk < chunk_count; chunk++) {
+        auto chunk_data = reinterpret_cast<const std::byte *>(data) + chunk * chunk_size;
+        auto chunk_size_bytes = std::min(chunk_size, size_bytes - chunk * chunk_size);
+        auto metadata = detail::metal_dstorage_compress_chunk(
+            algo.value(), chunk_data, chunk_size_bytes, result);
+        reinterpret_cast<MetalCompressionFileHeader *>(result.data())->chunk_metadata[chunk] = metadata;
     }
-    result.resize(stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data()));
-    compression_stream_destroy(&stream);
 
-    auto ratio = static_cast<double>(result.size_bytes()) /
-                 static_cast<double>(size_bytes);
-    LUISA_INFO("Compressed {} bytes to {} bytes "
-               "(ratio = {}) with {} in {} ms.",
-               size_bytes, result.size_bytes(), ratio,
-               to_string(algorithm), clk.toc());
+    auto ratio = static_cast<double>(result.size_bytes()) / static_cast<double>(size_bytes);
+    LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}) with {} in {} ms.",
+               size_bytes, result.size_bytes(), ratio, to_string(algorithm), clk.toc());
 }
 
 }// namespace luisa::compute::metal
