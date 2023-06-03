@@ -18,7 +18,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
     set(LUISA_COMPUTE_DSL_SOURCES
             arg.h
             atomic.h
-            builtin.h
+            builtin.cpp builtin.h
             constant.h
             dispatch_indirect.cpp dispatch_indirect.h
             expr.h

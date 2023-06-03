@@ -372,7 +372,7 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "};\n\n";
 
         // emit function signature and prelude
-        _scratch << "void kernel_main_impl(const Arguments args,\n"
+        _scratch << "void kernel_main_impl(constant Arguments &args,\n"
                  << "                      uint3 tid, uint3 bid, uint3 did,\n"
                  << "                      uint3 bs, uint3 ds, uint kid) {\n\n"
                  << "  lc_assume("

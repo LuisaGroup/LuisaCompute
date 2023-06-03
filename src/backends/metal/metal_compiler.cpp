@@ -241,11 +241,12 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
 std::pair<MetalCompiler::PipelineDescriptorHandle, MetalShaderHandle>
 MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_size) const noexcept {
 
-    auto load = [&](NS::String *name) noexcept -> std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
-                                                            NS::SharedPtr<MTL::ComputePipelineState>> {
+    auto load = [&](NS::String *name, bool is_indirect) noexcept -> std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
+                                                                              NS::SharedPtr<MTL::ComputePipelineState>> {
         auto compute_pipeline_desc = NS::TransferPtr(MTL::ComputePipelineDescriptor::alloc()->init());
         compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
         compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(block_size.x * block_size.y * block_size.z);
+        compute_pipeline_desc->setSupportIndirectCommandBuffers(is_indirect);
         NS::Error *error = nullptr;
         auto function_desc = MTL::FunctionDescriptor::alloc()->init();
         function_desc->setName(name);
@@ -269,8 +270,8 @@ MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_siz
         return std::make_pair(std::move(compute_pipeline_desc),
                               std::move(pipeline));
     };
-    auto [compute_pipeline_desc, pipeline] = load(MTLSTR("kernel_main"));
-    auto [compute_pipeline_desc_indirect, pipeline_indirect] = load(MTLSTR("kernel_main_indirect"));
+    auto [compute_pipeline_desc, pipeline] = load(MTLSTR("kernel_main"), false);
+    auto [compute_pipeline_desc_indirect, pipeline_indirect] = load(MTLSTR("kernel_main_indirect"), true);
     return std::make_pair(
         PipelineDescriptorHandle{std::move(compute_pipeline_desc),
                                  std::move(compute_pipeline_desc_indirect)},

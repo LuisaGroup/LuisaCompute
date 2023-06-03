@@ -20,13 +20,11 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(argv[1]);
     Stream stream = device.create_stream();
     Kernel1D clear_kernel = [](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
-        set_block_size(1);
         dispatch_buffer.clear();
     };
     constexpr auto kernel_block_size = make_uint3(64, 1, 1);
     constexpr auto dispatch_count = 16u;
     Kernel1D emplace_kernel = [&](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
-        set_block_size(dispatch_count);
         dispatch_buffer.dispatch_kernel(kernel_block_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
     };
     Kernel1D dispatch_kernel = [&](BufferVar<uint> buffer) {
