@@ -96,6 +96,8 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
 void CUDABindlessArray::update(CUDACommandEncoder &encoder,
                                BindlessArrayUpdateCommand *cmd) noexcept {
 
+    std::scoped_lock lock{_mutex};
+
     if (cmd->modifications().empty()) {
         LUISA_WARNING_WITH_LOCATION(
             "Empty bindless array update command detected.");
@@ -168,6 +170,7 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
 }
 
 void CUDABindlessArray::set_name(luisa::string &&name) noexcept {
+    std::scoped_lock lock{_mutex};
     _name = std::move(name);
 }
 

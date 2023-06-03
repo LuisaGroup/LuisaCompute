@@ -42,9 +42,11 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
     LUISA_ASSERT(command->triangle_buffer_offset() + command->triangle_buffer_size() <= triangle_buffer->size_bytes(),
                  "Triangle buffer offset + size exceeds buffer size {}.");
 
+    std::scoped_lock lock{_mutex};
+
     auto requires_build =
         // not built yet
-        handle() == 0u ||
+        _handle == 0u ||
         // not allowed to update
         !option().allow_update ||
         // user wants to force build

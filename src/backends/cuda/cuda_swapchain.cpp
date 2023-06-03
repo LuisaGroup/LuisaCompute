@@ -98,6 +98,8 @@ private:
     VulkanSwapchain _base;
     uint2 _size;
     uint _current_frame{0u};
+    spin_mutex _present_mutex;
+    spin_mutex _name_mutex;
     luisa::string _name;
 
 private:
@@ -488,14 +490,21 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     void present(CUstream stream, CUarray image) noexcept {
+        
+        auto name = [this] {
+            std::scoped_lock lock{_name_mutex};
+            return _name;
+        }();
 
-        if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::present", _name).c_str()); }
+        std::scoped_lock lock{_present_mutex};
+
+        if (!name.empty()) { nvtxRangePushA(luisa::format("{}::present", name).c_str()); }
 
         // wait for the frame to be ready
         _base.wait_for_fence();
 
         // copy image to swapchain image
-        if (!_name.empty()) { nvtxRangePushA("copy"); }
+        if (!name.empty()) { nvtxRangePushA("copy"); }
         CUDA_MEMCPY3D copy{};
         copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
         copy.srcArray = image;
@@ -505,28 +514,29 @@ public:
         copy.Height = _size.y;
         copy.Depth = 1u;
         LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, stream));
-        if (!_name.empty()) { nvtxRangePop(); }
+        if (!name.empty()) { nvtxRangePop(); }
 
         // signal that the frame is ready
-        if (!_name.empty()) { nvtxRangePushA(luisa::format("signal", _name).c_str()); }
+        if (!name.empty()) { nvtxRangePushA(luisa::format("signal", name).c_str()); }
         CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal_params{};
         LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(
             &_cuda_ext_semaphores[_current_frame], &signal_params, 1, stream));
-        if (!_name.empty()) { nvtxRangePop(); }
+        if (!name.empty()) { nvtxRangePop(); }
 
         // present
-        if (!_name.empty()) { nvtxRangePushA(luisa::format("present", _name).c_str()); }
+        if (!name.empty()) { nvtxRangePushA(luisa::format("present", name).c_str()); }
         _base.present(_semaphores[_current_frame], nullptr, _image_view,
                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        if (!_name.empty()) { nvtxRangePop(); }
+        if (!name.empty()) { nvtxRangePop(); }
 
         // update current frame index
         _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
 
-        if (!_name.empty()) { nvtxRangePop(); }
+        if (!name.empty()) { nvtxRangePop(); }
     }
 
     void set_name(luisa::string &&name) noexcept {
+        std::scoped_lock lock{_name_mutex};
         _name = std::move(name);
     }
 };

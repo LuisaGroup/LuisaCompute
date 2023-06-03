@@ -43,6 +43,7 @@ private:
     luisa::vector<CUtexObject> _tex3d_slots;
     ResourceTracker _texture_tracker;
     luisa::string _name;
+    spin_mutex _mutex;
 
 public:
     explicit CUDABindlessArray(size_t capacity) noexcept;

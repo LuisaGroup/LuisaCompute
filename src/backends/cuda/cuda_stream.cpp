@@ -16,7 +16,7 @@
 namespace luisa::compute::cuda {
 
 [[nodiscard]] auto cuda_stream_assign_uid() noexcept {
-    static std::atomic_uint64_t uid{0u};
+    static std::atomic_uint uid{0u};
     return uid.fetch_add(1u, std::memory_order_relaxed);
 }
 

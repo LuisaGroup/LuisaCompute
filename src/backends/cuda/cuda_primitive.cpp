@@ -120,7 +120,13 @@ void CUDAPrimitive::_update(CUDACommandEncoder &encoder) noexcept {
 }
 
 void CUDAPrimitive::set_name(luisa::string &&name) noexcept {
+    std::scoped_lock lock{_mutex};
     _name = std::move(name);
+}
+
+optix::TraversableHandle CUDAPrimitive::handle() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return _handle;
 }
 
 }// namespace luisa::compute::cuda

@@ -32,9 +32,11 @@ void CUDAProceduralPrimitive::build(CUDACommandEncoder &encoder,
     LUISA_ASSERT(command->aabb_buffer_offset() + command->aabb_buffer_size() <= aabb_buffer->size_bytes(),
                  "AABB buffer out of range.");
 
+    std::scoped_lock lock{_mutex};
+
     auto requires_build =
         // not built yet
-        handle() == 0u ||
+        _handle == 0u ||
         // not allowed to update
         !option().allow_update ||
         // user enforced rebuild

@@ -31,10 +31,10 @@ public:
 private:
     CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
-    spin_mutex _mutex;
     luisa::queue<CallbackContainer> _callback_lists;
     CUstream _stream{};
-    uint64_t _uid;
+    uint _uid;
+    spin_mutex _mutex;
 
 public:
     explicit CUDAStream(CUDADevice *device) noexcept;

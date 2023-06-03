@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/spin_mutex.h>
 #include <runtime/rhi/resource.h>
 #include <backends/cuda/optix_api.h>
 
@@ -22,11 +23,18 @@ public:
 private:
     Tag _tag;
     AccelOption _option;
-    optix::TraversableHandle _handle;
+
+protected:
+    mutable spin_mutex _mutex;
+
+private:
     CUdeviceptr _bvh_buffer_handle{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
     luisa::string _name;
+
+protected:
+    optix::TraversableHandle _handle;
 
 protected:
     [[nodiscard]] virtual optix::BuildInput _make_build_input() const noexcept = 0;
@@ -36,7 +44,7 @@ protected:
 public:
     CUDAPrimitive(Tag tag, const AccelOption &option) noexcept;
     virtual ~CUDAPrimitive() noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] optix::TraversableHandle handle() const noexcept;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto option() const noexcept { return _option; }
     void set_name(luisa::string &&name) noexcept;
