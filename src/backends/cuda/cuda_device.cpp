@@ -220,7 +220,9 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
             LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&handle, &array_desc, mipmap_levels));
             return reinterpret_cast<uint64_t>(handle);
         }();
-        return new_with_allocator<CUDATexture>(array_handle, format, mipmap_levels);
+        return new_with_allocator<CUDATexture>(
+            array_handle, make_uint3(width, height, depth),
+            format, mipmap_levels);
     });
     return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }

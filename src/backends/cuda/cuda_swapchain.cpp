@@ -545,9 +545,10 @@ PixelStorage CUDASwapchain::pixel_storage() const noexcept {
 }
 
 void CUDASwapchain::present(CUDAStream *stream, CUDATexture *image) noexcept {
-    LUISA_ASSERT(image->storage() == _impl->pixel_storage() &&
-                     all(image->size() == make_uint3(_impl->size(), 0u)),
-                 "Image size and pixel format must match the swapchain");
+    LUISA_ASSERT(image->storage() == _impl->pixel_storage(),
+                 "Image pixel format must match the swapchain.");
+    LUISA_ASSERT(all(image->size() == make_uint3(_impl->size(), 1u)),
+                     "Image size and pixel format must match the swapchain.");
     _impl->present(stream->handle(), image->level(0u));
 }
 
