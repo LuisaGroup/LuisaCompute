@@ -1,5 +1,6 @@
 
 #include <Resource/TextureBase.h>
+#include <Resource/DescriptorHeap.h>
 namespace lc::dx {
 TextureBase::TextureBase(
     Device *device,
@@ -124,6 +125,109 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC TextureBase::GetColorUavDescBase(uint targetMip
     }
     return uavDesc;
 }
+uint TextureBase::GetGlobalSRVIndexBase(uint mipOffset, std::mutex &allocMtx, vstd::unordered_map<uint, uint> &srvIdcs) const {
+    std::lock_guard lck(allocMtx);
+    auto ite = srvIdcs.try_emplace(
+        mipOffset,
+        vstd::lazy_eval([&]() -> uint {
+            auto v = device->globalHeap->AllocateIndex();
+            device->globalHeap->CreateSRV(
+                GetResource(),
+                GetColorSrvDesc(mipOffset),
+                v);
+            return v;
+        }));
+    return ite.first->second;
+}
+uint TextureBase::GetGlobalUAVIndexBase(uint mipLevel, std::mutex &allocMtx, vstd::unordered_map<uint, uint> &uavIdcs) const {
+    mipLevel = std::min<uint>(mipLevel, mip - 1);
+    std::lock_guard lck(allocMtx);
+    auto ite = uavIdcs.try_emplace(
+        mipLevel,
+        vstd::lazy_eval([&]() -> uint {
+            auto v = device->globalHeap->AllocateIndex();
+            device->globalHeap->CreateUAV(
+                GetResource(),
+                GetColorUavDesc(mipLevel),
+                v);
+            return v;
+        }));
+    return ite.first->second;
+}
 TextureBase::~TextureBase() {
 }
+GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
+    switch (format) {
+        case PixelFormat::R8SInt:
+            return GFXFormat_R8_SInt;
+        case PixelFormat::R8UInt:
+            return GFXFormat_R8_UInt;
+        case PixelFormat::R8UNorm:
+            return GFXFormat_R8_UNorm;
+        case PixelFormat::RG8SInt:
+            return GFXFormat_R8G8_SInt;
+        case PixelFormat::RG8UInt:
+            return GFXFormat_R8G8_UInt;
+        case PixelFormat::RG8UNorm:
+            return GFXFormat_R8G8_UNorm;
+        case PixelFormat::RGBA8SInt:
+            return GFXFormat_R8G8B8A8_SInt;
+        case PixelFormat::RGBA8UInt:
+            return GFXFormat_R8G8B8A8_UInt;
+        case PixelFormat::RGBA8UNorm:
+            return GFXFormat_R8G8B8A8_UNorm;
+        case PixelFormat::R16SInt:
+            return GFXFormat_R16_SInt;
+        case PixelFormat::R16UInt:
+            return GFXFormat_R16_UInt;
+        case PixelFormat::R16UNorm:
+            return GFXFormat_R16_UNorm;
+        case PixelFormat::RG16SInt:
+            return GFXFormat_R16G16_SInt;
+        case PixelFormat::RG16UInt:
+            return GFXFormat_R16G16_UInt;
+        case PixelFormat::RG16UNorm:
+            return GFXFormat_R16G16_UNorm;
+        case PixelFormat::RGBA16SInt:
+            return GFXFormat_R16G16B16A16_SInt;
+        case PixelFormat::RGBA16UInt:
+            return GFXFormat_R16G16B16A16_UInt;
+        case PixelFormat::RGBA16UNorm:
+            return GFXFormat_R16G16B16A16_UNorm;
+        case PixelFormat::R32SInt:
+            return GFXFormat_R32_SInt;
+        case PixelFormat::R32UInt:
+            return GFXFormat_R32_UInt;
+        case PixelFormat::RG32SInt:
+            return GFXFormat_R32G32_SInt;
+        case PixelFormat::RG32UInt:
+            return GFXFormat_R32G32_UInt;
+        case PixelFormat::RGBA32SInt:
+            return GFXFormat_R32G32B32A32_SInt;
+        case PixelFormat::RGBA32UInt:
+            return GFXFormat_R32G32B32A32_UInt;
+        case PixelFormat::R16F:
+            return GFXFormat_R16_Float;
+        case PixelFormat::RG16F:
+            return GFXFormat_R16G16_Float;
+        case PixelFormat::RGBA16F:
+            return GFXFormat_R16G16B16A16_Float;
+        case PixelFormat::R32F:
+            return GFXFormat_R32_Float;
+        case PixelFormat::RG32F:
+            return GFXFormat_R32G32_Float;
+        case PixelFormat::RGBA32F:
+            return GFXFormat_R32G32B32A32_Float;
+        case PixelFormat::BC6HUF16:
+            return GFXFormat_BC6H_UF16;
+        case PixelFormat::BC7UNorm:
+            return GFXFormat_BC7_UNorm;
+        case PixelFormat::BC5UNorm:
+            return GFXFormat_BC5_UNorm;
+        case PixelFormat::BC4UNorm:
+            return GFXFormat_BC4_UNorm;
+    }
+    LUISA_ERROR_WITH_LOCATION("Unreachable.");
+}
+
 }// namespace lc::dx

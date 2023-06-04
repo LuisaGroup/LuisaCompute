@@ -528,7 +528,7 @@ int main(int argc, char *argv[]) {
     float4x4 view_proj = proj * view;
     float4x4 inverse_vp = inverse(view_proj);
     Window window{window_name, display_resolution};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         display_resolution,

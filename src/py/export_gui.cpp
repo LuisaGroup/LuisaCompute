@@ -13,9 +13,9 @@ namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
 struct PyWindow : public vstd::IOperatorNewBase {
-    inline static vstd::unordered_set<vstd::optional<SwapChain> *> swapchains;
+    inline static vstd::unordered_set<vstd::optional<Swapchain> *> swapchains;
     vstd::optional<Window> window;
-    vstd::optional<SwapChain> chain;
+    vstd::optional<Swapchain> chain;
     enum class KeyState : uint8_t {
         None,
         Down,

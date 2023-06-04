@@ -29,7 +29,8 @@ uint64 GpuAllocator::AllocateTextureHeap(
     Device *device,
     size_t sizeBytes,
     ID3D12Heap **heap, uint64_t *offset,
-    bool isRenderTexture) {
+    bool isRenderTexture,
+    uint64 custom_pool) {
     using namespace D3D12MA;
     D3D12_HEAP_FLAGS heapFlag =
         isRenderTexture ? D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES : D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
@@ -37,7 +38,7 @@ uint64 GpuAllocator::AllocateTextureHeap(
     desc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
     desc.ExtraHeapFlags = heapFlag;
-    desc.CustomPool = nullptr;
+    desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     info.SizeInBytes = sizeBytes;
@@ -50,13 +51,14 @@ uint64 GpuAllocator::AllocateTextureHeap(
 uint64 GpuAllocator::AllocateBufferHeap(
     Device *device, uint64_t targetSizeInBytes,
     D3D12_HEAP_TYPE heapType, ID3D12Heap **heap,
-    uint64_t *offset) {
+    uint64_t *offset,
+    uint64 custom_pool) {
     using namespace D3D12MA;
     ALLOCATION_DESC desc;
     desc.HeapType = heapType;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
     desc.ExtraHeapFlags = D3D12_HEAP_FLAGS::D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
-    desc.CustomPool = nullptr;
+    desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     info.SizeInBytes = CalcPlacedOffsetAlignment(targetSizeInBytes);
@@ -79,5 +81,16 @@ GpuAllocator::GpuAllocator(Device *device) {
     desc.pDevice = device->device.Get();
     desc.PreferredBlockSize = 0;
     D3D12MA::CreateAllocator(&desc, &allocator);
+}
+uint64 GpuAllocator::CreatePool(D3D12_HEAP_TYPE heap_type) {
+    D3D12MA::POOL_DESC pool_desc{
+        .HeapProperties = {
+            .Type = heap_type}};
+    D3D12MA::Pool *pool;
+    allocator->CreatePool(&pool_desc, &pool);
+    return reinterpret_cast<uint64>(pool);
+}
+void GpuAllocator::DestroyPool(uint64 pool) {
+    reinterpret_cast<D3D12MA::Pool *>(pool)->Release();
 }
 }// namespace lc::dx

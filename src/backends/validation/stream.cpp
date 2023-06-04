@@ -87,9 +87,11 @@ void Stream::dispatch() {
 void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd, bool contain_bindings) {
     size_t arg_idx = 0;
     auto shader = RWResource::get<RWResource>(cmd->handle());
-    auto mark_handle = [&](uint64_t &handle, Range range) {
+    auto mark_handle = [&](uint64_t &handle, Range range) -> std::pair<RWResource *, Usage> {
         auto res = RWResource::get<RWResource>(handle);
-        res->set(this, dev->shader_argument_usage(cmd->handle(), arg_idx), range);
+        auto usage = dev->shader_argument_usage(cmd->handle(), arg_idx);
+        res->set(this, usage, range);
+        return {res, usage};
     };
     auto set_arg = [&](Argument &arg) {
         switch (arg.tag) {
@@ -97,7 +99,10 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
                 mark_handle(arg.buffer.handle, Range{arg.buffer.offset, arg.buffer.size});
             } break;
             case Argument::Tag::TEXTURE: {
-                mark_handle(arg.texture.handle, Range{arg.texture.level, 1});
+                auto tex_usage = mark_handle(arg.texture.handle, Range{arg.texture.level, 1});
+                if (tex_usage.first->tag() == Resource::Tag::DEPTH_BUFFER && (luisa::to_underlying(tex_usage.second) & luisa::to_underlying(Usage::WRITE)) != 0) {
+                    LUISA_ERROR("{} can not be written by kernel.", tex_usage.first->get_name());
+                }
             } break;
             case Argument::Tag::BINDLESS_ARRAY: {
                 mark_handle(arg.bindless_array.handle, Range{});
