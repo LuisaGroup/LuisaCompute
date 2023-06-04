@@ -361,11 +361,11 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
 }
 void Stream::sync_layer(uint64_t layer) {
     if (_synced_layer >= layer) return;
+    _synced_layer = layer;
     for (auto &&i : waited_stream) {
         i.first->sync_layer(i.second);
     }
     waited_stream.clear();
-    _synced_layer = layer;
 }
 void Stream::sync() {
     sync_layer(_executed_layer);
