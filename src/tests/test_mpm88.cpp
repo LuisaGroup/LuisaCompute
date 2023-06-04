@@ -13,7 +13,7 @@
 #include <core/logging.h>
 #include <gui/window.h>
 #include <runtime/context.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 
 int main(int argc, char *argv[]) {
 
@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     Buffer<float> grid_m = device.create_buffer<float>(n_grid * n_grid);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"MPM88", resolution, resolution};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         make_uint2(resolution),

@@ -8,15 +8,12 @@
 
 #include <core/spin_mutex.h>
 #include <runtime/rhi/resource.h>
-#include <runtime/command_list.h>
 #include <runtime/rhi/stream_tag.h>
+#include <runtime/stream_event.h>
+#include <runtime/command_list.h>
 
 namespace luisa::compute {
-template<typename T>
-concept StreamEvent =
-    requires(T t, DeviceInterface *device, uint64_t stream_handle) {
-        t(device, stream_handle);
-    };
+
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
@@ -44,7 +41,8 @@ public:
         Delegate &operator=(const Delegate &) noexcept = delete;
         Delegate operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
         Delegate operator<<(luisa::move_only_function<void()> &&f) && noexcept;
-        template<StreamEvent T>
+        template<typename T>
+            requires is_stream_event_v<T>
         Stream &operator<<(T &&t) && noexcept {
             _commit();
             return *_stream << std::forward<T>(t);
@@ -87,9 +85,10 @@ public:
     using Resource::operator bool;
     Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
     Delegate operator<<(luisa::move_only_function<void()> &&f) noexcept;
-    template<StreamEvent T>
+    template<typename T>
+        requires is_stream_event_v<T>
     Stream &operator<<(T &&t) noexcept {
-        std::forward<T>(t)(device(), handle());
+        std::invoke(std::forward<T>(t), device(), handle());
         return *this;
     }
     Stream &operator<<(CommandList::Commit &&commit) noexcept;
@@ -100,7 +99,7 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
-        // No Delegate{this}<< here, may boom GCC
+        // FIXME: Delegate{this} << without a temporary definition may boom GCC
         Delegate delegate{this};
         return std::move(delegate) << std::move(args);
     }

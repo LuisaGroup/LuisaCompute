@@ -128,13 +128,13 @@ namespace luisa::compute::rust {
 
         }
 
-        SwapChainCreationInfo
-        create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr,
+        SwapchainCreationInfo
+        create_swapchain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr,
                           bool vsync, uint back_buffer_size) noexcept override {
             auto swapchain = 
                     device.create_swapchain(device.device, window_handle, api::Stream{stream_handle}, width, height,
                                             allow_hdr, vsync, back_buffer_size);
-            SwapChainCreationInfo info{};
+            SwapchainCreationInfo info{};
             info.handle = swapchain.resource.handle;
             info.native_handle = swapchain.resource.native_handle;
             info.storage = (PixelStorage) swapchain.storage;

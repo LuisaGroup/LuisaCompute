@@ -12,6 +12,7 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
+#include <runtime/swapchain.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
 
@@ -29,7 +30,7 @@ class Renderer : public wxWindow {
 private:
     Device &_device;
     Stream &_stream;
-    luisa::unique_ptr<SwapChain> _swapchain;
+    luisa::unique_ptr<Swapchain> _swapchain;
     luisa::unique_ptr<Image<float>> _image;
     Framerate _framerate;
 
@@ -68,7 +69,7 @@ public:
         auto window_handle = reinterpret_cast<uint64_t>(handle);
 #endif
 
-        _swapchain = luisa::make_unique<SwapChain>(
+        _swapchain = luisa::make_unique<Swapchain>(
             _device.create_swapchain(
                 window_handle, _stream, resolution, false, false, 3));
 

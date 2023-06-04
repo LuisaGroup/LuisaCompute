@@ -364,7 +364,7 @@ ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept 
 void LCDevice::destroy_accel(uint64 handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
-SwapChainCreationInfo LCDevice::create_swap_chain(
+SwapchainCreationInfo LCDevice::create_swapchain(
     uint64 window_handle,
     uint64 stream_handle,
     uint width,
@@ -376,7 +376,7 @@ SwapChainCreationInfo LCDevice::create_swap_chain(
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("swapchain not allowed in Direct-Storage.");
     }
-    SwapChainCreationInfo info;
+    SwapchainCreationInfo info;
     auto res = new LCSwapChain(
         &nativeDevice,
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue,

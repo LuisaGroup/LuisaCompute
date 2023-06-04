@@ -303,14 +303,14 @@ void MetalDevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept 
     });
 }
 
-SwapChainCreationInfo MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
+SwapchainCreationInfo MetalDevice::create_swapchain(uint64_t window_handle, uint64_t stream_handle,
                                                      uint width, uint height, bool allow_hdr,
                                                      bool vsync, uint back_buffer_size) noexcept {
     return with_autorelease_pool([=, this] {
         auto swapchain = new_with_allocator<MetalSwapchain>(
             this, window_handle, width, height,
             allow_hdr, vsync, back_buffer_size);
-        SwapChainCreationInfo info{};
+        SwapchainCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(swapchain);
         info.native_handle = swapchain;
         info.storage = swapchain->pixel_storage();

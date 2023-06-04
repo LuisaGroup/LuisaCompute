@@ -23,7 +23,7 @@ class Mesh;
 class MeshFormat;
 class ProceduralPrimitive;
 class Accel;
-class SwapChain;
+class Swapchain;
 class BindlessArray;
 class IndirectDispatchBuffer;
 
@@ -118,7 +118,7 @@ public:
     // see definition in runtime/event.cpp
     [[nodiscard]] Event create_event() noexcept;
     // see definition in runtime/swap_chain.cpp
-    [[nodiscard]] SwapChain create_swapchain(
+    [[nodiscard]] Swapchain create_swapchain(
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
     // see definition in runtime/dispatch_buffer.cpp

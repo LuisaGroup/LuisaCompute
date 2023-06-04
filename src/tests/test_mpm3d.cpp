@@ -14,7 +14,7 @@
 #include <gui/window.h>
 #include <gui/framerate.h>
 #include <runtime/context.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 
 int main(int argc, char *argv[]) {
 
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
     // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
     // file << "Frame, Time(ms)\n";
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         make_uint2(resolution),

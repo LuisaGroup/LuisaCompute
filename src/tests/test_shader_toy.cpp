@@ -8,7 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <dsl/syntax.h>
 #include <gui/window.h>
 
@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1024u;
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Display", make_uint2(width, height)};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         window.size(),

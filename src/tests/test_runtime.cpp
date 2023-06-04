@@ -11,7 +11,7 @@
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <runtime/buffer.h>
 #include <runtime/bindless_array.h>
 #include <dsl/syntax.h>
@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     }
     static constexpr uint2 resolution = make_uint2(1024u);
     Window window{"test runtime", resolution.x, resolution.x};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         graphics_stream,
         resolution,

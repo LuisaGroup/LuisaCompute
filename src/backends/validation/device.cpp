@@ -146,12 +146,12 @@ void Device::dispatch(
 }
 
 // swap chain
-SwapChainCreationInfo Device::create_swap_chain(
+SwapchainCreationInfo Device::create_swapchain(
     uint64_t window_handle, uint64_t stream_handle,
     uint width, uint height, bool allow_hdr,
     bool vsync, uint back_buffer_size) noexcept {
     check_stream(stream_handle, StreamFunc::Swapchain);
-    auto chain = _native->create_swap_chain(window_handle, stream_handle, width, height, allow_hdr, vsync, back_buffer_size);
+    auto chain = _native->create_swapchain(window_handle, stream_handle, width, height, allow_hdr, vsync, back_buffer_size);
     new SwapChain(chain.handle);
     return chain;
 }

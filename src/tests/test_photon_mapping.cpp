@@ -10,7 +10,7 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
 #include <gui/window.h>
@@ -556,7 +556,7 @@ int main(int argc, char *argv[]) {
     uint frame_count = 0;
 
     Window window{"Display", resolution.x, resolution.y};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         resolution,

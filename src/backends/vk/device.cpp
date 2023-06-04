@@ -388,10 +388,10 @@ void Device::dispatch(
     uint64_t stream_handle, CommandList &&list) noexcept {}
 
 // swap chain
-SwapChainCreationInfo Device::create_swap_chain(
+SwapchainCreationInfo Device::create_swapchain(
     uint64_t window_handle, uint64_t stream_handle,
     uint width, uint height, bool allow_hdr,
-    bool vsync, uint back_buffer_size) noexcept { return SwapChainCreationInfo{ResourceCreationInfo::make_invalid()}; }
+    bool vsync, uint back_buffer_size) noexcept { return SwapchainCreationInfo{ResourceCreationInfo::make_invalid()}; }
 void Device::destroy_swap_chain(uint64_t handle) noexcept {}
 void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {}
 

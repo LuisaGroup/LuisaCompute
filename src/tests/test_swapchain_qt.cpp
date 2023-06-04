@@ -12,6 +12,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
+#include <runtime/swapchain.h>
 #include <dsl/syntax.h>
 #include <gui/window.h>
 #include <gui/framerate.h>

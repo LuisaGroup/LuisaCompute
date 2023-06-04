@@ -8,7 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <dsl/syntax.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
 
     struct PackagedWindow {
         Window window;
-        SwapChain swapchain;
+        Swapchain swapchain;
     };
 
     static constexpr auto window_count = 4u;

@@ -41,7 +41,7 @@ struct BufferCreationInfo : public ResourceCreationInfo {
     }
 };
 
-struct SwapChainCreationInfo : public ResourceCreationInfo {
+struct SwapchainCreationInfo : public ResourceCreationInfo {
     PixelStorage storage;
 };
 

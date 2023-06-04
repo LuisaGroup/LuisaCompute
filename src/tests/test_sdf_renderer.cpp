@@ -16,7 +16,7 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <runtime/image.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <dsl/sugar.h>
 
 using namespace luisa;
@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
 #if ENABLE_DISPLAY
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"SDF Renderer", width, height};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         make_uint2(width, height),

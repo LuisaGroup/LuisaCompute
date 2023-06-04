@@ -10,7 +10,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
 #include <tests/common/cornell_box.h>
@@ -373,7 +373,7 @@ int main(int argc, char *argv[]) {
     FPVCameraController camera_controller{camera, 1.f, 20.f, .5f};
     Window window{"path tracing", resolution};
 
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         resolution,

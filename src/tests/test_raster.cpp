@@ -12,7 +12,7 @@
 #include <gui/window.h>
 #include <core/clock.h>
 #include <runtime/context.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
     DepthBuffer depth_buffer = device.create_depth_buffer(DepthFormat::D32, uint2(width, height));
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height};
-    SwapChain swap_chain{device.create_swapchain(
+    Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         make_uint2(width, height),

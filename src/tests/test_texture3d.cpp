@@ -9,7 +9,7 @@
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
 #include <gui/window.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -321,7 +321,7 @@ int main(int argc, char *argv[]) {
            << make_sampler_states(seeds).dispatch(resolution);
 
     Window window{"Display", resolution};
-    SwapChain swapchain = device.create_swapchain(
+    Swapchain swapchain = device.create_swapchain(
         window.native_handle(), stream,
         resolution, false, true, 3u);
     Image<float> accum = device.create_image<float>(PixelStorage::FLOAT4, resolution);

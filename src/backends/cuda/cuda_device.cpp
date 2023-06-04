@@ -276,17 +276,17 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
     }
 }
 
-SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
-                                                    uint width, uint height,
-                                                    bool allow_hdr, bool vsync,
-                                                    uint back_buffer_size) noexcept {
+SwapchainCreationInfo CUDADevice::create_swapchain(uint64_t window_handle, uint64_t stream_handle,
+                                                   uint width, uint height,
+                                                   bool allow_hdr, bool vsync,
+                                                   uint back_buffer_size) noexcept {
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     auto chain = with_handle([&] {
         return new_with_allocator<CUDASwapchain>(
             this, window_handle, width, height,
             allow_hdr, vsync, back_buffer_size);
     });
-    SwapChainCreationInfo info{};
+    SwapchainCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(chain);
     info.native_handle = chain;
     info.storage = chain->pixel_storage();

@@ -56,7 +56,7 @@
 #include <runtime/shader.h>
 #include <runtime/stream.h>
 #include <runtime/rhi/stream_tag.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <runtime/volume.h>
 
 #include <dsl/arg.h>

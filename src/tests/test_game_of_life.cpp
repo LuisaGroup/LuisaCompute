@@ -12,7 +12,7 @@
 #include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <gui/window.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     std::mt19937 rng{std::random_device{}()};
     Window window{"Game of Life", width * 4u, height * 4u};
-    SwapChain swap_chain = device.create_swapchain(window.native_handle(), stream, window.size());
+    Swapchain swap_chain = device.create_swapchain(window.native_handle(), stream, window.size());
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), window.size());
 
     // reset

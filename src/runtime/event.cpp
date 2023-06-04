@@ -36,4 +36,5 @@ void Event::Wait::operator()(
     uint64_t stream_handle) const noexcept {
     device->wait_event(handle, stream_handle);
 }
+
 }// namespace luisa::compute

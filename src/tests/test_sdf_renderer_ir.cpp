@@ -16,6 +16,7 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <runtime/image.h>
+#include <runtime/swapchain.h>
 #include <dsl/sugar.h>
 #include <ir/ast2ir.h>
 

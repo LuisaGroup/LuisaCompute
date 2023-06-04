@@ -657,7 +657,7 @@ LCCreatedSwapchainInfo luisa_compute_swapchain_create(
         LCDevice device, uint64_t window_handle, LCStream stream_handle,
         uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto ret = d->object()->impl()->create_swap_chain(
+    auto ret = d->object()->impl()->create_swapchain(
             window_handle, stream_handle._0,
             width, height, allow_hdr, vsync, back_buffer_size);
     return LCCreatedSwapchainInfo{

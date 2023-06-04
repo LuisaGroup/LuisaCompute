@@ -2,7 +2,7 @@
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
 #include <gui/window.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <core/stl/optional.h>
 #include <vstl/common.h>
 #include <py/managed_device.h>

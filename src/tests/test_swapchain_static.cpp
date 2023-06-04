@@ -11,7 +11,7 @@
 #include <runtime/stream.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;

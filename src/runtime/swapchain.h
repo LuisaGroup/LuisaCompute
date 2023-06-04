@@ -7,38 +7,42 @@
 #include <runtime/event.h>
 #include <runtime/command_list.h>
 #include <runtime/image.h>
+#include <runtime/stream_event.h>
 
 namespace luisa::compute {
 
-class LC_RUNTIME_API SwapChain final : public Resource {
+class LC_RUNTIME_API Swapchain final : public Resource {
 
 public:
-    struct Present {
-        const SwapChain *chain{nullptr};
+    struct LC_RUNTIME_API Present {
+        const Swapchain *chain{nullptr};
         ImageView<float> frame;
-        LC_RUNTIME_API void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
     };
 
 private:
     friend class Device;
     PixelStorage _storage{};
-    SwapChain(DeviceInterface *device, const SwapChainCreationInfo &create_info) noexcept;
-    SwapChain(DeviceInterface *device, uint64_t window_handle,
+    Swapchain(DeviceInterface *device, const SwapchainCreationInfo &create_info) noexcept;
+    Swapchain(DeviceInterface *device, uint64_t window_handle,
               uint64_t stream_handle, uint width, uint height,
               bool allow_hdr, bool vsync, uint back_buffer_size) noexcept;
 
 public:
-    SwapChain() noexcept = default;
-    ~SwapChain() noexcept override;
+    Swapchain() noexcept = default;
+    ~Swapchain() noexcept override;
     using Resource::operator bool;
-    SwapChain(SwapChain &&) noexcept = default;
-    SwapChain(SwapChain const &) noexcept = delete;
-    SwapChain &operator=(SwapChain &&rhs) noexcept {
+    Swapchain(Swapchain &&) noexcept = default;
+    Swapchain(Swapchain const &) noexcept = delete;
+    Swapchain &operator=(Swapchain &&rhs) noexcept {
         _move_from(std::move(rhs));
         return *this;
     }
-    SwapChain &operator=(SwapChain const &) noexcept = delete;
+    Swapchain &operator=(Swapchain const &) noexcept = delete;
     [[nodiscard]] PixelStorage backend_storage() const { return _storage; }
     [[nodiscard]] Present present(ImageView<float> frame) const noexcept;
 };
+
+LUISA_MARK_STREAM_EVENT_TYPE(Swapchain::Present)
+
 }// namespace luisa::compute

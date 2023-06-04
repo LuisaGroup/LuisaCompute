@@ -7,6 +7,7 @@
 #include <runtime/rhi/command.h>
 #include <runtime/rhi/resource.h>
 #include <runtime/rhi/stream_tag.h>
+#include <runtime/stream_event.h>
 
 namespace luisa::compute {
 
@@ -15,13 +16,13 @@ class Device;
 class LC_RUNTIME_API Event final : public Resource {
 
 public:
-    struct Signal {
+    struct LC_RUNTIME_API Signal {
         uint64_t handle;
-        LC_RUNTIME_API void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
     };
-    struct Wait {
+    struct LC_RUNTIME_API Wait {
         uint64_t handle;
-        LC_RUNTIME_API void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
     };
 
 private:
@@ -43,4 +44,8 @@ public:
     [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }
     void synchronize() const noexcept;
 };
+
+LUISA_MARK_STREAM_EVENT_TYPE(Event::Signal)
+LUISA_MARK_STREAM_EVENT_TYPE(Event::Wait)
+
 }// namespace luisa::compute

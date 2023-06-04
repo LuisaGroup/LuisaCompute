@@ -4,7 +4,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <runtime/swap_chain.h>
+#include <runtime/swapchain.h>
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>

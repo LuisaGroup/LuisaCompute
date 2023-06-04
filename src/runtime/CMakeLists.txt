@@ -43,8 +43,9 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         image.cpp image.h
         mipmap.cpp mipmap.h
         shader.h
+        stream_event.h
         stream.cpp stream.h
-        swap_chain.cpp swap_chain.h
+        swapchain.cpp swapchain.h
         volume.cpp volume.h
         ${LUISA_COMPUTE_RUNTIME_RTX_SOURCES}
         ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES}

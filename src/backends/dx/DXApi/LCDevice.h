@@ -77,7 +77,7 @@ public:
 
     void destroy_accel(uint64_t handle) noexcept override;
     // swap chain
-    SwapChainCreationInfo create_swap_chain(
+    SwapchainCreationInfo create_swapchain(
         uint64 window_handle,
         uint64 stream_handle,
         uint width,
