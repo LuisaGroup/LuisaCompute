@@ -50,7 +50,7 @@ Stream::Delegate::~Delegate() noexcept {
     _commit();
 }
 
-inline void Stream::Delegate::_commit() noexcept {
+void Stream::Delegate::_commit() noexcept {
     if (_stream != nullptr && !_command_list.empty()) {
         *_stream << _command_list.commit();
     }
