@@ -57,9 +57,6 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     : CUDAShader{std::move(argument_usages)},
       _bound_arguments{std::move(bound_arguments)} {
 
-    // create SBT event
-    LUISA_CHECK_CUDA(cuEventCreate(&_sbt_event, CU_EVENT_DISABLE_TIMING));
-
     // create argument buffer
     static constexpr auto pattern = "params[";
     auto ptr = strstr(ptx, pattern);
@@ -266,11 +263,21 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     auto continuation_stack_size = compute_continuation_stack_size(stack_sizes);
     LUISA_CHECK_OPTIX(optix::api().pipelineSetStackSize(
         _pipeline, 0u, 0u, continuation_stack_size, 2u));
+
+    // create shader binding table
+    std::array<OptiXSBTRecord, 6u> sbt_records{};
+    if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0])); }
+    if (_program_group_ch_closest) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1])); }
+    if (_program_group_ch_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_query, &sbt_records[2])); }
+    if (_program_group_miss_closest) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_closest, &sbt_records[3])); }
+    if (_program_group_miss_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_query, &sbt_records[4])); }
+    if (_program_group_miss_any) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_any, &sbt_records[5])); }
+    LUISA_CHECK_CUDA(cuMemAlloc(&_sbt_buffer, sbt_records.size() * sizeof(OptiXSBTRecord)));
+    LUISA_CHECK_CUDA(cuMemcpyHtoD(_sbt_buffer, sbt_records.data(), sbt_records.size() * sizeof(OptiXSBTRecord)));
 }
 
 CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
     LUISA_CHECK_CUDA(cuMemFree(_sbt_buffer));
-    LUISA_CHECK_CUDA(cuEventDestroy(_sbt_event));
     LUISA_CHECK_OPTIX(optix::api().pipelineDestroy(_pipeline));
     if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_rg)); }
     if (_program_group_ch_closest) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_closest)); }
@@ -281,44 +288,7 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
     LUISA_CHECK_OPTIX(optix::api().moduleDestroy(_module));
 }
 
-void CUDAShaderOptiX::_prepare_sbt(CUDACommandEncoder &encoder) const noexcept {
-    auto cuda_stream = encoder.stream()->handle();
-    std::scoped_lock lock{_mutex};
-    if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
-        static constexpr auto sbt_buffer_size = sizeof(OptiXSBTRecord) * 6u;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
-        encoder.with_upload_buffer(sbt_buffer_size, [&](CUDAHostBufferPool::View *sbt_record_buffer) noexcept {
-            auto sbt_records = reinterpret_cast<OptiXSBTRecord *>(sbt_record_buffer->address());
-            if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0])); }
-            if (_program_group_ch_closest) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1])); }
-            if (_program_group_ch_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_query, &sbt_records[2])); }
-            if (_program_group_miss_closest) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_closest, &sbt_records[3])); }
-            if (_program_group_miss_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_query, &sbt_records[4])); }
-            if (_program_group_miss_any) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_any, &sbt_records[5])); }
-            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(_sbt_buffer, sbt_record_buffer->address(),
-                                               sbt_buffer_size, cuda_stream));
-            LUISA_CHECK_CUDA(cuEventRecord(_sbt_event, cuda_stream));
-        });
-        _sbt.raygenRecord = _sbt_buffer;
-        _sbt.hitgroupRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord);
-        _sbt.hitgroupRecordCount = 2u;
-        _sbt.hitgroupRecordStrideInBytes = sizeof(OptiXSBTRecord);
-        _sbt.missRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord) * 3u;
-        _sbt.missRecordCount = 3u;
-        _sbt.missRecordStrideInBytes = sizeof(OptiXSBTRecord);
-        _sbt_recorded_streams.emplace(encoder.stream()->uid());
-    } else {
-        if (auto stream_uid = encoder.stream()->uid();
-            _sbt_recorded_streams.emplace(stream_uid).second) {
-            LUISA_CHECK_CUDA(cuStreamWaitEvent(cuda_stream, _sbt_event, 0u));
-        }
-    }
-}
-
 void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
-
-    // prepare SBT
-    _prepare_sbt(encoder);
 
     // encode arguments
     encoder.with_upload_buffer(_argument_buffer_size, [&](CUDAHostBufferPool::View *argument_buffer) noexcept {
@@ -379,13 +349,21 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         auto ptr = allocate_argument(sizeof(ds_and_kid));
         std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
         auto cuda_stream = encoder.stream()->handle();
+        optix::ShaderBindingTable sbt{};
+        sbt.raygenRecord = _sbt_buffer;
+        sbt.hitgroupRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord);
+        sbt.hitgroupRecordCount = 2u;
+        sbt.hitgroupRecordStrideInBytes = sizeof(OptiXSBTRecord);
+        sbt.missRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord) * 3u;
+        sbt.missRecordCount = 3u;
+        sbt.missRecordStrideInBytes = sizeof(OptiXSBTRecord);
         if (argument_buffer->is_pooled()) [[likely]] {// if the argument buffer is pooled, we can use the device pointer directly
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &device_argument_buffer, argument_buffer->address(), 0u));
             LUISA_CHECK_OPTIX(optix::api().launch(
                 _pipeline, cuda_stream, device_argument_buffer,
-                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+                _argument_buffer_size, &sbt, s.x, s.y, s.z));
         } else {// otherwise, we need to copy the argument buffer to the device
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemAllocAsync(
@@ -395,7 +373,7 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                 _argument_buffer_size, cuda_stream));
             LUISA_CHECK_OPTIX(optix::api().launch(
                 _pipeline, cuda_stream, device_argument_buffer,
-                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+                _argument_buffer_size, &sbt, s.x, s.y, s.z));
             LUISA_CHECK_CUDA(cuMemFreeAsync(device_argument_buffer, cuda_stream));
         }
     });

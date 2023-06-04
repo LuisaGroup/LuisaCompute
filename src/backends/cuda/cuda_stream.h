@@ -5,6 +5,7 @@
 #pragma once
 
 #include <mutex>
+#include <condition_variable>
 
 #include <cuda.h>
 
@@ -19,6 +20,33 @@ namespace luisa::compute::cuda {
 class CUDADevice;
 class CUDACallbackContext;
 
+class CUDAStream;
+class CUDAIndirectDispatch;
+
+class CUDAIndirectDispatchStream {
+
+public:
+    // use the nullptr as a stop token
+    using Task = CUDAIndirectDispatch;
+    static constexpr auto stop_token = static_cast<Task *>(nullptr);
+
+private:
+    CUDAStream *_parent;
+    CUstream _stream;
+    CUevent _event_to_wait;
+    CUevent _event_to_signal;
+    std::mutex _mutex;
+    std::thread _thread;
+    std::condition_variable _cv;
+    luisa::queue<Task *> _tasks;
+
+public:
+    explicit CUDAIndirectDispatchStream(CUDAStream *parent) noexcept;
+    ~CUDAIndirectDispatchStream() noexcept;
+    void enqueue(ShaderDispatchCommand *command) noexcept;
+    void stop() noexcept;
+};
+
 /**
  * @brief Stream on CUDA
  * 
@@ -32,9 +60,12 @@ private:
     CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
     luisa::queue<CallbackContainer> _callback_lists;
+    luisa::unique_ptr<CUDAIndirectDispatchStream> _indirect_dispatch_thread;
     CUstream _stream{};
     uint _uid;
-    spin_mutex _mutex;
+    spin_mutex _dispatch_mutex;
+    spin_mutex _callback_mutex;
+    spin_mutex _indirect_thread_creation_mutex;
 
 public:
     explicit CUDAStream(CUDADevice *device) noexcept;

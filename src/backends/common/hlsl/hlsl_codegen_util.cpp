@@ -1562,7 +1562,7 @@ CodegenResult CodegenUtility::Codegen(
     finalResult.reserve(65500);
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
     finalResult << native_code << "\n//"sv;
-    vstd::to_string(custom_mask);
+    static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
@@ -1622,7 +1622,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     opSet.propagate(pixelFunc.propagated_builtin_callables());
     uint64 immutableHeaderSize = detail::AddHeader(opSet, internalDataPath, finalResult, true);
     finalResult << native_code << "\n//"sv;
-    vstd::to_string(custom_mask);
+    static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
     // Vertex
     codegenData << "struct v2p{\n"sv;

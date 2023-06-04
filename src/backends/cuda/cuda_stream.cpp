@@ -38,13 +38,13 @@ void CUDAStream::synchronize() noexcept {
 void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         {
-            std::scoped_lock lock{_mutex};
+            std::scoped_lock lock{_callback_mutex};
             _callback_lists.emplace(std::move(callbacks));
         }
         LUISA_CHECK_CUDA(cuLaunchHostFunc(
             _stream, [](void *p) noexcept {
                 constexpr auto pop = [](auto stream) -> luisa::vector<CUDACallbackContext *> {
-                    std::scoped_lock lock{stream->_mutex};
+                    std::scoped_lock lock{stream->_callback_mutex};
                     if (stream->_callback_lists.empty()) [[unlikely]] {
                         LUISA_WARNING_WITH_LOCATION(
                             "Fetching stream callback from empty queue.");
@@ -77,12 +77,57 @@ void CUDAStream::set_name(luisa::string &&name) noexcept {
 }
 
 void CUDAStream::dispatch(CommandList &&command_list) noexcept {
-    std::scoped_lock lock{_mutex};
     CUDACommandEncoder encoder{this};
     auto commands = command_list.steal_commands();
     auto callbacks = command_list.steal_callbacks();
-    for (auto &cmd : commands) { cmd->accept(encoder); }
-    encoder.commit(std::move(callbacks));
+    {
+        std::scoped_lock lock{_dispatch_mutex};
+        for (auto &cmd : commands) { cmd->accept(encoder); }
+        encoder.commit(std::move(callbacks));
+    }
+}
+
+class CUDAIndirectDispatch final : public CUDACallbackContext {
+
+private:
+    ShaderDispatchCommand _command;
+
+public:
+    void recycle() noexcept override {
+
+    }
+};
+
+CUDAIndirectDispatchStream::CUDAIndirectDispatchStream(CUDAStream *parent) noexcept
+    : _thread{[this] {
+          while (true) {
+              auto task = [this] {
+                  std::unique_lock lock{_mutex};
+                  _cv.wait(lock, [this] { return !_tasks.empty(); });
+                  auto task = _tasks.front();
+                  _tasks.pop();
+                  return task;
+              }();
+              if (task == stop_token) { break; }
+              _parent->device()->with_handle([this, task] {
+                  LUISA_CHECK_CUDA(cuStreamWaitEvent(
+                      _stream, _event_to_wait,
+                      CU_EVENT_WAIT_DEFAULT));
+                  task->recycle();
+                  LUISA_CHECK_CUDA(cuEventRecord(
+                      _event_to_signal, _stream));
+              });
+          }
+      }} {}
+
+CUDAIndirectDispatchStream::~CUDAIndirectDispatchStream() noexcept { stop(); }
+
+void CUDAIndirectDispatchStream::enqueue(ShaderDispatchCommand *command) noexcept {
+
+}
+
+void CUDAIndirectDispatchStream::stop() noexcept {
+
 }
 
 }// namespace luisa::compute::cuda
