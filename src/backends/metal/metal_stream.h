@@ -28,10 +28,11 @@ private:
     MTL::CommandQueue *_queue;
     spin_mutex _upload_pool_creation_mutex;
     spin_mutex _download_pool_creation_mutex;
+    spin_mutex _callback_mutex;
+    spin_mutex _dispatch_mutex;
     luisa::unique_ptr<MetalStageBufferPool> _upload_pool;
     luisa::unique_ptr<MetalStageBufferPool> _download_pool;
     luisa::queue<CallbackContainer> _callback_lists;
-    spin_mutex _callback_mutex;
 
 protected:
     void _do_dispatch(MetalCommandEncoder &encoder, CommandList &&list) noexcept;

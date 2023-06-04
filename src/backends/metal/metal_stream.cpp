@@ -86,6 +86,7 @@ void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
     } else {
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
+        std::scoped_lock lock{_dispatch_mutex};
         for (auto &command : commands) { _encode(encoder, command.get()); }
         encoder.submit(std::move(callbacks));
     }

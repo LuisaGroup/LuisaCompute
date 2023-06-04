@@ -21,7 +21,6 @@ public:
     static constexpr auto reserved_primitive_count = 1024u;
 
 private:
-    std::mutex _mutex;
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_instance_buffer{nullptr};
     MTL::Buffer *_update_buffer{nullptr};
@@ -32,6 +31,7 @@ private:
     NS::String *_name{nullptr};
     AccelOption _option;
     bool _requires_rebuild{true};
+    spin_mutex _mutex;
 
 public:
     struct Binding {

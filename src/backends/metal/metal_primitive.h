@@ -15,11 +15,11 @@ class MetalCommandEncoder;
 class MetalPrimitive {
 
 private:
-    std::mutex _mutex;
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_update_buffer{nullptr};
     NS::String *_name;
     AccelOption _option;
+    spin_mutex _mutex;
 
 private:
     virtual void _do_add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept = 0;
