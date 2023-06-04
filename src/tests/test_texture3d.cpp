@@ -9,6 +9,7 @@
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
 #include <gui/window.h>
+#include <runtime/swap_chain.h>
 
 using namespace luisa;
 using namespace luisa::compute;

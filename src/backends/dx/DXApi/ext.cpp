@@ -12,6 +12,7 @@
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
+#include <runtime/image.h>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {

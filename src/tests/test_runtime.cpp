@@ -10,6 +10,8 @@
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <runtime/stream.h>
+#include <runtime/event.h>
+#include <runtime/swap_chain.h>
 #include <runtime/buffer.h>
 #include <runtime/bindless_array.h>
 #include <dsl/syntax.h>

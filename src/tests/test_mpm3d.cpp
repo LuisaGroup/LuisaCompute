@@ -14,6 +14,7 @@
 #include <gui/window.h>
 #include <gui/framerate.h>
 #include <runtime/context.h>
+#include <runtime/swap_chain.h>
 
 int main(int argc, char *argv[]) {
 

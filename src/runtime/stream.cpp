@@ -37,17 +37,6 @@ Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
 }
 
 void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
-
-Stream &Stream::operator<<(Event::Signal &&signal) noexcept {
-    device()->signal_event(signal.handle, handle());
-    return *this;
-}
-
-Stream &Stream::operator<<(Event::Wait &&wait) noexcept {
-    device()->wait_event(wait.handle, handle());
-    return *this;
-}
-
 Stream::Stream(DeviceInterface *device, StreamTag stream_tag) noexcept
     : Stream{device, stream_tag, device->create_stream(stream_tag)} {}
 
@@ -84,21 +73,6 @@ Stream &Stream::Delegate::operator<<(CommandList::Commit &&commit) && noexcept {
     return *_stream << std::move(commit);
 }
 
-Stream &Stream::Delegate::operator<<(Event::Signal &&signal) && noexcept {
-    _commit();
-    return *_stream << std::move(signal);
-}
-
-Stream &Stream::Delegate::operator<<(Event::Wait &&wait) && noexcept {
-    _commit();
-    return *_stream << std::move(wait);
-}
-
-Stream &Stream::Delegate::operator<<(SwapChain::Present &&p) && noexcept {
-    _commit();
-    return *_stream << std::move(p);
-}
-
 Stream::Delegate Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
     _command_list.add_callback(std::move(f));
     return std::move(*this);
@@ -112,16 +86,6 @@ Stream &Stream::Delegate::operator<<(Stream::Synchronize &&) && noexcept {
 Stream &Stream::Delegate::operator<<(Stream::Commit &&) && noexcept {
     _commit();
     return *_stream;
-}
-
-Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
-#ifndef NDEBUG
-    if (_stream_tag != StreamTag::GRAPHICS) {
-        LUISA_ERROR("Present only allowed in stream of graphics type!");
-    }
-#endif
-    device()->present_display_in_stream(handle(), p.chain->handle(), p.frame.handle());
-    return *this;
 }
 
 Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {

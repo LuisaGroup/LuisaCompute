@@ -8,13 +8,10 @@
 
 #include <core/spin_mutex.h>
 #include <runtime/rhi/resource.h>
-#include <runtime/event.h>
 #include <runtime/command_list.h>
-#include <runtime/swap_chain.h>
 #include <runtime/rhi/stream_tag.h>
 
 namespace luisa::compute {
-
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
@@ -42,9 +39,12 @@ public:
         Delegate &operator=(const Delegate &) noexcept = delete;
         Delegate operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
         Delegate operator<<(luisa::move_only_function<void()> &&f) && noexcept;
-        Stream &operator<<(Event::Signal &&signal) && noexcept;
-        Stream &operator<<(Event::Wait &&wait) && noexcept;
-        Stream &operator<<(SwapChain::Present &&present) && noexcept;
+        template<typename T>
+            requires(StreamEvent<std::remove_cvref_t<T>>::value)
+        Stream &operator<<(T &&t) && noexcept {
+            _commit();
+            return *_stream << std::forward<T>(t);
+        }
         Stream &operator<<(CommandList::Commit &&commit) && noexcept;
         Stream &operator<<(Synchronize &&) && noexcept;
         Stream &operator<<(Commit &&) && noexcept;
@@ -83,10 +83,13 @@ public:
     using Resource::operator bool;
     Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
     Delegate operator<<(luisa::move_only_function<void()> &&f) noexcept;
-    Stream &operator<<(Event::Signal &&signal) noexcept;
-    Stream &operator<<(Event::Wait &&wait) noexcept;
+    template<typename T>
+        requires(StreamEvent<std::remove_cvref_t<T>>::value)
+    Stream &operator<<(T &&t) noexcept {
+        StreamEvent<std::remove_cvref_t<T>>::execute(device(), handle(), std::forward<T>(t));
+        return *this;
+    }
     Stream &operator<<(CommandList::Commit &&commit) noexcept;
-    Stream &operator<<(SwapChain::Present &&p) noexcept;
     Stream &operator<<(Synchronize &&) noexcept;
     void synchronize() noexcept { _synchronize(); }
     [[nodiscard]] auto stream_tag() const noexcept { return _stream_tag; }

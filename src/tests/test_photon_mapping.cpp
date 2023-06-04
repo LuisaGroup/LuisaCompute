@@ -10,6 +10,7 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
+#include <runtime/swap_chain.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
 #include <gui/window.h>

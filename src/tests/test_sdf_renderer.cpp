@@ -16,6 +16,7 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <runtime/image.h>
+#include <runtime/swap_chain.h>
 #include <dsl/sugar.h>
 
 using namespace luisa;

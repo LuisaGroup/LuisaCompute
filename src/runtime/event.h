@@ -6,6 +6,7 @@
 
 #include <runtime/rhi/command.h>
 #include <runtime/rhi/resource.h>
+#include <runtime/rhi/stream_tag.h>
 
 namespace luisa::compute {
 
@@ -40,5 +41,19 @@ public:
     [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }
     void synchronize() const noexcept;
 };
-
+// std::true_type inheritage may break MSVC
+template<>
+struct StreamEvent<Event::Signal> : std::true_type {
+    LC_RUNTIME_API static void execute(
+        DeviceInterface *device,
+        uint64_t stream_handle,
+        const Event::Signal &signal) noexcept;
+};
+template<>
+struct StreamEvent<Event::Wait> : std::true_type {
+    LC_RUNTIME_API static void execute(
+        DeviceInterface *device,
+        uint64_t stream_handle,
+        const Event::Wait &wait) noexcept;
+};
 }// namespace luisa::compute

@@ -13,6 +13,8 @@
 #include <core/logging.h>
 #include <gui/window.h>
 #include <runtime/context.h>
+#include <runtime/swap_chain.h>
+
 int main(int argc, char *argv[]) {
 
     using namespace luisa;

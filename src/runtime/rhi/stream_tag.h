@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 namespace luisa::compute {
 
@@ -10,5 +11,6 @@ enum class StreamTag : uint32_t {
     COPY,    // only copy commands,
     CUSTOM   // custom stream
 };
-
-}
+template<typename T>
+struct StreamEvent : std::false_type {};
+}// namespace luisa::compute
