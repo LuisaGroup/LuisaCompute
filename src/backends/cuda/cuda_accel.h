@@ -40,7 +40,7 @@ public:
 private:
     AccelOption _option;
     bool _requires_rebuild{true};
-    spin_mutex _mutex;
+    mutable spin_mutex _mutex;
     optix::TraversableHandle _handle{};
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
@@ -59,9 +59,9 @@ public:
     explicit CUDAAccel(const AccelOption &option) noexcept;
     ~CUDAAccel() noexcept;
     void build(CUDACommandEncoder &encoder, AccelBuildCommand *command) noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
-    [[nodiscard]] auto binding() const noexcept { return Binding{_handle, _instance_buffer}; }
+    [[nodiscard]] optix::TraversableHandle handle() const noexcept;
+    [[nodiscard]] CUdeviceptr instance_buffer() const noexcept;
+    [[nodiscard]] Binding binding() const noexcept;
     void set_name(luisa::string &&name) noexcept;
 };
 

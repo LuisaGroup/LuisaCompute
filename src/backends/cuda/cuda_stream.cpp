@@ -9,9 +9,10 @@
 
 #include <core/logging.h>
 #include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_callback_context.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_stream.h>
 
 namespace luisa::compute::cuda {
 
@@ -73,6 +74,15 @@ void CUDAStream::wait(CUevent event) noexcept {
 
 void CUDAStream::set_name(luisa::string &&name) noexcept {
     nvtxNameCuStreamA(_stream, name.c_str());
+}
+
+void CUDAStream::dispatch(CommandList &&command_list) noexcept {
+    std::scoped_lock lock{_mutex};
+    CUDACommandEncoder encoder{this};
+    auto commands = command_list.steal_commands();
+    auto callbacks = command_list.steal_callbacks();
+    for (auto &cmd : commands) { cmd->accept(encoder); }
+    encoder.commit(std::move(callbacks));
 }
 
 }// namespace luisa::compute::cuda

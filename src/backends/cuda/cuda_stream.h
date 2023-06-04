@@ -42,6 +42,7 @@ public:
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
+    void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void signal(CUevent event) noexcept;
     void wait(CUevent event) noexcept;

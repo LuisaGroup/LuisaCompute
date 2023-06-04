@@ -34,7 +34,7 @@ private:
     luisa::string _name;
 
 protected:
-    optix::TraversableHandle _handle;
+    optix::TraversableHandle _handle{};
 
 protected:
     [[nodiscard]] virtual optix::BuildInput _make_build_input() const noexcept = 0;

@@ -261,4 +261,19 @@ void CUDAAccel::set_name(luisa::string &&name) noexcept {
     _name = std::move(name);
 }
 
+optix::TraversableHandle CUDAAccel::handle() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return _handle;
+}
+
+CUdeviceptr CUDAAccel::instance_buffer() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return _instance_buffer;
+}
+
+CUDAAccel::Binding CUDAAccel::binding() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return Binding{_handle, _instance_buffer};
+}
+
 }// namespace luisa::compute::cuda

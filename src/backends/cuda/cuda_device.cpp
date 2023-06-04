@@ -270,11 +270,8 @@ void CUDADevice::synchronize_stream(uint64_t stream_handle) noexcept {
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
     if (!list.empty()) {
         with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
-                     commands = list.steal_commands(),
-                     callbacks = list.steal_callbacks()]() mutable noexcept {
-            CUDACommandEncoder encoder{stream};
-            for (auto &cmd : commands) { cmd->accept(encoder); }
-            encoder.commit(std::move(callbacks));
+                     list = std::move(list)]() mutable noexcept {
+            stream->dispatch(std::move(list));
         });
     }
 }
