@@ -1252,6 +1252,7 @@ __device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint in
     p[2].y = m[1][2];
     p[2].z = m[2][2];
     p[2].w = m[3][2];
+    accel.instances[index].m = p;
 }
 
 __device__ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, lc_uint mask) noexcept {

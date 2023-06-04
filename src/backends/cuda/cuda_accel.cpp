@@ -166,7 +166,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     _prim_handles.resize(instance_count);
     // update the instance buffer
     auto mods = command->modifications();
-    if (auto n = mods.size()) {
+    if (auto n = static_cast<uint32_t>(mods.size())) {
         using Mod = AccelBuildCommand::Modification;
         auto update_buffer = 0ull;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&update_buffer, mods.size_bytes(), cuda_stream));
@@ -188,7 +188,8 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                 }
                 host_updates[i] = m;
             }
-            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(update_buffer, host_updates, mods.size_bytes(), cuda_stream));
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
+                update_buffer, host_updates, mods.size_bytes(), cuda_stream));
         });
         auto update_kernel = encoder.stream()->device()->accel_update_function();
         std::array<void *, 3u> args{&_instance_buffer, &update_buffer, &n};
