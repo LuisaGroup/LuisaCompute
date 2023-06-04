@@ -38,10 +38,9 @@ SwapChain::Present SwapChain::present(ImageView<float> frame) const noexcept {
 SwapChain::~SwapChain() noexcept {
     if (*this) { device()->destroy_swap_chain(handle()); }
 }
-void StreamEvent<SwapChain::Present>::execute(
+void SwapChain::Present::operator()(
     DeviceInterface *device,
-    uint64_t stream_handle,
-    SwapChain::Present const &present) noexcept {
-    device->present_display_in_stream(stream_handle, present.chain->handle(), present.frame.handle());
+    uint64_t stream_handle) const noexcept {
+    device->present_display_in_stream(stream_handle, chain->handle(), frame.handle());
 }
 }// namespace luisa::compute

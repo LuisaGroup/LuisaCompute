@@ -12,6 +12,11 @@
 #include <runtime/rhi/stream_tag.h>
 
 namespace luisa::compute {
+template<typename T>
+concept StreamEvent =
+    requires(T t, DeviceInterface *device, uint64_t stream_handle) {
+        t(device, stream_handle);
+    };
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
@@ -39,8 +44,7 @@ public:
         Delegate &operator=(const Delegate &) noexcept = delete;
         Delegate operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
         Delegate operator<<(luisa::move_only_function<void()> &&f) && noexcept;
-        template<typename T>
-            requires(StreamEvent<std::remove_cvref_t<T>>::value)
+        template<StreamEvent T>
         Stream &operator<<(T &&t) && noexcept {
             _commit();
             return *_stream << std::forward<T>(t);
@@ -83,10 +87,9 @@ public:
     using Resource::operator bool;
     Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
     Delegate operator<<(luisa::move_only_function<void()> &&f) noexcept;
-    template<typename T>
-        requires(StreamEvent<std::remove_cvref_t<T>>::value)
+    template<StreamEvent T>
     Stream &operator<<(T &&t) noexcept {
-        StreamEvent<std::remove_cvref_t<T>>::execute(device(), handle(), std::forward<T>(t));
+        std::forward<T>(t)(device(), handle());
         return *this;
     }
     Stream &operator<<(CommandList::Commit &&commit) noexcept;

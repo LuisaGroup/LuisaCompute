@@ -16,6 +16,7 @@ public:
     struct Present {
         const SwapChain *chain{nullptr};
         ImageView<float> frame;
+        LC_RUNTIME_API void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
     };
 
 private:
@@ -39,12 +40,5 @@ public:
     SwapChain &operator=(SwapChain const &) noexcept = delete;
     [[nodiscard]] PixelStorage backend_storage() const { return _storage; }
     [[nodiscard]] Present present(ImageView<float> frame) const noexcept;
-};
-template<>
-struct StreamEvent<SwapChain::Present> : std::true_type {
-    LC_RUNTIME_API static void execute(
-        DeviceInterface *device,
-        uint64_t stream_handle,
-        SwapChain::Present const &present) noexcept;
 };
 }// namespace luisa::compute

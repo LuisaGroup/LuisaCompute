@@ -24,16 +24,16 @@ void Event::synchronize() const noexcept {
 Event::~Event() noexcept {
     if (*this) { device()->destroy_event(handle()); }
 }
-void StreamEvent<Event::Wait>::execute(
+
+void Event::Signal::operator()(
     DeviceInterface *device,
-    uint64_t stream_handle,
-    const Event::Wait &wait) noexcept {
-    device->wait_event(wait.handle, stream_handle);
+    uint64_t stream_handle) const noexcept {
+    device->signal_event(handle, stream_handle);
 }
-void StreamEvent<Event::Signal>::execute(
+
+void Event::Wait::operator()(
     DeviceInterface *device,
-    uint64_t stream_handle,
-    const Event::Signal &signal) noexcept {
-    device->signal_event(signal.handle, stream_handle);
+    uint64_t stream_handle) const noexcept {
+    device->wait_event(handle, stream_handle);
 }
 }// namespace luisa::compute
