@@ -46,13 +46,12 @@ class CUDAIndirectDispatchBuffer : public CUDABufferBase {
 
 public:
     struct Binding {
-        CUdeviceptr header;
-        CUdeviceptr dispatches;
+        CUdeviceptr buffer;
+        size_t capacity;
     };
 
     struct alignas(16) Header {
         uint size;
-        uint capacity;
     };
 
     struct alignas(16) Dispatch {

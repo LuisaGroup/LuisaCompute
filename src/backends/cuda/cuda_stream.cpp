@@ -112,6 +112,40 @@ CUDAIndirectDispatchStream &CUDAStream::indirect() noexcept {
     return *_indirect;
 }
 
+class CUDAIndirectDispatchStream::TaskContext {
+
+private:
+    CUDAIndirectDispatchStream *_self;
+    CUDAIndirectDispatchStream::Task *_task;
+    uint64_t _value;
+
+private:
+    [[nodiscard]] static auto &_pool() noexcept {
+        static Pool<TaskContext, true> pool;
+        return pool;
+    }
+
+public:
+    TaskContext(CUDAIndirectDispatchStream *self,
+                CUDAIndirectDispatchStream::Task *task,
+                uint64_t value) noexcept
+        : _self{self}, _task{task}, _value{value} {}
+
+    [[nodiscard]] auto self() const noexcept { return _self; }
+    [[nodiscard]] auto task() const noexcept { return _task; }
+    [[nodiscard]] auto value() const noexcept { return _value; }
+
+    [[nodiscard]] static auto create(CUDAIndirectDispatchStream *self,
+                                     CUDAIndirectDispatchStream::Task *task,
+                                     uint64_t value) noexcept {
+        return _pool().create(self, task, value);
+    }
+
+    void recycle() noexcept {
+        _pool().destroy(this);
+    }
+};
+
 CUDAIndirectDispatchStream::CUDAIndirectDispatchStream(CUDAStream *parent) noexcept
     : _parent{parent}, _event_value{0u}, _stop_requested{false} {
 
@@ -121,32 +155,39 @@ CUDAIndirectDispatchStream::CUDAIndirectDispatchStream(CUDAStream *parent) noexc
     _thread = std::thread{[this] {
         for (;;) {
             // wait for the next task
-            auto [value, task] = [this]() noexcept -> std::pair<uint64_t, Task *> {
+            auto ctx = [this]() noexcept -> TaskContext * {
                 std::unique_lock lock{_queue_mutex};
-                _cv.wait(lock, [this] { return _stop_requested || !_tasks.empty(); });
+                _cv.wait(lock, [this] { return _stop_requested || !_task_contexts.empty(); });
                 if (_stop_requested) {
-                    if (!_tasks.empty()) {
+                    if (!_task_contexts.empty()) {
                         LUISA_WARNING_WITH_LOCATION(
                             "CUDA indirect dispatch stream stopped "
                             "with {} task(s) remaining. Did you forget "
                             "to synchronize the stream?",
-                            _tasks.size());
+                            _task_contexts.size());
                     }
-                    return {};
+                    return nullptr;
                 }
-                auto value_and_task = _tasks.front();
-                _tasks.pop();
-                return value_and_task;
+                auto ctx = _task_contexts.front();
+                _task_contexts.pop();
+                return ctx;
             }();
             // stop if requested
-            if (task == nullptr) { break; }
+            if (ctx == nullptr) { break; }
             _parent->device()->with_handle([&] {
+                // wait for event
+                LUISA_CHECK_CUDA(cuLaunchHostFunc(
+                    _stream, [](void *p) noexcept {
+                        LUISA_INFO("executing task");
+                    },
+                    nullptr));
                 // execute the task
-                task->execute(_stream);
+                ctx->task()->execute(_stream);
                 // notify parent that the task is done
                 LUISA_CHECK_CUDA(cuStreamWriteValue64(
-                    _stream, _event, value,
+                    _stream, _event, ctx->value(),
                     CU_STREAM_WRITE_VALUE_DEFAULT));
+                ctx->recycle();
             });
         }
     }};
@@ -164,20 +205,18 @@ CUDAIndirectDispatchStream::~CUDAIndirectDispatchStream() noexcept {
 }
 
 void CUDAIndirectDispatchStream::enqueue(Task *command) noexcept {
-    // enqueue the task
-    auto value = [this, command] {
-        std::scoped_lock lock{_queue_mutex};
-        auto value = ++_event_value;
-        _tasks.push(std::make_pair(value, command));
-        return value;
-    }();
-    // parent notifies us when the task is should be executed
+    auto value = ++_event_value;
+    auto ctx = TaskContext::create(this, command, value);
     LUISA_CHECK_CUDA(cuLaunchHostFunc(
         _parent->handle(), [](void *p) noexcept {
-            auto self = static_cast<CUDAIndirectDispatchStream *>(p);
-            self->_cv.notify_one();
+            auto ctx = static_cast<TaskContext *>(p);
+            {
+                std::scoped_lock lock{ctx->self()->_queue_mutex};
+                ctx->self()->_task_contexts.emplace(ctx);
+            }
+            ctx->self()->_cv.notify_one();
         },
-        this));
+        ctx));
     // make the parent wait for the task to be done
     LUISA_CHECK_CUDA(cuStreamWaitValue64(
         _parent->handle(), _event, value,

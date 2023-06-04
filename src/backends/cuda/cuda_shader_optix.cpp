@@ -292,7 +292,7 @@ class CUDAIndirectDispatchOptiX final : public CUDAIndirectDispatchStream::Task 
 
 public:
     struct DispatchBuffer {
-        CUDAIndirectDispatchBuffer::Header header;
+        uint size;
         [[no_unique_address]] CUDAIndirectDispatchBuffer::Dispatch dispatches[];
     };
 
@@ -319,18 +319,25 @@ public:
           _downloaded_dispatch_buffer{std::move(downloaded_dispatch_buffer)} {}
 
     void execute(CUstream stream) noexcept override {
-        auto [count, capacity] = reinterpret_cast<DispatchBuffer *>(_downloaded_dispatch_buffer.data())->header;
-        LUISA_ASSERT(count <= capacity, "Dispatch buffer overflow.");
+        auto count = reinterpret_cast<DispatchBuffer *>(_downloaded_dispatch_buffer.data())->size;
+        LUISA_INFO("Dispatching {} tasks...", count);
         auto dispatch_size_in_argument_buffer = _device_argument_buffer +
                                                 _shader->_argument_buffer_size - sizeof(uint4);
         auto device_dispatch_buffer = reinterpret_cast<DispatchBuffer *>(_device_dispatch_buffer);
         auto sbt = _shader->_make_sbt();
         for (auto i = 0u; i < count; i++) {
-            auto dispatch_size_in_dispatch_buffer = &(device_dispatch_buffer->dispatches[i].dispatch_size_and_kernel_id);
+            auto dispatch_size_in_dispatch_buffer = reinterpret_cast<CUdeviceptr>(
+                &(device_dispatch_buffer->dispatches[i].dispatch_size_and_kernel_id));
+            auto &dispatch_size = reinterpret_cast<DispatchBuffer *>(_downloaded_dispatch_buffer.data())
+                                     ->dispatches[i]
+                                     .dispatch_size_and_kernel_id;
+            LUISA_INFO("Dispatch #{}: ({}, {}, {})", i, dispatch_size.x, dispatch_size.y, dispatch_size.z);
+            LUISA_INFO("Copy from 0x{:016x} to 0x{:016x}",
+                       dispatch_size_in_dispatch_buffer,
+                       dispatch_size_in_argument_buffer);
             LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dispatch_size_in_argument_buffer,
-                                               reinterpret_cast<CUdeviceptr>(dispatch_size_in_dispatch_buffer),
+                                               dispatch_size_in_dispatch_buffer,
                                                sizeof(uint4), stream));
-            auto dispatch_size = reinterpret_cast<DispatchBuffer *>(_downloaded_dispatch_buffer.data())->dispatches[i].dispatch_size_and_kernel_id.xyz();
             LUISA_CHECK_OPTIX(optix::api().launch(
                 _shader->_pipeline, stream, _device_argument_buffer,
                 _shader->_argument_buffer_size, &sbt,

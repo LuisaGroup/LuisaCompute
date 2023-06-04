@@ -23,3 +23,5 @@
 #include <dsl/rtx/ray.h>
 #include <dsl/rtx/ray_query.h>
 #include <dsl/rtx/triangle.h>
+
+#include <dsl/dispatch_indirect.h>

@@ -30,13 +30,15 @@ public:
         virtual ~Task() noexcept = default;
     };
 
+    class TaskContext;
+
 private:
     CUDAStream *_parent;
     CUstream _stream{nullptr};
     std::mutex _queue_mutex;
     std::thread _thread;
     std::condition_variable _cv;
-    luisa::queue<std::pair<uint64_t, Task *>> _tasks;
+    luisa::queue<TaskContext *> _task_contexts;
     CUdeviceptr _event{};
     uint64_t _event_value : 63;
     uint64_t _stop_requested : 1;
