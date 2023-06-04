@@ -96,6 +96,8 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
 void CUDABindlessArray::update(CUDACommandEncoder &encoder,
                                BindlessArrayUpdateCommand *cmd) noexcept {
 
+    std::scoped_lock lock{_mutex};
+
     if (cmd->modifications().empty()) {
         LUISA_WARNING_WITH_LOCATION(
             "Empty bindless array update command detected.");
@@ -110,11 +112,11 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
         // process buffer
         if (m.buffer.op == Mod::Operation::EMPLACE) {
             auto buffer = reinterpret_cast<const CUDABuffer *>(m.buffer.handle);
-            LUISA_ASSERT(m.buffer.offset_bytes < buffer->size(),
+            LUISA_ASSERT(m.buffer.offset_bytes < buffer->size_bytes(),
                          "Offset {} exceeds buffer size {}.",
-                         m.buffer.offset_bytes, buffer->size());
+                         m.buffer.offset_bytes, buffer->size_bytes());
             auto address = buffer->handle() + m.buffer.offset_bytes;
-            auto size = buffer->size() - m.buffer.offset_bytes;
+            auto size = buffer->size_bytes() - m.buffer.offset_bytes;
             m.buffer.handle = address;
             m.buffer.offset_bytes = size;// FIXME: reusing this field is a bit hacky
         }
@@ -168,6 +170,7 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
 }
 
 void CUDABindlessArray::set_name(luisa::string &&name) noexcept {
+    std::scoped_lock lock{_mutex};
     _name = std::move(name);
 }
 

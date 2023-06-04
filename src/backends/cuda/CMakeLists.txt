@@ -39,6 +39,13 @@ if (CUDAToolkit_FOUND)
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain)
 
+    find_library(CUDA_DEVICE_RUNTIME_LIBRARY cudadevrt ${CUDAToolkit_LIBRARY_DIR})
+    add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CUDA_DEVICE_RUNTIME_LIBRARY}"
+            $<TARGET_FILE_DIR:luisa-compute-core>)
+    install(FILES "${CUDA_DEVICE_RUNTIME_LIBRARY}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+
     if (WIN32)
         # FIXME: trouble with nvrtc_static on Windows due to the mismatch of runtime library...
         target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)

@@ -29,12 +29,14 @@ optix::BuildInput CUDAProceduralPrimitive::_make_build_input() const noexcept {
 void CUDAProceduralPrimitive::build(CUDACommandEncoder &encoder,
                                     ProceduralPrimitiveBuildCommand *command) noexcept {
     auto aabb_buffer = reinterpret_cast<const CUDABuffer *>(command->aabb_buffer());
-    LUISA_ASSERT(command->aabb_buffer_offset() + command->aabb_buffer_size() <= aabb_buffer->size(),
+    LUISA_ASSERT(command->aabb_buffer_offset() + command->aabb_buffer_size() <= aabb_buffer->size_bytes(),
                  "AABB buffer out of range.");
+
+    std::scoped_lock lock{_mutex};
 
     auto requires_build =
         // not built yet
-        handle() == 0u ||
+        _handle == 0u ||
         // not allowed to update
         !option().allow_update ||
         // user enforced rebuild

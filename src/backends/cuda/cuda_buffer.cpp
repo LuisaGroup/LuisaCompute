@@ -7,18 +7,27 @@
 
 namespace luisa::compute::cuda {
 
-CUDABuffer::CUDABuffer(size_t size_bytes) noexcept
-    : _handle{}, _size{size_bytes} {
+CUDABufferBase::CUDABufferBase(size_t size_bytes) noexcept
+    : _handle{}, _size_bytes{size_bytes} {
     LUISA_CHECK_CUDA(cuMemAlloc(&_handle, size_bytes));
 }
 
-CUDABuffer::~CUDABuffer() noexcept {
+CUDABufferBase::~CUDABufferBase() noexcept {
     LUISA_CHECK_CUDA(cuMemFree(_handle));
 }
 
 CUDABuffer::Binding CUDABuffer::binding(size_t offset, size_t size) const noexcept {
-    LUISA_ASSERT(offset + size <= _size, "CUDABuffer::binding() out of range.");
-    return Binding{_handle + offset, size};
+    LUISA_ASSERT(offset + size <= size_bytes(), "CUDABuffer::binding() out of range.");
+    return Binding{handle() + offset, size};
+}
+
+CUDAIndirectDispatchBuffer::CUDAIndirectDispatchBuffer(size_t capacity) noexcept
+    : CUDABufferBase{sizeof(Header) + sizeof(Dispatch) * capacity},
+      _capacity{capacity} {}
+
+CUDAIndirectDispatchBuffer::Binding
+CUDAIndirectDispatchBuffer::binding() const noexcept {
+    return {handle(), capacity()};
 }
 
 }// namespace luisa::compute::cuda

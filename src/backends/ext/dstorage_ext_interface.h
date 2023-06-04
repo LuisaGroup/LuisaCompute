@@ -19,7 +19,6 @@ enum class DStorageCompression : uint {
     Snappy,
     Bitcomp,
     ANS,
-    Zlib,
     LZFSE,
     LZMA,
     LZBitmap

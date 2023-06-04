@@ -8,6 +8,7 @@
 #include <memory>
 
 #include <core/basic_types.h>
+#include <core/spin_mutex.h>
 #include <ast/usage.h>
 
 namespace luisa::compute {
@@ -23,6 +24,7 @@ class CUDAShader {
 private:
     luisa::vector<Usage> _argument_usages;
     luisa::string _name;
+    mutable spin_mutex _name_mutex;
 
 private:
     virtual void _launch(CUDACommandEncoder &encoder,

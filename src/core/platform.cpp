@@ -13,12 +13,15 @@ static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
               "illegal pointer and integer sizes.");
 
 #if defined(LUISA_PLATFORM_WINDOWS)
+
 #ifndef UNICODE
 #define UNICODE 1
 #endif
+
 #ifndef NOMINMAX
 #define NOMINMAX 1
 #endif
+
 #include <windows.h>
 #include <DbgHelp.h>
 
@@ -160,6 +163,14 @@ luisa::vector<TraceItem> backtrace() noexcept {
 luisa::vector<TraceItem> backtrace() noexcept { return {}; }
 #endif
 
+luisa::string cpu_name() noexcept {
+    int32_t brand[12];
+    __cpuid(&brand[0], 0x80000002);
+    __cpuid(&brand[4], 0x80000003);
+    __cpuid(&brand[8], 0x80000004);
+    return reinterpret_cast<const char *>(brand);
+}
+
 }// namespace luisa
 
 #elif defined(LUISA_PLATFORM_UNIX)
@@ -168,6 +179,13 @@ luisa::vector<TraceItem> backtrace() noexcept { return {}; }
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <cxxabi.h>
+
+#ifdef LUISA_ARCH_ARM64
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#else
+#include <cpuid.h>
+#endif
 
 namespace luisa {
 
@@ -244,6 +262,27 @@ luisa::vector<TraceItem> backtrace() noexcept {
     free(info);
     return trace_info;
 }
+
+#ifdef LUISA_ARCH_ARM64
+luisa::string cpu_name() noexcept {
+    constexpr auto buffer_size = static_cast<size_t>(256u);
+    char brand[buffer_size];
+    auto size = buffer_size;
+    if (sysctlbyname("machdep.cpu.brand_string", brand, &size, nullptr, 0) != 0) {
+        return "Unknown ARM64";
+    }
+    return brand;
+}
+#else
+luisa::string cpu_name() noexcept {
+    uint32_t brand[12];
+    if (!__get_cpuid_max(0x80000004u, nullptr)) { return "Unknown x86_64"; }
+    __get_cpuid(0x80000002u, brand + 0x0u, brand + 0x1u, brand + 0x2u, brand + 0x3u);
+    __get_cpuid(0x80000003u, brand + 0x4u, brand + 0x5u, brand + 0x6u, brand + 0x7u);
+    __get_cpuid(0x80000004u, brand + 0x8u, brand + 0x9u, brand + 0xau, brand + 0xbu);
+    return reinterpret_cast<const char *>(brand);
+}
+#endif
 
 }// namespace luisa
 

@@ -10,70 +10,48 @@
 namespace luisa::compute::metal {
 
 MetalEvent::MetalEvent(MTL::Device *device) noexcept
-    : _handle{device->newEvent()} {}
+    : _handle{device->newSharedEvent()} {}
 
 MetalEvent::~MetalEvent() noexcept {
     _handle->release();
 }
 
-void MetalEvent::signal(MTL::CommandQueue *queue) noexcept {
-
+void MetalEvent::signal(MTL::CommandBuffer *command_buffer) noexcept {
     // encode a signal event into a new command buffer
-    auto [command_buffer, signaled_value, old_command_buffer] = [this, queue] {
-        auto buffer = queue->commandBufferWithUnretainedReferences();
+    auto value = [this] {
         std::scoped_lock lock{_mutex};
-        auto old_buffer = _signaled_buffer;
-        _signaled_buffer = buffer;
-        auto value = ++_signaled_value;
-        return std::make_tuple(buffer, value, old_buffer);
+        return ++_signaled_value;
     }();
-    if (old_command_buffer) { old_command_buffer->release(); }
-    command_buffer->retain();
-    command_buffer->encodeSignalEvent(_handle, signaled_value);
-    command_buffer->commit();
+    command_buffer->encodeSignalEvent(_handle, value);
 }
 
-void MetalEvent::wait(MTL::CommandQueue *queue) noexcept {
+uint64_t MetalEvent::value_to_wait() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return _signaled_value;
+}
 
-    auto signaled_value = [this] {
-        std::scoped_lock lock{_mutex};
-        return _signaled_value;
-    }();
-
-    if (signaled_value == 0u) {// not signaled yet
+void MetalEvent::wait(MTL::CommandBuffer *command_buffer) noexcept {
+    auto value = value_to_wait();
+    if (value == 0u) {// not signaled yet
         LUISA_WARNING_WITH_LOCATION(
             "MetalEvent::wait() is called "
             "before any signal event.");
     } else {// encode a wait event into a new command buffer
-        auto command_buffer = queue->commandBufferWithUnretainedReferences();
-        command_buffer->encodeWait(_handle, signaled_value);
-        command_buffer->commit();
+        command_buffer->encodeWait(_handle, value);
     }
 }
 
 void MetalEvent::synchronize() noexcept {
-
-    auto signaled_buffer = [this] {
-        std::scoped_lock lock{_mutex};
-        return _signaled_buffer ?
-                   _signaled_buffer->retain() :
-                   nullptr;
-    }();
-
-    if (signaled_buffer) {
-        // wait until the signaled buffer is completed
-        signaled_buffer->waitUntilCompleted();
-        // release the signaled buffer
-        signaled_buffer->release();
-        // if the signaled buffer is still the same,
-        // reset it, so we do not need to wait again
-        auto still_current = [this, s = signaled_buffer] {
-            std::scoped_lock lock{_mutex};
-            if (_signaled_buffer != s) { return false; }
-            _signaled_buffer = nullptr;
-            return true;
-        }();
-        if (still_current) { signaled_buffer->release(); }
+    auto value = value_to_wait();
+    if (value == 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "MetalEvent::synchronize() is called "
+            "before any signal event.");
+        return;
+    }
+    while (_handle->signaledValue() < value) {
+        // wait until the signaled value is greater than or equal to the value to wait
+        std::this_thread::yield();
     }
 }
 

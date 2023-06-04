@@ -14,6 +14,7 @@
 #include <core/binary_io.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/bindless_array.h>
+#include <runtime/dispatch_buffer.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -132,6 +133,23 @@ CUDADevice::CUDADevice(Context &&ctx,
             &_instance_handle_update_function, _builtin_kernel_module,
             "update_accel_instance_handles"));
     });
+
+    // load cudadevrt
+#ifdef LUISA_PLATFORM_WINDOWS
+    auto device_runtime_lib_path = context().runtime_directory() / "cudadevrt.lib";
+#else
+    auto device_runtime_lib_path = context().runtime_directory() / "libcudadevrt.a";
+#endif
+    std::ifstream devrt_file{device_runtime_lib_path, std::ios::binary};
+    if (!devrt_file.is_open()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to load CUDA device runtime library '{}'. "
+            "Indirect kernel dispatch will not be available.",
+            device_runtime_lib_path.string());
+    } else {
+        _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
+                                           std::istreambuf_iterator<char>{}};
+    }
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -143,13 +161,24 @@ CUDADevice::~CUDADevice() noexcept {
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_count) noexcept {
     BufferCreationInfo info{};
-    info.element_stride = CUDACompiler::type_size(element);
-    info.total_size_bytes = info.element_stride * elem_count;
-    auto buffer = with_handle([size = info.total_size_bytes] {
-        return new_with_allocator<CUDABuffer>(size);
-    });
-    info.handle = reinterpret_cast<uint64_t>(buffer);
-    info.native_handle = buffer;
+    elem_count = std::max<size_t>(elem_count, 1u);
+    if (element == Type::of<IndirectKernelDispatch>()) {
+        auto buffer = with_handle([elem_count] {
+            return new_with_allocator<CUDAIndirectDispatchBuffer>(elem_count);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = buffer;
+        info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
+        info.total_size_bytes = buffer->size_bytes();
+    } else {
+        info.element_stride = CUDACompiler::type_size(element);
+        info.total_size_bytes = info.element_stride * elem_count;
+        auto buffer = with_handle([size = info.total_size_bytes] {
+            return new_with_allocator<CUDABuffer>(size);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = buffer;
+    }
     return info;
 }
 
@@ -163,7 +192,7 @@ BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, 
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-    with_handle([buffer = reinterpret_cast<CUDABuffer *>(handle)] {
+    with_handle([buffer = reinterpret_cast<CUDABufferBase *>(handle)] {
         delete_with_allocator(buffer);
     });
 }
@@ -191,7 +220,9 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
             LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&handle, &array_desc, mipmap_levels));
             return reinterpret_cast<uint64_t>(handle);
         }();
-        return new_with_allocator<CUDATexture>(array_handle, format, mipmap_levels);
+        return new_with_allocator<CUDATexture>(
+            array_handle, make_uint3(width, height, depth),
+            format, mipmap_levels);
     });
     return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }
@@ -239,11 +270,8 @@ void CUDADevice::synchronize_stream(uint64_t stream_handle) noexcept {
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
     if (!list.empty()) {
         with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
-                     commands = list.steal_commands(),
-                     callbacks = list.steal_callbacks()]() mutable noexcept {
-            CUDACommandEncoder encoder{stream};
-            for (auto &cmd : commands) { cmd->accept(encoder); }
-            encoder.commit(std::move(callbacks));
+                     list = std::move(list)]() mutable noexcept {
+            stream->dispatch(std::move(list));
         });
     }
 }
@@ -398,7 +426,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
     // generate a default name if not specified
     auto uses_user_path = !name.empty();
     if (!uses_user_path) { name = luisa::format("kernel_{:016x}.ptx",
-                                                       expected_metadata.checksum); }
+                                                expected_metadata.checksum); }
     if (!name.ends_with(".ptx") &&
         !name.ends_with(".PTX")) { name.append(".ptx"); }
 
@@ -451,7 +479,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
                 std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main",
+            this, ptx.data(), ptx.size(), "kernel_main",
             expected_metadata.block_size,
             expected_metadata.argument_usages,
             std::move(bound_arguments));
@@ -471,7 +499,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // codegen
     Clock clk;
     StringScratch scratch;
-    CUDACodegenAST codegen{scratch};
+    CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
     codegen.emit(kernel, option.native_include);
     LUISA_INFO("Generated CUDA source in {} ms.", clk.toc());
 
@@ -622,9 +650,8 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
                 metadata.argument_usages);
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main",
-            metadata.block_size,
-            metadata.argument_usages);
+            this, ptx.data(), ptx.size(), "kernel_main",
+            metadata.block_size, metadata.argument_usages);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -750,13 +777,22 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
     return nullptr;
 }
 
-CUDADevice::Handle::Handle(size_t index) noexcept {
+namespace detail {
+
+static void initialize() {
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {
         LUISA_CHECK_CUDA(cuInit(0));
         static_cast<void>(optix::api());
     });
+}
+
+}// namespace detail
+
+CUDADevice::Handle::Handle(size_t index) noexcept {
+
+    detail::initialize();
 
     // cuda
     auto driver_version = 0;
@@ -858,7 +894,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                  name = luisa::string{name}]() mutable noexcept {
         switch (tag) {
             case Resource::Tag::BUFFER:
-                reinterpret_cast<CUDABuffer *>(handle)->set_name(std::move(name));
+                reinterpret_cast<CUDABufferBase *>(handle)->set_name(std::move(name));
                 break;
             case Resource::Tag::TEXTURE:
                 reinterpret_cast<CUDATexture *>(handle)->set_name(std::move(name));
@@ -889,6 +925,8 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
 #endif
                 break;
             case Resource::Tag::DEPTH_BUFFER: break;
+            case Resource::Tag::DSTORAGE_FILE: break;
+            case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
         }
     });
 }
@@ -918,6 +956,7 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
     names.clear();
     auto device_count = 0;
+    luisa::compute::cuda::detail::initialize();
     LUISA_CHECK_CUDA(cuDeviceGetCount(&device_count));
     if (device_count > 0) {
         names.reserve(device_count);

@@ -129,6 +129,7 @@ public:
 };
 
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
+
     friend lc::validation::Stream;
 
 public:
@@ -151,7 +152,7 @@ public:
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
     [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
     [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
-    [[nodiscard]] auto indirect_dispatch_size() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
+    [[nodiscard]] auto indirect_dispatch() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 

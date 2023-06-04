@@ -143,6 +143,9 @@ CUDAAccel::~CUDAAccel() noexcept {
 }
 
 void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) noexcept {
+
+    std::scoped_lock lock{_mutex};
+
     // prepare instance buffer
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
@@ -254,7 +257,23 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
 }
 
 void CUDAAccel::set_name(luisa::string &&name) noexcept {
+    std::scoped_lock lock{_mutex};
     _name = std::move(name);
+}
+
+optix::TraversableHandle CUDAAccel::handle() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return _handle;
+}
+
+CUdeviceptr CUDAAccel::instance_buffer() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return _instance_buffer;
+}
+
+CUDAAccel::Binding CUDAAccel::binding() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return Binding{_handle, _instance_buffer};
 }
 
 }// namespace luisa::compute::cuda

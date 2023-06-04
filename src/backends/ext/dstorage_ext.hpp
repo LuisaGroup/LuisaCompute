@@ -129,13 +129,17 @@ public:
     template<typename ResourceOrView>
     [[nodiscard]] auto decompress_to(ResourceOrView &&resource,
                                      DStorageCompression method = DStorageCompression::GDeflate) const noexcept {
-        LUISA_ASSERT(method != DStorageCompression::None, "Cannot decompress with no method specified.");
+        if (method == DStorageCompression::None) {
+            LUISA_WARNING("Decompressing with no method specified.");
+        }
         return copy_to(std::forward<ResourceOrView>(resource), method);
     }
 
     [[nodiscard]] auto decompress_to(void *data, size_t size,
                                      DStorageCompression method = DStorageCompression::GDeflate) const noexcept {
-        LUISA_ASSERT(method != DStorageCompression::None, "Cannot decompress with no method specified.");
+        if (method == DStorageCompression::None) {
+            LUISA_WARNING("Decompressing with no method specified.");
+        }
         return copy_to(data, size, method);
     }
 };

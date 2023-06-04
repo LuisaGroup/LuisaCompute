@@ -67,6 +67,41 @@ struct alignas(alignment) lc_aligned_storage {
     unsigned char data[size];
 };
 
+struct alignas(16) LCIndirectHeader {
+    lc_uint size;
+};
+
+struct alignas(16) LCIndirectDispatch {
+    lc_uint3 block_size;
+    lc_uint4 dispatch_size_and_kernel_id;
+};
+
+struct alignas(16) LCIndirectBuffer {
+    void *__restrict__ data;
+    size_t capacity;
+
+    [[nodiscard]] auto header() const noexcept {
+        return reinterpret_cast<LCIndirectHeader *>(data);
+    }
+
+    [[nodiscard]] auto dispatches() const noexcept {
+        return reinterpret_cast<LCIndirectDispatch *>(reinterpret_cast<lc_ulong>(data) + sizeof(LCIndirectHeader));
+    }
+};
+
+void lc_indirect_buffer_clear(const LCIndirectBuffer buffer) noexcept {
+    buffer.header()->size = 0u;
+}
+
+void lc_indirect_buffer_emplace(LCIndirectBuffer buffer, lc_uint3 block_size, lc_uint3 dispatch_size, lc_uint kernel_id) noexcept {
+    auto index = atomicAdd(&(buffer.header()->size), 1u);
+#ifdef LUISA_DEBUG
+    lc_assert(index < buffer.capacity);
+#endif
+    buffer.dispatches()[index] = LCIndirectDispatch{
+        block_size, lc_make_uint4(dispatch_size, kernel_id)};
+}
+
 template<typename T>
 struct LCBuffer {
     T *__restrict__ ptr;
@@ -1498,6 +1533,8 @@ enum LCRayFlags : unsigned int {
     return lc_make_uint3(u0, u1, u2);
 }
 
+#define lc_kernel_id() static_cast<lc_uint>(params.ls_kid.w)
+
 [[nodiscard]] inline auto lc_thread_id() noexcept {
     return lc_dispatch_id() % lc_block_size();
 }
@@ -2018,7 +2055,8 @@ extern "C" __global__ void __miss__ray_query() {
 
 #else
 
-#define lc_dispatch_size() dispatch_size
+#define lc_dispatch_size() lc_make_uint3(params.ls_kid)
+#define lc_kernel_id() static_cast<lc_uint>(params.ls_kid.w)
 
 [[nodiscard]] __device__ inline auto lc_thread_id() noexcept {
     return lc_make_uint3(lc_uint(threadIdx.x),

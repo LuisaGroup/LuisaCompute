@@ -21,14 +21,19 @@ Usage CUDAShader::argument_usage(size_t i) const noexcept {
 }
 
 void CUDAShader::set_name(luisa::string &&name) noexcept {
+    std::scoped_lock lock{_name_mutex};
     _name = std::move(name);
 }
 
 void CUDAShader::launch(CUDACommandEncoder &encoder,
                         ShaderDispatchCommand *command) const noexcept {
-    if (!_name.empty()) { nvtxRangePushA(_name.c_str()); }
+    auto name = [this] {
+        std::scoped_lock lock{_name_mutex};
+        return _name;
+    }();
+    if (!name.empty()) { nvtxRangePushA(name.c_str()); }
     _launch(encoder, command);
-    if (!_name.empty()) { nvtxRangePop(); }
+    if (!name.empty()) { nvtxRangePop(); }
 }
 
 }// namespace luisa::compute::cuda

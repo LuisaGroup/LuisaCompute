@@ -28,28 +28,30 @@ private:
     MTL::CommandQueue *_queue;
     spin_mutex _upload_pool_creation_mutex;
     spin_mutex _download_pool_creation_mutex;
+    spin_mutex _callback_mutex;
+    spin_mutex _dispatch_mutex;
     luisa::unique_ptr<MetalStageBufferPool> _upload_pool;
     luisa::unique_ptr<MetalStageBufferPool> _download_pool;
     luisa::queue<CallbackContainer> _callback_lists;
-    spin_mutex _callback_mutex;
 
 protected:
+    void _do_dispatch(MetalCommandEncoder &encoder, CommandList &&list) noexcept;
     virtual void _encode(MetalCommandEncoder &encoder, Command *command) noexcept;
 
 public:
     MetalStream(MTL::Device *device, size_t max_commands) noexcept;
     virtual ~MetalStream() noexcept;
-    void signal(MetalEvent *event) noexcept;
-    void wait(MetalEvent *event) noexcept;
-    void synchronize() noexcept;
-    void dispatch(CommandList &&list) noexcept;
+    virtual void signal(MetalEvent *event) noexcept;
+    virtual void wait(MetalEvent *event) noexcept;
+    virtual void synchronize() noexcept;
+    virtual void dispatch(CommandList &&list) noexcept;
     void present(MetalSwapchain *swapchain, MetalTexture *image) noexcept;
     virtual void set_name(luisa::string_view name) noexcept;
     [[nodiscard]] auto device() const noexcept { return _queue->device(); }
     [[nodiscard]] auto queue() const noexcept { return _queue; }
     [[nodiscard]] MetalStageBufferPool *upload_pool() noexcept;
     [[nodiscard]] MetalStageBufferPool *download_pool() noexcept;
-    void submit(MTL::CommandBuffer *command_buffer, CallbackContainer &&callbacks) noexcept;
+    virtual void submit(MTL::CommandBuffer *command_buffer, CallbackContainer &&callbacks) noexcept;
 };
 
 }// namespace luisa::compute::metal

@@ -115,7 +115,7 @@ static_assert(sizeof(BindlessSlotModification) == 64u, "");
                                       constant const uint &n,
                                       uint tid [[thread_position_in_grid]]) {
     if (tid < n) {
-        constexpr auto op_none = 0u;
+        [[maybe_unused]] constexpr auto op_none = 0u;
         constexpr auto op_update = 1u;
         constexpr auto op_remove = 2u;
         auto m = mods[tid];
@@ -162,4 +162,44 @@ struct RasterData {
     RasterData in [[stage_in]],
     texture2d<float, access::sample> image [[texture(0)]]) {
     return float4(image.sample(sampler(filter::linear), in.uv).xyz, 1.f);
+}
+
+struct alignas(16) ICBHeader {
+    uint offset;
+    uint count;
+};
+
+struct alignas(16) ICBSlot {
+    alignas(16) uint3 block_size;
+    alignas(16) uint4 dispatch_size_and_kernel_id;
+};
+
+struct ICB {
+    device const void *__restrict__ buffer;
+    ulong capacity;
+    command_buffer command_buffer;
+    compute_pipeline_state pipeline_state;
+};
+
+static_assert(sizeof(ICB) == 32u);
+
+[[kernel]] void prepare_indirect_dispatches(constant ICB &icb,
+                                            constant void *__restrict__ kernel_args,
+                                            uint tid [[thread_position_in_grid]]) {
+    if (tid < icb.capacity) {
+        compute_command cmd{icb.command_buffer, tid};
+        cmd.reset();
+        auto header = static_cast<device const ICBHeader *>(icb.buffer);
+        if (tid < header->count) {
+            auto slots = reinterpret_cast<device const ICBSlot *>(header + 1u);
+            auto slot = slots[tid];
+            auto block_size = slot.block_size;
+            auto dispatch_size = slot.dispatch_size_and_kernel_id.xyz;
+            cmd.set_compute_pipeline_state(icb.pipeline_state);
+            cmd.set_kernel_buffer(kernel_args, 0u);
+            cmd.set_kernel_buffer(&(slots[tid].dispatch_size_and_kernel_id), 1u);
+            auto block_count = (dispatch_size + block_size - 1u) / block_size;
+            cmd.concurrent_dispatch_threadgroups(block_count, block_size);
+        }
+    }
 }

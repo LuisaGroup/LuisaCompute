@@ -5,8 +5,10 @@
 #include <runtime/dispatch_buffer.h>
 #include <dsl/syntax.h>
 #include <dsl/dispatch_indirect.h>
+
 using namespace luisa;
 using namespace luisa::compute;
+
 int main(int argc, char *argv[]) {
     log_level_verbose();
 
@@ -18,17 +20,15 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(argv[1]);
     Stream stream = device.create_stream();
     Kernel1D clear_kernel = [](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
-        set_block_size(1);
         dispatch_buffer.clear();
     };
-    const uint3 kernel_dispatch_size = uint3{64, 1, 1};
-    constexpr uint dispatch_count = 16;
+    constexpr auto kernel_block_size = make_uint3(64, 1, 1);
+    constexpr auto dispatch_count = 16u;
     Kernel1D emplace_kernel = [&](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
-        set_block_size(dispatch_count);
-        dispatch_buffer.dispatch_kernel(kernel_dispatch_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
+        dispatch_buffer.dispatch_kernel(kernel_block_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
     };
     Kernel1D dispatch_kernel = [&](BufferVar<uint> buffer) {
-        set_block_size(kernel_dispatch_size.x, kernel_dispatch_size.y, kernel_dispatch_size.z);
+        set_block_size(kernel_block_size.x, kernel_block_size.y, kernel_block_size.z);
         buffer.atomic(kernel_id()).fetch_add(dispatch_size().x);
     };
     Shader1D<IndirectDispatchBuffer> clear_shader = device.compile(clear_kernel);
@@ -37,8 +37,7 @@ int main(int argc, char *argv[]) {
 
     IndirectDispatchBuffer dispatch_buffer = device.create_indirect_dispatch_buffer(dispatch_count);
     Buffer<uint> buffer = device.create_buffer<uint>(dispatch_count);
-    std::array<uint, dispatch_count> buffer_data;
-    std::memset(buffer_data.data(), 0, buffer_data.size() * sizeof(uint));
+    std::array<uint, dispatch_count> buffer_data{};
     stream << buffer.copy_from(buffer_data.data())
            << clear_shader(dispatch_buffer).dispatch(1)
            << emplace_shader(dispatch_buffer).dispatch(dispatch_count)

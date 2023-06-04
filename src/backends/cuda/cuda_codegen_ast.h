@@ -26,6 +26,7 @@ private:
     luisa::vector<uint64_t> _generated_constants;
     luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
     uint32_t _indent{0u};
+    bool _allow_indirect_dispatch;
 
 private:
     const Type *_ray_type;
@@ -34,6 +35,7 @@ private:
     const Type *_committed_hit_type;
     const Type *_ray_query_all_type;
     const Type *_ray_query_any_type;
+    const Type *_indirect_buffer_type;
 
 private:
     void visit(const Type *type) noexcept override;
@@ -78,7 +80,7 @@ private:
     void _emit_access_chain(luisa::span<const Expression *const> chain) noexcept;
 
 public:
-    explicit CUDACodegenAST(StringScratch &scratch) noexcept;
+    CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept;
     ~CUDACodegenAST() noexcept override;
     void emit(Function f, luisa::string_view native_include);
 };

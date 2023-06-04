@@ -11,6 +11,10 @@
 
 namespace luisa::compute {
 
+namespace detail {
+LC_DSL_API void validate_block_size(uint x, uint y, uint z) noexcept;
+}// namespace detail
+
 inline namespace dsl {
 
 /// Expression cast operation
@@ -160,8 +164,17 @@ inline void unreachable() noexcept {
 
 /// Set current function block size as (x, y, z)
 inline void set_block_size(uint x, uint y = 1u, uint z = 1u) noexcept {
+    detail::validate_block_size(x, y, z);
     detail::FunctionBuilder::current()->set_block_size(
         uint3{std::max(x, 1u), std::max(y, 1u), std::max(z, 1u)});
+}
+
+inline void set_block_size(uint3 size) noexcept {
+    set_block_size(size.x, size.y, size.z);
+}
+
+inline void set_block_size(uint2 size) noexcept {
+    set_block_size(size.x, size.y, 1u);
 }
 
 }// namespace dsl

@@ -85,8 +85,8 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     // compute pipelines
     auto compute_pipeline_desc = MTL::ComputePipelineDescriptor::alloc()->init();
     compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
-    compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(256u);
-    auto create_builtin_compute_shader = [&](auto name) noexcept {
+    auto create_builtin_compute_shader = [&](auto name, auto block_size) noexcept {
+        compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(block_size);
         auto function_desc = MTL::FunctionDescriptor::alloc()->init();
         function_desc->setName(name);
         function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
@@ -116,8 +116,12 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
         function->release();
         return pipeline;
     };
-    _builtin_update_bindless_slots = create_builtin_compute_shader(MTLSTR("update_bindless_array"));
-    _builtin_update_accel_instances = create_builtin_compute_shader(MTLSTR("update_accel_instances"));
+    _builtin_update_bindless_slots = create_builtin_compute_shader(
+        MTLSTR("update_bindless_array"), update_bindless_slots_block_size);
+    _builtin_update_accel_instances = create_builtin_compute_shader(
+        MTLSTR("update_accel_instances"), update_accel_instances_block_size);
+    _builtin_prepare_indirect_dispatches = create_builtin_compute_shader(
+        MTLSTR("prepare_indirect_dispatches"), prepare_indirect_dispatches_block_size);
     compute_pipeline_desc->release();
 
     // render pipeline
@@ -172,6 +176,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
 MetalDevice::~MetalDevice() noexcept {
     _builtin_update_bindless_slots->release();
     _builtin_update_accel_instances->release();
+    _builtin_prepare_indirect_dispatches->release();
     _builtin_swapchain_present_ldr->release();
     _builtin_swapchain_present_hdr->release();
     _handle->release();
@@ -194,6 +199,17 @@ void *MetalDevice::native_handle() const noexcept {
 
 BufferCreationInfo MetalDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
     return with_autorelease_pool([=, this] {
+        // special handling of the indirect dispatch buffer
+        if (element == Type::of<IndirectKernelDispatch>()) {
+            auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
+            BufferCreationInfo info{};
+            info.handle = reinterpret_cast<uint64_t>(p);
+            info.native_handle = p;
+            info.element_stride = sizeof(MetalIndirectDispatchBuffer::Dispatch);
+            info.total_size_bytes = p->dispatch_buffer()->length();
+            return info;
+        }
+        // normal buffer
         auto elem_size = MetalCodegenAST::type_size_bytes(element);
         return create_device_buffer(_handle, elem_size, elem_count);
     });
@@ -213,7 +229,7 @@ BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        auto buffer = reinterpret_cast<MetalBuffer *>(handle);
+        auto buffer = reinterpret_cast<MetalBufferBase *>(handle);
         delete_with_allocator(buffer);
     });
 }
@@ -365,7 +381,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         // create shader
         auto pipeline = _compiler->compile(scratch.string_view(), option, metadata);
         auto shader = luisa::new_with_allocator<MetalShader>(
-            std::move(pipeline),
+            this, std::move(pipeline),
             std::move(metadata.argument_usages),
             std::move(bound_arguments),
             kernel.block_size());
@@ -396,7 +412,8 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
     return with_autorelease_pool([=, this] {
         MetalShaderMetadata metadata{};
         auto pipeline = _compiler->load(name, metadata);
-        LUISA_ASSERT(pipeline, "Failed to load Metal AOT shader '{}'.", name);
+        LUISA_ASSERT(pipeline.entry && pipeline.indirect_entry,
+                     "Failed to load Metal AOT shader '{}'.", name);
         LUISA_ASSERT(metadata.argument_types.size() == arg_types.size(),
                      "Argument count mismatch in Metal AOT "
                      "shader '{}': expected {}, but got {}.",
@@ -409,7 +426,7 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
                          arg_types[i]->description());
         }
         auto shader = new_with_allocator<MetalShader>(
-            std::move(pipeline),
+            this, std::move(pipeline),
             std::move(metadata.argument_usages),
             luisa::vector<MetalShader::Argument>{},
             metadata.block_size);
@@ -545,7 +562,7 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
     with_autorelease_pool([=] {
         switch (resource_tag) {
             case Resource::Tag::BUFFER: {
-                auto buffer = reinterpret_cast<MetalBuffer *>(resource_handle);
+                auto buffer = reinterpret_cast<MetalBufferBase *>(resource_handle);
                 buffer->set_name(name);
                 break;
             }
@@ -589,16 +606,29 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 shader->set_name(name);
                 break;
             }
-            case Resource::Tag::RASTER_SHADER: break;
+            case Resource::Tag::RASTER_SHADER: {
+                // TODO
+                break;
+            }
             case Resource::Tag::SWAP_CHAIN: {
                 auto swapchain = reinterpret_cast<MetalSwapchain *>(resource_handle);
                 swapchain->set_name(name);
                 break;
             }
+            case Resource::Tag::DEPTH_BUFFER: {
                 // TODO
-            case Resource::Tag::DEPTH_BUFFER: break;
-            case Resource::Tag::DSTORAGE_FILE: break;
-            case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
+                break;
+            }
+            case Resource::Tag::DSTORAGE_FILE: {
+                auto file = reinterpret_cast<MetalFileHandle *>(resource_handle);
+                file->set_name(name);
+                break;
+            }
+            case Resource::Tag::DSTORAGE_PINNED_MEMORY: {
+                auto mem = reinterpret_cast<MetalPinnedMemory *>(resource_handle);
+                mem->set_name(name);
+                break;
+            }
         }
     });
 }

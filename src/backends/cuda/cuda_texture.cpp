@@ -10,60 +10,68 @@
 namespace luisa::compute::cuda {
 
 CUDATexture::~CUDATexture() noexcept {
-    for (auto s : _surfaces) {
-        if (s != 0u) {
-            LUISA_CHECK_CUDA(cuSurfObjectDestroy(s));
-        }
+    for (auto i = 0u; i < _levels; i++) {
+        LUISA_CHECK_CUDA(cuSurfObjectDestroy(_mip_surfaces[i]));
+        LUISA_CHECK_CUDA(cuArrayDestroy(_mip_arrays[i]));
     }
-    if (_levels == 1u) {
-        LUISA_CHECK_CUDA(cuArrayDestroy(reinterpret_cast<CUarray>(_array)));
-    } else {
-        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(reinterpret_cast<CUmipmappedArray>(_array)));
+    if (_levels > 1u) {
+        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(reinterpret_cast<CUmipmappedArray>(_base_array)));
     }
 }
 
 CUarray CUDATexture::level(uint32_t i) const noexcept {
-    if (i >= _levels) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid level {} for texture with {} level(s).",
-            i, _levels);
-    }
-    if (_levels == 1u) {// not mipmapped
-        return reinterpret_cast<CUarray>(_array);
-    }
-    CUarray array;
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&array, reinterpret_cast<CUmipmappedArray>(_array), i));
-    return array;
+    LUISA_ASSERT(i < _levels,
+                 "Invalid level {} for texture with {} level(s).",
+                 i, _levels);
+    return _mip_arrays[i];
 }
 
 CUDASurface CUDATexture::surface(uint32_t level) const noexcept {
+    LUISA_ASSERT(level < _levels,
+                 "Invalid level {} for texture with {} level(s).",
+                 level, _levels);
     LUISA_ASSERT(!is_block_compressed(format()),
                  "Block compressed textures cannot be used as CUDA surfaces.");
-    auto handle = [this, level] {
-        std::scoped_lock lock{_mutex};
-        if (auto s = _surfaces[level]; s != 0u) { return s; }
-        CUarray mipmap = this->level(level);
-        LUISA_VERBOSE_WITH_LOCATION("Getting CUDA array at level {}.", level);
-        CUDA_RESOURCE_DESC res_desc{};
-        res_desc.resType = CU_RESOURCE_TYPE_ARRAY;
-        res_desc.res.array.hArray = mipmap;
-        CUsurfObject surf;
-        LUISA_CHECK_CUDA(cuSurfObjectCreate(&surf, &res_desc));
-        _surfaces[level] = surf;
-        return surf;
-    }();
-    auto storage = pixel_format_to_storage(format());
-    return CUDASurface{handle, to_underlying(storage)};
+    return CUDASurface{_mip_surfaces[level], to_underlying(storage())};
 }
 
-CUDATexture::CUDATexture(uint64_t array, PixelFormat format, uint32_t levels) noexcept
-    : _array{array}, _format{static_cast<uint16_t>(format)}, _levels{static_cast<uint16_t>(levels)} {}
+namespace detail {
 
-uint3 CUDATexture::size() const noexcept {
-    auto base = level(0);
-    CUDA_ARRAY3D_DESCRIPTOR_st desc{};
-    cuArray3DGetDescriptor(&desc, base);
-    return luisa::make_uint3(desc.Width, desc.Height, desc.Depth);
+[[nodiscard]] auto create_array_from_mipmapped_array(CUmipmappedArray mipmapped_array, uint32_t level) noexcept {
+    CUarray array;
+    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&array, mipmapped_array, level));
+    return array;
+}
+
+[[nodiscard]] auto create_surface_from_array(CUarray array) noexcept {
+    CUDA_RESOURCE_DESC res_desc{};
+    res_desc.resType = CU_RESOURCE_TYPE_ARRAY;
+    res_desc.res.array.hArray = array;
+    CUsurfObject surf;
+    LUISA_CHECK_CUDA(cuSurfObjectCreate(&surf, &res_desc));
+    return surf;
+}
+
+}// namespace detail
+
+CUDATexture::CUDATexture(uint64_t array, uint3 size,
+                         PixelFormat format, uint32_t levels) noexcept
+    : _base_array{array},
+      _size{static_cast<uint16_t>(size.x),
+            static_cast<uint16_t>(size.y),
+            static_cast<uint16_t>(size.z)},
+      _format{static_cast<uint8_t>(format)},
+      _levels{static_cast<uint8_t>(levels)} {
+    if (_levels == 1u) {// not mip-mapped
+        _mip_arrays[0] = reinterpret_cast<CUarray>(_base_array);
+        _mip_surfaces[0] = detail::create_surface_from_array(reinterpret_cast<CUarray>(_base_array));
+    } else {
+        for (auto i = 0u; i < _levels; i++) {
+            _mip_arrays[i] = detail::create_array_from_mipmapped_array(
+                reinterpret_cast<CUmipmappedArray>(_base_array), i);
+            _mip_surfaces[i] = detail::create_surface_from_array(_mip_arrays[i]);
+        }
+    }
 }
 
 void CUDATexture::set_name(luisa::string &&name) noexcept {

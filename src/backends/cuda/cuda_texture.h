@@ -30,30 +30,31 @@ static_assert(sizeof(CUDASurface) == 16u);
 class CUDATexture {
 
 public:
-    static constexpr auto max_level_count = 14u;
+    static constexpr auto max_level_count = 15u;
     using Binding = CUDASurface;
 
 private:
-    uint64_t _array;
-    mutable std::array<CUsurfObject, max_level_count> _surfaces{};
-    uint16_t _format;
-    uint16_t _levels;
-    mutable spin_mutex _mutex;
+    uint64_t _base_array;
+    std::array<CUarray, max_level_count> _mip_arrays{};
+    std::array<CUsurfObject, max_level_count> _mip_surfaces{};
+    uint16_t _size[3];
+    uint8_t _format;
+    uint8_t _levels;
 
 public:
-    CUDATexture(uint64_t array, PixelFormat format, uint32_t levels) noexcept;
+    CUDATexture(uint64_t array, uint3 size, PixelFormat format, uint32_t levels) noexcept;
     ~CUDATexture() noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _array; }
+    [[nodiscard]] auto handle() const noexcept { return _base_array; }
     [[nodiscard]] auto format() const noexcept { return static_cast<PixelFormat>(_format); }
     [[nodiscard]] auto storage() const noexcept { return pixel_format_to_storage(format()); }
     [[nodiscard]] auto levels() const noexcept { return static_cast<size_t>(_levels); }
     [[nodiscard]] CUarray level(uint32_t i) const noexcept;
     [[nodiscard]] CUDASurface surface(uint32_t level) const noexcept;
-    [[nodiscard]] uint3 size() const noexcept;
+    [[nodiscard]] uint3 size() const noexcept { return make_uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto binding(uint32_t level) const noexcept { return surface(level); }
     void set_name(luisa::string &&name) noexcept;
 };
 
-static_assert(sizeof(CUDATexture) == 128u);
+static_assert(sizeof(CUDATexture) == 256u);
 
 }// namespace luisa::compute::cuda

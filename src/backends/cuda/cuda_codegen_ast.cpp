@@ -9,6 +9,7 @@
 #include <ast/constant_data.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
+#include <runtime/dispatch_buffer.h>
 #include <dsl/rtx/ray_query.h>
 #include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_codegen_ast.h>
@@ -929,8 +930,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
+        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
         case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }
@@ -1156,15 +1157,18 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
 
     // ray tracing kernels use __constant__ args
     // note: this must go before any other
-    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
+    if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "struct alignas(16) Params {";
         for (auto arg : f.arguments()) {
             _scratch << "\n  alignas(16) ";
             _emit_variable_decl(f, arg, !arg.type()->is_buffer());
             _scratch << "{};";
         }
-        _scratch << "\n};\n\nextern \"C\" "
-                    "{ __constant__ Params params; }\n\n";
+        _scratch << "\n  alignas(16) lc_uint4 ls_kid;";
+        _scratch << "\n};\n\n";
+        if (f.requires_raytracing()) {
+            _scratch << "extern \"C\" { __constant__ Params params; }\n\n";
+        }
     }
 
     // process dependent callables if any
@@ -1214,7 +1218,10 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << "(";
-    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
+    if (f.tag() == Function::Tag::KERNEL) {
+        if (!f.requires_raytracing()) {
+            _scratch << "const Params params";
+        }
         _scratch << ") {";
         for (auto arg : f.arguments()) {
             _scratch << "\n  ";
@@ -1237,19 +1244,14 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << ",";
             any_arg = true;
         }
-        if (f.tag() == Function::Tag::KERNEL) {
-            _scratch << "\n"
-                     << "    const lc_uint3 dispatch_size) {";
-        } else {
-            if (any_arg) { _scratch.pop_back(); }
-            _scratch << ") noexcept {";
-        }
+        if (any_arg) { _scratch.pop_back(); }
+        _scratch << ") noexcept {";
     }
     // emit built-in variables
     if (f.tag() == Function::Tag::KERNEL) {
         _emit_builtin_variables();
         if (!f.requires_raytracing()) {
-            _scratch << "\n  if (lc_any(did >= dispatch_size)) { return; }";
+            _scratch << "\n  if (lc_any(did >= ls)) { return; }";
         }
     }
     _indent = 1;
@@ -1257,6 +1259,29 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     _indent = 0;
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
+
+    if (_allow_indirect_dispatch) {
+        // generate meta-function that launches the kernel with dynamic parallelism
+        if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
+            _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
+                     << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
+                     << "  if (i < indirect.header()->size) {\n"
+                     << "    auto args = params;\n"
+                     << "    auto d = indirect.dispatches()[i];\n"
+                     << "    args.ls_kid = d.dispatch_size_and_kernel_id;\n"
+                     << "    auto block_size = lc_block_size();\n"
+                     << "#ifdef LUISA_DEBUG\n"
+                     << "    lc_assert(lc_all(block_size == d.block_size));\n"
+                     << "#endif\n"
+                     << "    auto dispatch_size = lc_make_uint3(d.dispatch_size_and_kernel_id);\n"
+                     << "    auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
+                     << "    auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
+                     << "    auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
+                     << "    kernel_main<<<nb, bs>>>(args);\n"
+                     << "  }\n"
+                     << "}\n\n";
+        }
+    }
 }
 
 void CUDACodegenAST::_emit_builtin_variables() noexcept {
@@ -1270,7 +1295,9 @@ void CUDACodegenAST::_emit_builtin_variables() noexcept {
         // thread id
         << "\n  const auto tid = lc_thread_id();"
         // block id
-        << "\n  const auto bid = lc_block_id();";
+        << "\n  const auto bid = lc_block_id();"
+        // kernel id
+        << "\n  const auto kid = lc_kernel_id();";
 }
 
 void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
@@ -1286,6 +1313,7 @@ void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
+        case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 }
@@ -1460,6 +1488,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCRayQueryAll";
             } else if (type == _ray_query_any_type) {
                 _scratch << "LCRayQueryAny";
+            } else if (type == _indirect_buffer_type) {
+                _scratch << "LCIndirectBuffer";
             } else {
                 LUISA_ERROR_WITH_LOCATION(
                     "Unsupported custom type: {}.",
@@ -1496,10 +1526,14 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
-            _scratch << "const LCBuffer<";
-            if (readonly || force_const) { _scratch << "const "; }
-            _emit_type_name(v.type()->element());
-            _scratch << "> ";
+            if (v.type() == _indirect_buffer_type) {
+                _scratch << "LCIndirectBuffer ";
+            } else {
+                _scratch << "const LCBuffer<";
+                if (readonly || force_const) { _scratch << "const "; }
+                _emit_type_name(v.type()->element());
+                _scratch << "> ";
+            }
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
@@ -1637,15 +1671,16 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
 
-CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
-    : _scratch{scratch},
+CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept
+    : _scratch{scratch}, _allow_indirect_dispatch{allow_indirect},
+      _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},
       _committed_hit_type{Type::of<CommittedHit>()},
       _ray_query_all_type{Type::of<RayQueryAll>()},
       _ray_query_any_type{Type::of<RayQueryAny>()},
-      _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)} {}
+      _indirect_buffer_type{Type::of<IndirectDispatchBuffer>()} {}
 
 CUDACodegenAST::~CUDACodegenAST() noexcept = default;
 

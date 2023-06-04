@@ -114,9 +114,10 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
         command_encoder->setBuffer(upload_buffer->buffer(), upload_buffer->offset(), 1u);
         auto n = static_cast<uint>(mods.size());
         command_encoder->setBytes(&n, sizeof(uint), 2u);
-        auto threadgroup_count = (n + 255u) / 256u;
+        auto block_size = MetalDevice::update_bindless_slots_block_size;
+        auto threadgroup_count = (n + block_size) / block_size;
         command_encoder->dispatchThreadgroups(MTL::Size{threadgroup_count, 1u, 1u},
-                                              MTL::Size{256u, 1u, 1u});
+                                              MTL::Size{block_size, 1u, 1u});
         command_encoder->endEncoding();
     });
 }
