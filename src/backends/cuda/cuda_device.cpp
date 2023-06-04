@@ -91,6 +91,51 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
+class CUDATimelineEventPool {
+
+public:
+    static constexpr auto event_count_per_buffer = 128u;
+
+private:
+    CUDADevice *_device;
+    luisa::vector<CUdeviceptr> _buffers;
+    luisa::vector<CUdeviceptr> _available_slots;
+    spin_mutex _mutex;
+
+public:
+    explicit CUDATimelineEventPool(CUDADevice *device) noexcept
+        : _device{device} {}
+    ~CUDATimelineEventPool() noexcept {
+        for (auto buffer : _buffers) {
+            LUISA_CHECK_CUDA(cuMemFree(buffer));
+        }
+    }
+    [[nodiscard]] CUdeviceptr create(CUstream stream) noexcept {
+        auto ptr = [this] {
+            std::scoped_lock lock{_mutex};
+            if (_available_slots.empty()) {
+                CUdeviceptr buffer{};
+                LUISA_CHECK_CUDA(cuMemAlloc(&buffer, event_count_per_buffer * sizeof(CUevent)));
+                _buffers.emplace_back(buffer);
+                _available_slots.reserve(event_count_per_buffer);
+                for (auto i = event_count_per_buffer - 1u; i != 0u; i--) {
+                    _available_slots.emplace_back(buffer + i * sizeof(CUevent));
+                }
+            }
+            auto ptr = _available_slots.back();
+            _available_slots.pop_back();
+            return ptr;
+        }();
+        LUISA_CHECK_CUDA(cuStreamWriteValue64(
+            stream, ptr, 0ull, CU_STREAM_WRITE_VALUE_DEFAULT));
+        return ptr;
+    }
+    [[nodiscard]] auto destroy(CUdeviceptr ptr) noexcept {
+        std::scoped_lock lock{_mutex};
+        _available_slots.emplace_back(ptr);
+    }
+};
+
 CUDADevice::CUDADevice(Context &&ctx,
                        size_t device_id,
                        const BinaryIO *io) noexcept
@@ -150,6 +195,9 @@ CUDADevice::CUDADevice(Context &&ctx,
         _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
                                            std::istreambuf_iterator<char>{}};
     }
+
+    // event pool
+    _event_pool = luisa::make_unique<CUDATimelineEventPool>(this);
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -929,6 +977,14 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
             case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
         }
     });
+}
+
+CUdeviceptr CUDADevice::create_timeline_event(CUstream stream) noexcept {
+    return _event_pool->create(stream);
+}
+
+void CUDADevice::destroy_timeline_event(CUdeviceptr event) noexcept {
+    _event_pool->destroy(event);
 }
 
 }// namespace luisa::compute::cuda

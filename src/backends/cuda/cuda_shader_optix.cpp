@@ -288,6 +288,67 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
     LUISA_CHECK_OPTIX(optix::api().moduleDestroy(_module));
 }
 
+class CUDAIndirectDispatchOptiX final : public CUDAIndirectDispatchStream::Task {
+
+public:
+    struct DispatchBuffer {
+        CUDAIndirectDispatchBuffer::Header header;
+        [[no_unique_address]] CUDAIndirectDispatchBuffer::Dispatch dispatches[];
+    };
+
+private:
+    const CUDAShaderOptiX *_shader;
+    CUdeviceptr _device_argument_buffer;
+    CUdeviceptr _device_dispatch_buffer;
+    luisa::vector<std::byte> _downloaded_dispatch_buffer;
+
+private:
+    [[nodiscard]] static auto &_pool() noexcept {
+        static Pool<CUDAIndirectDispatchOptiX, true> pool;
+        return pool;
+    }
+
+public:
+    CUDAIndirectDispatchOptiX(const CUDAShaderOptiX *shader,
+                              CUdeviceptr device_argument_buffer,
+                              CUdeviceptr device_dispatch_buffer,
+                              luisa::vector<std::byte> &&downloaded_dispatch_buffer) noexcept
+        : _shader{shader},
+          _device_argument_buffer{device_argument_buffer},
+          _device_dispatch_buffer{device_dispatch_buffer},
+          _downloaded_dispatch_buffer{std::move(downloaded_dispatch_buffer)} {}
+
+    void execute(CUstream stream) noexcept override {
+        auto [count, capacity] = reinterpret_cast<DispatchBuffer *>(_downloaded_dispatch_buffer.data())->header;
+        LUISA_ASSERT(count <= capacity, "Dispatch buffer overflow.");
+        auto dispatch_size_in_argument_buffer = _device_argument_buffer +
+                                                _shader->_argument_buffer_size - sizeof(uint4);
+        auto device_dispatch_buffer = reinterpret_cast<DispatchBuffer *>(_device_dispatch_buffer);
+        auto sbt = _shader->_make_sbt();
+        for (auto i = 0u; i < count; i++) {
+            auto dispatch_size_in_dispatch_buffer = &(device_dispatch_buffer->dispatches[i].dispatch_size_and_kernel_id);
+            LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dispatch_size_in_argument_buffer,
+                                               reinterpret_cast<CUdeviceptr>(dispatch_size_in_dispatch_buffer),
+                                               sizeof(uint4), stream));
+            auto dispatch_size = reinterpret_cast<DispatchBuffer *>(_downloaded_dispatch_buffer.data())->dispatches[i].dispatch_size_and_kernel_id.xyz();
+            LUISA_CHECK_OPTIX(optix::api().launch(
+                _shader->_pipeline, stream, _device_argument_buffer,
+                _shader->_argument_buffer_size, &sbt,
+                dispatch_size.x, dispatch_size.y, dispatch_size.z));
+        }
+        _pool().destroy(this);
+    }
+    [[nodiscard]] static auto create(const CUDAShaderOptiX *shader,
+                                     CUdeviceptr device_argument_buffer,
+                                     CUdeviceptr device_dispatch_buffer,
+                                     luisa::vector<std::byte> &&downloaded_dispatch_buffer) noexcept {
+        return _pool().create(shader,
+                              device_argument_buffer,
+                              device_dispatch_buffer,
+                              std::move(downloaded_dispatch_buffer));
+    }
+};
+
 void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
 
     // encode arguments
@@ -349,21 +410,13 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         auto ptr = allocate_argument(sizeof(ds_and_kid));
         std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
         auto cuda_stream = encoder.stream()->handle();
-        optix::ShaderBindingTable sbt{};
-        sbt.raygenRecord = _sbt_buffer;
-        sbt.hitgroupRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord);
-        sbt.hitgroupRecordCount = 2u;
-        sbt.hitgroupRecordStrideInBytes = sizeof(OptiXSBTRecord);
-        sbt.missRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord) * 3u;
-        sbt.missRecordCount = 3u;
-        sbt.missRecordStrideInBytes = sizeof(OptiXSBTRecord);
-        if (argument_buffer->is_pooled()) [[likely]] {// if the argument buffer is pooled, we can use the device pointer directly
+        if (!command->is_indirect() && argument_buffer->is_pooled()) [[likely]] {
+            // for (direct) dispatches, if the argument buffer
+            // is pooled, we can use the device pointer directly
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &device_argument_buffer, argument_buffer->address(), 0u));
-            LUISA_CHECK_OPTIX(optix::api().launch(
-                _pipeline, cuda_stream, device_argument_buffer,
-                _argument_buffer_size, &sbt, s.x, s.y, s.z));
+            _do_launch(cuda_stream, device_argument_buffer, s);
         } else {// otherwise, we need to copy the argument buffer to the device
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemAllocAsync(
@@ -371,12 +424,41 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 device_argument_buffer, argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
-            LUISA_CHECK_OPTIX(optix::api().launch(
-                _pipeline, cuda_stream, device_argument_buffer,
-                _argument_buffer_size, &sbt, s.x, s.y, s.z));
+            if (command->is_indirect()) {
+                auto indirect_buffer = reinterpret_cast<CUDAIndirectDispatchBuffer *>(
+                    command->indirect_dispatch().handle);
+                luisa::vector<std::byte> downloaded_dispatch_buffer(indirect_buffer->size_bytes());
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
+                    downloaded_dispatch_buffer.data(), indirect_buffer->handle(),
+                    downloaded_dispatch_buffer.size(), cuda_stream));
+                encoder.stream()->indirect().enqueue(CUDAIndirectDispatchOptiX::create(
+                    this, device_argument_buffer, indirect_buffer->handle(),
+                    std::move(downloaded_dispatch_buffer)));
+            } else {
+                _do_launch(cuda_stream, device_argument_buffer, s);
+            }
             LUISA_CHECK_CUDA(cuMemFreeAsync(device_argument_buffer, cuda_stream));
         }
     });
+}
+
+inline optix::ShaderBindingTable CUDAShaderOptiX::_make_sbt() const noexcept {
+    optix::ShaderBindingTable sbt{};
+    sbt.raygenRecord = _sbt_buffer;
+    sbt.hitgroupRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord);
+    sbt.hitgroupRecordCount = 2u;
+    sbt.hitgroupRecordStrideInBytes = sizeof(OptiXSBTRecord);
+    sbt.missRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord) * 3u;
+    sbt.missRecordCount = 3u;
+    sbt.missRecordStrideInBytes = sizeof(OptiXSBTRecord);
+    return sbt;
+}
+
+void CUDAShaderOptiX::_do_launch(CUstream stream, CUdeviceptr argument_buffer, uint3 dispatch_size) const noexcept {
+    auto sbt = _make_sbt();
+    LUISA_CHECK_OPTIX(optix::api().launch(
+        _pipeline, stream, argument_buffer, _argument_buffer_size,
+        &sbt, dispatch_size.x, dispatch_size.y, dispatch_size.z));
 }
 
 }// namespace luisa::compute::cuda

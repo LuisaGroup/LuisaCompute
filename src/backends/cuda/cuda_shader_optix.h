@@ -11,6 +11,7 @@
 namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
+class CUDAIndirectDispatchOptiX;
 
 class CUDAShaderOptiX final : public CUDAShader {
 
@@ -28,6 +29,9 @@ private:
     CUdeviceptr _sbt_buffer{};
 
 private:
+    friend class CUDAIndirectDispatchOptiX;
+    [[nodiscard]] optix::ShaderBindingTable _make_sbt() const noexcept;
+    void _do_launch(CUstream stream, CUdeviceptr argument_buffer, uint3 dispatch_size) const noexcept;
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:

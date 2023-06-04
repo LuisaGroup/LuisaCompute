@@ -19,6 +19,7 @@ namespace luisa::compute::cuda {
 
 class CUDADenoiserExt;
 class CUDADStorageExt;
+class CUDATimelineEventPool;
 
 /**
  * @brief CUDA device
@@ -89,6 +90,7 @@ private:
     CUfunction _bindless_array_update_function{nullptr};
     luisa::unique_ptr<CUDACompiler> _compiler;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
+    luisa::unique_ptr<CUDATimelineEventPool> _event_pool;
     const BinaryIO *_io{nullptr};
     luisa::string _cudadevrt_library;
 
@@ -115,12 +117,18 @@ public:
         return f();
     }
     void *native_handle() const noexcept override { return _handle.context(); }
+
+public:
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
     [[nodiscard]] auto instance_handle_update_function() const noexcept { return _instance_handle_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
     [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }
+    [[nodiscard]] CUdeviceptr create_timeline_event(CUstream stream) noexcept;
+    void destroy_timeline_event(CUdeviceptr event) noexcept;
+
+public:
     bool is_c_api() const noexcept override { return false; }
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;

@@ -12,9 +12,12 @@ CUDAHostBufferPool::CUDAHostBufferPool(size_t size, bool write_combined) noexcep
     auto flags = write_combined ?
                      CU_MEMHOSTALLOC_DEVICEMAP | CU_MEMHOSTALLOC_WRITECOMBINED :
                      CU_MEMHOSTALLOC_DEVICEMAP;
-    LUISA_CHECK_CUDA(cuMemHostAlloc(
-        reinterpret_cast<void **>(&_memory),
-        _first_fit.size(), flags));
+    Clock clk;
+    void *memory = nullptr;
+    LUISA_CHECK_CUDA(cuMemHostAlloc(&memory, _first_fit.size(), flags));
+    _memory = static_cast<std::byte *>(memory);
+    LUISA_INFO("CUDAHostBufferPool (size = {}) initialized in {} ms.",
+               _first_fit.size(), clk.toc());
 }
 
 CUDAHostBufferPool::~CUDAHostBufferPool() noexcept {
