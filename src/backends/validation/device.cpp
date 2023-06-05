@@ -294,4 +294,19 @@ VSTL_EXPORT_C void destroy(DeviceInterface *d) {
 VSTL_EXPORT_C DeviceInterface *create(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) {
     return new Device{std::move(ctx), std::move(native)};
 }
+ResourceCreationInfo Device::create_sparse_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels) noexcept {
+    auto tex = _native->create_sparse_texture(format, dimension, width, height, depth, mipmap_levels);
+    new Texture{tex.handle, dimension};
+    return tex;
+}
+void Device::destroy_sparse_texture(uint64_t handle) noexcept {
+    RWResource::dispose(handle);
+    _native->destroy_sparse_texture(handle);
+}
+void Device::update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept {
+    _native->update_sparse_texture(stream_handle, std::move(tiles));
+}
 }// namespace lc::validation

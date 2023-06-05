@@ -1,10 +1,11 @@
-
 #include <Resource/TopAccel.h>
 #include <Resource/DefaultBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/BottomAccel.h>
+#include <core/logging.h>
+
 namespace lc::dx {
 
 namespace detail {

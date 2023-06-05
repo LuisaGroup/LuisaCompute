@@ -1,4 +1,3 @@
-
 #include <core/magic_enum.h>
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>
@@ -7,6 +6,7 @@
 #include <Resource/TopAccel.h>
 #include <Resource/DefaultBuffer.h>
 #include <Shader/ShaderSerializer.h>
+#include <core/logging.h>
 
 namespace lc::dx {
 SavedArgument::SavedArgument(Usage usage, Variable const &var)

@@ -2,7 +2,6 @@
 #include <Resource/Resource.h>
 #include <Resource/GpuAllocator.h>
 #include <runtime/rhi/pixel.h>
-#include <core/logging.h>
 namespace lc::dx {
 using namespace luisa::compute;
 class TextureBase : public Resource {
@@ -32,21 +31,12 @@ public:
     TextureDimension Dimension() const { return dimension; }
     uint Depth() const { return depth; }
     uint Mip() const { return mip; }
-    virtual uint GetGlobalSRVIndex(uint mipOffset = 0) const = 0;
-    virtual uint GetGlobalUAVIndex(uint mipLevel) const = 0;
-    virtual D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const = 0;
-    virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const {
-        LUISA_ERROR("Texture type not support random write!");
-        return {};
-    }
-    virtual D3D12_DEPTH_STENCIL_VIEW_DESC GetDepthDesc() const {
-        LUISA_ERROR("Texture type not support depth!");
-        return {};
-    }
-    virtual D3D12_RENDER_TARGET_VIEW_DESC GetRenderTargetDesc(uint mipOffset = 0) const {
-        LUISA_ERROR("Texture type not support render target!");
-        return {};
-    }
+    virtual uint GetGlobalSRVIndex(uint mipOffset = 0) const;
+    virtual uint GetGlobalUAVIndex(uint mipLevel) const;
+    virtual D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const;
+    virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const;
+    virtual D3D12_DEPTH_STENCIL_VIEW_DESC GetDepthDesc() const;
+    virtual D3D12_RENDER_TARGET_VIEW_DESC GetRenderTargetDesc(uint mipOffset = 0) const;
     TextureBase(
         Device *device,
         uint width,

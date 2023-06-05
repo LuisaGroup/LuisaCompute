@@ -5,6 +5,7 @@
 namespace lc::dx {
 class CommandAllocator;
 class Resource;
+class SparseTexture;
 class ComputeShader;
 class DescriptorHeap;
 class Shader;
@@ -37,7 +38,7 @@ public:
         vstd::span<const BindProperty> resources);
     void SetRasterShader(
         RasterShader const *s,
-        ID3D12PipelineState* state,
+        ID3D12PipelineState *state,
         vstd::span<const BindProperty> resources);
     void DispatchComputeIndirect(
         ComputeShader const *cs,
@@ -77,6 +78,12 @@ public:
         TextureBase *texture,
         uint targetMip,
         BufferTextureCopy ope);
+    void CopyBufferSparseTexture(
+        BufferView const &buffer,
+        SparseTexture *texture,
+        uint3 startCoord,
+        uint3 size,
+        uint targetMip);
     struct CopyInfo {
         size_t bufferSize;
         size_t alignedBufferSize;

@@ -87,12 +87,17 @@ public:
         uint back_buffer_size) noexcept override;
     void destroy_swap_chain(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
-    // TODO: un-implemented
     [[nodiscard]] ResourceCreationInfo create_procedural_primitive(
         const AccelOption &option) noexcept override;
-    // TODO: un-implemented
     void destroy_procedural_primitive(uint64_t handle) noexcept override;
     DeviceExtension *extension(string_view name) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
+    
+    [[nodiscard]] ResourceCreationInfo create_sparse_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels) noexcept override;
+    void destroy_sparse_texture(uint64_t handle) noexcept override;
+    void update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept override;
 };
 }// namespace lc::dx

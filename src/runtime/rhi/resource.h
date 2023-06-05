@@ -122,6 +122,8 @@ public:
         DEPTH_BUFFER,
         DSTORAGE_FILE,
         DSTORAGE_PINNED_MEMORY,
+        SPARSE_IMAGE,
+        SPARSE_VOLUME,
     };
 
 private:

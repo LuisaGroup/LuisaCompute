@@ -41,7 +41,7 @@ Swapchain::~Swapchain() noexcept {
 
 void Swapchain::Present::operator()(
     DeviceInterface *device,
-    uint64_t stream_handle) const noexcept {
+    uint64_t stream_handle) && noexcept {
     device->present_display_in_stream(stream_handle, chain->handle(), frame.handle());
 }
 

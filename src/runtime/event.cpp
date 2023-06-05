@@ -27,13 +27,13 @@ Event::~Event() noexcept {
 
 void Event::Signal::operator()(
     DeviceInterface *device,
-    uint64_t stream_handle) const noexcept {
+    uint64_t stream_handle) && noexcept {
     device->signal_event(handle, stream_handle);
 }
 
 void Event::Wait::operator()(
     DeviceInterface *device,
-    uint64_t stream_handle) const noexcept {
+    uint64_t stream_handle) && noexcept {
     device->wait_event(handle, stream_handle);
 }
 

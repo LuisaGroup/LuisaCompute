@@ -1,5 +1,7 @@
 #include <Resource/TextureBase.h>
 #include <Resource/DescriptorHeap.h>
+#include <core/logging.h>
+
 namespace lc::dx {
 TextureBase::TextureBase(
     Device *device,
@@ -258,6 +260,30 @@ D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool 
 }
 D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(bool allowUav) const {
     return GetResourceDescBase(uint3(width, height, depth), mip, allowUav);
+}
+uint TextureBase::GetGlobalSRVIndex(uint mipOffset) const {
+    LUISA_ERROR("Texture type not support sample!");
+    return {};
+}
+uint TextureBase::GetGlobalUAVIndex(uint mipLevel) const {
+    LUISA_ERROR("Texture type not support random write!");
+    return {};
+}
+D3D12_SHADER_RESOURCE_VIEW_DESC TextureBase::GetColorSrvDesc(uint mipOffset) const {
+    LUISA_ERROR("Texture type not support sample!");
+    return {};
+}
+D3D12_UNORDERED_ACCESS_VIEW_DESC TextureBase::GetColorUavDesc(uint targetMipLevel) const {
+    LUISA_ERROR("Texture type not support random write!");
+    return {};
+}
+D3D12_DEPTH_STENCIL_VIEW_DESC TextureBase::GetDepthDesc() const {
+    LUISA_ERROR("Texture type not support depth!");
+    return {};
+}
+D3D12_RENDER_TARGET_VIEW_DESC TextureBase::GetRenderTargetDesc(uint mipOffset) const {
+    LUISA_ERROR("Texture type not support render target!");
+    return {};
 }
 /*TexView::TexView(
     TextureBase const *tex,

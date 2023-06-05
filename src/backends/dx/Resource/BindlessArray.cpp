@@ -1,4 +1,3 @@
-
 #include <Resource/BindlessArray.h>
 #include <Resource/TextureBase.h>
 #include <Resource/Buffer.h>
@@ -8,6 +7,8 @@
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <Resource/Buffer.h>
+#include <core/logging.h>
+
 namespace lc::dx {
 
 BindlessArray::BindlessArray(

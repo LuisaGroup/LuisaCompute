@@ -1,6 +1,8 @@
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/TextureBase.h>
+#include <core/logging.h>
+#include <core/magic_enum.h>
 namespace lc::dx {
 namespace detail {
 static bool IsReadState(D3D12_RESOURCE_STATES state) {
@@ -178,7 +180,7 @@ D3D12_RESOURCE_STATES ResourceStateTracker::ReadState(ResourceReadUsage usage, R
             case ResourceReadUsage::CopySource:
                 return D3D12_RESOURCE_STATE_COPY_SOURCE;
             default:
-                assert(false);
+                LUISA_ERROR("Depth buffer do not support {} state.", luisa::to_string(usage));
         }
     } else {
         static constexpr D3D12_RESOURCE_STATES computeStates[] = {

@@ -18,11 +18,11 @@ class LC_RUNTIME_API Event final : public Resource {
 public:
     struct LC_RUNTIME_API Signal {
         uint64_t handle;
-        void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
     struct LC_RUNTIME_API Wait {
         uint64_t handle;
-        void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
 
 private:

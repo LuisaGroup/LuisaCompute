@@ -97,6 +97,14 @@ public:
     luisa::string query(luisa::string_view property) noexcept override;
     DeviceExtension *extension(luisa::string_view name) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
+
+    // sparse texture
+    [[nodiscard]] ResourceCreationInfo create_sparse_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels) noexcept override;
+    void destroy_sparse_texture(uint64_t handle) noexcept override;
+    void update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept override;
 };
 
 }// namespace lc::validation

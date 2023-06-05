@@ -9,6 +9,7 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/rhi/stream_tag.h>
 #include <runtime/rhi/command.h>
+#include <runtime/rhi/tile.h>
 #include <runtime/command_list.h>
 #include <runtime/depth_format.h>
 
@@ -133,6 +134,16 @@ public:
     [[nodiscard]] virtual luisa::string query(luisa::string_view property) noexcept { return {}; }
     [[nodiscard]] virtual DeviceExtension *extension(luisa::string_view name) noexcept { return nullptr; }
     virtual void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept = 0;
+
+    // sparse texture
+    [[nodiscard]] virtual ResourceCreationInfo create_sparse_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels) noexcept {
+        return ResourceCreationInfo::make_invalid();
+    }
+    virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
+    virtual void update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept {}
 };
 
 }// namespace luisa::compute

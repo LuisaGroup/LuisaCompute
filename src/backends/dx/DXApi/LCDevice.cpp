@@ -27,6 +27,7 @@
 #include <runtime/context.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
+#include <Resource/SparseTexture.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -109,7 +110,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
     return info;
 }
 void LCDevice::destroy_buffer(uint64 handle) noexcept {
-    delete reinterpret_cast<Buffer *>(handle);
+    delete reinterpret_cast<DefaultBuffer *>(handle);
 }
 ResourceCreationInfo LCDevice::create_texture(
     PixelFormat format,
@@ -129,17 +130,16 @@ ResourceCreationInfo LCDevice::create_texture(
         default: break;
     }
     ResourceCreationInfo info;
-    auto res = static_cast<TextureBase *>(
-        new RenderTexture(
-            &nativeDevice,
-            width,
-            height,
-            TextureBase::ToGFXFormat(format),
-            (TextureDimension)dimension,
-            depth,
-            mipmap_levels,
-            allowUAV,
-            nativeDevice.defaultAllocator.get()));
+    auto res = new RenderTexture(
+        &nativeDevice,
+        width,
+        height,
+        TextureBase::ToGFXFormat(format),
+        (TextureDimension)dimension,
+        depth,
+        mipmap_levels,
+        allowUAV,
+        nativeDevice.defaultAllocator.get());
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     return info;
@@ -148,7 +148,7 @@ ResourceCreationInfo LCDevice::create_texture(
 //    return Shader::PSOName(&nativeDevice, file_name);
 //}
 void LCDevice::destroy_texture(uint64 handle) noexcept {
-    delete reinterpret_cast<TextureBase *>(handle);
+    delete reinterpret_cast<RenderTexture *>(handle);
 }
 ResourceCreationInfo LCDevice::create_bindless_array(size_t size) noexcept {
     ResourceCreationInfo info;
@@ -500,18 +500,16 @@ void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
 }
 ResourceCreationInfo DxRasterExt::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
     ResourceCreationInfo info;
-    auto res =
-        static_cast<TextureBase *>(
-            new DepthBuffer(
-                &nativeDevice,
-                width, height,
-                format, nativeDevice.defaultAllocator.get()));
+    auto res = new DepthBuffer(
+        &nativeDevice,
+        width, height,
+        format, nativeDevice.defaultAllocator.get());
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     return info;
 }
 void DxRasterExt::destroy_depth_buffer(uint64_t handle) noexcept {
-    delete reinterpret_cast<TextureBase *>(handle);
+    delete reinterpret_cast<DepthBuffer *>(handle);
 }
 DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     auto ite = exts.find(name);
@@ -593,6 +591,40 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
         } break;
     }
 }
+
+[[nodiscard]] ResourceCreationInfo LCDevice::create_sparse_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels) noexcept {
+    bool allowUAV = true;
+    switch (format) {
+        case PixelFormat::BC4UNorm:
+        case PixelFormat::BC5UNorm:
+        case PixelFormat::BC6HUF16:
+        case PixelFormat::BC7UNorm:
+            allowUAV = false;
+            break;
+        default: break;
+    }
+    ResourceCreationInfo info;
+    auto res = new SparseTexture(
+        &nativeDevice,
+        width,
+        height,
+        TextureBase::ToGFXFormat(format),
+        (TextureDimension)dimension,
+        depth,
+        mipmap_levels,
+        allowUAV,
+        *nativeDevice.defaultAllocator.get());
+    info.handle = resource_to_handle(res);
+    info.native_handle = res->GetResource();
+    return info;
+}
+void LCDevice::destroy_sparse_texture(uint64_t handle) noexcept {
+    delete reinterpret_cast<SparseTexture *>(handle);
+}
+void LCDevice::update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept {}
 
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR

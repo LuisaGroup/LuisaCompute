@@ -17,7 +17,7 @@ public:
     struct LC_RUNTIME_API Present {
         const Swapchain *chain{nullptr};
         ImageView<float> frame;
-        void operator()(DeviceInterface *device, uint64_t stream_handle) const noexcept;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
 
 private:
