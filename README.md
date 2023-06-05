@@ -82,7 +82,7 @@ On the programming interfaces for users, we provide high-level resource wrappers
 
 The backends are the final realizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
 
-Currently, we have 4 backends, including 3 GPU backends based on CUDA, Metal, and DirectX, respectively, and a scalar CPU backend on LLVM.
+Currently, we have 3 working GPU backends for the C++ and Python frontends, based on CUDA, Metal, and DirectX, respectively. A CPU backend (re-)implemented in Rust is work in progress and currently can only be accessed from the [Rust frontend](https://github.com/LuisaGroup/luisa-compute-rs).
 
 ### Python Frontend
 
