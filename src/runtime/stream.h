@@ -43,7 +43,7 @@ public:
         Delegate operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
         Delegate operator<<(luisa::move_only_function<void()> &&f) && noexcept;
         template<typename T>
-            requires is_stream_event_v<T>
+            requires is_stream_event_v<T &&>
         Stream &operator<<(T &&t) && noexcept {
             _commit();
             return *_stream << std::forward<T>(t);
@@ -87,7 +87,7 @@ public:
     Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
     Delegate operator<<(luisa::move_only_function<void()> &&f) noexcept;
     template<typename T>
-        requires is_stream_event_v<T>
+        requires is_stream_event_v<T &&>
     Stream &operator<<(T &&t) noexcept {
         std::invoke(std::forward<T>(t), device(), handle());
         return *this;

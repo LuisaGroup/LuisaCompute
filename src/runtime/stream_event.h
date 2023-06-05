@@ -15,12 +15,9 @@ struct is_stream_event_impl : std::false_type {};
 
 #define LUISA_MARK_STREAM_EVENT_TYPE(T) \
     template<>                          \
-    struct luisa::compute::detail::is_stream_event_impl<T> : std::true_type {};
+    struct luisa::compute::detail::is_stream_event_impl<T &&> : std::true_type {};
 
 template<typename T>
-using is_stream_event = detail::is_stream_event_impl<std::remove_cvref_t<T>>;
-
-template<typename T>
-constexpr auto is_stream_event_v = is_stream_event<T>::value;
+constexpr auto is_stream_event_v = detail::is_stream_event_impl<T>::value;
 
 }// namespace luisa::compute
