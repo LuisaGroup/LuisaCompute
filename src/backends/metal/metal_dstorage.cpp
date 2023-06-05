@@ -156,6 +156,7 @@ MetalPinnedMemory::MetalPinnedMemory(MTL::Device *device,
                                      size_t size_bytes) noexcept
     : _host_ptr{host_ptr}, _size_bytes{size_bytes},
       _offset{0u}, _device_buffer{nullptr} {
+    Clock clk;
     auto page_size = pagesize();
     auto host_addr = reinterpret_cast<size_t>(host_ptr);
     auto aligned_addr = luisa::align(host_addr, page_size);
@@ -178,9 +179,9 @@ MetalPinnedMemory::MetalPinnedMemory(MTL::Device *device,
                            "at 0x{:016x} with size {} bytes.",
                            aligned_addr, aligned_size);
             });
-        LUISA_INFO("Pinned host memory at 0x{:016x} with size {} bytes "
+        LUISA_INFO("Pinned host memory in {} ms at 0x{:016x} with size {} bytes "
                    "(page-aligned address = 0x{:016x}, page-aligned size = {}).",
-                   host_addr, size_bytes, aligned_addr, aligned_size);
+                   clk.toc(), host_addr, size_bytes, aligned_addr, aligned_size);
     }
 }
 
@@ -441,9 +442,13 @@ public:
                 uint8_t *scratch = nullptr;
                 if (scratch_buffer_size != 0u) {
                     scratch = luisa::allocate_with_allocator<uint8_t>(scratch_buffer_size);
+                    LUISA_INFO("Allocated scratch memory of {} byte(s) "
+                               "for decompression in DStorageReadCommand.",
+                               scratch_buffer_size);
                 }
                 with_upload_buffer(decompressed_size, [&](MetalStageBufferPool::Allocation *alloc) noexcept {
                     // decompress into the scratch buffer
+                    // TODO: parallelize?
                     auto decompressed = reinterpret_cast<uint8_t *>(alloc->data());
                     for (auto chunk = 0u; chunk < chunk_count; chunk++) {
                         auto &&metadata = header->chunk_metadata[chunk];
