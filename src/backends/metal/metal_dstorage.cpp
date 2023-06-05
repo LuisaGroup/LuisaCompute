@@ -461,7 +461,14 @@ public:
                                     chunk, chunk_count, chunk_size, s);
                             }
                         } else {
-                            std::memcpy(decompressed_chunk, compressed_chunk, compressed_size);
+                            if (compressed_size != chunk_size && chunk + 1u != chunk_count) {
+                                LUISA_WARNING_WITH_LOCATION(
+                                    "Failed to decompress chunk #{} of {} for DStorageReadCommand "
+                                    "(expected decompressed size = {}, actual = {}).",
+                                    chunk, chunk_count, chunk_size, compressed_size);
+                            }
+                            std::memcpy(decompressed_chunk, compressed_chunk,
+                                        std::min(compressed_size, chunk_size));
                         }
                     }
                     // copy from scratch buffer to device
