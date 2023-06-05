@@ -1,9 +1,15 @@
 #pragma once
-#include <DXRuntime/CommandAllocatorBase.h>
+#include <vstl/functional.h>
+#include <DXRuntime/CommandBuffer.h>
+#include <vstl/stack_allocator.h>
+#include <Resource/UploadBuffer.h>
+#include <Resource/DefaultBuffer.h>
+#include <Resource/ReadbackBuffer.h>
+#include <vstl/lockfree_array_queue.h>
 namespace lc::dx {
 class CommandQueue;
 class IPipelineEvent;
-class CommandAllocator final : public CommandAllocatorBase {
+class CommandAllocator final : public vstd::IOperatorNewBase {
     friend class CommandQueue;
     friend class CommandBuffer;
 
@@ -38,6 +44,13 @@ private:
         BufferAllocator(size_t initCapacity);
         ~BufferAllocator();
     };
+    Device *device;
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
+    mutable vstd::optional<CommandBuffer> cbuffer;
+    D3D12_COMMAND_LIST_TYPE type;
+    GpuAllocator *resourceAllocator;
+    vstd::LockFreeArrayQueue<vstd::function<void()>> executeAfterComplete;
+
     DescHeapVisitor rtvVisitor;
     DescHeapVisitor dsvVisitor;
     BufferAllocator<UploadBuffer> uploadAllocator;
@@ -50,12 +63,24 @@ private:
 public:
     vstd::StackAllocator rtvAllocator;
     vstd::StackAllocator dsvAllocator;
+
+    template<typename Func>
+        requires(std::is_constructible_v<vstd::function<void()>, Func &&>)
+    void ExecuteAfterComplete(Func &&func) {
+        executeAfterComplete.push(std::forward<Func>(func));
+    }
+    ID3D12CommandAllocator *Allocator() const { return allocator.Get(); }
+    D3D12_COMMAND_LIST_TYPE Type() const { return type; }
     ~CommandAllocator();
+    CommandBuffer *GetBuffer() const;
+    void Execute(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
+    void ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain, bool vsync);
+    void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
     DefaultBuffer const *AllocateScratchBuffer(size_t targetSize);
     BufferView GetTempReadbackBuffer(uint64 size, size_t align = 0);
     BufferView GetTempUploadBuffer(uint64 size, size_t align = 0);
     BufferView GetTempDefaultBuffer(uint64 size, size_t align = 0);
-    void Reset(CommandQueue *queue) override;
+    void Reset(CommandQueue *queue);
     KILL_COPY_CONSTRUCT(CommandAllocator)
     KILL_MOVE_CONSTRUCT(CommandAllocator)
 };

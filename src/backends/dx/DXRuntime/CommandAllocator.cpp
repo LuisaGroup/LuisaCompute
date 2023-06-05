@@ -53,7 +53,7 @@ BufferView CommandAllocator::BufferAllocator<T>::Allocate(size_t size, size_t al
         return BufferView(v.get(), 0, size);
     }
 }
-// void CommandAllocatorBase::WaitExternQueue(ID3D12Fence *fence, uint64 fenceIndex) {
+// void CommandAllocator::WaitExternQueue(ID3D12Fence *fence, uint64 fenceIndex) {
 //     if (device->deviceSettings) {
 //         auto after_queue = device->deviceSettings->GetQueue();
 //         if (after_queue) {
@@ -61,7 +61,7 @@ BufferView CommandAllocator::BufferAllocator<T>::Allocate(size_t size, size_t al
 //         }
 //     }
 // }
-void CommandAllocatorBase::Execute(
+void CommandAllocator::Execute(
     CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
@@ -82,7 +82,7 @@ void CommandAllocatorBase::Execute(
         }
     }
 }
-void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain, bool vsync) {
+void CommandAllocator::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain, bool vsync) {
     auto present = [&]() {
         if (vsync) {
             ThrowIfFailed(swapchain->Present(1, 0));
@@ -110,7 +110,7 @@ void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *f
     }
 }
 
-void CommandAllocatorBase::Complete(
+void CommandAllocator::Complete(
     CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
@@ -120,28 +120,17 @@ void CommandAllocatorBase::Complete(
     }
 }
 
-CommandBuffer *CommandAllocatorBase::GetBuffer() const {
+CommandBuffer *CommandAllocator::GetBuffer() const {
     return cbuffer;
-}
-CommandAllocatorBase::CommandAllocatorBase(
-    Device *device,
-    GpuAllocator *resourceAllocator,
-    D3D12_COMMAND_LIST_TYPE type)
-    : device(device),
-      type(type),
-      resourceAllocator(resourceAllocator) {
-    ThrowIfFailed(
-        device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
-    cbuffer.create(
-        device,
-        this);
 }
 static size_t TEMP_SIZE = 1024ull * 1024ull;
 CommandAllocator::CommandAllocator(
     Device *device,
     GpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
-    : CommandAllocatorBase(device, resourceAllocator, type),
+    : device(device),
+      type(type),
+      resourceAllocator(resourceAllocator),
       rtvVisitor(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV),
       dsvVisitor(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV),
       uploadAllocator(TEMP_SIZE),
@@ -149,6 +138,11 @@ CommandAllocator::CommandAllocator(
       readbackAllocator(TEMP_SIZE),
       rtvAllocator(64, &rtvVisitor),
       dsvAllocator(64, &dsvVisitor) {
+    ThrowIfFailed(
+        device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
+    cbuffer.create(
+        device,
+        this);
     uploadAllocator.visitor.self = this;
     defaultAllocator.visitor.self = this;
     readbackAllocator.visitor.self = this;
@@ -157,18 +151,15 @@ CommandAllocator::CommandAllocator(
 CommandAllocator::~CommandAllocator() {
     cbuffer.destroy();
 }
-void CommandAllocatorBase::Reset(CommandQueue *queue) {
-    ThrowIfFailed(
-        allocator->Reset());
-    cbuffer->Reset();
-}
 void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();
     rtvAllocator.clear();
     dsvAllocator.clear();
-    CommandAllocatorBase::Reset(queue);
+    ThrowIfFailed(
+        allocator->Reset());
+    cbuffer->Reset();
 }
 
 DefaultBuffer const *CommandAllocator::AllocateScratchBuffer(size_t targetSize) {
@@ -221,7 +212,5 @@ uint64 CommandAllocator::DescHeapVisitor::allocate(uint64 size) {
 }
 void CommandAllocator::DescHeapVisitor::deallocate(uint64 handle) {
     delete reinterpret_cast<DescriptorHeap *>(handle);
-}
-CommandAllocatorBase::~CommandAllocatorBase() {
 }
 }// namespace lc::dx

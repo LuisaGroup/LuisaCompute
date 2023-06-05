@@ -5,7 +5,7 @@ class AllocHandle {
 public:
     uint64 allocateHandle = 0;
     GpuAllocator *allocator;
-    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+    ComPtr<ID3D12Resource> resource;
     AllocHandle(
         GpuAllocator *allocator)
         : allocator(allocator) {}

@@ -4,7 +4,6 @@
 #include <DXRuntime/DxPtr.h>
 namespace lc::dx {
 class CommandAllocator;
-class CommandAllocatorBase;
 class Resource;
 class ComputeShader;
 class DescriptorHeap;
@@ -93,12 +92,11 @@ class CommandBuffer : public vstd::IOperatorNewBase {
     friend class CommandQueue;
     friend class CommandBufferBuilder;
     friend class CommandAllocator;
-    friend class CommandAllocatorBase;
     mutable std::atomic_bool isOpened;
     void Reset() const;
     void Close() const;
     DxPtr<ID3D12GraphicsCommandList4> cmdList;
-    CommandAllocatorBase *alloc;
+    CommandAllocator *alloc;
 
 public:
     void UpdateCommandBuffer(Device *device);
@@ -106,7 +104,7 @@ public:
     bool ContainedCmdList() const { return cmdList.Contained(); }
     CommandBuffer(
         Device *device,
-        CommandAllocatorBase *alloc);
+        CommandAllocator *alloc);
     CommandAllocator *GetAlloc() const;
     ~CommandBuffer();
     CommandBuffer(CommandBuffer &&v);

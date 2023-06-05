@@ -20,7 +20,7 @@ void CommandBuffer::UpdateCommandBuffer(Device *device) {
 }
 CommandBuffer::CommandBuffer(
     Device *device,
-    CommandAllocatorBase *alloc)
+    CommandAllocator *alloc)
     : alloc(alloc) {
     if (device->deviceSettings) {
         cmdList = {static_cast<ID3D12GraphicsCommandList4 *>(device->deviceSettings->BorrowCommandList(alloc->Type())), false};

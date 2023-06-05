@@ -1,7 +1,6 @@
 
 #include <Resource/RenderTexture.h>
 #include <Resource/DescriptorHeap.h>
-#include <Resource/BufferView.h>
 namespace lc::dx {
 RenderTexture::RenderTexture(
     Device *device,
@@ -16,32 +15,7 @@ RenderTexture::RenderTexture(
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
       allocHandle(allocator),
       allowUav(allowUav) {
-    D3D12_RESOURCE_DESC texDesc{};
-    switch (dimension) {
-        case TextureDimension::Cubemap:
-        case TextureDimension::Tex2DArray:
-        case TextureDimension::Tex2D:
-            texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-            break;
-        case TextureDimension::Tex3D:
-            texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
-            break;
-        case TextureDimension::Tex1D:
-            texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
-            break;
-        default: assert(false); break;
-    }
-    texDesc.Alignment = 0;
-    texDesc.Width = this->width;
-    texDesc.Height = this->height;
-    texDesc.DepthOrArraySize = this->depth;
-    texDesc.MipLevels = mip;
-    texDesc.Format = (DXGI_FORMAT)format;
-    texDesc.SampleDesc.Count = 1;
-    texDesc.SampleDesc.Quality = 0;
-    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = allowUav ? (D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) : D3D12_RESOURCE_FLAG_NONE;
-
+    auto texDesc = GetResourceDescBase(allowUav);
     if (!allocator) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
@@ -99,20 +73,5 @@ RenderTexture::~RenderTexture() {
     for (auto &&i : srvIdcs) {
         globalHeap.ReturnIndex(i.second);
     }
-}
-TexView::TexView(
-    TextureBase const *tex,
-    uint64 mipStart,
-    uint64 mipCount)
-    : tex(tex),
-      mipStart(mipStart),
-      mipCount(mipCount) {
-}
-TexView::TexView(
-    TextureBase const *tex,
-    uint64 mipStart)
-    : tex(tex),
-      mipStart(mipStart) {
-    mipCount = tex->Mip() - mipStart;
 }
 }// namespace lc::dx

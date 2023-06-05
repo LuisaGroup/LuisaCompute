@@ -9,6 +9,7 @@ public:
         ReadbackBuffer,
         DefaultBuffer,
         RenderTexture,
+        SparseTexture,
         DescriptorHeap,
         BindlessArray,
         Mesh,

@@ -5,7 +5,6 @@
 namespace lc::dx {
 class CommandBuffer;
 class CommandAllocator;
-class CommandAllocatorBase;
 class GpuAllocator;
 class LCEvent;
 class CommandQueue : vstd::IOperatorNewBase {
@@ -13,12 +12,16 @@ public:
     using AllocatorPtr = vstd::unique_ptr<CommandAllocator>;
 
 private:
+    struct WaitFence {
+        uint64 fenceIndex;
+    };
     struct CallbackEvent {
         using Variant = vstd::variant<
             AllocatorPtr,
             vstd::function<void()>,
             vstd::vector<vstd::function<void()>>,
-            LCEvent const *>;
+            LCEvent const *,
+            WaitFence>;
         Variant evt;
         uint64_t fence;
         bool wakeupThread;
@@ -58,6 +61,7 @@ public:
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
+    uint64 SignalAfterSparseTexUpdate(vstd::vector<std::pair<GpuAllocator *, uint64>> &&deallocatedHandle);
     uint64 Execute(AllocatorPtr &&alloc);
     uint64 ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
     uint64 ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);

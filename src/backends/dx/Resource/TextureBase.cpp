@@ -1,4 +1,3 @@
-
 #include <Resource/TextureBase.h>
 #include <Resource/DescriptorHeap.h>
 namespace lc::dx {
@@ -229,5 +228,50 @@ GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
     }
     LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
-
+D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool allowUav) const {
+    D3D12_RESOURCE_DESC texDesc{};
+    switch (dimension) {
+        case TextureDimension::Cubemap:
+        case TextureDimension::Tex2DArray:
+        case TextureDimension::Tex2D:
+            texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            break;
+        case TextureDimension::Tex3D:
+            texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+            break;
+        case TextureDimension::Tex1D:
+            texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+            break;
+        default: assert(false); break;
+    }
+    texDesc.Alignment = 0;
+    texDesc.Width = size.x;
+    texDesc.Height = size.y;
+    texDesc.DepthOrArraySize = size.z;
+    texDesc.MipLevels = mip;
+    texDesc.Format = (DXGI_FORMAT)format;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.SampleDesc.Quality = 0;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = allowUav ? (D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) : D3D12_RESOURCE_FLAG_NONE;
+    return texDesc;
+}
+D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(bool allowUav) const {
+    return GetResourceDescBase(uint3(width, height, depth), mip, allowUav);
+}
+/*TexView::TexView(
+    TextureBase const *tex,
+    uint64 mipStart,
+    uint64 mipCount)
+    : tex(tex),
+      mipStart(mipStart),
+      mipCount(mipCount) {
+}
+TexView::TexView(
+    TextureBase const *tex,
+    uint64 mipStart)
+    : tex(tex),
+      mipStart(mipStart) {
+    mipCount = tex->Mip() - mipStart;
+}*/
 }// namespace lc::dx

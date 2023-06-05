@@ -21,6 +21,7 @@ struct BufferView {
         uint64 offset);
     VSTD_TRIVIAL_COMPARABLE(BufferView)
 };
+/*
 struct TexView {
     TextureBase const *tex = nullptr;
     uint64 mipStart = 0;
@@ -36,4 +37,5 @@ struct TexView {
         uint64 mipStart);
     VSTD_TRIVIAL_COMPARABLE(TexView)
 };
+*/
 }// namespace lc::dx
