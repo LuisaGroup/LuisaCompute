@@ -16,6 +16,141 @@
 
 namespace luisa::compute::metal {
 
+namespace detail {
+
+[[nodiscard]] inline luisa::optional<compression_algorithm>
+compression_cpu_select_algorithm(DStorageCompression c) noexcept {
+    switch (c) {
+        case DStorageCompression::GDeflate: return COMPRESSION_ZLIB;
+        case DStorageCompression::LZ4: return COMPRESSION_LZ4;
+        case DStorageCompression::LZFSE: return COMPRESSION_LZFSE;
+        case DStorageCompression::LZMA: return COMPRESSION_LZMA;
+        case DStorageCompression::LZBitmap: return COMPRESSION_LZBITMAP;
+        default: break;
+    }
+    return luisa::nullopt;
+}
+
+}// namespace detail
+
+struct MetalCompressionChunkMetadata {
+    uint64_t is_compressed;
+    size_t file_offset;
+    size_t compressed_size;
+};
+
+struct MetalCompressionFileHeader {
+
+    static constexpr auto metal_compression_magic = 0xbadc0feeu;
+    using ChunkMetadata = MetalCompressionChunkMetadata;
+
+    uint magic;
+    uint padding;
+    size_t chunk_size;
+    size_t chunk_count;
+    [[no_unique_address]] ChunkMetadata chunk_metadata[];
+};
+
+static_assert(sizeof(MetalCompressionFileHeader) == 24u);
+
+namespace detail {
+
+[[nodiscard]] auto metal_dstorage_compress_chunk(compression_algorithm algo,
+                                                 const void *chunk_data, size_t chunk_size_bytes,
+                                                 luisa::vector<std::byte> &result) noexcept {
+
+    auto file_offset = result.size();
+    result.resize(result.size() + chunk_size_bytes);
+
+    // initialize the compression stream
+    compression_stream stream{};
+    auto stream_state = compression_stream_init(&stream, COMPRESSION_STREAM_ENCODE, algo);
+
+    LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK,
+                 "Failed to initialize compression stream.");
+
+    // set input
+    stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data() + file_offset);
+    stream.dst_size = result.size_bytes() - file_offset;
+    stream.src_ptr = reinterpret_cast<const uint8_t *>(chunk_data);
+    stream.src_size = chunk_size_bytes;
+
+    for (; stream_state != COMPRESSION_STATUS_END;
+         stream_state = compression_stream_process(&stream, COMPRESSION_STREAM_FINALIZE)) {
+        LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK, "Failed to compress data.");
+        auto offset = stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data());
+        result.resize(result.size_bytes() * 2u);
+        stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data() + offset);
+        stream.dst_size = result.size_bytes() - offset;
+    }
+    result.resize(stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data()));
+    compression_stream_destroy(&stream);
+
+    return MetalCompressionChunkMetadata{
+        .is_compressed = 1u,
+        .file_offset = file_offset,
+        .compressed_size = result.size() - file_offset};
+}
+
+}// namespace detail
+
+void MetalDStorageExt::compress(const void *data, size_t size_bytes,
+                                Compression algorithm, CompressionQuality quality,
+                                luisa::vector<std::byte> &result) noexcept {
+
+    // FIXME: need MTLCompressionContext to correctly create the file headers
+
+    Clock clk;
+
+    if (size_bytes == 0u) {
+        LUISA_WARNING_WITH_LOCATION("Empty data to compress.");
+        return;
+    }
+
+    if (algorithm == DStorageCompression::None) {
+        LUISA_WARNING_WITH_LOCATION("No compression algorithm specified. "
+                                    "The data will be copied as-is.");
+        result.resize(size_bytes);
+        std::memcpy(result.data(), data, size_bytes);
+        return;
+    }
+
+    auto algo = detail::compression_cpu_select_algorithm(algorithm);
+    LUISA_ASSERT(algo.has_value(),
+                 "Unsupported compression algorithm: {}.",
+                 to_string(algorithm));
+
+    auto chunk_size = MTL::IOCompressionContextDefaultChunkSize();
+    auto chunk_count = (size_bytes + chunk_size - 1u) / chunk_size;
+
+    auto reserved_size = std::bit_ceil(std::max<size_t>(
+        static_cast<size_t>(.2 * static_cast<double>(size_bytes)), chunk_size));
+    result.reserve(sizeof(MetalCompressionFileHeader) +
+                   sizeof(MetalCompressionChunkMetadata) * chunk_count +
+                   reserved_size);
+    result.resize(sizeof(MetalCompressionFileHeader) +
+                  sizeof(MetalCompressionChunkMetadata) * chunk_count);
+
+    *reinterpret_cast<MetalCompressionFileHeader *>(result.data()) = {
+        .magic = MetalCompressionFileHeader::metal_compression_magic,
+        .padding = 0u,
+        .chunk_size = chunk_size,
+        .chunk_count = chunk_count,
+    };
+
+    for (auto chunk = 0u; chunk < chunk_count; chunk++) {
+        auto chunk_data = reinterpret_cast<const std::byte *>(data) + chunk * chunk_size;
+        auto chunk_size_bytes = std::min(chunk_size, size_bytes - chunk * chunk_size);
+        auto metadata = detail::metal_dstorage_compress_chunk(
+            algo.value(), chunk_data, chunk_size_bytes, result);
+        reinterpret_cast<MetalCompressionFileHeader *>(result.data())->chunk_metadata[chunk] = metadata;
+    }
+
+    auto ratio = static_cast<double>(result.size_bytes()) / static_cast<double>(size_bytes);
+    LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}) with {} in {} ms.",
+               size_bytes, result.size_bytes(), ratio, to_string(algorithm), clk.toc());
+}
+
 MetalPinnedMemory::MetalPinnedMemory(MTL::Device *device,
                                      void *host_ptr,
                                      size_t size_bytes) noexcept
@@ -278,16 +413,62 @@ public:
             LUISA_ASSERT(file_handle != nullptr, "Failed to open file handle.");
             _copy_from_file(file_handle, src.offset_bytes, command->request());
         } else if (luisa::holds_alternative<DStorageReadCommand::MemorySource>(command->source())) {
-            LUISA_ASSERT(command->compression() == DStorageCompression::None,
-                         "Memory source does not support compression.");
             auto src = luisa::get<DStorageReadCommand::MemorySource>(command->source());
             auto memory = reinterpret_cast<MetalPinnedMemory *>(src.handle);
-            LUISA_ASSERT(src.offset_bytes < memory->size() &&
-                             src.size_bytes <= memory->size() - src.offset_bytes,
-                         "Invalid offset or size for DStorageReadCommand.");
-            _copy_from_memory(memory->device_buffer(),
-                              src.offset_bytes + memory->device_buffer_offset(),
-                              command->request());
+            if (command->compression() == DStorageCompression::None) {
+                LUISA_ASSERT(src.offset_bytes < memory->size() &&
+                                 src.size_bytes <= memory->size() - src.offset_bytes,
+                             "Invalid offset or size for DStorageReadCommand.");
+                _copy_from_memory(memory->device_buffer(),
+                                  src.offset_bytes + memory->device_buffer_offset(),
+                                  command->request());
+            } else {
+                auto algorithm = detail::compression_cpu_select_algorithm(command->compression());
+                LUISA_ASSERT(algorithm.has_value(),
+                             "Unsupported compression algorithm {}.",
+                             to_string(command->compression()));
+                auto compressed = static_cast<uint8_t *>(memory->host_pointer()) + src.offset_bytes;
+                auto header = reinterpret_cast<const MetalCompressionFileHeader *>(compressed);
+                auto chunk_size = header->chunk_size;
+                auto chunk_count = header->chunk_count;
+                if (chunk_count == 0u) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Empty compressed file detected for DStorageReadCommand.");
+                    return;
+                }
+                auto decompressed_size = chunk_size * chunk_count;
+                auto scratch_buffer_size = compression_decode_scratch_buffer_size(*algorithm);
+                uint8_t *scratch = nullptr;
+                if (scratch_buffer_size != 0u) {
+                    scratch = luisa::allocate_with_allocator<uint8_t>(scratch_buffer_size);
+                }
+                with_upload_buffer(decompressed_size, [&](MetalStageBufferPool::Allocation *alloc) noexcept {
+                    // decompress into the scratch buffer
+                    auto decompressed = reinterpret_cast<uint8_t *>(alloc->data());
+                    for (auto chunk = 0u; chunk < chunk_count; chunk++) {
+                        auto &&metadata = header->chunk_metadata[chunk];
+                        auto compressed_chunk = compressed + metadata.file_offset;
+                        auto compressed_size = metadata.compressed_size;
+                        auto decompressed_chunk = decompressed + chunk * chunk_size;
+                        if (metadata.is_compressed) {
+                            auto s = compression_decode_buffer(decompressed_chunk, chunk_size,
+                                                               compressed_chunk, compressed_size,
+                                                               scratch, *algorithm);
+                            if (s != chunk_size && chunk + 1u != chunk_count) {
+                                LUISA_WARNING_WITH_LOCATION(
+                                    "Failed to decompress chunk #{} of {} for DStorageReadCommand "
+                                    "(expected decompressed size = {}, actual = {}).",
+                                    chunk, chunk_count, chunk_size, s);
+                            }
+                        } else {
+                            std::memcpy(decompressed_chunk, compressed_chunk, compressed_size);
+                        }
+                    }
+                    // copy from scratch buffer to device
+                    _copy_from_memory(alloc->buffer(), alloc->offset(), command->request());
+                });
+                if (scratch) { luisa::deallocate_with_allocator(scratch); }
+            }
         } else {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid source type for DStorageReadCommand.");
@@ -413,141 +594,6 @@ void MetalDStorageExt::unpin_host_memory(uint64_t handle) noexcept {
         auto pinned = reinterpret_cast<MetalPinnedMemory *>(handle);
         luisa::delete_with_allocator(pinned);
     });
-}
-
-namespace detail {
-
-[[nodiscard]] inline luisa::optional<compression_algorithm>
-compression_cpu_select_algorithm(DStorageCompression c) noexcept {
-    switch (c) {
-        case DStorageCompression::GDeflate: return COMPRESSION_ZLIB;
-        case DStorageCompression::LZ4: return COMPRESSION_LZ4;
-        case DStorageCompression::LZFSE: return COMPRESSION_LZFSE;
-        case DStorageCompression::LZMA: return COMPRESSION_LZMA;
-        case DStorageCompression::LZBitmap: return COMPRESSION_LZBITMAP;
-        default: break;
-    }
-    return luisa::nullopt;
-}
-
-}// namespace detail
-
-struct MetalCompressionChunkMetadata {
-    uint64_t is_compressed;
-    size_t file_offset;
-    size_t compressed_size;
-};
-
-struct MetalCompressionFileHeader {
-
-    static constexpr auto metal_compression_magic = 0xbadc0feeu;
-    using ChunkMetadata = MetalCompressionChunkMetadata;
-
-    uint magic;
-    uint padding;
-    size_t chunk_size;
-    size_t chunk_count;
-    [[no_unique_address]] ChunkMetadata chunk_metadata[];
-};
-
-static_assert(sizeof(MetalCompressionFileHeader) == 24u);
-
-namespace detail {
-
-[[nodiscard]] auto metal_dstorage_compress_chunk(compression_algorithm algo,
-                                                 const void *chunk_data, size_t chunk_size_bytes,
-                                                 luisa::vector<std::byte> &result) noexcept {
-
-    auto file_offset = result.size();
-    result.resize(result.size() + chunk_size_bytes);
-
-    // initialize the compression stream
-    compression_stream stream{};
-    auto stream_state = compression_stream_init(&stream, COMPRESSION_STREAM_ENCODE, algo);
-
-    LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK,
-                 "Failed to initialize compression stream.");
-
-    // set input
-    stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data() + file_offset);
-    stream.dst_size = result.size_bytes() - file_offset;
-    stream.src_ptr = reinterpret_cast<const uint8_t *>(chunk_data);
-    stream.src_size = chunk_size_bytes;
-
-    for (; stream_state != COMPRESSION_STATUS_END;
-         stream_state = compression_stream_process(&stream, COMPRESSION_STREAM_FINALIZE)) {
-        LUISA_ASSERT(stream_state == COMPRESSION_STATUS_OK, "Failed to compress data.");
-        auto offset = stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data());
-        result.resize(result.size_bytes() * 2u);
-        stream.dst_ptr = reinterpret_cast<uint8_t *>(result.data() + offset);
-        stream.dst_size = result.size_bytes() - offset;
-    }
-    result.resize(stream.dst_ptr - reinterpret_cast<uint8_t *>(result.data()));
-    compression_stream_destroy(&stream);
-
-    return MetalCompressionChunkMetadata{
-        .is_compressed = 1u,
-        .file_offset = file_offset,
-        .compressed_size = result.size() - file_offset};
-}
-
-}// namespace detail
-
-void MetalDStorageExt::compress(const void *data, size_t size_bytes,
-                                Compression algorithm, CompressionQuality quality,
-                                luisa::vector<std::byte> &result) noexcept {
-
-    // FIXME: need MTLCompressionContext to correctly create the file headers
-
-    Clock clk;
-
-    if (size_bytes == 0u) {
-        LUISA_WARNING_WITH_LOCATION("Empty data to compress.");
-        return;
-    }
-
-    if (algorithm == DStorageCompression::None) {
-        LUISA_WARNING_WITH_LOCATION("No compression algorithm specified. "
-                                    "The data will be copied as-is.");
-        result.resize(size_bytes);
-        std::memcpy(result.data(), data, size_bytes);
-        return;
-    }
-
-    auto algo = detail::compression_cpu_select_algorithm(algorithm);
-    LUISA_ASSERT(algo.has_value(),
-                 "Unsupported compression algorithm: {}.",
-                 to_string(algorithm));
-
-    auto chunk_size = MTL::IOCompressionContextDefaultChunkSize();
-    auto chunk_count = (size_bytes + chunk_size - 1u) / chunk_size;
-
-    auto reserved_size = std::bit_ceil(std::max<size_t>(
-        static_cast<size_t>(.2 * static_cast<double>(size_bytes)), chunk_size));
-    result.reserve(sizeof(MetalCompressionFileHeader) +
-                   sizeof(MetalCompressionChunkMetadata) * chunk_count +
-                   reserved_size);
-    result.resize(sizeof(MetalCompressionFileHeader) +
-                  sizeof(MetalCompressionChunkMetadata) * chunk_count);
-
-    *reinterpret_cast<MetalCompressionFileHeader *>(result.data()) = {
-        .magic = MetalCompressionFileHeader::metal_compression_magic,
-        .padding = 0u,
-        .chunk_size = chunk_size,
-        .chunk_count = chunk_count,
-    };
-
-    for (auto chunk = 0u; chunk < chunk_count; chunk++) {
-        auto chunk_data = reinterpret_cast<const std::byte *>(data) + chunk * chunk_size;
-        auto chunk_size_bytes = std::min(chunk_size, size_bytes - chunk * chunk_size);
-        auto metadata = detail::metal_dstorage_compress_chunk(
-            algo.value(), chunk_data, chunk_size_bytes, result);
-        reinterpret_cast<MetalCompressionFileHeader *>(result.data())->chunk_metadata[chunk] = metadata;
-    }
-
-    auto ratio = static_cast<double>(result.size_bytes()) / static_cast<double>(size_bytes);
-    LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}) with {} in {} ms.",
-               size_bytes, result.size_bytes(), ratio, to_string(algorithm), clk.toc());
 }
 
 }// namespace luisa::compute::metal
