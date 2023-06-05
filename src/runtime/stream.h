@@ -5,7 +5,6 @@
 #pragma once
 
 #include <utility>
-#include <functional>
 
 #include <core/spin_mutex.h>
 #include <runtime/rhi/resource.h>
@@ -89,7 +88,7 @@ public:
     template<typename T>
         requires is_stream_event_v<T &&>
     Stream &operator<<(T &&t) noexcept {
-        std::invoke(std::forward<T>(t), device(), handle());
+        luisa::invoke(std::forward<T>(t), device(), handle());
         return *this;
     }
     Stream &operator<<(CommandList::Commit &&commit) noexcept;

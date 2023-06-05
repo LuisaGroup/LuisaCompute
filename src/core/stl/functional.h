@@ -8,6 +8,7 @@ namespace luisa {
 
 using eastl::equal_to;
 using eastl::function;
+using eastl::invoke;
 using eastl::greater;
 using eastl::greater_equal;
 using eastl::less;
