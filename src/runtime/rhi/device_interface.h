@@ -9,7 +9,7 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/rhi/stream_tag.h>
 #include <runtime/rhi/command.h>
-#include <runtime/rhi/tile.h>
+#include <runtime/rhi/tile_modification.h>
 #include <runtime/command_list.h>
 #include <runtime/depth_format.h>
 
@@ -143,7 +143,7 @@ public:
         return ResourceCreationInfo::make_invalid();
     }
     virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
-    virtual void update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept {}
+    virtual void update_sparse_texture(uint64_t stream_handle, luisa::vector<TileModification> &&tiles) noexcept {}
 };
 
 }// namespace luisa::compute

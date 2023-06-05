@@ -32,5 +32,19 @@ public:
         return VolumeView<T>{handle(), _storage, level, mip_size};
     }
     [[nodiscard]] auto view() const noexcept { return view(0u); }
+    void map_tile(uint3 start_coord, uint3 size, uint mip_level) noexcept {
+        _tiles.emplace_back(TileModification{
+            .start_coord = start_coord,
+            .size = size,
+            .mip_level = mip_level,
+            .operation = TileModification::Operation::Map});
+    }
+    void unmap_tile(uint3 start_coord, uint3 size, uint mip_level) noexcept {
+        _tiles.emplace_back(TileModification{
+            .start_coord = start_coord,
+            .size = size,
+            .mip_level = mip_level,
+            .operation = TileModification::Operation::UnMap});
+    }
 };
 }// namespace luisa::compute

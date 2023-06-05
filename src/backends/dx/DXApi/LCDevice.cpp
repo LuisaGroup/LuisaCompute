@@ -624,7 +624,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
 void LCDevice::destroy_sparse_texture(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseTexture *>(handle);
 }
-void LCDevice::update_sparse_texture(uint64_t stream_handle, luisa::vector<UpdateTile> &&tiles) noexcept {}
+void LCDevice::update_sparse_texture(uint64_t stream_handle, luisa::vector<TileModification> &&tiles) noexcept {}
 
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR

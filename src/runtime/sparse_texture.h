@@ -3,18 +3,18 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/stream_event.h>
 #include <runtime/rhi/command.h>
-#include <runtime/rhi/tile.h>
+#include <runtime/rhi/tile_modification.h>
 
 namespace luisa::compute {
 class LC_RUNTIME_API SparseTexture : public Resource {
 public:
     struct LC_RUNTIME_API UpdateTiles {
-        luisa::vector<UpdateTile> tiles;
+        luisa::vector<TileModification> tiles;
         void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
 
 protected:
-    luisa::vector<UpdateTile> _tiles;
+    luisa::vector<TileModification> _tiles;
     SparseTexture(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
     virtual ~SparseTexture() noexcept;
     SparseTexture(SparseTexture &&) noexcept = default;

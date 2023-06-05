@@ -142,7 +142,7 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
     for (auto &&i : cmd->arguments()) {
         set_arg(const_cast<Argument &>(i));
     }
-    Stream::mark_handle(cmd->_handle, Usage::READ, Range{});
+    Stream::mark_handle(cmd->handle(), Usage::READ, Range{});
 }
 void Stream::mark_handle(uint64_t v, Usage usage, Range range) {
     if (v != invalid_resource_handle) {
@@ -176,7 +176,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
     switch (static_cast<CustomCommand *>(cmd)->uuid()) {
         case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH): {
             auto c = static_cast<ClearDepthCommand *>(cmd);
-            mark_handle(c->_handle, Usage::WRITE, Range{});
+            mark_handle(c->handle(), Usage::WRITE, Range{});
         } break;
         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
             auto c = static_cast<DrawRasterSceneCommand *>(cmd);
@@ -262,24 +262,24 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::EBufferUploadCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<BufferUploadCommand *>(cmd);
-                mark_handle(c->_handle, Usage::WRITE, Range{c->_offset, c->_size});
+                mark_handle(c->handle(), Usage::WRITE, Range{c->offset(), c->size()});
             } break;
             case CmdTag::EBufferDownloadCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<BufferDownloadCommand *>(cmd);
-                mark_handle(c->_handle, Usage::READ, Range{c->_offset, c->_size});
+                mark_handle(c->handle(), Usage::READ, Range{c->offset(), c->size()});
             } break;
             case CmdTag::EBufferCopyCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<BufferCopyCommand *>(cmd);
-                mark_handle(c->_src_handle, Usage::READ, Range{c->_src_offset, c->_size});
-                mark_handle(c->_dst_handle, Usage::WRITE, Range{c->_dst_offset, c->_size});
+                mark_handle(c->src_handle(), Usage::READ, Range{c->src_offset(), c->size()});
+                mark_handle(c->dst_handle(), Usage::WRITE, Range{c->dst_offset(), c->size()});
             } break;
             case CmdTag::EBufferToTextureCopyCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<BufferToTextureCopyCommand *>(cmd);
-                mark_handle(c->_buffer_handle, Usage::READ, Range{c->_buffer_offset, pixel_storage_size(c->_pixel_storage, c->size())});
-                mark_handle(c->_texture_handle, Usage::WRITE, Range{c->_texture_level, 1});
+                mark_handle(c->buffer(), Usage::READ, Range{c->buffer_offset(), pixel_storage_size(c->storage(), c->size())});
+                mark_handle(c->texture(), Usage::WRITE, Range{c->level(), 1});
             } break;
             case CmdTag::EShaderDispatchCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
@@ -289,25 +289,36 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::ETextureUploadCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<TextureUploadCommand *>(cmd);
-                mark_handle(c->_handle, Usage::WRITE, Range{c->_level, 1});
+                mark_handle(c->handle(), Usage::WRITE, Range{c->level(), 1});
+            } break;
+            case CmdTag::ESparseTextureUploadCommand: {
+                Device::check_stream(handle(), StreamFunc::Copy);
+                auto c = static_cast<SparseTextureUploadCommand *>(cmd);
+                mark_handle(c->handle(), Usage::WRITE, Range{c->level(), 1});
+            } break;
+            case CmdTag::EBufferToSparseTextureCopyCommand: {
+                Device::check_stream(handle(), StreamFunc::Copy);
+                auto c = static_cast<BufferToSparseTextureCopyCommand *>(cmd);
+                mark_handle(c->buffer(), Usage::READ, Range{c->buffer_offset(), pixel_storage_size(c->storage(), c->size())});
+                mark_handle(c->texture(), Usage::WRITE, Range{c->level(), 1});
             } break;
             case CmdTag::ETextureDownloadCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<TextureDownloadCommand *>(cmd);
-                mark_handle(c->_handle, Usage::READ, Range{c->_level, 1});
+                mark_handle(c->handle(), Usage::READ, Range{c->level(), 1});
 
             } break;
             case CmdTag::ETextureCopyCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<TextureCopyCommand *>(cmd);
-                mark_handle(c->_src_handle, Usage::READ, Range{c->_src_level, 1});
-                mark_handle(c->_dst_handle, Usage::WRITE, Range{c->_dst_level, 1});
+                mark_handle(c->src_handle(), Usage::READ, Range{c->src_level(), 1});
+                mark_handle(c->dst_handle(), Usage::WRITE, Range{c->dst_level(), 1});
             } break;
             case CmdTag::ETextureToBufferCopyCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<TextureToBufferCopyCommand *>(cmd);
-                mark_handle(c->_texture_handle, Usage::READ, Range{c->_texture_level, 1});
-                mark_handle(c->_buffer_handle, Usage::WRITE, Range{c->_buffer_offset, pixel_storage_size(c->_pixel_storage, c->size())});
+                mark_handle(c->texture(), Usage::READ, Range{c->level(), 1});
+                mark_handle(c->buffer(), Usage::WRITE, Range{c->buffer_offset(), pixel_storage_size(c->storage(), c->size())});
             } break;
             case CmdTag::EAccelBuildCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
@@ -321,31 +332,31 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                     accel->init_build = true;
                 }
                 accel->modify(c->instance_count(), this, c->modifications());
-                mark_handle(c->_handle, Usage::WRITE, Range{});
+                mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
             case CmdTag::EMeshBuildCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 auto c = static_cast<MeshBuildCommand *>(cmd);
                 auto mesh = RWResource::get<Mesh>(c->handle());
-                mesh->vert = RWResource::get<Buffer>(c->_vertex_buffer);
-                mesh->index = RWResource::get<Buffer>(c->_triangle_buffer);
-                mesh->vert_range = Range{c->_vertex_buffer_offset, c->_vertex_buffer_size};
-                mesh->index_range = Range{c->_triangle_buffer_offset, c->_triangle_buffer_size};
-                mark_handle(c->_handle, Usage::WRITE, Range{});
+                mesh->vert = RWResource::get<Buffer>(c->vertex_buffer());
+                mesh->index = RWResource::get<Buffer>(c->triangle_buffer());
+                mesh->vert_range = Range{c->vertex_buffer_offset(), c->vertex_buffer_size()};
+                mesh->index_range = Range{c->triangle_buffer_offset(), c->triangle_buffer_size()};
+                mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
             case CmdTag::EProceduralPrimitiveBuildCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 auto c = static_cast<ProceduralPrimitiveBuildCommand *>(cmd);
                 auto prim = RWResource::get<ProceduralPrimitives>(c->handle());
-                prim->range = Range{c->_aabb_buffer_offset, c->_aabb_buffer_size};
+                prim->range = Range{c->aabb_buffer_offset(), c->aabb_buffer_size()};
                 prim->bbox = RWResource::get<Buffer>(c->aabb_buffer());
-                mark_handle(c->_handle, Usage::WRITE, Range{});
+                mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
             case CmdTag::EBindlessArrayUpdateCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 using Operation = BindlessArrayUpdateCommand::Modification::Operation;
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
-                mark_handle(c->_handle, Usage::WRITE, Range{});
+                mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
             case CmdTag::ECustomCommand: {
                 auto custom_cmd = static_cast<CustomCommand *>(cmd);

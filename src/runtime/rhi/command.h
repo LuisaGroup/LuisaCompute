@@ -30,20 +30,22 @@ struct IndirectDispatchArg {
     uint64_t handle;
 };
 
-#define LUISA_COMPUTE_RUNTIME_COMMANDS   \
-    BufferUploadCommand,                 \
-        BufferDownloadCommand,           \
-        BufferCopyCommand,               \
-        BufferToTextureCopyCommand,      \
-        ShaderDispatchCommand,           \
-        TextureUploadCommand,            \
-        TextureDownloadCommand,          \
-        TextureCopyCommand,              \
-        TextureToBufferCopyCommand,      \
-        AccelBuildCommand,               \
-        MeshBuildCommand,                \
-        ProceduralPrimitiveBuildCommand, \
-        BindlessArrayUpdateCommand,      \
+#define LUISA_COMPUTE_RUNTIME_COMMANDS    \
+    BufferUploadCommand,                  \
+        BufferDownloadCommand,            \
+        BufferCopyCommand,                \
+        BufferToTextureCopyCommand,       \
+        ShaderDispatchCommand,            \
+        TextureUploadCommand,             \
+        TextureDownloadCommand,           \
+        TextureCopyCommand,               \
+        TextureToBufferCopyCommand,       \
+        AccelBuildCommand,                \
+        MeshBuildCommand,                 \
+        ProceduralPrimitiveBuildCommand,  \
+        BindlessArrayUpdateCommand,       \
+        SparseTextureUploadCommand,       \
+        BufferToSparseTextureCopyCommand, \
         CustomCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
@@ -78,7 +80,6 @@ class CommandList;
     StreamTag stream_tag() const noexcept override { return Type; }
 
 class Command {
-    friend lc::validation::Stream;
 
 public:
     enum struct Tag {
@@ -99,7 +100,6 @@ public:
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
 };
 class ShaderDispatchCommandBase {
-    friend lc::validation::Stream;
 
 public:
     using Argument = luisa::compute::Argument;
@@ -130,7 +130,6 @@ public:
 
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
 
-    friend lc::validation::Stream;
 
 public:
     using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
@@ -157,7 +156,6 @@ public:
 };
 
 class BufferUploadCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -184,7 +182,6 @@ public:
 };
 
 class BufferDownloadCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -208,7 +205,6 @@ public:
 };
 
 class BufferCopyCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _src_handle{};
@@ -235,7 +231,6 @@ public:
 };
 
 class BufferToTextureCopyCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _buffer_handle{};
@@ -267,7 +262,6 @@ public:
 };
 
 class TextureToBufferCopyCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _buffer_handle{};
@@ -299,7 +293,6 @@ public:
 };
 
 class TextureCopyCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     PixelStorage _storage{};
@@ -329,7 +322,6 @@ public:
 };
 
 class TextureUploadCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -357,7 +349,6 @@ public:
 };
 
 class TextureDownloadCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -390,7 +381,6 @@ enum struct AccelBuildRequest : uint32_t {
 };
 
 class MeshBuildCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -430,7 +420,6 @@ public:
 };
 
 class ProceduralPrimitiveBuildCommand final : public Command {
-    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -454,7 +443,6 @@ public:
 };
 
 class AccelBuildCommand final : public Command {
-    friend lc::validation::Stream;
 
 public:
     struct alignas(16) Modification {
@@ -533,7 +521,6 @@ public:
 };
 
 class BindlessArrayUpdateCommand final : public Command {
-    friend lc::validation::Stream;
 
 public:
     struct Modification {
@@ -605,9 +592,82 @@ public:
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
+class SparseTextureUploadCommand : public Command {
+
+private:
+    const void *_data;
+    uint64_t _handle;
+    uint3 _start_coord;
+    uint3 _size;
+    PixelStorage _pixel_storage{};
+    uint _level;
+
+public:
+    SparseTextureUploadCommand(
+        const void *data,
+        uint64_t handle,
+        uint3 start_coord,
+        uint3 size,
+        PixelStorage pixel_storage,
+        uint level) noexcept
+        : Command{Command::Tag::ESparseTextureUploadCommand},
+          _data{data},
+          _handle{handle},
+          _start_coord{start_coord},
+          _size{size},
+          _pixel_storage{pixel_storage},
+          _level{level} {}
+    [[nodiscard]] auto data() const noexcept { return _data; }
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto start_coord() const noexcept { return _start_coord; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto level() const noexcept { return _level; }
+    [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
+
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
+};
+
+class BufferToSparseTextureCopyCommand : public Command {
+    
+private:
+    uint64_t _buffer_handle;
+    uint64_t _buffer_offset;
+    uint64_t _texture_handle;
+    uint3 _start_coord;
+    uint3 _size;
+    PixelStorage _pixel_storage{};
+    uint _level;
+
+public:
+    BufferToSparseTextureCopyCommand(
+        uint64_t buffer_handle,
+        uint64_t buffer_offset,
+        uint64_t texture_handle,
+        uint3 start_coord,
+        uint3 size,
+        PixelStorage pixel_storage,
+        uint level) noexcept
+        : Command{Command::Tag::EBufferToSparseTextureCopyCommand},
+          _buffer_handle{buffer_handle},
+          _buffer_offset{buffer_offset},
+          _texture_handle{texture_handle},
+          _start_coord{start_coord},
+          _size{size},
+          _pixel_storage{pixel_storage},
+          _level{level} {}
+    [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
+    [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
+    [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
+    [[nodiscard]] auto start_coord() const noexcept { return _start_coord; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto level() const noexcept { return _level; }
+    [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
+    
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
+};
+
 class CustomCommand : public Command {
 
-    friend lc::validation::Stream;
 
 public:
     explicit CustomCommand() noexcept
@@ -644,10 +704,11 @@ public:
         class Adapter final : public ArgumentVisitor {
         private:
             F &_f;
+
         public:
             explicit Adapter(F &f) noexcept : _f{f} {}
             void visit(const CustomDispatchCommand::ResourceHandle &resource, Usage usage) noexcept override {
-               _f(resource, usage);
+                _f(resource, usage);
             }
         };
         Adapter adapter{f};
