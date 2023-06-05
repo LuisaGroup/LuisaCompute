@@ -390,23 +390,23 @@ Kernel1D add_one_and_some = [&buffer, &add_one](Float some, BufferFloat out) {
 
 > ⚠️ Note that parameters of the definition functions for callables and kernels must be `Var<T>` or `Var<T> &` (or their aliases).
 
-Kernels can be compiled into shaders by the device, in a blocking or asynchronous fashion:
+Kernels can be compiled into shaders by the device:
 ```cpp
-auto some_shader    = device.compile(some_kernel);          // blocking
-auto another_shader = device.compile_async(another_kernel); // asynchronous, returns std::shared_future<Shader>
+auto some_shader    = device.compile(some_kernel);
 ```
+
+> ⚠️ Note that the compilation blocks the calling thread. For large kernels this might take a considerably long time. You may accelerate the process by compiling multiple kernels concurrently, e.g., with thread pools.
 
 Most backends supports caching the compiled shaders to accelerate future compilations of the same shader. The cache files are at `<build-folder>/bin/.cache`.
 
 ### Backends, Context, Devices and Resources<a name="devices-and-resources"/>
 
-LuisaCompute currently supports 4 backends:
+LuisaCompute currently supports 3 GPU backends:
 - CUDA
 - DirectX
 - Metal
-- LLVM
 
-More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `luisa-compute-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
+There is also a CPU backend implemented and available in [Rust](https://github.com/LuisaGroup/luisa-compute-rs) which not yet works with the C++/Python frontends. More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `lc-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
 
 The `Context` object is responsible for loading and managing these plug-ins and creating/destroying devices. Users have to pass the executable path (typically, `argv[0]`) or the runtime directory to a context's constructor (so that it's able to locate the plug-ins), and pass the backend name to create the corresponding device object.
 ```cpp
