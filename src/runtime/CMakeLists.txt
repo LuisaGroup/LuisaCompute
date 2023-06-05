@@ -43,6 +43,9 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         image.cpp image.h
         mipmap.cpp mipmap.h
         shader.h
+        sparse_texture.cpp sparse_texture.h
+        sparse_image.h
+        sparse_volume.h
         stream_event.h
         stream.cpp stream.h
         swapchain.cpp swapchain.h

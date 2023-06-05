@@ -8,9 +8,12 @@
 namespace luisa::compute {
 template<typename T>
 class Buffer;
+
 template<typename T>
 class BufferView;
+
 class LC_RUNTIME_API SparseTexture : public Resource {
+
 public:
     struct LC_RUNTIME_API UpdateTiles {
         uint64_t handle;
@@ -21,8 +24,11 @@ public:
 protected:
     luisa::vector<TileModification> _tiles;
     SparseTexture(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
-    virtual ~SparseTexture() noexcept;
     SparseTexture(SparseTexture &&) noexcept = default;
+    ~SparseTexture() noexcept override;
+
+public:
+    // deleted members should be public
     SparseTexture(const SparseTexture &) noexcept = delete;
     SparseTexture &operator=(SparseTexture &&) noexcept = delete;// use _move_from in derived classes
     SparseTexture &operator=(const SparseTexture &) noexcept = delete;

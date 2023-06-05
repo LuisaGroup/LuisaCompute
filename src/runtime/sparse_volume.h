@@ -2,9 +2,12 @@
 
 #include <runtime/volume.h>
 #include <runtime/sparse_texture.h>
+
 namespace luisa::compute {
+
 template<typename T>
 class SparseVolume final : public SparseTexture {
+
 private:
     uint3 _size{};
     uint32_t _mip_levels{};
@@ -19,6 +22,7 @@ public:
         return *this;
     }
     SparseVolume &operator=(const SparseVolume &) noexcept = delete;
+
     // properties
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -45,20 +49,22 @@ public:
             .mip_level = mip_level,
             .operation = TileModification::Operation::UnMap});
     }
+
     // command
     [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, const void *data) const noexcept {
         return luisa::make_unique<SparseTextureUploadCommand>(
             data, handle(), start_coord, size, _storage, mip_level);
     }
-    template<typename T>
-    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, BufferView<T> buffer_view) const noexcept {
+    template<typename U>
+    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, BufferView<U> buffer_view) const noexcept {
         return luisa::make_unique<BufferToSparseTextureCopyCommand>(
             buffer_view.handle(), buffer_view.offset_bytes(), handle(), start_coord, size, _storage, mip_level);
     }
-    template<typename T>
-    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, Buffer<T> buffer_view) const noexcept {
+    template<typename U>
+    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, Buffer<U> buffer_view) const noexcept {
         return luisa::make_unique<BufferToSparseTextureCopyCommand>(
             buffer_view.handle(), 0ull, handle(), start_coord, size, _storage, mip_level);
     }
 };
+
 }// namespace luisa::compute
