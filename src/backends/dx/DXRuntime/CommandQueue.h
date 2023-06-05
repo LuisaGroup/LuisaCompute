@@ -21,7 +21,8 @@ private:
             vstd::function<void()>,
             vstd::vector<vstd::function<void()>>,
             LCEvent const *,
-            WaitFence>;
+            WaitFence,
+            vstd::vector<std::pair<GpuAllocator *, uint64>>>;
         Variant evt;
         uint64_t fence;
         bool wakeupThread;

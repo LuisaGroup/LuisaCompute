@@ -34,7 +34,7 @@ private:
 
 public:
     static void check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_id = 0);
-    static void add_custom_stream(uint64_t handle, StreamOption&& opt);
+    static void add_custom_stream(uint64_t handle, StreamOption &&opt);
     void *native_handle() const noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
@@ -104,7 +104,7 @@ public:
         uint width, uint height, uint depth,
         uint mipmap_levels) noexcept override;
     void destroy_sparse_texture(uint64_t handle) noexcept override;
-    void update_sparse_texture(uint64_t stream_handle, luisa::vector<TileModification> &&tiles) noexcept override;
+    void update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept override;
 };
 
 }// namespace lc::validation

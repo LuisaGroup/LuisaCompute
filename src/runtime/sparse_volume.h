@@ -39,12 +39,26 @@ public:
             .mip_level = mip_level,
             .operation = TileModification::Operation::Map});
     }
-    void unmap_tile(uint3 start_coord, uint3 size, uint mip_level) noexcept {
+    void unmap_tile(uint3 start_coord, uint mip_level) noexcept {
         _tiles.emplace_back(TileModification{
             .start_coord = start_coord,
-            .size = size,
             .mip_level = mip_level,
             .operation = TileModification::Operation::UnMap});
+    }
+    // command
+    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, const void *data) const noexcept {
+        return luisa::make_unique<SparseTextureUploadCommand>(
+            data, handle(), start_coord, size, _storage, mip_level);
+    }
+    template<typename T>
+    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, BufferView<T> buffer_view) const noexcept {
+        return luisa::make_unique<BufferToSparseTextureCopyCommand>(
+            buffer_view.handle(), buffer_view.offset_bytes(), handle(), start_coord, size, _storage, mip_level);
+    }
+    template<typename T>
+    [[nodiscard]] auto copy_from(uint3 start_coord, uint3 size, uint mip_level, Buffer<T> buffer_view) const noexcept {
+        return luisa::make_unique<BufferToSparseTextureCopyCommand>(
+            buffer_view.handle(), 0ull, handle(), start_coord, size, _storage, mip_level);
     }
 };
 }// namespace luisa::compute

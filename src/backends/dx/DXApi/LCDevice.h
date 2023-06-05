@@ -98,6 +98,6 @@ public:
         uint width, uint height, uint depth,
         uint mipmap_levels) noexcept override;
     void destroy_sparse_texture(uint64_t handle) noexcept override;
-    void update_sparse_texture(uint64_t stream_handle, luisa::vector<TileModification> &&tiles) noexcept override;
+    void update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept override;
 };
 }// namespace lc::dx

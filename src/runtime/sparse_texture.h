@@ -6,9 +6,14 @@
 #include <runtime/rhi/tile_modification.h>
 
 namespace luisa::compute {
+template<typename T>
+class Buffer;
+template<typename T>
+class BufferView;
 class LC_RUNTIME_API SparseTexture : public Resource {
 public:
     struct LC_RUNTIME_API UpdateTiles {
+        uint64_t handle;
         luisa::vector<TileModification> tiles;
         void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };

@@ -111,6 +111,11 @@ void CommandQueue::ExecuteThread() {
                 mainCv.notify_all();
             }
         };
+        auto ExecuteReleaseQueue = [&](vstd::vector<std::pair<GpuAllocator *, uint64>> &vec) {
+            for (auto &&i : vec) {
+                i.first->Release(i.second);
+            }
+        };
         while (auto b = executedAllocators.pop()) {
             fence = b->fence;
             wakeupThread = b->wakeupThread;
@@ -119,7 +124,8 @@ void CommandQueue::ExecuteThread() {
                 ExecuteCallback,
                 ExecuteCallbacks,
                 ExecuteEvent,
-                ExecuteHandle);
+                ExecuteHandle,
+                ExecuteReleaseQueue);
         }
         std::unique_lock lck(mtx);
         while (enabled && executedAllocators.length() == 0) {
@@ -158,13 +164,7 @@ uint64 CommandQueue::SignalAfterSparseTexUpdate(vstd::vector<std::pair<GpuAlloca
     auto curFrame = ++lastFrame;
     ThrowIfFailed(queue->Signal(cmdFence.Get(), curFrame));
     executedAllocators.push(WaitFence{curFrame}, curFrame, false);
-    executedAllocators.push(
-        [v = std::move(deallocatedHandle)] {
-            for (auto &&i : v) {
-                i.first->Release(i.second);
-            }
-        },
-        curFrame, true);
+    executedAllocators.push(std::move(deallocatedHandle), curFrame, true);
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();

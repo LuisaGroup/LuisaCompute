@@ -306,7 +306,7 @@ void Device::destroy_sparse_texture(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_texture(handle);
 }
-void Device::update_sparse_texture(uint64_t stream_handle, luisa::vector<TileModification> &&tiles) noexcept {
-    _native->update_sparse_texture(stream_handle, std::move(tiles));
+void Device::update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept {
+    _native->update_sparse_texture(stream_handle, handle, std::move(tiles));
 }
 }// namespace lc::validation

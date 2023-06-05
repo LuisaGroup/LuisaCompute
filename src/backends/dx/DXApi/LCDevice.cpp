@@ -624,7 +624,26 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
 void LCDevice::destroy_sparse_texture(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseTexture *>(handle);
 }
-void LCDevice::update_sparse_texture(uint64_t stream_handle, luisa::vector<TileModification> &&tiles) noexcept {}
+void LCDevice::update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    auto tex = reinterpret_cast<SparseTexture *>(handle);
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
+    }
+    auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
+    vstd::vector<std::pair<GpuAllocator *, uint64>> deallocatedHandle;
+    for (auto &&i : tiles) {
+        switch (i.operation) {
+            case TileModification::Operation::Map:
+                tex->AllocateTile(queuePtr.Queue(), i.start_coord, i.size, i.mip_level);
+                break;
+            case TileModification::Operation::UnMap:
+                tex->DeAllocateTile(queuePtr.Queue(), i.start_coord, i.mip_level, deallocatedHandle);
+                break;
+        }
+    }
+    queuePtr.SignalAfterSparseTexUpdate(std::move(deallocatedHandle));
+}
 
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR
