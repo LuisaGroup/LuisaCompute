@@ -5,6 +5,7 @@
 #pragma once
 
 #include <utility>
+#include <functional>
 
 #include <core/spin_mutex.h>
 #include <runtime/rhi/resource.h>
