@@ -23,7 +23,7 @@ public:
 
 protected:
     luisa::vector<TileModification> _tiles;
-    SparseTexture(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
+    SparseTexture(DeviceInterface *device, const ResourceCreationInfo &info) noexcept;
     SparseTexture(SparseTexture &&) noexcept = default;
     ~SparseTexture() noexcept override;
 

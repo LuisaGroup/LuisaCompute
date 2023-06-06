@@ -17,7 +17,7 @@ struct CompeteResource {
 
 class CustomDispatchArgumentVisitor;
 
-class Stream : public RWResource {
+class Stream : public RWResource, public luisa::enable_shared_from_this<Stream> {
 
     friend class CustomDispatchArgumentVisitor;
 

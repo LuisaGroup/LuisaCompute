@@ -13,6 +13,30 @@ private:
     uint32_t _mip_levels{};
     PixelStorage _storage{};
 
+private:
+    friend class Device;
+    friend class ResourceGenerator;
+    SparseImage(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint2 size, uint mip_levels) noexcept
+        : SparseTexture{
+              device,
+              create_info},
+          _size{size}, _mip_levels{mip_levels}, _storage{storage} {
+    }
+    SparseImage(DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
+        : SparseImage{
+              device,
+              [&] {
+                  if (size.x == 0 || size.y == 0) [[unlikely]] {
+                      detail::image_size_zero_error();
+                  }
+                  return device->create_sparse_texture(
+                      pixel_storage_to_format<T>(storage), 2u,
+                      size.x, size.y, 1u,
+                      detail::max_mip_levels(make_uint3(size, 1u), mip_levels));
+              }(),
+              storage, size, mip_levels} {
+    }
+
 public:
     using Resource::operator bool;
     SparseImage(SparseImage &&) noexcept = default;
@@ -55,15 +79,15 @@ public:
         return luisa::make_unique<SparseTextureUploadCommand>(
             data, handle(), make_uint3(start_coord, 0u), make_uint3(size, 1u), _storage, mip_level);
     }
-    template <typename U>
+    template<typename U>
     [[nodiscard]] auto copy_from(uint2 start_coord, uint2 size, uint mip_level, BufferView<U> buffer_view) const noexcept {
         return luisa::make_unique<BufferToSparseTextureCopyCommand>(
             buffer_view.handle(), buffer_view.offset_bytes(), handle(), make_uint3(start_coord, 0u), make_uint3(size, 1u), _storage, mip_level);
     }
-    template <typename U>
-    [[nodiscard]] auto copy_from(uint2 start_coord, uint2 size, uint mip_level, Buffer<U> buffer_view) const noexcept {
+    template<typename U>
+    [[nodiscard]] auto copy_from(uint2 start_coord, uint2 size, uint mip_level, const Buffer<U> &buffer) const noexcept {
         return luisa::make_unique<BufferToSparseTextureCopyCommand>(
-            buffer_view.handle(), 0ull, handle(), make_uint3(start_coord, 0u), make_uint3(size, 1u), _storage, mip_level);
+            buffer.handle(), 0ull, handle(), make_uint3(start_coord, 0u), make_uint3(size, 1u), _storage, mip_level);
     }
 };
 

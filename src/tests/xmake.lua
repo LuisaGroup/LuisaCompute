@@ -70,6 +70,7 @@ test_proj("test_texture3d", true)
 test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
+test_proj("test_sparse_texture", true)
 local enable_fsr2
 local enable_xess
 -- Super-sampling example

@@ -25,6 +25,9 @@ LC_RUNTIME_API void volume_size_zero_error() noexcept;
 template<typename T>
 class VolumeView;
 
+template<typename T>
+class SparseVolume;
+
 // Volumes are 3D textures without sampling, i.e., 3D surfaces.
 template<typename T>
 class Volume final : public Resource {
@@ -49,8 +52,8 @@ private:
           _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {
     }
     Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
-        : Resource{
-              device, Tag::TEXTURE,
+        : Volume{
+              device,
               [&] {
                   if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
                       detail::volume_size_zero_error();
@@ -59,8 +62,8 @@ private:
                       pixel_storage_to_format<T>(storage), 3u,
                       size.x, size.y, size.z,
                       detail::max_mip_levels(size, mip_levels));
-              }()},
-          _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {}
+              }(),
+              storage, size, mip_levels} {}
 
 public:
     Volume() noexcept = default;
@@ -126,6 +129,7 @@ private:
 
 private:
     friend class Volume<T>;
+    friend class SparseVolume<T>;
     friend class detail::MipmapView;
     friend class ResourceGenerator;
 

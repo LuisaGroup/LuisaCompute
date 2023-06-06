@@ -26,6 +26,9 @@ template<typename T>
 class ImageView;
 
 template<typename T>
+class SparseImage;
+
+template<typename T>
 class BufferView;
 
 class BindlessArray;
@@ -56,9 +59,8 @@ private:
           _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {
     }
     Image(DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
-        : Resource{
+        : Image{
               device,
-              Tag::TEXTURE,
               [&] {
                   if (size.x == 0 || size.y == 0) [[unlikely]] {
                       detail::image_size_zero_error();
@@ -67,8 +69,8 @@ private:
                       pixel_storage_to_format<T>(storage), 2u,
                       size.x, size.y, 1u,
                       detail::max_mip_levels(make_uint3(size, 1u), mip_levels));
-              }()},
-          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {}
+              }(),
+              storage, size, mip_levels} {}
 
 public:
     Image() noexcept = default;
@@ -135,6 +137,7 @@ private:
 
 private:
     friend class Image<T>;
+    friend class SparseImage<T>;
     friend class detail::MipmapView;
     friend class DepthBuffer;
     friend class ResourceGenerator;
@@ -197,7 +200,7 @@ struct is_image_view_impl : std::false_type {};
 template<typename T>
 struct is_image_view_impl<ImageView<T>> : std::true_type {};
 
-}
+}// namespace detail
 
 template<typename T>
 using is_image = detail::is_image_impl<std::remove_cvref_t<T>>;

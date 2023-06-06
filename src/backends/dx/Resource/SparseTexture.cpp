@@ -16,12 +16,31 @@ SparseTexture::SparseTexture(
       allocator(&allocator),
       allowUav(allowUav) {
     allocatorPool = allocator.CreatePool(D3D12_HEAP_TYPE_DEFAULT);
-    auto texDesc = GetResourceDescBase(allowUav);
+    auto texDesc = GetResourceDescBase(allowUav, true);
     ThrowIfFailed(device->device->CreateReservedResource(
         &texDesc,
         GetInitState(),
         nullptr,
         IID_PPV_ARGS(resource.GetAddressOf())));
+    D3D12_SUBRESOURCE_TILING tilingInfo;
+    uint subresourceCount = 1;
+    device->device->GetResourceTiling(
+        resource.Get(),
+        nullptr,
+        nullptr,
+        nullptr,
+        &subresourceCount,
+        0,
+        &tilingInfo);
+    auto lastMipSize = uint3(width, height, depth) >> (mip - 1);
+    // TODO: may need packed mip in the future?
+    if (lastMipSize.x < tilingInfo.WidthInTiles || lastMipSize.y < tilingInfo.HeightInTiles || lastMipSize.z < tilingInfo.DepthInTiles) [[unlikely]] {
+        LUISA_ERROR("Currently do not support packed tile.");
+    }
+    tilingSize = uint3(
+        width / tilingInfo.WidthInTiles,
+        height / tilingInfo.HeightInTiles,
+        depth / tilingInfo.DepthInTiles);
 }
 SparseTexture::~SparseTexture() {
     auto &globalHeap = *device->globalHeap.get();
@@ -63,9 +82,9 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
     ID3D12Heap *heap;
     uint64 offset;
     auto allocateInfo = device->device->GetResourceAllocationInfo(
-        0, 1, vstd::get_rval_ptr(GetResourceDescBase(size, 1, allowUav)));
+        0, 1, vstd::get_rval_ptr(GetResourceDescBase(size, 1, allowUav, true)));
 
-    tileInfo.allocatorHandle = allocator->AllocateTextureHeap(device, allocateInfo.SizeInBytes, &heap, &offset, true);
+    tileInfo.allocatorHandle = allocator->AllocateTextureHeap(device, allocateInfo.SizeInBytes, &heap, &offset, true, allocatorPool);
     {
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.try_emplace(tile, tileInfo);
@@ -77,13 +96,14 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
         .X = coord.x,
         .Y = coord.y,
         .Z = coord.z,
-        .Subresource = mip};
+        .Subresource = mipLevel};
+    auto sizeInTiles = size / tilingSize;
     D3D12_TILE_REGION_SIZE tileSize{
-        .NumTiles = size.x * size.y * size.z,
+        .NumTiles = sizeInTiles.x * sizeInTiles.y * sizeInTiles.z,
         .UseBox = true,
-        .Width = size.x,
-        .Height = static_cast<uint16_t>(size.y),
-        .Depth = static_cast<uint16_t>(size.z)};
+        .Width = sizeInTiles.x,
+        .Height = static_cast<uint16_t>(sizeInTiles.y),
+        .Depth = static_cast<uint16_t>(sizeInTiles.z)};
     uint rangeTileCount = tileSize.NumTiles;
     queue->UpdateTileMappings(
         resource.Get(), 1,

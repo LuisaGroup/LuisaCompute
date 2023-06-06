@@ -237,6 +237,7 @@ void CommandBufferBuilder::CopyBufferSparseTexture(
         LUISA_ERROR("Direct-X backend do not support texture copy command with width * pixel_size not aligned to {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     }
     D3D12_TEXTURE_COPY_LOCATION texLocation;
+    texLocation.pResource = texture->GetResource();
     texLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     texLocation.SubresourceIndex = targetMip;
     auto c = cb->cmdList.Get();

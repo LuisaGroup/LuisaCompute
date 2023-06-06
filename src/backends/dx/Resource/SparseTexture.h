@@ -13,14 +13,14 @@ public:
             return luisa::hash64(&t, sizeof(Tile), luisa::hash64_default_seed);
         }
     };
-    struct TileLess {
+    struct TileEqual {
         bool operator()(Tile const &a, Tile const &b) const {
-            return memcmp(&a, &b, sizeof(Tile)) < 0;
+            return memcmp(&a, &b, sizeof(Tile)) == 0;
         }
     };
     struct TileInfo {
         uint size[3];
-        uint allocatorHandle;
+        uint64 allocatorHandle;
     };
 
 private:
@@ -29,8 +29,9 @@ private:
     ComPtr<ID3D12Resource> resource;
     mutable vstd::unordered_map<uint, uint> uavIdcs;
     mutable vstd::unordered_map<uint, uint> srvIdcs;
-    mutable vstd::unordered_map<Tile, TileInfo, TileHash, TileLess> allocatedTiles;
+    mutable vstd::unordered_map<Tile, TileInfo, TileHash, TileEqual> allocatedTiles;
     mutable std::mutex allocMtx;
+    uint3 tilingSize;
     bool allowUav;
 
 public:
@@ -58,6 +59,6 @@ public:
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;
     uint GetGlobalUAVIndex(uint mipLevel) const override;
     void AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 size, uint mipLevel) const;
-    void DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel, vstd::vector<std::pair<GpuAllocator*, uint64>>& deallocatedHandle)const;
+    void DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel, vstd::vector<std::pair<GpuAllocator *, uint64>> &deallocatedHandle) const;
 };
 }// namespace lc::dx

@@ -7,8 +7,8 @@ void SparseTexture::UpdateTiles::operator()(DeviceInterface *device, uint64_t st
     device->update_sparse_texture(stream_handle, handle, std::move(tiles));
 }
 
-SparseTexture::SparseTexture(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept
-    : Resource{device, tag, info} {
+SparseTexture::SparseTexture(DeviceInterface *device,const ResourceCreationInfo &info) noexcept
+    : Resource{device, Tag::SPARSE_TEXTURE, info} {
 }
 
 SparseTexture::UpdateTiles SparseTexture::update() noexcept {
@@ -16,7 +16,7 @@ SparseTexture::UpdateTiles SparseTexture::update() noexcept {
 }
 
 SparseTexture::~SparseTexture() noexcept {
-    // TODO
+    if (*this) { device()->destroy_sparse_texture(handle()); }
 }
 
 }// namespace luisa::compute

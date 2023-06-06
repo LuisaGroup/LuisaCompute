@@ -59,6 +59,13 @@ struct Kernel2D;
 
 template<typename... Args>
 struct Kernel3D;
+
+template<typename T>
+class SparseImage;
+
+template<typename T>
+class SparseVolume;
+
 class DepthBuffer;
 
 namespace detail {
@@ -147,6 +154,16 @@ public:
         return _create<Image<T>>(pixel, size, mip_levels);
     }
 
+    template<typename T>
+    [[nodiscard]] auto create_sparse_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
+        return _create<SparseImage<T>>(pixel, make_uint2(width, height), mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_sparse_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
+        return _create<SparseImage<T>>(pixel, size, mip_levels);
+    }
+
     [[nodiscard]] DepthBuffer create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept;
 
     template<typename T>
@@ -157,6 +174,16 @@ public:
     template<typename T>
     [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
         return _create<Volume<T>>(pixel, size, mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
+        return _create<SparseVolume<T>>(pixel, make_uint3(width, height, depth), mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
+        return _create<SparseVolume<T>>(pixel, size, mip_levels);
     }
 
     template<typename T>
