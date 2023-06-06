@@ -60,30 +60,34 @@ xmake
 
 ### XMake Options
 
-All xmake options declared in ./xmake.lua clearly, you can create ./options.lua to save a default config for your local environment. An example of options.lua is:
+All xmake options declared in ./xmake.lua clearly, you can create ./scripts/options.lua to save a default config for your local environment. An example of options.lua is:
 
 ```lua
 -- for xmake internal arguments
 lc_toolchain = {
 	toolchain = "llvm",
-	sdk = "D:/LLVM"
 }
 -- for LC's custom options
 function get_options()
 	return {
-		enable_tests = true,
-		enable_api = true,
+		enable_dsl = true,
+		enable_gui = true,
 	}
 end
 ```
 Options in options.lua can be covered by command-line config, for example:
 
 ```bash
-xmake f --enable_tests=false --enable_api=false -c
+xmake f --enable_dsl=false --enable_gui=false -c
 xmake
 ```
 
-Now both "enable_tests" and "enable_api" are false value.
+Now both "enable_dsl" and "enable_gui" are false value.
+
+You can use ./scripts/write_options.lua to generate a default options.lua:
+```bash
+xmake lua scripts/write_options.lua
+```
 
 ### XMake Config
 
