@@ -294,7 +294,7 @@ VSTL_EXPORT_C void destroy(DeviceInterface *d) {
 VSTL_EXPORT_C DeviceInterface *create(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) {
     return new Device{std::move(ctx), std::move(native)};
 }
-ResourceCreationInfo Device::create_sparse_texture(
+SparseTextureCreationInfo Device::create_sparse_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels) noexcept {
@@ -306,7 +306,19 @@ void Device::destroy_sparse_texture(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_texture(handle);
 }
-void Device::update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept {
+void Device::update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseTexModification> &&tiles) noexcept {
     _native->update_sparse_texture(stream_handle, handle, std::move(tiles));
+}
+SparseBufferCreationInfo Device::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
+    auto buffer = _native->create_sparse_buffer(element, elem_count);
+    new Buffer{buffer.handle};
+    return buffer;
+}
+void Device::update_sparse_buffer(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseBufferModification> &&tiles) noexcept {
+    _native->update_sparse_buffer(stream_handle, handle, std::move(tiles));
+}
+void Device::destroy_sparse_buffer(uint64_t handle) noexcept {
+    RWResource::dispose(handle);
+    _native->destroy_sparse_buffer(handle);
 }
 }// namespace lc::validation

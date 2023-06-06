@@ -291,17 +291,6 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 auto c = static_cast<TextureUploadCommand *>(cmd);
                 mark_handle(c->handle(), Usage::WRITE, Range{c->level(), 1});
             } break;
-            case CmdTag::ESparseTextureUploadCommand: {
-                Device::check_stream(handle(), StreamFunc::Copy);
-                auto c = static_cast<SparseTextureUploadCommand *>(cmd);
-                mark_handle(c->handle(), Usage::WRITE, Range{c->level(), 1});
-            } break;
-            case CmdTag::EBufferToSparseTextureCopyCommand: {
-                Device::check_stream(handle(), StreamFunc::Copy);
-                auto c = static_cast<BufferToSparseTextureCopyCommand *>(cmd);
-                mark_handle(c->buffer(), Usage::READ, Range{c->buffer_offset(), pixel_storage_size(c->storage(), c->size())});
-                mark_handle(c->texture(), Usage::WRITE, Range{c->level(), 1});
-            } break;
             case CmdTag::ETextureDownloadCommand: {
                 Device::check_stream(handle(), StreamFunc::Copy);
                 auto c = static_cast<TextureDownloadCommand *>(cmd);

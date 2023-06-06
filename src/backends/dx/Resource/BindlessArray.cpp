@@ -6,7 +6,6 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandAllocator.h>
-#include <Resource/Buffer.h>
 #include <core/logging.h>
 
 namespace lc::dx {

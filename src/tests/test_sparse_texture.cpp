@@ -1,8 +1,9 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/buffer.h>
+#include <runtime/sparse_buffer.h>
 #include <runtime/sparse_image.h>
+#include <runtime/bindless_array.h>
 #include <core/logging.h>
 #include <dsl/syntax.h>
 #include <stb/stb_image_write.h>
@@ -20,28 +21,66 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1], nullptr, true);
     auto stream = device.create_stream();
-    constexpr uint2 resolution = make_uint2(4096, 4096);
-    auto sparse_image = device.create_sparse_image<float>(PixelStorage::BYTE4, resolution.x * 2, resolution.y * 2);
-    sparse_image.map_tile(make_uint2(0), resolution, 0);
-    Kernel2D kernel = [&](ImageVar<float> img, ImageVar<float> out) {
-        Var coord = dispatch_id().xy();
-        out.write(coord, img.read(coord));
-    };
-    Kernel2D write_kernel = [&](ImageVar<float> img) {
-        Var coord = dispatch_id().xy();
-        Var size = dispatch_size().xy();
-        Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
-        img.write(coord, make_float4(uv, 1.f, 1.0f));
-    };
-    auto shader = device.compile(kernel);
-    auto write_shader = device.compile(write_kernel);
-    auto buffer = device.create_buffer<uint>(resolution.x * resolution.y);
-    Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
-    luisa::vector<std::byte> result(image.size_bytes());
-    stream
-        << sparse_image.update()
-        << write_shader(image.view()).dispatch(resolution)
-        << image.copy_to(result.data())
-        << synchronize();
-    stbi_write_png("test_sparse.png", resolution.x, resolution.y, 4, result.data(), 0);
+    // Test sparse buffer
+    {
+        Kernel1D write_sparse_kernel = [&](BufferVar<float> buffer) {
+            UInt coord = dispatch_id().x;
+            buffer.write(coord, coord.cast<float>() + 0.5f);
+        };
+        auto write_sparse_shader = device.compile(write_sparse_kernel);
+        // An extremely huge virtual buffer
+        constexpr size_t buffer_size = 1024ull * 1024ull * 1024ull * 32ull;
+        auto sparse_buffer = device.create_sparse_buffer<float>(buffer_size);
+        auto one_tile_size = sparse_buffer.tile_size() / sizeof(float);
+        luisa::vector<float> result(one_tile_size);
+        sparse_buffer.map_tile(1, 1);
+        auto buffer_view = sparse_buffer.view(one_tile_size, one_tile_size);
+        stream
+            << sparse_buffer.update()
+            << write_sparse_shader(buffer_view).dispatch(one_tile_size)
+            << buffer_view.copy_to(result.data())
+            << synchronize();
+    }
+    // Test sparse texture
+    {
+        // maximum virtual texture
+        constexpr uint2 virtual_resolution = make_uint2(16384, 16384);
+        constexpr uint2 resolution = make_uint2(1024, 1024);
+        constexpr uint2 pixel_offset = resolution * make_uint2(2u);
+        auto sparse_image = device.create_sparse_image<float>(PixelStorage::BYTE4, virtual_resolution.x, virtual_resolution.y);
+        auto bindless_arr = device.create_bindless_array();
+        bindless_arr.emplace_on_update(0, sparse_image, Sampler::linear_point_edge());
+        Kernel2D write_sparse_kernel = [&](ImageVar<float> img, ImageVar<float> out, Float2 uv_offset, Float2 uv_scale) {
+            Var coord = dispatch_id().xy();
+            Var size = dispatch_size().xy();
+            Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
+            uv = (uv * uv_scale) + uv_offset;
+            out.write(coord, bindless_arr->tex2d(0).sample(uv));
+        };
+        Kernel2D write_kernel = [&](ImageVar<float> img, UInt2 offset) {
+            Var coord = dispatch_id().xy();
+            Var size = dispatch_size().xy();
+            Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
+            img.write(coord + offset, make_float4(uv, 1.f, 1.0f));
+        };
+        auto write_sparse_shader = device.compile(write_sparse_kernel);
+        auto write_shader = device.compile(write_kernel);
+        auto buffer = device.create_buffer<uint>(resolution.x * resolution.y);
+        Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
+        luisa::vector<std::byte> result(image.size_bytes());
+        sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0);
+        stream
+            << sparse_image.update()
+            << bindless_arr.update()
+            << write_shader(sparse_image.view(), pixel_offset).dispatch(resolution)
+            << write_sparse_shader(
+                   sparse_image.view(),
+                   image,
+                   make_float2(pixel_offset) / make_float2(virtual_resolution),
+                   make_float2(resolution) / make_float2(virtual_resolution)) 
+                   .dispatch(resolution)
+            << image.copy_to(result.data())
+            << synchronize();
+        stbi_write_png("test_sparse.png", resolution.x, resolution.y, 4, result.data(), 0);
+    }
 }

@@ -31,6 +31,9 @@ template<typename T>
 class Buffer;
 
 template<typename T>
+class SparseBuffer;
+
+template<typename T>
 class Image;
 
 template<typename T>
@@ -194,8 +197,8 @@ public:
 
     template<typename T>
         requires(!is_custom_struct_v<T>)//backend-specific type not allowed
-    [[nodiscard]] auto create_buffer(void *ptr, size_t size) noexcept {
-        return _create<Buffer<T>>(ptr, size);
+    [[nodiscard]] auto create_sparse_buffer(size_t size) noexcept {
+        return _create<SparseBuffer<T>>(size);
     }
 
     template<size_t N, typename... Args>

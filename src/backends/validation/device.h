@@ -98,13 +98,18 @@ public:
     DeviceExtension *extension(luisa::string_view name) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 
+    // sparse buffer
+    [[nodiscard]] SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept override;
+    void update_sparse_buffer(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseBufferModification> &&tiles) noexcept override;
+    void destroy_sparse_buffer(uint64_t handle) noexcept override;
+
     // sparse texture
-    [[nodiscard]] ResourceCreationInfo create_sparse_texture(
+    [[nodiscard]] SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels) noexcept override;
     void destroy_sparse_texture(uint64_t handle) noexcept override;
-    void update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept override;
+    void update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseTexModification> &&tiles) noexcept override;
 };
 
 }// namespace lc::validation

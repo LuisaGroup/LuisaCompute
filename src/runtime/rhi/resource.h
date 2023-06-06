@@ -56,6 +56,27 @@ struct ShaderCreationInfo : public ResourceCreationInfo {
     }
 };
 
+struct SparseTextureCreationInfo : public ResourceCreationInfo {
+    size_t tile_size_bytes;
+    uint3 tile_size;
+
+    [[nodiscard]] static auto make_invalid() noexcept {
+        SparseTextureCreationInfo info{};
+        info.invalidate();
+        return info;
+    }
+};
+
+struct SparseBufferCreationInfo : public BufferCreationInfo {
+    size_t tile_size_bytes;
+
+    [[nodiscard]] static auto make_invalid() noexcept {
+        SparseBufferCreationInfo info{};
+        info.invalidate();
+        return info;
+    }
+};
+
 struct AccelOption {
 
     enum struct UsageHint : uint32_t {
@@ -122,6 +143,7 @@ public:
         DEPTH_BUFFER,
         DSTORAGE_FILE,
         DSTORAGE_PINNED_MEMORY,
+        SPARSE_BUFFER,
         SPARSE_TEXTURE,
     };
 

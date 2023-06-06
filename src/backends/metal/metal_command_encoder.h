@@ -42,12 +42,6 @@ public:
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
-    void visit(BufferToSparseTextureCopyCommand *command) noexcept override {
-        // TODO
-    }
-    void visit(SparseTextureUploadCommand *command) noexcept override {
-        // TODO
-    }
     void add_callback(MetalCallbackContext *cb) noexcept;
     virtual MTL::CommandBuffer *submit(CommandList::CallbackContainer &&user_callbacks) noexcept;
 

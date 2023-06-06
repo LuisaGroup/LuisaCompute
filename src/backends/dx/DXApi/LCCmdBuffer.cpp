@@ -203,25 +203,7 @@ public:
             stateTracker->ReadState(ResourceReadUsage::CopySource));
     }
 
-    void visit(const BufferToSparseTextureCopyCommand *cmd) noexcept override {
-        auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
-        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
-        stateTracker->RecordState(
-            rt,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-
-        stateTracker->RecordState(
-            bf,
-            stateTracker->ReadState(ResourceReadUsage::CopySource));
-    }
-
     void visit(const TextureUploadCommand *cmd) noexcept override {
-        auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
-        stateTracker->RecordState(
-            rt,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-    }
-    void visit(const SparseTextureUploadCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         stateTracker->RecordState(
             rt,
@@ -430,15 +412,10 @@ public:
         bd->CopyBufferTexture(
             BufferView{bf, cmd->buffer_offset()},
             rt,
+            cmd->texture_offset(),
+            cmd->size(),
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-    }
-    void visit(const BufferToSparseTextureCopyCommand *cmd) noexcept override {
-        auto rt = reinterpret_cast<SparseTexture *>(cmd->texture());
-        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
-        bd->CopyBufferSparseTexture(
-            BufferView{bf, cmd->buffer_offset()},
-            rt, cmd->start_coord(), cmd->size(), cmd->level());
     }
 
     struct Visitor {
@@ -571,37 +548,10 @@ public:
         bd->CopyBufferTexture(
             bfView,
             rt,
+            cmd->offset(),
+            cmd->size(),
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-    }
-    void visit(const SparseTextureUploadCommand *cmd) noexcept override {
-        auto rt = reinterpret_cast<SparseTexture *>(cmd->handle());
-        auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
-            rt,
-            cmd->level());
-        auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
-        auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
-        if (copyInfo.bufferSize == copyInfo.alignedBufferSize) {
-            uploadBuffer->CopyData(
-                bfView.offset,
-                {reinterpret_cast<uint8_t const *>(cmd->data()),
-                 bfView.byteSize});
-        } else {
-            size_t bufferOffset = bfView.offset;
-            size_t leftedSize = copyInfo.bufferSize;
-            auto dataPtr = reinterpret_cast<uint8_t const *>(cmd->data());
-            while (leftedSize > 0) {
-                uploadBuffer->CopyData(
-                    bufferOffset,
-                    {dataPtr, copyInfo.copySize});
-                dataPtr += copyInfo.copySize;
-                leftedSize -= copyInfo.copySize;
-                bufferOffset += copyInfo.stepSize;
-            }
-        }
-        bd->CopyBufferSparseTexture(
-            bfView,
-            rt, cmd->start_coord(), cmd->size(), cmd->level());
     }
     void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -661,6 +611,8 @@ public:
         bd->CopyBufferTexture(
             bfView,
             rt,
+            cmd->offset(),
+            cmd->size(),
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
     }
@@ -681,6 +633,8 @@ public:
         bd->CopyBufferTexture(
             BufferView{bf, cmd->buffer_offset()},
             rt,
+            cmd->texture_offset(),
+            cmd->size(),
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
     }

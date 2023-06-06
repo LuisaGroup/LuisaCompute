@@ -51,12 +51,6 @@ public:
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
-    void visit(BufferToSparseTextureCopyCommand *command) noexcept override {
-        // TODO
-    }
-    void visit(SparseTextureUploadCommand *command) noexcept override {
-        // TODO
-    }
 
     void commit(CommandList::CallbackContainer &&user_callbacks) noexcept;
 

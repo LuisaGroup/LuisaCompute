@@ -8,6 +8,7 @@ public:
         UploadBuffer,
         ReadbackBuffer,
         DefaultBuffer,
+        SparseBuffer,
         RenderTexture,
         SparseTexture,
         DescriptorHeap,

@@ -135,15 +135,22 @@ public:
     [[nodiscard]] virtual DeviceExtension *extension(luisa::string_view name) noexcept { return nullptr; }
     virtual void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept = 0;
 
+    // sparse buffer
+    [[nodiscard]] virtual SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
+        return SparseBufferCreationInfo::make_invalid();
+    }
+    virtual void update_sparse_buffer(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseBufferModification> &&tiles) noexcept {}
+    virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
+
     // sparse texture
-    [[nodiscard]] virtual ResourceCreationInfo create_sparse_texture(
+    [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels) noexcept {
-        return ResourceCreationInfo::make_invalid();
+        return SparseTextureCreationInfo::make_invalid();
     }
     virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
-    virtual void update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<TileModification> &&tiles) noexcept {}
+    virtual void update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseTexModification> &&tiles) noexcept {}
 };
 
 }// namespace luisa::compute

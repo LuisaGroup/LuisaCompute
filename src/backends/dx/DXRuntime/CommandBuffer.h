@@ -76,14 +76,10 @@ public:
     void CopyBufferTexture(
         BufferView const &buffer,
         TextureBase *texture,
-        uint targetMip,
-        BufferTextureCopy ope);
-    void CopyBufferSparseTexture(
-        BufferView const &buffer,
-        SparseTexture *texture,
         uint3 startCoord,
         uint3 size,
-        uint targetMip);
+        uint targetMip,
+        BufferTextureCopy ope);
     struct CopyInfo {
         size_t bufferSize;
         size_t alignedBufferSize;

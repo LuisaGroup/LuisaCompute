@@ -7,8 +7,10 @@ void SparseTexture::UpdateTiles::operator()(DeviceInterface *device, uint64_t st
     device->update_sparse_texture(stream_handle, handle, std::move(tiles));
 }
 
-SparseTexture::SparseTexture(DeviceInterface *device,const ResourceCreationInfo &info) noexcept
-    : Resource{device, Tag::SPARSE_TEXTURE, info} {
+SparseTexture::SparseTexture(DeviceInterface *device, const SparseTextureCreationInfo &info) noexcept
+    : Resource{device, Tag::SPARSE_TEXTURE, info},
+      _tile_size_bytes{info.tile_size_bytes},
+      _tile_size{info.tile_size} {
 }
 
 SparseTexture::UpdateTiles SparseTexture::update() noexcept {

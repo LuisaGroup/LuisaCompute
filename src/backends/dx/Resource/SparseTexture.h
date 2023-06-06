@@ -1,6 +1,5 @@
 #pragma once
 #include <Resource/TextureBase.h>
-#include <Resource/AllocHandle.h>
 namespace lc::dx {
 class SparseTexture final : public TextureBase {
 public:
@@ -31,10 +30,11 @@ private:
     mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable vstd::unordered_map<Tile, TileInfo, TileHash, TileEqual> allocatedTiles;
     mutable std::mutex allocMtx;
-    uint3 tilingSize;
     bool allowUav;
 
 public:
+    GpuAllocator *Allocator() const { return allocator; };
+    std::pair<uint3, size_t> TilingSize() const;
     SparseTexture(
         Device *device,
         uint width,
@@ -59,6 +59,6 @@ public:
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;
     uint GetGlobalUAVIndex(uint mipLevel) const override;
     void AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 size, uint mipLevel) const;
-    void DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel, vstd::vector<std::pair<GpuAllocator *, uint64>> &deallocatedHandle) const;
+    void DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const;
 };
 }// namespace lc::dx

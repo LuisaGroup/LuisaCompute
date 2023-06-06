@@ -9,8 +9,8 @@
 #include <runtime/mipmap.h>
 #include <runtime/rhi/resource.h>
 #include <runtime/buffer.h>
-#include <runtime/image.h>
-#include <runtime/volume.h>
+#include <runtime/sparse_image.h>
+#include <runtime/sparse_volume.h>
 
 namespace luisa::compute {
 
@@ -102,6 +102,16 @@ public:
 
     auto &emplace_on_update(size_t index, const Volume<float> &volume, Sampler sampler) noexcept {
         _emplace_tex3d_on_update(index, volume.handle(), sampler);
+        return *this;
+    }
+
+    auto &emplace_on_update(size_t index, const SparseImage<float> &texture, Sampler sampler) noexcept {
+        _emplace_tex2d_on_update(index, texture.handle(), sampler);
+        return *this;
+    }
+
+    auto &emplace_on_update(size_t index, const SparseVolume<float> &texture, Sampler sampler) noexcept {
+        _emplace_tex3d_on_update(index, texture.handle(), sampler);
         return *this;
     }
 

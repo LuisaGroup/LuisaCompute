@@ -30,22 +30,20 @@ struct IndirectDispatchArg {
     uint64_t handle;
 };
 
-#define LUISA_COMPUTE_RUNTIME_COMMANDS    \
-    BufferUploadCommand,                  \
-        BufferDownloadCommand,            \
-        BufferCopyCommand,                \
-        BufferToTextureCopyCommand,       \
-        ShaderDispatchCommand,            \
-        TextureUploadCommand,             \
-        TextureDownloadCommand,           \
-        TextureCopyCommand,               \
-        TextureToBufferCopyCommand,       \
-        AccelBuildCommand,                \
-        MeshBuildCommand,                 \
-        ProceduralPrimitiveBuildCommand,  \
-        BindlessArrayUpdateCommand,       \
-        SparseTextureUploadCommand,       \
-        BufferToSparseTextureCopyCommand, \
+#define LUISA_COMPUTE_RUNTIME_COMMANDS   \
+    BufferUploadCommand,                 \
+        BufferDownloadCommand,           \
+        BufferCopyCommand,               \
+        BufferToTextureCopyCommand,      \
+        ShaderDispatchCommand,           \
+        TextureUploadCommand,            \
+        TextureDownloadCommand,          \
+        TextureCopyCommand,              \
+        TextureToBufferCopyCommand,      \
+        AccelBuildCommand,               \
+        MeshBuildCommand,                \
+        ProceduralPrimitiveBuildCommand, \
+        BindlessArrayUpdateCommand,      \
         CustomCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
@@ -129,7 +127,6 @@ public:
 };
 
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
-
 
 public:
     using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
@@ -238,6 +235,7 @@ private:
     uint64_t _texture_handle{};
     PixelStorage _pixel_storage{};
     uint _texture_level{};
+    uint _texture_offset[3]{};
     uint _texture_size[3]{};
 
 private:
@@ -247,16 +245,18 @@ private:
 public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
-                               uint level, uint3 size) noexcept
+                               uint level, uint3 size, uint3 texture_offset = uint3::zero()) noexcept
         : Command{Command::Tag::EBufferToTextureCopyCommand},
           _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_size{size.x, size.y, size.z} {}
+          _texture_size{size.x, size.y, size.z},
+          _texture_offset{texture_offset.x, texture_offset.y, texture_offset.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
+    [[nodiscard]] auto texture_offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
@@ -269,6 +269,7 @@ private:
     uint64_t _texture_handle{};
     PixelStorage _pixel_storage{};
     uint _texture_level{};
+    uint _texture_offset[3]{};
     uint _texture_size[3]{};
 
 private:
@@ -278,16 +279,18 @@ private:
 public:
     TextureToBufferCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
-                               uint level, uint3 size) noexcept
+                               uint level, uint3 size, uint3 texture_offset = uint3::zero()) noexcept
         : Command{Command::Tag::ETextureToBufferCopyCommand},
           _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_size{size.x, size.y, size.z} {}
+          _texture_size{size.x, size.y, size.z},
+          _texture_offset{texture_offset.x, texture_offset.y, texture_offset.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
+    [[nodiscard]] auto texture_offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
@@ -298,6 +301,8 @@ private:
     PixelStorage _storage{};
     uint64_t _src_handle{};
     uint64_t _dst_handle{};
+    uint _src_offset[3]{};
+    uint _dst_offset[3]{};
     uint _size[3]{};
     uint _src_level{};
     uint _dst_level{};
@@ -308,15 +313,19 @@ private:
 
 public:
     TextureCopyCommand(PixelStorage storage, uint64_t src_handle, uint64_t dst_handle,
-                       uint src_level, uint dst_level, uint3 size) noexcept
+                       uint src_level, uint dst_level, uint3 size, uint3 src_offset = uint3::zero(), uint3 dst_offset = uint3::zero()) noexcept
         : Command{Command::Tag::ETextureCopyCommand},
           _storage{storage}, _src_handle{src_handle}, _dst_handle{dst_handle},
+          _src_offset{src_offset.x, src_offset.y, src_offset.z},
+          _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z}, _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
+    [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
+    [[nodiscard]] auto dst_offset() const noexcept { return _dst_offset; }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
@@ -327,6 +336,8 @@ private:
     uint64_t _handle{};
     PixelStorage _storage{};
     uint _level{};
+    // only for sparse texture
+    uint _offset[3]{};
     uint _size[3]{};
     const void *_data{};
 
@@ -336,14 +347,16 @@ private:
 
 public:
     TextureUploadCommand(uint64_t handle, PixelStorage storage,
-                         uint level, uint3 size, const void *data) noexcept
+                         uint level, uint3 size, const void *data, uint3 offset = uint3::zero()) noexcept
         : Command{Command::Tag::ETextureUploadCommand},
           _handle{handle}, _storage{storage}, _level{level},
-          _size{size.x, size.y, size.z}, _data{data} {}
+          _size{size.x, size.y, size.z}, _data{data},
+          _offset{offset.x, offset.y, offset.z} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
+    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
@@ -354,6 +367,8 @@ private:
     uint64_t _handle{};
     PixelStorage _storage{};
     uint _level{};
+    // only for sparse texture
+    uint _offset[3]{};
     uint _size[3]{};
     void *_data{};
 
@@ -363,14 +378,17 @@ private:
 
 public:
     TextureDownloadCommand(uint64_t handle, PixelStorage storage,
-                           uint level, uint3 size, void *data) noexcept
+                           uint level, uint3 size, void *data, uint3 offset = uint3::zero()) noexcept
         : Command{Command::Tag::ETextureDownloadCommand},
           _handle{handle}, _storage{storage}, _level{level},
-          _size{size.x, size.y, size.z}, _data{data} {}
+          _size{size.x, size.y, size.z},
+          _offset{offset.x, offset.y, offset.z},
+          _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
+    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
@@ -592,82 +610,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
-class SparseTextureUploadCommand : public Command {
-
-private:
-    const void *_data;
-    uint64_t _handle;
-    uint3 _start_coord;
-    uint3 _size;
-    PixelStorage _pixel_storage{};
-    uint _level;
-
-public:
-    SparseTextureUploadCommand(
-        const void *data,
-        uint64_t handle,
-        uint3 start_coord,
-        uint3 size,
-        PixelStorage pixel_storage,
-        uint level) noexcept
-        : Command{Command::Tag::ESparseTextureUploadCommand},
-          _data{data},
-          _handle{handle},
-          _start_coord{start_coord},
-          _size{size},
-          _pixel_storage{pixel_storage},
-          _level{level} {}
-    [[nodiscard]] auto data() const noexcept { return _data; }
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto start_coord() const noexcept { return _start_coord; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
-
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
-};
-
-class BufferToSparseTextureCopyCommand : public Command {
-    
-private:
-    uint64_t _buffer_handle;
-    uint64_t _buffer_offset;
-    uint64_t _texture_handle;
-    uint3 _start_coord;
-    uint3 _size;
-    PixelStorage _pixel_storage{};
-    uint _level;
-
-public:
-    BufferToSparseTextureCopyCommand(
-        uint64_t buffer_handle,
-        uint64_t buffer_offset,
-        uint64_t texture_handle,
-        uint3 start_coord,
-        uint3 size,
-        PixelStorage pixel_storage,
-        uint level) noexcept
-        : Command{Command::Tag::EBufferToSparseTextureCopyCommand},
-          _buffer_handle{buffer_handle},
-          _buffer_offset{buffer_offset},
-          _texture_handle{texture_handle},
-          _start_coord{start_coord},
-          _size{size},
-          _pixel_storage{pixel_storage},
-          _level{level} {}
-    [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
-    [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
-    [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
-    [[nodiscard]] auto start_coord() const noexcept { return _start_coord; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
-    
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
-};
-
 class CustomCommand : public Command {
-
 
 public:
     explicit CustomCommand() noexcept

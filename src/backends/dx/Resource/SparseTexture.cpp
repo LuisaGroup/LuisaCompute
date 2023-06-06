@@ -22,25 +22,28 @@ SparseTexture::SparseTexture(
         GetInitState(),
         nullptr,
         IID_PPV_ARGS(resource.GetAddressOf())));
+}
+std::pair<uint3, size_t> SparseTexture::TilingSize() const {
     D3D12_SUBRESOURCE_TILING tilingInfo;
     uint subresourceCount = 1;
+    uint numTiles;
     device->device->GetResourceTiling(
         resource.Get(),
-        nullptr,
+        &numTiles,
         nullptr,
         nullptr,
         &subresourceCount,
         0,
         &tilingInfo);
+    std::pair<uint3, size_t> r;
+    r.second = GetTexturePixelSize(format) * width * height * depth / numTiles;
     auto lastMipSize = uint3(width, height, depth) >> (mip - 1);
     // TODO: may need packed mip in the future?
     if (lastMipSize.x < tilingInfo.WidthInTiles || lastMipSize.y < tilingInfo.HeightInTiles || lastMipSize.z < tilingInfo.DepthInTiles) [[unlikely]] {
         LUISA_ERROR("Currently do not support packed tile.");
     }
-    tilingSize = uint3(
-        width / tilingInfo.WidthInTiles,
-        height / tilingInfo.HeightInTiles,
-        depth / tilingInfo.DepthInTiles);
+    r.first = uint3(width / tilingInfo.WidthInTiles, height / tilingInfo.HeightInTiles, depth / tilingInfo.DepthInTiles);
+    return r;
 }
 SparseTexture::~SparseTexture() {
     auto &globalHeap = *device->globalHeap.get();
@@ -81,6 +84,7 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
     }
     ID3D12Heap *heap;
     uint64 offset;
+    uint offsetTile;
     auto allocateInfo = device->device->GetResourceAllocationInfo(
         0, 1, vstd::get_rval_ptr(GetResourceDescBase(size, 1, allowUav, true)));
 
@@ -88,8 +92,10 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
     {
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.try_emplace(tile, tileInfo);
-        if (!iter.second) [[unlikely]] {
-            LUISA_ERROR("Tile already exists");
+        if (!iter.second) {
+            auto &v = iter.first->second;
+            allocator->Release(v.allocatorHandle);
+            v = tileInfo;
         }
     }
     D3D12_TILED_RESOURCE_COORDINATE tileCoord{
@@ -97,25 +103,25 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
         .Y = coord.y,
         .Z = coord.z,
         .Subresource = mipLevel};
-    auto sizeInTiles = size / tilingSize;
     D3D12_TILE_REGION_SIZE tileSize{
-        .NumTiles = sizeInTiles.x * sizeInTiles.y * sizeInTiles.z,
+        .NumTiles = size.x * size.y * size.z,
         .UseBox = true,
-        .Width = sizeInTiles.x,
-        .Height = static_cast<uint16_t>(sizeInTiles.y),
-        .Depth = static_cast<uint16_t>(sizeInTiles.z)};
+        .Width = size.x,
+        .Height = static_cast<uint16_t>(size.y),
+        .Depth = static_cast<uint16_t>(size.z)};
     uint rangeTileCount = tileSize.NumTiles;
+    offsetTile = offset / D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     queue->UpdateTileMappings(
         resource.Get(), 1,
         &tileCoord,
         &tileSize,
         heap, 1,
         vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NONE),
-        vstd::get_rval_ptr(static_cast<uint>(offset)),
+        &offsetTile,
         &rangeTileCount,
         D3D12_TILE_MAPPING_FLAG_NONE);
 }
-void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel, vstd::vector<std::pair<GpuAllocator *, uint64>> &deallocatedHandle) const {
+void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const {
     Tile tile;
     tile.mipLevel = mipLevel;
     for (auto i : vstd::range(3)) {
@@ -135,7 +141,7 @@ void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint 
         .X = coord.x,
         .Y = coord.y,
         .Z = coord.z,
-        .Subresource = mip};
+        .Subresource = mipLevel};
     D3D12_TILE_REGION_SIZE tileSize{
         .NumTiles = tileInfo.size[0] * tileInfo.size[1] * tileInfo.size[2],
         .UseBox = true,
@@ -146,11 +152,11 @@ void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint 
         resource.Get(), 1,
         &tileCoord,
         &tileSize,
-        nullptr, 0,
-        vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NONE),
+        nullptr, 1,
+        vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NULL),
         nullptr,
         nullptr,
         D3D12_TILE_MAPPING_FLAG_NONE);
-    deallocatedHandle.emplace_back(allocator, tileInfo.allocatorHandle);
+    allocator->Release(tileInfo.allocatorHandle);
 }
 }// namespace lc::dx

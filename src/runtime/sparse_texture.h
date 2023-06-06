@@ -13,17 +13,18 @@ template<typename T>
 class BufferView;
 
 class LC_RUNTIME_API SparseTexture : public Resource {
-
 public:
     struct LC_RUNTIME_API UpdateTiles {
         uint64_t handle;
-        luisa::vector<TileModification> tiles;
+        luisa::vector<SparseTexModification> tiles;
         void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
 
 protected:
-    luisa::vector<TileModification> _tiles;
-    SparseTexture(DeviceInterface *device, const ResourceCreationInfo &info) noexcept;
+    size_t _tile_size_bytes;
+    uint3 _tile_size;
+    luisa::vector<SparseTexModification> _tiles;
+    SparseTexture(DeviceInterface *device, const SparseTextureCreationInfo &info) noexcept;
     SparseTexture(SparseTexture &&) noexcept = default;
     ~SparseTexture() noexcept override;
 
@@ -33,8 +34,8 @@ public:
     SparseTexture &operator=(SparseTexture &&) noexcept = delete;// use _move_from in derived classes
     SparseTexture &operator=(const SparseTexture &) noexcept = delete;
 
-public:
     [[nodiscard]] UpdateTiles update() noexcept;
+    [[nodiscard]] auto tile_size_bytes() const noexcept { return _tile_size_bytes; }
 };
 
 LUISA_MARK_STREAM_EVENT_TYPE(SparseTexture::UpdateTiles)
