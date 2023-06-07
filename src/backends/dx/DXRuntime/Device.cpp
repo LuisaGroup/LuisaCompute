@@ -4,7 +4,6 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <Resource/GpuAllocator.h>
 #include <Shader/BuiltinKernel.h>
-#include <dxgi1_4.h>
 #include <backends/common/hlsl/shader_compiler.h>
 #include <Shader/ComputeShader.h>
 #include <core/logging.h>
@@ -151,7 +150,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             new DescriptorHeap(
                 this,
                 D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                524288,
+                262144,
                 true));
         samplerHeap = vstd::create_unique(
             new DescriptorHeap(
@@ -173,7 +172,7 @@ bool Device::SupportMeshShader() const {
 }
 VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
     r.clear();
-    ComPtr<IDXGIFactory4> dxgiFactory;
+    ComPtr<IDXGIFactory2> dxgiFactory;
     ComPtr<IDXGIAdapter1> adapter;
     ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
     auto capableAdapterIndex = 0u;

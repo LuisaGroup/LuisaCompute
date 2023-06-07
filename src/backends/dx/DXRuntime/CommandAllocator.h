@@ -6,6 +6,7 @@
 #include <Resource/DefaultBuffer.h>
 #include <Resource/ReadbackBuffer.h>
 #include <vstl/lockfree_array_queue.h>
+#include <dxgi1_4.h>
 namespace lc::dx {
 class CommandQueue;
 class IPipelineEvent;

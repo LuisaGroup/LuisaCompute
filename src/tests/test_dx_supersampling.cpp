@@ -172,7 +172,7 @@ public:
     }
     void execute(
         IDXGIAdapter1 *adapter,
-        IDXGIFactory4 *dxgi_factory,
+        IDXGIFactory2 *dxgi_factory,
         ID3D12Device *device,
         ID3D12GraphicsCommandList4 *command_list) const noexcept override {
         dispatch_params.commandList = ffxGetCommandListDX12(command_list);
@@ -273,7 +273,7 @@ public:
     }
     void execute(
         IDXGIAdapter1 *adapter,
-        IDXGIFactory4 *dxgi_factory,
+        IDXGIFactory2 *dxgi_factory,
         ID3D12Device *device,
         ID3D12GraphicsCommandList4 *command_list) const noexcept override {
         xess_assert(xessD3D12Execute(xess_context, command_list, &exec_params));

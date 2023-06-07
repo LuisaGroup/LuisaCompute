@@ -2,7 +2,7 @@
 #include <runtime/rhi/command.h>
 #include <core/stl/functional.h>
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <dxgi1_2.h>
 #include <backends/ext/registry.h>
 namespace lc::dx {
 class LCCmdBuffer;
@@ -31,7 +31,7 @@ private:
     friend class lc::dx::LCCmdVisitor;
     virtual void execute(
         IDXGIAdapter1 *adapter,
-        IDXGIFactory4 *dxgi_factory,
+        IDXGIFactory2 *dxgi_factory,
         ID3D12Device *device,
         ID3D12GraphicsCommandList4 *command_list) const noexcept = 0;
 

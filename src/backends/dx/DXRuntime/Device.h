@@ -3,7 +3,7 @@
 #include <Resource/BufferView.h>
 #include <vstl/v_guid.h>
 #include <vstl/md5.h>
-#include <dxgi1_4.h>
+#include <dxgi1_3.h>
 #include <core/binary_io.h>
 #include <runtime/device.h>
 #include <DXRuntime/DxPtr.h>
@@ -49,7 +49,7 @@ public:
     vstd::MD5 adapterID;
     DxPtr<IDXGIAdapter1> adapter;
     DxPtr<ID3D12Device5> device;
-    DxPtr<IDXGIFactory4> dxgiFactory;
+    DxPtr<IDXGIFactory2> dxgiFactory;
     vstd::unique_ptr<GpuAllocator> defaultAllocator;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;

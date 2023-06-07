@@ -2,6 +2,7 @@
 #include <DXRuntime/Device.h>
 #include <vstl/lockfree_array_queue.h>
 #include <DXRuntime/DxPtr.h>
+#include <dxgi1_4.h>
 namespace lc::dx {
 class CommandBuffer;
 class CommandAllocator;
