@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/stl/vector.h>
+#include <core/spin_mutex.h>
 #include <runtime/rhi/resource.h>
 #include <backends/metal/metal_api.h>
 

@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/stl/unordered_map.h>
 #include <backends/ext/dstorage_ext_interface.h>
 #include <backends/metal/metal_api.h>
 

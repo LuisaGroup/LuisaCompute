@@ -7,6 +7,7 @@
 
 #include <core/clock.h>
 #include <core/magic_enum.h>
+#include <core/logging.h>
 #include <backends/metal/metal_device.h>
 #include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
