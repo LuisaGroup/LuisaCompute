@@ -110,10 +110,10 @@ public:
             compression);
     }
 
-    template<typename SparseImg>
-        requires is_sparse_image_v<SparseImg>
+    template<typename SparseImage>
+        requires is_sparse_image_v<SparseImage>
     [[nodiscard]] auto copy_to(
-        SparseImg &&image,
+        SparseImage &&image,
         uint2 start_tile, uint2 tile_count, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
         auto size = tile_count * image.tile_size();
@@ -123,7 +123,7 @@ public:
             DStorageReadCommand::TextureRequest{
                 .handle = image.handle(),
                 .level = mip_level,
-                .offset = {offset.x, offset.y, 1u},
+                .offset = {offset.x, offset.y, 0u},
                 .size = {size.x, size.y, 1u}},
             compression);
     }
@@ -160,23 +160,6 @@ public:
     [[nodiscard]] auto copy_to(luisa::span<T> data,
                                DStorageCompression compression = DStorageCompression::None) const noexcept {
         return copy_to(data.data(), data.size_bytes(), compression);
-    }
-
-    template<typename ResourceOrView>
-    [[nodiscard]] auto decompress_to(ResourceOrView &&resource,
-                                     DStorageCompression method = DStorageCompression::GDeflate) const noexcept {
-        if (method == DStorageCompression::None) {
-            LUISA_WARNING("Decompressing with no method specified.");
-        }
-        return copy_to(std::forward<ResourceOrView>(resource), method);
-    }
-
-    [[nodiscard]] auto decompress_to(void *data, size_t size,
-                                     DStorageCompression method = DStorageCompression::GDeflate) const noexcept {
-        if (method == DStorageCompression::None) {
-            LUISA_WARNING("Decompressing with no method specified.");
-        }
-        return copy_to(data, size, method);
     }
 };
 
@@ -247,15 +230,22 @@ public:
         return view().copy_to(data, size, compression);
     }
 
-    template<typename ResourceOrView>
-    [[nodiscard]] auto decompress_to(ResourceOrView &&resource,
-                                     DStorageCompression method = DStorageCompression::GDeflate) const noexcept {
-        return view().decompress_to(std::forward<ResourceOrView>(resource), method);
+    template<typename SparseImage>
+        requires is_sparse_image_v<SparseImage>
+    [[nodiscard]] auto copy_to(
+        SparseImage &&image,
+        uint2 start_tile, uint2 tile_count, uint mip_level,
+        DStorageCompression compression = DStorageCompression::None) const noexcept {
+        return view().copy_to(std::forward<SparseImage>(image), start_tile, tile_count, mip_level, compression);
     }
 
-    [[nodiscard]] auto decompress_to(void *data, size_t size,
-                                     DStorageCompression method = DStorageCompression::GDeflate) const noexcept {
-        return view().decompress_to(data, size, method);
+    template<typename SparseVolume>
+        requires is_sparse_volume_v<SparseVolume>
+    [[nodiscard]] auto copy_to(
+        SparseVolume &&volume,
+        uint3 start_tile, uint3 tile_count, uint mip_level,
+        DStorageCompression compression = DStorageCompression::None) const noexcept {
+        return view().copy_to(std::forward<SparseVolume>(volume), start_tile, tile_count, mip_level, compression);
     }
 };
 

@@ -524,6 +524,7 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
+            cmd->size(),
             cmd->level());
         auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
         auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
@@ -575,6 +576,7 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
+            cmd->size(),
             cmd->level());
         auto alloc = bd->GetCB()->GetAlloc();
         auto bfView = alloc->GetTempReadbackBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
@@ -986,16 +988,16 @@ void LCCmdBuffer::Execute(
         if (cmdListIsEmpty)
             queue.ExecuteEmpty(std::move(allocator));
         else
-            vstd::atomic_max(lastFence, queue.Execute(std::move(allocator)));
+            queue.Execute(std::move(allocator));
     } else {
         if (cmdListIsEmpty)
             queue.ExecuteEmptyCallbacks(std::move(allocator), std::move(funcs));
         else
-            vstd::atomic_max(lastFence, queue.ExecuteCallbacks(std::move(allocator), std::move(funcs)));
+            queue.ExecuteCallbacks(std::move(allocator), std::move(funcs));
     }
 }
 void LCCmdBuffer::Sync() {
-    queue.Complete(lastFence);
+    queue.Complete();
 }
 void LCCmdBuffer::Present(
     LCSwapChain *swapchain,
@@ -1031,7 +1033,7 @@ void LCCmdBuffer::Present(
             nullptr);
         tracker.RestoreState(bd);
     }
-    vstd::atomic_max(lastFence, queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get(), swapchain->vsync));
+    queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get(), swapchain->vsync);
 }
 void LCCmdBuffer::CompressBC(
     TextureBase *rt,
@@ -1198,10 +1200,8 @@ void LCCmdBuffer::CompressBC(
         tracker.RecordState(outBufferPtr, D3D12_RESOURCE_STATE_COPY_SOURCE);
         tracker.RestoreState(cmdBuilder);
     }
-    vstd::atomic_max(
-        lastFence,
-        queue.ExecuteCallback(
-            std::move(alloc),
-            [backBuffer = std::move(backBuffer)] {}));
+    queue.ExecuteCallback(
+        std::move(alloc),
+        [backBuffer = std::move(backBuffer)] {});
 }
 }// namespace lc::dx

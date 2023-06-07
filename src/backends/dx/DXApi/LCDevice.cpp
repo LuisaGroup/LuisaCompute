@@ -647,6 +647,7 @@ void LCDevice::update_sparse_texture(uint64_t stream_handle, uint64_t handle, lu
                 break;
         }
     }
+    queuePtr.Signal();
 }
 
 SparseBufferCreationInfo LCDevice::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
@@ -692,6 +693,7 @@ void LCDevice::update_sparse_buffer(uint64_t stream_handle, uint64_t handle, lui
                 break;
         }
     }
+    queuePtr.Signal();  
 }
 void LCDevice::destroy_sparse_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseBuffer *>(handle);

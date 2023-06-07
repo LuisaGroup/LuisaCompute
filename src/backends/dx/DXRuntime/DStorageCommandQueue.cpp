@@ -2,7 +2,7 @@
 #include <DXApi/LCEvent.h>
 #include <core/logging.h>
 #include <backends/ext/dstorage_ext_interface.h>
-#include <Resource/TextureBase.h>
+#include <Resource/SparseTexture.h>
 #include <Resource/Buffer.h>
 #include <backends/ext/dstorage_cmd.h>
 namespace lc::dx {
@@ -146,19 +146,14 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                     LUISA_ERROR("DirectX direct-storage can not support texture destination with row size(width * pixel_size) less than {}, current row size: {}, try use buffer instead.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, row_size);
                 }
                 request.Destination.Texture.Region = D3D12_BOX{
-                    t.offset[0], t.offset[1], t.offset[2], 
-                    t.size[0], t.size[1], t.size[2]};
+                    t.offset[0], t.offset[1], t.offset[2],
+                    t.offset[0] + t.size[0], t.offset[1] + t.size[1], t.offset[2] + t.size[2]};
                 if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
                     request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                    UINT64 totalSize{};
-                    device->device->GetCopyableFootprints(
-                        vstd::get_rval_ptr( tex->GetResource()->GetDesc()),
-                        t.level, 1, 0, nullptr, nullptr, nullptr, &totalSize
-                    );
-                    request.UncompressedSize = totalSize;
+                    request.UncompressedSize = tex_size;
                 }
-                
-            } else {
+            }
+            else {
                 request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
                 request.Destination.Memory.Buffer = t.data;
                 request.Destination.Memory.Size = t.size_bytes;

@@ -1,5 +1,6 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
+#include <runtime/event.h>
 #include <runtime/stream.h>
 #include <runtime/sparse_buffer.h>
 #include <runtime/sparse_image.h>
@@ -8,6 +9,7 @@
 #include <dsl/syntax.h>
 #include <stb/stb_image_write.h>
 #include <core/clock.h>
+#include <backends/ext/dstorage_ext.hpp>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -21,6 +23,8 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1], nullptr, true);
     auto stream = device.create_stream();
+    auto dstorage_ext = device.extension<DStorageExt>();
+    Stream dstorage_stream = dstorage_ext->create_stream();
     // Test sparse buffer
     {
         Kernel1D write_sparse_kernel = [&](BufferVar<float> buffer) {
@@ -63,24 +67,23 @@ int main(int argc, char *argv[]) {
             Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
             img.write(coord + offset, make_float4(uv, 1.f, 1.0f));
         };
+        auto event = device.create_event();
         auto write_sparse_shader = device.compile(write_sparse_kernel);
         auto write_shader = device.compile(write_kernel);
         auto buffer = device.create_buffer<uint>(resolution.x * resolution.y);
         Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
+        luisa::vector<std::byte> pinned(image.size_bytes());
         luisa::vector<std::byte> result(image.size_bytes());
         sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0);
         stream
-            << sparse_image.update()
             << bindless_arr.update()
-            << write_shader(sparse_image.view(), pixel_offset).dispatch(resolution)
-            << write_sparse_shader(
-                   sparse_image.view(),
-                   image,
-                   make_float2(pixel_offset) / make_float2(virtual_resolution),
-                   make_float2(resolution) / make_float2(virtual_resolution)) 
-                   .dispatch(resolution)
-            << image.copy_to(result.data())
-            << synchronize();
+            << write_shader(image, make_uint2(0)).dispatch(resolution)
+            << image.copy_to(pinned.data()) << sparse_image.update()
+            << [&]() {
+                   auto file = dstorage_ext->pin_memory(pinned.data(), pinned.size_bytes());
+                   dstorage_stream << file.copy_to(sparse_image, pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0) << event.signal() << [f = std::move(file)] {};
+               }
+            << synchronize() << event.wait() << write_sparse_shader(sparse_image.view(), image, make_float2(pixel_offset) / make_float2(virtual_resolution), make_float2(resolution) / make_float2(virtual_resolution)).dispatch(resolution) << image.copy_to(result.data()) << synchronize();
         stbi_write_png("test_sparse.png", resolution.x, resolution.y, 4, result.data(), 0);
     }
 }

@@ -13,7 +13,6 @@ public:
 
 private:
     struct WaitFence {
-        uint64 fenceIndex;
     };
     struct CallbackEvent {
         using Variant = vstd::variant<
@@ -48,7 +47,7 @@ private:
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
     template<typename Func>
-    uint64 _Execute(AllocatorPtr &&alloc, Func &&callback);
+    void _Execute(AllocatorPtr &&alloc, Func &&callback);
 
 public:
     void WaitFrame(uint64 lastFrame);
@@ -62,12 +61,13 @@ public:
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
     // uint64 SignalAfterSparseTexUpdate(GpuAllocator *allocator, vstd::vector<uint64> &&deallocatedHandle);
-    uint64 Execute(AllocatorPtr &&alloc);
-    uint64 ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
-    uint64 ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
+    void Signal();
+    void Execute(AllocatorPtr &&alloc);
+    void ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
+    void ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
     void ExecuteEmpty(AllocatorPtr &&alloc);
     void ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
-    uint64 ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain, bool vsync);
+    void ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain, bool vsync);
     void Complete(uint64 fence);
     void Complete();
     void ForceSync(

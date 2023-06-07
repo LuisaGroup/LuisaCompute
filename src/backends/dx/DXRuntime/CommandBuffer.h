@@ -88,6 +88,7 @@ public:
     };
     static CopyInfo GetCopyTextureBufferSize(
         TextureBase *texture,
+        uint3 size,
         uint targetMip);
     ~CommandBufferBuilder();
 };

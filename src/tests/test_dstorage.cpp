@@ -110,14 +110,14 @@ int main(int argc, char *argv[]) {
         luisa::vector<std::byte> out_pixels(width * height * 4u);
         Clock decompress_clock{};
         DStorageFile pinned_pixels = dstorage_ext->pin_memory(compressed_pixels.data(), compressed_pixels.size_bytes());
-        dstorage_stream << pinned_pixels.decompress_to(img, compression)
+        dstorage_stream << pinned_pixels.copy_to(img, compression)
                         << synchronize();
         double decompress_time = decompress_clock.toc();
         LUISA_INFO("Texture decompress time: {} ms", decompress_time);
         compute_stream << img.copy_to(out_pixels.data()) << synchronize();
         stbi_write_png("test_dstorage_texture_decompressed.png", width, height, 4, out_pixels.data(), 0);
         decompress_clock.tic();
-        dstorage_stream << pinned_pixels.decompress_to(luisa::span{out_pixels}, compression)
+        dstorage_stream << pinned_pixels.copy_to(luisa::span{out_pixels}, compression)
                         << synchronize();
         decompress_time = decompress_clock.toc();
         LUISA_INFO("Memory decompress time: {} ms", decompress_time);

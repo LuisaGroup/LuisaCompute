@@ -47,7 +47,6 @@ struct ReorderFuncTable {
 class LCCmdBuffer final : public CmdQueueBase{
 protected:
     ResourceStateTracker tracker;
-    std::atomic_uint64_t lastFence{0};
     ReorderFuncTable reorderFuncTable;
     CommandReorderVisitor<ReorderFuncTable, false> reorder;
     vstd::vector<BindProperty> bindProps;

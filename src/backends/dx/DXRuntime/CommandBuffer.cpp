@@ -145,26 +145,24 @@ void CommandBufferBuilder::CopyBuffer(
 }
 CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
     TextureBase *texture,
+    uint3 size,
     uint targetMip) {
-    uint width = texture->Width();
-    uint height = texture->Height();
-    uint depth = texture->Depth();
     if (Resource::IsBCtex(texture->Format())) {
-        width /= 4;
-        height /= 4;
+        size.x /= 4;
+        size.y /= 4;
     }
     auto GetValue = [&](uint &v) {
         auto mip_v = v >> targetMip;
         v = std::max<uint>(1, mip_v);
     };
-    GetValue(width);
-    GetValue(height);
-    GetValue(depth);
-    auto pureLineSize = width * Resource::GetTexturePixelSize(texture->Format());
+    GetValue(size.x);
+    GetValue(size.y);
+    GetValue(size.z);
+    auto pureLineSize = size.x * Resource::GetTexturePixelSize(texture->Format());
     auto lineSize = CalcConstantBufferByteSize(pureLineSize);
     return {
-        size_t(pureLineSize * height * depth),
-        size_t(lineSize * height * depth),
+        size_t(pureLineSize * size.y * size.z),
+        size_t(lineSize * size.y * size.z),
         size_t(lineSize),
         size_t(pureLineSize)};
 }
