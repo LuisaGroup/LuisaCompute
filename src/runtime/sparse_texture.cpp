@@ -4,7 +4,7 @@
 namespace luisa::compute {
 
 void SparseTexture::UpdateTiles::operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept {
-    device->update_sparse_texture(stream_handle, handle, std::move(tiles));
+    device->update_sparse_texture(stream_handle, handle, std::move(operations));
 }
 
 SparseTexture::SparseTexture(DeviceInterface *device, const SparseTextureCreationInfo &info) noexcept
@@ -14,7 +14,7 @@ SparseTexture::SparseTexture(DeviceInterface *device, const SparseTextureCreatio
 }
 
 SparseTexture::UpdateTiles SparseTexture::update() noexcept {
-    return {handle(), std::move(_tiles)};
+    return {handle(), std::move(_operations)};
 }
 
 SparseTexture::~SparseTexture() noexcept {

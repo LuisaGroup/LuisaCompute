@@ -62,17 +62,15 @@ public:
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size.xy(); }
 
     void map_tile(uint2 start_tile, uint2 tile_size, uint mip_level) noexcept {
-        _tiles.emplace_back(SparseTexModification{
+        _operations.emplace_back(SparseTextureMapOperation{
             .start_tile = make_uint3(start_tile, 0u),
-            .tile_size = make_uint3(tile_size, 1u),
-            .mip_level = mip_level,
-            .operation = SparseTexModification::Operation::Map});
+            .tile_count = make_uint3(tile_size, 1u),
+            .mip_level = mip_level});
     }
     void unmap_tile(uint2 start_tile, uint mip_level) noexcept {
-        _tiles.emplace_back(SparseTexModification{
+        _operations.emplace_back(SparseTextureUnMapOperation{
             .start_tile = make_uint3(start_tile, 0u),
-            .mip_level = mip_level,
-            .operation = SparseTexModification::Operation::UnMap});
+            .mip_level = mip_level});
     }
 
     // command

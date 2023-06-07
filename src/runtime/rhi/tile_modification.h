@@ -1,26 +1,30 @@
 #pragma once
 
 #include <core/basic_types.h>
-
+#include <core/stl/variant.h>
 namespace luisa::compute {
-enum struct TileOperation : uint {
-    Map,
-    UnMap
-};
-struct SparseTexModification {
-    using Operation = TileOperation;
+
+struct SparseTextureMapOperation {
     uint3 start_tile;
-    uint3 tile_size;
+    uint3 tile_count;
     uint mip_level;
-    Operation operation;
 };
 
-struct SparseBufferModification {
-    using Operation = TileOperation;
-    // In tile
-    size_t offset;
-    // In tile
-    size_t size;
-    Operation operation;
+struct SparseTextureUnMapOperation {
+    uint3 start_tile;
+    uint mip_level;
 };
+
+using SparseTextureOperation = luisa::variant<SparseTextureMapOperation, SparseTextureUnMapOperation>;
+
+struct SparseBufferMapOperation {
+    uint start_tile;
+    uint tile_count;
+};
+
+struct SparseBufferUnMapOperation {
+    uint start_tile;
+};
+
+using SparseBufferOperation = luisa::variant<SparseBufferMapOperation, SparseBufferUnMapOperation>;
 }// namespace luisa::compute

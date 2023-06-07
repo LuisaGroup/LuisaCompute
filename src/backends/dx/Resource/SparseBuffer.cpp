@@ -41,21 +41,30 @@ SparseBuffer::~SparseBuffer() {
     }
     allocator->DestroyPool(allocatorPool);
 }
+void SparseBuffer::FreeTileMemory(ID3D12CommandQueue *queue, uint coord) const {
+    TileInfo tileInfo;
+    {
+        std::lock_guard lck{allocMtx};
+        auto iter = allocatedTiles.find(coord);
+        if (iter == allocatedTiles.end()) [[unlikely]] {
+            return;
+        }
+        tileInfo = iter->second;
+        allocatedTiles.erase(iter);
+    }
+    allocator->Release(tileInfo.allocatorHandle);
+}
 void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size) const {
     TileInfo tileInfo;
     tileInfo.size = size;
     ID3D12Heap *heap;
     uint64 offset;
     uint offsetTile;
-    tileInfo.allocatorHandle = allocator->AllocateBufferHeap(device, size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, allocatorPool);
+    tileInfo.allocatorHandle =
+        allocator->AllocateBufferHeap(device, size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, allocatorPool);
     {
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.try_emplace(coord, tileInfo);
-        if (!iter.second) {
-            auto &v = iter.first->second;
-            allocator->Release(v.allocatorHandle);
-            v = tileInfo;
-        }
     }
     D3D12_TILED_RESOURCE_COORDINATE tileCoord{
         .X = coord,
@@ -84,7 +93,7 @@ void SparseBuffer::DeAllocateTile(ID3D12CommandQueue *queue, uint coord) const {
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.find(coord);
         if (iter == allocatedTiles.end()) [[unlikely]] {
-            LUISA_ERROR("Tile not exists");
+            return;
         }
         tileInfo = iter->second;
         allocatedTiles.erase(iter);

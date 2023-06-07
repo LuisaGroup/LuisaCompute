@@ -628,7 +628,10 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
 void LCDevice::destroy_sparse_texture(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseTexture *>(handle);
 }
-void LCDevice::update_sparse_texture(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseTexModification> &&tiles) noexcept {
+void LCDevice::update_sparse_texture(
+    uint64_t stream_handle,
+    uint64_t handle,
+    luisa::vector<SparseTextureOperation> &&operations) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     auto tex = reinterpret_cast<SparseTexture *>(handle);
 
@@ -636,15 +639,22 @@ void LCDevice::update_sparse_texture(uint64_t stream_handle, uint64_t handle, lu
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
     }
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
-    vstd::vector<uint64> deallocatedHandle;
-    for (auto &&i : tiles) {
-        switch (i.operation) {
-            case SparseTexModification::Operation::Map:
-                tex->AllocateTile(queuePtr.Queue(), i.start_tile, i.tile_size, i.mip_level);
-                break;
-            case SparseTexModification::Operation::UnMap:
-                tex->DeAllocateTile(queuePtr.Queue(), i.start_tile, i.mip_level);
-                break;
+    // free all memory first
+    for (auto &&i : operations) {
+        luisa::visit(
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, SparseTextureMapOperation*>) {
+                    tex->FreeTileMemory(queuePtr.Queue(), t.start_tile, t.mip_level);
+                } else {
+                    tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.mip_level);
+                }
+            },
+            i);
+    }
+    for (auto &&i : operations) {
+        if (i.index() == 0) {
+            auto t = i.get_as<SparseTextureMapOperation*>();
+            tex->AllocateTile(queuePtr.Queue(), t->start_tile, t->tile_count, t->mip_level);
         }
     }
     queuePtr.Signal();
@@ -674,26 +684,35 @@ SparseBufferCreationInfo LCDevice::create_sparse_buffer(const Type *element, siz
     info.tile_size_bytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     return info;
 }
-void LCDevice::update_sparse_buffer(uint64_t stream_handle, uint64_t handle, luisa::vector<SparseBufferModification> &&tiles) noexcept {
+void LCDevice::update_sparse_buffer(
+    uint64_t stream_handle,
+    uint64_t handle,
+    luisa::vector<SparseBufferOperation> &&operations) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
-    auto tex = reinterpret_cast<SparseBuffer *>(handle);
+    auto buffer = reinterpret_cast<SparseBuffer *>(handle);
 
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
     }
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
-    vstd::vector<uint64> deallocatedHandle;
-    for (auto &&i : tiles) {
-        switch (i.operation) {
-            case SparseTexModification::Operation::Map:
-                tex->AllocateTile(queuePtr.Queue(), i.offset, i.size);
-                break;
-            case SparseTexModification::Operation::UnMap:
-                tex->DeAllocateTile(queuePtr.Queue(), i.offset);
-                break;
+    for (auto &&i : operations) {
+        luisa::visit(
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, SparseBufferMapOperation>) {
+                    buffer->FreeTileMemory(queuePtr.Queue(), t.start_tile);
+                } else {
+                    buffer->DeAllocateTile(queuePtr.Queue(), t.start_tile);
+                }
+            },
+            i);
+    }
+    for (auto &&i : operations) {
+        if (i.index() == 0) {
+            auto t = i.get_as<SparseBufferMapOperation*>();
+            buffer->AllocateTile(queuePtr.Queue(), t->start_tile, t->tile_count);
         }
     }
-    queuePtr.Signal();  
+    queuePtr.Signal();
 }
 void LCDevice::destroy_sparse_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseBuffer *>(handle);

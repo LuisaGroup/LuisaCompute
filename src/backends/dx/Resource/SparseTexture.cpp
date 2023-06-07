@@ -87,16 +87,11 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
     uint offsetTile;
     auto allocateInfo = device->device->GetResourceAllocationInfo(
         0, 1, vstd::get_rval_ptr(GetResourceDescBase(size, 1, allowUav, true)));
-
-    tileInfo.allocatorHandle = allocator->AllocateTextureHeap(device, allocateInfo.SizeInBytes, &heap, &offset, true, allocatorPool);
+    tileInfo.allocatorHandle =
+        allocator->AllocateTextureHeap(device, allocateInfo.SizeInBytes, &heap, &offset, true, allocatorPool);
     {
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.try_emplace(tile, tileInfo);
-        if (!iter.second) {
-            auto &v = iter.first->second;
-            allocator->Release(v.allocatorHandle);
-            v = tileInfo;
-        }
     }
     D3D12_TILED_RESOURCE_COORDINATE tileCoord{
         .X = coord.x,
@@ -121,6 +116,24 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
         &rangeTileCount,
         D3D12_TILE_MAPPING_FLAG_NONE);
 }
+void SparseTexture::FreeTileMemory(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const {
+    Tile tile;
+    tile.mipLevel = mipLevel;
+    for (auto i : vstd::range(3)) {
+        tile.coords[i] = coord[i];
+    }
+    TileInfo tileInfo;
+    {
+        std::lock_guard lck{allocMtx};
+        auto iter = allocatedTiles.find(tile);
+        if (iter == allocatedTiles.end()) [[unlikely]] {
+            return;
+        }
+        tileInfo = iter->second;
+        allocatedTiles.erase(iter);
+    }
+    allocator->Release(tileInfo.allocatorHandle);
+}
 void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const {
     Tile tile;
     tile.mipLevel = mipLevel;
@@ -132,7 +145,7 @@ void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint 
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.find(tile);
         if (iter == allocatedTiles.end()) [[unlikely]] {
-            LUISA_ERROR("Tile not exists");
+            return;
         }
         tileInfo = iter->second;
         allocatedTiles.erase(iter);

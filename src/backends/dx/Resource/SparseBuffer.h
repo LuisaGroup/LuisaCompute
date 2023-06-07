@@ -26,6 +26,7 @@ public:
     uint64 GetByteSize() const override { return byteSize; }
     void AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size) const;
     void DeAllocateTile(ID3D12CommandQueue *queue, uint coord) const;
+    void FreeTileMemory(ID3D12CommandQueue *queue, uint coord) const;
     SparseBuffer(
         Device *device,
         uint64 byteSize,

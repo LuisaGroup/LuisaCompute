@@ -16,14 +16,14 @@ class LC_RUNTIME_API SparseTexture : public Resource {
 public:
     struct LC_RUNTIME_API UpdateTiles {
         uint64_t handle;
-        luisa::vector<SparseTexModification> tiles;
+        luisa::vector<SparseTextureOperation> operations;
         void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
 
 protected:
     size_t _tile_size_bytes;
     uint3 _tile_size;
-    luisa::vector<SparseTexModification> _tiles;
+    luisa::vector<SparseTextureOperation> _operations;
     SparseTexture(DeviceInterface *device, const SparseTextureCreationInfo &info) noexcept;
     SparseTexture(SparseTexture &&) noexcept = default;
     ~SparseTexture() noexcept override;
