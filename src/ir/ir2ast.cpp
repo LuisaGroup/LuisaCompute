@@ -95,6 +95,11 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
                 }
                 return ret;
             }
+            case ir::Instruction::Tag::Phi: {
+                auto local = _ctx->function_builder->local(type);
+                _ctx->node_to_exprs.emplace(node, local);
+                return local;
+            }
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
