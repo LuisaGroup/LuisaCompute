@@ -4,6 +4,7 @@ set_basename("lc-ext-stb-image")
 _config_project({
 	project_kind = "shared"
 })
+add_headerfiles("../ext/stb/**.h")
 add_files("../ext/stb/stb.c")
 add_includedirs("../ext/stb", {
 	public = true

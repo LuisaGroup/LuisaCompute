@@ -3,6 +3,7 @@ set_basename("lc-ext-glfw")
 _config_project({
     project_kind = "shared"
 })
+add_headerfiles("../ext/glfw/include/**.h")
 add_files("../ext/glfw/src/*.c")
 add_includedirs("../ext/glfw/include", {
     public = true
@@ -31,6 +32,7 @@ target("lc-gui")
 _config_project({
     project_kind = "shared"
 })
+add_headerfiles("*.h")
 add_files("*.cpp")
 add_defines("LC_GUI_EXPORT_DLL", "GLFW_DLL")
 add_deps("glfw", "lc-runtime")

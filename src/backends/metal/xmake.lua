@@ -4,6 +4,7 @@ _config_project({
 	batch_size = 0
 })
 add_deps("lc-runtime")
+add_headerfiles("*.h")
 add_files("*.cpp", "*.mm", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 add_frameworks("Foundation", "Metal", "QuartzCore", "AppKit")
 target_end()

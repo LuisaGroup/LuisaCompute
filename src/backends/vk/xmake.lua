@@ -4,6 +4,7 @@ _config_project({
 })
 add_deps("lc-runtime", "lc-vstl")
 add_rules("lc_vulkan")
+add_headerfiles("*.h", "../common/default_binary_io.h", "../common/hlsl/*.h")
 add_files("*.cpp", "../common/default_binary_io.cpp", "../common/hlsl/*.cpp")
 -- TODO: use dxc for vulkan, only windows temporarily
 if is_plat("windows") then

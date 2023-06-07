@@ -4,4 +4,5 @@ _config_project({
 })
 add_deps("lc-runtime", "lc-vstl")
 add_files("**.cpp")
+add_headerfiles("**.h")
 target_end()

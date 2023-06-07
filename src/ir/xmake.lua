@@ -24,5 +24,6 @@ on_load(function(target)
 		add_rs_link("release")
 	end
 end)
+add_headerfiles("**.h")
 add_files("**.cpp")
 target_end()

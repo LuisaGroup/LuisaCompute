@@ -31,6 +31,7 @@ _config_project({
 	project_kind = "shared",
 	enable_exception = true
 })
+add_headerfiles("*.h")
 add_files("*.cpp")
 add_deps("lc-runtime", "lc-gui")
 after_build(function(target)

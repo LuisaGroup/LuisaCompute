@@ -13,5 +13,6 @@ if get_config("enable_rust") then
 		public = true
 	})
 end
+add_headerfiles("**.h")
 add_files("**.cpp")
 target_end()
