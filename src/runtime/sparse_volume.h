@@ -106,5 +106,16 @@ public:
             buffer.handle(), 0u, handle(), _storage, mip_level, tile_count * _tile_size, start_tile * _tile_size, _storage, mip_level);
     }
 };
+namespace detail {
+template<typename T>
+struct is_sparse_volume_impl : std::false_type {};
 
+template<typename T>
+struct is_sparse_volume_impl<SparseVolume<T>> : std::true_type {};
+}// namespace detail
+template<typename T>
+using is_sparse_volume = detail::is_sparse_volume_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+constexpr auto is_sparse_volume_v = is_sparse_volume<T>::value;
 }// namespace luisa::compute

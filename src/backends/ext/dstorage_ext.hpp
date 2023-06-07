@@ -5,8 +5,8 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/image.h>
-#include <runtime/volume.h>
+#include <runtime/sparse_image.h>
+#include <runtime/sparse_volume.h>
 #include <runtime/buffer.h>
 
 #include <backends/ext/dstorage_ext_interface.h>
@@ -106,6 +106,42 @@ public:
             DStorageReadCommand::TextureRequest{
                 .handle = view.handle(),
                 .level = view.level(),
+                .size = {size.x, size.y, size.z}},
+            compression);
+    }
+
+    template<typename SparseImg>
+        requires is_sparse_image_v<SparseImg>
+    [[nodiscard]] auto copy_to(
+        SparseImg &&image,
+        uint2 start_tile, uint2 tile_count, uint mip_level,
+        DStorageCompression compression = DStorageCompression::None) const noexcept {
+        auto size = tile_count * image.tile_size();
+        auto offset = start_tile * image.tile_size();
+        return luisa::make_unique<DStorageReadCommand>(
+            _dstorage_source(),
+            DStorageReadCommand::TextureRequest{
+                .handle = image.handle(),
+                .level = mip_level,
+                .offset = {offset.x, offset.y, 1u},
+                .size = {size.x, size.y, 1u}},
+            compression);
+    }
+
+    template<typename SparseVolume>
+        requires is_sparse_volume_v<SparseVolume>
+    [[nodiscard]] auto copy_to(
+        SparseVolume &&volume,
+        uint3 start_tile, uint3 tile_count, uint mip_level,
+        DStorageCompression compression = DStorageCompression::None) const noexcept {
+        auto size = tile_count * volume.tile_size();
+        auto offset = start_tile * volume.tile_size();
+        return luisa::make_unique<DStorageReadCommand>(
+            _dstorage_source(),
+            DStorageReadCommand::TextureRequest{
+                .handle = volume.handle(),
+                .level = mip_level,
+                .offset = {offset.x, offset.y, offset.z},
                 .size = {size.x, size.y, size.z}},
             compression);
     }

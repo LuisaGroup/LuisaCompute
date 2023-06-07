@@ -34,6 +34,7 @@ public:
     struct TextureRequest {
         uint64_t handle;
         uint32_t level;
+        uint32_t offset[3u];
         uint32_t size[3u];
     };
 

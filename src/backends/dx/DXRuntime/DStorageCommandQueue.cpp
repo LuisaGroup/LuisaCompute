@@ -146,7 +146,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                     LUISA_ERROR("DirectX direct-storage can not support texture destination with row size(width * pixel_size) less than {}, current row size: {}, try use buffer instead.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, row_size);
                 }
                 request.Destination.Texture.Region = D3D12_BOX{
-                    0u, 0u, 0u,
+                    t.offset[0], t.offset[1], t.offset[2], 
                     t.size[0], t.size[1], t.size[2]};
                 if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
                     request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;

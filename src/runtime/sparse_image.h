@@ -105,5 +105,17 @@ public:
             buffer.handle(), 0u, handle(), _storage, mip_level, make_uint3(tile_count * tile_size(), 1u), make_uint3(start_tile * tile_size(), 0u), _storage, mip_level);
     }
 };
+namespace detail {
 
+template<typename T>
+struct is_sparse_image_impl : std::false_type {};
+
+template<typename T>
+struct is_sparse_image_impl<SparseImage<T>> : std::true_type {};
+}// namespace detail
+template<typename T>
+using is_sparse_image = detail::is_sparse_image_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+constexpr auto is_sparse_image_v = is_sparse_image<T>::value;
 }// namespace luisa::compute
