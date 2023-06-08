@@ -97,7 +97,7 @@ public:
     /// Write buffer at index
     template<typename I>
         requires is_integral_expr_v<I>
-    void byte_address_write(I &&index, Expr<T> buffer_offset) const noexcept {
+    void byte_address_write(I &&buffer_offset, Expr<T> value) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::BYTE_ADDRESS_BUFFER_WRITE,
             {_expression,

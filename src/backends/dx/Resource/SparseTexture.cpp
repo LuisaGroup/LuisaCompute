@@ -85,10 +85,9 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
     ID3D12Heap *heap;
     uint64 offset;
     uint offsetTile;
-    auto allocateInfo = device->device->GetResourceAllocationInfo(
-        0, 1, vstd::get_rval_ptr(GetResourceDescBase(size, 1, allowUav, true)));
+    auto sizeInBytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES * size.x * size.y * size.z;
     tileInfo.allocatorHandle =
-        allocator->AllocateTextureHeap(device, allocateInfo.SizeInBytes, &heap, &offset, true, allocatorPool);
+        allocator->AllocateTextureHeap(device, sizeInBytes, &heap, &offset, true, allocatorPool);
     {
         std::lock_guard lck{allocMtx};
         auto iter = allocatedTiles.try_emplace(tile, tileInfo);
