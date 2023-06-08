@@ -62,13 +62,15 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size; }
 
-    void map_tile(uint3 start_tile, uint3 tile_size, uint mip_level) noexcept {
+    void map_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
+        detail::check_sparse_tex3d_map(_size, _tile_size, start_tile, tile_count);
         _operations.emplace_back(SparseTextureMapOperation{
             .start_tile = start_tile,
-            .tile_count = tile_size,
+            .tile_count = tile_count,
             .mip_level = mip_level});
     }
     void unmap_tile(uint3 start_tile, uint mip_level) noexcept {
+        detail::check_sparse_tex3d_unmap(_size, _tile_size, start_tile);
         _operations.emplace_back(SparseTextureUnMapOperation{
             .start_tile = start_tile,
             .mip_level = mip_level});

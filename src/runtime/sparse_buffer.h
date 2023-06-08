@@ -5,6 +5,10 @@
 #include <runtime/rhi/tile_modification.h>
 
 namespace luisa::compute {
+namespace detail {
+LC_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count);
+LC_RUNTIME_API void check_sparse_buffer_unmap(size_t size_bytes, size_t tile_size, uint start_tile);
+}// namespace detail
 struct SparseBufferUpdateTiles {
     uint64_t handle;
     luisa::vector<SparseBufferOperation> operations;
@@ -53,11 +57,13 @@ public:
         return *this;
     }
     void map_tile(uint start_tile, uint tile_count) noexcept {
+        detail::check_sparse_buffer_map(size_bytes(), _tile_size, start_tile, tile_count);
         _operations.emplace_back(SparseBufferMapOperation{
             .start_tile = start_tile,
             .tile_count = tile_count});
     }
     void unmap_tile(uint start_tile) noexcept {
+        detail::check_sparse_buffer_unmap(size_bytes(), _tile_size, start_tile);
         _operations.emplace_back(SparseBufferUnMapOperation{
             .start_tile = start_tile});
     }

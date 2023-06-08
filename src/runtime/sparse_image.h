@@ -61,13 +61,15 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size.xy(); }
 
-    void map_tile(uint2 start_tile, uint2 tile_size, uint mip_level) noexcept {
+    void map_tile(uint2 start_tile, uint2 tile_count, uint mip_level) noexcept {
+        detail::check_sparse_tex2d_map(_size, _tile_size.xy(), start_tile, tile_count);
         _operations.emplace_back(SparseTextureMapOperation{
             .start_tile = make_uint3(start_tile, 0u),
-            .tile_count = make_uint3(tile_size, 1u),
+            .tile_count = make_uint3(tile_count, 1u),
             .mip_level = mip_level});
     }
     void unmap_tile(uint2 start_tile, uint mip_level) noexcept {
+        detail::check_sparse_tex2d_unmap(_size, _tile_size.xy(), start_tile);
         _operations.emplace_back(SparseTextureUnMapOperation{
             .start_tile = make_uint3(start_tile, 0u),
             .mip_level = mip_level});
