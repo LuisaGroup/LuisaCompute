@@ -9,12 +9,14 @@ namespace detail {
 LC_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count);
 LC_RUNTIME_API void check_sparse_buffer_unmap(size_t size_bytes, size_t tile_size, uint start_tile);
 }// namespace detail
-struct SparseBufferUpdateTiles {
+struct LC_RUNTIME_API SparseBufferUpdateTiles {
     uint64_t handle;
     luisa::vector<SparseBufferOperation> operations;
-    void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept {
-        device->update_sparse_buffer(stream_handle, handle, std::move(operations));
-    }
+    void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
+};
+struct LC_RUNTIME_API SparseBufferClearTiles {
+    uint64_t handle;
+    void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
 };
 template<typename T>
 class SparseBuffer final : public Resource {
@@ -106,12 +108,16 @@ public:
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::BufferExprProxy<SparseBuffer<T>> *>(this);
     }
-    [[nodiscard]] SparseBufferUpdateTiles update() noexcept {
-        return {handle(), std::move(_operations)};
+    [[nodiscard]] auto update() noexcept {
+        return SparseBufferUpdateTiles{handle(), std::move(_operations)};
+    }
+    [[nodiscard]] auto clear_tiles() noexcept {
+        return SparseBufferClearTiles{handle()};
     }
 };
 
 LUISA_MARK_STREAM_EVENT_TYPE(SparseBufferUpdateTiles)
+LUISA_MARK_STREAM_EVENT_TYPE(SparseBufferClearTiles)
 
 namespace detail {
 

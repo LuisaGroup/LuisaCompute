@@ -19,9 +19,7 @@ class Buffer:
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
-        self.byte_address_read = self.bufferType.byte_address_read
         self.write = self.bufferType.write
-        self.byte_address_write = self.bufferType.byte_address_write
         self.buffer_size = self.bufferType.buffer_size
         self.dtype = dtype
         self.size = size
@@ -171,23 +169,9 @@ class BufferType:
         return read
     
     @BuiltinFuncBuilder
-    def byte_address_read(*argnodes):
-        check_exact_signature([type, uint], argnodes[1:], "byte_read")
-        dtype = argnodes[1].expr
-        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BYTE_ADDRESS_BUFFER_READ,
-                        [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
-        return dtype, expr
-
-    @BuiltinFuncBuilder
     def buffer_size(self):
         return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr])
 
-    @BuiltinFuncBuilder
-    def byte_address_write(*argnodes):
-        check_exact_signature([type, uint, argnodes[1].expr], argnodes[1:], "byte_write")
-        expr = lcapi.builder().call(lcapi.CallOp.BYTE_ADDRESS_BUFFER_WRITE,
-                        [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
-        return None, expr
     @staticmethod
     @cache
     def get_write_method(dtype):

@@ -27,6 +27,10 @@ public:
         luisa::vector<SparseTextureOperation> operations;
         void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
     };
+    struct LC_RUNTIME_API ClearTiles {
+        uint64_t handle;
+        void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
+    };
 
 protected:
     size_t _tile_size_bytes;
@@ -43,6 +47,7 @@ public:
     SparseTexture &operator=(const SparseTexture &) noexcept = delete;
 
     [[nodiscard]] UpdateTiles update() noexcept;
+    [[nodiscard]] ClearTiles clear_tiles() noexcept;
     [[nodiscard]] auto tile_size_bytes() const noexcept { return _tile_size_bytes; }
 };
 

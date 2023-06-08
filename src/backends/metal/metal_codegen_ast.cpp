@@ -790,8 +790,6 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "lc_atomic_fetch_max"; break;
         case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
-        case CallOp::BYTE_ADDRESS_BUFFER_READ: break; //TODO
-        case CallOp::BYTE_ADDRESS_BUFFER_WRITE: break;//TODO
         case CallOp::BUFFER_SIZE: _scratch << "buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;

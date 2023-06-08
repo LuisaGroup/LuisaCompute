@@ -61,5 +61,6 @@ public:
     void AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 size, uint mipLevel) const;
     void DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const;
     void FreeTileMemory(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const;
+    void ClearTile(ID3D12CommandQueue *queue) const;
 };
 }// namespace lc::dx

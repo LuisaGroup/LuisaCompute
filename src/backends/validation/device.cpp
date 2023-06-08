@@ -327,4 +327,14 @@ void Device::destroy_sparse_buffer(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_buffer(handle);
 }
+void Device::clear_sparse_buffer(
+    uint64_t stream_handle,
+    uint64_t handle) noexcept {
+    _native->clear_sparse_buffer(stream_handle, handle);
+}
+void Device::clear_sparse_texture(
+    uint64_t stream_handle,
+    uint64_t handle) noexcept {
+    _native->clear_sparse_texture(stream_handle, handle);
+}
 }// namespace lc::validation

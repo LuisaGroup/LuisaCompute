@@ -137,9 +137,7 @@ void export_op(py::module &m) {
         .value("ATOMIC_FETCH_MAX", CallOp::ATOMIC_FETCH_MAX)              /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
         .value("BUFFER_READ", CallOp::BUFFER_READ)                            /// [(buffer, index) -> value]: reads the index-th element in buffer
-        .value("BYTE_ADDRESS_BUFFER_READ", CallOp::BYTE_ADDRESS_BUFFER_READ)  
         .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)                          /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-        .value("BYTE_ADDRESS_BUFFER_WRITE", CallOp::BYTE_ADDRESS_BUFFER_WRITE)
         .value("BUFFER_SIZE", CallOp::BUFFER_SIZE)                            /// [(buffer, index) -> UINT]: writes value into the index-th element of buffer
         .value("TEXTURE_READ", CallOp::TEXTURE_READ)                          /// [(texture, coord) -> value]
         .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)                        /// [(texture, coord, value) -> void]

@@ -172,9 +172,7 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
     BUFFER_READ,              /// [(buffer, index) -> value]: reads the index-th element in buffer
-    BYTE_ADDRESS_BUFFER_READ, /// [(buffer, buffer_offset) -> value]
     BUFFER_WRITE,             /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    BYTE_ADDRESS_BUFFER_WRITE,/// [(buffer, buffer_offset, value) -> void]
     BUFFER_SIZE,              /// [(buffer) -> size]
     TEXTURE_READ,             /// [(texture, coord) -> value]
     TEXTURE_WRITE,            /// [(texture, coord, value) -> void]

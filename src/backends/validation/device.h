@@ -100,6 +100,9 @@ public:
 
     // sparse buffer
     [[nodiscard]] SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept override;
+    void clear_sparse_buffer(
+        uint64_t stream_handle,
+        uint64_t handle) noexcept override;
     void update_sparse_buffer(
         uint64_t stream_handle,
         uint64_t handle,
@@ -116,6 +119,9 @@ public:
         uint64_t stream_handle,
         uint64_t handle,
         luisa::vector<SparseTextureOperation> &&operations) noexcept override;
+    void clear_sparse_texture(
+        uint64_t stream_handle,
+        uint64_t handle) noexcept override;
 };
 
 }// namespace lc::validation

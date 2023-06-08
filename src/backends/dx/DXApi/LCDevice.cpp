@@ -717,7 +717,30 @@ void LCDevice::update_sparse_buffer(
 void LCDevice::destroy_sparse_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseBuffer *>(handle);
 }
+void LCDevice::clear_sparse_texture(
+    uint64_t stream_handle,
+    uint64_t handle) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    auto tex = reinterpret_cast<SparseTexture *>(handle);
 
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
+    }
+    auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
+    tex->ClearTile(queuePtr.Queue());
+}
+void LCDevice::clear_sparse_buffer(
+    uint64_t stream_handle,
+    uint64_t handle) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    auto buffer = reinterpret_cast<SparseBuffer *>(handle);
+
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
+    }
+    auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
+    buffer->ClearTile(queuePtr.Queue());
+}
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR
     auto type = IR2AST::get_type(element->get());

@@ -40,6 +40,7 @@ public:
         return Tag::SparseBuffer;
     }
     SparseBuffer(SparseBuffer &&) = default;
+    void ClearTile(ID3D12CommandQueue *queue) const;
     KILL_COPY_CONSTRUCT(SparseBuffer)
 };
 }// namespace lc::dx

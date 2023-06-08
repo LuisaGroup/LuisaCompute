@@ -168,4 +168,15 @@ void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint 
         D3D12_TILE_MAPPING_FLAG_NONE);
     allocator->Release(tileInfo.allocatorHandle);
 }
+void SparseTexture::ClearTile(ID3D12CommandQueue *queue) const {
+    {
+        std::lock_guard lck{allocMtx};
+        for (auto &&i : allocatedTiles) {
+            allocator->Release(i.second.allocatorHandle);
+        }
+        allocatedTiles.clear();
+    }
+    D3D12_TILE_RANGE_FLAGS RangeFlags = D3D12_TILE_RANGE_FLAG_NULL;
+    queue->UpdateTileMappings(resource.Get(), 1, nullptr, nullptr, nullptr, 1, &RangeFlags, nullptr, nullptr, D3D12_TILE_MAPPING_FLAG_NONE);
+}
 }// namespace lc::dx

@@ -835,8 +835,6 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_MIN: _scratch << "lc_atomic_fetch_min"; break;
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "lc_atomic_fetch_max"; break;
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
-        case CallOp::BYTE_ADDRESS_BUFFER_READ: break;//TODO
-        case CallOp::BYTE_ADDRESS_BUFFER_WRITE: break;//TODO
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "lc_texture_read"; break;

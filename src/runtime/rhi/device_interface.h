@@ -142,6 +142,9 @@ public:
         uint64_t stream_handle,
         uint64_t handle,
         luisa::vector<SparseBufferOperation> &&operations) noexcept {}
+    virtual void clear_sparse_buffer(
+        uint64_t stream_handle,
+        uint64_t handle) noexcept {}
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture
@@ -151,11 +154,14 @@ public:
         uint mipmap_levels) noexcept {
         return SparseTextureCreationInfo::make_invalid();
     }
-    virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
+    virtual void clear_sparse_texture(
+        uint64_t stream_handle,
+        uint64_t handle) noexcept {}
     virtual void update_sparse_texture(
         uint64_t stream_handle,
         uint64_t handle,
         luisa::vector<SparseTextureOperation> &&operations) noexcept {}
+    virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
 };
 
 }// namespace luisa::compute
