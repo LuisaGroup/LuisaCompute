@@ -788,22 +788,23 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ".xyz"sv;
             }
             return;
-        } 
+        }
         case CallOp::BYTE_ADDRESS_BUFFER_WRITE: {
             LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
-            str << "_bytebfwrite("sv;
+            str << "_bytebfwrite"sv;
+            auto elem = args[2]->type();
+            if (IsNumVec3(*elem)) {
+                str << "vec3"sv;
+            }
+            str << '(';
             for (auto &&i : args) {
                 i->accept(vis);
                 str << ',';
             }
-            auto elem = args[0]->type()->element();
             GetTypeName(*elem, str, Usage::WRITE, true);
             str << ')';
-            if (IsNumVec3(*elem)) {
-                str << ".xyz"sv;
-            }
             return;
-        } 
+        }
         case CallOp::BUFFER_SIZE: {
             str << "_bfsize"sv;
         } break;

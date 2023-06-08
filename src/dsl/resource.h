@@ -72,15 +72,15 @@ public:
         return def<T>(expr);
     }
 
-    template<typename I>
+    template<typename U, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto byte_address_read(I &&buffer_offset) const noexcept {
         auto f = detail::FunctionBuilder::current();
         auto expr = f->call(
-            Type::of<T>(), CallOp::BYTE_ADDRESS_BUFFER_READ,
+            Type::of<U>(), CallOp::BYTE_ADDRESS_BUFFER_READ,
             {_expression,
              detail::extract_expression(std::forward<I>(buffer_offset))});
-        return def<T>(expr);
+        return def<U>(expr);
     }
 
     /// Write buffer at index
@@ -95,9 +95,9 @@ public:
     }
 
     /// Write buffer at index
-    template<typename I>
+    template<typename U, typename I>
         requires is_integral_expr_v<I>
-    void byte_address_write(I &&buffer_offset, Expr<T> value) const noexcept {
+    void byte_address_write(I &&buffer_offset, Expr<U> value) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::BYTE_ADDRESS_BUFFER_WRITE,
             {_expression,
@@ -432,13 +432,23 @@ public:
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void write(I &&index, V &&value) const noexcept {
-        return Expr<T>{_buffer}.write(std::forward<I>(index),
+        Expr<T>{_buffer}.write(std::forward<I>(index),
                                       std::forward<V>(value));
     }
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&index) const noexcept {
         return Expr<T>{_buffer}.atomic(std::forward<I>(index));
+    }
+    template<typename U, typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto byte_address_read(I &&buffer_offset) const noexcept {
+        return Expr<T>{_buffer}.byte_address_read<U>(std::forward<I>(buffer_offset));
+    }
+    template<typename U, typename I>
+        requires is_integral_expr_v<I>
+    void byte_address_write(I &&buffer_offset, Expr<U> value) const noexcept {
+        Expr<T>{_buffer}.byte_address_write(std::forward<I>(buffer_offset), std::forward<Expr<U>>(value));
     }
 };
 

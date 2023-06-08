@@ -54,6 +54,7 @@ row_major float4x4 m;
 #define _bytebfread(bf,idx,type) bf.Load<type>(idx)
 #define _bfwrite(bf,idx,value,size,type) bf.Store<type>(idx*size,value)
 #define _bytebfwrite(bf,idx,value,type) bf.Store<type>(idx,value)
+#define _bytebfwritevec3(bf,idx,value,type) bf.Store<type>(idx,value.xyz)
 #define _Smptx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
 template<typename T>
