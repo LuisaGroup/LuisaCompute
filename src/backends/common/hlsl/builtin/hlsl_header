@@ -50,12 +50,10 @@ row_major float3x4 m;
 struct _WrappedFloat4x4 {
 row_major float4x4 m;
 };
-#define _bfread(bf,idx) bf[idx]
-#define _bfreadVec3(bf,idx) bf[idx].xyz
-#define _bfreadMat(bf,idx) bf[idx].m
-#define _bfwrite(bf,idx,value) bf[idx]=value
-#define _bfwriteVec3(bf,idx,value) bf[idx]=float4(value,0)
-#define _bfwriteMat(bf,idx,value) bf[idx].m=value
+#define _bfread(bf,idx,size,type) bf.Load<type>(idx*size)
+#define _bytebfread(bf,idx,type) bf.Load<type>(idx)
+#define _bfwrite(bf,idx,value,size,type) bf.Store<type>(idx*size,value)
+#define _bytebfwrite(bf,idx,value,type) bf.Store<type>(idx,value)
 #define _Smptx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
 template<typename T>

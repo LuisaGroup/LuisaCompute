@@ -643,7 +643,7 @@ void LCDevice::update_sparse_texture(
     for (auto &&i : operations) {
         luisa::visit(
             [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, SparseTextureMapOperation*>) {
+                if constexpr (std::is_same_v<T, SparseTextureMapOperation *>) {
                     tex->FreeTileMemory(queuePtr.Queue(), t.start_tile, t.mip_level);
                 } else {
                     tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.mip_level);
@@ -653,7 +653,7 @@ void LCDevice::update_sparse_texture(
     }
     for (auto &&i : operations) {
         if (i.index() == 0) {
-            auto t = i.get_as<SparseTextureMapOperation*>();
+            auto t = i.get_as<SparseTextureMapOperation *>();
             tex->AllocateTile(queuePtr.Queue(), t->start_tile, t->tile_count, t->mip_level);
         }
     }
@@ -708,7 +708,7 @@ void LCDevice::update_sparse_buffer(
     }
     for (auto &&i : operations) {
         if (i.index() == 0) {
-            auto t = i.get_as<SparseBufferMapOperation*>();
+            auto t = i.get_as<SparseBufferMapOperation *>();
             buffer->AllocateTile(queuePtr.Queue(), t->start_tile, t->tile_count);
         }
     }

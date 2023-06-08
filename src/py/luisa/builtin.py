@@ -1,6 +1,6 @@
 from .dylibs import lcapi
 from .mathtypes import *
-from .types import uint, uint3, float2, float3, float4, short, ushort, half, half2, half3, half4, to_lctype, is_bit16_types, BuiltinFuncBuilder, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, \
+from .types import uint, uint3, float2, float3, float4, short, ushort, half, half2, half3, half4, long, ulong, to_lctype, is_bit16_types, is_bit64_types, BuiltinFuncBuilder, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, \
     vector, length_of, element_of, nameof, implicit_covertable, basic_dtypes
 import functools
 from . import globalvars
@@ -59,6 +59,8 @@ def to_int(dtype):
     assert dtype in scalar_and_vector_dtypes
     if is_bit16_types(dtype):
         return vector(short, length_of(dtype))
+    if is_bit64_types(dtype):
+        return vector(long, length_of(dtype))
     return vector(int, length_of(dtype))
 
 
@@ -66,6 +68,8 @@ def to_uint(dtype):
     assert dtype in scalar_and_vector_dtypes
     if is_bit16_types(dtype):
         return vector(ushort, length_of(dtype))
+    if is_bit64_types(dtype):
+        return vector(ulong, length_of(dtype))
     return vector(uint, length_of(dtype))
 
 
@@ -138,11 +142,11 @@ def builtin_bin_op(op, lhs, rhs):
 
     if op in {ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift}:
         inner_type_0 = element_of(lhs.dtype)
-        assert inner_type_0 in {int, uint, short, ushort}, \
+        assert inner_type_0 in {int, uint, short, ushort, long, ulong}, \
             f'operator `{op}` only supports `int` and `uint` types.'
         if scalar_operation:
             inner_type_1 = element_of(rhs.dtype)
-            assert inner_type_1 in {int, uint, short, ushort}, \
+            assert inner_type_1 in {int, uint, short, ushort, long, ulong}, \
                 f'operator `{op}` only supports `int` and `uint` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
@@ -157,13 +161,13 @@ def builtin_bin_op(op, lhs, rhs):
         # relational: int, uint and float allowed
     elif op in {ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq}:
         inner_type_0 = element_of(lhs.dtype)
-        assert inner_type_0 in {int, uint, float, short, ushort, half}, \
+        assert inner_type_0 in {int, uint, float, short, ushort, half, long, ulong}, \
             f'operator `{op}` only supports `int`, `uint` and `float` types.'
         if scalar_operation:
             # allow implicit type conversion
             # so check rhs's type, ensure it also satisfies the constraints.
             inner_type_1 = element_of(rhs.dtype)
-            assert inner_type_1 in {int, uint, float, short, ushort, half}, \
+            assert inner_type_1 in {int, uint, float, short, ushort, half, long, ulong}, \
                 f'operator `{op}` only supports `int`, `uint` and `float` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
@@ -192,6 +196,9 @@ builtin_func_names = {
     'make_ushort2', 'make_short2', 'make_half2',
     'make_ushort3', 'make_short3', 'make_half3',
     'make_ushort4', 'make_short4', 'make_half4',
+    'make_ulong2', 'make_long2',
+    'make_ulong3', 'make_long3',
+    'make_ulong4', 'make_long4',
     'make_float2x2', 'make_float3x3', 'make_float4x4',
     'isinf', 'isnan', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'atan2', 'cos', 'cosh',
     'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
@@ -260,10 +267,10 @@ def builtin_type_cast(dtype, *args):
             return dtype, lcapi.builder().local(to_lctype(dtype))
     # type cast of basic types
     # TODO may need temporary variable?
-    if dtype in {int, uint, float, short, ushort, half, bool}:
+    if dtype in {int, uint, float, short, ushort, half, bool, long, ulong}:
         if len(args) != 1:
             raise TypeError(f"Can't convert multiple values to {dtype.__name__}")
-        if args[0].dtype not in {int, uint, float, short, ushort, half, uint}:
+        if args[0].dtype not in {int, uint, float, short, ushort, half, uint, long, ulong}:
             raise TypeError(f"Can't convert {args[0].dtype} to {dtype.__name__}")
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
     if dtype in vector_and_matrix_dtypes:
@@ -276,7 +283,7 @@ def builtin_type_cast(dtype, *args):
 
 def make_vector_call(dtype, op, args):
     # type check: must be corresponding scalar or vector of same element type
-    assert dtype in {int, uint, float, short, ushort, half, bool}
+    assert dtype in {int, uint, float, short, ushort, half, bool, long, ulong}
     dim = 1
     for arg in args:
         if not (implicit_covertable(arg.dtype, dtype) or arg.dtype in vector_dtypes and implicit_covertable(
@@ -308,7 +315,7 @@ def discard():
 def bitwise_cast(*args):
     assert len(args) == 2 and args[0].dtype == type
     dtype = args[0].expr
-    assert dtype in {int, uint, float, short, ushort, half}
+    assert dtype in {int, uint, float, short, ushort, half, long, ulong}
     op = lcapi.CastOp.BITWISE
     return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
 
@@ -339,7 +346,7 @@ def set_block_size(x, y, z):
         else:
             values.append(a.value)
     for i in range(3):
-        if not type(values[i]) in {int, uint, short, ushort}:
+        if not type(values[i]) in {int, uint}:
             raise TypeError(f"set_block_size argument {i} must be int or uint")
         elif values[i] == 0:
             raise ValueError(f"block size can not be 0")
@@ -416,10 +423,9 @@ def _make_vec_16(name, *args):
     return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
 
-for T in 'ushort', 'short', 'half':
+for T in 'ushort', 'short', 'half', 'long', 'ulong':
     for N in 2, 3, 4:
         _func_map[f'make_{T}{N}'] = _make_vec_16
-
 
 def _make_matrices(name, *args):
     for N in 2, 3, 4:

@@ -98,6 +98,11 @@ LUISA_MAKE_VECTOR_TYPES(float)
 LUISA_MAKE_VECTOR_TYPES(int)
 LUISA_MAKE_VECTOR_TYPES(uint)
 
+LUISA_MAKE_VECTOR_TYPES(double)
+LUISA_MAKE_VECTOR_TYPES(uint64_t)
+LUISA_MAKE_VECTOR_TYPES(int64_t)
+// TODO: 16-bit
+
 #undef LUISA_MAKE_VECTOR_TYPES
 
 /// Matrix only allows size of 2, 3, 4
@@ -120,8 +125,8 @@ struct Matrix<2> {
 
     static constexpr Matrix eye(const float c) noexcept {
         return Matrix{
-            float2{c   , 0.0f},
-            float2{0.0f, c   }};
+            float2{c, 0.0f},
+            float2{0.0f, c}};
     }
 
     static constexpr Matrix fill(const float c) noexcept {
@@ -148,9 +153,9 @@ struct Matrix<3> {
 
     static constexpr Matrix eye(const float c) noexcept {
         return Matrix{
-            float3{c   , 0.0f, 0.0f},
-            float3{0.0f, c   , 0.0f},
-            float3{0.0f, 0.0f, c   }};
+            float3{c, 0.0f, 0.0f},
+            float3{0.0f, c, 0.0f},
+            float3{0.0f, 0.0f, c}};
     }
 
     static constexpr Matrix fill(const float c) noexcept {
@@ -181,10 +186,10 @@ struct Matrix<4> {
 
     static constexpr Matrix eye(const float c) noexcept {
         return Matrix{
-            float4{c   , 0.0f, 0.0f, 0.0f},
-            float4{0.0f, c   , 0.0f, 0.0f},
-            float4{0.0f, 0.0f, c   , 0.0f},
-            float4{0.0f, 0.0f, 0.0f, c   }};
+            float4{c, 0.0f, 0.0f, 0.0f},
+            float4{0.0f, c, 0.0f, 0.0f},
+            float4{0.0f, 0.0f, c, 0.0f},
+            float4{0.0f, 0.0f, 0.0f, c}};
     }
 
     static constexpr Matrix fill(const float c) noexcept {

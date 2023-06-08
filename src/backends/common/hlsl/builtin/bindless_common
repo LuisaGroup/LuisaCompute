@@ -1,16 +1,19 @@
-uint _ReadBdlsTex(uint num){
+template<typename T>
+T _ReadBdlsTex(T num){
 return num&268435455;
 }
-uint _ReadBdlsSmp(uint num){
+template<typename T>
+T _ReadBdlsSmp(T num){
 return num>>28;
 }
-uint _ReadBdlsBuffer(ByteAddressBuffer s,uint idx){
+template<typename T>
+T _ReadBdlsBuffer(ByteAddressBuffer s,T idx){
 return s.Load(12*idx);
 }
 #define _READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].Load<type>(size*idx)
 #define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].Load<type>(idx)
-template<typename T>
-uint _bdlsBfSize(ByteAddressBuffer arr,uint arrIdx,uint size,T bf){
+template<typename T,typename I,typename J>
+uint _bdlsBfSize(ByteAddressBuffer arr,I arrIdx,J size,T bf){
 uint sz;
 bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].GetDimensions(sz);
 return sz/size;

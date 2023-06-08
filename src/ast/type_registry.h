@@ -53,40 +53,44 @@ struct TypeDesc {
 };
 
 // scalar
-#define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, tag) \
-    template<>                                                        \
-    struct TypeDesc<S> {                                              \
-        static constexpr luisa::string_view description() noexcept {  \
-            using namespace std::string_view_literals;                \
-            return #S##sv;                                            \
-        }                                                             \
-    };                                                                \
-    template<>                                                        \
-    struct TypeDesc<Vector<S, 2>> {                                   \
-        static constexpr luisa::string_view description() noexcept {  \
-            using namespace std::string_view_literals;                \
-            return "vector<" #S ",2>"sv;                              \
-        }                                                             \
-    };                                                                \
-    template<>                                                        \
-    struct TypeDesc<Vector<S, 3>> {                                   \
-        static constexpr luisa::string_view description() noexcept {  \
-            using namespace std::string_view_literals;                \
-            return "vector<" #S ",3>"sv;                              \
-        }                                                             \
-    };                                                                \
-    template<>                                                        \
-    struct TypeDesc<Vector<S, 4>> {                                   \
-        static constexpr luisa::string_view description() noexcept {  \
-            using namespace std::string_view_literals;                \
-            return "vector<" #S ",4>"sv;                              \
-        }                                                             \
+#define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, desc, tag) \
+    template<>                                                              \
+    struct TypeDesc<S> {                                                    \
+        static constexpr luisa::string_view description() noexcept {        \
+            using namespace std::string_view_literals;                      \
+            return #desc##sv;                                                  \
+        }                                                                   \
+    };                                                                      \
+    template<>                                                              \
+    struct TypeDesc<Vector<S, 2>> {                                         \
+        static constexpr luisa::string_view description() noexcept {        \
+            using namespace std::string_view_literals;                      \
+            return "vector<" #desc ",2>"sv;                                 \
+        }                                                                   \
+    };                                                                      \
+    template<>                                                              \
+    struct TypeDesc<Vector<S, 3>> {                                         \
+        static constexpr luisa::string_view description() noexcept {        \
+            using namespace std::string_view_literals;                      \
+            return "vector<" #desc ",3>"sv;                                 \
+        }                                                                   \
+    };                                                                      \
+    template<>                                                              \
+    struct TypeDesc<Vector<S, 4>> {                                         \
+        static constexpr luisa::string_view description() noexcept {        \
+            using namespace std::string_view_literals;                      \
+            return "vector<" #desc ",4>"sv;                                 \
+        }                                                                   \
     };
 
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(bool, BOOL)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(float, FLOAT)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int, INT32)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(bool, bool, BOOL)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(float, float, FLOAT)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int, int, INT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, uint, UINT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int64_t, long, INT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint64_t, ulong, UINT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int16_t, short, INT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint16_t, ushort, UINT32)
 
 #undef LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION
 

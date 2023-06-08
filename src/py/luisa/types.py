@@ -88,10 +88,14 @@ class ulong4:
 
 
 _bit16_types = {ushort, half, short, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4}
+_bit64_types = {long, ulong, long2, ulong2, long3, ulong3, long4, ulong4}
 
 
 def is_bit16_types(dtype):
     return dtype in _bit16_types
+
+def is_bit64_types(dtype):
+    return dtype in _bit64_types
 
 
 scalar_dtypes = {int, float, bool, uint, ushort, half, short, long, ulong}

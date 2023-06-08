@@ -2,7 +2,7 @@ import ast
 import inspect
 import sys
 from types import SimpleNamespace, ModuleType
-from .types import length_of, element_of, vector, uint, implicit_covertable, short, ushort
+from .types import length_of, element_of, vector, uint, implicit_covertable, short, ushort, long, ulong
 from . import globalvars
 from .dylibs import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
@@ -456,7 +456,7 @@ class ASTVisitor:
                             build(x)
                     lcapi.end_branch()
             return
-        if not node.subject.dtype in {int, uint, short, ushort}:
+        if not node.subject.dtype in {int, uint, short, ushort, long, ulong}:
             raise TypeError(f"Match condition must be int or uint, got {node.subject.dtype}")
         eval_value = lcapi.builder().try_eval_int(node.subject.expr)
         if eval_value.exist():
@@ -538,7 +538,7 @@ class ASTVisitor:
             raise TypeError(f"'range' expects 1/2/3 arguments, got {len(node.iter.args)}")
         for x in node.iter.args:
             build(x)
-            assert x.dtype in {int, uint, short, ushort}
+            assert x.dtype in {int, uint, short, ushort, long, ulong}
         if len(node.iter.args) == 1:
             range_start = lcapi.builder().literal(to_lctype(int), 0)
             range_stop = node.iter.args[0].expr

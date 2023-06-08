@@ -171,12 +171,14 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
-    BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    BUFFER_SIZE,  /// [(buffer) -> size]
-    TEXTURE_READ, /// [(texture, coord) -> value]
-    TEXTURE_WRITE,/// [(texture, coord, value) -> void]
-    TEXTURE_SIZE, /// [(texture) -> Vector<uint, dim>]
+    BUFFER_READ,              /// [(buffer, index) -> value]: reads the index-th element in buffer
+    BYTE_ADDRESS_BUFFER_READ, /// [(buffer, buffer_offset) -> value]
+    BUFFER_WRITE,             /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    BYTE_ADDRESS_BUFFER_WRITE,/// [(buffer, buffer_offset, value) -> void]
+    BUFFER_SIZE,              /// [(buffer) -> size]
+    TEXTURE_READ,             /// [(texture, coord) -> value]
+    TEXTURE_WRITE,            /// [(texture, coord, value) -> void]
+    TEXTURE_SIZE,             /// [(texture) -> Vector<uint, dim>]
 
     BINDLESS_TEXTURE2D_SAMPLE,      // (bindless_array, index: uint, uv: float2): float4
     BINDLESS_TEXTURE2D_SAMPLE_LEVEL,// (bindless_array, index: uint, uv: float2, level: float): float4

@@ -322,27 +322,27 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
 
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
                 str << "RW"sv;
-            str << "StructuredBuffer<"sv;
-            auto ele = type.element();
-            if (ele->is_matrix()) {
-                auto n = vstd::to_string(ele->dimension());
-                str << "_WrappedFloat"sv << n << 'x' << n;
-            } else {
-                vstd::StringBuilder typeName;
-                if (ele->is_vector() && ele->dimension() == 3) {
-                    GetTypeName(*ele->element(), typeName, usage);
-                    typeName << '4';
-                } else {
-                    GetTypeName(*ele, typeName, usage);
-                }
-                auto ite = opt->structReplaceName.find(typeName);
-                if (ite != opt->structReplaceName.end()) {
-                    str << ite->second;
-                } else {
-                    str << typeName;
-                }
-            }
-            str << '>';
+            str << "ByteAddressBuffer"sv;
+            // auto ele = type.element();
+            // if (ele->is_matrix()) {
+            //     auto n = vstd::to_string(ele->dimension());
+            //     str << "_WrappedFloat"sv << n << 'x' << n;
+            // } else {
+            //     vstd::StringBuilder typeName;
+            //     if (ele->is_vector() && ele->dimension() == 3) {
+            //         GetTypeName(*ele->element(), typeName, usage);
+            //         typeName << '4';
+            //     } else {
+            //         GetTypeName(*ele, typeName, usage);
+            //     }
+            //     auto ite = opt->structReplaceName.find(typeName);
+            //     if (ite != opt->structReplaceName.end()) {
+            //         str << ite->second;
+            //     } else {
+            //         str << typeName;
+            //     }
+            // }
+            // str << '>';
         } break;
         case Type::Tag::TEXTURE: {
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
@@ -743,24 +743,67 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
-            str << "_bfread"sv;
-            auto elem = args[0]->type()->element();
-            if (IsNumVec3(*elem)) {
-                str << "Vec3"sv;
-            } else if (elem->is_matrix()) {
-                str << "Mat";
+            str << "_bfread("sv;
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
             }
-        } break;
+            auto elem = expr->type();
+            vstd::to_string(elem->size(), str);
+            str << ',';
+            GetTypeName(*elem, str, Usage::READ, true);
+            str << ')';
+            if (IsNumVec3(*elem)) {
+                str << ".xyz"sv;
+            }
+            return;
+        }
+        case CallOp::BYTE_ADDRESS_BUFFER_READ: {
+            str << "_bytebfread("sv;
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            auto elem = expr->type();
+            GetTypeName(*elem, str, Usage::READ, true);
+            str << ')';
+            if (IsNumVec3(*elem)) {
+                str << ".xyz"sv;
+            }
+            return;
+        }
         case CallOp::BUFFER_WRITE: {
             LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
-            str << "_bfwrite"sv;
-            auto elem = args[0]->type()->element();
-            if (IsNumVec3(*elem)) {
-                str << "Vec3"sv;
-            } else if (elem->is_matrix()) {
-                str << "Mat";
+            str << "_bfwrite("sv;
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
             }
-        } break;
+            auto elem = args[0]->type()->element();
+            vstd::to_string(elem->size(), str);
+            str << ',';
+            GetTypeName(*elem, str, Usage::WRITE, true);
+            str << ')';
+            if (IsNumVec3(*elem)) {
+                str << ".xyz"sv;
+            }
+            return;
+        } 
+        case CallOp::BYTE_ADDRESS_BUFFER_WRITE: {
+            LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
+            str << "_bytebfwrite("sv;
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            auto elem = args[0]->type()->element();
+            GetTypeName(*elem, str, Usage::WRITE, true);
+            str << ')';
+            if (IsNumVec3(*elem)) {
+                str << ".xyz"sv;
+            }
+            return;
+        } 
         case CallOp::BUFFER_SIZE: {
             str << "_bfsize"sv;
         } break;

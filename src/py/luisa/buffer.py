@@ -6,7 +6,7 @@ from .types import vector_dtypes, matrix_dtypes, element_of, length_of
 from functools import cache
 from .mathtypes import *
 from .builtin import check_exact_signature
-from .types import uint, uint, uint3, short, ushort
+from .types import uint, uint, uint3, short, ushort, long, ulong
 from .struct import CustomType
 from .atomic import int_atomic_functions, float_atomic_functions
 
@@ -19,7 +19,9 @@ class Buffer:
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
+        self.byte_address_read = self.bufferType.byte_address_read
         self.write = self.bufferType.write
+        self.byte_address_write = self.bufferType.byte_address_write
         self.buffer_size = self.bufferType.buffer_size
         self.dtype = dtype
         self.size = size
@@ -143,7 +145,9 @@ class BufferType:
         self.luisa_type = lcapi.Type.from_(
             "buffer<" + to_lctype(dtype).description() + ">")
         self.read = self.get_read_method(self.dtype)
+        self.byte_address_read = self.get_byte_addr_read_method(self.dtype)
         self.write = self.get_write_method(self.dtype)
+        self.byte_address_write = self.get_byte_addr_write_method(self.dtype)
         # disable atomic operations if it's not an int buffer
         if dtype in {int, uint, short, ushort}:
             for f in int_atomic_functions:
@@ -168,6 +172,16 @@ class BufferType:
 
         return read
     
+    @staticmethod
+    @cache
+    def get_byte_addr_read_method(dtype):
+        @BuiltinFuncBuilder
+        def read(self, idx):
+            check_exact_signature([uint], [idx], "read")
+            return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BYTE_ADDRESS_BUFFER_READ, [self.expr, idx.expr])
+
+        return read
+    
     @BuiltinFuncBuilder
     def buffer_size(self):
         return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr])
@@ -179,6 +193,16 @@ class BufferType:
         def write(self, idx, value):
             check_exact_signature([uint, dtype], [idx, value], "write")
             return None, lcapi.builder().call(lcapi.CallOp.BUFFER_WRITE, [self.expr, idx.expr, value.expr])
+
+        return write
+    
+    @staticmethod
+    @cache
+    def get_byte_addr_write_method(dtype):
+        @BuiltinFuncBuilder
+        def write(self, idx, value):
+            check_exact_signature([uint, dtype], [idx, value], "write")
+            return None, lcapi.builder().call(lcapi.CallOp.BYTE_ADDRESS_BUFFER_WRITE, [self.expr, idx.expr, value.expr])
 
         return write
 

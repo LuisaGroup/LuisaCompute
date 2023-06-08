@@ -72,6 +72,17 @@ public:
         return def<T>(expr);
     }
 
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto byte_address_read(I &&buffer_offset) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto expr = f->call(
+            Type::of<T>(), CallOp::BYTE_ADDRESS_BUFFER_READ,
+            {_expression,
+             detail::extract_expression(std::forward<I>(buffer_offset))});
+        return def<T>(expr);
+    }
+
     /// Write buffer at index
     template<typename I>
         requires is_integral_expr_v<I>
@@ -80,6 +91,17 @@ public:
             CallOp::BUFFER_WRITE,
             {_expression,
              detail::extract_expression(std::forward<I>(index)),
+             value.expression()});
+    }
+
+    /// Write buffer at index
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void byte_address_write(I &&index, Expr<T> buffer_offset) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BYTE_ADDRESS_BUFFER_WRITE,
+            {_expression,
+             detail::extract_expression(std::forward<I>(buffer_offset)),
              value.expression()});
     }
 };
