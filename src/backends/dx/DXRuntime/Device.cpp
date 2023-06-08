@@ -158,6 +158,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
                 16,
                 true));
+        hdr.create(dxgiFactory.Get(), adapter.Get());
         auto samplers = GlobalSamplers::GetSamplers();
         for (auto i : vstd::range(samplers.size())) {
             samplerHeap->CreateSampler(

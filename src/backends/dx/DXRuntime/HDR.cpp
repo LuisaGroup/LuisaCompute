@@ -24,11 +24,8 @@ HDR::HDR(IDXGIFactory2 *factory, IDXGIAdapter1 *adapter) {
         ++i;
     }
 }
-HDR::HDRSupport HDR::CheckSwapChainSupport(IDXGISwapChain3 *swapChain) {
+std::pair<HDR::HDRSupport, DXGI_COLOR_SPACE_TYPE> HDR::CheckSwapChainSupport(IDXGISwapChain3 *swapChain) {
     DXGI_COLOR_SPACE_TYPE currentColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
-    auto setSwapChain = vstd::scope_exit([&]{
-        swapChain->SetColorSpace1(currentColorSpace);
-    });
     HDRSupport result = HDRSupport::None;
     auto CheckSupport = [&](DXGI_COLOR_SPACE_TYPE colorSpace, HDRSupport support) {
         UINT colorSpaceSupport = 0;
@@ -41,11 +38,11 @@ HDR::HDRSupport HDR::CheckSwapChainSupport(IDXGISwapChain3 *swapChain) {
         return false;
     };
     if (supportHdr) {
-        if (CheckSupport(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, HDRSupport::RGB10)) return result;
-        if (CheckSupport(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, HDRSupport::F16)) return result;
+        if (CheckSupport(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, HDRSupport::F16)) return {result, currentColorSpace};
+        if (CheckSupport(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, HDRSupport::RGB10)) return {result, currentColorSpace};
     }
     CheckSupport(supportHdr ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, HDRSupport::None);
-    return result;
+    return {result, currentColorSpace};
 }
 HDR::~HDR() {
 }

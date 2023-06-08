@@ -9,6 +9,7 @@
 #include <DXRuntime/DxPtr.h>
 #include <ext_settings.h>
 #include <backends/common/default_binary_io.h>
+#include "HDR.h"
 
 namespace luisa {
 class BinaryIO;
@@ -54,6 +55,7 @@ public:
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
     vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
+    vstd::optional<HDR> hdr;
     LazyLoadShader setAccelKernel;
 
     LazyLoadShader bc6TryModeG10;

@@ -15,7 +15,7 @@ public:
     };
     bool SupportHdr() const { return supportHdr; }
     HDR(IDXGIFactory2 *factory, IDXGIAdapter1 *adapter);
-    HDRSupport CheckSwapChainSupport(IDXGISwapChain3* swapChain);
+    std::pair<HDRSupport, DXGI_COLOR_SPACE_TYPE> CheckSwapChainSupport(IDXGISwapChain3* swapChain);
     ~HDR();
 };
 }// namespace lc::dx
