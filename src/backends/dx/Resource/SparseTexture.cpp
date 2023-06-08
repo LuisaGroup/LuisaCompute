@@ -23,7 +23,7 @@ SparseTexture::SparseTexture(
         nullptr,
         IID_PPV_ARGS(resource.GetAddressOf())));
 }
-std::pair<uint3, size_t> SparseTexture::TilingSize() const {
+uint3 SparseTexture::TilingSize() const {
     D3D12_SUBRESOURCE_TILING tilingInfo;
     uint subresourceCount = 1;
     uint numTiles;
@@ -35,15 +35,12 @@ std::pair<uint3, size_t> SparseTexture::TilingSize() const {
         &subresourceCount,
         0,
         &tilingInfo);
-    std::pair<uint3, size_t> r;
-    r.second = GetTexturePixelSize(format) * width * height * depth / numTiles;
     auto lastMipSize = uint3(width, height, depth) >> (mip - 1);
     // TODO: may need packed mip in the future?
     if (lastMipSize.x < tilingInfo.WidthInTiles || lastMipSize.y < tilingInfo.HeightInTiles || lastMipSize.z < tilingInfo.DepthInTiles) [[unlikely]] {
         LUISA_ERROR("Currently do not support packed tile.");
     }
-    r.first = uint3(width / tilingInfo.WidthInTiles, height / tilingInfo.HeightInTiles, depth / tilingInfo.DepthInTiles);
-    return r;
+    return uint3(width / tilingInfo.WidthInTiles, height / tilingInfo.HeightInTiles, depth / tilingInfo.DepthInTiles);
 }
 SparseTexture::~SparseTexture() {
     auto &globalHeap = *device->globalHeap.get();

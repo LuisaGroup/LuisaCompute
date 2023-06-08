@@ -34,7 +34,7 @@ private:
 
 public:
     GpuAllocator *Allocator() const { return allocator; };
-    std::pair<uint3, size_t> TilingSize() const;
+    uint3 TilingSize() const;
     SparseTexture(
         Device *device,
         uint width,

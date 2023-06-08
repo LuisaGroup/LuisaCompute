@@ -621,8 +621,8 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     auto v = res->TilingSize();
-    info.tile_size = v.first;
-    info.tile_size_bytes = v.second;
+    info.tile_size = v;
+    info.tile_size_bytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     return info;
 }
 void LCDevice::destroy_sparse_texture(uint64_t handle) noexcept {
