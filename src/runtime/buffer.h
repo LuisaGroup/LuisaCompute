@@ -28,10 +28,13 @@ LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) no
 LC_RUNTIME_API void buffer_size_zero_error() noexcept;
 
 }// namespace detail
+
 template<typename T>
 class SparseBuffer;
+
 template<typename T>
 class BufferView;
+
 // check if this data type is legitimate
 template<typename T>
 constexpr bool is_valid_buffer_element_v =
