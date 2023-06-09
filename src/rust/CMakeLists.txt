@@ -2,18 +2,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-            NO_DEFAULT_FEATURES
-            IMPORTED_CRATES LUISA_RUST_TARGETS)
-
-    get_property(LUISA_COMPUTE_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-    if (LUISA_COMPUTE_IS_MULTI_CONFIG)
-        message(STATUS "Fixing rust output directories for multi-config generator")
-        foreach (target ${LUISA_RUST_TARGETS})
-            set_target_properties(${target} PROPERTIES
-                    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
-                    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
-        endforeach ()
-    endif ()
+            NO_DEFAULT_FEATURES)
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)

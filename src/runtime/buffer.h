@@ -244,5 +244,7 @@ template<typename T>
 struct buffer_element_impl<BufferView<T>> {
     using type = T;
 };
+
 }// namespace detail
+
 }// namespace luisa::compute

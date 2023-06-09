@@ -629,6 +629,8 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 mem->set_name(name);
                 break;
             }
+            case Resource::Tag::SPARSE_BUFFER: break;
+            case Resource::Tag::SPARSE_TEXTURE: break;
         }
     });
 }
