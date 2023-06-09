@@ -26,14 +26,14 @@ D3D12_SHADER_RESOURCE_VIEW_DESC Buffer::GetColorSrvDescBase(uint64 offset, uint6
         res.Format = DXGI_FORMAT_R32_TYPELESS;
         assert((offset & 15) == 0);
         res.Buffer.FirstElement = offset / 4;
-        res.Buffer.NumElements = byteSize / 4;
+        res.Buffer.NumElements = std::min<size_t>(byteSize / 4, 1073741536 - res.Buffer.FirstElement);
         res.Buffer.StructureByteStride = 0;
         res.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
     } else {
         res.Format = DXGI_FORMAT_UNKNOWN;
         assert((offset & 3) == 0);
         res.Buffer.FirstElement = offset / 4;
-        res.Buffer.NumElements = byteSize / 4;
+        res.Buffer.NumElements = std::min<size_t>(byteSize / 4, 1073741536 - res.Buffer.FirstElement);
         res.Buffer.StructureByteStride = 4;
         res.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
     }
@@ -47,13 +47,13 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC Buffer::GetColorUavDescBase(uint64 offset, uint
     if (isRaw) {
         assert((offset & 15) == 0);
         res.Buffer.FirstElement = offset / 4;
-        res.Buffer.NumElements = byteSize / 4;
+        res.Buffer.NumElements = std::min<size_t>(byteSize / 4, 1073741536 - res.Buffer.FirstElement);
         res.Buffer.StructureByteStride = 0;
         res.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
     } else {
         assert((offset & 3) == 0);
         res.Buffer.FirstElement = offset / 4;
-        res.Buffer.NumElements = byteSize / 4;
+        res.Buffer.NumElements = std::min<size_t>(byteSize / 4, 1073741536 - res.Buffer.FirstElement);
         res.Buffer.StructureByteStride = 4;
         res.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
     }

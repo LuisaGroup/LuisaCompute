@@ -104,10 +104,6 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         return this->view().copy_from(source);
     }
-    // DSL interface
-    [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<const detail::BufferExprProxy<SparseBuffer<T>> *>(this);
-    }
     [[nodiscard]] auto update() noexcept {
         return SparseBufferUpdateTiles{handle(), std::move(_operations)};
     }
@@ -123,6 +119,11 @@ namespace detail {
 
 template<typename T>
 struct is_buffer_impl<SparseBuffer<T>> : std::true_type {};
+
+template<typename T>
+struct buffer_element_impl<SparseBuffer<T>> {
+    using type = T;
+};
 
 }// namespace detail
 }// namespace luisa::compute

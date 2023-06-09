@@ -10,9 +10,6 @@ SparseBuffer::SparseBuffer(
       sparseAllocator(device, false),
       byteSize(byteSize),
       initState(initState) {
-    if (byteSize < D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) [[unlikely]] {
-        LUISA_ERROR("Currently do not support packed tile.");
-    }
     auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
     // allocatorPool = allocator.CreatePool(D3D12_HEAP_TYPE_DEFAULT);
 

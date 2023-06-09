@@ -12,7 +12,7 @@
 
 namespace lc::validation {
 class Stream;
-}
+}// namespace lc::validation
 
 namespace luisa::compute {
 
@@ -27,7 +27,42 @@ LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size
 LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) noexcept;
 LC_RUNTIME_API void buffer_size_zero_error() noexcept;
 
+template<typename T>
+struct is_buffer_impl : std::false_type {};
+
+template<typename T>
+struct is_buffer_view_impl : std::false_type {};
+
+template<typename T>
+struct buffer_element_impl {
+    using type = T;
+};
+
 }// namespace detail
+
+template<typename T>
+using is_buffer = detail::is_buffer_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using is_buffer_view = detail::is_buffer_view_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using is_buffer_or_view = std::disjunction<is_buffer<T>, is_buffer_view<T>>;
+
+template<typename T>
+constexpr auto is_buffer_v = is_buffer<T>::value;
+
+template<typename T>
+constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
+
+template<typename T>
+constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::value;
+
+template<typename T>
+using buffer_element = detail::buffer_element_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using buffer_element_t = typename buffer_element<T>::type;
 
 template<typename T>
 class SparseBuffer;
@@ -130,7 +165,9 @@ private:
 public:
     BufferView() noexcept : BufferView{nullptr, invalid_resource_handle, 0, 0, 0, 0} {}
     [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
-    BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
+    template<template<typename> typename B>
+        requires(is_buffer_v<B<T>>)
+    BufferView(const B<T> &buffer) noexcept : BufferView{buffer.view()} {}
     // properties
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -157,7 +194,7 @@ public:
             detail::error_buffer_reinterpret_size_too_small(sizeof(U), this->size_bytes());
         }
         auto total_size_bytes = _total_size * _element_stride;
-        return BufferView<U>{_device, _handle, alignof(U), _offset_bytes,
+        return BufferView<U>{_device, _handle, sizeof(U), _offset_bytes,
                              this->size_bytes() / sizeof(U), total_size_bytes / sizeof(U)};
     }
     // commands
@@ -191,25 +228,12 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
 
-// some traits
 namespace detail {
-
-template<typename T>
-struct is_buffer_impl : std::false_type {};
-
 template<typename T>
 struct is_buffer_impl<Buffer<T>> : std::true_type {};
 
 template<typename T>
-struct is_buffer_view_impl : std::false_type {};
-
-template<typename T>
 struct is_buffer_view_impl<BufferView<T>> : std::true_type {};
-
-template<typename T>
-struct buffer_element_impl {
-    using type = T;
-};
 
 template<typename T>
 struct buffer_element_impl<Buffer<T>> {
@@ -220,31 +244,5 @@ template<typename T>
 struct buffer_element_impl<BufferView<T>> {
     using type = T;
 };
-
 }// namespace detail
-
-template<typename T>
-using is_buffer = detail::is_buffer_impl<std::remove_cvref_t<T>>;
-
-template<typename T>
-using is_buffer_view = detail::is_buffer_view_impl<std::remove_cvref_t<T>>;
-
-template<typename T>
-using is_buffer_or_view = std::disjunction<is_buffer<T>, is_buffer_view<T>>;
-
-template<typename T>
-constexpr auto is_buffer_v = is_buffer<T>::value;
-
-template<typename T>
-constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
-
-template<typename T>
-constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::value;
-
-template<typename T>
-using buffer_element = detail::buffer_element_impl<std::remove_cvref_t<T>>;
-
-template<typename T>
-using buffer_element_t = typename buffer_element<T>::type;
-
 }// namespace luisa::compute
