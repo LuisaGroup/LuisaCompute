@@ -616,8 +616,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
         (TextureDimension)dimension,
         depth,
         mipmap_levels,
-        allowUAV,
-        *nativeDevice.defaultAllocator.get());
+        allowUAV);
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     auto v = res->TilingSize();
@@ -642,12 +641,8 @@ void LCDevice::update_sparse_texture(
     // free all memory first
     for (auto &&i : operations) {
         luisa::visit(
-            [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, SparseTextureMapOperation *>) {
-                    tex->FreeTileMemory(queuePtr.Queue(), t.start_tile, t.mip_level);
-                } else {
-                    tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.mip_level);
-                }
+            [&](auto const &t) {
+                tex->FreeTileMemory(queuePtr.Queue(), t.start_tile, t.mip_level);
             },
             i);
     }
@@ -667,7 +662,7 @@ SparseBufferCreationInfo LCDevice::create_sparse_buffer(const Type *element, siz
         if (element == Type::of<IndirectKernelDispatch>()) {
             info.element_stride = 28;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
-            res = new SparseBuffer(&nativeDevice, info.total_size_bytes, *nativeDevice.defaultAllocator.get());
+            res = new SparseBuffer(&nativeDevice, info.total_size_bytes);
         } else {
             LUISA_ERROR("Un-known custom type in dx-backend.");
         }
@@ -675,8 +670,7 @@ SparseBufferCreationInfo LCDevice::create_sparse_buffer(const Type *element, siz
         info.total_size_bytes = element->size() * elem_count;
         res = new SparseBuffer(
             &nativeDevice,
-            info.total_size_bytes,
-            *nativeDevice.defaultAllocator.get());
+            info.total_size_bytes);
         info.element_stride = element->size();
     }
     info.handle = resource_to_handle(res);
@@ -697,12 +691,8 @@ void LCDevice::update_sparse_buffer(
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
     for (auto &&i : operations) {
         luisa::visit(
-            [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, SparseBufferMapOperation>) {
-                    buffer->FreeTileMemory(queuePtr.Queue(), t.start_tile);
-                } else {
-                    buffer->DeAllocateTile(queuePtr.Queue(), t.start_tile);
-                }
+            [&](auto const &t) {
+                buffer->FreeTileMemory(queuePtr.Queue(), t.start_tile);
             },
             i);
     }
@@ -728,6 +718,7 @@ void LCDevice::clear_sparse_texture(
     }
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
     tex->ClearTile(queuePtr.Queue());
+    queuePtr.Signal();
 }
 void LCDevice::clear_sparse_buffer(
     uint64_t stream_handle,
@@ -740,6 +731,7 @@ void LCDevice::clear_sparse_buffer(
     }
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
     buffer->ClearTile(queuePtr.Queue());
+    queuePtr.Signal();
 }
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR

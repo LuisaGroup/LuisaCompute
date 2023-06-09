@@ -52,5 +52,6 @@ public:
 };
 
 LUISA_MARK_STREAM_EVENT_TYPE(SparseTexture::UpdateTiles)
+LUISA_MARK_STREAM_EVENT_TYPE(SparseTexture::ClearTiles)
 
 }// namespace luisa::compute
