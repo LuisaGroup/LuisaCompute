@@ -83,7 +83,7 @@ if (CUDAToolkit_FOUND)
 
     find_package(nvcomp CONFIG)
     if (NOT nvcomp_FOUND)
-        message(WARNING "nvcomp not found. The CUDA backend will be built without GPU compression support.")
+        message(WARNING "nvcomp not found. The CUDA backend will be built without GPU compression support. You may want to set the LUISA_COMPUTE_DOWNLOAD_NVCOMP option to ON to let LuisaCompute automatically download it.")
     else ()
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVCOMP=1)
         set(NVCOMP_TARGETS

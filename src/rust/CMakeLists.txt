@@ -1,8 +1,19 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
+
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-            NO_DEFAULT_FEATURES)
+            NO_DEFAULT_FEATURES
+            IMPORTED_CRATES LUISA_RUST_TARGETS)
 
+    get_property(LUISA_COMPUTE_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if (LUISA_COMPUTE_IS_MULTI_CONFIG)
+        message(STATUS "Fixing rust output directories for multi-config generator")
+        foreach (target ${LUISA_RUST_TARGETS})
+            set_target_properties(${target} PROPERTIES
+                    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+                    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
+        endforeach ()
+    endif ()
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -19,6 +30,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         #         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         #         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         #         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
         install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets)
         install(DIRECTORY luisa_compute_${target}
                 DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/rust
@@ -31,7 +43,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
     endfunction()
 
-
     luisa_compute_install_rust(api_types)
     luisa_compute_install_rust(ir)
     luisa_compute_install(rust-meta)
@@ -42,10 +53,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             corrosion_set_features(luisa_compute_backend_impl FEATURES cpu)
         endif ()
 
-
         if (LUISA_COMPUTE_ENABLE_REMOTE)
             corrosion_set_features(luisa_compute_backend_impl FEATURES remote)
         endif ()
+
         set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
         set(LUISA_RUST_OUTPUT_DIR
                 "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
@@ -53,8 +64,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/backend_support")
 
         # FIXME: using the internal target is not ideal
-        add_custom_target(luisa-compute-rust-copy DEPENDS
-                _cargo-build_luisa_compute_backend_impl)
+        add_custom_target(luisa-compute-rust-copy DEPENDS _cargo-build_luisa_compute_backend_impl)
 
         add_custom_command(TARGET luisa-compute-rust-copy
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -73,4 +83,5 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
         luisa_compute_install_rust(backend_impl)
     endif ()
+
 endif ()
