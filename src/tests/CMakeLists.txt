@@ -122,6 +122,7 @@ endif ()
 
 # GUI interaction with Qt
 if (WIN32 AND NOT MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # FIXME: Qt adds the invalid flags -Zc:__cplusplus and -permissive- to clang
     message(WARNING "Clang has trouble with Qt on Windows. The Qt example will not be built.")
 else ()
     set(CMAKE_AUTOMOC ON)
