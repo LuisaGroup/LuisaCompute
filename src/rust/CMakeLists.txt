@@ -50,7 +50,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         set(LUISA_RUST_OUTPUT_DIR
                 "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
         corrosion_set_env_vars(luisa_compute_backend_impl
-                "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/backend_support")
+                "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/backend_support"
+                "CMAKE=${CMAKE_COMMAND}"
+                "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
+                "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
 
         # FIXME: using the internal target is not ideal
         add_custom_target(luisa-compute-rust-copy DEPENDS _cargo-build_luisa_compute_backend_impl)
