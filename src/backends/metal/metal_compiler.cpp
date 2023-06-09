@@ -221,7 +221,30 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
         temp_file_path.string().c_str(), NS::UTF8StringEncoding));
     NS::Error *error = nullptr;
     auto library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
-    std::filesystem::remove(temp_file_path);
+
+#ifndef NDEBUG
+    auto should_dump_metallib = true;
+#else
+    auto should_dump_metallib = false;
+    if (auto dump_env_c_str = getenv("LUISA_DUMP_METAL_LIBRARY")) {
+        luisa::string dump_env{dump_env_c_str};
+        for (auto &c : dump_env) { c = static_cast<char>(toupper(c)); }
+        using namespace std::string_view_literals;
+        should_dump_metallib = !dump_env.empty() &&
+                               dump_env != "0"sv &&
+                               dump_env != "OFF"sv &&
+                               dump_env != "FALSE"sv;
+    }
+#endif
+
+    if (should_dump_metallib) {
+        LUISA_INFO_WITH_LOCATION(
+            "Metal shader archive for '{}' dumped to '{}'.",
+            name, temp_file_path.string());
+    } else {
+        std::filesystem::remove(temp_file_path);
+    }
+
     if (error != nullptr) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to load Metal shader "

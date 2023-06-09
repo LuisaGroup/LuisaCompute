@@ -52,7 +52,8 @@ public:
     [[nodiscard]] auto binding() const noexcept { return Binding{_handle->gpuResourceID(), _instance_buffer->gpuAddress()}; }
     void set_name(luisa::string_view name) noexcept;
     void mark_resource_usages(MetalCommandEncoder &encoder,
-                              MTL::ComputeCommandEncoder *command_encoder) noexcept;
+                              MTL::ComputeCommandEncoder *command_encoder,
+                              MTL::ResourceUsage usage) noexcept;
 };
 
 }// namespace luisa::compute::metal

@@ -200,7 +200,6 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
 
     // update the resources used by the acceleration structure
     _resources.clear();
-    _resources.emplace_back(_instance_buffer);
     for (auto prim : _primitives) { prim->add_resources(_resources); }
     std::sort(_resources.begin(), _resources.end());
     _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.cend());
@@ -250,7 +249,8 @@ void MetalAccel::set_name(luisa::string_view name) noexcept {
 }
 
 void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
-                                      MTL::ComputeCommandEncoder *command_encoder) noexcept {
+                                      MTL::ComputeCommandEncoder *command_encoder,
+                                      MTL::ResourceUsage usage) noexcept {
 
     std::scoped_lock lock{_mutex};
 
@@ -265,7 +265,9 @@ void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
         instance_buffer->release();
     }));
     command_encoder->useResource(_handle, MTL::ResourceUsageRead);
-    command_encoder->useResources(_resources.data(), _resources.size(), MTL::ResourceUsageRead);
+    command_encoder->useResource(_instance_buffer, usage);
+    // This seems unnecessary according to the Metal profiling tool
+    //    command_encoder->useResources(_resources.data(), _resources.size(), MTL::ResourceUsageRead);
 }
 
 }// namespace luisa::compute::metal

@@ -164,7 +164,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
                      "Failed to compile built-in Metal kernel 'swapchain_fragment_shader'.");
         return shader;
     };
-    _builtin_swapchain_present_ldr = create_builtin_present_shader(MTL::PixelFormatRGBA8Unorm);
+    _builtin_swapchain_present_ldr = create_builtin_present_shader(MTL::PixelFormatBGRA8Unorm);
     _builtin_swapchain_present_hdr = create_builtin_present_shader(MTL::PixelFormatRGBA16Float);
     render_pipeline_desc->release();
     builtin_swapchain_vertex_shader->release();

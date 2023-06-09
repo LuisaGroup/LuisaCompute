@@ -147,7 +147,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             case Argument::Tag::ACCEL: {
                 auto accel = reinterpret_cast<MetalAccel *>(arg.accel.handle);
-                if (usage != 0u) { accel->mark_resource_usages(encoder, compute_encoder); }
+                if (usage != 0u) { accel->mark_resource_usages(encoder, compute_encoder, usage); }
                 break;
             }
             default: break;
