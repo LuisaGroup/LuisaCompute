@@ -176,7 +176,8 @@ public:
                         return t.handle;
                     },
                     i.resource);
-            stateTracker->RecordState(reinterpret_cast<Resource const *>(handle), i.required_state, i.required_state & (D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE | D3D12_RESOURCE_STATE_UNORDERED_ACCESS) != 0);
+            stateTracker->RecordState(reinterpret_cast<Resource const *>(handle), i.required_state,
+                                      (i.required_state & (D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE | D3D12_RESOURCE_STATE_UNORDERED_ACCESS)) != 0);
         }
     }
     void visit(const BufferUploadCommand *cmd) noexcept override {

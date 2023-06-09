@@ -46,7 +46,7 @@ public:
     Tag GetTag() const override {
         return Tag::SparseBuffer;
     }
-    SparseBuffer(SparseBuffer &&) = default;
+    SparseBuffer(SparseBuffer &&) = delete;// cannot move due to atomic<T>
     void ClearTile(ID3D12CommandQueue *queue) const;
     KILL_COPY_CONSTRUCT(SparseBuffer)
 };

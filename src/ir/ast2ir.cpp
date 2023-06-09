@@ -313,6 +313,7 @@ ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
         case Type::Tag::ACCEL:
             LUISA_ERROR_WITH_LOCATION("AST2IR::_convert_type() should not "
                                       "be called for resource arguments.");
+        default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", type->description());
 }

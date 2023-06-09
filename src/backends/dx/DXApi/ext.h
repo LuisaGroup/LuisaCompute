@@ -181,7 +181,7 @@ class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
     void set_config(bool hdd) noexcept;
 
 public:
-    DeviceInterface *device() const noexcept;
+    DeviceInterface *device() const noexcept override;
     DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
     ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
     FileCreationInfo open_file_handle(luisa::string_view path) noexcept override;

@@ -239,6 +239,8 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
                 tmp.body = _atomic_max;
             }
             break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");
     }
 
     AccessChain chain{

@@ -110,6 +110,8 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
             case Argument::Tag::ACCEL: {
                 mark_handle(arg.accel.handle, Range{});
             } break;
+            default:
+                break;
         }
         ++arg_idx;
     };

@@ -583,10 +583,7 @@ template<typename T>
 class UndefEval : public Evaluable {
 public:
     using EvalType = T;
-    operator T() const {
-        assert(false);
-        return std::move(*reinterpret_cast<T *>(0));
-    }
+    [[noreturn]] operator T() const { abort(); }
 };
 
 template<class Func>

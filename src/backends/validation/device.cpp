@@ -120,6 +120,8 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                     luisa::to_underlying(StreamFunc::Signal) |
                     luisa::to_underlying(StreamFunc::Wait));
                 break;
+            default:
+                break;
         }
     }
     return str;

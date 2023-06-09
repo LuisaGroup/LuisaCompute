@@ -174,6 +174,8 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
                     return D3D12_COMMAND_LIST_TYPE_DIRECT;
                 case compute::StreamTag::COPY:
                     return D3D12_COMMAND_LIST_TYPE_COPY;
+                default:
+                    break;
             }
             LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());

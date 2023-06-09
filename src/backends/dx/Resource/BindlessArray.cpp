@@ -79,7 +79,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
             case Ope::REMOVE:
                 TryReturnIndex(indices.buffer, bindGrp.buffer);
                 break;
-            case Ope::EMPLACE:
+            case Ope::EMPLACE: {
                 TryReturnIndex(indices.buffer, bindGrp.buffer);
                 BufferView v{reinterpret_cast<Buffer *>(mod.buffer.handle), mod.buffer.offset_bytes};
                 auto newIdx = device->globalHeap->AllocateIndex();
@@ -98,6 +98,8 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
                 bindGrp.buffer = newIdx;
                 indices.buffer = AddIndex(mod.buffer.handle);
                 break;
+            }
+            default: break;
         }
         switch (mod.tex2d.op) {
             case Ope::REMOVE:
@@ -106,6 +108,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
             case Ope::EMPLACE:
                 EmplaceTex.operator()<true>(bindGrp, indices, mod.tex2d.handle, reinterpret_cast<TextureBase *>(mod.tex2d.handle), mod.tex2d.sampler);
                 break;
+            default: break;
         }
         switch (mod.tex3d.op) {
             case Ope::REMOVE:
@@ -114,6 +117,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
             case Ope::EMPLACE:
                 EmplaceTex.operator()<false>(bindGrp, indices, mod.tex3d.handle, reinterpret_cast<TextureBase *>(mod.tex3d.handle), mod.tex3d.sampler);
                 break;
+            default: break;
         }
     }
 }

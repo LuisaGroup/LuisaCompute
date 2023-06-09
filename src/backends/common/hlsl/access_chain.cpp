@@ -105,6 +105,9 @@ vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expres
                 nodes.emplace_back(MemberNode{.member_index = member_index});
                 type = type->members()[member_index];
             } break;
+            default:
+                LUISA_ERROR_WITH_LOCATION("Invalid access chain node type: {}",
+                                          type->description());
         }
     }
     return nodes;

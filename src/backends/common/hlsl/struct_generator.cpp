@@ -74,6 +74,8 @@ void StructGenerator::InitAsStruct(
             case Type::Tag::ARRAY:
                 visitor(i);
                 break;
+            default:
+                break;
         }
         structSize += i->size();
         util->GetTypeName(*i, structDesc, Usage::READ, false);

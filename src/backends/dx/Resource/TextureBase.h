@@ -46,8 +46,8 @@ public:
         uint depth,
         uint mip,
         D3D12_RESOURCE_STATES initState);
-    virtual ~TextureBase();
-    TextureBase(TextureBase &&) = default;
+    ~TextureBase() override;
+    TextureBase(TextureBase &&) = delete;
     KILL_COPY_CONSTRUCT(TextureBase)
 };
 }// namespace lc::dx
