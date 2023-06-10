@@ -84,7 +84,7 @@ jobs:
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
-          xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --m=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
           xmake
 
   build-windows:
