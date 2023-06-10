@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/spin_mutex.h>
 #include <runtime/rhi/command.h>
 #include <backends/metal/metal_api.h>
 

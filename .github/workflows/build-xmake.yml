@@ -64,7 +64,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-12, macos-13 ]
-        compiler: [ homebrew-, system-clang ]
+        compiler: [ homebrew-clang, system-clang ]
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
@@ -85,6 +85,7 @@ jobs:
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
           xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake
 
   build-windows:
     strategy:

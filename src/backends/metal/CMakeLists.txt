@@ -44,7 +44,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
 
-    find_library(COMPRESSION_LIB Compression)
+    find_library(COMPRESSION_LIB compression)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
             ${COMPRESSION_LIB}
             "-framework Foundation"
