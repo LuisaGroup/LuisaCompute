@@ -191,10 +191,7 @@ void CommandBufferBuilder::CopyBufferTexture(
             size.x,                        //uint Width;
             size.y,                        //uint Height;
             size.z,                        //uint Depth;
-            static_cast<uint>(size.x / (Resource::IsBCtex(texture->Format()) ? 4 : 1) * Resource::GetTexturePixelSize(texture->Format()))};
-    if ((sourceLocation.PlacedFootprint.Footprint.RowPitch & (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)) > 0) [[unlikely]] {
-        LUISA_ERROR("Direct-X backend do not support texture copy command with width * pixel_size not aligned to {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-    }
+            static_cast<uint>(CalcAlign(size.x / (Resource::IsBCtex(texture->Format()) ? 4ull : 1ull) * Resource::GetTexturePixelSize(texture->Format()), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT))};
     D3D12_TEXTURE_COPY_LOCATION destLocation;
     destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     destLocation.SubresourceIndex = targetMip;
