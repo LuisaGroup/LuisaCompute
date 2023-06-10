@@ -266,8 +266,9 @@ void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
     }));
     command_encoder->useResource(_handle, MTL::ResourceUsageRead);
     command_encoder->useResource(_instance_buffer, usage);
-    // This seems unnecessary according to the Metal profiling tool
-    //    command_encoder->useResources(_resources.data(), _resources.size(), MTL::ResourceUsageRead);
+    // FIXME: This seems unnecessary according to the Metal profiling tool, but
+    //  will cause some bottom-level acceleration structures disappear in tests.
+    command_encoder->useResources(_resources.data(), _resources.size(), MTL::ResourceUsageRead);
 }
 
 }// namespace luisa::compute::metal
