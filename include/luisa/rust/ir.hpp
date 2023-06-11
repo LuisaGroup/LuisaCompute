@@ -6,7 +6,8 @@
 #include <cstdlib>
 #include <ostream>
 #include <new>
-#include <luisa/rust/ir_common.h>
+#include "ir_common.h"
+
 
 namespace luisa::compute::ir {
 
@@ -760,4 +761,3 @@ Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline
 } // extern "C"
 
 } // namespace luisa::compute::ir
-

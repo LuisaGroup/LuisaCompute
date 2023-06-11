@@ -253,4 +253,11 @@ if (LUISA_COMPUTE_ENABLE_DSL)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_DSL=1)
 endif ()
 
+install(TARGETS luisa-compute-include
+        EXPORT LuisaComputeTargets)
+
+install(DIRECTORY include/luisa
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h")
+
 add_subdirectory(src)

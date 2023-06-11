@@ -11,7 +11,7 @@ fn main() {
         .with_language(cbindgen::Language::Cxx)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("../ir.hpp");
+        .write_to_file("../../../include/luisa/rust/ir.hpp");
 
     // cbindgen::Builder::new()
     //     .with_config(Config::from_file("c.toml").unwrap())
