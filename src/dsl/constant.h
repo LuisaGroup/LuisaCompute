@@ -61,7 +61,7 @@ public:
         return (*this)[std::forward<I>(index)];
     }
 
-    [[nodiscard]] auto operator->() const noexcept { return *this; }
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 template<typename T>
