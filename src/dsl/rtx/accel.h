@@ -29,6 +29,7 @@ public:
     void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<uint> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept;
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 Expr(const Accel &) noexcept -> Expr<Accel>;

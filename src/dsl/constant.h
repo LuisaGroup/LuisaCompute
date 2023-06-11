@@ -60,6 +60,8 @@ public:
     [[nodiscard]] auto read(I &&index) const noexcept {
         return (*this)[std::forward<I>(index)];
     }
+
+    [[nodiscard]] auto operator->() const noexcept { return *this; }
 };
 
 template<typename T>

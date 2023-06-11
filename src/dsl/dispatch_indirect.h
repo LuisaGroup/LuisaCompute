@@ -22,6 +22,7 @@ public:
     void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
         dispatch_kernel(block_size, dispatch_size, 0u);
     }
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 Expr(const IndirectDispatchBuffer &) -> Expr<IndirectDispatchBuffer>;

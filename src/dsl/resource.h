@@ -82,6 +82,9 @@ public:
              detail::extract_expression(std::forward<I>(index)),
              value.expression()});
     }
+
+    /// Self-pointer to unify the interfaces of the captured Buffer<T> and Expr<Buffer<T>>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 /// Same as Expr<Buffer<T>>
@@ -133,6 +136,9 @@ public:
         return def<uint2>(f->call(
             Type::of<uint2>(), CallOp::TEXTURE_SIZE, {_expression}));
     }
+
+    /// Self-pointer to unify the interfaces of the captured Image<T> and Expr<Image<T>>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 /// Same as Expr<Image<T>>
@@ -183,6 +189,9 @@ public:
         return def<uint3>(f->call(
             Type::of<uint3>(), CallOp::TEXTURE_SIZE, {_expression}));
     }
+
+    /// Self pointer to unify the interfaces of the captured Volume<T> and Expr<Volume<T>>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 /// Same as Expr<Volume<T>>
@@ -367,6 +376,9 @@ public:
         auto i = def(std::forward<I>(index));
         return detail::BindlessByteAddressBuffer{_expression, i.expression()};
     }
+
+    /// Self-pointer to unify the interfaces of the captured BindlessArray and Expr<BindlessArray>
+    [[nodiscard]] auto *operator->() const noexcept { return this; }
 };
 
 template<typename T>
