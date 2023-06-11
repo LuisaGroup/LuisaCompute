@@ -227,6 +227,9 @@ public:
                 Type::of<T>(), CallOp::BINDLESS_BUFFER_READ,
                 {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
+
+    /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 class LC_DSL_API BindlessByteAddressBuffer {
@@ -248,6 +251,9 @@ public:
                 Type::of<T>(), CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ,
                 {_array, _index, detail::extract_expression(std::forward<I>(offset))}));
     }
+
+    /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 /// Class of bindless 2D texture
@@ -286,6 +292,9 @@ public:
             {_array, _index, coord.expression(),
              detail::extract_expression(std::forward<I>(level))}));
     }
+
+    /// Self-pointer to unify the interfaces with Expr<Texture2D>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 /// Class of bindless 3D texture
@@ -324,6 +333,9 @@ public:
             {_array, _index, coord.expression(),
              detail::extract_expression(std::forward<I>(level))}));
     }
+
+    /// Self-pointer to unify the interfaces with Expr<Texture3D>
+    [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
 }// namespace detail
