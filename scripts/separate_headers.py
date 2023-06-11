@@ -1,5 +1,6 @@
-from os import listdir
+from os import listdir, makedirs
 from os.path import realpath, relpath, dirname, abspath, isdir, normpath
+from shutil import copyfile
 
 
 def normalize(base, path):
@@ -12,38 +13,41 @@ def glob(source_files, header_files, folder, recursive=True):
             header_files.append(f"{folder}/{f}")
         elif f.endswith(".cpp"):
             source_files.append(f"{folder}/{f}")
-        elif isdir(f"{folder}/{f}"):
+        elif recursive and isdir(f"{folder}/{f}"):
             glob(source_files, header_files, f"{folder}/{f}")
 
 
-def find_binding_includes(file):
-    with open(file, "r") as f:
-        lines = [l.strip() for l in f.readlines()]
-    includes = []
-    for line in lines:
-        if line.startswith("#include"):
-            if "binding" in line:
-                includes.append(line)
-    includes = set(includes)
-    if includes:
-        print(f"includes in {file}: {includes}")
+def fix_include(src_dir, file, moved_headers):
+    pass
+
+
+def move(src_dir, header):
+    src_path = f"{src_dir}/{header}"
+    dst_path = f"{src_dir}/../include/luisa/{header}"
+    dst_dir = dirname(dst_path)
+    makedirs(dst_dir, exist_ok=True)
+    copyfile(src_path, dst_path)
 
 
 if __name__ == "__main__":
-    src_dir = normpath(abspath(f"{dirname(realpath(__file__))}/../src"))
+    src_dir = normpath(abspath(f"{dirname(realpath(__file__))}/../src")).replace("\\", "/")
     source_files = []
     header_files = []
     base_modules = [f"{src_dir}/{f}" for f in listdir(src_dir) if isdir(f"{src_dir}/{f}") and f != "ext"]
     for m in base_modules:
-        glob(source_files, header_files, m)
+        recursive = not m.endswith("rust")
+        glob(source_files, header_files, m, recursive)
     source_files = [normalize(src_dir, f) for f in source_files]
     header_files = [normalize(src_dir, f) for f in header_files]
 
-    print(f"source files: {source_files}")
-    print(f"header files: {header_files}")
+    exclude = ["backends", "py", "tests"]
+    include = ["backends/ext"]
+    headers_to_move = [f for f in header_files if
+                       not any([f.startswith(e) for e in exclude]) or
+                       any([f.startswith(e) for e in include])]
 
-    print()
+    for f in source_files + header_files:
+        fix_include(src_dir, f, headers_to_move)
 
-    for h in header_files:
-        find_binding_includes(f"{src_dir}/{h}")
-
+    for h in headers_to_move:
+        move(src_dir, h)

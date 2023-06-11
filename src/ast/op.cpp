@@ -2,7 +2,6 @@
 // Created by Mike Smith on 2021/8/6.
 //
 
-#include "op.h"
 #include <core/logging.h>
 #include <ast/op.h>
 #include <ast/type_registry.h>
