@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <runtime/rhi/command.h>
+#include <luisa/runtime/rhi/command.h>
 #include <backends/common/resource_tracker.h>
 #include <backends/metal/metal_api.h>
 
@@ -51,3 +51,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

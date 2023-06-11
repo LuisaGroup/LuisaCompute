@@ -3,15 +3,15 @@
 //
 #include <stb/stb_image_write.h>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <runtime/rtx/accel.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/rtx/accel.h>
 
 using namespace luisa;
 using namespace luisa::compute;

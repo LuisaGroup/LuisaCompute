@@ -1,6 +1,6 @@
-#include <runtime/sparse_texture.h>
-#include <runtime/rhi/device_interface.h>
-#include <core/logging.h>
+#include <luisa/runtime/sparse_texture.h>
+#include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/logging.h>
 namespace luisa::compute {
 namespace detail {
 LC_RUNTIME_API void check_sparse_tex2d_map(uint2 size, uint2 tile_size, uint2 start_tile, uint2 tile_count) {
@@ -68,3 +68,4 @@ SparseTexture::~SparseTexture() noexcept {
 }
 
 }// namespace luisa::compute
+

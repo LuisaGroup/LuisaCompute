@@ -74,3 +74,4 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
 }
 
 }// namespace luisa::compute::cuda
+

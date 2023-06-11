@@ -1,8 +1,8 @@
 
-#include <vstl/log.h>
+#include <luisa/vstl/log.h>
 #include <mutex>
 #include <cstdio>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 namespace LogGlobal {
 static bool isInitialized = false;
 static std::mutex mtx;

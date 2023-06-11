@@ -1,4 +1,4 @@
-#include <vstl/stack_allocator.h>
+#include <luisa/vstl/stack_allocator.h>
 namespace vstd {
 StackAllocator::StackAllocator(
     uint64 initCapacity,
@@ -112,3 +112,4 @@ void VEngineMallocVisitor::deallocate(uint64 handle) {
     vengine_free(reinterpret_cast<void *>(handle));
 }
 }// namespace vstd
+

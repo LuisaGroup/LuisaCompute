@@ -79,3 +79,4 @@ void CUDATexture::set_name(luisa::string &&name) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

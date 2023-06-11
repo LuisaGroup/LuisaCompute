@@ -1,10 +1,10 @@
 #pragma once
 
-#include <runtime/image.h>
-#include <runtime/volume.h>
-#include <runtime/raster/depth_buffer.h>
-#include <runtime/buffer.h>
-#include <backends/ext/raster_ext.hpp>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/volume.h>
+#include <luisa/runtime/raster/depth_buffer.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/backends/ext/raster_ext.hpp>
 
 namespace luisa::compute {
 
@@ -41,3 +41,4 @@ public:
 };
 
 }// namespace luisa::compute
+

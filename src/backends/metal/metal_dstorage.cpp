@@ -5,9 +5,9 @@
 #include <sys/mman.h>
 #include <compression.h>
 
-#include <core/clock.h>
-#include <core/magic_enum.h>
-#include <core/logging.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/core/logging.h>
 #include <backends/metal/metal_device.h>
 #include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
@@ -610,3 +610,4 @@ void MetalDStorageExt::unpin_host_memory(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2023/4/16.
 //
 
-#include <core/pool.h>
-#include <core/logging.h>
-#include <runtime/rhi/pixel.h>
+#include <luisa/core/pool.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/rhi/pixel.h>
 #include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_accel.h>
@@ -266,3 +266,4 @@ void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

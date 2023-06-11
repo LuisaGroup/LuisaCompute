@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <runtime/rtx/procedural_primitive.h>
+#include <luisa/runtime/rtx/procedural_primitive.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_primitive.h>
 
@@ -29,3 +29,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

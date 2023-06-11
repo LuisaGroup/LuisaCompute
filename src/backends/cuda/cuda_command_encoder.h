@@ -9,8 +9,8 @@
 #include <nvtx3/nvToolsExt.h>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <runtime/rhi/command.h>
-#include <backends/ext/dstorage_cmd.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/backends/ext/dstorage_cmd.h>
 #include <backends/cuda/cuda_stream.h>
 
 namespace luisa::compute::cuda {
@@ -63,3 +63,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

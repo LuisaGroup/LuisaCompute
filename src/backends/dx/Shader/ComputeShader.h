@@ -1,6 +1,6 @@
 #pragma once
 #include <Shader/Shader.h>
-#include <core/binary_io.h>
+#include <luisa/core/binary_io.h>
 namespace lc::hlsl {
 struct CodegenResult;
 }

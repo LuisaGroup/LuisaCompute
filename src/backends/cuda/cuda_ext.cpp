@@ -5,7 +5,7 @@
 #include <cuda.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_buffer.h>
-#include <runtime/stream.h>
+#include <luisa/runtime/stream.h>
 namespace luisa::compute::cuda {
 void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {
     _mode = mode;
@@ -278,3 +278,4 @@ void CUDADenoiserExt::destroy(Stream &stream) noexcept {
     _device->with_handle([&] { _destroy(stream); });
 }
 }// namespace luisa::compute::cuda
+

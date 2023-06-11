@@ -42,3 +42,4 @@ void ManagedBindless::Update(PyStream &stream) noexcept {
 }
 
 }// namespace luisa::compute
+

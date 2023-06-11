@@ -36,3 +36,4 @@ int main(int argc, char *argv[]) {
     stream << s().dispatch(1u);
     stream << synchronize();
 }
+

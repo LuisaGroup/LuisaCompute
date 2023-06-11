@@ -1,6 +1,6 @@
 #pragma once
 #include "rw_resource.h"
-#include <runtime/rhi/command.h>
+#include <luisa/runtime/rhi/command.h>
 namespace lc::validation {
 class Mesh;
 class Accel : public RWResource {

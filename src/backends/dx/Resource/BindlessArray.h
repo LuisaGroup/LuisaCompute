@@ -1,8 +1,8 @@
 #pragma once
 #include <Resource/Resource.h>
 #include <Resource/DefaultBuffer.h>
-#include <vstl/lockfree_array_queue.h>
-#include <runtime/rhi/command.h>
+#include <luisa/vstl/lockfree_array_queue.h>
+#include <luisa/runtime/rhi/command.h>
 namespace lc::dx {
 using namespace luisa::compute;
 class TextureBase;

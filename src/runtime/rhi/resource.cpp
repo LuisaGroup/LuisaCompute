@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2021/7/30.
 //
 
-#include <runtime/rhi/resource.h>
-#include <runtime/device.h>
-#include <core/logging.h>
+#include <luisa/runtime/rhi/resource.h>
+#include <luisa/runtime/device.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -32,3 +32,4 @@ void Resource::_check_same_derived_types(const Resource &lhs,
 }
 
 }// namespace luisa::compute
+

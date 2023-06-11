@@ -154,3 +154,4 @@ _MTL_INLINE MTL::IntersectionFunctionDescriptor* MTL::IntersectionFunctionDescri
 {
     return NS::Object::init<MTL::IntersectionFunctionDescriptor>();
 }
+

@@ -6,8 +6,8 @@
 #include <Shader/BuiltinKernel.h>
 #include <backends/common/hlsl/shader_compiler.h>
 #include <Shader/ComputeShader.h>
-#include <core/logging.h>
-#include <runtime/context.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
 #include <ext_settings.h>
 
 namespace lc::dx {

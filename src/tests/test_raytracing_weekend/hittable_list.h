@@ -39,3 +39,4 @@ Bool hittable_list::hit(const ray &r, Float t_min, Float t_max, hit_record &rec)
 
     return hit_anything;
 }
+

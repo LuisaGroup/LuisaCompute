@@ -4,10 +4,10 @@
 
 #include <sstream>
 
-#include <core/clock.h>
-#include <core/platform.h>
-#include <core/logging.h>
-#include <core/stl/filesystem.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/platform.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
               "illegal pointer and integer sizes.");
@@ -287,3 +287,4 @@ luisa::string cpu_name() noexcept {
 }// namespace luisa
 
 #endif
+

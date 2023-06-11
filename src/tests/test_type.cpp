@@ -11,13 +11,13 @@
 
 #include <spdlog/spdlog.h>
 
-#include <core/logging.h>
-#include <ast/type.h>
-#include <ast/type_registry.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 
-#include <ast/expression.h>
-#include <ast/statement.h>
-#include <ast/variable.h>
+#include <luisa/ast/expression.h>
+#include <luisa/ast/statement.h>
+#include <luisa/ast/variable.h>
 
 struct S1 {
     float x;
@@ -180,3 +180,4 @@ int main() {
 
     auto [m, n] = std::array{1, 2};
 }
+

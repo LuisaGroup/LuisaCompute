@@ -1,8 +1,8 @@
-#include <runtime/raster/depth_buffer.h>
-#include <runtime/device.h>
-#include <core/logging.h>
-#include <backends/ext/raster_ext.hpp>
-#include <backends/ext/raster_cmd.h>
+#include <luisa/runtime/raster/depth_buffer.h>
+#include <luisa/runtime/device.h>
+#include <luisa/core/logging.h>
+#include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/backends/ext/raster_cmd.h>
 
 namespace luisa::compute {
 DepthBuffer::DepthBuffer(const ResourceCreationInfo &create_info, RasterExt *raster_ext, DeviceInterface *device, DepthFormat format, uint2 size) noexcept
@@ -58,3 +58,4 @@ ImageView<float> DepthBuffer::to_img() noexcept {
 }
 
 }// namespace luisa::compute
+

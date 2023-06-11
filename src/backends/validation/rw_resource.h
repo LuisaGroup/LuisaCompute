@@ -1,6 +1,6 @@
 #pragma once
 #include "resource.h"
-#include <ast/usage.h>
+#include <luisa/ast/usage.h>
 #include "range.h"
 namespace lc::validation {
 class Stream;

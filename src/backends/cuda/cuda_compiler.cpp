@@ -4,8 +4,8 @@
 
 #include <fstream>
 
-#include <core/clock.h>
-#include <core/binary_io.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/binary_io.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/optix_api.h>
@@ -110,3 +110,4 @@ uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *c
 }
 
 }// namespace luisa::compute::cuda
+

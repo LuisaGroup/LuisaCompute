@@ -1,5 +1,5 @@
 #pragma once
-#include <vstl/common.h>
+#include <luisa/vstl/common.h>
 
 namespace lc::validation {
 enum class StreamFunc : uint32_t {

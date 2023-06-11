@@ -3457,3 +3457,4 @@ bool ObjReader::ParseFromString(const std::string &obj_text,
 }  // namespace tinyobj
 
 #endif
+

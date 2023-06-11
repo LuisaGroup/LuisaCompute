@@ -1,8 +1,8 @@
 #pragma once
 #include <d3dx12.h>
 #include <Shader/Shader.h>
-#include <core/binary_io.h>
-#include <runtime/raster/raster_state.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/runtime/raster/raster_state.h>
 namespace lc::dx {
 class ComputeShader;
 class RasterShader;

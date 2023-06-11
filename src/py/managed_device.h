@@ -1,7 +1,7 @@
 #pragma once
 #include <py/ref_counter.h>
-#include <runtime/device.h>
-#include <vstl/meta_lib.h>
+#include <luisa/runtime/device.h>
+#include <luisa/vstl/meta_lib.h>
 using namespace luisa::compute;
 class ManagedDevice {
 public:

@@ -15,3 +15,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
     names.clear();
     names.emplace_back("Unknown");// TODO
 }
+

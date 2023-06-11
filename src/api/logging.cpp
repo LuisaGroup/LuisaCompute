@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/10/18.
 //
 
-#include <core/logging.h>
-#include <api/api.h>
+#include <luisa/core/logging.h>
+#include <luisa/api/api.h>
 
 LUISA_EXPORT_API void luisa_compute_set_log_level_verbose() LUISA_NOEXCEPT {
     luisa::log_level_verbose();

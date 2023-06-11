@@ -198,3 +198,4 @@ _MTL_INLINE NS::Error* MTL::IOCommandBuffer::error() const
 {
     return Object::sendMessage<NS::Error*>(this, _MTL_PRIVATE_SEL(error));
 }
+

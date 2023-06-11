@@ -1,6 +1,6 @@
 #include <backends/cuda/optix_api.h>
-#include <core/logging.h>
-#include <core/platform.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/platform.h>
 
 // The following code is from
 //   [Dr.JIT-Core](https://github.com/mitsuba-renderer/drjit-core) by Wenzel Jakob
@@ -175,3 +175,4 @@ namespace luisa::compute::optix {
 }
 
 }// namespace luisa::compute::optix
+

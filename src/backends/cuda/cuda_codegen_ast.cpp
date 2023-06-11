@@ -4,13 +4,13 @@
 
 #include <string_view>
 
-#include <core/logging.h>
-#include <ast/type_registry.h>
-#include <ast/constant_data.h>
-#include <runtime/rtx/ray.h>
-#include <runtime/rtx/hit.h>
-#include <runtime/dispatch_buffer.h>
-#include <dsl/rtx/ray_query.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/type_registry.h>
+#include <luisa/ast/constant_data.h>
+#include <luisa/runtime/rtx/ray.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/dsl/rtx/ray_query.h>
 #include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_codegen_ast.h>
 
@@ -1685,3 +1685,4 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noex
 CUDACodegenAST::~CUDACodegenAST() noexcept = default;
 
 }// namespace luisa::compute::cuda
+

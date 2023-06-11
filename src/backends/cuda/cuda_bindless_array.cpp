@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <runtime/bindless_array.h>
+#include <luisa/runtime/bindless_array.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_device.h>
@@ -175,3 +175,4 @@ void CUDABindlessArray::set_name(luisa::string &&name) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

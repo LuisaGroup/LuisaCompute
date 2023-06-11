@@ -2,11 +2,11 @@
 // Created by Hercier on 2023/4/6.
 //
 #include <backends/cuda/optix_api.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include <backends/cuda/cuda_device.h>
-#include <backends/ext/denoiser_ext.h>
-#include <runtime/image.h>
-#include <runtime/buffer.h>
+#include <luisa/backends/ext/denoiser_ext.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/buffer.h>
 
 namespace luisa::compute::cuda {
 
@@ -46,3 +46,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

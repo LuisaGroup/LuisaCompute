@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2023/4/5.
 //
 
-#include <core/logging.h>
-#include <runtime/context.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
 #include <tests/common/config.h>
 
 TEST_CASE("context") {
@@ -17,3 +17,4 @@ TEST_CASE("context") {
         }
     }
 }
+

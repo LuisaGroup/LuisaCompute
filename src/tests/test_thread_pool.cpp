@@ -5,8 +5,8 @@
 #include <thread>
 #include <chrono>
 
-#include <core/logging.h>
-#include <core/thread_pool.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/thread_pool.h>
 
 using namespace luisa;
 

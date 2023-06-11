@@ -6,9 +6,9 @@
 
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 
-#include <core/basic_types.h>
-#include <core/stl/memory.h>
-#include <runtime/rhi/pixel.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/runtime/rhi/pixel.h>
 
 namespace luisa::compute::cuda {
 
@@ -37,3 +37,4 @@ public:
 }// namespace luisa::compute::cuda
 
 #endif
+

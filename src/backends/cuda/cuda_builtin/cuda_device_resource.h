@@ -2087,3 +2087,4 @@ __device__ inline void lc_synchronize_block() noexcept {
 #define LC_GRAD(x) (x##_grad)
 #define LC_ACCUM_GRAD(x_grad, dx) lc_accumulate_grad(&(x_grad), (dx))
 #define LC_REQUIRES_GRAD(x) x##_grad = lc_zero<decltype(x##_grad)>()
+

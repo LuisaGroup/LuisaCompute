@@ -1,4 +1,4 @@
-#include <runtime/rtx/procedural_primitive.h>
+#include <luisa/runtime/rtx/procedural_primitive.h>
 
 namespace luisa::compute {
 
@@ -19,3 +19,4 @@ ProceduralPrimitive::~ProceduralPrimitive() noexcept {
 }
 
 }// namespace luisa::compute
+

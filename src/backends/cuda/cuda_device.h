@@ -6,7 +6,7 @@
 
 #include <cuda.h>
 
-#include <runtime/rhi/device_interface.h>
+#include <luisa/runtime/rhi/device_interface.h>
 #include <backends/common/default_binary_io.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_texture.h>
@@ -166,3 +166,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

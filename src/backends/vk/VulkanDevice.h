@@ -15,7 +15,7 @@
 #include "vulkan/vulkan.h"
 #include <algorithm>
 #include <assert.h>
-#include <vstl/common.h>
+#include <luisa/vstl/common.h>
 
 namespace vks
 {
@@ -67,3 +67,4 @@ struct VulkanDevice
 	VkFormat        getSupportedDepthFormat(bool checkSamplingSupport);
 };
 }        // namespace vks
+

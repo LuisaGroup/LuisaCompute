@@ -10,14 +10,14 @@
 
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/clock.h>
-#include <core/binary_io.h>
-#include <runtime/rhi/sampler.h>
-#include <runtime/bindless_array.h>
-#include <runtime/dispatch_buffer.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/runtime/rhi/sampler.h>
+#include <luisa/runtime/bindless_array.h>
+#include <luisa/runtime/dispatch_buffer.h>
 
 #ifdef LUISA_ENABLE_IR
-#include <ir/ir2ast.h>
+#include <luisa/ir/ir2ast.h>
 #endif
 
 #include <backends/common/string_scratch.h>
@@ -1027,3 +1027,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         }
     }
 }
+

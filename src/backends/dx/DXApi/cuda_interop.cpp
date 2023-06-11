@@ -8,7 +8,7 @@
 #include <DXApi/LCEvent.h>
 #include <aclapi.h>
 #else
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #endif
 namespace lc::dx {
 #ifdef LCDX_ENABLE_CUDA

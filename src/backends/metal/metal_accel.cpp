@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2023/4/20.
 //
 
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include <backends/metal/metal_device.h>
 #include <backends/metal/metal_command_encoder.h>
 #include <backends/metal/metal_primitive.h>
@@ -272,3 +272,4 @@ void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::metal
+

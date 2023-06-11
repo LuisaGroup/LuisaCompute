@@ -130,3 +130,4 @@ optix::TraversableHandle CUDAPrimitive::handle() const noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

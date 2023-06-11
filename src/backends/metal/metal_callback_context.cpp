@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2023/4/16.
 //
 
-#include <core/pool.h>
+#include <luisa/core/pool.h>
 #include <backends/metal/metal_callback_context.h>
 
 namespace luisa::compute::metal {
@@ -18,3 +18,4 @@ void FunctionCallbackContext::recycle() noexcept {
 }
 
 }// namespace luisa::compute::metal
+

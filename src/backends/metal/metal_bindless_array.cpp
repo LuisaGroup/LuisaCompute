@@ -136,3 +136,4 @@ void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encode
 }
 
 }// namespace luisa::compute::metal
+

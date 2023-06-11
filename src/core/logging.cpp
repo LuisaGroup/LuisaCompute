@@ -3,10 +3,10 @@
 //
 
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <core/logging.h>
-#include <vstl/functional.h>
+#include <luisa/core/logging.h>
+#include <luisa/vstl/functional.h>
 
-#include <rust/api_types.h>
+#include <luisa/rust/api_types.h>
 
 namespace luisa {
 
@@ -75,3 +75,4 @@ void log_level_error() noexcept { detail::default_logger().set_level(spdlog::lev
 void log_flush() noexcept { detail::default_logger().flush(); }
 
 }// namespace luisa
+

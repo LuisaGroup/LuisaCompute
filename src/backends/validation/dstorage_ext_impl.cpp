@@ -2,8 +2,8 @@
 #include "rw_resource.h"
 #include "device.h"
 #include "stream.h"
-#include <runtime/rhi/command.h>
-#include <backends/ext/registry.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/backends/ext/registry.h>
 
 namespace lc::validation {
 
@@ -56,3 +56,4 @@ void DStorageExtImpl::compress(const void *data, size_t size_bytes,
 }
 
 }// namespace lc::validation
+

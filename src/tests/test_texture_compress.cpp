@@ -1,13 +1,13 @@
-#include <runtime/stream.h>
-#include <runtime/image.h>
-#include <runtime/shader.h>
-#include <dsl/syntax.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/dsl/syntax.h>
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
-#include <backends/ext/tex_compress_ext.h>
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
+#include <luisa/backends/ext/tex_compress_ext.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
 using namespace luisa;
 using namespace luisa::compute;
 

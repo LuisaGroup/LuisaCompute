@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <runtime/rhi/command.h>
+#include <luisa/runtime/rhi/command.h>
 #include <backends/metal/metal_primitive.h>
 
 namespace luisa::compute::metal {
@@ -24,3 +24,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

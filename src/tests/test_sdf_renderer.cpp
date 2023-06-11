@@ -9,15 +9,15 @@
 
 #include <stb/stb_image_write.h>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <runtime/image.h>
-#include <runtime/swapchain.h>
-#include <dsl/sugar.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -29,7 +29,7 @@ using namespace luisa::compute;
 #endif
 
 #if ENABLE_DISPLAY
-#include <gui/window.h>
+#include <luisa/gui/window.h>
 #endif
 
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
@@ -258,3 +258,4 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
 }
+

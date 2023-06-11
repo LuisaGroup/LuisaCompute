@@ -1,7 +1,7 @@
 #pragma once
 #include <d3dx12.h>
 #include <dxgi1_4.h>
-#include <core/basic_types.h>
+#include <luisa/core/basic_types.h>
 namespace lc::dx {
 class HDR {
 private:

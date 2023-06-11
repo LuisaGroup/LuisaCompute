@@ -1,7 +1,7 @@
 
 #include <Shader/BuiltinKernel.h>
 #include "backends/common/hlsl/hlsl_codegen.h"
-#include <core/stl/filesystem.h>
+#include <luisa/core/stl/filesystem.h>
 namespace lc::dx {
 ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO const *ctx) {
     auto func = [&] {

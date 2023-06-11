@@ -12,3 +12,4 @@ namespace luisa::test {
 [[nodiscard]] const char *const *argv() noexcept;
 
 }// namespace luisa::test
+

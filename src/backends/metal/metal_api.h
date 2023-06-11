@@ -34,3 +34,4 @@ decltype(auto) with_autorelease_pool(F &&f) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

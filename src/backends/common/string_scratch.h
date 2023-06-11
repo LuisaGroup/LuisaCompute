@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/basic_types.h>
-#include <core/stl/string.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute {
 
@@ -36,3 +36,4 @@ public:
 };
 
 }// namespace luisa::compute
+

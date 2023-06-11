@@ -2,7 +2,7 @@
 #include "rw_resource.h"
 #include "device.h"
 #include "depth_buffer.h"
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 namespace lc::validation {
 ResourceCreationInfo RasterExtImpl::create_raster_shader(
     const MeshFormat &mesh_format,

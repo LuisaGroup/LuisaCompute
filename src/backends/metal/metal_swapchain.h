@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <runtime/rhi/pixel.h>
+#include <luisa/runtime/rhi/pixel.h>
 #include <backends/metal/metal_api.h>
 
 extern "C" CA::MetalLayer *luisa_metal_backend_create_layer(
@@ -37,3 +37,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

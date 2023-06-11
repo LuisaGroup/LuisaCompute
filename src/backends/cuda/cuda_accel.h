@@ -8,8 +8,8 @@
 
 #include <cuda.h>
 
-#include <runtime/rtx/accel.h>
-#include <core/dirty_range.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/core/dirty_range.h>
 #include <backends/cuda/cuda_primitive.h>
 #include <backends/cuda/optix_api.h>
 
@@ -66,3 +66,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

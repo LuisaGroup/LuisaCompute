@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2023/5/14.
 //
 
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include <backends/metal/metal_device.h>
 #include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
@@ -245,3 +245,4 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::metal
+

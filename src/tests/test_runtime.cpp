@@ -4,19 +4,19 @@
 
 #include <numeric>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <core/dynamic_module.h>
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <runtime/swapchain.h>
-#include <runtime/buffer.h>
-#include <runtime/bindless_array.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <gui/window.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/bindless_array.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -102,3 +102,4 @@ int main(int argc, char *argv[]) {
     compute_stream << synchronize();
     graphics_stream << synchronize();
 }
+

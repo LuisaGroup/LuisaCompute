@@ -1,9 +1,9 @@
 #pragma once
-#include <runtime/context.h>
+#include <luisa/runtime/context.h>
 #include <d3d12.h>
 #include <dxgi1_2.h>
-#include <vstl/common.h>
-#include <runtime/rhi/device_interface.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/rhi/device_interface.h>
 namespace luisa::compute {
 struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNewBase {
     virtual ID3D12Device *GetDevice() noexcept = 0;

@@ -4,7 +4,7 @@
 
 #include <mutex>
 
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include <backends/metal/metal_event.h>
 
 namespace luisa::compute::metal {
@@ -68,3 +68,4 @@ void MetalEvent::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

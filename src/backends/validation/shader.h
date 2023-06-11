@@ -1,7 +1,7 @@
 #pragma once
 
 #include "rw_resource.h"
-#include <ast/function.h>
+#include <luisa/ast/function.h>
 
 namespace lc::validation {
 
@@ -15,3 +15,4 @@ public:
 };
 
 }// namespace lc::validation
+

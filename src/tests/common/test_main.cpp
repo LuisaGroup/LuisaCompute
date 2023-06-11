@@ -8,8 +8,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <tests/common/config.h>
 
-#include <core/stl/string.h>
-#include <core/stl/vector.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 
 namespace luisa::test {
 
@@ -37,3 +37,4 @@ int main(int argc, const char **argv) {
     if (context.shouldExit()) { return test_result; }
     return test_result;
 }
+

@@ -1,10 +1,10 @@
 #pragma once
 #include <dstorage/dstorage.h>
 #include <DXRuntime/Device.h>
-#include <vstl/lockfree_array_queue.h>
+#include <luisa/vstl/lockfree_array_queue.h>
 #include <DXRuntime/DxPtr.h>
 #include <DXApi/CmdQueueBase.h>
-#include <runtime/command_list.h>
+#include <luisa/runtime/command_list.h>
 namespace lc::dx {
 class LCEvent;
 class DStorageFileImpl : public vstd::IOperatorNewBase {

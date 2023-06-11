@@ -148,3 +148,4 @@ int main(int argc, char *argv[]) {
     do_test(test_double, "double", 1024u);
     do_test(test_select, "select", 1024u);
 }
+

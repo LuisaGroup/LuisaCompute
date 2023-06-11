@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2023/4/16.
 //
 
-#include <core/pool.h>
+#include <luisa/core/pool.h>
 #include <backends/metal/metal_stage_buffer_pool.h>
 
 namespace luisa::compute::metal {
@@ -74,3 +74,4 @@ void MetalStageBufferPool::_recycle(FirstFit::Node *alloc) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

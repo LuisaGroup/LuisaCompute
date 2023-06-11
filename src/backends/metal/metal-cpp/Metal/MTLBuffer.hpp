@@ -107,3 +107,4 @@ _MTL_INLINE uint64_t MTL::Buffer::gpuAddress() const
 {
     return Object::sendMessage<uint64_t>(this, _MTL_PRIVATE_SEL(gpuAddress));
 }
+

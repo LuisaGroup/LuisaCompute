@@ -1,5 +1,5 @@
-#include <runtime/sparse_buffer.h>
-#include <core/logging.h>
+#include <luisa/runtime/sparse_buffer.h>
+#include <luisa/core/logging.h>
 namespace luisa::compute {
 namespace detail {
 LC_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count) {
@@ -25,3 +25,4 @@ void SparseBufferUpdateTiles::operator()(DeviceInterface *device, uint64_t strea
     device->update_sparse_buffer(stream_handle, handle, std::move(operations));
 }
 }// namespace luisa::compute
+

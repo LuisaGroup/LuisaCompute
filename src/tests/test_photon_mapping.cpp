@@ -5,15 +5,15 @@
 #include <cstdint>
 #include <iostream>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/swapchain.h>
-#include <dsl/sugar.h>
-#include <runtime/rtx/accel.h>
-#include <gui/window.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/gui/window.h>
 #include <tests/common/cornell_box.h>
 #include <stb/stb_image_write.h>
 
@@ -583,3 +583,4 @@ int main(int argc, char *argv[]) {
 
     stbi_write_png("test_photon_mapping.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
+

@@ -1,4 +1,4 @@
-#include <core/platform.h>
+#include <luisa/core/platform.h>
 #include <backends/common/rust_device_common.h>
 #include "cpu_device.h"
 
@@ -21,3 +21,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
     names.clear();
     names.emplace_back(luisa::cpu_name());
 }
+

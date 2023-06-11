@@ -2,12 +2,12 @@
 // Created by Mike Smith on 2023/4/15.
 //
 
-#include <core/logging.h>
-#include <core/magic_enum.h>
-#include <runtime/rtx/ray.h>
-#include <runtime/rtx/hit.h>
-#include <dsl/rtx/ray_query.h>
-#include <runtime/dispatch_buffer.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/rtx/ray.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/runtime/dispatch_buffer.h>
 #include <backends/metal/metal_builtin_embedded.h>
 #include <backends/metal/metal_codegen_ast.h>
 
@@ -1180,3 +1180,4 @@ void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

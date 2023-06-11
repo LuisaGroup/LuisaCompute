@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2020/12/2.
 //
 
-#include <core/logging.h>
-#include <ast/function_builder.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/function_builder.h>
 
 namespace luisa::compute::detail {
 
@@ -654,3 +654,4 @@ void FunctionBuilder::sort_bindings() noexcept {
 }
 
 }// namespace luisa::compute::detail
+

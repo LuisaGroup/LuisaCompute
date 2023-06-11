@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/spin_mutex.h>
-#include <runtime/rhi/resource.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/rhi/resource.h>
 #include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
@@ -71,3 +71,4 @@ public:
 }
 
 }// namespace luisa::compute::cuda
+

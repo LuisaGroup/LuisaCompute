@@ -113,3 +113,4 @@ _MTL_INLINE void MTL::LinkedFunctions::setPrivateFunctions(const NS::Array* priv
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setPrivateFunctions_), privateFunctions);
 }
+

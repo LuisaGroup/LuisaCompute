@@ -1,12 +1,12 @@
 #pragma once
-#include <vstl/common.h>
-#include <backends/ext/tex_compress_ext.h>
-#include <backends/ext/native_resource_ext_interface.h>
-#include <backends/ext/raster_ext_interface.h>
-#include <backends/ext/dx_cuda_interop.h>
-#include <backends/ext/dstorage_ext_interface.h>
+#include <luisa/vstl/common.h>
+#include <luisa/backends/ext/tex_compress_ext.h>
+#include <luisa/backends/ext/native_resource_ext_interface.h>
+#include <luisa/backends/ext/raster_ext_interface.h>
+#include <luisa/backends/ext/dx_cuda_interop.h>
+#include <luisa/backends/ext/dstorage_ext_interface.h>
 #include <backends/dx/d3dx12.h>
-#include <core/dynamic_module.h>
+#include <luisa/core/dynamic_module.h>
 #include <dstorage/dstorage.h>
 using Microsoft::WRL::ComPtr;
 

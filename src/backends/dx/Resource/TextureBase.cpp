@@ -1,6 +1,6 @@
 #include <Resource/TextureBase.h>
 #include <Resource/DescriptorHeap.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 
 namespace lc::dx {
 TextureBase::TextureBase(

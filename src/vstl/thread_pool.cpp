@@ -1,4 +1,4 @@
-#include "thread_pool.h"
+#include <luisa/vstl/thread_pool.h>
 namespace vstd {
 namespace tpool_detail {
 static thread_local WorkerThread *workerInst = nullptr;

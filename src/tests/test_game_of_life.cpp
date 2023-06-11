@@ -5,14 +5,14 @@
 #include <iostream>
 #include <random>
 
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <dsl/sugar.h>
-#include <gui/window.h>
-#include <runtime/swapchain.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
+#include <luisa/runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -97,3 +97,4 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
+

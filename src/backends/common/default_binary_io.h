@@ -1,11 +1,11 @@
 #pragma once
 
-#include <core/binary_io.h>
-#include <core/stl/filesystem.h>
-#include <vstl/common.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/vstl/common.h>
 #include <shared_mutex>
-#include <runtime/context.h>
-#include <core/dynamic_module.h>
+#include <luisa/runtime/context.h>
+#include <luisa/core/dynamic_module.h>
 
 namespace luisa::compute {
 
@@ -46,3 +46,4 @@ public:
 };
 
 }// namespace luisa::compute
+

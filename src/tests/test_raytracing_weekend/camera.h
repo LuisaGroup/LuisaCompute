@@ -46,3 +46,4 @@ private:
     float3 u, v, w;
     float lens_radius;
 };
+

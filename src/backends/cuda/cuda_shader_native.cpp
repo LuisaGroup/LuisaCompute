@@ -4,7 +4,7 @@
 
 #include <fstream>
 
-#include <runtime/rhi/command.h>
+#include <luisa/runtime/rhi/command.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_buffer.h>
@@ -187,3 +187,4 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
 }
 
 }// namespace luisa::compute::cuda
+

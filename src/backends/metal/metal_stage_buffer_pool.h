@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/spin_mutex.h>
-#include <core/first_fit.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/core/first_fit.h>
 #include <backends/metal/metal_api.h>
 #include <backends/metal/metal_callback_context.h>
 
@@ -54,3 +54,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

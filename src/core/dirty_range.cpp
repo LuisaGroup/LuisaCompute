@@ -6,7 +6,7 @@
 #include <cmath>
 #include <algorithm>
 
-#include <core/dirty_range.h>
+#include <luisa/core/dirty_range.h>
 
 namespace luisa::compute {
 
@@ -34,3 +34,4 @@ DirtyRange DirtyRange::merge(DirtyRange r1, DirtyRange r2) noexcept {
 }
 
 }// namespace luisa::compute
+

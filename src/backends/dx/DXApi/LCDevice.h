@@ -1,6 +1,6 @@
 #pragma once
-#include <vstl/common.h>
-#include <runtime/device.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/device.h>
 #include <DXRuntime/Device.h>
 namespace lc::dx {
 using namespace luisa;

@@ -1,35 +1,11 @@
 set(LUISA_COMPUTE_VSTL_SOURCES
-        allocate_type.h
-        array.h
-        common.h
-        compare.h
-        config.h
-        functional.h
-        hash.h
-        hash_map.h
-        lockfree_array_queue.h
-        log.cpp log.h
-        md5.cpp md5.h
-        memory.h
-        meta_lib.h
-        pdqsort.h
-        pool.h
-        ranges.h
-        serializer.h
-        small_vector.h
-        spin_mutex.h
-        stack_allocator.cpp stack_allocator.h
-        string_hash.h
-        string_utility.cpp string_utility.h
-        thread_pool.cpp thread_pool.h
-        tree_map_base.h
-        tuple.h
-        unique_ptr.h
-        v_allocator.h
-        v_guid.cpp v_guid.h
-        vector.h
-        vstl.cpp
-        vstring.h)
+        log.cpp
+        md5.cpp
+        stack_allocator.cpp
+        string_utility.cpp
+        thread_pool.cpp
+        v_guid.cpp
+        vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_VSTL_SOURCES})
 target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)
@@ -44,7 +20,7 @@ elseif (APPLE)
     target_link_libraries(luisa-compute-vstl PUBLIC "-framework CoreFoundation")
 else ()
     find_library(LibUUID_LIBRARY NAMES uuid REQUIRED)
-    find_path(LibUUID_INCLUDE_DIR NAMES uuid/uuid.h REQUIRED)
+    find_path(LibUUID_INCLUDE_DIR NAMES REQUIRED)
     target_include_directories(luisa-compute-vstl PUBLIC "${LibUUID_INCLUDE_DIR}")
     target_link_libraries(luisa-compute-vstl PUBLIC "${LibUUID_LIBRARY}")
 endif ()

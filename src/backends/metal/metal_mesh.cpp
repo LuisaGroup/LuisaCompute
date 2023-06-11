@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2023/4/20.
 //
 
-#include <core/logging.h>
-#include <runtime/rtx/triangle.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/rtx/triangle.h>
 #include <backends/metal/metal_command_encoder.h>
 #include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_mesh.h>
@@ -86,3 +86,4 @@ void MetalMesh::build(MetalCommandEncoder &encoder, MeshBuildCommand *command) n
 }
 
 }// namespace luisa::compute::metal
+

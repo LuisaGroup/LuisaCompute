@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <runtime/rhi/device_interface.h>
+#include <luisa/runtime/rhi/device_interface.h>
 #include <backends/common/default_binary_io.h>
 #include <backends/metal/metal_api.h>
 
@@ -85,3 +85,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

@@ -1,5 +1,5 @@
 #pragma once
-#include <vstl/meta_lib.h>
+#include <luisa/vstl/meta_lib.h>
 #include <tuple>
 #include <EASTL/variant.h>
 namespace vstd {

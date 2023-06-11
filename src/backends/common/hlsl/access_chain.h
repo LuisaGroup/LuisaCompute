@@ -1,11 +1,11 @@
 #pragma once
-#include <vstl/common.h>
-#include <ast/op.h>
-#include <ast/expression.h>
-#include <ast/type.h>
+#include <luisa/vstl/common.h>
+#include <luisa/ast/op.h>
+#include <luisa/ast/expression.h>
+#include <luisa/ast/type.h>
 #include "string_builder.h"
-#include <vstl/md5.h>
-#include <core/stl/hash.h>
+#include <luisa/vstl/md5.h>
+#include <luisa/core/stl/hash.h>
 namespace lc::hlsl {
 class CodegenUtility;
 using namespace luisa::compute;

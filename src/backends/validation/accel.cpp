@@ -2,7 +2,7 @@
 #include "procedural_primitives.h"
 #include "buffer.h"
 #include "accel.h"
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 namespace lc::validation {
 void Mesh::set(Stream *stream, Usage usage, Range range) {
     set_usage(stream, this, usage, range);

@@ -6,8 +6,8 @@
 
 #include <array>
 
-#include <core/stl/string.h>
-#include <runtime/rhi/pixel.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/runtime/rhi/pixel.h>
 #include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
@@ -39,3 +39,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

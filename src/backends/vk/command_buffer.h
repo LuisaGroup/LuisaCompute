@@ -1,7 +1,7 @@
 #pragma once
 #include "resource.h"
 #include <vulkan/vulkan.h>
-#include <runtime/rhi/stream_tag.h>
+#include <luisa/runtime/rhi/stream_tag.h>
 namespace lc::vk {
 using namespace luisa::compute;
 class CommandBuffer : public Resource {

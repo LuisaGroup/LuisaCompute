@@ -2,8 +2,8 @@
 // Created by Mike on 8/1/2021.
 //
 
-#include <core/magic_enum.h>
-#include <runtime/command_list.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/command_list.h>
 
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_buffer.h>
@@ -418,3 +418,4 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

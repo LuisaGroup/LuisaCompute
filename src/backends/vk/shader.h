@@ -2,7 +2,7 @@
 #include "resource.h"
 #include <vulkan/vulkan.h>
 #include <backends/common/hlsl/shader_property.h>
-#include <runtime/rhi/argument.h>
+#include <luisa/runtime/rhi/argument.h>
 namespace lc::vk {
 using namespace luisa::compute;
 class Shader : public Resource {

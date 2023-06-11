@@ -112,3 +112,4 @@ _MTL_INLINE MTL::FunctionLogDebugLocation* MTL::FunctionLog::debugLocation() con
 {
     return Object::sendMessage<MTL::FunctionLogDebugLocation*>(this, _MTL_PRIVATE_SEL(debugLocation));
 }
+

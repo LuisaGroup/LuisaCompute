@@ -1,10 +1,10 @@
 #pragma once
 #include <filesystem>
-#include <core/dynamic_module.h>
+#include <luisa/core/dynamic_module.h>
 #include <wrl/client.h>
 #include "dxcapi.h"
-#include <vstl/common.h>
-#include <core/platform.h>
+#include <luisa/vstl/common.h>
+#include <luisa/core/platform.h>
 
 namespace lc::hlsl {
 using Microsoft::WRL::ComPtr;

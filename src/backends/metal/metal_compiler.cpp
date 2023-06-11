@@ -4,8 +4,8 @@
 
 #include <fstream>
 
-#include <core/clock.h>
-#include <core/logging.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
 #include <backends/metal/metal_device.h>
 #include <backends/metal/metal_compiler.h>
 
@@ -394,3 +394,4 @@ MetalShaderHandle MetalCompiler::load(luisa::string_view name,
 }
 
 }// namespace luisa::compute::metal
+

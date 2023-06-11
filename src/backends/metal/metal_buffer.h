@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/stl/string.h>
-#include <runtime/dispatch_buffer.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/runtime/dispatch_buffer.h>
 #include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
@@ -76,3 +76,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

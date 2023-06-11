@@ -2,7 +2,7 @@
 // Created by Mike on 2022/9/30.
 //
 
-#include <core/stl/memory.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa {
 
@@ -19,3 +19,4 @@ LUISA_EXPORT_API void *allocator_reallocate(void *p, size_t size, size_t alignme
 }
 
 }// namespace luisa
+

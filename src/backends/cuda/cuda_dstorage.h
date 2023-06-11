@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <backends/ext/dstorage_ext_interface.h>
+#include <luisa/backends/ext/dstorage_ext_interface.h>
 #include <backends/cuda/cuda_device.h>
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
@@ -203,3 +203,4 @@ protected:
 };
 
 }// namespace luisa::compute::cuda
+

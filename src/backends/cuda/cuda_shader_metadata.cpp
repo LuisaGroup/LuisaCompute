@@ -4,8 +4,8 @@
 
 #include <charconv>
 
-#include <core/stl/format.h>
-#include <core/logging.h>
+#include <luisa/core/stl/format.h>
+#include <luisa/core/logging.h>
 #include <backends/cuda/cuda_shader_metadata.h>
 
 namespace luisa::compute::cuda {
@@ -263,3 +263,4 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
 }
 
 }// namespace luisa::compute::cuda
+

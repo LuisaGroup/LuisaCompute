@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/spin_mutex.h>
-#include <runtime/rhi/command.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/rhi/command.h>
 #include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
@@ -46,3 +46,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

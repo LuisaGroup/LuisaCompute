@@ -2,12 +2,12 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include <core/logging.h>
-#include <core/stl.h>
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <runtime/rhi/command_encoder.h>
-#include <api/api.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/api/api.h>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
 

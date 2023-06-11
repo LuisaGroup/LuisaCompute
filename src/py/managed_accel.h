@@ -1,11 +1,11 @@
 #pragma once
 
-#include <runtime/rtx/accel.h>
-#include <runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
 #include <py/managed_collector.h>
 #include <py/py_stream.h>
-#include <vstl/md5.h>
-#include <core/stl/unordered_map.h>
+#include <luisa/vstl/md5.h>
+#include <luisa/core/stl/unordered_map.h>
 
 namespace luisa::compute {
 
@@ -79,3 +79,4 @@ public:
 };
 
 }// namespace luisa::compute
+

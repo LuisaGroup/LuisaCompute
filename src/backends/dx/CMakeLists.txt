@@ -4,13 +4,9 @@ if (WIN32)
     set(LC_BACKEND_DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
     set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
 
-    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES *.cpp *.h)
-    file(GLOB LC_BACKEND_DX_CODEGEN_SOURCES ../common/hlsl/*.cpp ../common/hlsl/*.h)
-    list(APPEND LC_BACKEND_DX_SOURCES
-            ${LC_BACKEND_DX_CODEGEN_SOURCES}
-            ../common/command_reorder_visitor.h
-            ../common/default_binary_io.cpp ../common/default_binary_io.h
-            ../common/resource_generator.h)
+    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES *.cpp)
+    file(GLOB LC_BACKEND_DX_CODEGEN_SOURCES ../common/hlsl/*.cpp)
+    list(APPEND LC_BACKEND_DX_SOURCES ${LC_BACKEND_DX_CODEGEN_SOURCES})
 
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}

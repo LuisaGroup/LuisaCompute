@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <runtime/rhi/command.h>
-#include <runtime/command_list.h>
-#include <backends/ext/dstorage_cmd.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/command_list.h>
+#include <luisa/backends/ext/dstorage_cmd.h>
 #include <backends/metal/metal_api.h>
 #include <backends/metal/metal_stream.h>
 
@@ -63,3 +63,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

@@ -1,5 +1,5 @@
-#include <runtime/rhi/device_interface.h>
-#include <runtime/context.h>
+#include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/runtime/context.h>
 
 namespace luisa::compute {
 
@@ -13,3 +13,4 @@ Context DeviceInterface::context() const noexcept {
 }
 
 }// namespace luisa::compute
+

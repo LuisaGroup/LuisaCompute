@@ -16,10 +16,10 @@
 #include <barrier>
 #endif
 
-#include <core/stl/vector.h>
-#include <core/stl/queue.h>
-#include <core/logging.h>
-#include <core/thread_pool.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/queue.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/thread_pool.h>
 
 namespace luisa {
 
@@ -171,3 +171,4 @@ uint ThreadPool::worker_thread_index() noexcept {
 }
 
 }// namespace luisa
+

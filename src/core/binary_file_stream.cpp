@@ -2,8 +2,8 @@
 // Created by Mike on 3/13/2023.
 //
 
-#include <core/logging.h>
-#include <core/binary_file_stream.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/binary_file_stream.h>
 
 namespace luisa {
 
@@ -82,3 +82,4 @@ void BinaryFileStream::close() noexcept {
 #undef LUISA_FCLOSE
 
 }// namespace luisa
+

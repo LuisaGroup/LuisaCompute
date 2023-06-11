@@ -101,3 +101,4 @@ _MTL_INLINE void MTL::ResourceStateCommandEncoder::moveTextureMappingsFromTextur
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(moveTextureMappingsFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin_), sourceTexture, sourceSlice, sourceLevel, sourceOrigin, sourceSize, destinationTexture, destinationSlice, destinationLevel, destinationOrigin);
 }
+

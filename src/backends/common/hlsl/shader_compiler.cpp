@@ -1,7 +1,7 @@
 #include "shader_compiler.h"
-#include <core/dynamic_module.h>
-#include <vstl/string_utility.h>
-#include <core/logging.h>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/vstl/string_utility.h>
+#include <luisa/core/logging.h>
 namespace lc::hlsl {
 #ifndef LC_DXC_THROW_IF_FAILED
 #define LC_DXC_THROW_IF_FAILED(x)                  \

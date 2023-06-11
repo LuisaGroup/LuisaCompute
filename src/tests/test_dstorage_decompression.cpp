@@ -1,15 +1,15 @@
 #include <fstream>
 
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/buffer.h>
-#include <runtime/image.h>
-#include <core/logging.h>
-#include <runtime/event.h>
-#include <backends/ext/dstorage_ext.hpp>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/image.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/event.h>
+#include <luisa/backends/ext/dstorage_ext.hpp>
 #include <stb/stb_image_write.h>
-#include <core/clock.h>
+#include <luisa/core/clock.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -36,3 +36,4 @@ int main(int argc, char *argv[]) {
 
     stbi_write_png("test_dstorage_decompression.png", 512, 512, 4, pixels.data(), 0);
 }
+

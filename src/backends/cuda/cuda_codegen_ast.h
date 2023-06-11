@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <ast/function.h>
-#include <ast/statement.h>
-#include <ast/expression.h>
+#include <luisa/ast/function.h>
+#include <luisa/ast/statement.h>
+#include <luisa/ast/expression.h>
 
 namespace luisa::compute::cuda {
 
@@ -86,3 +86,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

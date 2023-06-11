@@ -28,8 +28,8 @@
 #include <utility>
 #include <cstdlib>
 #include <cstdint>
-#include <vstl/pdqsort.h>
-#include <malloc.h>// for _aligned_malloc, _aligned_free
+#include <luisa/vstl/pdqsort.h>
+#include <malloc.h>//
 #ifndef _WIN32
 #include <shared_mutex>
 #endif

@@ -7,8 +7,8 @@
 #include <array>
 #include <cuda.h>
 
-#include <core/spin_mutex.h>
-#include <runtime/rhi/pixel.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/rhi/pixel.h>
 
 namespace luisa::compute::cuda {
 
@@ -58,3 +58,4 @@ public:
 static_assert(sizeof(CUDATexture) == 256u);
 
 }// namespace luisa::compute::cuda
+

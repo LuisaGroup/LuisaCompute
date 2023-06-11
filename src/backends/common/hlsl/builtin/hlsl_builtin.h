@@ -24,3 +24,4 @@ LC_HLSL_EXTERN int get_hlsl_header_size();
 LC_HLSL_EXTERN char *get_hlsl_header();
 LC_HLSL_EXTERN int get_raytracing_header_size();
 LC_HLSL_EXTERN char *get_raytracing_header();
+

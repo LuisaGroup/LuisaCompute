@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/stl/lru_cache.h>
-#include <runtime/rhi/resource.h>
+#include <luisa/core/stl/lru_cache.h>
+#include <luisa/runtime/rhi/resource.h>
 #include <backends/metal/metal_api.h>
 #include <backends/metal/metal_shader.h>
 #include <backends/metal/metal_shader_metadata.h>
@@ -55,3 +55,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

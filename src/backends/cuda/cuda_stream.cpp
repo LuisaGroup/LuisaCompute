@@ -7,7 +7,7 @@
 
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_callback_context.h>
@@ -233,3 +233,4 @@ void CUDAIndirectDispatchStream::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

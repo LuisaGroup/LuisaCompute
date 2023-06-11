@@ -1,8 +1,8 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
-#include <ast/function_builder.h>
-#include <runtime/dispatch_buffer.h>
+#include <luisa/ast/function_builder.h>
+#include <luisa/runtime/dispatch_buffer.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;

@@ -3,9 +3,9 @@
 //
 
 #include <fstream>
-#include <core/logging.h>
-#include <ir/ast2ir.h>
-#include <ast/function_builder.h>
+#include <luisa/core/logging.h>
+#include <luisa/ir/ast2ir.h>
+#include <luisa/ast/function_builder.h>
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "misc-no-recursion"
@@ -1332,3 +1332,4 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 }// namespace luisa::compute
 
 #pragma clang diagnostic pop
+

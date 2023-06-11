@@ -1,6 +1,6 @@
-#include <core/logging.h>
-#include <dsl/syntax.h>
-#include <dsl/rtx/ray_query.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/rtx/ray_query.h>
 
 namespace luisa::compute {
 
@@ -134,3 +134,4 @@ template class RayQueryBase<true>;
 }// namespace detail
 
 }// namespace luisa::compute
+

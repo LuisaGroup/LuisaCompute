@@ -1,8 +1,8 @@
-#include <runtime/context.h>
-#include <runtime/stream.h>
-#include <runtime/image.h>
-#include <runtime/shader.h>
-#include <dsl/syntax.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/dsl/syntax.h>
 #include <stb/stb_image_write.h>
 
 using namespace luisa;

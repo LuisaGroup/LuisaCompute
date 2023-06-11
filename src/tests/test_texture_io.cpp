@@ -4,12 +4,12 @@
 
 #include <stb/stb_image_write.h>
 
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <dsl/syntax.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/dsl/syntax.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -60,3 +60,4 @@ int main(int argc, char *argv[]) {
 
     Volume<float> volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }
+

@@ -9,7 +9,7 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/platform.h>
+#include <luisa/core/platform.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_texture.h>
@@ -569,3 +569,4 @@ void CUDASwapchain::set_name(luisa::string &&name) noexcept {
 }// namespace luisa::compute::cuda
 
 #endif
+

@@ -97,3 +97,4 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("count = {} (expected {}), mean = {} (expected ~0.5)",
                n, queue_size, mean);
 }
+

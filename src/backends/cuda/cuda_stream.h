@@ -9,9 +9,9 @@
 
 #include <cuda.h>
 
-#include <core/stl.h>
-#include <core/spin_mutex.h>
-#include <runtime/command_list.h>
+#include <luisa/core/stl.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/command_list.h>
 #include <backends/cuda/cuda_callback_context.h>
 #include <backends/cuda/cuda_host_buffer_pool.h>
 
@@ -87,3 +87,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

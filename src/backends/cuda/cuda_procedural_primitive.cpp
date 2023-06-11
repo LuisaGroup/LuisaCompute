@@ -58,3 +58,4 @@ void CUDAProceduralPrimitive::build(CUDACommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::cuda
+

@@ -1,21 +1,21 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
-#include <runtime/shader.h>
-#include <runtime/raster/raster_shader.h>
-#include <ast/ast_evaluator.h>
-#include <vstl/common.h>
-#include <ast/function.h>
-#include <ast/function_builder.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/runtime/raster/raster_shader.h>
+#include <luisa/ast/ast_evaluator.h>
+#include <luisa/vstl/common.h>
+#include <luisa/ast/function.h>
+#include <luisa/ast/function_builder.h>
 #include <py/managed_device.h>
 #include <py/managed_accel.h>
 #include <py/managed_bindless.h>
-#include <core/thread_pool.h>
-#include <runtime/raster/raster_state.h>
-#include <ast/atomic_ref_node.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/dispatch_buffer.h>
+#include <luisa/core/thread_pool.h>
+#include <luisa/runtime/raster/raster_state.h>
+#include <luisa/ast/atomic_ref_node.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/dispatch_buffer.h>
 
 namespace py = pybind11;
 using namespace luisa;

@@ -915,3 +915,4 @@ struct FunctionTable {
 [[nodiscard]] const FunctionTable &api() noexcept;
 
 }// namespace luisa::compute::optix
+

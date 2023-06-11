@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2021/6/24.
 //
 
-#include <dsl/builtin.h>
-#include <dsl/stmt.h>
-#include <dsl/rtx/hit.h>
+#include <luisa/dsl/builtin.h>
+#include <luisa/dsl/stmt.h>
+#include <luisa/dsl/rtx/hit.h>
 
 namespace luisa::compute {
 
@@ -24,3 +24,4 @@ Var<float4> interpolate(Expr<float2> bary, Expr<float4> a, Expr<float4> b, Expr<
 }
 
 }// namespace luisa::compute
+

@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/pool.h>
-#include <core/stl/functional.h>
+#include <luisa/core/pool.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute::metal {
 
@@ -41,3 +41,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

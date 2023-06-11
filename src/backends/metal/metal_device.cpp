@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2023/4/8.
 //
 
-#include <core/clock.h>
-#include <core/logging.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <backends/metal/metal_codegen_ir.h>
@@ -666,3 +666,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         all_devices->release();
     });
 }
+

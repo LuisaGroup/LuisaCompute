@@ -31,3 +31,4 @@ CUDAIndirectDispatchBuffer::binding() const noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

@@ -3,8 +3,8 @@
 // Created by Mike Smith on 2021/2/23.
 //
 
-#include <ast/function.h>
-#include <ast/function_builder.h>
+#include <luisa/ast/function.h>
+#include <luisa/ast/function_builder.h>
 
 namespace luisa::compute {
 
@@ -129,3 +129,4 @@ bool Function::requires_autodiff() const noexcept {
 }
 
 }// namespace luisa::compute
+

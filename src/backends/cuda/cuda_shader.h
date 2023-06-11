@@ -7,9 +7,9 @@
 #include <span>
 #include <memory>
 
-#include <core/basic_types.h>
-#include <core/spin_mutex.h>
-#include <ast/usage.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/ast/usage.h>
 
 namespace luisa::compute {
 class ShaderDispatchCommand;
@@ -44,3 +44,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

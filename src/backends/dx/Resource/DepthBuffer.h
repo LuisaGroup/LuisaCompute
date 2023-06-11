@@ -1,6 +1,6 @@
 #pragma once
 #include <Resource/TextureBase.h>
-#include <runtime/depth_format.h>
+#include <luisa/runtime/depth_format.h>
 #include <Resource/AllocHandle.h>
 namespace lc::dx {
 class DepthBuffer final : public TextureBase {

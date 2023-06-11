@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include <core/clock.h>
+#include <luisa/core/clock.h>
 
 #include "rtweekend.h"
 
@@ -197,3 +197,4 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("test_rt_weekend.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
+

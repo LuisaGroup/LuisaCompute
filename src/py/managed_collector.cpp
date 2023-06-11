@@ -82,3 +82,4 @@ void ManagedCollector::AfterExecuteStream(PyStream &stream) noexcept {
 }
 
 }// namespace luisa::compute
+

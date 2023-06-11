@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2023/1/9.
 //
 
-#include <core/logging.h>
-#include <runtime/mipmap.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/mipmap.h>
 
 namespace luisa::compute::detail {
 
@@ -42,3 +42,4 @@ MipmapView::MipmapView(uint64_t handle, uint3 size, uint32_t level, PixelStorage
 }
 
 }// namespace luisa::compute::detail
+
