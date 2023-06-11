@@ -1,6 +1,6 @@
 from os import listdir, makedirs
-from os.path import realpath, relpath, dirname, abspath, isdir, normpath
-from shutil import copyfile, move
+from os.path import realpath, relpath, dirname, abspath, isdir, normpath, basename
+from shutil import copyfile as move
 
 
 def normalize(base, path):
@@ -17,8 +17,24 @@ def glob(source_files, header_files, folder, recursive=True):
             glob(source_files, header_files, f"{folder}/{f}")
 
 
+def fix_include_line(src_dir, file, line, moved_headers):
+    include = line.strip().split()[1][1:-1]
+    return f"#include <{include}>\n"
+
+
 def fix_include(src_dir, file, moved_headers):
-    pass
+    print(f"Fixing {file}...")
+    fixed_lines = []
+    abs_path = f"{src_dir}/{file}"
+    with open(abs_path, "r", encoding="utf8") as f:
+        lines = f.readlines()
+    for line in lines:
+        if line.strip().startswith("#include"):
+            fixed = fix_include_line(src_dir, file, line, moved_headers)
+            print(f"  {line.strip()} -> {fixed.strip()}")
+            fixed_lines.append(fixed)
+        else:
+            fixed_lines.append(line)
 
 
 def move_header(src_dir, header):
