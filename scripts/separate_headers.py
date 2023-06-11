@@ -43,7 +43,7 @@ def fix_include(src_dir, file, moved_headers):
             fixed_lines.append(fixed)
         else:
             fixed_lines.append(line)
-    if fixed_lines[-1].strip():
+    if not fixed_lines or fixed_lines[-1].strip():
         fixed_lines.append("\n")
     with open(abs_path, "w", encoding="utf8") as f:
         f.writelines(fixed_lines)
