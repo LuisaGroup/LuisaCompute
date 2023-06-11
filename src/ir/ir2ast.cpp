@@ -4,7 +4,7 @@
 #include <core/magic_enum.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
-#include <luisa_compute_ir/bindings.hpp>
+#include <rust/ir.hpp>
 #include <ir/ir2ast.h>
 
 namespace luisa::compute {

@@ -2,7 +2,6 @@
 // Created by Chris Zhang on 2023/03/06.
 //
 
-#include "luisa_compute_ir/bindings.hpp"
 #include <iostream>
 #include <chrono>
 #include <numeric>

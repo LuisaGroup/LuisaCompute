@@ -1,7 +1,8 @@
 #pragma once
-#include "ast/expression.h"
+
+#include <ast/expression.h>
 #include <ast/function_builder.h>
-#include <luisa_compute_ir/bindings.hpp>
+#include <rust/ir.hpp>
 
 namespace luisa::compute {
 

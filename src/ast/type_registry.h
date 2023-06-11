@@ -42,7 +42,7 @@ namespace detail {
 template<typename T>
 struct TypeDesc;
 
-#include <ast/member_reflect.inl>
+#include <ast/member_reflect.inl.h>
 
 template<typename T>
 struct TypeDesc {

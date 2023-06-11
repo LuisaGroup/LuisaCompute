@@ -6,18 +6,25 @@
 #include <core/logging.h>
 #include <vstl/functional.h>
 
+#include <rust/api_types.h>
+
 namespace luisa {
 
 namespace detail {
+
 static std::mutex LOGGER_MUTEX;
-template<class Mt>
+
+template<typename Mt>
 class SinkWithCallback : public spdlog::sinks::base_sink<Mt> {
+
+private:
     luisa::function<void(const char *, const char *)> _callback;
 
 public:
     template<class F>
     explicit SinkWithCallback(F &&_callback) noexcept
-        : _callback{_callback} {}
+        : _callback{std::forward<F>(_callback)} {}
+
 protected:
     void sink_it_(const spdlog::details::log_msg &msg) override {
         auto level = msg.level;
@@ -25,9 +32,9 @@ protected:
         auto message = fmt::to_string(msg.payload);
         _callback(level_name, message.c_str());
     }
-    void flush_() override {
-    }
+    void flush_() override {}
 };
+
 static luisa::logger LOGGER = [] {
     auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     spdlog::logger l{"console", sink};
@@ -39,14 +46,17 @@ static luisa::logger LOGGER = [] {
 #endif
     return l;
 }();
+
 [[nodiscard]] LC_CORE_API spdlog::logger &default_logger() noexcept {
     return LOGGER;
 }
+
 LC_CORE_API void set_sink(spdlog::sink_ptr sink) noexcept {
     std::lock_guard _lock{LOGGER_MUTEX};
     LOGGER.sinks().clear();
     LOGGER.sinks().emplace_back(std::move(sink));
 }
+
 LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept {
     return std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>([=](const char *level, const char* msg){
         LCLoggerMessage m{};

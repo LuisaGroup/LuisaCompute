@@ -11,7 +11,7 @@ fn main() {
         .with_language(cbindgen::Language::Cxx)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("bindings.hpp");
+        .write_to_file("../api_types.hpp");
     cbindgen::Builder::new()
         .with_config(Config::from_file("c.toml").unwrap())
         .with_crate(&crate_dir)
@@ -19,5 +19,5 @@ fn main() {
         .with_item_prefix("LC")
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("bindings.h");
+        .write_to_file("../api_types.h");
 }

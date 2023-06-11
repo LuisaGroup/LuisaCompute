@@ -11,7 +11,9 @@
 
 #include <core/stl/format.h>
 #include <core/platform.h>
-#include <rust/luisa_compute_api_types/bindings.h>
+
+// forward declaration for Rust binding
+struct LCLoggerMessage;
 
 namespace luisa {
 
@@ -22,7 +24,6 @@ namespace detail {
 [[nodiscard]] LC_CORE_API luisa::logger &default_logger() noexcept;
 LC_CORE_API void set_sink(spdlog::sink_ptr sink) noexcept;
 LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept;
-
 }// namespace detail
 
 template<typename... Args>

@@ -2,11 +2,10 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include "luisa_compute_api_types/bindings.h"
-#include "luisa_compute_ir/bindings.hpp"
-#include "runtime/rhi/resource.h"
-#include <luisa-compute.h>
-#include <ast/function_builder.h>
+#include <core/logging.h>
+#include <core/stl.h>
+#include <runtime/device.h>
+#include <runtime/context.h>
 #include <runtime/rhi/command_encoder.h>
 #include <api/api.h>
 

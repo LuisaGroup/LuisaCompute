@@ -1,5 +1,7 @@
 #pragma once
+
 #include <core/dll_export.h>
+
 #ifdef __cplusplus
 #include <cstdint>
 #include <cstddef>
@@ -7,11 +9,14 @@
 #include <stdint.h>
 #include <stddef.h>
 #endif
-#include <rust/luisa_compute_api_types/bindings.h>
+
+#include <rust/api_types.h>
+
 #ifndef LUISA_COMPUTE_RUST_BINDGEN
-#include <rust/luisa_compute_ir/common.h>
+#include <rust/ir_common.h>
 #endif
+
 #ifdef __cplusplus
-#include <rust/luisa_compute_api_types/bindings.hpp>
-#include <rust/luisa_compute_ir/bindings.hpp>
+#include <rust/api_types.hpp>
+#include <rust/ir.hpp>
 #endif

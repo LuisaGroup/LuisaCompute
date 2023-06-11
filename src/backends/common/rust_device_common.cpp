@@ -1,6 +1,5 @@
-#include <core/logging.h>
-#include <luisa_compute_ir/bindings.hpp>
-#include <luisa_compute_api_types/bindings.hpp>
+#include <rust/ir.hpp>
+#include <rust/api_types.hpp>
 
 namespace luisa::compute::backend {
     using namespace luisa::compute::api;
@@ -9,11 +8,11 @@ namespace luisa::compute::backend {
     using luisa::compute::ir::Type;
 }// namespace luisa::compute::backend
 
-#include "rust_device_common.h"
-#include <runtime/context.h>
 #include <core/dynamic_module.h>
 #include <core/logging.h>
-#include <luisa_compute_api_types/bindings.h>
+#include <runtime/context.h>
+#include <backends/common/rust_device_common.h>
+
 // must go last to avoid name conflicts
 #include <runtime/rhi/resource.h>
 
