@@ -4,14 +4,17 @@
 #include <luisa/gui/window.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/core/stl/optional.h>
-#include <luisa/vstl/common.h>
-#include <py/managed_device.h>
-#include <py/py_stream.h>
-#include <backends/common/resource_generator.h>
 #include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/vstl/common.h>
+
+#include "managed_device.h"
+#include "py_stream.h"
+
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
+
 struct PyWindow : public vstd::IOperatorNewBase {
     inline static vstd::unordered_set<vstd::optional<Swapchain> *> swapchains;
     vstd::optional<Window> window;
@@ -117,7 +120,8 @@ void export_gui(py::module &m) {
             return w.window->should_close();
         })
         .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, uint width, uint height, uint level, PixelStorage storage) {
-            auto view = ResourceGenerator::create_image_view<float>(handle, storage, level, {width, height});
+            LUISA_ASSERT(level == 0u, "Only level 0 is supported.");
+            ImageView<float> view{handle, storage, level, make_uint2(width, height)};
             stream.execute();
             stream.stream() << w.chain->present(view);
             vector<int> remove_list;

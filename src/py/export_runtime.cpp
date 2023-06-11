@@ -7,9 +7,9 @@
 #include <luisa/vstl/common.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
-#include <py/managed_device.h>
-#include <py/managed_accel.h>
-#include <py/managed_bindless.h>
+#include "managed_device.h"
+#include "managed_accel.h"
+#include "managed_bindless.h"
 #include <luisa/core/thread_pool.h>
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/ast/atomic_ref_node.h>

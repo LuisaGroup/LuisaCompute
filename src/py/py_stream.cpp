@@ -1,6 +1,6 @@
-#include <py/py_stream.h>
+#include "py_stream.h"
 #include <luisa/runtime/command_list.h>
-#include <py/ref_counter.h>
+#include "ref_counter.h"
 
 namespace luisa::compute {
 

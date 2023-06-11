@@ -152,17 +152,21 @@ private:
 private:
     friend class Buffer<T>;
     friend class SparseBuffer<T>;
-    friend class ResourceGenerator;
+
     template<typename U>
     friend class BufferView;
-    BufferView(DeviceInterface *device, uint64_t handle, size_t element_stride, size_t offset_bytes, size_t size, size_t total_size) noexcept
-        : _device(device), _handle{handle}, _element_stride{element_stride}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
+
+public:
+    BufferView(DeviceInterface *device, uint64_t handle,
+               size_t element_stride, size_t offset_bytes,
+               size_t size, size_t total_size) noexcept
+        : _device(device), _handle{handle}, _element_stride{element_stride},
+          _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
             detail::error_buffer_invalid_alignment(_offset_bytes, alignof(T));
         }
     }
 
-public:
     BufferView() noexcept : BufferView{nullptr, invalid_resource_handle, 0, 0, 0, 0} {}
     [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     template<template<typename> typename B>

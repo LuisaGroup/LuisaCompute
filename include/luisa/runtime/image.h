@@ -125,6 +125,7 @@ public:
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
 };
+
 // ImageView represents a reference to a Image. Use an ImageView that referenced to a destructed Image is an undefined behavior.
 template<typename T>
 class ImageView {
@@ -140,23 +141,17 @@ private:
     friend class SparseImage<T>;
     friend class detail::MipmapView;
     friend class DepthBuffer;
-    friend class ResourceGenerator;
-
-    constexpr ImageView(
-        uint64_t handle,
-        PixelStorage storage,
-        uint level,
-        uint2 size) noexcept
-        : _handle{handle},
-          _size{size},
-          _level{level},
-          _storage{storage} {}
 
     [[nodiscard]] auto _as_mipmap() const noexcept {
         return detail::MipmapView{_handle, make_uint3(_size, 1u), _level, _storage};
     }
 
 public:
+    ImageView(uint64_t handle, PixelStorage storage,
+              uint level, uint2 size) noexcept
+        : _handle{handle}, _size{size},
+          _level{level}, _storage{storage} {}
+
     ImageView(const Image<T> &image) noexcept : ImageView{image.view(0u)} {}
     // properties
     [[nodiscard]] auto handle() const noexcept { return _handle; }

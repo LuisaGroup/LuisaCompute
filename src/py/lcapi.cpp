@@ -9,8 +9,8 @@
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
 #include <luisa/core/logging.h>
-#include <py/py_stream.h>
-#include <py/ref_counter.h>
+#include "py_stream.h"
+#include "ref_counter.h"
 #include <luisa/runtime/raster/raster_state.h>
 namespace py = pybind11;
 using namespace luisa;

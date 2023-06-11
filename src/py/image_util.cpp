@@ -3,7 +3,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <luisa/runtime/image.h>
-#include <py/py_stream.h>
+#include "py_stream.h"
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
 #include <luisa/core/logging.h>

@@ -1,6 +1,6 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/bindless_array.h>
-#include <py/managed_collector.h>
+#include "managed_collector.h"
 
 namespace luisa::compute {
 

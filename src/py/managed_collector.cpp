@@ -1,6 +1,6 @@
-#include <py/managed_collector.h>
-#include <py/ref_counter.h>
-#include <py/py_stream.h>
+#include "managed_collector.h"
+#include "ref_counter.h"
+#include "py_stream.h"
 
 namespace luisa::compute {
 

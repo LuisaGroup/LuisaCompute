@@ -1,5 +1,5 @@
 #pragma once
-#include <py/ref_counter.h>
+#include "ref_counter.h"
 #include <luisa/runtime/device.h>
 #include <luisa/vstl/meta_lib.h>
 using namespace luisa::compute;

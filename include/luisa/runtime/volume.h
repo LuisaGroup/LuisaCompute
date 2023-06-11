@@ -131,11 +131,6 @@ private:
     friend class Volume<T>;
     friend class SparseVolume<T>;
     friend class detail::MipmapView;
-    friend class ResourceGenerator;
-
-    constexpr explicit VolumeView(
-        uint64_t handle, PixelStorage storage, uint level, uint3 size) noexcept
-        : _handle{handle}, _storage{storage}, _level{level}, _size{size} {}
 
     [[nodiscard]] auto _as_mipmap() const noexcept {
         return detail::MipmapView{
@@ -143,7 +138,13 @@ private:
     }
 
 public:
+    VolumeView(uint64_t handle, PixelStorage storage,
+               uint level, uint3 size) noexcept
+        : _handle{handle}, _storage{storage},
+          _level{level}, _size{size} {}
+
     VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view(0u)} {}
+
     // properties
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
