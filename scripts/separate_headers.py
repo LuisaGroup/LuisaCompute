@@ -1,6 +1,6 @@
 from os import listdir, makedirs
 from os.path import realpath, relpath, dirname, abspath, isdir, normpath, basename
-from shutil import copyfile as move
+from shutil import move
 
 
 def normalize(base, path):
@@ -18,8 +18,16 @@ def glob(source_files, header_files, folder, recursive=True):
 
 
 def fix_include_line(src_dir, file, line, moved_headers):
-    include = line.strip().split()[1][1:-1]
-    return f"#include <{include}>\n"
+    include = line.strip().split()[1]
+    if include.startswith('"'):
+        file_dir = dirname(f"{src_dir}/{file}")
+        norm_inc = normalize(src_dir, f"{file_dir}/{include[1:-1]}")
+        if norm_inc in moved_headers:
+            include = f"<luisa/{norm_inc}>"
+    elif include.startswith('<'):
+        if include[1:-1] in moved_headers:
+            include = f"<luisa/{include[1:-1]}>"
+    return f"#include {include}\n"
 
 
 def fix_include(src_dir, file, moved_headers):
@@ -35,6 +43,10 @@ def fix_include(src_dir, file, moved_headers):
             fixed_lines.append(fixed)
         else:
             fixed_lines.append(line)
+    if fixed_lines[-1].strip():
+        fixed_lines.append("\n")
+    with open(abs_path, "w", encoding="utf8") as f:
+        f.writelines(fixed_lines)
 
 
 def move_header(src_dir, header):
@@ -42,6 +54,7 @@ def move_header(src_dir, header):
     dst_path = f"{src_dir}/../include/luisa/{header}"
     dst_dir = dirname(dst_path)
     makedirs(dst_dir, exist_ok=True)
+    print(f"Moving {src_path} -> {dst_path}")
     move(src_path, dst_path)
 
 
