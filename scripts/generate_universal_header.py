@@ -17,7 +17,8 @@ if __name__ == "__main__":
     modules = [f for f in listdir(base) if isdir(f"{base}/{f}") and f not in ["api", "backends"]]
     for module in modules:
         glob_headers(headers, f"{base}/{module}")
-    headers = [relpath(header, base).replace("\\", "/") for header in headers if not header.endswith("dsl/sugar.h")]
+    headers = [relpath(header, base).replace("\\", "/") for header in headers if
+               not header.endswith(".inl.h")]
 
     header_groups = {}
     for header in headers:
@@ -37,9 +38,3 @@ if __name__ == "__main__":
             if group in optional_modules:
                 f.write(f"#endif\n")
             f.write("\n")
-
-    with open(f"{base}/luisa-dsl-sugar.h", "w", encoding="utf8") as f:
-        f.write("""#pragma once
-
-#include <luisa/dsl/sugar.h>
-""")

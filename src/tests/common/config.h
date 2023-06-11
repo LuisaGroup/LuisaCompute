@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <tests/common/doctest.h>
+#include "doctest.h"
 
 namespace luisa::test {
 

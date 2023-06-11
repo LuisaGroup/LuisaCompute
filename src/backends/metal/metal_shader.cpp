@@ -3,13 +3,13 @@
 //
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_accel.h>
-#include <backends/metal/metal_bindless_array.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_shader.h>
+#include "metal_device.h"
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_accel.h"
+#include "metal_bindless_array.h"
+#include "metal_command_encoder.h"
+#include "metal_shader.h"
 
 namespace luisa::compute::metal {
 

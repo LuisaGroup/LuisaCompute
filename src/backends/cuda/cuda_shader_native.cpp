@@ -5,14 +5,14 @@
 #include <fstream>
 
 #include <luisa/runtime/rhi/command.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_buffer.h>
-#include <backends/cuda/cuda_accel.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_bindless_array.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_shader_native.h>
+#include "cuda_error.h"
+#include "cuda_device.h"
+#include "cuda_buffer.h"
+#include "cuda_accel.h"
+#include "cuda_texture.h"
+#include "cuda_bindless_array.h"
+#include "cuda_command_encoder.h"
+#include "cuda_shader_native.h"
 
 namespace luisa::compute::cuda {
 

@@ -5,7 +5,7 @@
 #pragma once
 
 #include <luisa/runtime/rhi/command.h>
-#include <backends/metal/metal_primitive.h>
+#include "metal_primitive.h"
 
 namespace luisa::compute::metal {
 

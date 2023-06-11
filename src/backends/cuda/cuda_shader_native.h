@@ -6,7 +6,7 @@
 
 #include <cuda.h>
 #include <luisa/core/stl/string.h>
-#include <backends/cuda/cuda_shader.h>
+#include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 

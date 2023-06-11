@@ -11,9 +11,9 @@
 #include <luisa/core/dirty_range.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/command.h>
-#include <backends/common/resource_tracker.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_texture.h>
+#include "../common/resource_tracker.h"
+#include "cuda_error.h"
+#include "cuda_texture.h"
 
 namespace luisa::compute::cuda {
 

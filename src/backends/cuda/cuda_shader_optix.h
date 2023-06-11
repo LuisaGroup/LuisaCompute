@@ -5,8 +5,8 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
-#include <backends/cuda/cuda_shader.h>
-#include <backends/cuda/optix_api.h>
+#include "cuda_shader.h"
+#include "optix_api.h"
 
 namespace luisa::compute::cuda {
 

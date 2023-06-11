@@ -7,8 +7,8 @@
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/backends/ext/dstorage_cmd.h>
-#include <backends/metal/metal_api.h>
-#include <backends/metal/metal_stream.h>
+#include "metal_api.h"
+#include "metal_stream.h"
 
 namespace luisa::compute::metal {
 

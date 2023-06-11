@@ -5,9 +5,9 @@
 #include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/backends/ext/dx_cuda_interop.h>
 #include <luisa/backends/ext/dstorage_ext_interface.h>
-#include <backends/dx/d3dx12.h>
 #include <luisa/core/dynamic_module.h>
 #include <dstorage/dstorage.h>
+#include "../d3dx12.h"
 using Microsoft::WRL::ComPtr;
 
 namespace lc::dx {

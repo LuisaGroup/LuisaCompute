@@ -13,8 +13,8 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/core/first_fit.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_callback_context.h>
+#include "cuda_error.h"
+#include "cuda_callback_context.h"
 
 namespace luisa::compute::cuda {
 

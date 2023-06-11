@@ -4,7 +4,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
-#include <tests/common/config.h>
+#include "common/config.h"
 
 TEST_CASE("context") {
     luisa::compute::Context context{luisa::test::argv()[0]};

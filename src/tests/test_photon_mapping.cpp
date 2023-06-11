@@ -14,13 +14,13 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/gui/window.h>
-#include <tests/common/cornell_box.h>
+#include "common/cornell_box.h"
 #include <stb/stb_image_write.h>
 
 #include <random>
 
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/common/tiny_obj_loader.h>
+#include "common/tiny_obj_loader.h"
 
 using namespace luisa;
 using namespace luisa::compute;

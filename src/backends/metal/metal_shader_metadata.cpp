@@ -6,7 +6,7 @@
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_shader_metadata.h>
+#include "metal_shader_metadata.h"
 
 namespace luisa::compute::metal {
 

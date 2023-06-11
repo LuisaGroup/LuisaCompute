@@ -3,8 +3,8 @@
 //
 
 #include <luisa/core/clock.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_host_buffer_pool.h>
+#include "cuda_error.h"
+#include "cuda_host_buffer_pool.h"
 
 namespace luisa::compute::cuda {
 

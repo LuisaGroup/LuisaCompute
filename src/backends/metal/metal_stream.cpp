@@ -3,11 +3,11 @@
 //
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_event.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_swapchain.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_stream.h>
+#include "metal_event.h"
+#include "metal_texture.h"
+#include "metal_swapchain.h"
+#include "metal_command_encoder.h"
+#include "metal_stream.h"
 
 namespace luisa::compute::metal {
 

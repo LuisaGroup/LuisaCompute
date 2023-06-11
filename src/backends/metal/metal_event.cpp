@@ -5,7 +5,7 @@
 #include <mutex>
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_event.h>
+#include "metal_event.h"
 
 namespace luisa::compute::metal {
 

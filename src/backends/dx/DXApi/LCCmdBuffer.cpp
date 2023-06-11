@@ -2,12 +2,12 @@
 #include <DXApi/LCDevice.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/command_list.h>
-#include <backends/common/hlsl/hlsl_codegen.h>
+#include "../../common/hlsl/hlsl_codegen.h"
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
-#include <backends/common/command_reorder_visitor.h>
+#include "../../common/command_reorder_visitor.h"
 #include <Shader/RasterShader.h>
 #include <luisa/core/stl/variant.h>
 #include <luisa/runtime/buffer.h>

@@ -5,8 +5,8 @@
 #pragma once
 
 #include <luisa/runtime/rhi/device_interface.h>
-#include <backends/common/default_binary_io.h>
-#include <backends/metal/metal_api.h>
+#include "../common/default_binary_io.h"
+#include "metal_api.h"
 
 namespace luisa::compute::metal {
 

@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <backends/metal/metal-cpp/SingleHeader/Metal.hpp>
+#include "metal-cpp/SingleHeader/Metal.hpp"
 
 namespace luisa::compute::metal {
 

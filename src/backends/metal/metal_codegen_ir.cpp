@@ -6,7 +6,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
-#include <backends/metal/metal_codegen_ir.h>
+#include "metal_codegen_ir.h"
 
 namespace luisa::compute::metal {
 

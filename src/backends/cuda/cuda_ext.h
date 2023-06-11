@@ -1,9 +1,9 @@
 //
 // Created by Hercier on 2023/4/6.
 //
-#include <backends/cuda/optix_api.h>
+#include "optix_api.h"
 #include <luisa/core/logging.h>
-#include <backends/cuda/cuda_device.h>
+#include "cuda_device.h"
 #include <luisa/backends/ext/denoiser_ext.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/buffer.h>

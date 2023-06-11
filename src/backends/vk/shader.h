@@ -1,7 +1,7 @@
 #pragma once
 #include "resource.h"
 #include <vulkan/vulkan.h>
-#include <backends/common/hlsl/shader_property.h>
+#include "../common/hlsl/shader_property.h"
 #include <luisa/runtime/rhi/argument.h>
 namespace lc::vk {
 using namespace luisa::compute;

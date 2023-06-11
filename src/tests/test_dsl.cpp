@@ -14,7 +14,7 @@
 #include <luisa/ast/interface.h>
 #include <luisa/dsl/syntax.h>
 
-#include <tests/common/config.h>
+#include "common/config.h"
 
 using namespace luisa;
 using namespace luisa::compute;

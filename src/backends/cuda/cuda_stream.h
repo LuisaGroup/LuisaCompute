@@ -12,8 +12,8 @@
 #include <luisa/core/stl.h>
 #include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/command_list.h>
-#include <backends/cuda/cuda_callback_context.h>
-#include <backends/cuda/cuda_host_buffer_pool.h>
+#include "cuda_callback_context.h"
+#include "cuda_host_buffer_pool.h"
 
 namespace luisa::compute::cuda {
 

@@ -6,7 +6,9 @@ if (WIN32)
 
     file(GLOB_RECURSE LC_BACKEND_DX_SOURCES *.cpp)
     file(GLOB LC_BACKEND_DX_CODEGEN_SOURCES ../common/hlsl/*.cpp)
-    list(APPEND LC_BACKEND_DX_SOURCES ${LC_BACKEND_DX_CODEGEN_SOURCES})
+    list(APPEND LC_BACKEND_DX_SOURCES
+            ../common/default_binary_io.cpp
+            ${LC_BACKEND_DX_CODEGEN_SOURCES})
 
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}

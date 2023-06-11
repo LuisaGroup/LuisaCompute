@@ -1,4 +1,3 @@
-#include <backends/dx/d3dx12.h>
 #include "ext.h"
 #ifdef LCDX_ENABLE_CUDA
 #include <cuda.h>

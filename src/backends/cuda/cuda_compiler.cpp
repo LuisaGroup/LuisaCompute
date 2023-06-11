@@ -6,11 +6,11 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/binary_io.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_builtin_embedded.h>
-#include <backends/cuda/cuda_compiler.h>
+#include "cuda_error.h"
+#include "cuda_device.h"
+#include "optix_api.h"
+#include "cuda_builtin_embedded.h"
+#include "cuda_compiler.h"
 
 namespace luisa::compute::cuda {
 

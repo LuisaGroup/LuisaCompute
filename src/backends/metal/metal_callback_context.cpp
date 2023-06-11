@@ -3,7 +3,7 @@
 //
 
 #include <luisa/core/pool.h>
-#include <backends/metal/metal_callback_context.h>
+#include "metal_callback_context.h"
 
 namespace luisa::compute::metal {
 

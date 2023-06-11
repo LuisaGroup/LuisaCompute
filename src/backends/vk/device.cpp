@@ -4,11 +4,11 @@
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
 #include "compute_shader.h"
-#include <backends/common/hlsl/hlsl_codegen.h>
+#include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
-#include <backends/common/hlsl/binding_to_arg.h>
+#include "../common/hlsl/binding_to_arg.h"
 #include <luisa/runtime/context.h>
-#include <backends/common/hlsl/shader_compiler.h>
+#include "../common/hlsl/shader_compiler.h"
 
 namespace lc::vk {
 static std::mutex gDxcMutex;

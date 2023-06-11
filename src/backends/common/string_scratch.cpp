@@ -2,7 +2,8 @@
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
-#include <backends/common/string_scratch.h>
+
+#include "string_scratch.h"
 
 namespace luisa::compute {
 

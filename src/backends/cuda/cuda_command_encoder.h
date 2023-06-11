@@ -11,7 +11,7 @@
 
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/backends/ext/dstorage_cmd.h>
-#include <backends/cuda/cuda_stream.h>
+#include "cuda_stream.h"
 
 namespace luisa::compute::cuda {
 

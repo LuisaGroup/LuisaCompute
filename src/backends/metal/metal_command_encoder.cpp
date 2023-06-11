@@ -5,14 +5,14 @@
 #include <luisa/core/pool.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/pixel.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_accel.h>
-#include <backends/metal/metal_mesh.h>
-#include <backends/metal/metal_shader.h>
-#include <backends/metal/metal_procedural_primitive.h>
-#include <backends/metal/metal_bindless_array.h>
-#include <backends/metal/metal_command_encoder.h>
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_accel.h"
+#include "metal_mesh.h"
+#include "metal_shader.h"
+#include "metal_procedural_primitive.h"
+#include "metal_bindless_array.h"
+#include "metal_command_encoder.h"
 
 namespace luisa::compute::metal {
 

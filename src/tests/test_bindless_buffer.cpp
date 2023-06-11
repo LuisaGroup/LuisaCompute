@@ -1,4 +1,4 @@
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/window.h>
 

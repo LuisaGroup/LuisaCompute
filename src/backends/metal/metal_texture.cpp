@@ -3,7 +3,7 @@
 //
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_texture.h>
+#include "metal_texture.h"
 
 namespace luisa::compute::metal {
 

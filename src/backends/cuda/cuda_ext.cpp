@@ -1,10 +1,10 @@
 //
 // Created by Hercier on 2023/4/6.
 //
-#include <backends/cuda/cuda_ext.h>
+#include "cuda_ext.h"
 #include <cuda.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_buffer.h>
+#include "cuda_device.h"
+#include "cuda_buffer.h"
 #include <luisa/runtime/stream.h>
 namespace luisa::compute::cuda {
 void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {

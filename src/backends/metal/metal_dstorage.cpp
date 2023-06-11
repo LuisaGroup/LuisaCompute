@@ -8,12 +8,12 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_event.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_dstorage.h>
+#include "metal_device.h"
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_event.h"
+#include "metal_command_encoder.h"
+#include "metal_dstorage.h"
 
 namespace luisa::compute::metal {
 

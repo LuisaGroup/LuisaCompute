@@ -3,8 +3,8 @@
 //
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_primitive.h>
+#include "metal_command_encoder.h"
+#include "metal_primitive.h"
 
 namespace luisa::compute::metal {
 

@@ -8,7 +8,7 @@
 
 #include <cuda.h>
 #include <nvrtc.h>
-#include <backends/cuda/optix_api.h>
+#include "optix_api.h"
 
 #include <luisa/core/logging.h>
 

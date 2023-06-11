@@ -4,7 +4,7 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <Resource/GpuAllocator.h>
 #include <Shader/BuiltinKernel.h>
-#include <backends/common/hlsl/shader_compiler.h>
+#include "../../common/hlsl/shader_compiler.h"
 #include <Shader/ComputeShader.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>

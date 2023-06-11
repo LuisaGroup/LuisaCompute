@@ -1,8 +1,8 @@
 #include <Shader/RasterShader.h>
 #include <Resource/DepthBuffer.h>
 #include <Shader/ShaderSerializer.h>
-#include <backends/common/hlsl/hlsl_codegen.h>
-#include <backends/common/hlsl/shader_compiler.h>
+#include "../../common/hlsl/hlsl_codegen.h"
+#include "../../common/hlsl/shader_compiler.h"
 #include <luisa/vstl/md5.h>
 #include <luisa/core/logging.h>
 namespace lc::dx {

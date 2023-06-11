@@ -6,11 +6,11 @@
 #include <nvtx3/nvToolsExtCuda.h>
 
 #include <luisa/runtime/bindless_array.h>
-#include <backends/cuda/cuda_buffer.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_bindless_array.h>
+#include "cuda_buffer.h"
+#include "cuda_stream.h"
+#include "cuda_device.h"
+#include "cuda_command_encoder.h"
+#include "cuda_bindless_array.h"
 
 namespace luisa::compute::cuda {
 

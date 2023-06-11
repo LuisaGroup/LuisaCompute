@@ -7,7 +7,7 @@
 #include <DXRuntime/CommandBuffer.h>
 #include <luisa/runtime/command_list.h>
 #include <DXRuntime/ResourceStateTracker.h>
-#include <backends/common/command_reorder_visitor.h>
+#include "../../common/command_reorder_visitor.h"
 #include <Resource/BindlessArray.h>
 #include <Shader/ComputeShader.h>
 #include <Resource/BottomAccel.h>

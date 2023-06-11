@@ -20,28 +20,28 @@
 #include <luisa/ir/ir2ast.h>
 #endif
 
-#include <backends/common/string_scratch.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_buffer.h>
-#include <backends/cuda/cuda_mesh.h>
-#include <backends/cuda/cuda_procedural_primitive.h>
-#include <backends/cuda/cuda_accel.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_codegen_ast.h>
-#include <backends/cuda/cuda_compiler.h>
-#include <backends/cuda/cuda_bindless_array.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_shader_native.h>
-#include <backends/cuda/cuda_shader_optix.h>
-#include <backends/cuda/cuda_shader_metadata.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_swapchain.h>
-#include <backends/cuda/cuda_builtin_embedded.h>
+#include "../common/string_scratch.h"
+#include "cuda_error.h"
+#include "cuda_device.h"
+#include "cuda_buffer.h"
+#include "cuda_mesh.h"
+#include "cuda_procedural_primitive.h"
+#include "cuda_accel.h"
+#include "cuda_stream.h"
+#include "cuda_codegen_ast.h"
+#include "cuda_compiler.h"
+#include "cuda_bindless_array.h"
+#include "cuda_command_encoder.h"
+#include "cuda_texture.h"
+#include "cuda_shader_native.h"
+#include "cuda_shader_optix.h"
+#include "cuda_shader_metadata.h"
+#include "optix_api.h"
+#include "cuda_swapchain.h"
+#include "cuda_builtin_embedded.h"
 
-#include <backends/cuda/cuda_dstorage.h>
-#include <backends/cuda/cuda_ext.h>
+#include "cuda_dstorage.h"
+#include "cuda_ext.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_DUMP_SOURCE 1

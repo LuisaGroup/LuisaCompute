@@ -6,7 +6,7 @@
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
-#include <backends/cuda/cuda_shader_metadata.h>
+#include "cuda_shader_metadata.h"
 
 namespace luisa::compute::cuda {
 

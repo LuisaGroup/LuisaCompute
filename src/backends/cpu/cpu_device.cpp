@@ -1,5 +1,6 @@
 #include <luisa/core/platform.h>
-#include <backends/common/rust_device_common.h>
+
+#include "../common/rust_device_common.h"
 #include "cpu_device.h"
 
 #ifdef LUISA_ARCH_ARM64

@@ -7,7 +7,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/magic_enum.h>
 
-#include <backends/cuda/cuda_dstorage.h>
+#include "cuda_dstorage.h"
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>

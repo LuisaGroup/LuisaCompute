@@ -6,8 +6,8 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_compiler.h>
+#include "metal_device.h"
+#include "metal_compiler.h"
 
 #define LUISA_METAL_BACKEND_DUMP_SOURCE 1
 

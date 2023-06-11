@@ -18,10 +18,10 @@
 #else
 #include <xess/xess_d3d12.h>
 #endif
-#include <tests/common/cornell_box.h>
+#include "common/cornell_box.h"
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/common/tiny_obj_loader.h>
-#include <tests/common/projection.hpp>
+#include "common/tiny_obj_loader.h"
+#include "common/projection.hpp"
 // #include <ffx_fsr2_interface.h>
 using namespace luisa;
 using namespace luisa::compute;

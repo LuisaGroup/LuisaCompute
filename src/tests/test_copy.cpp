@@ -6,7 +6,7 @@
 #include <array>
 #include <numeric>
 #include <algorithm>
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;

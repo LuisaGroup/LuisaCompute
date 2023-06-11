@@ -1,7 +1,8 @@
 #include <luisa/core/stl/filesystem.h>
-#include <backends/common/default_binary_io.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/binary_file_stream.h>
+
+#include "default_binary_io.h"
 
 namespace luisa::compute {
 

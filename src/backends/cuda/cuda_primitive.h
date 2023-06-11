@@ -6,7 +6,7 @@
 
 #include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/rhi/resource.h>
-#include <backends/cuda/optix_api.h>
+#include "optix_api.h"
 
 namespace luisa::compute::cuda {
 

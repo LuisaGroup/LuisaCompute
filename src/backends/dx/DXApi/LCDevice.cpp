@@ -15,7 +15,7 @@
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include "ext.h"
-#include <backends/common/hlsl/hlsl_codegen.h>
+#include "../../common/hlsl/hlsl_codegen.h"
 #include <luisa/ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
 #include <luisa/core/clock.h>
@@ -23,7 +23,7 @@
 #include <Resource/ExternalBuffer.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/rtx/aabb.h>
-#include <backends/common/hlsl/binding_to_arg.h>
+#include "../../common/hlsl/binding_to_arg.h"
 #include <luisa/runtime/context.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>

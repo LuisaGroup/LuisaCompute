@@ -3,10 +3,10 @@
 //
 
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/common/tiny_obj_loader.h>
+#include "tiny_obj_loader.h"
 
 #define DOCTEST_CONFIG_IMPLEMENT
-#include <tests/common/config.h>
+#include "config.h"
 
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>

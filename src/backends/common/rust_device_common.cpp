@@ -11,7 +11,7 @@ namespace luisa::compute::backend {
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
-#include <backends/common/rust_device_common.h>
+#include "rust_device_common.h"
 
 // must go last to avoid name conflicts
 #include <luisa/runtime/rhi/resource.h>

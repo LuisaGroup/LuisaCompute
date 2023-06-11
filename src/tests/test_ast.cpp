@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2021/2/27.
 //
 
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;

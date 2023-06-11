@@ -3,7 +3,7 @@
 //
 
 #include <luisa/core/pool.h>
-#include <backends/metal/metal_stage_buffer_pool.h>
+#include "metal_stage_buffer_pool.h"
 
 namespace luisa::compute::metal {
 

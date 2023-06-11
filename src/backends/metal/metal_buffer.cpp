@@ -3,7 +3,7 @@
 //
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_buffer.h>
+#include "metal_buffer.h"
 
 namespace luisa::compute::metal {
 

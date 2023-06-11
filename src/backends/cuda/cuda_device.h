@@ -7,13 +7,13 @@
 #include <cuda.h>
 
 #include <luisa/runtime/rhi/device_interface.h>
-#include <backends/common/default_binary_io.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_compiler.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_shader_metadata.h>
+#include "../common/default_binary_io.h"
+#include "cuda_error.h"
+#include "cuda_texture.h"
+#include "cuda_stream.h"
+#include "cuda_compiler.h"
+#include "optix_api.h"
+#include "cuda_shader_metadata.h"
 
 namespace luisa::compute::cuda {
 

@@ -6,8 +6,8 @@
 
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
-#include <backends/common/resource_tracker.h>
-#include <backends/metal/metal_api.h>
+#include "../common/resource_tracker.h"
+#include "metal_api.h"
 
 namespace luisa::compute::metal {
 

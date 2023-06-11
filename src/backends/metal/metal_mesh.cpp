@@ -4,9 +4,9 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rtx/triangle.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_mesh.h>
+#include "metal_command_encoder.h"
+#include "metal_buffer.h"
+#include "metal_mesh.h"
 
 namespace luisa::compute::metal {
 

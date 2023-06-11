@@ -3,8 +3,8 @@
 //
 
 #include <luisa/core/logging.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_swapchain.h>
+#include "metal_device.h"
+#include "metal_swapchain.h"
 
 namespace luisa::compute::metal {
 

@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.h>
 
 #include <luisa/core/platform.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/vector.h>
@@ -26,8 +27,7 @@
 #error "Unsupported platform"
 #endif
 
-#include <luisa/core/logging.h>
-#include <backends/common/vulkan_swapchain.h>
+#include "vulkan_swapchain.h"
 
 namespace luisa::compute {
 

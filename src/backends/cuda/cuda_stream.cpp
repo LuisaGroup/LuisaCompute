@@ -8,11 +8,11 @@
 #include <nvtx3/nvToolsExtCuda.h>
 
 #include <luisa/core/logging.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_callback_context.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_stream.h>
+#include "cuda_error.h"
+#include "cuda_command_encoder.h"
+#include "cuda_callback_context.h"
+#include "cuda_device.h"
+#include "cuda_stream.h"
 
 namespace luisa::compute::cuda {
 

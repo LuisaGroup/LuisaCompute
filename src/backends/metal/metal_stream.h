@@ -9,8 +9,8 @@
 
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/command_list.h>
-#include <backends/metal/metal_api.h>
-#include <backends/metal/metal_stage_buffer_pool.h>
+#include "metal_api.h"
+#include "metal_stage_buffer_pool.h"
 
 namespace luisa::compute::metal {
 

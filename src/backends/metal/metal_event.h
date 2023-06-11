@@ -6,7 +6,7 @@
 
 #include <luisa/core/stl/string.h>
 #include <luisa/core/spin_mutex.h>
-#include <backends/metal/metal_api.h>
+#include "metal_api.h"
 
 namespace luisa::compute::metal {
 

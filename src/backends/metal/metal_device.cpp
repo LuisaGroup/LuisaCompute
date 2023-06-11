@@ -6,24 +6,24 @@
 #include <luisa/core/logging.h>
 
 #ifdef LUISA_ENABLE_IR
-#include <backends/metal/metal_codegen_ir.h>
+#include "metal_codegen_ir.h"
 #endif
 
-#include <backends/metal/metal_builtin_embedded.h>
-#include <backends/metal/metal_codegen_ast.h>
-#include <backends/metal/metal_compiler.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_stream.h>
-#include <backends/metal/metal_event.h>
-#include <backends/metal/metal_swapchain.h>
-#include <backends/metal/metal_bindless_array.h>
-#include <backends/metal/metal_accel.h>
-#include <backends/metal/metal_mesh.h>
-#include <backends/metal/metal_procedural_primitive.h>
-#include <backends/metal/metal_shader.h>
-#include <backends/metal/metal_dstorage.h>
-#include <backends/metal/metal_device.h>
+#include "metal_builtin_embedded.h"
+#include "metal_codegen_ast.h"
+#include "metal_compiler.h"
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_stream.h"
+#include "metal_event.h"
+#include "metal_swapchain.h"
+#include "metal_bindless_array.h"
+#include "metal_accel.h"
+#include "metal_mesh.h"
+#include "metal_procedural_primitive.h"
+#include "metal_shader.h"
+#include "metal_dstorage.h"
+#include "metal_device.h"
 
 namespace luisa::compute::metal {
 

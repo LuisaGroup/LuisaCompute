@@ -6,7 +6,7 @@
 #include <nvtx3/nvToolsExtCuda.h>
 
 #include <luisa/core/logging.h>
-#include <backends/cuda/cuda_shader.h>
+#include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 

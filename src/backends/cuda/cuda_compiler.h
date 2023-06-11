@@ -10,7 +10,7 @@
 #include <luisa/core/stl/lru_cache.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/context.h>
-#include <backends/cuda/cuda_shader_metadata.h>
+#include "cuda_shader_metadata.h"
 
 namespace luisa::compute::cuda {
 

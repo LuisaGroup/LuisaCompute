@@ -1,4 +1,4 @@
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 #include <stb/stb_image_write.h>
 #include <iostream>

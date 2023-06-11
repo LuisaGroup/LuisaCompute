@@ -8,7 +8,7 @@
 #include <luisa/runtime/device.h>
 #include <DXRuntime/DxPtr.h>
 #include <ext_settings.h>
-#include <backends/common/default_binary_io.h>
+#include "../../common/default_binary_io.h"
 #include "HDR.h"
 
 namespace luisa {
