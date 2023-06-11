@@ -1,6 +1,6 @@
 from os import listdir, makedirs
 from os.path import realpath, relpath, dirname, abspath, isdir, normpath
-from shutil import copyfile
+from shutil import copyfile, move
 
 
 def normalize(base, path):
@@ -21,12 +21,12 @@ def fix_include(src_dir, file, moved_headers):
     pass
 
 
-def move(src_dir, header):
+def move_header(src_dir, header):
     src_path = f"{src_dir}/{header}"
     dst_path = f"{src_dir}/../include/luisa/{header}"
     dst_dir = dirname(dst_path)
     makedirs(dst_dir, exist_ok=True)
-    copyfile(src_path, dst_path)
+    move(src_path, dst_path)
 
 
 if __name__ == "__main__":
@@ -50,4 +50,4 @@ if __name__ == "__main__":
         fix_include(src_dir, f, headers_to_move)
 
     for h in headers_to_move:
-        move(src_dir, h)
+        move_header(src_dir, h)
