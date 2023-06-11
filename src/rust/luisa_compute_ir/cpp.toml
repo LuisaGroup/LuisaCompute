@@ -22,7 +22,7 @@ namespace = "luisa::compute::ir"
 namespaces = []
 using_namespaces = []
 sys_includes = []
-includes = ["common.h"]
+includes = ["ir_common.h"]
 no_includes = false
 after_includes = ""
 

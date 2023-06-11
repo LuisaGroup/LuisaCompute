@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <runtime/rhi/pixel.h>
-#include <backends/metal/metal_api.h>
+#include <luisa/runtime/rhi/pixel.h>
+#include "metal_api.h"
 
 extern "C" CA::MetalLayer *luisa_metal_backend_create_layer(
     MTL::Device *device, uint64_t window_handle,
@@ -37,3 +37,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

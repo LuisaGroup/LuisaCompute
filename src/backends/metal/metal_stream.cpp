@@ -2,12 +2,12 @@
 // Created by Mike Smith on 2023/4/15.
 //
 
-#include <core/logging.h>
-#include <backends/metal/metal_event.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_swapchain.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_stream.h>
+#include <luisa/core/logging.h>
+#include "metal_event.h"
+#include "metal_texture.h"
+#include "metal_swapchain.h"
+#include "metal_command_encoder.h"
+#include "metal_stream.h"
 
 namespace luisa::compute::metal {
 
@@ -129,3 +129,4 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
 }
 
 }// namespace luisa::compute::metal
+

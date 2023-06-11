@@ -2,10 +2,9 @@
 // Created by Mike Smith on 2021/8/6.
 //
 
-#include "op.h"
-#include <core/logging.h>
-#include <ast/op.h>
-#include <ast/type_registry.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/op.h>
+#include <luisa/ast/type_registry.h>
 #include <array>
 
 namespace luisa::compute {
@@ -126,3 +125,4 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
 }
 
 }// namespace luisa::compute
+

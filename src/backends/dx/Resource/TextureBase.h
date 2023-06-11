@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/Resource.h>
 #include <Resource/GpuAllocator.h>
-#include <runtime/rhi/pixel.h>
+#include <luisa/runtime/rhi/pixel.h>
 namespace lc::dx {
 using namespace luisa::compute;
 class TextureBase : public Resource {

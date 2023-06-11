@@ -1,13 +1,13 @@
 #include "hlsl_codegen.h"
-#include <vstl/string_utility.h>
+#include <luisa/vstl/string_utility.h>
 #include "variant_util.h"
-#include <ast/constant_data.h>
+#include <luisa/ast/constant_data.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
-#include <vstl/pdqsort.h>
-#include <core/dynamic_module.h>
-#include <core/logging.h>
-#include <ast/external_function.h>
+#include <luisa/vstl/pdqsort.h>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/external_function.h>
 namespace lc::hlsl {
 struct RegisterIndexer {
     virtual void init() = 0;

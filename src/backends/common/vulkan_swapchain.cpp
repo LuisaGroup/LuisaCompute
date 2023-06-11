@@ -7,12 +7,13 @@
 
 #include <vulkan/vulkan.h>
 
-#include <core/platform.h>
-#include <core/stl/string.h>
-#include <core/stl/optional.h>
-#include <core/stl/vector.h>
-#include <core/stl/unordered_map.h>
-#include <runtime/rhi/pixel.h>
+#include <luisa/core/platform.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/runtime/rhi/pixel.h>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #include <Windows.h>
@@ -26,8 +27,7 @@
 #error "Unsupported platform"
 #endif
 
-#include <core/logging.h>
-#include <backends/common/vulkan_swapchain.h>
+#include "vulkan_swapchain.h"
 
 namespace luisa::compute {
 
@@ -1505,3 +1505,4 @@ LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const
     static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
 }
 }// namespace luisa::compute
+

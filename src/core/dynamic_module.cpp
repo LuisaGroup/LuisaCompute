@@ -1,7 +1,7 @@
-#include <core/dynamic_module.h>
-#include <core/clock.h>
-#include <core/logging.h>
-#include <core/stl/filesystem.h>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 
 namespace luisa {
 
@@ -112,3 +112,4 @@ DynamicModule DynamicModule::load(const std::filesystem::path &folder, std::stri
 }
 
 }// namespace luisa
+

@@ -1,6 +1,6 @@
 #pragma once
-#include <backends/ext/raster_ext_interface.h>
-#include <vstl/common.h>
+#include <luisa/backends/ext/raster_ext_interface.h>
+#include <luisa/vstl/common.h>
 namespace lc::validation {
 class Device;
 using namespace luisa::compute;

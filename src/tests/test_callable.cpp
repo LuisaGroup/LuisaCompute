@@ -5,14 +5,14 @@
 #include <numeric>
 #include <iostream>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <runtime/image.h>
-#include <runtime/stream.h>
-#include <runtime/buffer.h>
-#include <dsl/syntax.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/dsl/syntax.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -86,3 +86,4 @@ int main(int argc, char *argv[]) {
         LUISA_ASSERT(results[i] == data[i] + 3.0f, "Results mismatch.");
     }
 }
+

@@ -92,3 +92,4 @@ _MTL_INLINE void MTL::ParallelRenderCommandEncoder::setStencilStoreActionOptions
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setStencilStoreActionOptions_), storeActionOptions);
 }
+

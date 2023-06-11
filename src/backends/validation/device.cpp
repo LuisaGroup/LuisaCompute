@@ -10,12 +10,12 @@
 #include "procedural_primitives.h"
 #include "shader.h"
 #include "swap_chain.h"
-#include <ast/function_builder.h>
+#include <luisa/ast/function_builder.h>
 #include "raster_ext_impl.h"
 #include "dstorage_ext_impl.h"
-#include <core/logging.h>
-#include <runtime/rhi/command.h>
-#include <backends/ext/registry.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/backends/ext/registry.h>
 namespace lc::validation {
 static vstd::unordered_map<uint64_t, StreamOption> stream_options;
 static std::mutex stream_mtx;

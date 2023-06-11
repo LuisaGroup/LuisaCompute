@@ -2,10 +2,10 @@
 // Created by Mike Smith on 2023/4/20.
 //
 
-#include <core/logging.h>
-#include <runtime/rtx/aabb.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_procedural_primitive.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/rtx/aabb.h>
+#include "metal_buffer.h"
+#include "metal_procedural_primitive.h"
 
 namespace luisa::compute::metal {
 
@@ -71,3 +71,4 @@ void MetalProceduralPrimitive::build(MetalCommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::metal
+

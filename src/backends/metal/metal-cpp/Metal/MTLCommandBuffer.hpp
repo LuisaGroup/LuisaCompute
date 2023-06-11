@@ -472,3 +472,4 @@ _MTL_INLINE void MTL::CommandBuffer::popDebugGroup()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(popDebugGroup));
 }
+

@@ -1,5 +1,5 @@
-#include <py/managed_bindless.h>
-#include <py/py_stream.h>
+#include "managed_bindless.h"
+#include "py_stream.h"
 
 namespace luisa::compute {
 
@@ -42,3 +42,4 @@ void ManagedBindless::Update(PyStream &stream) noexcept {
 }
 
 }// namespace luisa::compute
+

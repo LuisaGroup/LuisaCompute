@@ -5,8 +5,8 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/logging.h>
-#include <backends/cuda/cuda_shader.h>
+#include <luisa/core/logging.h>
+#include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 
@@ -37,3 +37,4 @@ void CUDAShader::launch(CUDACommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::cuda
+

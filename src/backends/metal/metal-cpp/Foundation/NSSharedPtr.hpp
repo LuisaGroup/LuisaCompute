@@ -309,3 +309,4 @@ _NS_INLINE bool operator!=(const NS::SharedPtr<_ClassLhs>& lhs, const NS::Shared
 {
     return lhs.get() != rhs.get();
 }
+

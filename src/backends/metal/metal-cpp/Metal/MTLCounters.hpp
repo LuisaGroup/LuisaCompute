@@ -256,3 +256,4 @@ _MTL_INLINE NS::Data* MTL::CounterSampleBuffer::resolveCounterRange(NS::Range ra
 {
     return Object::sendMessage<NS::Data*>(this, _MTL_PRIVATE_SEL(resolveCounterRange_), range);
 }
+

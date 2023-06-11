@@ -1,6 +1,6 @@
 #include "shader_serializer.h"
 #include "shader.h"
-#include <backends/common/hlsl/shader_property.h>
+#include "../common/hlsl/shader_property.h"
 #include "compute_shader.h"
 
 namespace lc::vk {

@@ -2,14 +2,14 @@
 // Created by Mike Smith on 2023/4/15.
 //
 
-#include <core/logging.h>
-#include <core/magic_enum.h>
-#include <runtime/rtx/ray.h>
-#include <runtime/rtx/hit.h>
-#include <dsl/rtx/ray_query.h>
-#include <runtime/dispatch_buffer.h>
-#include <backends/metal/metal_builtin_embedded.h>
-#include <backends/metal/metal_codegen_ast.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/rtx/ray.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include "metal_builtin_embedded.h"
+#include "metal_codegen_ast.h"
 
 namespace luisa::compute::metal {
 
@@ -389,15 +389,32 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch << ";\n";
         }
     } else {
+        auto texture_count = std::count_if(
+            _function.arguments().cbegin(), _function.arguments().cend(),
+            [](auto arg) { return arg.type()->is_texture(); });
+        if (texture_count > 0) {
+            _scratch << "template<";
+            for (auto i = 0u; i < texture_count; i++) {
+                _scratch << "typename T" << i << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
+            _scratch << ">\n";
+        }
         _emit_type_name(_function.return_type());
         _scratch << " callable_" << hash_to_string(_function.hash()) << "(";
+        auto emitted_texture_count = 0u;
         if (!_function.arguments().empty()) {
             for (auto arg : _function.arguments()) {
                 auto is_mut_ref = arg.is_reference() &&
                                   (to_underlying(_function.variable_usage(arg.uid())) &
                                    to_underlying(Usage::WRITE));
                 if (is_mut_ref) { _scratch << "thread "; }
-                _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
+                if (arg.type()->is_texture()) {
+                    _scratch << "T" << emitted_texture_count++;
+                } else {
+                    _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
+                }
                 _scratch << " ";
                 if (is_mut_ref) { _scratch << "&"; }
                 _emit_variable_name(arg);
@@ -995,7 +1012,7 @@ void MetalCodegenAST::visit(const IfStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "}";
     if (auto &&fb = stmt->false_branch()->statements(); !fb.empty()) {
-        _scratch << " else {";
+        _scratch << " else {\n";
         _indention++;
         for (auto s : fb) { s->accept(*this); }
         _indention--;
@@ -1180,3 +1197,4 @@ void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

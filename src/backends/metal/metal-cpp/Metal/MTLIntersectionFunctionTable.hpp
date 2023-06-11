@@ -161,3 +161,4 @@ _MTL_INLINE void MTL::IntersectionFunctionTable::setVisibleFunctionTables(const 
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVisibleFunctionTables_withBufferRange_), functionTables, bufferRange);
 }
+

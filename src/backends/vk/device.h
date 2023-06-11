@@ -1,9 +1,9 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include <runtime/device.h>
+#include <luisa/runtime/device.h>
 #include "VulkanDevice.h"
-#include <vstl/common.h>
-#include <backends/common/default_binary_io.h>
+#include <luisa/vstl/common.h>
+#include "../common/default_binary_io.h"
 #include "vk_allocator.h"
 namespace lc::hlsl {
 class ShaderCompiler;

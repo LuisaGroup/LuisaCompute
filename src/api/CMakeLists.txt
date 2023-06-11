@@ -6,8 +6,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     #         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
     # endif()
     set(LUISA_COMPUTE_API_SOURCES
-            device.h
-            runtime.cpp api.h
+            runtime.cpp
             logging.cpp
             )
     add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})

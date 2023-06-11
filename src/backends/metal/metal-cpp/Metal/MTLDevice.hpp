@@ -1372,3 +1372,4 @@ _MTL_INLINE NS::UInteger MTL::Device::maximumConcurrentCompilationTaskCount() co
 {
     return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(maximumConcurrentCompilationTaskCount));
 }
+

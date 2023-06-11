@@ -1,7 +1,7 @@
 #include "resource.h"
 #include "texture.h"
 #include "stream.h"
-#include <core/stl/format.h>
+#include <luisa/core/stl/format.h>
 namespace lc::validation {
 vstd::string Resource::get_tag_name(Tag tag) const {
     switch (tag) {

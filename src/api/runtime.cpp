@@ -2,13 +2,12 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include "luisa_compute_api_types/bindings.h"
-#include "luisa_compute_ir/bindings.hpp"
-#include "runtime/rhi/resource.h"
-#include <luisa-compute.h>
-#include <ast/function_builder.h>
-#include <runtime/rhi/command_encoder.h>
-#include <api/api.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/api/api.h>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
 

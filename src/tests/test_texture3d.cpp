@@ -1,15 +1,15 @@
 //
 // Created by Mike on 5/24/2023.
 //
-#include <core/logging.h>
-#include <core/clock.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <gui/window.h>
-#include <runtime/swapchain.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/clock.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
+#include <luisa/runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -380,3 +380,4 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
+

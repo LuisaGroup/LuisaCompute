@@ -1143,3 +1143,4 @@ _MTL_INLINE void MTL::RenderCommandEncoder::sampleCountersInBuffer(const MTL::Co
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(sampleCountersInBuffer_atSampleIndex_withBarrier_), sampleBuffer, sampleIndex, barrier);
 }
+

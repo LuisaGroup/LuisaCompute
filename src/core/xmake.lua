@@ -7,7 +7,7 @@ on_load(function(target)
 	local function rela(p)
 		return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
 	end
-	target:add("includedirs", rela("../"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
+	target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
 					rela("../ext/parallel-hashmap"), {
 						public = true
 					})

@@ -504,3 +504,4 @@ StringStateVisitor::Scope::~Scope() {
     self->str << "}\n"sv;
 }
 }// namespace lc::hlsl
+

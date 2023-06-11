@@ -4,10 +4,10 @@
 
 #include <iostream>
 
-#include <core/logging.h>
-#include <runtime/device.h>
-#include <dsl/sugar.h>
-#include <runtime/context.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/context.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -109,3 +109,4 @@ int main(int argc, char *argv[]) {
     luisa::unique_ptr<Command> command = shader(float_buffer, 12u).dispatch(1024u);
     ShaderDispatchCommand * launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
+

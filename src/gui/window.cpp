@@ -1,4 +1,4 @@
-#include <core/platform.h>
+#include <luisa/core/platform.h>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -15,8 +15,8 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#include <core/logging.h>
-#include <gui/window.h>
+#include <luisa/core/logging.h>
+#include <luisa/gui/window.h>
 
 namespace luisa::compute {
 
@@ -157,3 +157,4 @@ bool Window::is_mouse_button_down(MouseButton mb) const noexcept {
 }
 
 }// namespace luisa::compute
+

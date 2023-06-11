@@ -1,4 +1,3 @@
-#include <backends/dx/d3dx12.h>
 #include "ext.h"
 #ifdef LCDX_ENABLE_CUDA
 #include <cuda.h>
@@ -8,7 +7,7 @@
 #include <DXApi/LCEvent.h>
 #include <aclapi.h>
 #else
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #endif
 namespace lc::dx {
 #ifdef LCDX_ENABLE_CUDA

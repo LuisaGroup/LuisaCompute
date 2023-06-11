@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <tests/common/doctest.h>
+#include "doctest.h"
 
 namespace luisa::test {
 
@@ -12,3 +12,4 @@ namespace luisa::test {
 [[nodiscard]] const char *const *argv() noexcept;
 
 }// namespace luisa::test
+

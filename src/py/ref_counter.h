@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vstl/common.h>
-#include <runtime/rtx/accel.h>
-#include <runtime/rtx/mesh.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
 
 namespace luisa::compute {
 
@@ -27,3 +27,4 @@ public:
 };
 
 }// namespace luisa::compute
+

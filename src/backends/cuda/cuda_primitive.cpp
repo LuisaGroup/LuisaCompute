@@ -5,9 +5,9 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_primitive.h>
+#include "cuda_device.h"
+#include "cuda_command_encoder.h"
+#include "cuda_primitive.h"
 
 namespace luisa::compute::cuda {
 
@@ -130,3 +130,4 @@ optix::TraversableHandle CUDAPrimitive::handle() const noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

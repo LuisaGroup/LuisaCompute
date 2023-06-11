@@ -1,9 +1,9 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
-#include <backends/common/hlsl/hlsl_codegen.h>
-#include <backends/common/hlsl/shader_compiler.h>
-#include <core/logging.h>
-#include <vstl/md5.h>
+#include "../../common/hlsl/hlsl_codegen.h"
+#include "../../common/hlsl/shader_compiler.h"
+#include <luisa/core/logging.h>
+#include <luisa/vstl/md5.h>
 namespace lc::dx {
 namespace ComputeShaderDetail {
 static constexpr bool PRINT_CODE = false;

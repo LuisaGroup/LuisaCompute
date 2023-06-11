@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/4/8.
 //
 
-#include <runtime/device.h>
-#include <runtime/event.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/event.h>
 
 namespace luisa::compute {
 
@@ -38,3 +38,4 @@ void Event::Wait::operator()(
 }
 
 }// namespace luisa::compute
+

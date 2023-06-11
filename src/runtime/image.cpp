@@ -1,5 +1,5 @@
-#include <core/logging.h>
-#include <runtime/image.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/image.h>
 
 namespace luisa::compute ::detail {
 
@@ -15,3 +15,4 @@ LC_RUNTIME_API void volume_size_zero_error() noexcept {
     LUISA_ERROR_WITH_LOCATION("Volume size must be non-zero.");
 }
 }// namespace luisa::compute::detail
+

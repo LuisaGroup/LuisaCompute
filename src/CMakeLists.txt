@@ -13,41 +13,13 @@ endif ()
 
 function(luisa_compute_install target)
     cmake_parse_arguments(INSTALL "" "" "SOURCES" ${ARGN})
-    if (INSTALL_SOURCES)
-        set(INSTALL_HEADERS ${INSTALL_SOURCES})
-        list(FILTER INSTALL_HEADERS INCLUDE REGEX "^.*\\.h$")
-        set_target_properties(luisa-compute-${target} PROPERTIES PUBLIC_HEADER "${INSTALL_HEADERS}")
-    endif ()
     install(TARGETS luisa-compute-${target} EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/${target})
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endfunction()
 
 add_subdirectory(ext)
-
-add_library(luisa-compute-include INTERFACE)
-target_include_directories(luisa-compute-include INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
-
-if (LUISA_COMPUTE_ENABLE_RUST)
-    target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_IR=1)
-endif ()
-
-# add platform macros
-if (WIN32)
-    target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_WINDOWS=1)
-elseif (UNIX)
-    target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_UNIX=1)
-    if (APPLE)
-        target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_APPLE=1)
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_DSL)
-    target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_DSL=1)
-endif ()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(luisa-compute-include INTERFACE
@@ -63,9 +35,6 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
             -Wno-pragmas)
 endif ()
 
-install(TARGETS luisa-compute-include
-        EXPORT LuisaComputeTargets)
-
 add_subdirectory(api)
 add_subdirectory(core)
 add_subdirectory(vstl)
@@ -77,9 +46,8 @@ add_subdirectory(dsl)
 add_subdirectory(gui)
 add_subdirectory(backends)
 
-add_library(compute INTERFACE luisa-compute.h)
+add_library(compute INTERFACE)
 
-set_target_properties(compute PROPERTIES PUBLIC_HEADER "luisa-compute.h")
 target_link_libraries(compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl

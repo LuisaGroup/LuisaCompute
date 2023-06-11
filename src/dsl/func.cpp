@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2022/12/25.
 //
 
-#include <core/logging.h>
-#include <dsl/func.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/func.h>
 
 namespace luisa::compute::detail {
 
@@ -12,3 +12,4 @@ void CallableInvoke::_error_too_many_arguments() noexcept {
 }
 
 }// namespace luisa::compute::detail
+

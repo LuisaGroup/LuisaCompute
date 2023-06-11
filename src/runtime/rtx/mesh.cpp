@@ -3,8 +3,8 @@
 // Created by Mike Smith on 2021/7/22.
 //
 
-#include <runtime/rtx/mesh.h>
-#include <runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/accel.h>
 
 namespace luisa::compute {
 
@@ -20,3 +20,4 @@ Mesh::~Mesh() noexcept {
 }
 
 }// namespace luisa::compute
+

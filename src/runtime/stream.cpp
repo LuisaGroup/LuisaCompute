@@ -4,10 +4,10 @@
 
 #include <utility>
 
-#include <core/logging.h>
-#include <core/magic_enum.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
 
 namespace luisa::compute {
 
@@ -109,3 +109,4 @@ Stream::~Stream() noexcept {
 }
 
 }// namespace luisa::compute
+

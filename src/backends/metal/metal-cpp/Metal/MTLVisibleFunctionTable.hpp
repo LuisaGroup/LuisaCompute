@@ -102,3 +102,4 @@ _MTL_INLINE void MTL::VisibleFunctionTable::setFunctions(const MTL::FunctionHand
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setFunctions_withRange_), functions, range);
 }
+

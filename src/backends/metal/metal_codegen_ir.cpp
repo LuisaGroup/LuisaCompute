@@ -4,9 +4,9 @@
 
 #ifdef LUISA_ENABLE_IR
 
-#include <core/logging.h>
-#include <core/magic_enum.h>
-#include <backends/metal/metal_codegen_ir.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
+#include "metal_codegen_ir.h"
 
 namespace luisa::compute::metal {
 
@@ -79,3 +79,4 @@ size_t MetalCodegenIR::type_size_bytes(const ir::Type *type) noexcept {
 }// namespace luisa::compute::metal
 
 #endif
+

@@ -1,12 +1,12 @@
 #pragma once
-#include <vstl/common.h>
+#include <luisa/vstl/common.h>
 #include <Windows.h>
 #include <d3dx12.h>
 #include <Shader/ShaderVariableType.h>
 #include <Resource/Buffer.h>
 #include <Resource/DescriptorHeap.h>
-#include <ast/function.h>
-#include <core/binary_io.h>
+#include <luisa/ast/function.h>
+#include <luisa/core/binary_io.h>
 namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;

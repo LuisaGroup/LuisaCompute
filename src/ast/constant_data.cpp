@@ -4,10 +4,10 @@
 
 #include <algorithm>
 
-#include <core/stl/hash.h>
-#include <core/spin_mutex.h>
-#include <ast/type_registry.h>
-#include <ast/constant_data.h>
+#include <luisa/core/stl/hash.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/ast/type_registry.h>
+#include <luisa/ast/constant_data.h>
 
 namespace luisa::compute {
 
@@ -54,3 +54,4 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
 }
 
 }// namespace luisa::compute
+

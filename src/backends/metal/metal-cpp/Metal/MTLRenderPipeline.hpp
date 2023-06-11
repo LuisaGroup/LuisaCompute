@@ -1596,3 +1596,4 @@ _MTL_INLINE void MTL::MeshRenderPipelineDescriptor::reset()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(reset));
 }
+

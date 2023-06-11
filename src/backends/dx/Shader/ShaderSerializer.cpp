@@ -3,8 +3,8 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RasterShader.h>
 #include <DXRuntime/GlobalSamplers.h>
-#include <vstl/small_vector.h>
-#include <core/logging.h>
+#include <luisa/vstl/small_vector.h>
+#include <luisa/core/logging.h>
 namespace lc::dx {
 namespace shader_ser {
 struct Header {

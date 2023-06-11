@@ -2,9 +2,9 @@
 // Created by Mike on 5/29/2023.
 //
 
-#include <core/stl/hash.h>
-#include <core/logging.h>
-#include <ast/external_function.h>
+#include <luisa/core/stl/hash.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/external_function.h>
 
 namespace luisa::compute {
 
@@ -44,3 +44,4 @@ inline void ExternalFunction::_compute_hash() noexcept {
 }
 
 }// namespace luisa::compute
+

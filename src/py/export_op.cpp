@@ -1,17 +1,17 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
-#include <ast/function.h>
-#include <core/logging.h>
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <runtime/stream.h>
-#include <runtime/rhi/command.h>
-#include <runtime/image.h>
-#include <runtime/rtx/accel.h>
-#include <runtime/rtx/mesh.h>
-#include <runtime/rtx/hit.h>
-#include <runtime/rtx/ray.h>
+#include <luisa/ast/function.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/runtime/rtx/ray.h>
 
 namespace py = pybind11;
 using namespace luisa::compute;
@@ -218,3 +218,4 @@ void export_op(py::module &m) {
         .value("RAY_TRACING_QUERY_ALL", CallOp::RAY_TRACING_QUERY_ALL)
         .value("RAY_TRACING_QUERY_ANY", CallOp::RAY_TRACING_QUERY_ANY);
 }
+

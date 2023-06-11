@@ -1,7 +1,7 @@
-#include <runtime/swapchain.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <core/logging.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -46,3 +46,4 @@ void Swapchain::Present::operator()(
 }
 
 }// namespace luisa::compute
+

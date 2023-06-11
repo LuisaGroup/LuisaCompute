@@ -1,10 +1,10 @@
 #pragma once
 #include <Shader/Shader.h>
-#include <runtime/raster/raster_state.h>
-#include <runtime/rhi/pixel.h>
-#include <core/binary_io.h>
-#include <core/stl/unordered_map.h>
-#include <vstl/hash.h>
+#include <luisa/runtime/raster/raster_state.h>
+#include <luisa/runtime/rhi/pixel.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/vstl/hash.h>
 namespace lc::hlsl {
 struct CodegenResult;
 }

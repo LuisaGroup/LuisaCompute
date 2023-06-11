@@ -9,29 +9,29 @@
 #include <Shader/RasterShader.h>
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCEvent.h>
-#include <vstl/md5.h>
+#include <luisa/vstl/md5.h>
 #include <Shader/ShaderSerializer.h>
 #include <Resource/BottomAccel.h>
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include "ext.h"
-#include <backends/common/hlsl/hlsl_codegen.h>
-#include <ast/function_builder.h>
+#include "../../common/hlsl/hlsl_codegen.h"
+#include <luisa/ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
-#include <core/clock.h>
-#include <core/stl/filesystem.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/stl/filesystem.h>
 #include <Resource/ExternalBuffer.h>
-#include <runtime/dispatch_buffer.h>
-#include <runtime/rtx/aabb.h>
-#include <backends/common/hlsl/binding_to_arg.h>
-#include <runtime/context.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/runtime/rtx/aabb.h>
+#include "../../common/hlsl/binding_to_arg.h"
+#include <luisa/runtime/context.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
 #include <Resource/SparseTexture.h>
 #include <Resource/SparseBuffer.h>
 
 #ifdef LUISA_ENABLE_IR
-#include <ir/ir2ast.h>
+#include <luisa/ir/ir2ast.h>
 #endif
 
 namespace lc::dx {

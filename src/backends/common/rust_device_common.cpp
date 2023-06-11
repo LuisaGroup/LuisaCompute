@@ -1,6 +1,5 @@
-#include <core/logging.h>
-#include <luisa_compute_ir/bindings.hpp>
-#include <luisa_compute_api_types/bindings.hpp>
+#include <luisa/rust/ir.hpp>
+#include <luisa/rust/api_types.hpp>
 
 namespace luisa::compute::backend {
     using namespace luisa::compute::api;
@@ -9,13 +8,13 @@ namespace luisa::compute::backend {
     using luisa::compute::ir::Type;
 }// namespace luisa::compute::backend
 
+#include <luisa/core/dynamic_module.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
 #include "rust_device_common.h"
-#include <runtime/context.h>
-#include <core/dynamic_module.h>
-#include <core/logging.h>
-#include <luisa_compute_api_types/bindings.h>
+
 // must go last to avoid name conflicts
-#include <runtime/rhi/resource.h>
+#include <luisa/runtime/rhi/resource.h>
 
 namespace luisa::compute::rust {
 
@@ -266,3 +265,4 @@ namespace luisa::compute::rust {
         luisa::delete_with_allocator(device);
     }
 }// namespace luisa::compute::rust
+

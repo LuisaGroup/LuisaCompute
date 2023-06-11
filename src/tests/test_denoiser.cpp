@@ -4,24 +4,24 @@
 
 #include <iostream>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <runtime/swapchain.h>
-#include <dsl/sugar.h>
-#include <runtime/rtx/accel.h>
-#include <tests/common/cornell_box.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/rtx/accel.h>
+#include "common/cornell_box.h"
 #include <stb/stb_image_write.h>
 #include <stb/stb_image.h>
-#include <gui/window.h>
-#include <backends/ext/denoiser_ext.h>
+#include <luisa/gui/window.h>
+#include <luisa/backends/ext/denoiser_ext.h>
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/common/tiny_obj_loader.h>
+#include "common/tiny_obj_loader.h"
 #define TINYEXR_IMPLEMENTATION
-#include <tests/common/tinyexr.h>
+#include "common/tinyexr.h"
 using namespace luisa;
 using namespace luisa::compute;
 

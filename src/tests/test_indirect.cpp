@@ -1,10 +1,10 @@
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/dispatch_buffer.h>
-#include <dsl/syntax.h>
-#include <dsl/dispatch_indirect.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/dispatch_indirect.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -51,3 +51,4 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Result should be: 0 1 4 9 16 25 36 49 64 81 100 121 144 169 196 225");
     LUISA_INFO("Result: {}", result);
 }
+

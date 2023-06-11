@@ -99,3 +99,4 @@ _MTL_INLINE void MTL::CommandEncoder::popDebugGroup()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(popDebugGroup));
 }
+

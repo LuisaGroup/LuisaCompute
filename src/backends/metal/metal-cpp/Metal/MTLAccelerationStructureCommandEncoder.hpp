@@ -288,3 +288,4 @@ _MTL_INLINE MTL::AccelerationStructurePassSampleBufferAttachmentDescriptorArray*
 {
     return Object::sendMessage<MTL::AccelerationStructurePassSampleBufferAttachmentDescriptorArray*>(this, _MTL_PRIVATE_SEL(sampleBufferAttachments));
 }
+

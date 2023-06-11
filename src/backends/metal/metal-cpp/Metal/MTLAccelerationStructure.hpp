@@ -1079,3 +1079,4 @@ _MTL_INLINE MTL::ResourceID MTL::AccelerationStructure::gpuResourceID() const
 {
     return Object::sendMessage<MTL::ResourceID>(this, _MTL_PRIVATE_SEL(gpuResourceID));
 }
+

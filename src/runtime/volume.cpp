@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2023/1/9.
 //
 
-#include <core/logging.h>
-#include <runtime/volume.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/volume.h>
 
 namespace luisa::compute ::detail {
 
@@ -14,3 +14,4 @@ LC_RUNTIME_API void error_volume_invalid_mip_levels(size_t level, size_t mip) no
 }
 
 }// namespace luisa::compute::detail
+

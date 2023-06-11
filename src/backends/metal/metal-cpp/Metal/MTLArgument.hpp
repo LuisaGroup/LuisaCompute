@@ -839,3 +839,4 @@ _MTL_INLINE NS::UInteger MTL::ObjectPayloadBinding::objectPayloadDataSize() cons
 {
     return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(objectPayloadDataSize));
 }
+

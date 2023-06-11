@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
-#include <core/logging.h>
-#include <core/mathematics.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/mathematics.h>
 
 namespace py = pybind11;
 using namespace luisa;
@@ -151,3 +151,4 @@ void export_vector2(py::module &m) {
     LUISA_EXPORT_FLOAT_OP(float)
     LUISA_EXPORT_BOOL_OP(bool)
 }
+

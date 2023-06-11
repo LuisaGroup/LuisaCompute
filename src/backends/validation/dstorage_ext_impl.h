@@ -1,7 +1,7 @@
 #pragma once
 
-#include <backends/ext/dstorage_ext_interface.h>
-#include <vstl/common.h>
+#include <luisa/backends/ext/dstorage_ext_interface.h>
+#include <luisa/vstl/common.h>
 
 namespace lc::validation {
 
@@ -26,3 +26,4 @@ public:
 };
 
 }// namespace lc::validation
+

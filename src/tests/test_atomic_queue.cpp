@@ -5,7 +5,8 @@
 #include <random>
 #include <iostream>
 
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
+#include <luisa/dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -148,3 +149,4 @@ int main(int argc, char *argv[]) {
     do_test(test_double, "double", 1024u);
     do_test(test_select, "select", 1024u);
 }
+

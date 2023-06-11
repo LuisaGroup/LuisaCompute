@@ -13,7 +13,7 @@
 #define VK_ENABLE_BETA_EXTENSIONS
 #endif
 #include "VulkanDevice.h"
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include "log.h"
 namespace vks {
 /**
@@ -437,3 +437,4 @@ VkFormat VulkanDevice::getSupportedDepthFormat(bool checkSamplingSupport) {
 }
 
 };// namespace vks
+

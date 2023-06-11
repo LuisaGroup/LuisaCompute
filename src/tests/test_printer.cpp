@@ -2,12 +2,12 @@
 // Created by Mike Smith on 2022/11/26.
 //
 
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <dsl/printer.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/dsl/printer.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -38,3 +38,4 @@ int main(int argc, char *argv[]) {
            << printer.retrieve()
            << synchronize();
 }
+

@@ -1,8 +1,9 @@
 #include <array>
 
-#include <core/stl/format.h>
-#include <core/logging.h>
-#include <backends/common/string_scratch.h>
+#include <luisa/core/stl/format.h>
+#include <luisa/core/logging.h>
+
+#include "string_scratch.h"
 
 namespace luisa::compute {
 
@@ -44,3 +45,4 @@ void StringScratch::clear() noexcept { _buffer.clear(); }
 char StringScratch::back() const noexcept { return _buffer.back(); }
 
 }// namespace luisa::compute
+

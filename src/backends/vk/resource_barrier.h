@@ -1,6 +1,6 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include <vstl/common.h>
+#include <luisa/vstl/common.h>
 namespace lc::vk {
 class Buffer;
 class ResourceBarrier {

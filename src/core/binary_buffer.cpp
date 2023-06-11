@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2022/12/21.
 //
 
-#include <core/binary_buffer.h>
+#include <luisa/core/binary_buffer.h>
 
 namespace luisa {
 
@@ -17,3 +17,4 @@ void BinaryBuffer::_write_bytes(const void *data, size_t size, size_t alignment)
 }
 
 }// namespace luisa
+

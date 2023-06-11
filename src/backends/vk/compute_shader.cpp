@@ -1,11 +1,11 @@
 #include "compute_shader.h"
 #include "device.h"
 #include "log.h"
-#include <backends/common/hlsl/hlsl_codegen.h>
-#include <core/stl/filesystem.h>
+#include "../common/hlsl/hlsl_codegen.h"
+#include <luisa/core/stl/filesystem.h>
 #include "shader_serializer.h"
-#include <core/logging.h>
-#include <backends/common/hlsl/shader_compiler.h>
+#include <luisa/core/logging.h>
+#include "../common/hlsl/shader_compiler.h"
 
 static constexpr bool PRINT_CODE = false;
 

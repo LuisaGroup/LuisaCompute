@@ -185,3 +185,4 @@ _MTL_INLINE void MTL::IndirectComputeCommand::setStageInRegion(MTL::Region regio
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setStageInRegion_), region);
 }
+

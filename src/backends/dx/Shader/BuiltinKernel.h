@@ -13,3 +13,4 @@ public:
     static ComputeShader *LoadBC7EncodeBlockCSKernel(Device *device, luisa::BinaryIO const *ctx);
 };
 }// namespace lc::dx
+

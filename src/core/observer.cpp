@@ -3,7 +3,7 @@
 //
 
 #include <mutex>
-#include <core/observer.h>
+#include <luisa/core/observer.h>
 
 namespace luisa {
 
@@ -54,3 +54,4 @@ Observer::~Observer() noexcept {
 }
 
 }
+

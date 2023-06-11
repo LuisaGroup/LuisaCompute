@@ -4,13 +4,13 @@
 
 #pragma once
 
-#include <core/stl/queue.h>
-#include <core/stl/string.h>
+#include <luisa/core/stl/queue.h>
+#include <luisa/core/stl/string.h>
 
-#include <runtime/rhi/stream_tag.h>
-#include <runtime/command_list.h>
-#include <backends/metal/metal_api.h>
-#include <backends/metal/metal_stage_buffer_pool.h>
+#include <luisa/runtime/rhi/stream_tag.h>
+#include <luisa/runtime/command_list.h>
+#include "metal_api.h"
+#include "metal_stage_buffer_pool.h"
 
 namespace luisa::compute::metal {
 
@@ -55,3 +55,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

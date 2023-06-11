@@ -6,7 +6,7 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandAllocator.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 
 namespace lc::dx {
 

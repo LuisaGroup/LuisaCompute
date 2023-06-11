@@ -127,7 +127,7 @@ extern "C" {
 #endif
 
 #ifndef VULKAN_H_
-    #include <vulkan/vulkan.h>
+#include <vulkan/vulkan.h>
 #endif
 
 #if !defined(VMA_VULKAN_VERSION)
@@ -2608,14 +2608,14 @@ VMA_CALL_PRE void VMA_CALL_POST vmaFreeStatsString(
 #include <type_traits>
 
 #ifdef _MSC_VER
-    #include <intrin.h> // For functions like __popcnt, _BitScanForward etc.
+#include <intrin.h>
 #endif
 #if __cplusplus >= 202002L || _MSVC_LANG >= 202002L // C++20
-    #include <bit> // For std::popcount
+#include <bit>
 #endif
 
 #if VMA_STATS_STRING_ENABLED
-    #include <cstdio> // For snprintf
+#include <cstdio>
 #endif
 
 /*******************************************************************************
@@ -2667,28 +2667,28 @@ Define this macro to include custom header files without having to edit this fil
 
     // Inside of "my_vma_configuration_user_includes.h":
 
-    #include "my_custom_assert.h" // for MY_CUSTOM_ASSERT
-    #include "my_custom_min.h" // for my_custom_min
-    #include <algorithm>
-    #include <mutex>
+#include "my_custom_assert.h"
+#include "my_custom_min.h"
+#include <algorithm>
+#include <mutex>
 
     // Inside a different file, which includes "vk_mem_alloc.h":
 
     #define VMA_CONFIGURATION_USER_INCLUDES_H "my_vma_configuration_user_includes.h"
     #define VMA_ASSERT(expr) MY_CUSTOM_ASSERT(expr)
     #define VMA_MIN(v1, v2)  (my_custom_min(v1, v2))
-    #include "vk_mem_alloc.h"
+#include "vk_mem_alloc.h"
     ...
 
 The following headers are used in this CONFIGURATION section only, so feel free to
 remove them if not needed.
 */
 #if !defined(VMA_CONFIGURATION_USER_INCLUDES_H)
-    #include <cassert> // for assert
-    #include <algorithm> // for min, max
-    #include <mutex>
+#include <cassert>
+#include <algorithm>
+#include <mutex>
 #else
-    #include VMA_CONFIGURATION_USER_INCLUDES_H
+#include VMA_CONFIGURATION_USER_INCLUDES_H
 #endif
 
 #ifndef VMA_NULL
@@ -2917,7 +2917,7 @@ static void vma_aligned_free(void* VMA_NULLABLE ptr)
 #ifndef VMA_RW_MUTEX
     #if VMA_USE_STL_SHARED_MUTEX
         // Use std::shared_mutex from C++17.
-        #include <shared_mutex>
+#include <shared_mutex>
         class VmaRWMutex
         {
         public:
@@ -2970,12 +2970,12 @@ static void vma_aligned_free(void* VMA_NULLABLE ptr)
 If providing your own implementation, you need to implement a subset of std::atomic.
 */
 #ifndef VMA_ATOMIC_UINT32
-    #include <atomic>
+#include <atomic>
     #define VMA_ATOMIC_UINT32 std::atomic<uint32_t>
 #endif
 
 #ifndef VMA_ATOMIC_UINT64
-    #include <atomic>
+#include <atomic>
     #define VMA_ATOMIC_UINT64 std::atomic<uint64_t>
 #endif
 
@@ -19662,3 +19662,4 @@ Features deliberately excluded from the scope of this library:
 -# This is a C++ library with C interface. **Bindings or ports to any other programming languages** are welcome as external projects but
    are not going to be included into this repository.
 */
+

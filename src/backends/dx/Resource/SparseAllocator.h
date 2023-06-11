@@ -1,6 +1,6 @@
 #pragma once
 #include <DXRuntime/Device.h>
-#include <vstl/func_ref.h>
+#include <luisa/vstl/func_ref.h>
 namespace lc::dx {
 using namespace Microsoft::WRL;
 class SparseAllocator : public vstd::IOperatorNewBase {

@@ -4,10 +4,10 @@
 
 #include <cuda.h>
 
-#include <core/clock.h>
-#include <core/magic_enum.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/magic_enum.h>
 
-#include <backends/cuda/cuda_dstorage.h>
+#include "cuda_dstorage.h"
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
@@ -306,3 +306,4 @@ void CUDADStorageExt::unpin_host_memory(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

@@ -2,22 +2,21 @@
 // Created by Chris Zhang on 2023/03/06.
 //
 
-#include "luisa_compute_ir/bindings.hpp"
 #include <iostream>
 #include <chrono>
 #include <numeric>
 #include <fstream>
 
-#include <core/clock.h>
-#include <core/dynamic_module.h>
-#include <core/logging.h>
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <ast/interface.h>
-#include <dsl/syntax.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/ast/interface.h>
+#include <luisa/dsl/syntax.h>
 
-#include <ir/ast2ir.h>
-#include <ir/ir2ast.h>
+#include <luisa/ir/ast2ir.h>
+#include <luisa/ir/ir2ast.h>
 
 using namespace luisa;
 using namespace luisa::compute;

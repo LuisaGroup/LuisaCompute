@@ -1,11 +1,11 @@
-#include <ast/op.h>
-#include <ast/variable.h>
-#include <core/logging.h>
-#include <core/magic_enum.h>
-#include <runtime/rtx/ray.h>
-#include <runtime/rtx/hit.h>
-#include <luisa_compute_ir/bindings.hpp>
-#include <ir/ir2ast.h>
+#include <luisa/ast/op.h>
+#include <luisa/ast/variable.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/rtx/ray.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/rust/ir.hpp>
+#include <luisa/ir/ir2ast.h>
 
 namespace luisa::compute {
 
@@ -1194,3 +1194,4 @@ const Type *IR2AST::get_type(const ir::Type *type) noexcept {
 }
 
 }// namespace luisa::compute
+

@@ -1,5 +1,5 @@
-#include <luisa-compute.h>
-#include <dsl/sugar.h>
+#include <luisa/luisa-compute.h>
+#include <luisa/dsl/sugar.h>
 #include <stb/stb_image_write.h>
 #include <iostream>
 
@@ -182,3 +182,4 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("test_procedural_callable.png", width, height, 4, pixels.data(), 0);
 }
+

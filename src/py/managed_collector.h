@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vstl/common.h>
-#include <vstl/lockfree_array_queue.h>
+#include <luisa/vstl/common.h>
+#include <luisa/vstl/lockfree_array_queue.h>
 
 namespace luisa::compute {
 
@@ -28,3 +28,4 @@ public:
 };
 
 }// namespace luisa::compute
+

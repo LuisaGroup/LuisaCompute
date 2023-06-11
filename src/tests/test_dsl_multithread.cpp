@@ -7,12 +7,12 @@
 #include <numeric>
 #include <thread>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/device.h>
-#include <ast/interface.h>
-#include <dsl/syntax.h>
-#include <runtime/context.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/ast/interface.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/runtime/context.h>
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -123,3 +123,4 @@ int main(int argc, char *argv[]) {
 
     for (std::thread &t : threads) { t.join(); }
 }
+

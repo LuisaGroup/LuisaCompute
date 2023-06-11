@@ -1,55 +1,32 @@
 set(LUISA_COMPUTE_RUNTIME_RTX_SOURCES
-        rtx/aabb.h
         rtx/accel.cpp
-        rtx/accel.h
-        rtx/hit.h
         rtx/mesh.cpp
-        rtx/mesh.h
-        rtx/procedural_primitive.cpp
-        rtx/procedural_primitive.h
-        rtx/ray.h
-        rtx/triangle.h)
+        rtx/procedural_primitive.cpp)
 
 set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
-        raster/app_data.h
         raster/depth_buffer.cpp
-        raster/depth_buffer.h
-        raster/raster.cpp
-        raster/raster_scene.h
-        raster/raster_shader.h
-        raster/raster_state.h
-        raster/vertex_attribute.h
-        raster/viewport.h)
+        raster/raster.cpp)
 
 set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
-        rhi/command.h
-        rhi/command_encoder.cpp rhi/command_encoder.h
-        rhi/device_interface.cpp rhi/device_interface.h
-        rhi/pixel.cpp rhi/pixel.h
-        rhi/resource.cpp rhi/resource.h
-        rhi/sampler.h
-        rhi/stream_tag.h)
+        rhi/command_encoder.cpp
+        rhi/device_interface.cpp
+        rhi/pixel.cpp
+        rhi/resource.cpp)
 
 set(LUISA_COMPUTE_RUNTIME_SOURCES
-        bindless_array.cpp bindless_array.h
-        buffer.cpp buffer.h
-        buffer_arena.h
-        command_list.cpp command_list.h
-        context.cpp context.h
-        depth_format.h
-        device.cpp device.h
-        dispatch_buffer.cpp dispatch_buffer.h
-        event.cpp event.h
-        image.cpp image.h
-        mipmap.cpp mipmap.h
-        shader.h
-        sparse_texture.cpp sparse_texture.h
-        sparse_image.h
-        sparse_volume.h
-        stream_event.h
-        stream.cpp stream.h
-        swapchain.cpp swapchain.h
-        volume.cpp volume.h
+        bindless_array.cpp
+        buffer.cpp
+        command_list.cpp
+        context.cpp
+        device.cpp
+        dispatch_buffer.cpp
+        event.cpp
+        image.cpp
+        mipmap.cpp
+        sparse_texture.cpp
+        stream.cpp
+        swapchain.cpp
+        volume.cpp
         ${LUISA_COMPUTE_RUNTIME_RTX_SOURCES}
         ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES}
         ${LUISA_COMPUTE_RUNTIME_RHI_SOURCES})

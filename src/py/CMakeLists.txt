@@ -17,6 +17,7 @@ set(LUISA_PYTHON_SOURCES
         py_stream.cpp py_stream.h
         ref_counter.cpp ref_counter.h
         stb.cpp)
+
 pybind11_add_module(lcapi ${LUISA_PYTHON_SOURCES})
 
 if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")

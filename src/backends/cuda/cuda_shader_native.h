@@ -5,8 +5,8 @@
 #pragma once
 
 #include <cuda.h>
-#include <core/stl/string.h>
-#include <backends/cuda/cuda_shader.h>
+#include <luisa/core/stl/string.h>
+#include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 
@@ -35,3 +35,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

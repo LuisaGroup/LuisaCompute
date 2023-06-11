@@ -6,15 +6,15 @@
 #include <chrono>
 #include <numeric>
 
-#include <core/clock.h>
-#include <core/dynamic_module.h>
-#include <core/logging.h>
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <ast/interface.h>
-#include <dsl/syntax.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/ast/interface.h>
+#include <luisa/dsl/syntax.h>
 
-#include <tests/common/config.h>
+#include "common/config.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -193,3 +193,4 @@ TEST_CASE("dsl") {
     auto command = kernel(float_buffer, 12u).dispatch(1024u);
     auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
+

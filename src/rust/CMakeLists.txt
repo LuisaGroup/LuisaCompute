@@ -21,9 +21,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         #         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
         install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets)
-        install(DIRECTORY luisa_compute_${target}
-                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/rust
-                FILES_MATCHING REGEX ".*\\.(h|hpp)$")
         install(DIRECTORY "$<TARGET_FILE_DIR:luisa-compute-core>/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(dll|so|dylib)$")

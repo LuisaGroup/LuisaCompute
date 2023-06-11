@@ -1,5 +1,5 @@
 // #include <runtime/dynamic_buffer.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute::detail {
 LC_RUNTIME_API void buffer_size_zero_error() noexcept{
@@ -31,3 +31,4 @@ LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) no
 }
 
 }// namespace luisa::compute::detail
+

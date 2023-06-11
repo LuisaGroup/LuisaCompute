@@ -5,7 +5,7 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RasterShader.h>
 #include <Resource/SparseTexture.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 namespace lc::dx {
 CommandBuffer::CommandBuffer(CommandBuffer &&v)
     : cmdList(std::move(v.cmdList)),

@@ -327,3 +327,4 @@ _MTL_INLINE MTL::AccelerationStructure* MTL::Heap::newAccelerationStructure(cons
 {
     return Object::sendMessage<MTL::AccelerationStructure*>(this, _MTL_PRIVATE_SEL(newAccelerationStructureWithDescriptor_offset_), descriptor, offset);
 }
+

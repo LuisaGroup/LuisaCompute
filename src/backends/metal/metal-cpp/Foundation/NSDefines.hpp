@@ -43,3 +43,4 @@
 #define _NS_VALIDATE_ENUM(ns, name) static_assert(_NS_CAST_TO_UINT(ns::name) == _NS_CAST_TO_UINT(ns##name), "value mismatch " #ns "::" #name)
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
+

@@ -166,3 +166,4 @@ _MTL_INLINE MTL::SamplePosition MTL::SamplePosition::Make(float x, float y)
 {
     return SamplePosition(x, y);
 }
+

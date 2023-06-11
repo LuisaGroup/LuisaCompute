@@ -1,6 +1,6 @@
 #include "SparseBuffer.h"
 // #include <Resource/GpuAllocator.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 namespace lc::dx {
 SparseBuffer::SparseBuffer(
     Device *device,

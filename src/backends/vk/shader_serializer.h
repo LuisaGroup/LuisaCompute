@@ -1,7 +1,7 @@
 #pragma once
-#include <vstl/md5.h>
-#include <vstl/common.h>
-#include <vstl/functional.h>
+#include <luisa/vstl/md5.h>
+#include <luisa/vstl/common.h>
+#include <luisa/vstl/functional.h>
 #include "device.h"
 #include "serde_type.h"
 namespace luisa {

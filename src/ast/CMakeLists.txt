@@ -1,18 +1,15 @@
 set(LUISA_COMPUTE_AST_SOURCES
-        ast_evaluator.cpp ast_evaluator.h
-        atomic_ref_node.cpp atomic_ref_node.h
-        constant_data.cpp constant_data.h
-        expression.cpp expression.h
-        external_function.cpp external_function.h
-        function.cpp function.h
-        function_builder.cpp function_builder.h
-        interface.h
-        op.cpp op.h
-        statement.cpp statement.h
-        type.cpp type.h
-        type_registry.h
-        usage.h
-        variable.cpp variable.h)
+        ast_evaluator.cpp
+        atomic_ref_node.cpp
+        constant_data.cpp
+        expression.cpp
+        external_function.cpp
+        function.cpp
+        function_builder.cpp
+        op.cpp
+        statement.cpp
+        type.cpp
+        variable.cpp)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_EXPORT_DLL=1)

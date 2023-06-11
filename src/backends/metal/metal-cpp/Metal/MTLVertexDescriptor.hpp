@@ -342,3 +342,4 @@ _MTL_INLINE void MTL::VertexDescriptor::reset()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(reset));
 }
+

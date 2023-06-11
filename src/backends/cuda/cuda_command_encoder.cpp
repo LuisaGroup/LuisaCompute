@@ -2,22 +2,22 @@
 // Created by Mike on 8/1/2021.
 //
 
-#include <core/magic_enum.h>
-#include <runtime/command_list.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/command_list.h>
 
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_buffer.h>
-#include <backends/cuda/cuda_mesh.h>
-#include <backends/cuda/cuda_procedural_primitive.h>
-#include <backends/cuda/cuda_accel.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_shader.h>
-#include <backends/cuda/cuda_host_buffer_pool.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_bindless_array.h>
-#include <backends/cuda/cuda_dstorage.h>
-#include <backends/cuda/cuda_command_encoder.h>
+#include "cuda_error.h"
+#include "cuda_buffer.h"
+#include "cuda_mesh.h"
+#include "cuda_procedural_primitive.h"
+#include "cuda_accel.h"
+#include "cuda_stream.h"
+#include "cuda_device.h"
+#include "cuda_shader.h"
+#include "cuda_host_buffer_pool.h"
+#include "cuda_texture.h"
+#include "cuda_bindless_array.h"
+#include "cuda_dstorage.h"
+#include "cuda_command_encoder.h"
 
 namespace luisa::compute::cuda {
 
@@ -418,3 +418,4 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

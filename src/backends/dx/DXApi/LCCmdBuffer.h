@@ -1,17 +1,17 @@
 #pragma once
-#include <vstl/common.h>
-#include <runtime/device.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/device.h>
 #include <DXRuntime/Device.h>
 #include <DXRuntime/CommandQueue.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandBuffer.h>
-#include <runtime/command_list.h>
+#include <luisa/runtime/command_list.h>
 #include <DXRuntime/ResourceStateTracker.h>
-#include <backends/common/command_reorder_visitor.h>
+#include "../../common/command_reorder_visitor.h"
 #include <Resource/BindlessArray.h>
 #include <Shader/ComputeShader.h>
 #include <Resource/BottomAccel.h>
-#include <runtime/buffer.h>
+#include <luisa/runtime/buffer.h>
 #include <DXApi/CmdQueueBase.h>
 namespace lc::dx {
 using namespace luisa::compute;

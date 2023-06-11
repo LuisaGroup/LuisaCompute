@@ -4,14 +4,14 @@
 
 #include <stb/stb_image.h>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <gui/window.h>
-#include <gui/framerate.h>
-#include <runtime/swapchain.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/gui/window.h>
+#include <luisa/gui/framerate.h>
+#include <luisa/runtime/swapchain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -50,3 +50,4 @@ int main(int argc, char *argv[]) {
         window.poll_events();
     }
 }
+

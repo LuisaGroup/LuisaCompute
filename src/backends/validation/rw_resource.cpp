@@ -1,7 +1,7 @@
 #include "rw_resource.h"
 #include "stream.h"
-#include <core/basic_traits.h>
-#include <core/logging.h>
+#include <luisa/core/basic_traits.h>
+#include <luisa/core/logging.h>
 namespace lc::validation {
 static std::recursive_mutex mtx;
 struct ResMap {

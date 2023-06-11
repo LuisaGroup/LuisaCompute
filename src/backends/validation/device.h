@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vstl/common.h>
-#include <runtime/rhi/device_interface.h>
-#include <core/magic_enum.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/magic_enum.h>
 #include "stream_func.h"
 
 namespace lc::validation {
@@ -125,3 +125,4 @@ public:
 };
 
 }// namespace lc::validation
+

@@ -1,6 +1,6 @@
-#include <runtime/dispatch_buffer.h>
-#include <runtime/device.h>
-#include <runtime/shader.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
 
 namespace luisa::compute {
 
@@ -18,3 +18,4 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const IndirectDispatchBuffer &buf
 }
 }// namespace detail
 }// namespace luisa::compute
+

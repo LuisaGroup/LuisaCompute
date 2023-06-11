@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2021/6/24.
 //
 
-#include <dsl/builtin.h>
-#include <dsl/stmt.h>
-#include <dsl/rtx/ray.h>
+#include <luisa/dsl/builtin.h>
+#include <luisa/dsl/stmt.h>
+#include <luisa/dsl/rtx/ray.h>
 
 namespace luisa::compute {
 
@@ -31,3 +31,4 @@ Float3 offset_ray_origin(Expr<float3> p, Expr<float3> n, Expr<float3> w) noexcep
 }
 
 }// namespace luisa::compute
+

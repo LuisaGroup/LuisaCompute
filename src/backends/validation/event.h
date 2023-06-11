@@ -1,6 +1,6 @@
 #pragma once
 #include "rw_resource.h"
-#include <vstl/common.h>
+#include <luisa/vstl/common.h>
 namespace lc::validation {
 class Stream;
 class Event : public RWResource {

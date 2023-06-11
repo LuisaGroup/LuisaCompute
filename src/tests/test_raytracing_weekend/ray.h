@@ -19,3 +19,4 @@ public:
     Float3 orig;
     Float3 dir;
 };
+

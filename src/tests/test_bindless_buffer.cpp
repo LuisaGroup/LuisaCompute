@@ -1,6 +1,6 @@
-#include <luisa-compute.h>
-#include <dsl/sugar.h>
-#include <gui/window.h>
+#include <luisa/luisa-compute.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -51,3 +51,4 @@ int main(int argc, char *argv[]) {
         window.poll_events();
     }
 }
+

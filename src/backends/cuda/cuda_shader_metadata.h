@@ -4,11 +4,11 @@
 
 #pragma once
 
-#include <core/basic_types.h>
-#include <core/stl/string.h>
-#include <core/stl/vector.h>
-#include <core/stl/optional.h>
-#include <ast/usage.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/ast/usage.h>
 
 namespace luisa::compute::cuda {
 
@@ -41,3 +41,4 @@ struct CUDAShaderMetadata {
 [[nodiscard]] luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept;
 
 }// namespace luisa::compute::cuda
+

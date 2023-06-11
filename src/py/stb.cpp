@@ -1,4 +1,4 @@
-#include <core/stl/memory.h>
+#include <luisa/core/stl/memory.h>
 
 #define STBIR_MALLOC(size,c) ((void)(c), luisa::detail::allocator_allocate(size,0))
 #define STBIR_FREE(ptr,c)    ((void)(c), luisa::detail::allocator_deallocate(ptr,0))
@@ -19,3 +19,4 @@
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb/stb_image_resize.h>
+

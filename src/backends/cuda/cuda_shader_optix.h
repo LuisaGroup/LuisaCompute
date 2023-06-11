@@ -2,11 +2,11 @@
 // Created by Mike on 3/18/2023.
 //
 
-#include <core/spin_mutex.h>
-#include <core/stl/string.h>
-#include <core/stl/unordered_map.h>
-#include <backends/cuda/cuda_shader.h>
-#include <backends/cuda/optix_api.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/unordered_map.h>
+#include "cuda_shader.h"
+#include "optix_api.h"
 
 namespace luisa::compute::cuda {
 
@@ -44,3 +44,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

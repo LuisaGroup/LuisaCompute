@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2022/5/3.
 //
 
-#include <core/logging.h>
-#include <dsl/polymorphic.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/polymorphic.h>
 
 namespace luisa::compute::detail {
 
@@ -28,3 +28,4 @@ LC_DSL_API void polymorphic_error_overflowed_tag_range(uint lo, uint hi, uint ta
 }
 
 }// namespace luisa::compute::detail
+

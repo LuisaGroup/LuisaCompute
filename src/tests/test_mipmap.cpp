@@ -1,12 +1,12 @@
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/image.h>
-#include <core/logging.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/image.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
 using namespace luisa;
 using namespace luisa::compute;
 

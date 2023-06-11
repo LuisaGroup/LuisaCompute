@@ -6,7 +6,7 @@
 #include <array>
 #include <numeric>
 #include <algorithm>
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -201,3 +201,4 @@ int main(int argc, char *argv[]) {
     test_texture<uint>(device, PixelStorage::INT2, make_uint3(233u, 666u, 45u), rand);
     test_texture<uint>(device, PixelStorage::INT4, make_uint3(233u, 666u, 45u), rand);
 }
+
