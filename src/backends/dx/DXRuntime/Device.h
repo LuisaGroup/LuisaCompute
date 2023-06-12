@@ -7,7 +7,7 @@
 #include <luisa/core/binary_io.h>
 #include <luisa/runtime/device.h>
 #include <DXRuntime/DxPtr.h>
-#include <ext_settings.h>
+#include <luisa/backends/ext/dx_config_ext.h>
 #include "../../common/default_binary_io.h"
 #include "HDR.h"
 

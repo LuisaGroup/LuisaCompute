@@ -9,7 +9,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/gui/window.h>
-#include <backends/dx/dx_custom_cmd.h>
+#include <luisa/backends/ext/dx_custom_cmd.h>
 // Make sure FSR2 is under this dir
 #include <luisa/core/magic_enum.h>
 #ifdef ENABLE_FSR

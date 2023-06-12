@@ -18,7 +18,7 @@
 #include <luisa/vstl/atomic.h>
 #include <luisa/backends/ext/raster_cmd.h>
 #include <Resource/SparseTexture.h>
-#include "../dx_custom_cmd.h"
+#include <luisa/backends/ext/dx_custom_cmd.h>
 
 namespace lc::dx {
 using Argument = luisa::compute::Argument;

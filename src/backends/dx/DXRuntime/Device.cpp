@@ -8,7 +8,7 @@
 #include <Shader/ComputeShader.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
-#include <ext_settings.h>
+#include <luisa/backends/ext/dx_config_ext.h>
 
 namespace lc::dx {
 static std::mutex gDxcMutex;
