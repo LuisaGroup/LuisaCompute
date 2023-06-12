@@ -4,7 +4,7 @@ on: [ push, pull_request ]
 
 jobs:
   build-linux:
-    name: ubuntu-22.04 / python-${{ matrix.python }}
+    name: ubuntu-22.04
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
@@ -35,7 +35,7 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-macos:
-    name: macos-13 / python-${{ matrix.python }}
+    name: macos-13
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v3
@@ -63,7 +63,7 @@ jobs:
           path: wheelhouse
 
   build-windows:
-    name: windows-2022 / python-${{ matrix.python }}
+    name: windows-2022
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v3
