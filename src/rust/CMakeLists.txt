@@ -12,6 +12,15 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         target_compile_options(luisa-compute-rust-meta INTERFACE -Wno-return-type-c-linkage)
     endif ()
 
+    # fix rpath for luisa_compute_ir on macOS
+    if (APPLE)
+        add_custom_target(luisa-compute-rust-fix-rpath
+                COMMAND install_name_tool -id "@rpath/libluisa_compute_ir.dylib"
+                "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_ir.dylib"
+                DEPENDS cargo-build_luisa_compute_ir)
+        add_dependencies(luisa-compute-rust-meta luisa-compute-rust-fix-rpath)
+    endif ()
+
     function(luisa_compute_install_rust target)
         # FIXME: corrosion does not correctly installs the rust library so we have to manually install it here
         # corrosion_install(TARGETS luisa_compute_${target}
@@ -53,7 +62,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
 
         # FIXME: using the internal target is not ideal
-        add_custom_target(luisa-compute-rust-copy DEPENDS _cargo-build_luisa_compute_backend_impl)
+        add_custom_target(luisa-compute-rust-copy DEPENDS cargo-build_luisa_compute_backend_impl)
 
         add_custom_command(TARGET luisa-compute-rust-copy
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -63,7 +72,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         if (APPLE)
             add_custom_command(TARGET luisa-compute-rust-copy
                     COMMENT "Fixing rpath for $<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib"
-                    COMMAND install_name_tool -add_rpath "@loader_path"
+                    COMMAND install_name_tool -id "@rpath/libluisa_compute_backend_impl.dylib"
                     "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib")
         endif ()
 
