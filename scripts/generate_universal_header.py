@@ -19,6 +19,7 @@ if __name__ == "__main__":
         glob_headers(headers, f"{base}/{module}")
     headers = [relpath(header, base).replace("\\", "/") for header in headers if
                not header.endswith(".inl.h")]
+    headers = [h for h in headers if "core/stl/" not in h]
 
     header_groups = {}
     for header in headers:
