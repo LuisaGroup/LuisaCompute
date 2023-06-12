@@ -19,9 +19,9 @@
 #define VENGINE_C_FUNC_COMMON
 #define VENGINE_EXIT std::abort()
 
-#include <stdint.h>
+#include <cstdint>
+
 using uint = uint32_t;
 using uint64 = uint64_t;
 using int64 = int64_t;
 using int32 = int32_t;
-

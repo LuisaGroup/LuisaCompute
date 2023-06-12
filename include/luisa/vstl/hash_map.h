@@ -1,8 +1,8 @@
 #pragma once
+
 #include <luisa/vstl/config.h>
 #include <luisa/core/stl/memory.h>
 #include <type_traits>
-#include <stdint.h>
 #include <luisa/vstl/pool.h>
 #include <luisa/vstl/hash.h>
 #include <luisa/vstl/meta_lib.h>

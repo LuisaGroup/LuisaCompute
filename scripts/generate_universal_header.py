@@ -30,7 +30,9 @@ if __name__ == "__main__":
     optional_modules = ["dsl", "gui", "ir", "rust"]
     with open(f"{base}/luisa-compute.h", "w", encoding="utf8") as f:
         f.write("#pragma once\n\n")
-        for group, headers in header_groups.items():
+        group_keys = sorted(header_groups.keys())
+        for group in group_keys:
+            headers = sorted(header_groups[group])
             if group in optional_modules:
                 f.write(f"#ifdef LUISA_ENABLE_{group.upper()}\n")
             for header in headers:
