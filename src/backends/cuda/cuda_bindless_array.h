@@ -8,7 +8,6 @@
 
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl.h>
-#include <luisa/core/dirty_range.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/command.h>
 #include "../common/resource_tracker.h"

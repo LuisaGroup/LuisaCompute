@@ -9,7 +9,6 @@
 #include <cuda.h>
 
 #include <luisa/runtime/rtx/accel.h>
-#include <luisa/core/dirty_range.h>
 #include "cuda_primitive.h"
 #include "optix_api.h"
 
