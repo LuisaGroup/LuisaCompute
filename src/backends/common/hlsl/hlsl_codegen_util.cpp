@@ -14,7 +14,7 @@ struct RegisterIndexer {
     virtual uint &get(uint idx) = 0;
 };
 struct DXILRegisterIndexer : public RegisterIndexer {
-    vstd::array<uint, 3> values;
+    std::array<uint, 3> values;
     void init() override {
         values = {1, 0, 0};
     }

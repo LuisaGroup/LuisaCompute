@@ -1,5 +1,6 @@
 #pragma once
 #include <luisa/vstl/common.h>
+#include <luisa/vstl/spin_mutex.h>
 #include <luisa/backends/ext/tex_compress_ext.h>
 #include <luisa/backends/ext/native_resource_ext_interface.h>
 #include <luisa/backends/ext/raster_ext_interface.h>

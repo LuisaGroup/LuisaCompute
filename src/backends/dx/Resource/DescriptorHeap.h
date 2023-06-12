@@ -1,5 +1,6 @@
 #pragma once
 #include <Resource/Resource.h>
+#include <luisa/vstl/spin_mutex.h>
 namespace lc::dx {
 
 class DescriptorHeap final : public Resource {

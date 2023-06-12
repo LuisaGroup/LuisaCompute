@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/vstl/common.h>
+#include <luisa/vstl/spin_mutex.h>
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/runtime/rtx/mesh.h>
 

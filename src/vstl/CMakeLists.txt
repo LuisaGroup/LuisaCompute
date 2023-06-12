@@ -3,7 +3,6 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         md5.cpp
         stack_allocator.cpp
         string_utility.cpp
-        thread_pool.cpp
         v_guid.cpp
         vstl.cpp)
 

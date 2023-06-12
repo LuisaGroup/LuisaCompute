@@ -1,6 +1,8 @@
 #pragma once
+
+#include <tuple>
 #include <luisa/vstl/meta_lib.h>
-#include <luisa/vstl/tuple.h>
+
 namespace vstd {
 template<typename T>
 class IteRef {
@@ -437,14 +439,14 @@ public:
 namespace detail {
 template<typename... Ts>
 struct TupleIterator : public detail::RangeFlag<TupleIterator<Ts...>> {
-    vstd::tuple<Ts...> ites;
+    std::tuple<Ts...> ites;
     size_t index;
     using Sequencer = std::make_index_sequence<sizeof...(Ts)>;
     template<typename... TTs>
     TupleIterator(TTs &&...args)
         : ites(std::forward<Ts>(args)...) {}
     IteRef<TupleIterator> begin() {
-        auto &ite = ites.template get<0>();
+        auto &ite = std::get<0>(ites);
         ite.begin();
         index = 0;
         InitIndex();
