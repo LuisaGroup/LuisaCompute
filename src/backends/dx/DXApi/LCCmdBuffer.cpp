@@ -15,7 +15,6 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rtx/aabb.h>
 #include <Resource/DepthBuffer.h>
-#include <luisa/vstl/atomic.h>
 #include <luisa/backends/ext/raster_cmd.h>
 #include <Resource/SparseTexture.h>
 #include <luisa/backends/ext/dx_custom_cmd.h>
