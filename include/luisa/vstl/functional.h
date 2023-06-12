@@ -1,13 +1,7 @@
 #pragma once
 
-#include <new>
-#include <type_traits>
-
 #include <luisa/vstl/config.h>
 #include <luisa/vstl/meta_lib.h>
-#include <luisa/vstl/hash.h>
-#include <luisa/vstl/memory.h>
-#include <luisa/vstl/v_allocator.h>
 #include <luisa/core/stl/functional.h>
 
 namespace vstd {
@@ -17,6 +11,7 @@ using function = luisa::move_only_function<T>;
 
 template<typename T>
 class FuncRef;
+
 template<typename Ret, typename... Args>
 class FuncRef<Ret(Args...)> {
     void *_user_data;
