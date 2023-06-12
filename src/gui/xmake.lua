@@ -32,7 +32,7 @@ target("lc-gui")
 _config_project({
     project_kind = "shared"
 })
-add_headerfiles("*.h")
+add_headerfiles("../../include/luisa/gui/**.h")
 add_files("*.cpp")
 add_defines("LC_GUI_EXPORT_DLL", "GLFW_DLL")
 add_deps("glfw", "lc-runtime")
