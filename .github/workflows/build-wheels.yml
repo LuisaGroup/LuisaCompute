@@ -4,6 +4,7 @@ on: [ push, pull_request ]
 
 env:
   CIBW_ARCHS: auto64
+  CIBW_BUILD_VERBOSITY: 2
 
 jobs:
   build-linux:
@@ -18,7 +19,6 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_BEFORE_ALL: "./scripts/cibw_install_deps.sh"
         run: |
-          python bootstrap.py cmake -f all no-cpu no-remote
           python -m pip install -U cibuildwheel
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
