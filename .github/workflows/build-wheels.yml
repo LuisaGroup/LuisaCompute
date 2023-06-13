@@ -5,6 +5,7 @@ on: [ push, pull_request ]
 env:
   CIBW_ARCHS: auto64
   CIBW_ARCHS_MACOS: "x86_64 arm64"
+  CIBW_BEFORE_BUILD_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
 
 jobs:
   build-linux:
@@ -20,8 +21,6 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install build-essential cmake uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           sudo apt-get -y install gcc-12 g++-12
-      - name: "Setup Rust"
-        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
