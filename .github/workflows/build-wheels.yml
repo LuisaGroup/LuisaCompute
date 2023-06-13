@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install build-essential cmake uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           sudo apt-get -y install gcc-12 g++-12
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -y
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
