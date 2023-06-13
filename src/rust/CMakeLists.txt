@@ -64,6 +64,11 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
                 "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
 
+        # building from source is preferred for Python wheels
+        if (UNIX AND SKBUILD)
+            corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+        endif ()
+
         # FIXME: using the internal target is not ideal
         add_custom_target(luisa-compute-rust-copy DEPENDS cargo-build_luisa_compute_backend_impl)
 
@@ -85,6 +90,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
         luisa_compute_install_rust(backend_impl)
+    else ()
+        # exclude the backend implementation from the build
+        set_target_properties(luisa_compute_backend_impl PROPERTIES EXCLUDE_FROM_ALL ON)
     endif ()
 
 endif ()
