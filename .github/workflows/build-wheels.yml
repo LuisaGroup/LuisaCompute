@@ -21,10 +21,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.10
-        with:
-          linux-local-args: '["--toolkit"]'
       - name: "Build Wheels"
         run: |
           python -m pip install -U cibuildwheel
