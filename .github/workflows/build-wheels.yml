@@ -3,9 +3,8 @@ name: build-wheels
 on: [ push, pull_request ]
 
 env:
-  CIBW_BUILD: cp31*
   CIBW_ARCHS: auto64
-
+  CIBW_ARCHS_MACOS: "x86_64 arm64"
 
 jobs:
   build-linux:
