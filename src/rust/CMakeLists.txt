@@ -14,10 +14,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # fix rpath for luisa_compute_ir on macOS
     if (APPLE)
-        add_custom_target(luisa-compute-rust-fix-rpath
+        add_custom_target(luisa-compute-rust-fix-rpath DEPENDS cargo-build_luisa_compute_ir)
+        add_custom_command(TARGET luisa-compute-rust-fix-rpath
                 COMMAND install_name_tool -id "@rpath/libluisa_compute_ir.dylib"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_ir.dylib"
-                DEPENDS cargo-build_luisa_compute_ir)
+                "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_ir.dylib")
+        add_custom_command(TARGET luisa-compute-rust-fix-rpath
+                COMMAND install_name_tool -add_rpath "@loader_path"
+                "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_ir.dylib")
         add_dependencies(luisa-compute-rust-meta luisa-compute-rust-fix-rpath)
     endif ()
 
@@ -71,8 +74,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
         if (APPLE)
             add_custom_command(TARGET luisa-compute-rust-copy
-                    COMMENT "Fixing rpath for $<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib"
                     COMMAND install_name_tool -id "@rpath/libluisa_compute_backend_impl.dylib"
+                    "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib")
+            add_custom_command(TARGET luisa-compute-rust-copy
+                    COMMAND install_name_tool -add_rpath "@loader_path"
                     "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib")
         endif ()
 
