@@ -22,8 +22,8 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:AVX2")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
     else ()
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mf16c")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mf16c")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx2 -mf16c")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mf16c")
     endif ()
 endif ()
 

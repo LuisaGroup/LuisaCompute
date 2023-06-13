@@ -34,7 +34,7 @@ jobs:
             sudo ./llvm.sh ${{ matrix.toolchain.version }}
             sudo apt-get -y install libc++-${{ matrix.toolchain.version }}-dev libc++abi-${{ matrix.toolchain.version }}-dev
           fi
-          run curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
