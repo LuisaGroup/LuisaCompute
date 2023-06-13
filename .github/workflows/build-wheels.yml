@@ -4,14 +4,6 @@ on: [ push, pull_request ]
 
 env:
   CIBW_ARCHS: auto64
-  CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-  CIBW_BEFORE_ALL_LINUX: "\
-    sudo apt-get -y install wget && \
-    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb && \
-    sudo dpkg -i cuda-keyring_1.0-1_all.deb && \
-    sudo apt-get update && \
-    sudo apt-get -y install cuda libvulkan-dev cmake uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
 
 jobs:
   build-linux:
@@ -23,6 +15,9 @@ jobs:
           submodules: recursive
       - name: "Build Wheels"
         uses: pypa/cibuildwheel@v2.13.1
+        env:
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_BEFORE_ALL_LINUX: "./scripts/cibw_install_deps.sh"
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
