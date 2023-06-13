@@ -1,6 +1,7 @@
 #!/bin/bash
 
 uname -a
+yum -h
 
 curl https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb -O
 dpkg -i cuda-keyring_1.0-1_all.deb
