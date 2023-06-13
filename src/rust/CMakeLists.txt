@@ -35,7 +35,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets)
         install(DIRECTORY "$<TARGET_FILE_DIR:luisa-compute-core>/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
-                FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(dll|so|dylib)$")
+                FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(dll|so|dylib)(\\.[0-9]+)?$")
         install(DIRECTORY "$<TARGET_LINKER_FILE_DIR:luisa-compute-core>/"
                 DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
@@ -83,7 +83,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
         install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
-                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
+                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
         luisa_compute_install_rust(backend_impl)
     endif ()
 
