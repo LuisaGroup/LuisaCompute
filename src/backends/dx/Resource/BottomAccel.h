@@ -1,6 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
+#include <luisa/vstl/spin_mutex.h>
 #include <luisa/runtime/rhi/command.h>
 namespace lc::dx {
 class CommandBufferBuilder;
