@@ -11,9 +11,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # install cuda
 dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
-subscription-manager repos --enable=rhel-8-for-x86_64-appstream-rpms
-subscription-manager repos --enable=rhel-8-for-x86_64-baseos-rpms
-subscription-manager repos --enable=codeready-builder-for-rhel-8-x86_64-rpms
 dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo
 dnf clean expire-cache
 dnf install -y cuda
