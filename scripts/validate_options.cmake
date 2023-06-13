@@ -84,7 +84,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
 endif ()
 
 if (SKBUILD)
-    find_package(Python3 COMPONENTS Interpreter Development QUIET REQUIRED)
+    find_package(Python3 COMPONENTS Interpreter Development.Module QUIET REQUIRED)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
