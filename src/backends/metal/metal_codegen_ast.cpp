@@ -372,9 +372,17 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "};\n\n";
 
         // emit function signature and prelude
-        _scratch << "void kernel_main_impl(constant Arguments &args,\n"
-                 << "                      uint3 tid, uint3 bid, uint3 did,\n"
-                 << "                      uint3 bs, uint3 ds, uint kid) {\n\n"
+        _scratch << "void kernel_main_impl(\n"
+                 << "    constant Arguments &args,\n"
+                 << "    uint3 tid, uint3 bid, uint3 did,\n"
+                 << "    uint3 bs, uint3 ds, uint kid";
+        for (auto s : _function.shared_variables()) {
+            _scratch << ", threadgroup ";
+            _emit_type_name(s.type());
+            _scratch << " &";
+            _emit_variable_name(s);
+        }
+        _scratch << ") {\n"
                  << "  lc_assume("
                  << "bs.x == " << _function.block_size().x << " && "
                  << "bs.y == " << _function.block_size().y << " && "
@@ -424,19 +432,6 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch.pop_back();
         }
         _scratch << ") {\n";
-    }
-
-    // emit shared variables
-    if (_function.tag() == Function::Tag::KERNEL &&
-        !_function.shared_variables().empty()) {
-        _scratch << "\n  /* shared variables */\n";
-        for (auto shared : _function.shared_variables()) {
-            _scratch << "  threadgroup ";
-            _emit_type_name(shared.type());
-            _scratch << " ";
-            _emit_variable_name(shared);
-            _scratch << ";\n";
-        }
     }
 
     // emit local variables
@@ -489,6 +484,20 @@ void MetalCodegenAST::_emit_function() noexcept {
     _scratch << "\n  /* function body end */\n";
     _scratch << "}\n\n";
 
+    auto emit_shared_variable_decls = [&] {
+        if (_function.tag() == Function::Tag::KERNEL &&
+            !_function.shared_variables().empty()) {
+            _scratch << "\n  /* shared variables */\n";
+            for (auto shared : _function.shared_variables()) {
+                _scratch << "  threadgroup ";
+                _emit_type_name(shared.type());
+                _scratch << " ";
+                _emit_variable_name(shared);
+                _scratch << ";\n";
+            }
+        }
+    };
+
     // emit direct and indirect specializations
     if (_function.tag() == Function::Tag::KERNEL) {
         // direct dispatch
@@ -499,8 +508,14 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
                  << "    uint3 bs [[threads_per_threadgroup]]) {\n"
-                 << "  auto ds = args.dispatch_size;\n"
-                 << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u);\n"
+                 << "  auto ds = args.dispatch_size;\n";
+        emit_shared_variable_decls();
+        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u";
+        for (auto s : _function.shared_variables()) {
+            _scratch << ", ";
+            _emit_variable_name(s);
+        }
+        _scratch << ");\n"
                  << "}\n\n";
         // indirect dispatch
         _scratch << "[[kernel]] /* indirect kernel dispatch entry */\n"
@@ -510,8 +525,14 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
-                 << "    uint3 bs [[threads_per_threadgroup]]) {\n"
-                 << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w);\n"
+                 << "    uint3 bs [[threads_per_threadgroup]]) {\n";
+        emit_shared_variable_decls();
+        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w";
+        for (auto s : _function.shared_variables()) {
+            _scratch << ", ";
+            _emit_variable_name(s);
+        }
+        _scratch << ");\n"
                  << "}\n\n";
     }
 }
@@ -1197,4 +1218,3 @@ void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {
 }
 
 }// namespace luisa::compute::metal
-
