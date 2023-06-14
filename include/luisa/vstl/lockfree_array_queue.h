@@ -1,9 +1,11 @@
 #pragma once
+
 #include <thread>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/memory.h>
 #include <luisa/vstl/v_allocator.h>
 #include <luisa/vstl/spin_mutex.h>
+
 namespace vstd {
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class LockFreeArrayQueue {

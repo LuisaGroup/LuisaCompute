@@ -36,117 +36,21 @@ else ()
     option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
 endif ()
 
-# no need to expose this as an option
-# option(LUISA_COMPUTE_COMPILED_BY_RUST "Whether LuisaCompute is compiled by Rust" OFF)
-
-if (LUISA_COMPUTE_BUILD_TESTS)
-    if (NOT LUISA_COMPUTE_ENABLE_DSL)
-        message(WARNING "DSL is required for tests. The DSL will be enabled.")
-        set(LUISA_COMPUTE_ENABLE_DSL ON CACHE BOOL "Enable C++ DSL" FORCE)
-    endif ()
-endif ()
-
-# check Rust support
-if (NOT DEFINED CARGO_HOME)
-    if ("$ENV{CARGO_HOME}" STREQUAL "")
-        if (CMAKE_HOST_WIN32)
-            set(CARGO_HOME "$ENV{USERPROFILE}/.cargo")
-        else ()
-            set(CARGO_HOME "$ENV{HOME}/.cargo")
-        endif ()
-    else ()
-        set(CARGO_HOME "$ENV{CARGO_HOME}")
-    endif ()
-endif ()
-
-find_program(CARGO_EXE cargo NO_CACHE HINTS "${CARGO_HOME}" PATH_SUFFIXES "bin")
-if (CARGO_EXE)
-    set(LUISA_COMPUTE_ENABLE_RUST ON)
-else ()
-    set(LUISA_COMPUTE_ENABLE_RUST OFF)
-endif ()
-
-if (NOT LUISA_COMPUTE_ENABLE_RUST)
-    message(FATAL_ERROR "\nRust is required for future releases. \n\
-    To install Rust, `run curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` on unix environment\n\
-    or download and run the installer from https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe on windows environment.\n\
-    please set LUISA_COMPUTE_DISABLE_RUST_OVERRIDE to ON to acknowledge this")
-endif ()
-
-# validate the options
+option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build" ON)
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
-find_package(Threads REQUIRED)
+# validate the options
+include(scripts/validate_options.cmake)
 
-function(report_feature_not_available option_name feature_name)
-    if (LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
-        message(WARNING "The ${feature_name} is not available. The ${feature_name} will be disabled.")
-        set(LUISA_COMPUTE_ENABLE_${option_name} OFF CACHE BOOL "Enable ${feature_name}" FORCE)
-    else ()
-        message(FATAL_ERROR "The ${feature_name} is not available. Please install the dependencies to enable the ${feature_name}.")
-    endif ()
-endfunction()
+# basic set-up for compilers
+include(scripts/setup_compilation.cmake)
 
-if (LUISA_COMPUTE_ENABLE_DX)
-    if (NOT WIN32)
-        report_feature_not_available(DX "DirectX backend")
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_METAL)
-    if (NOT APPLE OR NOT ${CMAKE_C_COMPILER_ID} MATCHES "Clang" OR NOT ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
-        report_feature_not_available(METAL "Metal backend")
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_CUDA)
-    find_package(CUDAToolkit 11.7 QUIET)
-    if (NOT CUDAToolkit_FOUND)
-        report_feature_not_available(CUDA "CUDA backend")
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_VULKAN)
-    find_package(Vulkan QUIET)
-    if (NOT Vulkan_FOUND)
-        report_feature_not_available(VULKAN "Vulkan backend")
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
-    if (NOT LUISA_COMPUTE_ENABLE_RUST)
-        report_feature_not_available(CPU "CPU backend")
-        report_feature_not_available(REMOTE "Remote backend")
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_CUDA)
-    option(LUISA_COMPUTE_DOWNLOAD_NVCOMP "Download the nvCOMP library for CUDA GPU decompression" OFF)
-endif ()
-
-if (SKBUILD)
-    find_package(Python3 COMPONENTS Interpreter Development QUIET)
-    if (NOT Python3_FOUND)
-        report_feature_not_available(PYTHON "Python binding")
-    endif ()
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_GUI)
-    # currently nothing to check
-endif ()
-
-if (APPLE)
-    if (LUISA_COMPUTE_ENABLE_METAL OR LUISA_COMPUTE_ENABLE_GUI)
-        enable_language(OBJC)
-        enable_language(OBJCXX)
-    endif ()
-endif ()
-
+# rpath
 set(CMAKE_MACOSX_RPATH ON)
 set(CMAKE_SKIP_BUILD_RPATH OFF)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH OFF)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
 if (APPLE)
     set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
@@ -157,67 +61,6 @@ endif ()
 if (NOT CMAKE_INSTALL_PREFIX)
     set(CMAKE_INSTALL_PREFIX "dist")
 endif ()
-
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(BUILD_SHARED_LIBS ON)
-
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
-        CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    # enable AVX2 for embree on x64
-    if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:AVX2")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    else ()
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mf16c")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mf16c")
-    endif ()
-endif ()
-
-if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
-endif ()
-
-if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    option(LUISA_COMPUTE_ENABLE_SCCACHE "Enable sccache to speed up compilation" ON)
-    if (LUISA_COMPUTE_ENABLE_SCCACHE)
-        find_program(SCCACHE_EXE sccache)
-        if (SCCACHE_EXE)
-            message(STATUS "Build with sccache: ${SCCACHE_EXE}")
-            set(CMAKE_C_COMPILER_LAUNCHER ${SCCACHE_EXE})
-            set(CMAKE_CXX_COMPILER_LAUNCHER ${SCCACHE_EXE})
-            set(CMAKE_OBJC_COMPILER_LAUNCHER ${SCCACHE_EXE})
-            set(CMAKE_OBJCXX_COMPILER_LAUNCHER ${SCCACHE_EXE})
-        else ()
-            message(STATUS "Could not find sccache")
-        endif ()
-    endif ()
-endif ()
-
-option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build" ON)
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
-set(CMAKE_PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
-
-get_cmake_property(LUISA_COMPUTE_IS_MULTI_CONFIG GENERATOR_IS_MULTI_CONFIG)
-if (LUISA_COMPUTE_IS_MULTI_CONFIG)
-    foreach (config ${CMAKE_CONFIGURATION_TYPES})
-        string(TOUPPER ${config} CONFIG_UPPER)
-        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_BINARY_DIR}/bin/${config}")
-        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_BINARY_DIR}/bin/${config}")
-        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_BINARY_DIR}/lib/${config}")
-        set(CMAKE_PDB_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_BINARY_DIR}/lib/${config}")
-    endforeach ()
-endif ()
-
-set(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
-set(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
 if (SKBUILD)
     set(CMAKE_INSTALL_INCLUDEDIR ${SKBUILD_NULL_DIR})

@@ -125,7 +125,7 @@ void Guid::remake() {
 #ifndef NDEBUG
     HRESULT h = ::CoCreateGuid(reinterpret_cast<_GUID *>(&data));
     if (h != S_OK) {
-        vengine_log("GUID Generate Failed!\n"_sv);
+        vengine_log("GUID Generate Failed!\n");
         VENGINE_EXIT;
     }
 #else

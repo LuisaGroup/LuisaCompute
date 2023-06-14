@@ -1,9 +1,11 @@
 #pragma once
-#include <luisa/vstl/config.h>
-#include <stdint.h>
+
 #include <utility>
 #include <tuple>
+
+#include <luisa/vstl/config.h>
 #include <luisa/core/basic_traits.h>
+
 namespace vstd {
 template<typename T>
 struct compare {

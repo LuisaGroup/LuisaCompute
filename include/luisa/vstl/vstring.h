@@ -1,6 +1,6 @@
 #pragma once
 #include <luisa/vstl/config.h>
-#include <stdint.h>
+#include <cstdint>
 #include <string>
 #include <luisa/vstl/hash.h>
 #include <luisa/vstl/memory.h>

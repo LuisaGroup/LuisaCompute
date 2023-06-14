@@ -1,12 +1,15 @@
 #pragma once
-#include <luisa/vstl/config.h>
+
 #include <cstdlib>
-#include <stdint.h>
 #include <type_traits>
+
+#include <luisa/vstl/config.h>
 #include <luisa/vstl/ranges.h>
+
 VENGINE_C_FUNC_COMMON void *vengine_default_malloc(size_t sz);
 VENGINE_C_FUNC_COMMON void vengine_default_free(void *ptr);
 VENGINE_C_FUNC_COMMON void *vengine_default_realloc(void *ptr, size_t size);
+
 template<typename T, typename... Args>
     requires(std::is_constructible_v<T, Args &&...>)
 inline T *vengine_new(Args &&...args) noexcept {

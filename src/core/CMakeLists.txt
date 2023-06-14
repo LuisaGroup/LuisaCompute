@@ -7,11 +7,9 @@ set(LUISA_COMPUTE_CORE_SOURCES
         basic_types.cpp
         binary_buffer.cpp
         binary_file_stream.cpp
-        dirty_range.cpp
         dynamic_module.cpp
         first_fit.cpp
         logging.cpp
-        observer.cpp
         platform.cpp
         pool.cpp
         thread_pool.cpp)

@@ -1,12 +1,6 @@
-
 #include <luisa/vstl/log.h>
-#include <mutex>
-#include <cstdio>
 #include <luisa/core/logging.h>
-namespace LogGlobal {
-static bool isInitialized = false;
-static std::mutex mtx;
-}// namespace LogGlobal
+
 void vengine_log(std::string_view const &chunk) {
     LUISA_ERROR("{}", chunk);
 }

@@ -34,6 +34,7 @@ jobs:
             sudo ./llvm.sh ${{ matrix.compiler.version }}
             sudo apt-get -y install libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.10
         with:

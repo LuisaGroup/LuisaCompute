@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
 #include "../common/resource_tracker.h"

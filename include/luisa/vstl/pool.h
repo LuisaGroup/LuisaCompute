@@ -1,14 +1,12 @@
 #pragma once
 #include <luisa/vstl/config.h>
 #include <type_traits>
-#include <stdint.h>
 
 #include <atomic>
 #include <type_traits>
 #include <mutex>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/memory.h>
-#include <luisa/vstl/spin_mutex.h>
 #include <luisa/vstl/vector.h>
 
 namespace vstd {
