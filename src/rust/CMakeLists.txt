@@ -70,7 +70,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endif ()
 
         # FIXME: using the internal target is not ideal
-        add_custom_target(luisa-compute-rust-copy DEPENDS cargo-build_luisa_compute_backend_impl)
+        add_custom_target(luisa-compute-rust-copy DEPENDS luisa-compute-rust-meta)
 
         add_custom_command(TARGET luisa-compute-rust-copy
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -100,6 +100,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
         luisa_compute_install_rust(backend_impl)
+
     else ()
         # exclude the backend implementation from the build
         set_target_properties(luisa_compute_backend_impl PROPERTIES EXCLUDE_FROM_ALL ON)
