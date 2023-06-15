@@ -1,3 +1,5 @@
+#pragma once
+
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
 
