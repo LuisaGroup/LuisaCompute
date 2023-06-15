@@ -14,7 +14,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # fix rpath for luisa_compute_ir on macOS
     if (APPLE)
-        add_custom_target(luisa-compute-rust-fix-rpath DEPENDS cargo-build_luisa_compute_ir)
+        add_custom_target(luisa-compute-rust-fix-rpath DEPENDS _cargo-build_luisa_compute_ir)
         add_custom_command(TARGET luisa-compute-rust-fix-rpath
                 COMMAND install_name_tool -id "@rpath/libluisa_compute_ir.dylib"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_ir.dylib")
@@ -70,7 +70,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endif ()
 
         # FIXME: using the internal target is not ideal
-        add_custom_target(luisa-compute-rust-copy DEPENDS luisa-compute-rust-meta)
+        add_custom_target(luisa-compute-rust-copy DEPENDS _cargo-build_luisa_compute_backend_impl)
 
         add_custom_command(TARGET luisa-compute-rust-copy
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
