@@ -84,6 +84,16 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             add_custom_command(TARGET luisa-compute-rust-copy
                     COMMAND install_name_tool -add_rpath "@loader_path"
                     "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib")
+        elseif (UNIX)
+            find_program(PATCHELF_EXE patchelf)
+            if (PATCHELF_EXE)
+                message(STATUS "Found patchelf: ${PATCHELF_EXE}")
+                add_custom_command(TARGET luisa-compute-rust-copy
+                        COMMAND ${PATCHELF_EXE} --set-rpath '$ORIGIN'
+                        "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.so")
+            else ()
+                message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
+            endif ()
         endif ()
 
         install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
