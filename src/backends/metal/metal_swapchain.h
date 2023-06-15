@@ -32,6 +32,7 @@ public:
                    bool vsync, uint back_buffer_size) noexcept;
     ~MetalSwapchain() noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;
+    [[nodiscard]] auto layer() const noexcept { return _layer; }
     void present(MTL::CommandQueue *queue, MTL::Texture *image) noexcept;
     void set_name(luisa::string_view name) noexcept;
 };

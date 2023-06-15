@@ -36,6 +36,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto option() const noexcept { return _option; }
     [[nodiscard]] MTL::AccelerationStructureUsage usage() const noexcept;
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return const_cast<void *>(static_cast<const void *>(&_handle)); }
     void set_name(luisa::string_view name) noexcept;
     void add_resources(luisa::vector<MTL::Resource *> &resources) noexcept;
 };

@@ -558,7 +558,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
         }
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(p);
-        info.native_handle = p;
+        info.native_handle = p->io_queue();
         return info;
     });
 }
@@ -576,7 +576,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
         auto p = luisa::new_with_allocator<MetalFileHandle>(_device->handle(), path, size);
         FileCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(p);
-        info.native_handle = p;
+        info.native_handle = p->url();
         info.size_bytes = size;
         return info;
     });
@@ -591,7 +591,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
         }
         PinnedMemoryInfo info{};
         info.handle = reinterpret_cast<uint64_t>(pinned);
-        info.native_handle = pinned;
+        info.native_handle = pinned->host_pointer();
         info.size_bytes = size_bytes;
         return info;
     });

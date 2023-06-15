@@ -42,6 +42,7 @@ public:
     ~MetalShader() noexcept;
     void launch(MetalCommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept;
     [[nodiscard]] Usage argument_usage(uint index) const noexcept;
+    [[nodiscard]] auto pso() const noexcept { return _handle.entry.get(); }
     void set_name(luisa::string_view name) noexcept;
 };
 
