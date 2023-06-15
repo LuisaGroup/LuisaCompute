@@ -6,3 +6,5 @@ target_link_libraries(luisa-compute-backend-cpu PRIVATE
         luisa-compute-vulkan-swapchain
         luisa-compute-rust-meta
         luisa_compute_backend_impl)
+
+add_dependencies(luisa-compute-backend-cpu luisa-compute-rust-copy)
