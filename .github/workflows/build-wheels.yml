@@ -19,14 +19,13 @@ jobs:
           CIBW_BUILD: \*manylinux\*
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_BEFORE_ALL: "./scripts/cibw_install_deps.sh"
-          CIBW_REPAIR_WHEEL_COMMAND: "auditwheel repair -w {dest_dir} {wheel} --exclude libcuda.so --exclude libvulkan.so --exclude libvulkan.so.1"
+          CIBW_REPAIR_WHEEL_COMMAND: "auditwheel show {wheel} && auditwheel repair -w {dest_dir} {wheel} --exclude libcuda.so.1 --exclude libvulkan.so.1"
         run: |
           python -m pip install -U cibuildwheel
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
-          name: wheels-ubuntu-22.04
           path: ./wheelhouse/*.whl
 
   build-macos:
@@ -48,8 +47,7 @@ jobs:
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
-          name: wheels-macos-13
-          path: wheelhouse
+          path: ./wheelhouse/*.whl
 
   build-windows:
     name: windows-2022
@@ -79,5 +77,4 @@ jobs:
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
-          name: wheels-windows-2022
-          path: wheelhouse
+          path: ./wheelhouse/*.whl
