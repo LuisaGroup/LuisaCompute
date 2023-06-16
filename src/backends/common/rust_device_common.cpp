@@ -84,7 +84,8 @@ public:
     ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth,
                                         uint mipmap_levels, bool simultaneous_access) noexcept override {
         api::CreatedResourceInfo texture =
-            device.create_texture(device.device, (api::PixelFormat)format, dimension, width, height, depth, mipmap_levels);
+            device.create_texture(device.device, (api::PixelFormat)format, dimension,
+                                  width, height, depth, mipmap_levels, simultaneous_access);
         ResourceCreationInfo info{};
         info.handle = texture.handle;
         info.native_handle = texture.native_handle;

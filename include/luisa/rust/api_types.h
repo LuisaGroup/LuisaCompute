@@ -457,7 +457,8 @@ typedef struct LCDeviceInterface {
                                                    uint32_t,
                                                    uint32_t,
                                                    uint32_t,
-                                                   uint32_t);
+                                                   uint32_t,
+                                                   bool);
     void (*destroy_texture)(struct LCDevice, struct LCTexture);
     struct LCCreatedResourceInfo (*create_bindless_array)(struct LCDevice, size_t);
     void (*destroy_bindless_array)(struct LCDevice, struct LCBindlessArray);
