@@ -51,7 +51,8 @@ public:
         TextureDimension dimension,
         uint depth,
         uint mip,
-        bool allowUav);
+        bool allowUav,
+        bool allowSimul);
     ~SparseTexture();
     ID3D12Resource *GetResource() const override {
         return resource.Get();

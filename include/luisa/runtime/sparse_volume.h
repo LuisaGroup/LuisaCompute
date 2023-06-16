@@ -22,7 +22,7 @@ private:
               create_info},
           _size{size}, _mip_levels{mip_levels}, _storage{storage} {
     }
-    SparseVolume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
+    SparseVolume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels, bool simultaneous_access) noexcept
         : SparseVolume{
               device,
               [&] {
@@ -32,7 +32,7 @@ private:
                   return device->create_sparse_texture(
                       pixel_storage_to_format<T>(storage), 3u,
                       size.x, size.y, size.x,
-                      detail::max_mip_levels(size, mip_levels));
+                      detail::max_mip_levels(size, mip_levels), simultaneous_access);
               }(),
               storage, size, mip_levels} {
     }

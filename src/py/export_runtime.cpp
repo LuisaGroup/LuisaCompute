@@ -335,7 +335,7 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
-                auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
+                auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false).handle;
                 RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
                 return ptr;
             },

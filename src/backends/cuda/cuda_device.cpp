@@ -245,7 +245,7 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     });
 }
 
-ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
+ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept {
     auto p = with_handle([=] {
         auto array_format = cuda_array_format(format);
         auto channels = pixel_format_channel_count(format);

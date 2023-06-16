@@ -82,7 +82,7 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept = 0;
+        uint mipmap_levels, bool simultaneous_access) noexcept = 0;
     virtual void destroy_texture(uint64_t handle) noexcept = 0;
 
     // bindless array
@@ -151,7 +151,7 @@ public:
     [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept {
+        uint mipmap_levels, bool simultaneous_access) noexcept {
         return SparseTextureCreationInfo::make_invalid();
     }
     virtual void clear_sparse_texture(

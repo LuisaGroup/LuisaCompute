@@ -40,7 +40,7 @@ public:
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept override;
+        uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
 
     // bindless array
@@ -103,7 +103,7 @@ public:
     [[nodiscard]] SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept override;
+        uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_sparse_texture(uint64_t handle) noexcept override;
     void update_sparse_texture(
         uint64_t stream_handle,

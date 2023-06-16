@@ -119,7 +119,7 @@ ResourceCreationInfo LCDevice::create_texture(
     uint width,
     uint height,
     uint depth,
-    uint mipmap_levels) noexcept {
+    uint mipmap_levels, bool simultaneous_access) noexcept {
     bool allowUAV = true;
     switch (format) {
         case PixelFormat::BC4UNorm:
@@ -140,6 +140,7 @@ ResourceCreationInfo LCDevice::create_texture(
         depth,
         mipmap_levels,
         allowUAV,
+        simultaneous_access,
         nativeDevice.defaultAllocator.get());
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
@@ -598,7 +599,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
 [[nodiscard]] SparseTextureCreationInfo LCDevice::create_sparse_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels) noexcept {
+    uint mipmap_levels, bool simultaneous_access) noexcept {
     bool allowUAV = true;
     switch (format) {
         case PixelFormat::BC4UNorm:
@@ -618,7 +619,8 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
         (TextureDimension)dimension,
         depth,
         mipmap_levels,
-        allowUAV);
+        allowUAV,
+        simultaneous_access);
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();
     auto v = res->TilingSize();

@@ -51,7 +51,7 @@ private:
               create_info},
           _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {
     }
-    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
+    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels, bool simultaneous_access) noexcept
         : Volume{
               device,
               [&] {
@@ -61,7 +61,7 @@ private:
                   return device->create_texture(
                       pixel_storage_to_format<T>(storage), 3u,
                       size.x, size.y, size.z,
-                      detail::max_mip_levels(size, mip_levels));
+                      detail::max_mip_levels(size, mip_levels), simultaneous_access);
               }(),
               storage, size, mip_levels} {}
 

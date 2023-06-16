@@ -12,7 +12,7 @@
 
 namespace luisa {
 class BinaryIO;
-}
+}// namespace luisa
 
 namespace luisa::compute {
 
@@ -148,45 +148,45 @@ public:
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;
 
     template<typename T>
-    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
-        return _create<Image<T>>(pixel, make_uint2(width, height), mip_levels);
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u, bool simultaneous_access = false) noexcept {
+        return _create<Image<T>>(pixel, make_uint2(width, height), mip_levels, simultaneous_access);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
-        return _create<Image<T>>(pixel, size, mip_levels);
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u, bool simultaneous_access = false) noexcept {
+        return _create<Image<T>>(pixel, size, mip_levels, simultaneous_access);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_sparse_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
-        return _create<SparseImage<T>>(pixel, make_uint2(width, height), mip_levels);
+    [[nodiscard]] auto create_sparse_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u, bool simultaneous_access = true) noexcept {
+        return _create<SparseImage<T>>(pixel, make_uint2(width, height), mip_levels, simultaneous_access);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_sparse_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
-        return _create<SparseImage<T>>(pixel, size, mip_levels);
+    [[nodiscard]] auto create_sparse_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u, bool simultaneous_access = true) noexcept {
+        return _create<SparseImage<T>>(pixel, size, mip_levels, simultaneous_access);
     }
 
     [[nodiscard]] DepthBuffer create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept;
 
     template<typename T>
-    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
-        return _create<Volume<T>>(pixel, make_uint3(width, height, depth), mip_levels);
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u, bool simultaneous_access = false) noexcept {
+        return _create<Volume<T>>(pixel, make_uint3(width, height, depth), mip_levels, simultaneous_access);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
-        return _create<Volume<T>>(pixel, size, mip_levels);
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u, bool simultaneous_access = false) noexcept {
+        return _create<Volume<T>>(pixel, size, mip_levels, simultaneous_access);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
-        return _create<SparseVolume<T>>(pixel, make_uint3(width, height, depth), mip_levels);
+    [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u, bool simultaneous_access = true) noexcept {
+        return _create<SparseVolume<T>>(pixel, make_uint3(width, height, depth), mip_levels, simultaneous_access);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
-        return _create<SparseVolume<T>>(pixel, size, mip_levels);
+    [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u, bool simultaneous_access = true) noexcept {
+        return _create<SparseVolume<T>>(pixel, size, mip_levels, simultaneous_access);
     }
 
     template<typename T>
@@ -266,7 +266,7 @@ public:
         const RasterKernel<V, P> &kernel,
         const MeshFormat &mesh_format,
         luisa::string_view serialization_path,
-        const ShaderOption& option = {}) noexcept;
+        const ShaderOption &option = {}) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
@@ -288,4 +288,3 @@ public:
 };
 
 }// namespace luisa::compute
-

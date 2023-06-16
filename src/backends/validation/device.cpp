@@ -66,9 +66,9 @@ void Device::destroy_buffer(uint64_t handle) noexcept {
 ResourceCreationInfo Device::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels) noexcept {
-    auto tex = _native->create_texture(format, dimension, width, height, depth, mipmap_levels);
-    new Texture{tex.handle, dimension};
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    auto tex = _native->create_texture(format, dimension, width, height, depth, mipmap_levels, simultaneous_access);
+    new Texture{tex.handle, dimension, simultaneous_access};
     return tex;
 }
 void Device::destroy_texture(uint64_t handle) noexcept {
@@ -299,9 +299,9 @@ VSTL_EXPORT_C DeviceInterface *create(Context &&ctx, luisa::shared_ptr<DeviceInt
 SparseTextureCreationInfo Device::create_sparse_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels) noexcept {
-    auto tex = _native->create_sparse_texture(format, dimension, width, height, depth, mipmap_levels);
-    new Texture{tex.handle, dimension};
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    auto tex = _native->create_sparse_texture(format, dimension, width, height, depth, mipmap_levels, simultaneous_access);
+    new Texture{tex.handle, dimension, simultaneous_access};
     return tex;
 }
 void Device::destroy_sparse_texture(uint64_t handle) noexcept {
