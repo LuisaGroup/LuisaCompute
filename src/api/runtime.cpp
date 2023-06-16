@@ -69,7 +69,7 @@ namespace luisa::compute {
                 : Resource{device, Tag::TEXTURE,
                            device->create_texture(format, dimension,
                                                   width, height, depth,
-                                                  mipmap_levels)} {}
+                                                  mipmap_levels, false)} {}
     };
 
     struct ShaderResource : public Resource {
@@ -422,7 +422,7 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(LCDevice dev
                                                                     uint32_t mips) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
     auto pixel_format = PixelFormat{(uint8_t) to_underlying(format)};
-    auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips);
+    auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips, false);
     return LCCreatedResourceInfo{
             .handle = info.handle,
             .native_handle = info.native_handle,
