@@ -32,6 +32,7 @@ public:
                      luisa::vector<Usage> argument_usages,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
+    [[nodiscard]] void *handle() const noexcept override { return _function; }
 };
 
 }// namespace luisa::compute::cuda

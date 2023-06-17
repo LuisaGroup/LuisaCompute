@@ -22,34 +22,6 @@ class CUDACallbackContext;
 
 class CUDAStream;
 
-class CUDAIndirectDispatchStream {
-
-public:
-    struct Task {
-        virtual void execute(CUstream stream) noexcept = 0;
-        virtual ~Task() noexcept = default;
-    };
-
-    class TaskContext;
-
-private:
-    CUDAStream *_parent;
-    CUstream _stream{nullptr};
-    std::mutex _queue_mutex;
-    std::thread _thread;
-    std::condition_variable _cv;
-    luisa::queue<TaskContext *> _task_contexts;
-    CUdeviceptr _event{};
-    uint64_t _event_value : 63;
-    uint64_t _stop_requested : 1;
-
-public:
-    explicit CUDAIndirectDispatchStream(CUDAStream *parent) noexcept;
-    ~CUDAIndirectDispatchStream() noexcept;
-    void enqueue(Task *task) noexcept;
-    void set_name(luisa::string_view name) noexcept;
-};
-
 /**
  * @brief Stream on CUDA
  * 
@@ -63,13 +35,9 @@ private:
     CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
     luisa::queue<CallbackContainer> _callback_lists;
-    luisa::unique_ptr<CUDAIndirectDispatchStream> _indirect;
     CUstream _stream{};
-    luisa::string _name;
-    spin_mutex _name_mutex;
     spin_mutex _dispatch_mutex;
     spin_mutex _callback_mutex;
-    spin_mutex _indirect_creation_mutex;
 
 public:
     explicit CUDAStream(CUDADevice *device) noexcept;
@@ -77,7 +45,6 @@ public:
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
-    [[nodiscard]] CUDAIndirectDispatchStream &indirect() noexcept;
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void signal(CUevent event) noexcept;

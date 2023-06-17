@@ -61,6 +61,7 @@ public:
     [[nodiscard]] optix::TraversableHandle handle() const noexcept;
     [[nodiscard]] CUdeviceptr instance_buffer() const noexcept;
     [[nodiscard]] Binding binding() const noexcept;
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
     void set_name(luisa::string &&name) noexcept;
 };
 

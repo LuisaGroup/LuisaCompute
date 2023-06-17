@@ -47,6 +47,7 @@ public:
     [[nodiscard]] optix::TraversableHandle handle() const noexcept;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto option() const noexcept { return _option; }
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
     void set_name(luisa::string &&name) noexcept;
 };
 

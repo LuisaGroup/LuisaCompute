@@ -38,6 +38,7 @@ public:
     CUDAShader &operator=(const CUDAShader &) noexcept = delete;
     virtual ~CUDAShader() noexcept = default;
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
+    [[nodiscard]] virtual void *handle() const noexcept = 0;
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;
