@@ -75,8 +75,11 @@ install(FILES README.md LICENSE
         DESTINATION ${CMAKE_INSTALL_DOCDIR}/)
 
 # include
-add_library(luisa-compute-include INTERFACE)
-target_include_directories(luisa-compute-include INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
+        "include/luisa/*.h" "include/luisa/*.hpp")
+add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
+target_include_directories(luisa-compute-include INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
@@ -102,6 +105,6 @@ install(TARGETS luisa-compute-include
 
 install(DIRECTORY include/luisa
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        FILES_MATCHING PATTERN "*.h")
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 
 add_subdirectory(src)
