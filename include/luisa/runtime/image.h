@@ -61,7 +61,7 @@ private:
           _storage{storage} {}
 
     Image(DeviceInterface *device, PixelStorage storage, uint2 size,
-          uint mip_levels, bool simultaneous_access = false) noexcept
+          uint mip_levels = 1u, bool simultaneous_access = false) noexcept
         : Image{device,
                 [&] {
                     if (size.x == 0 || size.y == 0) [[unlikely]] {

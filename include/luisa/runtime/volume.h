@@ -55,7 +55,7 @@ private:
           _size{size} {}
 
     Volume(DeviceInterface *device, PixelStorage storage, uint3 size,
-           uint mip_levels, bool simultaneous_access = false) noexcept
+           uint mip_levels = 1u, bool simultaneous_access = false) noexcept
         : Volume{device,
                  [&] {
                      if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
