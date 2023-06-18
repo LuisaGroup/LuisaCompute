@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <runtime/rhi/pixel.h>
-#include <backends/metal/metal_api.h>
+#include <luisa/runtime/rhi/pixel.h>
+#include "metal_api.h"
 
 extern "C" CA::MetalLayer *luisa_metal_backend_create_layer(
     MTL::Device *device, uint64_t window_handle,
@@ -32,8 +32,10 @@ public:
                    bool vsync, uint back_buffer_size) noexcept;
     ~MetalSwapchain() noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;
+    [[nodiscard]] auto layer() const noexcept { return _layer; }
     void present(MTL::CommandQueue *queue, MTL::Texture *image) noexcept;
     void set_name(luisa::string_view name) noexcept;
 };
 
 }// namespace luisa::compute::metal
+

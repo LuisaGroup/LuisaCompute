@@ -12,6 +12,33 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         target_compile_options(luisa-compute-rust-meta INTERFACE -Wno-return-type-c-linkage)
     endif ()
 
+    function(luisa_compute_rust_fix_rpath target_name)
+        set(target luisa_compute_${target_name})
+        if (APPLE)
+            add_custom_target(${target}-fix-rpath ALL DEPENDS cargo-build_${target}
+                    COMMAND install_name_tool -id "@rpath/lib${target}.dylib"
+                    "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib"
+                    COMMAND install_name_tool -add_rpath "@loader_path"
+                    "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib")
+            add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
+        elseif (UNIX)
+            find_program(PATCHELF_EXE patchelf)
+            if (PATCHELF_EXE)
+                add_custom_target(${target}-fix-rpath ALL DEPENDS cargo-build_${target}
+                        COMMENT "Fixing rpath for ${target}..."
+                        COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN"
+                        "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.so"
+                        VERBATIM)
+                add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
+            else ()
+                message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
+            endif ()
+        endif ()
+    endfunction()
+
+    luisa_compute_rust_fix_rpath(ir)
+    luisa_compute_rust_fix_rpath(backend_impl)
+
     function(luisa_compute_install_rust target)
         # FIXME: corrosion does not correctly installs the rust library so we have to manually install it here
         # corrosion_install(TARGETS luisa_compute_${target}
@@ -21,12 +48,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         #         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
         install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets)
-        install(DIRECTORY luisa_compute_${target}
-                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/rust
-                FILES_MATCHING REGEX ".*\\.(h|hpp)$")
         install(DIRECTORY "$<TARGET_FILE_DIR:luisa-compute-core>/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
-                FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(dll|so|dylib)$")
+                FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(dll|so|dylib)(\\.[0-9]+)?$")
         install(DIRECTORY "$<TARGET_LINKER_FILE_DIR:luisa-compute-core>/"
                 DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
@@ -55,6 +79,11 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
                 "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
 
+        # building from source is preferred for Python wheels
+        if (UNIX AND SKBUILD)
+            corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+        endif ()
+
         # FIXME: using the internal target is not ideal
         add_custom_target(luisa-compute-rust-copy DEPENDS _cargo-build_luisa_compute_backend_impl)
 
@@ -63,17 +92,14 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/")
 
-        if (APPLE)
-            add_custom_command(TARGET luisa-compute-rust-copy
-                    COMMENT "Fixing rpath for $<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib"
-                    COMMAND install_name_tool -add_rpath "@loader_path"
-                    "$<TARGET_FILE_DIR:luisa-compute-core>/libluisa_compute_backend_impl.dylib")
-        endif ()
-
         install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
-                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)$")
+                FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
         luisa_compute_install_rust(backend_impl)
+
+    else ()
+        # exclude the backend implementation from the build
+        set_target_properties(luisa_compute_backend_impl PROPERTIES EXCLUDE_FROM_ALL ON)
     endif ()
 
 endif ()

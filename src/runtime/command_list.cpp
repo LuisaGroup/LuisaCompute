@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
-#include <runtime/rhi/command.h>
-#include <runtime/command_list.h>
-#include <core/logging.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/command_list.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -67,3 +67,4 @@ CommandList::CommandList(CommandList &&another) noexcept
       _committed{another._committed} { another._committed = false; }
 
 }// namespace luisa::compute
+

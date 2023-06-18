@@ -1,4 +1,4 @@
-#include <core/mathematics.h>
+#include <luisa/core/mathematics.h>
 using namespace luisa;
 constexpr float XM_PI = 3.141592654f;
 constexpr float XM_2PI = 6.283185307f;

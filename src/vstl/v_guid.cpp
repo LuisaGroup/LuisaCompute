@@ -1,5 +1,5 @@
-#include <vstl/v_guid.h>
-#include <vstl/string_utility.h>
+#include <luisa/vstl/v_guid.h>
+#include <luisa/vstl/string_utility.h>
 
 #ifdef _WIN32
 #include <objbase.h>
@@ -125,7 +125,7 @@ void Guid::remake() {
 #ifndef NDEBUG
     HRESULT h = ::CoCreateGuid(reinterpret_cast<_GUID *>(&data));
     if (h != S_OK) {
-        vengine_log("GUID Generate Failed!\n"_sv);
+        vengine_log("GUID Generate Failed!\n");
         VENGINE_EXIT;
     }
 #else
@@ -192,3 +192,4 @@ VENGINE_UNITY_EXTERN void vguid_to_std::string(
 }
 #endif
 }// namespace vstd
+

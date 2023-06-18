@@ -2,16 +2,16 @@
 // Created by Mike on 3/31/2023.
 //
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <runtime/swapchain.h>
-#include <dsl/syntax.h>
-#include <gui/window.h>
-#include <gui/framerate.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/gui/window.h>
+#include <luisa/gui/framerate.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -78,3 +78,4 @@ int main(int argc, char *argv[]) {
         for (auto &&w : windows) { w.window.poll_events(); }
     }
 }
+

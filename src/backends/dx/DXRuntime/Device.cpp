@@ -4,11 +4,11 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <Resource/GpuAllocator.h>
 #include <Shader/BuiltinKernel.h>
-#include <backends/common/hlsl/shader_compiler.h>
+#include "../../common/hlsl/shader_compiler.h"
 #include <Shader/ComputeShader.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <ext_settings.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/backends/ext/dx_config_ext.h>
 
 namespace lc::dx {
 static std::mutex gDxcMutex;

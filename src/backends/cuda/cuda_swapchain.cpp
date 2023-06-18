@@ -9,11 +9,11 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/platform.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_swapchain.h>
+#include <luisa/core/platform.h>
+#include "cuda_device.h"
+#include "cuda_stream.h"
+#include "cuda_texture.h"
+#include "cuda_swapchain.h"
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #include <Windows.h>
@@ -28,7 +28,7 @@
 #error "Unsupported platform"
 #endif
 
-#include <backends/common/vulkan_swapchain.h>
+#include "../common/vulkan_swapchain.h"
 
 namespace luisa::compute::cuda {
 
@@ -569,3 +569,4 @@ void CUDASwapchain::set_name(luisa::string &&name) noexcept {
 }// namespace luisa::compute::cuda
 
 #endif
+

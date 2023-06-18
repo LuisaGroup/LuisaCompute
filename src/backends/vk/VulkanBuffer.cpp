@@ -133,3 +133,4 @@ namespace vks
 		}
 	}
 };
+

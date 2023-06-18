@@ -87,3 +87,4 @@ private:
         return r0 + (1.0f - r0) * pow((1.0f - cosine), 5.0f);
     }
 };
+

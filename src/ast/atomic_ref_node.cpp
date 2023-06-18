@@ -2,10 +2,10 @@
 // Created by Mike on 4/6/2023.
 //
 
-#include <core/magic_enum.h>
-#include <core/logging.h>
-#include <ast/atomic_ref_node.h>
-#include <ast/function_builder.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/atomic_ref_node.h>
+#include <luisa/ast/function_builder.h>
 
 namespace luisa::compute::detail {
 
@@ -130,3 +130,4 @@ const AtomicRefNode *AtomicRefNode::create(const RefExpr *ref) noexcept {
 }
 
 }// namespace luisa::compute::detail
+

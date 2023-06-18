@@ -8,9 +8,6 @@ on_load(function(target)
 	end
 	target:add("defines", "LC_IR_EXPORT_DLL")
 	target:add("deps", "lc-runtime", "lc-rust")
-	target:add("includedirs", rela("../rust"), {
-		public = true
-	})
 	if is_plat("windows") then
 		target:add("syslinks", "Ws2_32", "Advapi32", "Bcrypt", "Userenv")
 	end

@@ -1,10 +1,10 @@
-#include <runtime/raster/raster_shader.h>
-#include <runtime/depth_format.h>
-#include <runtime/raster/depth_buffer.h>
-#include <runtime/raster/raster_scene.h>
-#include <runtime/rtx/accel.h>
-#include <runtime/bindless_array.h>
-#include <core/logging.h>
+#include <luisa/runtime/raster/raster_shader.h>
+#include <luisa/runtime/depth_format.h>
+#include <luisa/runtime/raster/depth_buffer.h>
+#include <luisa/runtime/raster/raster_scene.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/bindless_array.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 

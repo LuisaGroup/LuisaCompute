@@ -7,9 +7,9 @@
 #include <span>
 #include <memory>
 
-#include <core/basic_types.h>
-#include <core/spin_mutex.h>
-#include <ast/usage.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/ast/usage.h>
 
 namespace luisa::compute {
 class ShaderDispatchCommand;
@@ -38,9 +38,11 @@ public:
     CUDAShader &operator=(const CUDAShader &) noexcept = delete;
     virtual ~CUDAShader() noexcept = default;
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
+    [[nodiscard]] virtual void *handle() const noexcept = 0;
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda
+

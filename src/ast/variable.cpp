@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2022/12/19.
 //
 
-#include <core/stl/hash.h>
-#include <ast/variable.h>
+#include <luisa/core/stl/hash.h>
+#include <luisa/ast/variable.h>
 
 namespace luisa::compute {
 
@@ -16,3 +16,4 @@ uint64_t Variable::hash() const noexcept {
 }
 
 }// namespace luisa::compute
+

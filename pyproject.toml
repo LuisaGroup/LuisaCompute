@@ -3,8 +3,8 @@ requires = ["pybind11", "scikit-build-core>=0.3.2", "ninja"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "luisa"
-version = "0.2.0"
+name = "luisa-python"
+version = "0.2.1"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
 readme = "README.md"
 authors = [
@@ -40,3 +40,4 @@ wheel.packages = []
 
 [tool.scikit-build.cmake.define]
 LUISA_COMPUTE_BUILD_TESTS = "OFF"
+LUISA_COMPUTE_DOWNLOAD_NVCOMP = "ON"

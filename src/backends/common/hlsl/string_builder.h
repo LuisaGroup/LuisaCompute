@@ -1,6 +1,6 @@
 #pragma once
-#include <vstl/common.h>
-#include <vstl/small_vector.h>
+#include <luisa/vstl/common.h>
+
 namespace vstd {
 class StringBuilder final {
     vstd::fixed_vector<char, 32> vec;

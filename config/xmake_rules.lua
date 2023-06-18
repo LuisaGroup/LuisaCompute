@@ -19,7 +19,7 @@ on_load(function(target)
 		--[[eastl]]
 		path.join(lc_dir,"src/ext/EASTL/include"), path.join(lc_dir,"src/ext/EASTL/packages/EABase/include/Common"),
 		--[[lc-core]]
-		path.join(lc_dir,"src"), path.join(lc_dir,"src/ext/xxHash"), path.join(lc_dir,"src/ext/magic_enum/include"), path.join(lc_dir,"src/ext/parallel-hashmap"),
+		path.join(lc_dir,"include"), path.join(lc_dir,"src/ext/xxHash"), path.join(lc_dir,"src/ext/magic_enum/include"), path.join(lc_dir,"src/ext/parallel-hashmap"),
 		{
 			public = is_public
 		})

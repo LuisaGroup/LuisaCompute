@@ -379,3 +379,4 @@ _MTL_INLINE void MTL::StageInputOutputDescriptor::reset()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(reset));
 }
+

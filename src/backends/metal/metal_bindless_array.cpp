@@ -2,12 +2,12 @@
 // Created by Mike Smith on 2023/4/15.
 //
 
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_stage_buffer_pool.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_bindless_array.h>
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_stage_buffer_pool.h"
+#include "metal_command_encoder.h"
+#include "metal_device.h"
+#include "metal_bindless_array.h"
 
 namespace luisa::compute::metal {
 
@@ -136,3 +136,4 @@ void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encode
 }
 
 }// namespace luisa::compute::metal
+

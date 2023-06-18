@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2023/6/3.
 //
 
-#include <core/basic_types.h>
-#include <core/logging.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute::detail {
 
@@ -20,3 +20,4 @@ LC_DSL_API void validate_block_size(uint x, uint y, uint z) noexcept {
 }
 
 }// namespace luisa::compute::detail
+

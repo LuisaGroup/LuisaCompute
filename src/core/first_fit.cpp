@@ -2,10 +2,10 @@
 // Created by Mike on 2021/12/10.
 //
 
-#include <core/mathematics.h>
-#include <core/pool.h>
-#include <core/logging.h>
-#include <core/first_fit.h>
+#include <luisa/core/mathematics.h>
+#include <luisa/core/pool.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/first_fit.h>
 
 namespace luisa {
 
@@ -154,3 +154,4 @@ luisa::string FirstFit::dump_free_list() const noexcept {
 }
 
 }// namespace luisa
+

@@ -2,7 +2,6 @@
 #include <d3dx12.h>
 #include <Resource/BufferView.h>
 #include <Resource/Resource.h>
-#include <vstl/small_vector.h>
 namespace lc::dx {
 class CommandBufferBuilder;
 class TopAccel;

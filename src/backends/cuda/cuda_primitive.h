@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <core/spin_mutex.h>
-#include <runtime/rhi/resource.h>
-#include <backends/cuda/optix_api.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/rhi/resource.h>
+#include "optix_api.h"
 
 namespace luisa::compute::cuda {
 
@@ -47,6 +47,7 @@ public:
     [[nodiscard]] optix::TraversableHandle handle() const noexcept;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto option() const noexcept { return _option; }
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
     void set_name(luisa::string &&name) noexcept;
 };
 
@@ -71,3 +72,4 @@ public:
 }
 
 }// namespace luisa::compute::cuda
+

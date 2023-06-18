@@ -1,6 +1,6 @@
 #include <Resource/SparseTexture.h>
 #include <Resource/DescriptorHeap.h>
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 namespace lc::dx {
 SparseTexture::SparseTexture(
     Device *device,
@@ -10,11 +10,12 @@ SparseTexture::SparseTexture(
     TextureDimension dimension,
     uint depth,
     uint mip,
-    bool allowUav)
+    bool allowUav,
+    bool allowSimul)
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
       sparseAllocator(device, true),
       allowUav(allowUav) {
-    auto texDesc = GetResourceDescBase(allowUav, true);
+    auto texDesc = GetResourceDescBase(allowUav, allowSimul, true);
     texDesc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     ThrowIfFailed(device->device->CreateReservedResource(
         &texDesc,

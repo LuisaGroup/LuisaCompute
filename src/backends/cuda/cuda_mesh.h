@@ -6,9 +6,9 @@
 
 #include <cuda.h>
 
-#include <runtime/rtx/mesh.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_primitive.h>
+#include <luisa/runtime/rtx/mesh.h>
+#include "optix_api.h"
+#include "cuda_primitive.h"
 
 namespace luisa::compute::cuda {
 
@@ -40,3 +40,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

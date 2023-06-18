@@ -20,6 +20,7 @@ public:
         uint depth,
         uint mip,
         bool allowUav,
+        bool allowSimul,
         GpuAllocator *allocator = nullptr);
     ~RenderTexture();
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;

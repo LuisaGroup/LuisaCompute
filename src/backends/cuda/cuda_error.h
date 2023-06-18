@@ -8,9 +8,9 @@
 
 #include <cuda.h>
 #include <nvrtc.h>
-#include <backends/cuda/optix_api.h>
+#include "optix_api.h"
 
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 
 #define LUISA_CHECK_CUDA(...)                            \
     do {                                                 \
@@ -56,3 +56,4 @@
                 log_size > sizeof(log) ? " ..."sv : ""sv); \
         }                                                  \
     } while (false)
+

@@ -4,9 +4,9 @@
 
 #include <charconv>
 
-#include <core/stl/format.h>
-#include <core/logging.h>
-#include <backends/metal/metal_shader_metadata.h>
+#include <luisa/core/stl/format.h>
+#include <luisa/core/logging.h>
+#include "metal_shader_metadata.h"
 
 namespace luisa::compute::metal {
 
@@ -213,3 +213,4 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
 }
 
 }// namespace luisa::compute::metal
+

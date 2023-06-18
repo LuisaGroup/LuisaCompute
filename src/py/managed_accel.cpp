@@ -1,5 +1,5 @@
-#include <py/managed_accel.h>
-#include <py/ref_counter.h>
+#include "managed_accel.h"
+#include "ref_counter.h"
 
 namespace luisa::compute {
 

@@ -1,24 +1,23 @@
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCDevice.h>
-#include <runtime/rhi/command.h>
-#include <runtime/command_list.h>
-#include <backends/common/hlsl/hlsl_codegen.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/command_list.h>
+#include "../../common/hlsl/hlsl_codegen.h"
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
-#include <backends/common/command_reorder_visitor.h>
+#include "../../common/command_reorder_visitor.h"
 #include <Shader/RasterShader.h>
-#include <core/stl/variant.h>
-#include <runtime/buffer.h>
-#include <runtime/dispatch_buffer.h>
-#include <core/logging.h>
-#include <runtime/rtx/aabb.h>
+#include <luisa/core/stl/variant.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/rtx/aabb.h>
 #include <Resource/DepthBuffer.h>
-#include <vstl/atomic.h>
-#include <backends/ext/raster_cmd.h>
+#include <luisa/backends/ext/raster_cmd.h>
 #include <Resource/SparseTexture.h>
-#include "../dx_custom_cmd.h"
+#include <luisa/backends/ext/dx_custom_cmd.h>
 
 namespace lc::dx {
 using Argument = luisa::compute::Argument;

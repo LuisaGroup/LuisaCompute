@@ -2,9 +2,9 @@
 // Created by Mike on 8/1/2021.
 //
 
-#include <core/clock.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_host_buffer_pool.h>
+#include <luisa/core/clock.h>
+#include "cuda_error.h"
+#include "cuda_host_buffer_pool.h"
 
 namespace luisa::compute::cuda {
 
@@ -82,3 +82,4 @@ CUDAHostBufferPool::View *CUDAHostBufferPool::View::create(FirstFit::Node *node,
 }
 
 }// namespace luisa::compute::cuda
+

@@ -2,11 +2,11 @@
 // Created by Mike Smith on 2021/4/7.
 //
 
-#include <runtime/device.h>
-#include <runtime/shader.h>
-#include <runtime/rhi/command.h>
-#include <runtime/bindless_array.h>
-#include <core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/bindless_array.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -110,3 +110,4 @@ BindlessArray::~BindlessArray() noexcept {
 }
 
 }// namespace luisa::compute
+

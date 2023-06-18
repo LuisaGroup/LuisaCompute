@@ -6,12 +6,12 @@
 #include <stb/stb_image_write.h>
 #include <stb/stb_image_resize.h>
 
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <dsl/syntax.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/dsl/syntax.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -45,3 +45,4 @@ int main(int argc, char *argv[]) {
     stream << buffer0.copy_from(&v0) << buffer1.copy_from(&v1) << shader().dispatch(2) << out_buffer.copy_to(result) << synchronize();
     LUISA_INFO("Value: {}, {}", result[0], result[1]);
 }
+

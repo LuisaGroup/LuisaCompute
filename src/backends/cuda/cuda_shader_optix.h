@@ -2,18 +2,23 @@
 // Created by Mike on 3/18/2023.
 //
 
-#include <core/spin_mutex.h>
-#include <core/stl/string.h>
-#include <core/stl/unordered_map.h>
-#include <backends/cuda/cuda_shader.h>
-#include <backends/cuda/optix_api.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/unordered_map.h>
+#include "cuda_shader.h"
+#include "optix_api.h"
 
 namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
-class CUDAIndirectDispatchOptiX;
 
 class CUDAShaderOptiX final : public CUDAShader {
+
+public:
+    struct IndirectParameters {
+        CUDAIndirectDispatchBuffer::Header header;
+        [[no_unique_address]] CUDAIndirectDispatchBuffer::Dispatch dispatches[];
+    };
 
 private:
     size_t _argument_buffer_size{};
@@ -29,9 +34,11 @@ private:
     CUdeviceptr _sbt_buffer{};
 
 private:
-    friend class CUDAIndirectDispatchOptiX;
     [[nodiscard]] optix::ShaderBindingTable _make_sbt() const noexcept;
     void _do_launch(CUstream stream, CUdeviceptr argument_buffer, uint3 dispatch_size) const noexcept;
+    void _do_launch_indirect(CUstream stream, CUdeviceptr argument_buffer,
+                             const IndirectParameters *indirect_buffer_device,
+                             const IndirectParameters *indirect_params_readback) const noexcept;
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
@@ -41,6 +48,8 @@ public:
                     luisa::vector<Usage> argument_usages,
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
+    [[nodiscard]] void *handle() const noexcept override { return _pipeline; }
 };
 
 }// namespace luisa::compute::cuda
+

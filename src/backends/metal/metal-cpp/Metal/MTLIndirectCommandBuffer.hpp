@@ -210,3 +210,4 @@ _MTL_INLINE MTL::IndirectComputeCommand* MTL::IndirectCommandBuffer::indirectCom
 {
     return Object::sendMessage<MTL::IndirectComputeCommand*>(this, _MTL_PRIVATE_SEL(indirectComputeCommandAtIndex_), commandIndex);
 }
+

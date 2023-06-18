@@ -23,3 +23,4 @@ class hittable {
 public:
     virtual Bool hit(const ray &r, Float t_min, Float t_max, hit_record &rec) const = 0;
 };
+

@@ -5,14 +5,14 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_accel.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include "optix_api.h"
+#include "cuda_error.h"
+#include "cuda_stream.h"
+#include "cuda_command_encoder.h"
+#include "cuda_device.h"
+#include "cuda_accel.h"
 
 namespace luisa::compute::cuda {
 
@@ -278,3 +278,4 @@ CUDAAccel::Binding CUDAAccel::binding() const noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

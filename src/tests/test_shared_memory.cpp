@@ -3,7 +3,7 @@
 //
 
 #include <random>
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -97,3 +97,4 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("count = {} (expected {}), mean = {} (expected ~0.5)",
                n, queue_size, mean);
 }
+

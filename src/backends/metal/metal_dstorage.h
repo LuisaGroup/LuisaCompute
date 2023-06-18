@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <core/stl/unordered_map.h>
-#include <backends/ext/dstorage_ext_interface.h>
-#include <backends/metal/metal_api.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/backends/ext/dstorage_ext_interface.h>
+#include "metal_api.h"
 
 namespace luisa::compute::metal {
 
@@ -114,3 +114,4 @@ public:
 };
 
 }// namespace luisa::compute::metal
+

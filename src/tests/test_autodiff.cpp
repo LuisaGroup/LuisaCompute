@@ -3,8 +3,8 @@
 //
 
 #include <fstream>
-#include <luisa-compute.h>
-#include <ir/ast2ir.h>
+#include <luisa/luisa-compute.h>
+#include <luisa/ir/ast2ir.h>
 
 using namespace luisa;
 using namespace luisa::compute;

@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2023/2/18.
 //
 
-#include <dsl/builtin.h>
-#include <dsl/stmt.h>
-#include <dsl/resource.h>
+#include <luisa/dsl/builtin.h>
+#include <luisa/dsl/stmt.h>
+#include <luisa/dsl/resource.h>
 
 namespace luisa::compute::detail {
 
@@ -107,3 +107,4 @@ Var<float4> BindlessTexture3D::read(Expr<uint3> coord) const noexcept {
 }
 
 }// namespace luisa::compute::detail
+

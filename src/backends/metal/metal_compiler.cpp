@@ -4,10 +4,10 @@
 
 #include <fstream>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_compiler.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include "metal_device.h"
+#include "metal_compiler.h"
 
 #define LUISA_METAL_BACKEND_DUMP_SOURCE 1
 
@@ -352,9 +352,14 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         options->setFastMathEnabled(option.enable_fast_math);
         options->setLanguageVersion(MTL::LanguageVersion3_0);
         options->setLibraryType(MTL::LibraryTypeExecutable);
-        options->setMaxTotalThreadsPerThreadgroup(metadata.block_size.x *
-                                                  metadata.block_size.y *
-                                                  metadata.block_size.z);
+
+        // this requires iOS 16.4+, iPadOS 16.4+, macOS 13.3+, Mac Catalyst 16.4+, tvOS 16.4+
+        if (__builtin_available(iOS 16.4, macOS 13.3, tvOS 16.4, macCatalyst 16.4, *)) {
+            options->setMaxTotalThreadsPerThreadgroup(metadata.block_size.x *
+                                                      metadata.block_size.y *
+                                                      metadata.block_size.z);
+        }
+
         NS::Error *error;
         auto library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
         source->release();
@@ -394,3 +399,4 @@ MetalShaderHandle MetalCompiler::load(luisa::string_view name,
 }
 
 }// namespace luisa::compute::metal
+

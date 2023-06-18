@@ -303,3 +303,4 @@ _MTL_INLINE void MTL::StitchedLibraryDescriptor::setFunctions(const NS::Array* f
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setFunctions_), functions);
 }
+

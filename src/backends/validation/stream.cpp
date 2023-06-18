@@ -10,11 +10,11 @@
 #include "procedural_primitives.h"
 #include "shader.h"
 #include "swap_chain.h"
-#include <core/logging.h>
-#include <runtime/raster/raster_scene.h>
-#include <runtime/rtx/aabb.h>
-#include <backends/ext/raster_cmd.h>
-#include <backends/ext/dstorage_cmd.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/raster/raster_scene.h>
+#include <luisa/runtime/rtx/aabb.h>
+#include <luisa/backends/ext/raster_cmd.h>
+#include <luisa/backends/ext/dstorage_cmd.h>
 
 namespace lc::validation {
 Stream::Stream(uint64_t handle, StreamTag stream_tag) : RWResource{handle, Tag::STREAM, false}, _stream_tag{stream_tag} {}

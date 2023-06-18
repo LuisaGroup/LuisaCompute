@@ -4,10 +4,10 @@
 
 #include <cuda.h>
 
-#include <core/clock.h>
-#include <core/magic_enum.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/magic_enum.h>
 
-#include <backends/cuda/cuda_dstorage.h>
+#include "cuda_dstorage.h"
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
@@ -261,7 +261,7 @@ ResourceCreationInfo CUDADStorageExt::create_stream_handle(const DStorageStreamO
     });
     ResourceCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
-    info.native_handle = p;
+    info.native_handle = p->handle();
     return info;
 }
 
@@ -275,7 +275,7 @@ DStorageExt::FileCreationInfo CUDADStorageExt::open_file_handle(luisa::string_vi
     }
     DStorageExt::FileCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(file);
-    info.native_handle = file;
+    info.native_handle = file->mapped_pointer();
     info.size_bytes = file->size_bytes();
     return info;
 }
@@ -293,7 +293,7 @@ DStorageExt::PinnedMemoryInfo CUDADStorageExt::pin_host_memory(void *ptr, size_t
     });
     DStorageExt::PinnedMemoryInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
-    info.native_handle = p;
+    info.native_handle = p->host_pointer();
     info.size_bytes = size_bytes;
     return info;
 }
@@ -306,3 +306,4 @@ void CUDADStorageExt::unpin_host_memory(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

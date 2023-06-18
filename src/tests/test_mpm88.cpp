@@ -5,15 +5,15 @@
 #include <random>
 #include <fstream>
 #include <chrono>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <runtime/buffer.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <core/logging.h>
-#include <gui/window.h>
-#include <runtime/context.h>
-#include <runtime/swapchain.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/core/logging.h>
+#include <luisa/gui/window.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/swapchain.h>
 
 int main(int argc, char *argv[]) {
 
@@ -197,3 +197,4 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
+

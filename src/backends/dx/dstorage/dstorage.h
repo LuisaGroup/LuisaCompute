@@ -1331,3 +1331,4 @@ HRESULT WINAPI DStorageGetFactory(REFIID riid, _COM_Outptr_ void** ppv);
 HRESULT WINAPI DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void** ppv);
 
 }
+

@@ -2,12 +2,12 @@
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
-#include <runtime/image.h>
-#include <py/py_stream.h>
+#include <luisa/runtime/image.h>
+#include "py_stream.h"
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
-#include <core/logging.h>
-#include <vstl/string_utility.h>
+#include <luisa/core/logging.h>
+#include <luisa/vstl/string_utility.h>
 namespace py = pybind11;
 using namespace luisa::compute;
 constexpr auto pyref = py::return_value_policy::reference;// object lifetime is managed on C++ side
@@ -59,3 +59,4 @@ void export_img(py::module &m) {
         }
     });
 }
+

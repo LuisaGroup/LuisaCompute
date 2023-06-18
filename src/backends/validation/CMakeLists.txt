@@ -18,7 +18,7 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         swap_chain.h
         texture.h)
 
-add_library(luisa-compute-validation-layer SHARED ${LUISA_COMPUTE_VALIDATION_SOURCES})
+add_library(luisa-compute-validation-layer MODULE ${LUISA_COMPUTE_VALIDATION_SOURCES})
 target_link_libraries(luisa-compute-validation-layer PRIVATE luisa-compute-runtime luisa-compute-gui)
 add_dependencies(luisa-compute-backends luisa-compute-validation-layer)
 set_target_properties(luisa-compute-validation-layer PROPERTIES

@@ -4,10 +4,10 @@
 
 #pragma once
 
-#include <core/stl/vector.h>
-#include <core/spin_mutex.h>
-#include <runtime/rhi/resource.h>
-#include <backends/metal/metal_api.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/rhi/resource.h>
+#include "metal_api.h"
 
 namespace luisa::compute::metal {
 
@@ -36,8 +36,10 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto option() const noexcept { return _option; }
     [[nodiscard]] MTL::AccelerationStructureUsage usage() const noexcept;
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return const_cast<void *>(static_cast<const void *>(&_handle)); }
     void set_name(luisa::string_view name) noexcept;
     void add_resources(luisa::vector<MTL::Resource *> &resources) noexcept;
 };
 
 }// namespace luisa::compute::metal
+

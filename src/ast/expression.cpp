@@ -2,11 +2,11 @@
 // Created by Mike Smith on 2021/3/13.
 //
 
-#include <core/logging.h>
-#include <ast/variable.h>
-#include <ast/expression.h>
-#include <ast/statement.h>
-#include <ast/function_builder.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/variable.h>
+#include <luisa/ast/expression.h>
+#include <luisa/ast/statement.h>
+#include <luisa/ast/function_builder.h>
 
 namespace luisa::compute {
 
@@ -211,3 +211,4 @@ void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
 }// namespace luisa::compute
+

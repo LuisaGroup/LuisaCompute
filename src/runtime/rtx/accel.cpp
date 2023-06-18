@@ -2,11 +2,11 @@
 // Created by Mike Smith on 2021/6/24.
 //
 
-#include <ast/function_builder.h>
-#include <runtime/shader.h>
-#include <runtime/rtx/accel.h>
-#include <vstl/pdqsort.h>
-#include <core/logging.h>
+#include <luisa/ast/function_builder.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/vstl/pdqsort.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -122,3 +122,4 @@ void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noex
 }
 
 }// namespace luisa::compute
+

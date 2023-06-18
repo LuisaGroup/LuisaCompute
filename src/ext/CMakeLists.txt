@@ -5,17 +5,21 @@ add_custom_target(luisa-compute-ext-copy ALL
 add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
 
 function(luisa_compute_install_extension target)
-    cmake_parse_arguments("EXT" "" "INCLUDE" "" ${ARGN})
+    cmake_parse_arguments("EXT" "" "INCLUDE;HEADER_DESTINATION" "HEADER_FILES" ${ARGN})
     install(TARGETS ${target}
             EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/ext)
+            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext)
     if (EXT_INCLUDE)
         install(DIRECTORY ${EXT_INCLUDE}
-                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/ext
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
                 FILES_MATCHING REGEX ".*\\.(h|hpp|hxx|hxx|inl)$")
+    endif ()
+    if (EXT_HEADER_FILES)
+        install(FILES ${EXT_HEADER_FILES}
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/${EXT_HEADER_DESTINATION})
     endif ()
 endfunction()
 
@@ -48,17 +52,31 @@ set_target_properties(xxhash PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
         OUTPUT_NAME lc-ext-xxhash)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)
-luisa_compute_install_extension(xxhash INCLUDE xxHash)
+luisa_compute_install_extension(xxhash HEADER_FILES
+        xxHash/xxh3.h
+        xxHash/xxhash.h
+        HEADER_DESTINATION xxHash)
 
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext INTERFACE stb)
 set_target_properties(stb PROPERTIES OUTPUT_NAME lc-ext-stb)
-luisa_compute_install_extension(stb INCLUDE stb)
+luisa_compute_install_extension(stb HEADER_FILES
+        stb/stb/stb_image.h
+        stb/stb/stb_image_resize.h
+        stb/stb/stb_image_write.h
+        HEADER_DESTINATION stb)
 
 add_library(magic_enum INTERFACE)
 target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
 target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
-luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
+luisa_compute_install_extension(magic_enum HEADER_FILES
+        magic_enum/include/magic_enum.hpp
+        magic_enum/include/magic_enum_containers.hpp
+        magic_enum/include/magic_enum_flags.hpp
+        magic_enum/include/magic_enum_format.hpp
+        magic_enum/include/magic_enum_fuse.hpp
+        magic_enum/include/magic_enum_iostream.hpp
+        magic_enum/include/magic_enum_switch.hpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -69,7 +87,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glfw)
     set_target_properties(glfw PROPERTIES OUTPUT_NAME lc-ext-glfw)
     target_link_libraries(luisa-compute-ext INTERFACE glfw)
-    luisa_compute_install_extension(glfw INCLUDE glfw/include)
+    luisa_compute_install_extension(glfw)
 endif ()
 
 add_subdirectory(EASTL)

@@ -1,9 +1,9 @@
 #pragma once
 #include "rw_resource.h"
-#include <ast/usage.h>
-#include <vstl/common.h>
-#include <runtime/rhi/command.h>
-#include <runtime/command_list.h>
+#include <luisa/ast/usage.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/command_list.h>
 #include "range.h"
 namespace lc::validation {
 using namespace luisa::compute;

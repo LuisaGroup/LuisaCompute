@@ -2,28 +2,28 @@
 // Created by Mike Smith on 2023/4/8.
 //
 
-#include <core/clock.h>
-#include <core/logging.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
 
 #ifdef LUISA_ENABLE_IR
-#include <backends/metal/metal_codegen_ir.h>
+#include "metal_codegen_ir.h"
 #endif
 
-#include <backends/metal/metal_builtin_embedded.h>
-#include <backends/metal/metal_codegen_ast.h>
-#include <backends/metal/metal_compiler.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_stream.h>
-#include <backends/metal/metal_event.h>
-#include <backends/metal/metal_swapchain.h>
-#include <backends/metal/metal_bindless_array.h>
-#include <backends/metal/metal_accel.h>
-#include <backends/metal/metal_mesh.h>
-#include <backends/metal/metal_procedural_primitive.h>
-#include <backends/metal/metal_shader.h>
-#include <backends/metal/metal_dstorage.h>
-#include <backends/metal/metal_device.h>
+#include "metal_builtin_embedded.h"
+#include "metal_codegen_ast.h"
+#include "metal_compiler.h"
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_stream.h"
+#include "metal_event.h"
+#include "metal_swapchain.h"
+#include "metal_bindless_array.h"
+#include "metal_accel.h"
+#include "metal_mesh.h"
+#include "metal_procedural_primitive.h"
+#include "metal_shader.h"
+#include "metal_dstorage.h"
+#include "metal_device.h"
 
 namespace luisa::compute::metal {
 
@@ -191,7 +191,7 @@ void *MetalDevice::native_handle() const noexcept {
     auto buffer = new_with_allocator<MetalBuffer>(device, buffer_size);
     BufferCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(buffer);
-    info.native_handle = buffer;
+    info.native_handle = buffer->handle();
     info.element_stride = element_stride;
     info.total_size_bytes = buffer_size;
     return info;
@@ -204,7 +204,7 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element, size_t elem_c
             auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
             BufferCreationInfo info{};
             info.handle = reinterpret_cast<uint64_t>(p);
-            info.native_handle = p;
+            info.native_handle = p->dispatch_buffer();
             info.element_stride = sizeof(MetalIndirectDispatchBuffer::Dispatch);
             info.total_size_bytes = p->dispatch_buffer()->length();
             return info;
@@ -236,13 +236,13 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
 
 ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimension,
                                                  uint width, uint height, uint depth,
-                                                 uint mipmap_levels) noexcept {
+                                                 uint mipmap_levels, bool simultaneous_access /*TODO: metal simultaneous access texture*/) noexcept {
     return with_autorelease_pool([=, this] {
         auto texture = new_with_allocator<MetalTexture>(
             _handle, format, dimension, width, height, depth, mipmap_levels);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(texture);
-        info.native_handle = texture;
+        info.native_handle = texture->handle();
         return info;
     });
 }
@@ -259,7 +259,7 @@ ResourceCreationInfo MetalDevice::create_bindless_array(size_t size) noexcept {
         auto array = new_with_allocator<MetalBindlessArray>(this, size);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(array);
-        info.native_handle = array;
+        info.native_handle = array->handle();
         return info;
     });
 }
@@ -277,7 +277,7 @@ ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
             _handle, _inqueue_buffer_limit ? 4u : 0u);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(stream);
-        info.native_handle = stream;
+        info.native_handle = stream->queue();
         return info;
     });
 }
@@ -312,7 +312,7 @@ SwapchainCreationInfo MetalDevice::create_swapchain(uint64_t window_handle, uint
             allow_hdr, vsync, back_buffer_size);
         SwapchainCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(swapchain);
-        info.native_handle = swapchain;
+        info.native_handle = swapchain->layer();
         info.storage = swapchain->pixel_storage();
         return info;
     });
@@ -387,7 +387,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
             kernel.block_size());
         ShaderCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader;
+        info.native_handle = shader->pso();
         info.block_size = kernel.block_size();
         return info;
     });
@@ -432,7 +432,7 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
             metadata.block_size);
         ShaderCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader;
+        info.native_handle = shader->pso();
         info.block_size = metadata.block_size;
         return info;
     });
@@ -455,7 +455,7 @@ ResourceCreationInfo MetalDevice::create_event() noexcept {
         auto event = new_with_allocator<MetalEvent>(_handle);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(event);
-        info.native_handle = event;
+        info.native_handle = event->handle();
         return info;
     });
 }
@@ -495,7 +495,7 @@ ResourceCreationInfo MetalDevice::create_mesh(const AccelOption &option) noexcep
         auto mesh = new_with_allocator<MetalMesh>(_handle, option);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(mesh);
-        info.native_handle = mesh;
+        info.native_handle = mesh->pointer_to_handle();
         return info;
     });
 }
@@ -512,7 +512,7 @@ ResourceCreationInfo MetalDevice::create_procedural_primitive(const AccelOption 
         auto primitive = new_with_allocator<MetalProceduralPrimitive>(_handle, option);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(primitive);
-        info.native_handle = primitive;
+        info.native_handle = primitive->pointer_to_handle();
         return info;
     });
 }
@@ -529,7 +529,7 @@ ResourceCreationInfo MetalDevice::create_accel(const AccelOption &option) noexce
         auto accel = new_with_allocator<MetalAccel>(this, option);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(accel);
-        info.native_handle = accel;
+        info.native_handle = accel->pointer_to_handle();
         return info;
     });
 }
@@ -666,3 +666,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         all_devices->release();
     });
 }
+

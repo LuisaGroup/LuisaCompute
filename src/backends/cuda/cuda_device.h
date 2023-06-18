@@ -6,14 +6,14 @@
 
 #include <cuda.h>
 
-#include <runtime/rhi/device_interface.h>
-#include <backends/common/default_binary_io.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_compiler.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_shader_metadata.h>
+#include <luisa/runtime/rhi/device_interface.h>
+#include "../common/default_binary_io.h"
+#include "cuda_error.h"
+#include "cuda_texture.h"
+#include "cuda_stream.h"
+#include "cuda_compiler.h"
+#include "optix_api.h"
+#include "cuda_shader_metadata.h"
 
 namespace luisa::compute::cuda {
 
@@ -133,7 +133,7 @@ public:
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept override;
+    ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
@@ -166,3 +166,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

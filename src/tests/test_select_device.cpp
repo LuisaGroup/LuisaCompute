@@ -1,6 +1,6 @@
-#include <runtime/device.h>
-#include <runtime/context.h>
-#include <core/logging.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/core/logging.h>
 using namespace luisa::compute;
 int main(int argc, char *argv[]) {
     Context context{argv[0]};

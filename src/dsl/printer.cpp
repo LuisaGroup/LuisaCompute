@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2022/2/13.
 //
 
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <dsl/printer.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/dsl/printer.h>
 
 namespace luisa::compute {
 
@@ -56,3 +56,4 @@ Printer::retrieve(bool abort_on_error) noexcept {
 }
 
 }// namespace luisa::compute
+

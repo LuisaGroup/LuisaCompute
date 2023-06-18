@@ -4,8 +4,8 @@
 
 #include <mutex>
 
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_texture.h>
+#include "cuda_error.h"
+#include "cuda_texture.h"
 
 namespace luisa::compute::cuda {
 
@@ -79,3 +79,4 @@ void CUDATexture::set_name(luisa::string &&name) noexcept {
 }
 
 }// namespace luisa::compute::cuda
+

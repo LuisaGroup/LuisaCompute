@@ -6,7 +6,7 @@
 
 #ifdef LUISA_ENABLE_IR
 
-#include <ir/ir2ast.h>
+#include <luisa/ir/ir2ast.h>
 
 namespace luisa::compute::metal {
 
@@ -19,3 +19,4 @@ public:
 }// namespace luisa::compute::metal
 
 #endif
+

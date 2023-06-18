@@ -7,13 +7,13 @@
 #include <utility>
 #include <algorithm>
 
-#include <core/pool.h>
-#include <core/stl/format.h>
-#include <core/stl/hash.h>
-#include <core/stl/unordered_map.h>
-#include <core/logging.h>
-#include <ast/type_registry.h>
-#include <ast/type.h>
+#include <luisa/core/pool.h>
+#include <luisa/core/stl/format.h>
+#include <luisa/core/stl/hash.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/type_registry.h>
+#include <luisa/ast/type.h>
 
 namespace luisa::compute {
 
@@ -606,3 +606,4 @@ bool Type::is_int64_vector() const noexcept { return is_vector() && element()->i
 bool Type::is_uint64_vector() const noexcept { return is_vector() && element()->is_uint64(); }
 
 }// namespace luisa::compute
+

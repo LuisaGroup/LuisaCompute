@@ -1,9 +1,9 @@
 #pragma once
 
-#include <vstl/common.h>
-#include <vstl/functional.h>
-#include <runtime/stream.h>
-#include <runtime/device.h>
+#include <luisa/vstl/common.h>
+#include <luisa/vstl/functional.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/device.h>
 
 namespace luisa::compute {
 
@@ -57,3 +57,4 @@ public:
 };
 
 }// namespace luisa::compute
+

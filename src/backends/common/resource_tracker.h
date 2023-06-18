@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/stl/vector.h>
-#include <core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/unordered_map.h>
 
 namespace luisa::compute {
 
@@ -61,3 +61,4 @@ public:
 };
 
 }// namespace luisa::compute
+

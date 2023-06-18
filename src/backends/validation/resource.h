@@ -1,6 +1,6 @@
 #pragma once
-#include <vstl/common.h>
-#include <runtime/rhi/resource.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/rhi/resource.h>
 namespace lc::validation {
 class Resource : public vstd::IOperatorNewBase {
 public:

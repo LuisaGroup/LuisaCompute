@@ -5,15 +5,17 @@
 #include <sys/mman.h>
 #include <compression.h>
 
-#include <core/clock.h>
-#include <core/magic_enum.h>
-#include <core/logging.h>
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_buffer.h>
-#include <backends/metal/metal_texture.h>
-#include <backends/metal/metal_event.h>
-#include <backends/metal/metal_command_encoder.h>
-#include <backends/metal/metal_dstorage.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/mathematics.h>
+
+#include "metal_device.h"
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_event.h"
+#include "metal_command_encoder.h"
+#include "metal_dstorage.h"
 
 namespace luisa::compute::metal {
 
@@ -124,7 +126,7 @@ void MetalDStorageExt::compress(const void *data, size_t size_bytes,
     auto chunk_size = MTL::IOCompressionContextDefaultChunkSize();
     auto chunk_count = (size_bytes + chunk_size - 1u) / chunk_size;
 
-    auto reserved_size = std::bit_ceil(std::max<size_t>(
+    auto reserved_size = next_pow2(std::max<size_t>(
         static_cast<size_t>(.2 * static_cast<double>(size_bytes)), chunk_size));
     result.reserve(sizeof(MetalCompressionFileHeader) +
                    sizeof(MetalCompressionChunkMetadata) * chunk_count +
@@ -556,7 +558,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
         }
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(p);
-        info.native_handle = p;
+        info.native_handle = p->io_queue();
         return info;
     });
 }
@@ -574,7 +576,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
         auto p = luisa::new_with_allocator<MetalFileHandle>(_device->handle(), path, size);
         FileCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(p);
-        info.native_handle = p;
+        info.native_handle = p->url();
         info.size_bytes = size;
         return info;
     });
@@ -589,7 +591,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
         }
         PinnedMemoryInfo info{};
         info.handle = reinterpret_cast<uint64_t>(pinned);
-        info.native_handle = pinned;
+        info.native_handle = pinned->host_pointer();
         info.size_bytes = size_bytes;
         return info;
     });
@@ -610,3 +612,4 @@ void MetalDStorageExt::unpin_host_memory(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::metal
+

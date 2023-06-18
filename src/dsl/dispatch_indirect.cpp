@@ -1,5 +1,5 @@
-#include <dsl/stmt.h>
-#include <dsl/dispatch_indirect.h>
+#include <luisa/dsl/stmt.h>
+#include <luisa/dsl/dispatch_indirect.h>
 
 namespace luisa::compute {
 
@@ -40,3 +40,4 @@ void Expr<IndirectDispatchBuffer>::dispatch_kernel(
 }
 
 }// namespace luisa::compute
+

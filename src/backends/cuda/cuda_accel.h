@@ -8,10 +8,9 @@
 
 #include <cuda.h>
 
-#include <runtime/rtx/accel.h>
-#include <core/dirty_range.h>
-#include <backends/cuda/cuda_primitive.h>
-#include <backends/cuda/optix_api.h>
+#include <luisa/runtime/rtx/accel.h>
+#include "cuda_primitive.h"
+#include "optix_api.h"
 
 namespace luisa::compute::cuda {
 
@@ -62,7 +61,9 @@ public:
     [[nodiscard]] optix::TraversableHandle handle() const noexcept;
     [[nodiscard]] CUdeviceptr instance_buffer() const noexcept;
     [[nodiscard]] Binding binding() const noexcept;
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
     void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda
+

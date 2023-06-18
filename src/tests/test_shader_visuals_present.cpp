@@ -2,14 +2,14 @@
 // Created by Mike Smith on 2021/6/25.
 //
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/swapchain.h>
-#include <dsl/sugar.h>
-#include <gui/window.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -163,3 +163,4 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
+

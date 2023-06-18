@@ -2,14 +2,14 @@
 // Created by Mike Smith on 2023/4/15.
 //
 
-#include <core/logging.h>
-#include <core/magic_enum.h>
-#include <runtime/rtx/ray.h>
-#include <runtime/rtx/hit.h>
-#include <dsl/rtx/ray_query.h>
-#include <runtime/dispatch_buffer.h>
-#include <backends/metal/metal_builtin_embedded.h>
-#include <backends/metal/metal_codegen_ast.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
+#include <luisa/runtime/rtx/ray.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include "metal_builtin_embedded.h"
+#include "metal_codegen_ast.h"
 
 namespace luisa::compute::metal {
 
@@ -372,9 +372,17 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "};\n\n";
 
         // emit function signature and prelude
-        _scratch << "void kernel_main_impl(constant Arguments &args,\n"
-                 << "                      uint3 tid, uint3 bid, uint3 did,\n"
-                 << "                      uint3 bs, uint3 ds, uint kid) {\n\n"
+        _scratch << "void kernel_main_impl(\n"
+                 << "    constant Arguments &args,\n"
+                 << "    uint3 tid, uint3 bid, uint3 did,\n"
+                 << "    uint3 bs, uint3 ds, uint kid";
+        for (auto s : _function.shared_variables()) {
+            _scratch << ", threadgroup ";
+            _emit_type_name(s.type());
+            _scratch << " &";
+            _emit_variable_name(s);
+        }
+        _scratch << ") {\n"
                  << "  lc_assume("
                  << "bs.x == " << _function.block_size().x << " && "
                  << "bs.y == " << _function.block_size().y << " && "
@@ -389,15 +397,32 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch << ";\n";
         }
     } else {
+        auto texture_count = std::count_if(
+            _function.arguments().cbegin(), _function.arguments().cend(),
+            [](auto arg) { return arg.type()->is_texture(); });
+        if (texture_count > 0) {
+            _scratch << "template<";
+            for (auto i = 0u; i < texture_count; i++) {
+                _scratch << "typename T" << i << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
+            _scratch << ">\n";
+        }
         _emit_type_name(_function.return_type());
         _scratch << " callable_" << hash_to_string(_function.hash()) << "(";
+        auto emitted_texture_count = 0u;
         if (!_function.arguments().empty()) {
             for (auto arg : _function.arguments()) {
                 auto is_mut_ref = arg.is_reference() &&
                                   (to_underlying(_function.variable_usage(arg.uid())) &
                                    to_underlying(Usage::WRITE));
                 if (is_mut_ref) { _scratch << "thread "; }
-                _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
+                if (arg.type()->is_texture()) {
+                    _scratch << "T" << emitted_texture_count++;
+                } else {
+                    _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
+                }
                 _scratch << " ";
                 if (is_mut_ref) { _scratch << "&"; }
                 _emit_variable_name(arg);
@@ -407,19 +432,6 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch.pop_back();
         }
         _scratch << ") {\n";
-    }
-
-    // emit shared variables
-    if (_function.tag() == Function::Tag::KERNEL &&
-        !_function.shared_variables().empty()) {
-        _scratch << "\n  /* shared variables */\n";
-        for (auto shared : _function.shared_variables()) {
-            _scratch << "  threadgroup ";
-            _emit_type_name(shared.type());
-            _scratch << " ";
-            _emit_variable_name(shared);
-            _scratch << ";\n";
-        }
     }
 
     // emit local variables
@@ -472,6 +484,20 @@ void MetalCodegenAST::_emit_function() noexcept {
     _scratch << "\n  /* function body end */\n";
     _scratch << "}\n\n";
 
+    auto emit_shared_variable_decls = [&] {
+        if (_function.tag() == Function::Tag::KERNEL &&
+            !_function.shared_variables().empty()) {
+            _scratch << "\n  /* shared variables */\n";
+            for (auto shared : _function.shared_variables()) {
+                _scratch << "  threadgroup ";
+                _emit_type_name(shared.type());
+                _scratch << " ";
+                _emit_variable_name(shared);
+                _scratch << ";\n";
+            }
+        }
+    };
+
     // emit direct and indirect specializations
     if (_function.tag() == Function::Tag::KERNEL) {
         // direct dispatch
@@ -482,8 +508,14 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
                  << "    uint3 bs [[threads_per_threadgroup]]) {\n"
-                 << "  auto ds = args.dispatch_size;\n"
-                 << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u);\n"
+                 << "  auto ds = args.dispatch_size;\n";
+        emit_shared_variable_decls();
+        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u";
+        for (auto s : _function.shared_variables()) {
+            _scratch << ", ";
+            _emit_variable_name(s);
+        }
+        _scratch << ");\n"
                  << "}\n\n";
         // indirect dispatch
         _scratch << "[[kernel]] /* indirect kernel dispatch entry */\n"
@@ -493,8 +525,14 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
-                 << "    uint3 bs [[threads_per_threadgroup]]) {\n"
-                 << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w);\n"
+                 << "    uint3 bs [[threads_per_threadgroup]]) {\n";
+        emit_shared_variable_decls();
+        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w";
+        for (auto s : _function.shared_variables()) {
+            _scratch << ", ";
+            _emit_variable_name(s);
+        }
+        _scratch << ");\n"
                  << "}\n\n";
     }
 }
@@ -995,7 +1033,7 @@ void MetalCodegenAST::visit(const IfStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "}";
     if (auto &&fb = stmt->false_branch()->statements(); !fb.empty()) {
-        _scratch << " else {";
+        _scratch << " else {\n";
         _indention++;
         for (auto s : fb) { s->accept(*this); }
         _indention--;

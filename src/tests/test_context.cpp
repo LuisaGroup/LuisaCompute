@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2023/4/5.
 //
 
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <tests/common/config.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include "common/config.h"
 
 TEST_CASE("context") {
     luisa::compute::Context context{luisa::test::argv()[0]};
@@ -17,3 +17,4 @@ TEST_CASE("context") {
         }
     }
 }
+

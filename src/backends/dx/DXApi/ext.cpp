@@ -3,7 +3,7 @@
 #include <DXRuntime/Device.h>
 #include <Resource/RenderTexture.h>
 #include <DXApi/LCCmdBuffer.h>
-#include <runtime/stream.h>
+#include <luisa/runtime/stream.h>
 #include <Resource/ExternalBuffer.h>
 #include <Resource/ExternalTexture.h>
 #include <Resource/ExternalDepth.h>
@@ -12,7 +12,7 @@
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
-#include <runtime/image.h>
+#include <luisa/runtime/image.h>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -274,3 +274,4 @@ void DStorageExtImpl::set_config(bool hdd) noexcept {
     init_factory_nolock();
 }
 }// namespace lc::dx
+

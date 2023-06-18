@@ -35,3 +35,4 @@ void RefCounter::DeRef(Handle handle) noexcept {
 vstd::unique_ptr<RefCounter> RefCounter::current;
 
 }// namespace luisa::compute
+

@@ -10,38 +10,38 @@
 
 #include <nvtx3/nvToolsExtCuda.h>
 
-#include <core/clock.h>
-#include <core/binary_io.h>
-#include <runtime/rhi/sampler.h>
-#include <runtime/bindless_array.h>
-#include <runtime/dispatch_buffer.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/runtime/rhi/sampler.h>
+#include <luisa/runtime/bindless_array.h>
+#include <luisa/runtime/dispatch_buffer.h>
 
 #ifdef LUISA_ENABLE_IR
-#include <ir/ir2ast.h>
+#include <luisa/ir/ir2ast.h>
 #endif
 
-#include <backends/common/string_scratch.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_buffer.h>
-#include <backends/cuda/cuda_mesh.h>
-#include <backends/cuda/cuda_procedural_primitive.h>
-#include <backends/cuda/cuda_accel.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_codegen_ast.h>
-#include <backends/cuda/cuda_compiler.h>
-#include <backends/cuda/cuda_bindless_array.h>
-#include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_texture.h>
-#include <backends/cuda/cuda_shader_native.h>
-#include <backends/cuda/cuda_shader_optix.h>
-#include <backends/cuda/cuda_shader_metadata.h>
-#include <backends/cuda/optix_api.h>
-#include <backends/cuda/cuda_swapchain.h>
-#include <backends/cuda/cuda_builtin_embedded.h>
+#include "../common/string_scratch.h"
+#include "cuda_error.h"
+#include "cuda_device.h"
+#include "cuda_buffer.h"
+#include "cuda_mesh.h"
+#include "cuda_procedural_primitive.h"
+#include "cuda_accel.h"
+#include "cuda_stream.h"
+#include "cuda_codegen_ast.h"
+#include "cuda_compiler.h"
+#include "cuda_bindless_array.h"
+#include "cuda_command_encoder.h"
+#include "cuda_texture.h"
+#include "cuda_shader_native.h"
+#include "cuda_shader_optix.h"
+#include "cuda_shader_metadata.h"
+#include "optix_api.h"
+#include "cuda_swapchain.h"
+#include "cuda_builtin_embedded.h"
 
-#include <backends/cuda/cuda_dstorage.h>
-#include <backends/cuda/cuda_ext.h>
+#include "cuda_dstorage.h"
+#include "cuda_ext.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_DUMP_SOURCE 1
@@ -215,7 +215,7 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
             return new_with_allocator<CUDAIndirectDispatchBuffer>(elem_count);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
-        info.native_handle = buffer;
+        info.native_handle = reinterpret_cast<void *>(buffer->handle());
         info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
         info.total_size_bytes = buffer->size_bytes();
     } else {
@@ -225,7 +225,7 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
             return new_with_allocator<CUDABuffer>(size);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
-        info.native_handle = buffer;
+        info.native_handle = reinterpret_cast<void *>(buffer->handle());
     }
     return info;
 }
@@ -245,7 +245,7 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     });
 }
 
-ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
+ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept {
     auto p = with_handle([=] {
         auto array_format = cuda_array_format(format);
         auto channels = pixel_format_channel_count(format);
@@ -272,7 +272,8 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
             array_handle, make_uint3(width, height, depth),
             format, mipmap_levels);
     });
-    return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
+    return {.handle = reinterpret_cast<uint64_t>(p),
+            .native_handle = reinterpret_cast<void *>(p->handle())};
 }
 
 void CUDADevice::destroy_texture(uint64_t handle) noexcept {
@@ -283,7 +284,8 @@ void CUDADevice::destroy_texture(uint64_t handle) noexcept {
 
 ResourceCreationInfo CUDADevice::create_bindless_array(size_t size) noexcept {
     auto p = with_handle([size] { return new_with_allocator<CUDABindlessArray>(size); });
-    return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
+    return {.handle = reinterpret_cast<uint64_t>(p),
+            .native_handle = reinterpret_cast<void *>(p->handle())};
 }
 
 void CUDADevice::destroy_bindless_array(uint64_t handle) noexcept {
@@ -300,7 +302,8 @@ ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
     }
 #endif
     auto p = with_handle([&] { return new_with_allocator<CUDAStream>(this); });
-    return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
+    return {.handle = reinterpret_cast<uint64_t>(p),
+            .native_handle = p->handle()};
 }
 
 void CUDADevice::destroy_stream(uint64_t handle) noexcept {
@@ -537,7 +540,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
 #endif
     ShaderCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
-    info.native_handle = p;
+    info.native_handle = p->handle();
     info.block_size = expected_metadata.block_size;
     return info;
 }
@@ -706,7 +709,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
 #endif
     ShaderCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
-    info.native_handle = p;
+    info.native_handle = p->handle();
     info.block_size = metadata.block_size;
     return info;
 }
@@ -728,7 +731,8 @@ ResourceCreationInfo CUDADevice::create_event() noexcept {
             &event, CU_EVENT_BLOCKING_SYNC | CU_EVENT_DISABLE_TIMING));
         return event;
     });
-    return {.handle = reinterpret_cast<uint64_t>(event_handle), .native_handle = event_handle};
+    return {.handle = reinterpret_cast<uint64_t>(event_handle),
+            .native_handle = event_handle};
 }
 
 void CUDADevice::destroy_event(uint64_t handle) noexcept {
@@ -765,7 +769,7 @@ ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept
         return new_with_allocator<CUDAMesh>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(mesh_handle),
-            .native_handle = mesh_handle};
+            .native_handle = const_cast<optix::TraversableHandle *>(mesh_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
@@ -780,7 +784,7 @@ ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &
         return new_with_allocator<CUDAProceduralPrimitive>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(primitive_handle),
-            .native_handle = primitive_handle};
+            .native_handle = const_cast<optix::TraversableHandle *>(primitive_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
@@ -795,7 +799,7 @@ ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcep
         return new_with_allocator<CUDAAccel>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(accel_handle),
-            .native_handle = accel_handle};
+            .native_handle = const_cast<optix::TraversableHandle *>(accel_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_accel(uint64_t handle) noexcept {
@@ -1027,3 +1031,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         }
     }
 }
+

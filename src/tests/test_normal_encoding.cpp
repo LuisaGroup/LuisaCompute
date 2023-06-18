@@ -3,7 +3,7 @@
 //
 
 #include <random>
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -101,3 +101,4 @@ int main(int argc, char *argv[]) {
         "error: min = {} deg, max = {} deg, avg = {} deg.",
         min_error, max_error, sum_error / n);
 }
+

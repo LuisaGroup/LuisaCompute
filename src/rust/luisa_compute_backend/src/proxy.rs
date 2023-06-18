@@ -114,6 +114,7 @@ impl Backend for ProxyBackend {
         height: u32,
         depth: u32,
         mipmap_levels: u32,
+        allow_simultaneous_access: bool,
     ) -> api::CreatedResourceInfo {
         catch_abort!({
             (self.device.create_texture)(
@@ -124,6 +125,7 @@ impl Backend for ProxyBackend {
                 height,
                 depth,
                 mipmap_levels,
+                allow_simultaneous_access,
             )
         })
     }

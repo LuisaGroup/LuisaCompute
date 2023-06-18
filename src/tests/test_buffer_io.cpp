@@ -2,8 +2,8 @@
 // Created by Mike on 4/6/2023.
 //
 
-#include <tests/common/config.h>
-#include <luisa-compute.h>
+#include "common/config.h"
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -82,3 +82,4 @@ TEST_CASE("buffer_io") {
         }
     }
 }
+

@@ -1,5 +1,4 @@
-#include <backends/common/rust_device_common.h>
-#include <backends/common/rust_device_common.h>
+#include "../common/rust_device_common.h"
 #include "remote_device.h"
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
@@ -15,3 +14,4 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
     names.clear();
     names.emplace_back("Unknown");// TODO
 }
+

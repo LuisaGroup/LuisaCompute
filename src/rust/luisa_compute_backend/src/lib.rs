@@ -179,6 +179,7 @@ pub trait Backend: Sync + Send {
         height: u32,
         depth: u32,
         mipmap_levels: u32,
+        allow_simultaneous_access: bool,
     ) -> api::CreatedResourceInfo;
     fn destroy_texture(&self, texture: api::Texture);
     fn create_bindless_array(&self, size: usize) -> api::CreatedResourceInfo;
@@ -279,9 +280,11 @@ pub extern "C" fn create_texture<B: Backend>(
     height: u32,
     depth: u32,
     mipmap_levels: u32,
+    allow_simultaneous_access: bool,
 ) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    backend.create_texture(format, dimension, width, height, depth, mipmap_levels)
+    backend.create_texture(format, dimension, width, height, depth,
+                           mipmap_levels, allow_simultaneous_access)
 }
 //
 

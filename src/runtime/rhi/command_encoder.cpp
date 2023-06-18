@@ -1,8 +1,8 @@
-#include <core/logging.h>
-#include <ast/function_builder.h>
-#include <runtime/rhi/command.h>
-#include <runtime/rhi/command_encoder.h>
-#include <runtime/raster/raster_scene.h>
+#include <luisa/core/logging.h>
+#include <luisa/ast/function_builder.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/runtime/raster/raster_scene.h>
 
 namespace luisa::compute {
 
@@ -214,3 +214,4 @@ void RasterDispatchCmdEncoder::set_viewport(Viewport viewport) noexcept {
 }
 
 }// namespace luisa::compute
+

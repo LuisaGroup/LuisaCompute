@@ -1,9 +1,9 @@
 #pragma once
 #include "shader.h"
-#include <runtime/rhi/resource.h>
-#include <vstl/md5.h>
-#include <vstl/functional.h>
-#include <ast/function.h>
+#include <luisa/runtime/rhi/resource.h>
+#include <luisa/vstl/md5.h>
+#include <luisa/vstl/functional.h>
+#include <luisa/ast/function.h>
 #include "serde_type.h"
 
 namespace luisa{

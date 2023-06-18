@@ -7,7 +7,7 @@ on_load(function(target)
 	local function rela(p)
 		return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
 	end
-	target:add("includedirs", rela("../"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
+	target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
 					rela("../ext/parallel-hashmap"), {
 						public = true
 					})
@@ -35,6 +35,6 @@ on_load(function(target)
 	target:add("defines", "LC_CORE_EXPORT_DLL")
     target:add("deps", "eastl", "spdlog")
 end)
-add_headerfiles("**.h")
+add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp", "../ext/parallel-hashmap/**.h")
 add_files("**.cpp")
 target_end()

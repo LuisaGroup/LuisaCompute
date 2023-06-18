@@ -6,14 +6,13 @@
 
 #include <cuda.h>
 
-#include <core/spin_mutex.h>
-#include <core/stl.h>
-#include <core/dirty_range.h>
-#include <runtime/rhi/sampler.h>
-#include <runtime/rhi/command.h>
-#include <backends/common/resource_tracker.h>
-#include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_texture.h>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl.h>
+#include <luisa/runtime/rhi/sampler.h>
+#include <luisa/runtime/rhi/command.h>
+#include "../common/resource_tracker.h"
+#include "cuda_error.h"
+#include "cuda_texture.h"
 
 namespace luisa::compute::cuda {
 
@@ -55,3 +54,4 @@ public:
 };
 
 }// namespace luisa::compute::cuda
+

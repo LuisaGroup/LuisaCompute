@@ -5,8 +5,8 @@
 #pragma once
 
 #include <cuda.h>
-#include <core/stl/string.h>
-#include <backends/cuda/cuda_shader.h>
+#include <luisa/core/stl/string.h>
+#include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 
@@ -32,6 +32,8 @@ public:
                      luisa::vector<Usage> argument_usages,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
+    [[nodiscard]] void *handle() const noexcept override { return _function; }
 };
 
 }// namespace luisa::compute::cuda
+

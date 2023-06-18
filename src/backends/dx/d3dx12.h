@@ -9,13 +9,13 @@
 // PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.
 //
 //*********************************************************
-#include <vstl/common.h>
+#include <luisa/vstl/common.h>
 #include <Windows.h>
 #include <d3d12.h>
 #include <comdef.h>
-#include <vstl/functional.h>
+#include <luisa/vstl/functional.h>
 #include <dxgi.h>
-#include <core/basic_types.h>
+#include <luisa/core/basic_types.h>
 #ifdef UNICODE
 using lcdx_pchar = LPCWSTR;
 #else
@@ -3218,7 +3218,7 @@ inline vstd::wstring AnsiToWString(const vstd::string &str) {
     }
 #endif
 #endif
-#include <vstl/unique_ptr.h>
+#include <luisa/vstl/unique_ptr.h>
 namespace vstd {
 template<typename T>
 struct com_deleter {

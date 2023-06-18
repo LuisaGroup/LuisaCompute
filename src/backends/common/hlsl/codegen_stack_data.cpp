@@ -1,7 +1,7 @@
 #include "codegen_stack_data.h"
-#include <runtime/rtx/ray.h>
-#include <runtime/rtx/hit.h>
-#include <ast/type_registry.h>
+#include <luisa/runtime/rtx/ray.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/ast/type_registry.h>
 namespace lc::hlsl {
 CodegenStackData::CodegenStackData()
     : generateStruct(

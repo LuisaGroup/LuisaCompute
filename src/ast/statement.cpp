@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/11/1.
 //
 
-#include <ast/statement.h>
-#include <core/logging.h>
+#include <luisa/ast/statement.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -104,3 +104,4 @@ void StmtVisitor::visit(const AutoDiffStmt *stmt) {
 }
 
 }// namespace luisa::compute
+

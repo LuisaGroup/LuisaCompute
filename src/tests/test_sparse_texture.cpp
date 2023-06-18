@@ -1,15 +1,15 @@
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/event.h>
-#include <runtime/stream.h>
-#include <runtime/sparse_buffer.h>
-#include <runtime/sparse_image.h>
-#include <runtime/bindless_array.h>
-#include <core/logging.h>
-#include <dsl/syntax.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/event.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/sparse_buffer.h>
+#include <luisa/runtime/sparse_image.h>
+#include <luisa/runtime/bindless_array.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/syntax.h>
 #include <stb/stb_image_write.h>
-#include <core/clock.h>
-#include <backends/ext/dstorage_ext.hpp>
+#include <luisa/core/clock.h>
+#include <luisa/backends/ext/dstorage_ext.hpp>
 
 using namespace luisa;
 using namespace luisa::compute;

@@ -11,11 +11,12 @@ RenderTexture::RenderTexture(
     uint depth,
     uint mip,
     bool allowUav,
+    bool allowSimul,
     GpuAllocator *allocator)
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
       allocHandle(allocator),
       allowUav(allowUav) {
-    auto texDesc = GetResourceDescBase(allowUav);
+    auto texDesc = GetResourceDescBase(allowUav, allowSimul);
     if (!allocator) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;

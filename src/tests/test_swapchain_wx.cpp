@@ -7,14 +7,14 @@
 
 #include <stb/stb_image.h>
 
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/swapchain.h>
-#include <gui/window.h>
-#include <gui/framerate.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/gui/window.h>
+#include <luisa/gui/framerate.h>
 
 #if defined(__WXGTK__)
 #include <gtk/gtk.h>
@@ -145,3 +145,4 @@ public:
 };
 
 IMPLEMENT_APP_CONSOLE(App)
+

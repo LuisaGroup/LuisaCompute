@@ -1,7 +1,7 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"
-#include <core/basic_types.h>
+#include <luisa/core/basic_types.h>
 namespace lc::vk {
 using namespace luisa;
 class Device;

@@ -85,3 +85,4 @@ _NS_INLINE NS::Set* NS::Set::init(const class Coder* pCoder)
 {
     return Object::sendMessage<Set*>(this, _NS_PRIVATE_SEL(initWithCoder_), pCoder);
 }
+

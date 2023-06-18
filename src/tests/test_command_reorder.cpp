@@ -2,7 +2,7 @@
 // Created by ChenXin on 2021/12/9.
 //
 
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 #include <runtime/command_scheduler.h>
 
 using namespace luisa;

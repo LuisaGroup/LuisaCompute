@@ -490,3 +490,4 @@
 // ForceFileBuffering was enabled without disabling BypassIO.
 //
 #define E_DSTORAGE_FILEBUFFERING_REQUIRES_DISABLED_BYPASSIO ((HRESULT)0x89240041L)
+

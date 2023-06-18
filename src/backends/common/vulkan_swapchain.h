@@ -6,10 +6,10 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <core/basic_types.h>
-#include <core/stl/memory.h>
-#include <core/stl/string.h>
-#include <core/magic_enum.h>
+#include <luisa/core/basic_types.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/magic_enum.h>
 
 #define LUISA_CHECK_VULKAN(x)                                            \
     do {                                                                 \
@@ -67,3 +67,4 @@ void *cocoa_window_content_view(uint64_t window_handle) noexcept;
 #endif
 
 }// namespace luisa::compute
+

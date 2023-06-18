@@ -1,5 +1,5 @@
-#include <dsl/stmt.h>
-#include <dsl/rtx/accel.h>
+#include <luisa/dsl/stmt.h>
+#include <luisa/dsl/rtx/accel.h>
 
 namespace luisa::compute {
 
@@ -134,3 +134,4 @@ void Expr<Accel>::set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque)
 }
 
 }// namespace luisa::compute
+

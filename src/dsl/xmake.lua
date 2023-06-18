@@ -5,5 +5,5 @@ _config_project({
 })
 add_defines("LC_DSL_EXPORT_DLL")
 add_deps("lc-ast", "lc-runtime")
-add_headerfiles("**.h")
+add_headerfiles("../../include/luisa/dsl/**.h")
 add_files("**.cpp")

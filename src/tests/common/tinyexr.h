@@ -82,8 +82,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 //
 
-#include <stddef.h>// for size_t
-#include <stdint.h>// guess stdint.h is available(C99)
+#include <stddef.h>//
+#include <stdint.h>//
 
 #ifdef __cplusplus
 extern "C" {
@@ -614,7 +614,7 @@ namespace miniz {
    Was pushing the wrong central dir header offset, appears harmless in this
    release, but it became a problem in the zip64 branch
      5/20/12 v1.14 - MinGW32/64 GCC 4.6.1 compiler fixes: added MZ_FORCEINLINE,
-   #include <time.h> (thanks fermtect).
+#include <time.h>
      5/19/12 v1.13 - From jason@cornsyrup.org and kelwert@mtu.edu - Fix
    mz_crc32() so it doesn't compute the wrong CRC-32's when mz_ulong is 64-bit.
        - Temporarily/locally slammed in "typedef unsigned long mz_ulong" and
@@ -13302,3 +13302,4 @@ int SaveEXR(const float *data, int width, int height, int components,
 
 #endif// TINYEXR_IMPLEMENTATION_DEIFNED
 #endif// TINYEXR_IMPLEMENTATION
+

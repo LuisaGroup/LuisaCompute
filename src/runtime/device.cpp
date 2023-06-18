@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2022/12/25.
 //
 
-#include <core/logging.h>
-#include <runtime/device.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
 
 namespace luisa::compute {
 
@@ -20,3 +20,4 @@ void Device::_check_no_implicit_binding(Function func, luisa::string_view shader
 }
 
 }// namespace luisa::compute
+

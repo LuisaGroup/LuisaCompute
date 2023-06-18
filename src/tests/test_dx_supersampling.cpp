@@ -1,27 +1,27 @@
-#include <core/clock.h>
-#include <core/logging.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <runtime/event.h>
-#include <runtime/swapchain.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <runtime/rtx/accel.h>
-#include <gui/window.h>
-#include <backends/dx/dx_custom_cmd.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
+#include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/gui/window.h>
+#include <luisa/backends/ext/dx_custom_cmd.h>
 // Make sure FSR2 is under this dir
-#include <core/magic_enum.h>
+#include <luisa/core/magic_enum.h>
 #ifdef ENABLE_FSR
 #include <ffx_fsr2.h>
 #include <dx12/ffx_fsr2_dx12.h>
 #else
 #include <xess/xess_d3d12.h>
 #endif
-#include <tests/common/cornell_box.h>
+#include "common/cornell_box.h"
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/common/tiny_obj_loader.h>
-#include <tests/common/projection.hpp>
+#include "common/tiny_obj_loader.h"
+#include "common/projection.hpp"
 // #include <ffx_fsr2_interface.h>
 using namespace luisa;
 using namespace luisa::compute;

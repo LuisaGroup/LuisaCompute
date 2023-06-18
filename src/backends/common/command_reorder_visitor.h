@@ -1,15 +1,15 @@
 #pragma once
 
-#include <runtime/device.h>
-#include <core/stl/hash.h>
+#include <luisa/runtime/device.h>
+#include <luisa/core/stl/hash.h>
 #include <cstdint>
-#include <vstl/common.h>
-#include <runtime/rhi/command.h>
-#include <runtime/buffer.h>
-#include <runtime/raster/raster_scene.h>
-#include <runtime/rhi/argument.h>
-#include <core/logging.h>
-#include <backends/ext/raster_cmd.h>
+#include <luisa/vstl/common.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/raster/raster_scene.h>
+#include <luisa/runtime/rhi/argument.h>
+#include <luisa/core/logging.h>
+#include <luisa/backends/ext/raster_cmd.h>
 
 namespace luisa::compute {
 
@@ -862,3 +862,4 @@ public:
 };
 
 }// namespace luisa::compute
+

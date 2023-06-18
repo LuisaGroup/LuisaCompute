@@ -2,13 +2,12 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include "luisa_compute_api_types/bindings.h"
-#include "luisa_compute_ir/bindings.hpp"
-#include "runtime/rhi/resource.h"
-#include <luisa-compute.h>
-#include <ast/function_builder.h>
-#include <runtime/rhi/command_encoder.h>
-#include <api/api.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/api/api.h>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
 
@@ -70,7 +69,7 @@ namespace luisa::compute {
                 : Resource{device, Tag::TEXTURE,
                            device->create_texture(format, dimension,
                                                   width, height, depth,
-                                                  mipmap_levels)} {}
+                                                  mipmap_levels, false)} {}
     };
 
     struct ShaderResource : public Resource {
@@ -420,10 +419,10 @@ LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buf
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(LCDevice device,
                                                                     LCPixelFormat format, uint32_t dim,
                                                                     uint32_t w, uint32_t h, uint32_t d,
-                                                                    uint32_t mips) LUISA_NOEXCEPT {
+                                                                    uint32_t mips, bool allow_simultaneous_access) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
     auto pixel_format = PixelFormat{(uint8_t) to_underlying(format)};
-    auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips);
+    auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips, allow_simultaneous_access);
     return LCCreatedResourceInfo{
             .handle = info.handle,
             .native_handle = info.native_handle,

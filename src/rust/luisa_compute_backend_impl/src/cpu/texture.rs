@@ -25,7 +25,8 @@ impl Drop for TextureImpl {
     }
 }
 impl TextureImpl {
-    pub(super) fn new(dimension: u8, size: [u32; 3], storage: PixelStorage, levels: u8) -> Self {
+    pub(super) fn new(dimension: u8, size: [u32; 3], storage: PixelStorage,
+                      levels: u8, allow_simultaneous_access: bool) -> Self {
         let pixel_size = storage.size();
         let pixel_stride_shift = match pixel_size {
             1 => 0,

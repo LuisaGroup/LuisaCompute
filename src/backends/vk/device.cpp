@@ -1,14 +1,14 @@
 #include "device.h"
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include "log.h"
-#include <vstl/config.h>
-#include <core/binary_file_stream.h>
+#include <luisa/vstl/config.h>
+#include <luisa/core/binary_file_stream.h>
 #include "compute_shader.h"
-#include <backends/common/hlsl/hlsl_codegen.h>
+#include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
-#include <backends/common/hlsl/binding_to_arg.h>
-#include <runtime/context.h>
-#include <backends/common/hlsl/shader_compiler.h>
+#include "../common/hlsl/binding_to_arg.h"
+#include <luisa/runtime/context.h>
+#include "../common/hlsl/shader_compiler.h"
 
 namespace lc::vk {
 static std::mutex gDxcMutex;
@@ -489,3 +489,4 @@ VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<Device *>(device);
 }
 }// namespace lc::vk
+

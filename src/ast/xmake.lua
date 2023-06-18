@@ -4,7 +4,7 @@ _config_project({
 	batch_size = 4
 })
 add_deps("lc-core", "lc-vstl")
-add_headerfiles("**.h")
+add_headerfiles("../../include/luisa/ast/**.h")
 add_files("**.cpp")
 add_defines("LC_AST_EXPORT_DLL")
 target_end()

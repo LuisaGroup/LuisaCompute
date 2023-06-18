@@ -1,45 +1,22 @@
 if (LUISA_COMPUTE_ENABLE_DSL)
 
     set(LUISA_COMPUTE_DSL_RTX_SOURCES
-            rtx/aabb.h
             rtx/accel.cpp
-            rtx/accel.h
             rtx/hit.cpp
-            rtx/hit.h
             rtx/ray.cpp
-            rtx/ray.h
-            rtx/ray_query.cpp
-            rtx/ray_query.h
-            rtx/triangle.h)
+            rtx/ray_query.cpp)
 
     set(LUISA_COMPUTE_DSL_RASTER_SOURCES
-            raster/raster_kernel.cpp raster/raster_kernel.h)
+            raster/raster_kernel.cpp)
 
     set(LUISA_COMPUTE_DSL_SOURCES
-            arg.h
-            atomic.h
-            builtin.cpp builtin.h
-            constant.h
-            dispatch_indirect.cpp dispatch_indirect.h
-            expr.h
-            expr_traits.h
-            func.cpp func.h
-            generate_swizzles.py
-            local.cpp local.h
-            operators.h
-            polymorphic.cpp polymorphic.h
-            printer.cpp printer.h
-            ref.h
-            resource.cpp resource.h
-            shared.h
-            stmt.h
-            struct.h
-            sugar.h
-            swizzle_2.inl.h
-            swizzle_3.inl.h
-            swizzle_4.inl.h
-            syntax.h
-            var.h
+            builtin.cpp
+            dispatch_indirect.cpp
+            func.cpp
+            local.cpp
+            polymorphic.cpp
+            printer.cpp
+            resource.cpp
             ${LUISA_COMPUTE_DSL_RTX_SOURCES}
             ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 

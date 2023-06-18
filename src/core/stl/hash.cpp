@@ -3,7 +3,7 @@
 #endif
 #include <xxhash.h>
 
-#include <core/stl/hash.h>
+#include <luisa/core/stl/hash.h>
 
 namespace luisa {
 
@@ -44,3 +44,4 @@ Hash128::Hash128(luisa::string_view s) noexcept {
 }
 
 }// namespace luisa
+

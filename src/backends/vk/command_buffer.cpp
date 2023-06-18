@@ -1,6 +1,6 @@
 #include "command_buffer.h"
 #include "device.h"
-#include <core/logging.h>
+#include <luisa/core/logging.h>
 #include "log.h"
 namespace lc::vk {
 CommandBuffer::CommandBuffer(Device *device, StreamTag tag)

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <runtime/context.h>
-#include <runtime/stream.h>
-#include <runtime/image.h>
-#include <runtime/shader.h>
-#include <dsl/syntax.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/image.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/dsl/syntax.h>
 #include <stb/stb_image_write.h>
-#include <core/logging.h>
-#include <dsl/sugar.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/sugar.h>
 
 #include <cstdlib>
 
@@ -98,3 +98,4 @@ Float3 ray_refract(const Float3 &uv, const Float3 &n, Float etai_over_etat) {
 
 class material;
 vector<shared_ptr<material>> materials;
+
