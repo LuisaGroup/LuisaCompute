@@ -45,25 +45,29 @@ private:
 private:
     friend class Device;
     friend class ResourceGenerator;
-    Volume(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint3 size, uint mip_levels) noexcept
-        : Resource{
-              device, Tag::TEXTURE,
-              create_info},
-          _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {
-    }
-    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels, bool simultaneous_access) noexcept
-        : Volume{
-              device,
-              [&] {
-                  if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
-                      detail::volume_size_zero_error();
-                  }
-                  return device->create_texture(
-                      pixel_storage_to_format<T>(storage), 3u,
-                      size.x, size.y, size.z,
-                      detail::max_mip_levels(size, mip_levels), simultaneous_access);
-              }(),
-              storage, size, mip_levels} {}
+    Volume(DeviceInterface *device,
+           const ResourceCreationInfo &create_info,
+           PixelStorage storage,
+           uint3 size, uint mip_levels) noexcept
+        : Resource{device, Tag::TEXTURE, create_info},
+          _storage{storage},
+          _mip_levels{detail::max_mip_levels(size, mip_levels)},
+          _size{size} {}
+
+    Volume(DeviceInterface *device, PixelStorage storage, uint3 size,
+           uint mip_levels, bool simultaneous_access = false) noexcept
+        : Volume{device,
+                 [&] {
+                     if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
+                         detail::volume_size_zero_error();
+                     }
+                     return device->create_texture(
+                         pixel_storage_to_format<T>(storage), 3u,
+                         size.x, size.y, size.z,
+                         detail::max_mip_levels(size, mip_levels),
+                         simultaneous_access);
+                 }(),
+                 storage, size, mip_levels} {}
 
 public:
     Volume() noexcept = default;
@@ -81,15 +85,6 @@ public:
     // properties
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto size_bytes() const noexcept {
-        size_t byte_size = 0;
-        auto size = _size;
-        for (size_t i = 0; i < _mip_levels; ++i) {
-            byte_size += pixel_storage_size(_storage, _size);
-            size >>= uint3(1);
-        }
-        return byte_size;
-    }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
     [[nodiscard]] auto view(uint32_t level) const noexcept {
@@ -117,7 +112,9 @@ public:
         return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
     }
 };
-// VolumeView represents a reference to a Image. Use a VolumeView that referenced to a destructed Volume is an undefined behavior.
+
+// A VolumeView is a reference to a Volume without ownership
+// (i.e., it will not destroy the underlying Volume on destruction).
 template<typename T>
 class VolumeView {
 
@@ -233,4 +230,3 @@ template<typename VolumeOrView>
 using volume_element_t = typename volume_element<VolumeOrView>::type;
 
 }// namespace luisa::compute
-

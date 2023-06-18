@@ -8,7 +8,8 @@
 namespace luisa::compute::metal {
 
 MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimension,
-                           uint width, uint height, uint depth, uint mipmap_levels) noexcept
+                           uint width, uint height, uint depth, uint mipmap_levels,
+                           bool allow_simultaneous_access) noexcept
     : _format{format} {
 
     if (is_block_compressed(format)) {

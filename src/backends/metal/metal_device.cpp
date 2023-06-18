@@ -235,11 +235,12 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimension,
-                                                 uint width, uint height, uint depth,
-                                                 uint mipmap_levels, bool simultaneous_access /*TODO: metal simultaneous access texture*/) noexcept {
+                                                 uint width, uint height, uint depth, uint mipmap_levels,
+                                                 bool allow_simultaneous_access) noexcept {
     return with_autorelease_pool([=, this] {
         auto texture = new_with_allocator<MetalTexture>(
-            _handle, format, dimension, width, height, depth, mipmap_levels);
+            _handle, format, dimension, width, height, depth,
+            mipmap_levels, allow_simultaneous_access);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(texture);
         info.native_handle = texture->handle();
