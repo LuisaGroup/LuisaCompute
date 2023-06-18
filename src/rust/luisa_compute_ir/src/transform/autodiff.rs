@@ -9,6 +9,7 @@ use std::{
 
 use crate::context::is_type_equal;
 use crate::ir::{new_node, Const, Instruction, ModulePools, PhiIncoming, Primitive, SwitchCase};
+use crate::transform::ssa::ToSSA;
 use crate::{
     context,
     ir::{
@@ -1776,6 +1777,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     entry: body.clone(),
                     pools: pools.clone(),
                 };
+                let ad_block = ToSSA.transform(ad_block);
                 let mut backward = None;
                 for node in body.iter() {
                     match node.get().instruction.as_ref() {

@@ -1013,7 +1013,7 @@ impl_userdata!(i32);
 impl_userdata!(i64);
 impl_userdata!(bool);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BasicBlock {
     pub(crate) first: NodeRef,
@@ -1193,10 +1193,7 @@ impl NodeRef {
         }
     }
     pub fn is_phi(&self) -> bool {
-        match self.get().instruction.as_ref() {
-            Instruction::Phi { .. } => true,
-            _ => false,
-        }
+        self.get().instruction.is_phi()
     }
     pub fn get<'a>(&'a self) -> &'a Node {
         assert!(self.valid());
@@ -1214,6 +1211,24 @@ impl NodeRef {
     }
     pub fn update<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
         f(self.get_mut())
+    }
+    pub fn access_chain(&self) -> Option<(NodeRef, Vec<(CArc<Type>, usize)>)> {
+        match self.get().instruction.as_ref() {
+            Instruction::Call(f, args) => {
+                if *f == Func::GetElementPtr {
+                    let var = args[0];
+                    let idx = args[1].get_i32() as usize;
+                    if let Some((parent, mut indices)) = var.access_chain() {
+                        indices.push((self.type_().clone(), idx));
+                        return Some((parent, indices));
+                    }
+                    Some((var, vec![(self.type_().clone(), idx)]))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
     pub fn type_(&self) -> &CArc<Type> {
         &self.get().type_
@@ -1298,8 +1313,6 @@ pub struct CallableModule {
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
-
-
 
 impl PartialEq for CallableModuleRef {
     fn eq(&self, other: &Self) -> bool {
