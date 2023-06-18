@@ -55,7 +55,7 @@ public:
     CUDAHostBufferPool(size_t size, bool write_combined) noexcept;
     ~CUDAHostBufferPool() noexcept;
     [[nodiscard]] std::byte *memory() const noexcept { return _memory; }
-    [[nodiscard]] View *allocate(size_t size) noexcept;
+    [[nodiscard]] View *allocate(size_t size, bool fallback_if_failed = true) noexcept;
     void recycle(FirstFit::Node *node) noexcept;
 };
 

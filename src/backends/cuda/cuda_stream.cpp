@@ -17,7 +17,9 @@
 namespace luisa::compute::cuda {
 
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
-    : _device{device}, _upload_pool{64_M, true} {
+    : _device{device},
+      _upload_pool{64_M, true},
+      _download_pool{32_M, false} {
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
 }
 

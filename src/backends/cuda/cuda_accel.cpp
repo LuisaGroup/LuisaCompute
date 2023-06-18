@@ -79,7 +79,16 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
 
         // read back the compacted size
         size_t compacted_size;
-        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
+        encoder.with_download_pool(sizeof(size_t), [&](auto temp) noexcept {
+            if (temp) {
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(temp->address(), compacted_size_buffer, sizeof(size_t), cuda_stream));
+                LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(&compacted_size),
+                                               reinterpret_cast<CUdeviceptr>(temp->address()),
+                                               sizeof(size_t), cuda_stream));
+            } else {
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
+            }
+        });
         LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
         LUISA_INFO("CUDAAccel compaction: before = {}B, after = {}B, ratio = {}.",
                    sizes.outputSizeInBytes, compacted_size,
@@ -278,4 +287,3 @@ CUDAAccel::Binding CUDAAccel::binding() const noexcept {
 }
 
 }// namespace luisa::compute::cuda
-
