@@ -78,7 +78,7 @@ void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     auto address = buffer->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
-    with_download_pool(size, [&](auto download_buffer) noexcept {
+    with_download_pool_no_fallback(size, [&](auto download_buffer) noexcept {
         if (download_buffer) {
             LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
                 download_buffer->address(), address,
@@ -180,7 +180,7 @@ void CUDACommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     copy.dstMemoryType = CU_MEMORYTYPE_HOST;
     copy.dstPitch = pitch;
     copy.dstHeight = height;
-    with_download_pool(size_bytes, [&](auto download_buffer) noexcept {
+    with_download_pool_no_fallback(size_bytes, [&](auto download_buffer) noexcept {
         if (download_buffer) {
             copy.dstHost = download_buffer->address();
             LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));

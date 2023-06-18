@@ -79,7 +79,7 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
 
         // read back the compacted size
         size_t compacted_size;
-        encoder.with_download_pool(sizeof(size_t), [&](auto temp) noexcept {
+        encoder.with_download_pool_no_fallback(sizeof(size_t), [&](auto temp) noexcept {
             if (temp) {
                 LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(temp->address(), compacted_size_buffer, sizeof(size_t), cuda_stream));
                 LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(&compacted_size),

@@ -69,7 +69,7 @@ public:
     }
 
     template<typename F>
-    void with_upload_buffer_no_fallback(size_t size, F &&f) noexcept {
+    void with_upload_pool_no_fallback(size_t size, F &&f) noexcept {
         auto upload_buffer = _stream->upload_pool()->allocate(size, false);
         f(upload_buffer);
         if (upload_buffer) {
@@ -78,7 +78,7 @@ public:
     }
 
     template<typename F>
-    void with_download_buffer_no_fallback(size_t size, F &&f) noexcept {
+    void with_download_pool_no_fallback(size_t size, F &&f) noexcept {
         auto download_buffer = _stream->download_pool()->allocate(size, false);
         f(download_buffer);
         if (download_buffer) {

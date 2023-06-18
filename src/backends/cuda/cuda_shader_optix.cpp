@@ -298,9 +298,19 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         static thread_local std::array<uint4, 16384u> storage{};
         LUISA_ASSERT(buffer->size_bytes() <= storage.size() * sizeof(uint4),
                      "Indirect dispatch buffer is too large.");
-        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(storage.data(),
-                                           buffer->handle(), buffer->size_bytes(),
-                                           encoder.stream()->handle()));
+        encoder.with_download_pool_no_fallback(buffer->size_bytes(), [&](auto temp) noexcept {
+            auto stream = encoder.stream()->handle();
+            if (temp) {
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(temp->address(), buffer->handle(),
+                                                   buffer->size_bytes(), stream));
+                LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(storage.data()),
+                                               reinterpret_cast<CUdeviceptr>(temp->address()),
+                                               buffer->size_bytes(), stream));
+            } else {
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(storage.data(), buffer->handle(),
+                                                   buffer->size_bytes(), stream));
+            }
+        });
         indirect_dispatches = reinterpret_cast<const IndirectParameters *>(storage.data());
         indirect_dispatches_device = reinterpret_cast<const IndirectParameters *>(buffer->handle());
     }
