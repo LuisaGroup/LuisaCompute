@@ -72,8 +72,8 @@ int main(int argc, char *argv[]) {
         auto write_shader = device.compile(write_kernel);
         auto buffer = device.create_buffer<uint>(resolution.x * resolution.y);
         Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
-        luisa::vector<std::byte> pinned(image.size_bytes());
-        luisa::vector<std::byte> result(image.size_bytes());
+        luisa::vector<std::byte> pinned(image.view().size_bytes());
+        luisa::vector<std::byte> result(image.view().size_bytes());
         sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0);
         stream
             << bindless_arr.update()
