@@ -1,27 +1,16 @@
 #pragma once
 #include <Resource/Buffer.h>
-#include <Resource/SparseAllocator.h>
 namespace lc::dx {
 class SparseBuffer final : public Buffer {
 private:
-    mutable SparseAllocator sparseAllocator;
     ComPtr<ID3D12Resource> resource;
     uint64 byteSize;
     D3D12_RESOURCE_STATES initState;
-    struct AllocateOffsets {
-        ID3D12Heap *heap;
-        uint offset;
-        uint size;
-    };
     struct TileInfo {
-        uint size;
-        vstd::fixed_vector<uint, 2> offsets;
-        vstd::fixed_vector<AllocateOffsets, 2> heaps;
+        uint64 allocation;
+        uint64 tileCount;
     };
     mutable vstd::unordered_map<uint, TileInfo> allocatedTiles;
-    mutable vstd::vector<std::byte> bytes;
-    // mutable vstd::vector<D3D12_TILE_RANGE_FLAGS> flags;
-    // mutable vstd::vector<uint> rangeTiles;
     mutable std::mutex allocMtx;
 
 public:
@@ -34,7 +23,7 @@ public:
     D3D12_GPU_VIRTUAL_ADDRESS GetAddress() const override { return resource->GetGPUVirtualAddress(); }
     uint64 GetByteSize() const override { return byteSize; }
     void AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size) const;
-    void FreeTileMemory(ID3D12CommandQueue *queue, uint coord) const;
+    void DeAllocateTile(ID3D12CommandQueue *queue, uint coord, vstd::vector<uint64> &destroyList) const;
     SparseBuffer(
         Device *device,
         uint64 byteSize,
@@ -47,7 +36,7 @@ public:
         return Tag::SparseBuffer;
     }
     SparseBuffer(SparseBuffer &&) = delete;// cannot move due to atomic<T>
-    void ClearTile(ID3D12CommandQueue *queue) const;
+    void ClearTile(ID3D12CommandQueue *queue, vstd::vector<uint64> &destroyList) const;
     KILL_COPY_CONSTRUCT(SparseBuffer)
 };
 }// namespace lc::dx

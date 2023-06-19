@@ -73,10 +73,6 @@ void CommandQueue::ExecuteThread() {
             allocatorPool.push(std::move(b));
             Weakup();
         };
-        auto ExecuteCallback = [&](vstd::function<void()> &b) {
-            b();
-            Weakup();
-        };
         auto ExecuteCallbacks = [&](vstd::vector<vstd::function<void()>> &vec) {
             for (auto &&i : vec) {
                 i();
@@ -96,21 +92,22 @@ void CommandQueue::ExecuteThread() {
             device->WaitFence(cmdFence.Get(), fence);
             Weakup();
         };
-        // auto ExecuteReleaseQueue = [&](std::pair<GpuAllocator *, vstd::vector<uint64>> &vec) {
-        //     for (auto &&i : vec.second) {
-        //         vec.first->Release(i);
-        //     }
-        //     Weakup();
-        // };
+        auto ExecuteReleaseQueue = [&](vstd::vector<uint64> &vec) {
+            auto alloc = device->defaultAllocator.get();
+            for (auto &&i : vec) {
+                alloc->Release(i);
+            }
+            Weakup();
+        };
         while (auto b = executedAllocators.pop()) {
             fence = b->fence;
             wakeupThread = b->wakeupThread;
             b->evt.multi_visit(
                 ExecuteAllocator,
-                ExecuteCallback,
                 ExecuteCallbacks,
                 ExecuteEvent,
-                ExecuteHandle);
+                ExecuteHandle,
+                ExecuteReleaseQueue);
         }
         std::unique_lock lck(mtx);
         while (enabled && executedAllocators.length() == 0) {
@@ -145,35 +142,15 @@ void CommandQueue::WaitFrame(uint64 lastFrame) {
     if (lastFrame > 0)
         queue->Wait(cmdFence.Get(), lastFrame);
 }
-// void CommandQueue::SignalAfterSparseTexUpdate(GpuAllocator *allocator, vstd::vector<uint64> &&deallocatedHandle) {
-//     auto curFrame = ++lastFrame;
-//     ThrowIfFailed(queue->Signal(cmdFence.Get(), curFrame));
-//     executedAllocators.push(WaitFence{curFrame}, curFrame, false);
-//     executedAllocators.push(std::pair<GpuAllocator *, vstd::vector<uint64>>{allocator, std::move(deallocatedHandle)}, curFrame, true);
-//     mtx.lock();
-//     mtx.unlock();
-//     waitCv.notify_one();
-//     return curFrame;
-// }
-void CommandQueue::Signal() {
+void CommandQueue::Signal(vstd::vector<uint64> &&deallocatedHandle) {
     auto curFrame = ++lastFrame;
-    queue->Signal(cmdFence.Get(), curFrame);
-    executedAllocators.push(WaitFence{}, curFrame, true);
+    ThrowIfFailed(queue->Signal(cmdFence.Get(), curFrame));
+    executedAllocators.push(WaitFence{}, curFrame, false);
+    executedAllocators.push(std::move(deallocatedHandle), curFrame, true);
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();
 }
-template<typename Func>
-void CommandQueue::_Execute(AllocatorPtr &&alloc, Func &&callback) {
-    auto curFrame = ++lastFrame;
-    alloc->Execute(this, cmdFence.Get(), curFrame);
-    executedAllocators.push(std::move(alloc), curFrame, false);
-    executedAllocators.push(std::move(callback), curFrame, true);
-    mtx.lock();
-    mtx.unlock();
-    waitCv.notify_one();
-}
-
 void CommandQueue::Execute(AllocatorPtr &&alloc) {
     auto curFrame = ++lastFrame;
     alloc->Execute(this, cmdFence.Get(), curFrame);
@@ -182,11 +159,14 @@ void CommandQueue::Execute(AllocatorPtr &&alloc) {
     mtx.unlock();
     waitCv.notify_one();
 }
-void CommandQueue::ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback) {
-    _Execute(std::move(alloc), std::move(callback));
-}
 void CommandQueue::ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks) {
-    _Execute(std::move(alloc), std::move(callbacks));
+    auto curFrame = ++lastFrame;
+    alloc->Execute(this, cmdFence.Get(), curFrame);
+    executedAllocators.push(std::move(alloc), curFrame, false);
+    executedAllocators.push(std::move(callbacks), curFrame, true);
+    mtx.lock();
+    mtx.unlock();
+    waitCv.notify_one();
 }
 void CommandQueue::ExecuteEmpty(AllocatorPtr &&alloc) {
     alloc->Reset(this);

@@ -641,22 +641,21 @@ void LCDevice::update_sparse_texture(
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
     }
+    vstd::vector<uint64> destroyList;
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
     // free all memory first
     for (auto &&i : operations) {
         luisa::visit(
-            [&](auto const &t) {
-                tex->FreeTileMemory(queuePtr.Queue(), t.start_tile, t.mip_level);
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, SparseTextureMapOperation>) {
+                    tex->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count, t.mip_level);
+                } else {
+                    tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.mip_level, destroyList);
+                }
             },
             i);
     }
-    for (auto &&i : operations) {
-        if (i.index() == 0) {
-            auto t = i.get_as<SparseTextureMapOperation *>();
-            tex->AllocateTile(queuePtr.Queue(), t->start_tile, t->tile_count, t->mip_level);
-        }
-    }
-    queuePtr.Signal();
+    queuePtr.Signal(std::move(destroyList));
 }
 
 SparseBufferCreationInfo LCDevice::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
@@ -688,6 +687,7 @@ void LCDevice::update_sparse_buffer(
     luisa::vector<SparseBufferOperation> &&operations) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     auto buffer = reinterpret_cast<SparseBuffer *>(handle);
+    vstd::vector<uint64> destroyList;
 
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
@@ -695,18 +695,16 @@ void LCDevice::update_sparse_buffer(
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
     for (auto &&i : operations) {
         luisa::visit(
-            [&](auto const &t) {
-                buffer->FreeTileMemory(queuePtr.Queue(), t.start_tile);
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, SparseBufferMapOperation>) {
+                    buffer->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count);
+                } else {
+                    buffer->DeAllocateTile(queuePtr.Queue(), t.start_tile, destroyList);
+                }
             },
             i);
     }
-    for (auto &&i : operations) {
-        if (i.index() == 0) {
-            auto t = i.get_as<SparseBufferMapOperation *>();
-            buffer->AllocateTile(queuePtr.Queue(), t->start_tile, t->tile_count);
-        }
-    }
-    queuePtr.Signal();
+    queuePtr.Signal(std::move(destroyList));
 }
 void LCDevice::destroy_sparse_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseBuffer *>(handle);
@@ -720,9 +718,10 @@ void LCDevice::clear_sparse_texture(
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
     }
+    vstd::vector<uint64> destroyList;
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
-    tex->ClearTile(queuePtr.Queue());
-    queuePtr.Signal();
+    tex->ClearTile(queuePtr.Queue(), destroyList);
+    queuePtr.Signal(std::move(destroyList));
 }
 void LCDevice::clear_sparse_buffer(
     uint64_t stream_handle,
@@ -733,9 +732,10 @@ void LCDevice::clear_sparse_buffer(
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
     }
+    vstd::vector<uint64> destroyList;
     auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
-    buffer->ClearTile(queuePtr.Queue());
-    queuePtr.Signal();
+    buffer->ClearTile(queuePtr.Queue(), destroyList);
+    queuePtr.Signal(std::move(destroyList));
 }
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR

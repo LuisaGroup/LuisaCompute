@@ -1,6 +1,5 @@
 #pragma once
 #include <Resource/TextureBase.h>
-#include <Resource/SparseAllocator.h>
 namespace lc::dx {
 class SparseTexture final : public TextureBase {
 public:
@@ -18,25 +17,16 @@ public:
             return memcmp(&a, &b, sizeof(Tile)) == 0;
         }
     };
-    struct AllocateOffsets {
-        ID3D12Heap *heap;
-        uint offset;
-        uint size;
-    };
     struct TileInfo {
         uint size[3];
-        vstd::fixed_vector<uint, 2> offsets;
-        vstd::fixed_vector<AllocateOffsets, 2> heaps;
+        uint64 allocation;
     };
 
 private:
-    mutable SparseAllocator sparseAllocator;
     ComPtr<ID3D12Resource> resource;
     mutable vstd::unordered_map<uint, uint> uavIdcs;
     mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable vstd::unordered_map<Tile, TileInfo, TileHash, TileEqual> allocatedTiles;
-
-    mutable vstd::vector<std::byte> bytes;
     mutable std::mutex allocMtx;
     uint3 tileSize;
     bool allowUav;
@@ -67,7 +57,7 @@ public:
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;
     uint GetGlobalUAVIndex(uint mipLevel) const override;
     void AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 size, uint mipLevel) const;
-    void FreeTileMemory(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel) const;
-    void ClearTile(ID3D12CommandQueue *queue) const;
+    void DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint mipLevel, vstd::vector<uint64> &destroyList) const;
+    void ClearTile(ID3D12CommandQueue *queue, vstd::vector<uint64> &destroyList) const;
 };
 }// namespace lc::dx

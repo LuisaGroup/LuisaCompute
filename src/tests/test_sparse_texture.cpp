@@ -75,6 +75,8 @@ int main(int argc, char *argv[]) {
         luisa::vector<std::byte> pinned(image.view().size_bytes());
         luisa::vector<std::byte> result(image.view().size_bytes());
         sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0);
+        sparse_image.unmap_tile(pixel_offset / sparse_image.tile_size(), 0);
+        sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0);
         stream
             << bindless_arr.update()
             << write_shader(image, make_uint2(0)).dispatch(resolution)
