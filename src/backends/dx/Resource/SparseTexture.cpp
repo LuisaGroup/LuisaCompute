@@ -150,18 +150,4 @@ void SparseTexture::DeAllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint 
         D3D12_TILE_MAPPING_FLAG_NONE);
     allocatedTiles.erase(iter);
 }
-void SparseTexture::ClearTile(ID3D12CommandQueue *queue, vstd::vector<uint64> &destroyList) const {
-    {
-        std::lock_guard lck{allocMtx};
-        auto lastSize = destroyList.size();
-        destroyList.push_back_uninitialized(allocatedTiles.size());
-        auto ptr = destroyList.data() + lastSize;
-        for (auto &&i : allocatedTiles) {
-            *ptr = i.second.allocation;
-            ++ptr;
-        }
-        allocatedTiles.clear();
-    }
-    queue->UpdateTileMappings(resource.Get(), 1, nullptr, nullptr, nullptr, 1, vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NULL), nullptr, nullptr, D3D12_TILE_MAPPING_FLAG_NONE);
-}
 }// namespace lc::dx

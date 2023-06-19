@@ -9,22 +9,13 @@ namespace detail {
 LC_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count);
 LC_RUNTIME_API void check_sparse_buffer_unmap(size_t size_bytes, size_t tile_size, uint start_tile);
 }// namespace detail
-struct LC_RUNTIME_API SparseBufferUpdateTiles {
-    uint64_t handle;
-    luisa::vector<SparseBufferOperation> operations;
-    void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
-};
-struct LC_RUNTIME_API SparseBufferClearTiles {
-    uint64_t handle;
-    void operator()(DeviceInterface *device, uint64_t stream_handle) && noexcept;
-};
+
 template<typename T>
 class SparseBuffer final : public Resource {
 public:
     static_assert(is_valid_buffer_element_v<T>);
 
 private:
-    luisa::vector<SparseBufferOperation> _operations;
     size_t _size{};
     size_t _element_stride{};
     size_t _tile_size{};
@@ -58,16 +49,20 @@ public:
         _move_from(std::move(rhs));
         return *this;
     }
-    void map_tile(uint start_tile, uint tile_count) noexcept {
+    [[nodiscard]] auto map_tile(uint start_tile, uint tile_count) noexcept {
         detail::check_sparse_buffer_map(size_bytes(), _tile_size, start_tile, tile_count);
-        _operations.emplace_back(SparseBufferMapOperation{
-            .start_tile = start_tile,
-            .tile_count = tile_count});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseBufferMapOperation{
+                .start_tile = start_tile,
+                .tile_count = tile_count}};
     }
-    void unmap_tile(uint start_tile) noexcept {
+    [[nodiscard]] auto unmap_tile(uint start_tile) noexcept {
         detail::check_sparse_buffer_unmap(size_bytes(), _tile_size, start_tile);
-        _operations.emplace_back(SparseBufferUnMapOperation{
-            .start_tile = start_tile});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseBufferUnMapOperation{
+                .start_tile = start_tile}};
     }
 
     SparseBuffer &operator=(SparseBuffer const &) noexcept = delete;
@@ -104,16 +99,7 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         return this->view().copy_from(source);
     }
-    [[nodiscard]] auto update() noexcept {
-        return SparseBufferUpdateTiles{handle(), std::move(_operations)};
-    }
-    [[nodiscard]] auto clear_tiles() noexcept {
-        return SparseBufferClearTiles{handle()};
-    }
 };
-
-LUISA_MARK_STREAM_EVENT_TYPE(SparseBufferUpdateTiles)
-LUISA_MARK_STREAM_EVENT_TYPE(SparseBufferClearTiles)
 
 namespace detail {
 

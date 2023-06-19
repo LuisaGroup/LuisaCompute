@@ -36,7 +36,6 @@ public:
         return Tag::SparseBuffer;
     }
     SparseBuffer(SparseBuffer &&) = delete;// cannot move due to atomic<T>
-    void ClearTile(ID3D12CommandQueue *queue, vstd::vector<uint64> &destroyList) const;
     KILL_COPY_CONSTRUCT(SparseBuffer)
 };
 }// namespace lc::dx

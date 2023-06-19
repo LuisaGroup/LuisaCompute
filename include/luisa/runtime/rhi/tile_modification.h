@@ -2,8 +2,9 @@
 
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/variant.h>
+#include <luisa/core/stl/vector.h>
 namespace luisa::compute {
-
+class DeviceInterface;
 struct SparseTextureMapOperation {
     uint3 start_tile;
     uint3 tile_count;
@@ -15,8 +16,6 @@ struct SparseTextureUnMapOperation {
     uint mip_level;
 };
 
-using SparseTextureOperation = luisa::variant<SparseTextureMapOperation, SparseTextureUnMapOperation>;
-
 struct SparseBufferMapOperation {
     uint start_tile;
     uint tile_count;
@@ -26,5 +25,14 @@ struct SparseBufferUnMapOperation {
     uint start_tile;
 };
 
-using SparseBufferOperation = luisa::variant<SparseBufferMapOperation, SparseBufferUnMapOperation>;
+using SparseOperation = luisa::variant<
+    SparseTextureMapOperation,
+    SparseTextureUnMapOperation,
+    SparseBufferMapOperation,
+    SparseBufferUnMapOperation>;
+
+struct SparseUpdateTile {
+    uint64_t handle;
+    SparseOperation operations;
+};
 }// namespace luisa::compute

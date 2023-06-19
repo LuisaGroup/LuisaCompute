@@ -138,13 +138,9 @@ public:
     [[nodiscard]] virtual SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
         return SparseBufferCreationInfo::make_invalid();
     }
-    virtual void update_sparse_buffer(
+    virtual void update_sparse_resources(
         uint64_t stream_handle,
-        uint64_t handle,
-        luisa::vector<SparseBufferOperation> &&operations) noexcept {}
-    virtual void clear_sparse_buffer(
-        uint64_t stream_handle,
-        uint64_t handle) noexcept {}
+        luisa::vector<SparseUpdateTile> &&textures_update) noexcept {}
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture
@@ -154,13 +150,6 @@ public:
         uint mipmap_levels, bool simultaneous_access) noexcept {
         return SparseTextureCreationInfo::make_invalid();
     }
-    virtual void clear_sparse_texture(
-        uint64_t stream_handle,
-        uint64_t handle) noexcept {}
-    virtual void update_sparse_texture(
-        uint64_t stream_handle,
-        uint64_t handle,
-        luisa::vector<SparseTextureOperation> &&operations) noexcept {}
     virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
 };
 

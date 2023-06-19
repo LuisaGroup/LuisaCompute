@@ -308,35 +308,20 @@ void Device::destroy_sparse_texture(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_texture(handle);
 }
-void Device::update_sparse_texture(
+void Device::update_sparse_resources(
     uint64_t stream_handle,
-    uint64_t handle,
-    luisa::vector<SparseTextureOperation> &&operations) noexcept {
-    _native->update_sparse_texture(stream_handle, handle, std::move(operations));
+    luisa::vector<SparseUpdateTile> &&update_cmds) noexcept {
+    _native->update_sparse_resources(stream_handle, std::move(update_cmds));
 }
 SparseBufferCreationInfo Device::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
     auto buffer = _native->create_sparse_buffer(element, elem_count);
     new Buffer{buffer.handle};
     return buffer;
 }
-void Device::update_sparse_buffer(
-    uint64_t stream_handle,
-    uint64_t handle,
-    luisa::vector<SparseBufferOperation> &&operations) noexcept {
-    _native->update_sparse_buffer(stream_handle, handle, std::move(operations));
-}
+
 void Device::destroy_sparse_buffer(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_buffer(handle);
 }
-void Device::clear_sparse_buffer(
-    uint64_t stream_handle,
-    uint64_t handle) noexcept {
-    _native->clear_sparse_buffer(stream_handle, handle);
-}
-void Device::clear_sparse_texture(
-    uint64_t stream_handle,
-    uint64_t handle) noexcept {
-    _native->clear_sparse_texture(stream_handle, handle);
-}
+
 }// namespace lc::validation
