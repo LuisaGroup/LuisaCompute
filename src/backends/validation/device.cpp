@@ -120,6 +120,13 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                     luisa::to_underlying(StreamFunc::Signal) |
                     luisa::to_underlying(StreamFunc::Wait));
                 break;
+            case StreamTag::SPARSE:
+                opt.func = static_cast<StreamFunc>(
+                    luisa::to_underlying(StreamFunc::Sparse) |
+                    luisa::to_underlying(StreamFunc::Sync) |
+                    luisa::to_underlying(StreamFunc::Signal) |
+                    luisa::to_underlying(StreamFunc::Wait));
+                break;
             default:
                 break;
         }
@@ -290,12 +297,14 @@ void Device::check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_
         LUISA_ERROR("{} do not support function \"{}\"", stream_ptr->get_name(), luisa::to_string(func));
     }
 }
+
 VSTL_EXPORT_C void destroy(DeviceInterface *d) {
     delete d;
 }
 VSTL_EXPORT_C DeviceInterface *create(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) {
     return new Device{std::move(ctx), std::move(native)};
 }
+
 SparseTextureCreationInfo Device::create_sparse_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
@@ -304,15 +313,12 @@ SparseTextureCreationInfo Device::create_sparse_texture(
     new Texture{tex.handle, dimension, simultaneous_access};
     return tex;
 }
+
 void Device::destroy_sparse_texture(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_texture(handle);
 }
-void Device::update_sparse_resources(
-    uint64_t stream_handle,
-    luisa::vector<SparseUpdateTile> &&update_cmds) noexcept {
-    _native->update_sparse_resources(stream_handle, std::move(update_cmds));
-}
+
 SparseBufferCreationInfo Device::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
     auto buffer = _native->create_sparse_buffer(element, elem_count);
     new Buffer{buffer.handle};

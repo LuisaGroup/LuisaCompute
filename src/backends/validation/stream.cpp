@@ -349,6 +349,11 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
                 mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
+            case CmdTag::ESparseResourceUpdateCommand: {
+                Device::check_stream(handle(), StreamFunc::Sparse);
+                auto c = static_cast<SparseResourceUpdateCommand *>(cmd);
+                mark_handle(c->handle(), Usage::READ_WRITE, Range{});
+            } break;
             case CmdTag::ECustomCommand: {
                 auto custom_cmd = static_cast<CustomCommand *>(cmd);
                 switch (custom_cmd->uuid()) {

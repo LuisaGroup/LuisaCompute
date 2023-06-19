@@ -17,15 +17,6 @@ Stream Device::create_stream(StreamTag stream_tag) noexcept {
 
 void Stream::_dispatch(CommandList &&list) noexcept {
     if (!list.empty()) {
-#ifndef NDEBUG
-        for (auto &&i : list.commands()) {
-            auto cmd_tag = luisa::to_underlying(i->stream_tag());
-            auto s_tag = luisa::to_underlying(_stream_tag);
-            LUISA_ASSERT(cmd_tag >= s_tag,
-                         "Command of type {} in stream of type {} not allowed!",
-                         to_string(i->stream_tag()), to_string(_stream_tag));
-        }
-#endif
         device()->dispatch(handle(), std::move(list));
     }
 }

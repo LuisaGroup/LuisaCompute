@@ -59,7 +59,7 @@ public:
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
-    void Signal(vstd::vector<uint64> &&deallocatedHandle);
+    void Signal(vstd::vector<uint64> &&deallocatedHandle, vstd::vector<vstd::function<void()>> && funcs);
     void Execute(AllocatorPtr &&alloc);
     void ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
     void ExecuteEmpty(AllocatorPtr &&alloc);

@@ -4,6 +4,7 @@ namespace lc::dx {
 enum class CmdQueueTag {
     MainCmd,
     DStorage,
+    Sparse,
 };
 class CmdQueueBase : public Resource {
 protected:

@@ -13,7 +13,7 @@ public:
     size_t size_bytes;
     DStorageFileImpl(ComPtr<IDStorageFile> &&file, size_t size_bytes) : file{std::move(file)}, size_bytes{size_bytes} {}
 };
-class DStorageCommandQueue : public CmdQueueBase{
+class DStorageCommandQueue : public CmdQueueBase {
     struct WaitQueueHandle {
         HANDLE handles[2];
     };
