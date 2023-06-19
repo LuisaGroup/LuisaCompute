@@ -491,6 +491,13 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
     });
 }
 
+bool MetalDevice::is_event_completed(uint64_t handle) const noexcept {
+    return with_autorelease_pool([=] {
+        auto event = reinterpret_cast<MetalEvent *>(handle);
+        return event->is_completed();
+    });
+}
+
 ResourceCreationInfo MetalDevice::create_mesh(const AccelOption &option) noexcept {
     return with_autorelease_pool([=, this] {
         auto mesh = new_with_allocator<MetalMesh>(_handle, option);

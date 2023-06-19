@@ -50,7 +50,7 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
-    file(GLOB LUISA_HLSL_BUILTIN_SOURCES hlsl/builtin/*.c)
+    file(GLOB LUISA_HLSL_BUILTIN_SOURCES CONFIGURE_DEPENDS "hlsl/builtin/*.c")
     add_library(luisa-compute-hlsl-builtin MODULE ${LUISA_HLSL_BUILTIN_SOURCES})
     target_compile_definitions(luisa-compute-hlsl-builtin PRIVATE LC_HLSL_DLL)
     set_target_properties(luisa-compute-hlsl-builtin PROPERTIES

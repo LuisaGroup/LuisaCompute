@@ -42,7 +42,7 @@ public:
     Event &operator=(Event const &) noexcept = delete;
     [[nodiscard]] auto signal() const noexcept { return Signal{handle()}; }
     [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }
-    [[nodiscard]] bool is_complete() const noexcept;
+    [[nodiscard]] bool is_completed() const noexcept;
     void synchronize() const noexcept;
 };
 

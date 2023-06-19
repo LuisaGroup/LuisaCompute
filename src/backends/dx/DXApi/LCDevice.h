@@ -67,7 +67,7 @@ public:
     void destroy_event(uint64_t handle) noexcept override;
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
-    bool is_event_complete(uint64_t handle) const noexcept override;
+    bool is_event_completed(uint64_t handle) const noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
     // accel
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;

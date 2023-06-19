@@ -327,7 +327,7 @@ void LCDevice::signal_event(uint64 handle, uint64 stream_handle) noexcept {
             break;
     }
 }
-bool LCDevice::is_event_complete(uint64_t handle) const noexcept {
+bool LCDevice::is_event_completed(uint64_t handle) const noexcept {
     return reinterpret_cast<LCEvent *>(handle)->IsComplete();
 }
 void LCDevice::wait_event(uint64 handle, uint64 stream_handle) noexcept {

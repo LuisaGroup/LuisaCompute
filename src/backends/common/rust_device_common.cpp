@@ -208,6 +208,11 @@ public:
         device.synchronize_event(device.device, api::Event{handle});
     }
 
+    bool is_event_completed(uint64_t handle) const noexcept override {
+        // FIXME: implement this
+        LUISA_ERROR_WITH_LOCATION("TODO");
+    }
+
     ResourceCreationInfo create_mesh(const AccelOption &option_) noexcept override {
         api::AccelOption option{};
         option.allow_compaction = option_.allow_compaction;
