@@ -33,4 +33,8 @@ void LCEvent::Wait(CommandQueue *queue) const {
     std::lock_guard lck(eventMtx);
     queue->Queue()->Wait(fence.Get(), fenceIndex);
 }
+bool LCEvent::IsComplete() const{
+    std::lock_guard lck(eventMtx);
+    return finishedEvent >= fenceIndex;
+}
 }// namespace lc::dx

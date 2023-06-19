@@ -216,6 +216,9 @@ void Device::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     stream->wait(evt);
     _native->wait_event(handle, stream_handle);
 }
+bool Device::is_event_complete(uint64_t handle) const noexcept {
+    return _native->is_event_complete(handle);
+}
 void Device::synchronize_event(uint64_t handle) noexcept {
     auto evt = RWResource::get<Event>(handle);
     evt->sync();

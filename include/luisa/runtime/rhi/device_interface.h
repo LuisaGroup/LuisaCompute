@@ -115,6 +115,7 @@ public:
     virtual void destroy_event(uint64_t handle) noexcept = 0;
     virtual void signal_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
     virtual void wait_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
+    virtual bool is_event_complete(uint64_t handle) const noexcept = 0;
     virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
     // accel
