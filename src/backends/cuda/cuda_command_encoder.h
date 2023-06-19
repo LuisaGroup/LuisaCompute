@@ -60,6 +60,31 @@ public:
         f(upload_buffer);
         _callbacks.emplace_back(upload_buffer);
     }
+
+    template<typename F>
+    void with_download_pool(size_t size, F &&f) noexcept {
+        auto download_buffer = _stream->download_pool()->allocate(size);
+        f(download_buffer);
+        _callbacks.emplace_back(download_buffer);
+    }
+
+    template<typename F>
+    void with_upload_pool_no_fallback(size_t size, F &&f) noexcept {
+        auto upload_buffer = _stream->upload_pool()->allocate(size, false);
+        f(upload_buffer);
+        if (upload_buffer) {
+            _callbacks.emplace_back(upload_buffer);
+        }
+    }
+
+    template<typename F>
+    void with_download_pool_no_fallback(size_t size, F &&f) noexcept {
+        auto download_buffer = _stream->download_pool()->allocate(size, false);
+        f(download_buffer);
+        if (download_buffer) {
+            _callbacks.emplace_back(download_buffer);
+        }
+    }
 };
 
 }// namespace luisa::compute::cuda

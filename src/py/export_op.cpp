@@ -146,9 +146,11 @@ void export_op(py::module &m) {
         .value("BINDLESS_TEXTURE2D_SAMPLE", CallOp::BINDLESS_TEXTURE2D_SAMPLE)            //(bindless_array, index: uint, uv: float2): float4
         .value("BINDLESS_TEXTURE2D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float2, level: float): float4
         .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD)  //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+        .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL)  //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
         .value("BINDLESS_TEXTURE3D_SAMPLE", CallOp::BINDLESS_TEXTURE3D_SAMPLE)            //(bindless_array, index: uint, uv: float3): float4
         .value("BINDLESS_TEXTURE3D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float3, level: float): float4
         .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD)  //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL)  //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
         .value("BINDLESS_TEXTURE2D_READ", CallOp::BINDLESS_TEXTURE2D_READ)                //(bindless_array, index: uint, coord: uint2): float4
         .value("BINDLESS_TEXTURE3D_READ", CallOp::BINDLESS_TEXTURE3D_READ)                //(bindless_array, index: uint, coord: uint3): float4
         .value("BINDLESS_TEXTURE2D_READ_LEVEL", CallOp::BINDLESS_TEXTURE2D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint2, level: uint): float4

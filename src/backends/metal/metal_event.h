@@ -22,6 +22,7 @@ public:
     ~MetalEvent() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] uint64_t value_to_wait() const noexcept;
+    [[nodiscard]] bool is_completed() const noexcept;
     void signal(MTL::CommandBuffer *command_buffer) noexcept;
     void wait(MTL::CommandBuffer *command_buffer) noexcept;
     void synchronize() noexcept;

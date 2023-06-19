@@ -61,18 +61,22 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size.xy(); }
 
-    void map_tile(uint2 start_tile, uint2 tile_count, uint mip_level) noexcept {
+    [[nodiscard]] auto map_tile(uint2 start_tile, uint2 tile_count, uint mip_level) noexcept {
         detail::check_sparse_tex2d_map(_size, _tile_size.xy(), start_tile, tile_count);
-        _operations.emplace_back(SparseTextureMapOperation{
-            .start_tile = make_uint3(start_tile, 0u),
-            .tile_count = make_uint3(tile_count, 1u),
-            .mip_level = mip_level});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseTextureMapOperation{
+                .start_tile = make_uint3(start_tile, 0u),
+                .tile_count = make_uint3(tile_count, 1u),
+                .mip_level = mip_level}};
     }
-    void unmap_tile(uint2 start_tile, uint mip_level) noexcept {
+    [[nodiscard]] auto unmap_tile(uint2 start_tile, uint mip_level) noexcept {
         detail::check_sparse_tex2d_unmap(_size, _tile_size.xy(), start_tile);
-        _operations.emplace_back(SparseTextureUnMapOperation{
-            .start_tile = make_uint3(start_tile, 0u),
-            .mip_level = mip_level});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseTextureUnMapOperation{
+                .start_tile = make_uint3(start_tile, 0u),
+                .mip_level = mip_level}};
     }
 
     // command
@@ -119,4 +123,3 @@ using is_sparse_image = detail::is_sparse_image_impl<std::remove_cvref_t<T>>;
 template<typename T>
 constexpr auto is_sparse_image_v = is_sparse_image<T>::value;
 }// namespace luisa::compute
-

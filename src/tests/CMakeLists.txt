@@ -55,6 +55,7 @@ luisa_compute_add_executable(test_procedural_callable test_procedural_callable.c
 luisa_compute_add_executable(test_mipmap test_mipmap.cpp)
 luisa_compute_add_executable(test_native_include test_native_include.cpp)
 luisa_compute_add_executable(test_select_device test_select_device.cpp)
+luisa_compute_add_executable(test_sparse_texture test_sparse_texture.cpp)
 luisa_compute_add_executable(test_raytracing_weekend test_raytracing_weekend/main.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)

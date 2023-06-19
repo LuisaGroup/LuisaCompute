@@ -67,6 +67,7 @@ public:
     void destroy_event(uint64_t handle) noexcept override;
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
+    bool is_event_completed(uint64_t handle) const noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
     // accel
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
@@ -94,10 +95,6 @@ public:
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 
     [[nodiscard]] SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept override;
-    void update_sparse_buffer(
-        uint64_t stream_handle,
-        uint64_t handle,
-        luisa::vector<SparseBufferOperation> &&operations) noexcept override;
     void destroy_sparse_buffer(uint64_t handle) noexcept override;
 
     [[nodiscard]] SparseTextureCreationInfo create_sparse_texture(
@@ -105,15 +102,8 @@ public:
         uint width, uint height, uint depth,
         uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_sparse_texture(uint64_t handle) noexcept override;
-    void update_sparse_texture(
+    void update_sparse_resources(
         uint64_t stream_handle,
-        uint64_t handle,
-        luisa::vector<SparseTextureOperation> &&operations) noexcept override;
-    void clear_sparse_texture(
-        uint64_t stream_handle,
-        uint64_t handle) noexcept override;
-    void clear_sparse_buffer(
-        uint64_t stream_handle,
-        uint64_t handle) noexcept override;
+        luisa::vector<SparseUpdateTile> &&update_cmds) noexcept override;
 };
 }// namespace lc::dx

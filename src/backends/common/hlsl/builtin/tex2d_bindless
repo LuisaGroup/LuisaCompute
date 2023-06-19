@@ -18,6 +18,12 @@ T num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy);
 }
+template<typename T>
+float4 _SampleTex2DGradLevel(const ByteAddressBuffer arr,const T index,const float2 uv,const float2 dx,const float2 dy,const float minmip){
+T num=_ReadBdlsTex2DNum(arr,index);
+SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
+return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy,int2(0,0),minmip);
+}
 #ifdef PS
 template<typename T>
 float4 _SampleTex2DPixel(const ByteAddressBuffer arr,const T index,const float2 uv){

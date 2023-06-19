@@ -34,6 +34,7 @@ public:
 private:
     CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
+    CUDAHostBufferPool _download_pool;
     luisa::queue<CallbackContainer> _callback_lists;
     CUstream _stream{};
     spin_mutex _dispatch_mutex;
@@ -45,6 +46,7 @@ public:
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
+    [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void signal(CUevent event) noexcept;

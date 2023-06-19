@@ -42,6 +42,7 @@ public:
     Event &operator=(Event const &) noexcept = delete;
     [[nodiscard]] auto signal() const noexcept { return Signal{handle()}; }
     [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }
+    [[nodiscard]] bool is_completed() const noexcept;
     void synchronize() const noexcept;
 };
 
@@ -49,4 +50,3 @@ LUISA_MARK_STREAM_EVENT_TYPE(Event::Signal)
 LUISA_MARK_STREAM_EVENT_TYPE(Event::Wait)
 
 }// namespace luisa::compute
-

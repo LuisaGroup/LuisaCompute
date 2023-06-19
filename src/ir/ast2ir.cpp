@@ -619,9 +619,11 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE: return ir::Func::Tag::BindlessTexture2dSample;
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return ir::Func::Tag::BindlessTexture2dSampleLevel;
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return ir::Func::Tag::BindlessTexture2dSampleGrad;
+            case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: return ir::Func::Tag::BindlessTexture2dSampleGradLevel;
             case CallOp::BINDLESS_TEXTURE3D_SAMPLE: return ir::Func::Tag::BindlessTexture3dSample;
             case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: return ir::Func::Tag::BindlessTexture3dSampleLevel;
             case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: return ir::Func::Tag::BindlessTexture3dSampleGrad;
+            case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: return ir::Func::Tag::BindlessTexture3dSampleGradLevel;
             case CallOp::BINDLESS_TEXTURE2D_READ: return ir::Func::Tag::BindlessTexture2dRead;
             case CallOp::BINDLESS_TEXTURE3D_READ: return ir::Func::Tag::BindlessTexture3dRead;
             case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: return ir::Func::Tag::BindlessTexture2dReadLevel;

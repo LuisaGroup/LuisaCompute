@@ -23,7 +23,9 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         event.cpp
         image.cpp
         mipmap.cpp
+        sparse_buffer.cpp
         sparse_texture.cpp
+        sparse_command_list.cpp
         stream.cpp
         swapchain.cpp
         volume.cpp

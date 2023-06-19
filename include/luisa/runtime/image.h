@@ -51,26 +51,29 @@ private:
 private:
     friend class Device;
     friend class ResourceGenerator;
-    Image(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint2 size, uint mip_levels) noexcept
-        : Resource{
-              device,
-              Tag::TEXTURE,
-              create_info},
-          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {
-    }
-    Image(DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels, bool simultaneous_access) noexcept
-        : Image{
-              device,
-              [&] {
-                  if (size.x == 0 || size.y == 0) [[unlikely]] {
-                      detail::image_size_zero_error();
-                  }
-                  return device->create_texture(
-                      pixel_storage_to_format<T>(storage), 2u,
-                      size.x, size.y, 1u,
-                      detail::max_mip_levels(make_uint3(size, 1u), mip_levels), simultaneous_access);
-              }(),
-              storage, size, mip_levels} {}
+    Image(DeviceInterface *device,
+          const ResourceCreationInfo &create_info,
+          PixelStorage storage,
+          uint2 size, uint mip_levels) noexcept
+        : Resource{device, Tag::TEXTURE, create_info},
+          _size{size},
+          _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)},
+          _storage{storage} {}
+
+    Image(DeviceInterface *device, PixelStorage storage, uint2 size,
+          uint mip_levels = 1u, bool simultaneous_access = false) noexcept
+        : Image{device,
+                [&] {
+                    if (size.x == 0 || size.y == 0) [[unlikely]] {
+                        detail::image_size_zero_error();
+                    }
+                    return device->create_texture(
+                        pixel_storage_to_format<T>(storage), 2u,
+                        size.x, size.y, 1u,
+                        detail::max_mip_levels(make_uint3(size, 1u), mip_levels),
+                        simultaneous_access);
+                }(),
+                storage, size, mip_levels} {}
 
 public:
     Image() noexcept = default;
@@ -87,15 +90,6 @@ public:
     Image &operator=(Image const &) noexcept = delete;
     // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto size_bytes() const noexcept {
-        size_t byte_size = 0;
-        auto size = _size;
-        for (size_t i = 0; i < _mip_levels; ++i) {
-            byte_size += pixel_storage_size(_storage, make_uint3(size, 1u));
-            size >>= uint2(1);
-        }
-        return byte_size;
-    }
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
@@ -126,7 +120,8 @@ public:
     }
 };
 
-// ImageView represents a reference to a Image. Use an ImageView that referenced to a destructed Image is an undefined behavior.
+// An ImageView is a reference to an Image without ownership
+// (i.e., it will not destroy the Image on destruction).
 template<typename T>
 class ImageView {
 
@@ -241,4 +236,3 @@ template<typename ImageOrView>
 using image_element_t = typename image_element<ImageOrView>::type;
 
 }// namespace luisa::compute
-

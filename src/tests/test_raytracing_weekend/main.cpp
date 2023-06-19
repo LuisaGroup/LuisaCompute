@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
     constexpr uint2 resolution = make_uint2(image_width, image_height);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
-    luisa::vector<std::byte> host_image(accum_image.size_bytes());
+    luisa::vector<std::byte> host_image(accum_image.view().size_bytes());
 
     // Render
 

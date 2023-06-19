@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     auto image = device.create_image<float>(PixelStorage::BYTE4, make_uint2(512));
     dstorage_stream << dstorage_file.copy_to(image) << synchronize();
 
-    luisa::vector<uint8_t> pixels(image.size_bytes());
+    luisa::vector<uint8_t> pixels(image.view().size_bytes());
     auto compute_stream = device.create_stream();
     compute_stream << image.copy_to(pixels.data()) << synchronize();
 

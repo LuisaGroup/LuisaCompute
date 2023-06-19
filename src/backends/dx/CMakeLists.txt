@@ -4,8 +4,8 @@ if (WIN32)
     set(LC_BACKEND_DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
     set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
 
-    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES *.cpp)
-    file(GLOB LC_BACKEND_DX_CODEGEN_SOURCES ../common/hlsl/*.cpp)
+    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp")
+    file(GLOB LC_BACKEND_DX_CODEGEN_SOURCES CONFIGURE_DEPENDS "../common/hlsl/*.cpp")
     list(APPEND LC_BACKEND_DX_SOURCES
             ../common/default_binary_io.cpp
             ${LC_BACKEND_DX_CODEGEN_SOURCES})

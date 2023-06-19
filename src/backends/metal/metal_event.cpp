@@ -30,6 +30,10 @@ uint64_t MetalEvent::value_to_wait() const noexcept {
     return _signaled_value;
 }
 
+bool MetalEvent::is_completed() const noexcept {
+    return _handle->signaledValue() >= value_to_wait();
+}
+
 void MetalEvent::wait(MTL::CommandBuffer *command_buffer) noexcept {
     auto value = value_to_wait();
     if (value == 0u) {// not signaled yet

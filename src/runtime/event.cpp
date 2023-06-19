@@ -37,5 +37,8 @@ void Event::Wait::operator()(
     device->wait_event(handle, stream_handle);
 }
 
-}// namespace luisa::compute
+bool Event::is_completed() const noexcept {
+    return device()->is_event_completed(handle());
+}
 
+}// namespace luisa::compute

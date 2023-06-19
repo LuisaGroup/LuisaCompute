@@ -19,5 +19,6 @@ public:
     void Signal(CommandQueue *queue) const;
     void Signal(DStorageCommandQueue *queue) const;
     void Wait(CommandQueue *queue) const;
+    bool IsComplete() const;
 };
 }// namespace lc::dx

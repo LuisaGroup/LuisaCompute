@@ -290,18 +290,25 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
 
 void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
 
-    const IndirectParameters *indirect_dispatches = nullptr;
+    luisa::vector<std::byte> indirect_dispatches_host;
     const IndirectParameters *indirect_dispatches_device = nullptr;
     if (command->is_indirect()) {
         // read back dispatch buffer
         auto buffer = reinterpret_cast<CUDAIndirectDispatchBuffer *>(command->indirect_dispatch().handle);
-        static thread_local std::array<uint4, 16384u> storage{};
-        LUISA_ASSERT(buffer->size_bytes() <= storage.size() * sizeof(uint4),
-                     "Indirect dispatch buffer is too large.");
-        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(storage.data(),
-                                           buffer->handle(), buffer->size_bytes(),
-                                           encoder.stream()->handle()));
-        indirect_dispatches = reinterpret_cast<const IndirectParameters *>(storage.data());
+        indirect_dispatches_host.resize(buffer->size_bytes());
+        encoder.with_download_pool_no_fallback(buffer->size_bytes(), [&](auto temp) noexcept {
+            auto stream = encoder.stream()->handle();
+            if (temp) {
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(temp->address(), buffer->handle(),
+                                                   buffer->size_bytes(), stream));
+                LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(indirect_dispatches_host.data()),
+                                               reinterpret_cast<CUdeviceptr>(temp->address()),
+                                               buffer->size_bytes(), stream));
+            } else {
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(indirect_dispatches_host.data(), buffer->handle(),
+                                                   buffer->size_bytes(), stream));
+            }
+        });
         indirect_dispatches_device = reinterpret_cast<const IndirectParameters *>(buffer->handle());
     }
 
@@ -370,9 +377,9 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &device_argument_buffer, argument_buffer->address(), 0u));
-            if (indirect_dispatches) {
-                _do_launch_indirect(cuda_stream, device_argument_buffer,
-                                    indirect_dispatches_device, indirect_dispatches);
+            if (!indirect_dispatches_host.empty()) {
+                _do_launch_indirect(cuda_stream, device_argument_buffer, indirect_dispatches_device,
+                                    reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else {
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }
@@ -383,9 +390,9 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 device_argument_buffer, argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
-            if (indirect_dispatches) {
-                _do_launch_indirect(cuda_stream, device_argument_buffer,
-                                    indirect_dispatches_device, indirect_dispatches);
+            if (!indirect_dispatches_host.empty()) {
+                _do_launch_indirect(cuda_stream, device_argument_buffer, indirect_dispatches_device,
+                                    reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else {
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }

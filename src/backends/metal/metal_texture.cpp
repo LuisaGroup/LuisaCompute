@@ -8,7 +8,8 @@
 namespace luisa::compute::metal {
 
 MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimension,
-                           uint width, uint height, uint depth, uint mipmap_levels) noexcept
+                           uint width, uint height, uint depth, uint mipmap_levels,
+                           bool allow_simultaneous_access) noexcept
     : _format{format} {
 
     if (is_block_compressed(format)) {
@@ -70,6 +71,7 @@ MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimensi
     desc->setStorageMode(MTL::StorageModePrivate);
     desc->setHazardTrackingMode(MTL::HazardTrackingModeTracked);
     desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    desc->setAllowGPUOptimizedContents(allow_simultaneous_access);
     _maps[0u] = device->newTexture(desc);
     desc->release();
     auto n = _maps[0u]->mipmapLevelCount();
@@ -120,4 +122,3 @@ void MetalTexture::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::metal
-

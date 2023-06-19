@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream();
     constexpr uint2 resolution = make_uint2(1024, 1024);
     Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
-    luisa::vector<std::byte> host_image(image.size_bytes());
+    luisa::vector<std::byte> host_image(image.view().size_bytes());
     ExternalCallable<float2(float2, float2)> get_uv{"get_uv"};
     Kernel2D kernel = [&]() {
         Var coord = dispatch_id().xy();

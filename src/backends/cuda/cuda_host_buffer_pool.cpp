@@ -25,7 +25,7 @@ CUDAHostBufferPool::~CUDAHostBufferPool() noexcept {
     LUISA_CHECK_CUDA(cuMemFreeHost(reinterpret_cast<void *>(_memory)));
 }
 
-CUDAHostBufferPool::View *CUDAHostBufferPool::allocate(size_t size) noexcept {
+CUDAHostBufferPool::View *CUDAHostBufferPool::allocate(size_t size, bool fallback_if_failed) noexcept {
     auto view = [this, size] {
         std::scoped_lock lock{_mutex};
         auto node = _first_fit.allocate(size);
@@ -37,7 +37,9 @@ CUDAHostBufferPool::View *CUDAHostBufferPool::allocate(size_t size) noexcept {
             "CUDAHostBufferPool. Falling back "
             "to ad-hoc allocation.",
             size);
-        view = View::create(luisa::allocate_with_allocator<std::byte>(size));
+        if (fallback_if_failed) {
+            view = View::create(luisa::allocate_with_allocator<std::byte>(size));
+        }
     }
     return view;
 }

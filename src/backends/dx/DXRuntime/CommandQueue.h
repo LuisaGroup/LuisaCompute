@@ -18,10 +18,10 @@ private:
     struct CallbackEvent {
         using Variant = vstd::variant<
             AllocatorPtr,
-            vstd::function<void()>,
             vstd::vector<vstd::function<void()>>,
             LCEvent const *,
-            WaitFence>;
+            WaitFence,
+            vstd::vector<uint64>>;
         Variant evt;
         uint64_t fence;
         bool wakeupThread;
@@ -47,8 +47,6 @@ private:
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
-    template<typename Func>
-    void _Execute(AllocatorPtr &&alloc, Func &&callback);
 
 public:
     void WaitFrame(uint64 lastFrame);
@@ -61,10 +59,8 @@ public:
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
-    // uint64 SignalAfterSparseTexUpdate(GpuAllocator *allocator, vstd::vector<uint64> &&deallocatedHandle);
-    void Signal();
+    void Signal(vstd::vector<uint64> &&deallocatedHandle);
     void Execute(AllocatorPtr &&alloc);
-    void ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
     void ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
     void ExecuteEmpty(AllocatorPtr &&alloc);
     void ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);

@@ -468,14 +468,14 @@ int main(int argc, char *argv[]) {
     auto diffuse_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto specular_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
 
-    auto hdr_buffer = device.create_buffer<float>(hdr_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto denoised_buffer = device.create_buffer<float>(denoised_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto normal_buffer = device.create_buffer<float>(normal_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto albedo_buffer = device.create_buffer<float>(albedo_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto flow_buffer = device.create_buffer<float>(flow_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto glossy_buffer = device.create_buffer<float>(glossy_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto diffuse_buffer = device.create_buffer<float>(diffuse_image.size_bytes() / 4 * channel_count / sizeof(float));
-    auto specular_buffer = device.create_buffer<float>(specular_image.size_bytes() / 4 * channel_count / sizeof(float));
+    auto hdr_buffer = device.create_buffer<float>(hdr_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto denoised_buffer = device.create_buffer<float>(denoised_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto normal_buffer = device.create_buffer<float>(normal_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto albedo_buffer = device.create_buffer<float>(albedo_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto flow_buffer = device.create_buffer<float>(flow_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto glossy_buffer = device.create_buffer<float>(glossy_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto diffuse_buffer = device.create_buffer<float>(diffuse_image.view().size_bytes() / 4 * channel_count / sizeof(float));
+    auto specular_buffer = device.create_buffer<float>(specular_image.view().size_bytes() / 4 * channel_count / sizeof(float));
     if (optix_examples) {
         std::vector<std::array<float, 4u>> host_image(resolution.x * resolution.y);
         

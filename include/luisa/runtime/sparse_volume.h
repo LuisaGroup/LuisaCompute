@@ -62,18 +62,23 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size; }
 
-    void map_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
+    [[nodiscard]] auto map_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
         detail::check_sparse_tex3d_map(_size, _tile_size, start_tile, tile_count);
-        _operations.emplace_back(SparseTextureMapOperation{
-            .start_tile = start_tile,
-            .tile_count = tile_count,
-            .mip_level = mip_level});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations =
+                SparseTextureMapOperation{
+                    .start_tile = start_tile,
+                    .tile_count = tile_count,
+                    .mip_level = mip_level}};
     }
-    void unmap_tile(uint3 start_tile, uint mip_level) noexcept {
+    [[nodiscard]] auto unmap_tile(uint3 start_tile, uint mip_level) noexcept {
         detail::check_sparse_tex3d_unmap(_size, _tile_size, start_tile);
-        _operations.emplace_back(SparseTextureUnMapOperation{
-            .start_tile = start_tile,
-            .mip_level = mip_level});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseTextureMapOperation{
+                .start_tile = start_tile,
+                .mip_level = mip_level}};
     }
 
     // command
@@ -119,4 +124,3 @@ using is_sparse_volume = detail::is_sparse_volume_impl<std::remove_cvref_t<T>>;
 template<typename T>
 constexpr auto is_sparse_volume_v = is_sparse_volume<T>::value;
 }// namespace luisa::compute
-

@@ -757,6 +757,13 @@ void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     });
 }
 
+bool CUDADevice::is_event_completed(uint64_t handle) const noexcept {
+    return with_handle([=] {
+        auto event = reinterpret_cast<CUevent>(handle);
+        return cuEventQuery(event) == CUDA_SUCCESS;
+    });
+}
+
 void CUDADevice::synchronize_event(uint64_t handle) noexcept {
     with_handle([=] {
         auto event = reinterpret_cast<CUevent>(handle);

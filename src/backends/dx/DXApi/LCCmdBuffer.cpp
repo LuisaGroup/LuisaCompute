@@ -1200,8 +1200,10 @@ void LCCmdBuffer::CompressBC(
         tracker.RecordState(outBufferPtr, D3D12_RESOURCE_STATE_COPY_SOURCE);
         tracker.RestoreState(cmdBuilder);
     }
-    queue.ExecuteCallback(
+    vstd::vector<vstd::function<void()>> callbacks;
+    callbacks.emplace_back([backBuffer = std::move(backBuffer)] {});
+    queue.ExecuteCallbacks(
         std::move(alloc),
-        [backBuffer = std::move(backBuffer)] {});
+        std::move(callbacks));
 }
 }// namespace lc::dx

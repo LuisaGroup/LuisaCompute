@@ -25,8 +25,8 @@ int main(int argc, char *argv[]) {
     Image<float> byte4_image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
     Image<float> bc6h_image{device.create_image<float>(PixelStorage::BC6, resolution)};
     Image<float> bc7_image{device.create_image<float>(PixelStorage::BC7, resolution)};
-    Buffer<uint> bc6h_buffer{device.create_buffer<uint>(bc6h_image.size_bytes() / sizeof(uint))};
-    Buffer<uint> bc7_buffer{device.create_buffer<uint>(bc7_image.size_bytes() / sizeof(uint))};
+    Buffer<uint> bc6h_buffer{device.create_buffer<uint>(bc6h_image.view().size_bytes() / sizeof(uint))};
+    Buffer<uint> bc7_buffer{device.create_buffer<uint>(bc7_image.view().size_bytes() / sizeof(uint))};
     stream << byte4_image.copy_from(image_pixels) << synchronize();
     Clock clk;
     tex_ext->compress_bc6h(stream, byte4_image, bc6h_buffer);
@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
         byte4_image->write(coord, make_float4(image.read(coord).xyz(), 1.0f));
     };
     auto present_shader = device.compile(present_kernel);
-    luisa::vector<std::byte> host_image(byte4_image.size_bytes());
+    luisa::vector<std::byte> host_image(byte4_image.view().size_bytes());
     stream
         << bc7_image.copy_from(bc7_buffer.view())
         << present_shader(bc7_image).dispatch(resolution)

@@ -78,7 +78,20 @@ void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     auto address = buffer->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
-    LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(data, address, size, _stream->handle()));
+    with_download_pool_no_fallback(size, [&](auto download_buffer) noexcept {
+        if (download_buffer) {
+            LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
+                download_buffer->address(), address,
+                size, _stream->handle()));
+            LUISA_CHECK_CUDA(cuMemcpyAsync(
+                reinterpret_cast<CUdeviceptr>(data),
+                reinterpret_cast<CUdeviceptr>(download_buffer->address()),
+                size, _stream->handle()));
+        } else {
+            LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
+                data, address, size, _stream->handle()));
+        }
+    });
 }
 
 void CUDACommandEncoder::visit(BufferCopyCommand *command) noexcept {
@@ -158,16 +171,28 @@ void CUDACommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     CUDA_MEMCPY3D copy{};
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
     auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
+    auto size_bytes = pixel_storage_size(command->storage(), command->size());
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = array;
     copy.WidthInBytes = pitch;
     copy.Height = height;
     copy.Depth = command->size().z;
     copy.dstMemoryType = CU_MEMORYTYPE_HOST;
-    copy.dstHost = command->data();
     copy.dstPitch = pitch;
     copy.dstHeight = height;
-    LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+    with_download_pool_no_fallback(size_bytes, [&](auto download_buffer) noexcept {
+        if (download_buffer) {
+            copy.dstHost = download_buffer->address();
+            LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+            LUISA_CHECK_CUDA(cuMemcpyAsync(
+                reinterpret_cast<CUdeviceptr>(command->data()),
+                reinterpret_cast<CUdeviceptr>(download_buffer->address()),
+                size_bytes, _stream->handle()));
+        } else {
+            copy.dstHost = command->data();
+            LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+        }
+    });
 }
 
 void CUDACommandEncoder::visit(TextureCopyCommand *command) noexcept {
