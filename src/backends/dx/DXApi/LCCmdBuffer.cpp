@@ -363,9 +363,6 @@ public:
                 D3D12_RESOURCE_STATE_DEPTH_WRITE);
         }
     }
-    void visit(const SparseResourceUpdateCommand *command) noexcept override {
-        LUISA_ERROR("Map and unmap command can not be used in this queue.");
-    }
 };
 class LCCmdVisitor : public CommandVisitor {
 public:
@@ -713,9 +710,6 @@ public:
             default:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
-    }
-    void visit(const SparseResourceUpdateCommand *command) noexcept override {
-        LUISA_ERROR("Map and unmap command can not be used in this queue.");
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
         bindProps->clear();

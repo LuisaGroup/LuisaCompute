@@ -30,4 +30,9 @@ using SparseOperation = luisa::variant<
     SparseTextureUnMapOperation,
     SparseBufferMapOperation,
     SparseBufferUnMapOperation>;
+
+struct SparseUpdateTile {
+    uint64_t handle;
+    SparseOperation operations;
+};
 }// namespace luisa::compute

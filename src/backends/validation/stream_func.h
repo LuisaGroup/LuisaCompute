@@ -11,7 +11,6 @@ enum class StreamFunc : uint32_t {
     Custom = 32,
     Swapchain = 64,
     Sync = 128,
-    Sparse = 256,
     All = 0xffffffff,
 };
 struct StreamOption {

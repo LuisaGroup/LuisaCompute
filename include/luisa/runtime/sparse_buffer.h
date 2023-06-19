@@ -49,20 +49,20 @@ public:
         _move_from(std::move(rhs));
         return *this;
     }
-    [[nodiscard]] luisa::unique_ptr<Command> map_tile(uint start_tile, uint tile_count) noexcept {
+    [[nodiscard]] auto map_tile(uint start_tile, uint tile_count) noexcept {
         detail::check_sparse_buffer_map(size_bytes(), _tile_size, start_tile, tile_count);
-        return luisa::make_unique<SparseResourceUpdateCommand>(
-            handle(),
-            SparseBufferMapOperation{
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseBufferMapOperation{
                 .start_tile = start_tile,
-                .tile_count = tile_count});
+                .tile_count = tile_count}};
     }
-    [[nodiscard]] luisa::unique_ptr<Command> unmap_tile(uint start_tile) noexcept {
+    [[nodiscard]] auto unmap_tile(uint start_tile) noexcept {
         detail::check_sparse_buffer_unmap(size_bytes(), _tile_size, start_tile);
-        return luisa::make_unique<SparseResourceUpdateCommand>(
-            handle(),
-            SparseBufferUnMapOperation{
-                .start_tile = start_tile});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseBufferUnMapOperation{
+                .start_tile = start_tile}};
     }
 
     SparseBuffer &operator=(SparseBuffer const &) noexcept = delete;

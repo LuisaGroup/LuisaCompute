@@ -142,11 +142,10 @@ void CommandQueue::WaitFrame(uint64 lastFrame) {
     if (lastFrame > 0)
         queue->Wait(cmdFence.Get(), lastFrame);
 }
-void CommandQueue::Signal(vstd::vector<uint64> &&deallocatedHandle, vstd::vector<vstd::function<void()>> && funcs) {
+void CommandQueue::Signal(vstd::vector<uint64> &&deallocatedHandle) {
     auto curFrame = ++lastFrame;
     ThrowIfFailed(queue->Signal(cmdFence.Get(), curFrame));
     executedAllocators.push(WaitFence{}, curFrame, false);
-    executedAllocators.push(std::move(funcs), curFrame, false);
     executedAllocators.push(std::move(deallocatedHandle), curFrame, true);
     mtx.lock();
     mtx.unlock();

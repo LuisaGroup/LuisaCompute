@@ -844,10 +844,6 @@ public:
                 Range(command->aabb_buffer_offset(), command->aabb_buffer_size())));
     }
 
-    void visit(const SparseResourceUpdateCommand *command) noexcept override {
-        LUISA_ERROR("Map and unmap command can not be reordered.");
-    }
-
     void visit(const CustomCommand *command) noexcept override {
         switch (command->uuid()) {
             case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):

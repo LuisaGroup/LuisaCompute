@@ -29,7 +29,6 @@
 #include <DXApi/TypeCheck.h>
 #include <Resource/SparseTexture.h>
 #include <Resource/SparseBuffer.h>
-#include <DXRuntime/SparseQueue.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ir2ast.h>
@@ -165,34 +164,24 @@ void LCDevice::destroy_bindless_array(uint64 handle) noexcept {
 }
 ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
     ResourceCreationInfo info;
-    switch (type) {
-        case StreamTag::SPARSE: {
-            auto res = new SparseQueue(
-                &nativeDevice);
-            info.handle = resource_to_handle(res);
-            info.native_handle = res->queue.Queue();
-        } break;
-        default: {
-            auto res = new LCCmdBuffer(
-                &nativeDevice,
-                nativeDevice.defaultAllocator.get(),
-                [&] {
-                    switch (type) {
-                        case compute::StreamTag::COMPUTE:
-                            return D3D12_COMMAND_LIST_TYPE_COMPUTE;
-                        case compute::StreamTag::GRAPHICS:
-                            return D3D12_COMMAND_LIST_TYPE_DIRECT;
-                        case compute::StreamTag::COPY:
-                            return D3D12_COMMAND_LIST_TYPE_COPY;
-                        default:
-                            break;
-                    }
-                    LUISA_ERROR_WITH_LOCATION("Unreachable.");
-                }());
-            info.handle = resource_to_handle(res);
-            info.native_handle = res->queue.Queue();
-        } break;
-    }
+    auto res = new LCCmdBuffer(
+        &nativeDevice,
+        nativeDevice.defaultAllocator.get(),
+        [&] {
+            switch (type) {
+                case compute::StreamTag::COMPUTE:
+                    return D3D12_COMMAND_LIST_TYPE_COMPUTE;
+                case compute::StreamTag::GRAPHICS:
+                    return D3D12_COMMAND_LIST_TYPE_DIRECT;
+                case compute::StreamTag::COPY:
+                    return D3D12_COMMAND_LIST_TYPE_COPY;
+                default:
+                    break;
+            }
+            LUISA_ERROR_WITH_LOCATION("Unreachable.");
+        }());
+    info.handle = resource_to_handle(res);
+    info.native_handle = res->queue.Queue();
     return info;
 }
 
@@ -201,9 +190,6 @@ void LCDevice::destroy_stream(uint64 handle) noexcept {
     switch (queue->Tag()) {
         case CmdQueueTag::MainCmd:
             delete static_cast<LCCmdBuffer *>(queue);
-            break;
-        case CmdQueueTag::Sparse:
-            delete static_cast<SparseQueue *>(queue);
             break;
         case CmdQueueTag::DStorage:
             delete static_cast<DStorageCommandQueue *>(queue);
@@ -216,9 +202,6 @@ void LCDevice::synchronize_stream(uint64 stream_handle) noexcept {
         case CmdQueueTag::MainCmd:
             static_cast<LCCmdBuffer *>(queue)->Sync();
             break;
-        case CmdQueueTag::Sparse:
-            static_cast<SparseQueue *>(queue)->Sync();
-            break;
         case CmdQueueTag::DStorage:
             static_cast<DStorageCommandQueue *>(queue)->Complete();
             break;
@@ -228,11 +211,8 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     switch (queue->Tag()) {
         case CmdQueueTag::MainCmd:
-            static_cast<LCCmdBuffer *>(queue)
+            reinterpret_cast<LCCmdBuffer *>(stream_handle)
                 ->Execute(std::move(list), nativeDevice.maxAllocatorCount);
-            break;
-        case CmdQueueTag::Sparse:
-            static_cast<SparseQueue *>(queue)->Execute(std::move(list));
             break;
         case CmdQueueTag::DStorage:
             static_cast<DStorageCommandQueue *>(queue)->Execute(std::move(list));
@@ -339,11 +319,7 @@ void LCDevice::signal_event(uint64 handle, uint64 stream_handle) noexcept {
     switch (queue->Tag()) {
         case CmdQueueTag::MainCmd:
             reinterpret_cast<LCEvent *>(handle)->Signal(
-                &static_cast<LCCmdBuffer *>(queue)->queue);
-            break;
-        case CmdQueueTag::Sparse:
-            reinterpret_cast<LCEvent *>(handle)->Signal(
-                &static_cast<SparseQueue *>(queue)->queue);
+                &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
             break;
         case CmdQueueTag::DStorage:
             reinterpret_cast<LCEvent *>(handle)->Signal(
@@ -354,19 +330,11 @@ void LCDevice::signal_event(uint64 handle, uint64 stream_handle) noexcept {
 
 void LCDevice::wait_event(uint64 handle, uint64 stream_handle) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
-    switch (queue->Tag()) {
-        case CmdQueueTag::MainCmd:
-            reinterpret_cast<LCEvent *>(handle)->Wait(
-                &static_cast<LCCmdBuffer *>(queue)->queue);
-            break;
-        case CmdQueueTag::Sparse:
-            reinterpret_cast<LCEvent *>(handle)->Wait(
-                &static_cast<SparseQueue *>(queue)->queue);
-            break;
-        default:
-            LUISA_ERROR("Wait command not allowed in Direct-Storage.");
-            break;
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("Wait command not allowed in Direct-Storage.");
     }
+    reinterpret_cast<LCEvent *>(handle)->Wait(
+        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
 }
 void LCDevice::synchronize_event(uint64 handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Sync();
@@ -410,12 +378,12 @@ SwapchainCreationInfo LCDevice::create_swapchain(
     uint back_buffer_size) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
-        LUISA_ERROR("swapchain not allowed in this stream.");
+        LUISA_ERROR("swapchain not allowed in Direct-Storage.");
     }
     SwapchainCreationInfo info;
     auto res = new LCSwapChain(
         &nativeDevice,
-        &static_cast<LCCmdBuffer *>(queue)->queue,
+        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue,
         nativeDevice.defaultAllocator.get(),
         reinterpret_cast<HWND>(window_handle),
         width,
@@ -434,9 +402,9 @@ void LCDevice::destroy_swap_chain(uint64 handle) noexcept {
 void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_handle, uint64 image_handle) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
-        LUISA_ERROR("present not allowed in this stream.");
+        LUISA_ERROR("present not allowed in Direct-Storage.");
     }
-    static_cast<LCCmdBuffer *>(queue)
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Present(
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<TextureBase *>(image_handle), nativeDevice.maxAllocatorCount);
@@ -597,16 +565,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
             }
         } break;
         case Tag::STREAM: {
-            auto queue = reinterpret_cast<CmdQueueBase *>(resource_handle);
-            switch (queue->Tag()) {
-                case CmdQueueTag::MainCmd:
-                    static_cast<LCCmdBuffer *>(queue)->queue.Queue()->SetName(vec.data());
-                    break;
-                case CmdQueueTag::Sparse:
-                    static_cast<SparseQueue *>(queue)->queue.Queue()->SetName(vec.data());
-                    break;
-                default: break;
-            }
+            reinterpret_cast<LCCmdBuffer *>(resource_handle)->queue.Queue()->SetName(vec.data());
         } break;
         case Tag::EVENT: {
             reinterpret_cast<LCEvent *>(resource_handle)->Fence()->SetName(vec.data());
@@ -698,6 +657,37 @@ SparseBufferCreationInfo LCDevice::create_sparse_buffer(const Type *element, siz
 }
 void LCDevice::destroy_sparse_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<SparseBuffer *>(handle);
+}
+void LCDevice::update_sparse_resources(
+    uint64_t stream_handle,
+    luisa::vector<SparseUpdateTile> &&update_cmds) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    vstd::vector<uint64> destroyList;
+
+    if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
+        LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
+    }
+    auto &queuePtr = static_cast<LCCmdBuffer *>(queue)->queue;
+    for (auto &&i : update_cmds) {
+        luisa::visit(
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, SparseTextureMapOperation>) {
+                    auto tex = reinterpret_cast<SparseTexture *>(i.handle);
+                    tex->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count, t.mip_level);
+                } else if constexpr (std::is_same_v<T, SparseBufferMapOperation>) {
+                    auto buffer = reinterpret_cast<SparseBuffer *>(i.handle);
+                    buffer->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count);
+                } else if constexpr (std::is_same_v<T, SparseTextureUnMapOperation>) {
+                    auto tex = reinterpret_cast<SparseTexture *>(i.handle);
+                    tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.mip_level, destroyList);
+                } else {
+                    auto buffer = reinterpret_cast<SparseBuffer *>(i.handle);
+                    buffer->DeAllocateTile(queuePtr.Queue(), t.start_tile, destroyList);
+                }
+            },
+            i.operations);
+    }
+    queuePtr.Signal(std::move(destroyList));
 }
 
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {

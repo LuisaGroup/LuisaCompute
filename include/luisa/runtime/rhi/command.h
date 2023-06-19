@@ -18,7 +18,6 @@
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/argument.h>
-#include <luisa/runtime/rhi/tile_modification.h>
 
 // for validation
 namespace lc::validation {
@@ -45,7 +44,6 @@ struct IndirectDispatchArg {
         MeshBuildCommand,                \
         ProceduralPrimitiveBuildCommand, \
         BindlessArrayUpdateCommand,      \
-        SparseResourceUpdateCommand,     \
         CustomCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
@@ -612,25 +610,6 @@ public:
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
-class SparseResourceUpdateCommand : public Command {
-    uint64_t _handle;
-    SparseOperation _operation;
-
-public:
-    template<typename Arg>
-        requires std::is_constructible_v<SparseOperation, Arg &&>
-    SparseResourceUpdateCommand(
-        uint64_t handle,
-        Arg &&arg) noexcept
-        : Command{Command::Tag::ESparseResourceUpdateCommand},
-          _handle{handle},
-          _operation{std::forward<Arg>(arg)} {
-    }
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto operation() const noexcept { return _operation; }
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::SPARSE)
-};
-
 class CustomCommand : public Command {
 
 public:
@@ -683,3 +662,4 @@ public:
 };
 
 }// namespace luisa::compute
+

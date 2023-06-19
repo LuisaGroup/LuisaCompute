@@ -64,20 +64,21 @@ public:
 
     [[nodiscard]] auto map_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
         detail::check_sparse_tex3d_map(_size, _tile_size, start_tile, tile_count);
-        return luisa::make_unique<SparseResourceUpdateCommand>(
-            handle(),
-            SparseTextureMapOperation{
-                .start_tile = start_tile,
-                .tile_count = tile_count,
-                .mip_level = mip_level});
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations =
+                SparseTextureMapOperation{
+                    .start_tile = start_tile,
+                    .tile_count = tile_count,
+                    .mip_level = mip_level}};
     }
     [[nodiscard]] auto unmap_tile(uint3 start_tile, uint mip_level) noexcept {
         detail::check_sparse_tex3d_unmap(_size, _tile_size, start_tile);
-        return luisa::make_unique<SparseResourceUpdateCommand>(
-            handle(),
-            SparseTextureMapOperation{
+        return SparseUpdateTile{
+            .handle = handle(),
+            .operations = SparseTextureMapOperation{
                 .start_tile = start_tile,
-                .mip_level = mip_level});
+                .mip_level = mip_level}};
     }
 
     // command

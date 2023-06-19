@@ -44,7 +44,7 @@ struct ReorderFuncTable {
         reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
     }
 };
-class LCCmdBuffer final : public CmdQueueBase {
+class LCCmdBuffer final : public CmdQueueBase{
 protected:
     ResourceStateTracker tracker;
     ReorderFuncTable reorderFuncTable;

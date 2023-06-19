@@ -138,6 +138,9 @@ public:
     [[nodiscard]] virtual SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
         return SparseBufferCreationInfo::make_invalid();
     }
+    virtual void update_sparse_resources(
+        uint64_t stream_handle,
+        luisa::vector<SparseUpdateTile> &&textures_update) noexcept {}
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture

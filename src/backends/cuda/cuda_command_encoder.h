@@ -50,9 +50,6 @@ public:
     void visit(MeshBuildCommand *command) noexcept override;
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
-    void visit(SparseResourceUpdateCommand *command) noexcept override{
-        // TODO
-    }
     void visit(CustomCommand *command) noexcept override;
 
     void commit(CommandList::CallbackContainer &&user_callbacks) noexcept;
