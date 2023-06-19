@@ -66,7 +66,7 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
@@ -210,9 +210,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -221,9 +221,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -233,7 +233,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -268,7 +268,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -278,7 +278,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -301,9 +301,9 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
 }
@@ -434,7 +434,10 @@ fn llvm_lib_path() -> &'static str {
 #[allow(non_snake_case)]
 impl LibLLVM {
     fn new() -> Self {
-        if cfg!(all(not(target_arch = "x86_64"), not(target_arch = "aarch64"))) {
+        if cfg!(all(
+            not(target_arch = "x86_64"),
+            not(target_arch = "aarch64")
+        )) {
             panic_abort!("only x86_64 and aarch64 are supported");
         }
         unsafe {
@@ -447,47 +450,60 @@ impl LibLLVM {
             let LLVMDumpModule = lift(lib.get(b"LLVMDumpModule").unwrap());
             let LLVMLinkInMCJIT = lift(lib.get(b"LLVMLinkInMCJIT").unwrap());
 
-            let LLVMInitializeNativeTarget = lift(lib.get(if cfg!(target_arch = "x86_64") {
-                b"LLVMInitializeX86Target"
-            } else if cfg!(target_arch = "aarch64") {
-                b"LLVMInitializeAArch64Target"
-            } else {
-                unreachable!()
-            }).unwrap());
+            let LLVMInitializeNativeTarget = lift(
+                lib.get(if cfg!(target_arch = "x86_64") {
+                    b"LLVMInitializeX86Target"
+                } else if cfg!(target_arch = "aarch64") {
+                    b"LLVMInitializeAArch64Target"
+                } else {
+                    unreachable!()
+                })
+                .unwrap(),
+            );
 
-            let LLVMInitializeNativeTargetInfo = lift(lib.get(if cfg!(target_arch = "x86_64") {
-                b"LLVMInitializeX86TargetInfo"
-            } else if cfg!(target_arch = "aarch64") {
-                b"LLVMInitializeAArch64TargetInfo"
-            } else {
-                unreachable!()
-            }).unwrap());
+            let LLVMInitializeNativeTargetInfo = lift(
+                lib.get(if cfg!(target_arch = "x86_64") {
+                    b"LLVMInitializeX86TargetInfo"
+                } else if cfg!(target_arch = "aarch64") {
+                    b"LLVMInitializeAArch64TargetInfo"
+                } else {
+                    unreachable!()
+                })
+                .unwrap(),
+            );
 
-            let LLVMInitializeNativeTargetMC = lift(lib.get(
-                if cfg!(target_arch = "x86_64") {
+            let LLVMInitializeNativeTargetMC = lift(
+                lib.get(if cfg!(target_arch = "x86_64") {
                     b"LLVMInitializeX86TargetMC"
                 } else if cfg!(target_arch = "aarch64") {
                     b"LLVMInitializeAArch64TargetMC"
                 } else {
                     unreachable!()
-                }
-            ).unwrap());
+                })
+                .unwrap(),
+            );
 
-            let LLVMInitializeNativeTargetMCA = lift(lib.get(if cfg!(target_arch = "x86_64") {
-                b"LLVMInitializeX86TargetMCA"
-            } else if cfg!(target_arch = "aarch64") {
-                b"LLVMInitializeAArch64TargetMC"
-            } else {
-                unreachable!()
-            }).unwrap());
+            let LLVMInitializeNativeTargetMCA = lift(
+                lib.get(if cfg!(target_arch = "x86_64") {
+                    b"LLVMInitializeX86TargetMCA"
+                } else if cfg!(target_arch = "aarch64") {
+                    b"LLVMInitializeAArch64TargetMC"
+                } else {
+                    unreachable!()
+                })
+                .unwrap(),
+            );
 
-            let LLVMInitializeNativeAsmPrinter = lift(lib.get(if cfg!(target_arch = "x86_64") {
-                b"LLVMInitializeX86AsmPrinter"
-            } else if cfg!(target_arch = "aarch64") {
-                b"LLVMInitializeAArch64AsmPrinter"
-            } else {
-                unreachable!()
-            }).unwrap());
+            let LLVMInitializeNativeAsmPrinter = lift(
+                lib.get(if cfg!(target_arch = "x86_64") {
+                    b"LLVMInitializeX86AsmPrinter"
+                } else if cfg!(target_arch = "aarch64") {
+                    b"LLVMInitializeAArch64AsmPrinter"
+                } else {
+                    unreachable!()
+                })
+                .unwrap(),
+            );
 
             let LLVMContextDispose = lift(lib.get(b"LLVMContextDispose").unwrap());
             let LLVMDisposeModule = lift(lib.get(b"LLVMDisposeModule").unwrap());
@@ -786,6 +802,12 @@ impl Context {
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
+            if cfg!(target_os = "windows") {
+                let kernel32_dll =
+                    libloading::Library::new("C:\\Windows\\system32\\kernel32.dll").unwrap();
+                let __chkstk = *kernel32_dll.get::<u64>(b"__chkstk\0").unwrap();
+                add_symbol!(__chkstk, __chkstk);
+            }
             unsafe extern "C" fn lc_abort_and_print_sll(
                 ctx: *const c_void,
                 msg: *const c_char,
