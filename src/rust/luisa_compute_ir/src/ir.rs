@@ -663,12 +663,16 @@ pub enum Func {
     BindlessTexture2dSampleLevel,
     ///(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2) -> float4
     BindlessTexture2dSampleGrad,
+    ///(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2, min_mip: float) -> float4
+    BindlessTexture2dSampleGradLevel,
     ///(bindless_array, index: uint, uv: float3) -> float4
     BindlessTexture3dSample,
     ///(bindless_array, index: uint, uv: float3, level: float) -> float4
     BindlessTexture3dSampleLevel,
     ///(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3) -> float4
     BindlessTexture3dSampleGrad,
+    ///(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2, min_mip: float) -> float4
+    BindlessTexture3dSampleGradLevel,
     ///(bindless_array, index: uint, coord: uint2) -> float4
     BindlessTexture2dRead,
     ///(bindless_array, index: uint, coord: uint3) -> float4

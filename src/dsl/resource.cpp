@@ -29,6 +29,13 @@ Var<float4> BindlessTexture2D::sample(Expr<float2> uv, Expr<float2> dpdx, Expr<f
         {_array, _index, uv.expression(), dpdx.expression(), dpdy.expression()}));
 }
 
+Var<float4> BindlessTexture2D::sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy, Expr<float> min_mip) const noexcept {
+    auto f = detail::FunctionBuilder::current();
+    return def<float4>(f->call(
+        Type::of<float4>(), CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL,
+        {_array, _index, uv.expression(), dpdx.expression(), dpdy.expression(), min_mip.expression()}));
+}
+
 Var<uint2> BindlessTexture2D::size() const noexcept {
     auto f = detail::FunctionBuilder::current();
     return def<uint2>(f->call(
@@ -76,6 +83,13 @@ Var<float4> BindlessTexture3D::sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<
     return def<float4>(f->call(
         Type::of<float4>(), CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD,
         {_array, _index, uvw.expression(), dpdx.expression(), dpdy.expression()}));
+}
+
+Var<float4> BindlessTexture3D::sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy, Expr<float> min_mip) const noexcept {
+    auto f = detail::FunctionBuilder::current();
+    return def<float4>(f->call(
+        Type::of<float4>(), CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,
+        {_array, _index, uvw.expression(), dpdx.expression(), dpdy.expression(), min_mip.expression()}));
 }
 
 Var<uint3> BindlessTexture3D::size() const noexcept {

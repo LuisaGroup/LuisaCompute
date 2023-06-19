@@ -106,6 +106,11 @@ class BindlessArray:
     def texture2d_sample_grad(self, texture2d_index, uv, ddx, ddy):
         check_exact_signature([uint, float2, float2, float2], [texture2d_index, uv, ddx, ddy], "texture2d_sample_grad")
         return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE_GRAD, [self.expr, texture2d_index.expr, uv.expr, ddx.expr, ddy.expr])
+    
+    @BuiltinFuncBuilder
+    def texture2d_sample_grad_level(self, texture2d_index, uv, ddx, ddy, min_mip):
+        check_exact_signature([uint, float2, float2, float2, float], [texture2d_index, uv, ddx, ddy, min_mip], "texture2d_sample_grad_level")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL, [self.expr, texture2d_index.expr, uv.expr, ddx.expr, ddy.expr, min_mip.expr])
 
     @BuiltinFuncBuilder
     def buffer_size(self, buffer_index):
@@ -136,6 +141,11 @@ class BindlessArray:
     def texture3d_sample_grad(self, texture3d_index, uv, ddx, ddy):
         check_exact_signature([uint, float3, float3, float3], [texture3d_index, uv, ddx, ddy], "texture3d_sample_grad")
         return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE3D_SAMPLE_GRAD, [self.expr, texture3d_index.expr, uv.expr, ddx.expr, ddy.expr])
+    
+    @BuiltinFuncBuilder
+    def texture3d_sample_grad_level(self, texture3d_index, uv, ddx, ddy, min_mip):
+        check_exact_signature([uint, float3, float3, float3, float], [texture3d_index, uv, ddx, ddy, min_mip], "texture3d_sample_grad_level")
+        return float4, lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL, [self.expr, texture3d_index.expr, uv.expr, ddx.expr, ddy.expr, min_mip.expr])
 
     @BuiltinFuncBuilder
     def texture3d_size(self, texture3d_index):

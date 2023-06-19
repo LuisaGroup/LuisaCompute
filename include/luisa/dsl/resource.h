@@ -273,6 +273,8 @@ public:
     [[nodiscard]] Var<float4> sample(Expr<float2> uv, Expr<float> mip) const noexcept;
     /// Sample at (u, v) with grad dpdx, dpdy
     [[nodiscard]] Var<float4> sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept;
+    /// Sample at (u, v) with grad dpdx, dpdy, mip-level offset, mip-level clamp
+    [[nodiscard]] Var<float4> sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy, Expr<float> min_mip) const noexcept;
     /// Size
     [[nodiscard]] Var<uint2> size() const noexcept;
     /// Size at level
@@ -314,6 +316,8 @@ public:
     [[nodiscard]] Var<float4> sample(Expr<float3> uvw, Expr<float> mip) const noexcept;
     /// Sample at (u, v, w) with grad dpdx, dpdy
     [[nodiscard]] Var<float4> sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept;
+    /// Sample at (u, v) with grad dpdx, dpdy, mip-level offset, mip-level clamp
+    [[nodiscard]] Var<float4> sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy, Expr<float> min_mip) const noexcept;
     /// Size
     [[nodiscard]] Var<uint3> size() const noexcept;
     /// Size at level

@@ -838,6 +838,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             opt->useTex2DBindless = true;
             str << "_SampleTex2DGrad"sv;
             break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL:
+            opt->useTex2DBindless = true;
+            str << "_SampleTex2DGradLevel"sv;
+            break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE:
             opt->useTex3DBindless = true;
             str << "_SampleTex3D"sv;
@@ -849,6 +853,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
             opt->useTex3DBindless = true;
             str << "_SampleTex3DGrad"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL:
+            opt->useTex3DBindless = true;
+            str << "_SampleTex3DGradLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_READ:
             opt->useTex2DBindless = true;

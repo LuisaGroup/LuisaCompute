@@ -464,9 +464,11 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture2dSample: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_SAMPLE);
         case ir::Func::Tag::BindlessTexture2dSampleLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL);
         case ir::Func::Tag::BindlessTexture2dSampleGrad: return builtin_func(5, CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD);
+        case ir::Func::Tag::BindlessTexture2dSampleGradLevel: return builtin_func(5, CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL);
         case ir::Func::Tag::BindlessTexture3dSample: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SAMPLE);
         case ir::Func::Tag::BindlessTexture3dSampleLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL);
         case ir::Func::Tag::BindlessTexture3dSampleGrad: return builtin_func(5, CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD);
+        case ir::Func::Tag::BindlessTexture3dSampleGradLevel: return builtin_func(5, CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL);
         case ir::Func::Tag::BindlessTexture2dRead: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_READ);
         case ir::Func::Tag::BindlessTexture3dRead: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_READ);
         case ir::Func::Tag::BindlessTexture2dReadLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE2D_READ_LEVEL);
