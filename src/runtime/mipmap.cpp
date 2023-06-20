@@ -3,6 +3,7 @@
 //
 
 #include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
 #include <luisa/runtime/mipmap.h>
 
 namespace luisa::compute::detail {
@@ -19,8 +20,8 @@ MipmapView::MipmapView(uint64_t handle, uint3 size, uint32_t level, PixelStorage
       _level{level},
       _storage{storage} {
     LUISA_VERBOSE_WITH_LOCATION(
-        "Mipmap: size = [{}, {}, {}], level = {}.",
-        size.x, size.y, size.z, level);
+        "Mipmap: size = [{}, {}, {}], storage = {}, level = {}.",
+        size.x, size.y, size.z, luisa::to_string(storage), level);
 }
 
 [[nodiscard]] luisa::unique_ptr<TextureCopyCommand> MipmapView::copy_from(MipmapView src) const noexcept {
