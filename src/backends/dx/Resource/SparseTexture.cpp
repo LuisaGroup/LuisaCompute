@@ -50,7 +50,7 @@ SparseTexture::~SparseTexture() {
     for (auto &&i : srvIdcs) {
         globalHeap.ReturnIndex(i.second);
     }
-    resource->Release();
+    resource.Reset();
     auto alloc = device->defaultAllocator.get();
     for (auto &&i : allocatedTiles) {
         alloc->Release(i.second.allocation);

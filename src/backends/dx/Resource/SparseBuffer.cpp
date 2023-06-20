@@ -29,7 +29,7 @@ vstd::optional<D3D12_UNORDERED_ACCESS_VIEW_DESC> SparseBuffer::GetColorUavDesc(u
     return GetColorUavDescBase(offset, byteSize, isRaw);
 }
 SparseBuffer::~SparseBuffer() {
-    resource->Release();
+    resource.Reset();
     auto alloc = device->defaultAllocator.get();
     for (auto &&i : allocatedTiles) {
         alloc->Release(i.second.allocation);

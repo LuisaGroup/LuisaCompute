@@ -117,6 +117,9 @@ function main(...)
 	if py then
 		args["python"] = nil
 	end
+	if my_is_host("linux") and not args["enable_mimalloc"] then
+		args["enable_mimalloc"] = "false"
+	end
 	sort_key(args, function(k, v)
 		if not (v == "true" or v == "false") then
 			v = '"' .. v .. '"'
