@@ -7,4 +7,4 @@ target_link_libraries(luisa-compute-backend-remote PRIVATE
         luisa-compute-rust-meta
         luisa_compute_backend_impl)
 
-add_dependencies(luisa-compute-backend-remote luisa-compute-rust-copy)
+# add_dependencies(luisa-compute-backend-remote luisa-compute-rust-copy)
