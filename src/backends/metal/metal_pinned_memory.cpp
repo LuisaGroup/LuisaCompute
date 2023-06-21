@@ -5,6 +5,7 @@
 #include <luisa/core/logging.h>
 
 #include "metal_device.h"
+#include "metal_buffer.h"
 #include "metal_pinned_memory.h"
 
 namespace luisa::compute::metal {
