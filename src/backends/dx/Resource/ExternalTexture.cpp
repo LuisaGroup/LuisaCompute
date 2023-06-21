@@ -21,7 +21,7 @@ ExternalTexture::ExternalTexture(
           depth,
           mip,
           initState},
-      resource{resource}, allowUav{allowUav} {
+      resource{resource}{
 }
 ExternalTexture::~ExternalTexture() {
     auto &globalHeap = *device->globalHeap.get();
@@ -57,7 +57,6 @@ uint ExternalTexture::GetGlobalSRVIndex(uint mipOffset) const {
     return ite.first->second;
 }
 uint ExternalTexture::GetGlobalUAVIndex(uint mipLevel) const {
-    assert(allowUav);
     mipLevel = std::min<uint>(mipLevel, mip - 1);
     std::lock_guard lck(allocMtx);
     auto ite = uavIdcs.try_emplace(

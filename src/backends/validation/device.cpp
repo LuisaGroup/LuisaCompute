@@ -25,7 +25,6 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
       _native{std::move(native)} {
     auto raster_ext = static_cast<RasterExt *>(_native->extension(RasterExt::name));
     auto dstorage_ext = static_cast<DStorageExt *>(_native->extension(DStorageExt::name));
-    constexpr size_t i = sizeof(ExtPtr);
     if (raster_ext) {
         auto raster_impl = new RasterExtImpl(raster_ext);
         exts.try_emplace(

@@ -37,7 +37,12 @@ struct BufferCreationInfo : public ResourceCreationInfo {
     size_t element_stride;
     size_t total_size_bytes;
     [[nodiscard]] static constexpr auto make_invalid() noexcept {
-        return BufferCreationInfo{invalid_resource_handle, nullptr, 0, 0};
+        BufferCreationInfo info{
+            .element_stride = 0,
+            .total_size_bytes = 0};
+        info.handle = invalid_resource_handle;
+        info.native_handle = nullptr;
+        return info;
     }
 };
 
@@ -233,4 +238,3 @@ struct hash<compute::AccelOption> {
 };
 
 }// namespace luisa
-

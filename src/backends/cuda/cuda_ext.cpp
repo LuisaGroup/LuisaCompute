@@ -26,7 +26,7 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
     options.guideAlbedo = data.normal && bool(*data.normal);
     options.guideNormal = data.albedo && bool(*data.albedo);
     bool guideFlow = data.flow && bool(*data.flow);
-    bool guideTrust = data.flowtrust && bool(*data.flowtrust);
+    // bool guideTrust = data.flowtrust && bool(*data.flowtrust);
     auto out_scale = 1u;
     if (_mode.upscale) {
         out_scale = 2u;
@@ -144,7 +144,7 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
 
 void CUDADenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
-    auto optix_ctx = _device->handle().optix_context();
+    // auto optix_ctx = _device->handle().optix_context();
     optix::DenoiserParams _params = {};
     _params.denoiseAlpha = _mode.alphamode ? optix::DENOISER_ALPHA_MODE_ALPHA_AS_AOV : optix::DENOISER_ALPHA_MODE_COPY;
     _params.hdrIntensity = _intensity;

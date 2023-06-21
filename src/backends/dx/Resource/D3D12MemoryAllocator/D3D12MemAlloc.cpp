@@ -139,7 +139,7 @@ static constexpr UINT STANDARD_HEAP_TYPE_COUNT = 3;// Only DEFAULT, UPLOAD, READ
 static constexpr UINT DEFAULT_POOL_MAX_COUNT = 9;
 static const UINT NEW_BLOCK_SIZE_SHIFT_MAX = 3;
 // Minimum size of a free suballocation to register it in the free suballocation collection.
-static const UINT64 MIN_FREE_SUBALLOCATION_SIZE_TO_REGISTER = 16;
+// static const UINT64 MIN_FREE_SUBALLOCATION_SIZE_TO_REGISTER = 16;
 
 static const WCHAR *const HeapTypeNames[] =
     {
@@ -272,25 +272,25 @@ static void D3D12MA_SWAP(T &a, T &b) {
 }
 
 // Scans integer for index of first nonzero bit from the Least Significant Bit (LSB). If mask is 0 then returns UINT8_MAX
-static UINT8 BitScanLSB(UINT64 mask) {
-#if defined(_MSC_VER) && defined(_WIN64)
-    unsigned long pos;
-    if (_BitScanForward64(&pos, mask))
-        return static_cast<UINT8>(pos);
-    return UINT8_MAX;
-#elif defined __GNUC__ || defined __clang__
-    return static_cast<UINT8>(__builtin_ffsll(mask)) - 1U;
-#else
-    UINT8 pos = 0;
-    UINT64 bit = 1;
-    do {
-        if (mask & bit)
-            return pos;
-        bit <<= 1;
-    } while (pos++ < 63);
-    return UINT8_MAX;
-#endif
-}
+// static UINT8 BitScanLSB(UINT64 mask) {
+// #if defined(_MSC_VER) && defined(_WIN64)
+//     unsigned long pos;
+//     if (_BitScanForward64(&pos, mask))
+//         return static_cast<UINT8>(pos);
+//     return UINT8_MAX;
+// #elif defined __GNUC__ || defined __clang__
+//     return static_cast<UINT8>(__builtin_ffsll(mask)) - 1U;
+// #else
+//     UINT8 pos = 0;
+//     UINT64 bit = 1;
+//     do {
+//         if (mask & bit)
+//             return pos;
+//         bit <<= 1;
+//     } while (pos++ < 63);
+//     return UINT8_MAX;
+// #endif
+// }
 // Scans integer for index of first nonzero bit from the Least Significant Bit (LSB). If mask is 0 then returns UINT8_MAX
 static UINT8 BitScanLSB(UINT32 mask) {
 #ifdef _MSC_VER
@@ -333,25 +333,25 @@ static UINT8 BitScanMSB(UINT64 mask) {
     return UINT8_MAX;
 }
 // Scans integer for index of first nonzero bit from the Most Significant Bit (MSB). If mask is 0 then returns UINT8_MAX
-static UINT8 BitScanMSB(UINT32 mask) {
-#ifdef _MSC_VER
-    unsigned long pos;
-    if (_BitScanReverse(&pos, mask))
-        return static_cast<UINT8>(pos);
-#elif defined __GNUC__ || defined __clang__
-    if (mask)
-        return 31 - static_cast<UINT8>(__builtin_clz(mask));
-#else
-    UINT8 pos = 31;
-    UINT32 bit = 1UL << 31;
-    do {
-        if (mask & bit)
-            return pos;
-        bit >>= 1;
-    } while (pos-- > 0);
-#endif
-    return UINT8_MAX;
-}
+// static UINT8 BitScanMSB(UINT32 mask) {
+// #ifdef _MSC_VER
+//     unsigned long pos;
+//     if (_BitScanReverse(&pos, mask))
+//         return static_cast<UINT8>(pos);
+// #elif defined __GNUC__ || defined __clang__
+//     if (mask)
+//         return 31 - static_cast<UINT8>(__builtin_clz(mask));
+// #else
+//     UINT8 pos = 31;
+//     UINT32 bit = 1UL << 31;
+//     do {
+//         if (mask & bit)
+//             return pos;
+//         bit >>= 1;
+//     } while (pos-- > 0);
+// #endif
+//     return UINT8_MAX;
+// }
 
 /*
 Returns true if given number is a power of two.
@@ -2771,7 +2771,7 @@ void BlockMetadata::DebugLogAllocation(UINT64 offset, UINT64 size, void *private
         Allocation *allocation = reinterpret_cast<Allocation *>(privateData);
 
         privateData = allocation->GetPrivateData();
-        LPCWSTR name = allocation->GetName();
+        // LPCWSTR name = allocation->GetName();
 
         D3D12MA_DEBUG_LOG(L"UNFREED ALLOCATION; Offset: %llu; Size: %llu; PrivateData: %p; Name: %s",
                           offset, size, privateData, name ? name : L"D3D12MA_Empty");
@@ -3756,10 +3756,12 @@ void BlockMetadata_Linear::Alloc(
             break;
         }
         case ALLOC_REQUEST_END_OF_2ND: {
+#ifndef NDEBUG
             SuballocationVectorType &suballocations1st = AccessSuballocations1st();
             // New allocation at the end of 2-part ring buffer, so before first allocation from 1st vector.
             D3D12MA_ASSERT(!suballocations1st.empty() &&
                            offset + request.size <= suballocations1st[m_1stNullItemsBeginCount].offset);
+#endif
             SuballocationVectorType &suballocations2nd = AccessSuballocations2nd();
 
             switch (m_2ndVectorMode) {
@@ -8945,9 +8947,9 @@ void Allocation::SetName(LPCWSTR Name) {
 }
 
 void Allocation::ReleaseThis() {
-    if (this == NULL) {
-        return;
-    }
+    // if (this == NULL) {
+    //     return;
+    // }
 
     SAFE_RELEASE(m_Resource);
 
@@ -8961,6 +8963,7 @@ void Allocation::ReleaseThis() {
         case TYPE_HEAP:
             m_Allocator->FreeHeapMemory(this);
             break;
+        default: break;
     }
 
     FreeName();
@@ -9078,9 +9081,9 @@ void DefragmentationContext::GetStats(DEFRAGMENTATION_STATS *pStats) {
 }
 
 void DefragmentationContext::ReleaseThis() {
-    if (this == NULL) {
-        return;
-    }
+    // if (this == NULL) {
+    //     return;
+    // }
 
     D3D12MA_DELETE(m_Pimpl->GetAllocs(), this);
 }
@@ -9134,9 +9137,9 @@ HRESULT Pool::BeginDefragmentation(const DEFRAGMENTATION_DESC *pDesc, Defragment
 }
 
 void Pool::ReleaseThis() {
-    if (this == NULL) {
-        return;
-    }
+    // if (this == NULL) {
+    //     return;
+    // }
 
     D3D12MA_DELETE(m_Pimpl->GetAllocator()->GetAllocs(), this);
 }

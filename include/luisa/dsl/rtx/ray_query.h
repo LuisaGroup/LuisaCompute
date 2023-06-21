@@ -78,7 +78,7 @@ public:
     using ProceduralCandidateHandler = luisa::function<void(ProceduralCandidate &)>;
 
 private:
-    friend class Expr<Accel>;
+    friend struct Expr<Accel>;
     friend class compute::TriangleCandidate;
     friend class compute::ProceduralCandidate;
     RayQueryBase(const Expression *accel,

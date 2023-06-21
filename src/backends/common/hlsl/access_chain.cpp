@@ -4,7 +4,7 @@ namespace lc::hlsl {
 AccessChain::AccessChain(
     CallOp op,
     Variable const &root_var,
-    luisa::span<Expression const *const> exprs) : _op{op}, _nodes{nodes_from_exprs(exprs)}, _root_var{root_var} {
+    luisa::span<Expression const *const> exprs) : _op{op}, _root_var{root_var}, _nodes{nodes_from_exprs(exprs)} {
     _hash = _get_hash();
 }
 void AccessChain::init_name() {

@@ -81,7 +81,7 @@ uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle) noexcept {
     externalMemoryHandleDesc.handle.win32.handle = sharedHandle;
     externalMemoryHandleDesc.size = dxBuffer->GetByteSize();
     externalMemoryHandleDesc.flags = cudaExternalMemoryDedicated;
-    cudaExternalMemory_t externalMemory;
+    cudaExternalMemory_t externalMemory{};
     assert(cudaImportExternalMemory(&externalMemory, &externalMemoryHandleDesc));
     // TODO: need cuda buffer here
     return reinterpret_cast<uint64_t>(externalMemory);
@@ -100,7 +100,7 @@ uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture_handle) noexcept {
     externalMemoryHandleDesc.handle.win32.handle = sharedHandle;
     externalMemoryHandleDesc.size = allocateInfo.SizeInBytes;
     externalMemoryHandleDesc.flags = cudaExternalMemoryDedicated;
-    cudaExternalMemory_t externalMemory;
+    cudaExternalMemory_t externalMemory{};
     assert(cudaImportExternalMemory(&externalMemory, &externalMemoryHandleDesc));
     // TODO: need cuda buffer here
     return reinterpret_cast<uint64_t>(externalMemory);
@@ -116,7 +116,7 @@ uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event_handle) noexcept {
     _device.device->CreateSharedHandle(dxEvent->Fence(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
     externalSemaphoreHandleDesc.handle.win32.handle = (void *)sharedHandle;
     externalSemaphoreHandleDesc.flags = 0;
-    cudaExternalSemaphore_t externalSemaphre;
+    cudaExternalSemaphore_t externalSemaphre{};
     assert(cudaImportExternalSemaphore(&externalSemaphre, &externalSemaphoreHandleDesc));
     // TODO: need cuda event here
     return reinterpret_cast<uint64_t>(externalSemaphre);

@@ -59,7 +59,6 @@ void StructGenerator::InitAsStruct(
     size_t alignCount = 0;
     size_t structSize = 0;
     structDesc.reserve(256);
-    auto szOpt = vars.size();
 
     size_t maxAlign = 4;
     auto Align = [&](size_t tarAlign) {
@@ -108,9 +107,9 @@ StructGenerator::StructGenerator(
     Type const *structureType,
     size_t structIdx,
     CodegenUtility *util)
-    : idx(structIdx),
+    : structureType{structureType},
       util(util),
-      structureType{structureType} {
+      idx(structIdx) {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
         structName = "_S"sv;
         vstd::to_string(structIdx, structName);

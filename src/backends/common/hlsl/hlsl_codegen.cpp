@@ -205,7 +205,6 @@ void StringStateVisitor::visit(const RefExpr *expr) {
     util->GetVariableName(v, tempStr);
     util->RegistStructType(v.type());
     str << tempStr;
-    auto t = expr->type();
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
@@ -457,7 +456,7 @@ StringStateVisitor::StringStateVisitor(
     Function f,
     vstd::StringBuilder &str,
     CodegenUtility *util)
-    : f(f), str(str), util(util) {
+    : f(f), util(util), str(str) {
 }
 void StringStateVisitor::VisitFunction(Function func) {
     for (auto &&v : func.local_variables()) {
@@ -504,4 +503,3 @@ StringStateVisitor::Scope::~Scope() {
     self->str << "}\n"sv;
 }
 }// namespace lc::hlsl
-

@@ -65,7 +65,7 @@ void SparseBuffer::DeAllocateTile(ID3D12CommandQueue *queue, uint coord, vstd::v
 }
 void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size) const {
     std::lock_guard lck{allocMtx};
-    auto iter = allocatedTiles.try_emplace(
+    allocatedTiles.try_emplace(
         coord,
         vstd::lazy_eval([&] {
             TileInfo tileInfo;

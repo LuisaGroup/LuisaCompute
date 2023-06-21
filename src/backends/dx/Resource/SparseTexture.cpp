@@ -12,8 +12,7 @@ SparseTexture::SparseTexture(
     uint mip,
     bool allowUav,
     bool allowSimul)
-    : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
-      allowUav(allowUav) {
+    : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()) {
     auto texDesc = GetResourceDescBase(allowUav, allowSimul, true);
     texDesc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     ThrowIfFailed(device->device->CreateReservedResource(
@@ -60,7 +59,6 @@ D3D12_SHADER_RESOURCE_VIEW_DESC SparseTexture::GetColorSrvDesc(uint mipOffset) c
     return GetColorSrvDescBase(mipOffset);
 }
 D3D12_UNORDERED_ACCESS_VIEW_DESC SparseTexture::GetColorUavDesc(uint targetMipLevel) const {
-    assert(allowUav);
     return GetColorUavDescBase(targetMipLevel);
 }
 D3D12_RENDER_TARGET_VIEW_DESC SparseTexture::GetRenderTargetDesc(uint mipOffset) const {
@@ -73,14 +71,14 @@ uint SparseTexture::GetGlobalUAVIndex(uint mipLevel) const {
     return GetGlobalUAVIndexBase(mipLevel, allocMtx, uavIdcs);
 }
 void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 size, uint mipLevel) const {
-    uint tileCount = size.x * size.y * size.z;
+    // uint tileCount = size.x * size.y * size.z;
     Tile tile;
     tile.mipLevel = mipLevel;
     tile.coords[0] = coord[0];
     tile.coords[1] = coord[1];
     tile.coords[2] = coord[2];
     std::lock_guard lck{allocMtx};
-    auto iter = allocatedTiles.try_emplace(
+    allocatedTiles.try_emplace(
         tile,
         vstd::lazy_eval([&] {
             TileInfo tileInfo;

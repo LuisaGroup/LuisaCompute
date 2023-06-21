@@ -134,7 +134,7 @@ public:
     }
 };
 class Device;
-class DxRasterExt : public RasterExt, public vstd::IOperatorNewBase {
+class DxRasterExt final : public RasterExt, public vstd::IOperatorNewBase {
     Device &nativeDevice;
 
 public:
@@ -168,7 +168,7 @@ public:
     DxCudaInteropImpl(Device &device) : _device{device} {}
 };
 
-class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
+class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_core_module;
     luisa::DynamicModule dstorage_module;
     ComPtr<IDStorageFactory> factory;

@@ -18,7 +18,7 @@
 namespace luisa::compute::cuda {
 
 class CUDADevice;
-class CUDACallbackContext;
+struct CUDACallbackContext;
 
 class CUDAStream;
 

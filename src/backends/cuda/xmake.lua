@@ -9,8 +9,8 @@ if get_config("_lc_vk_path") then
 	add_deps("lc-vk-swapchain")
 end
 add_deps("lc-runtime")
-add_headerfiles("**.h","../common/default_binary_io.h", "../common/string_scratch.h")
-add_files("**.cpp","../common/default_binary_io.cpp", "../common/string_scratch.cpp")
+add_headerfiles("**.h", "../common/default_binary_io.h", "../common/string_scratch.h")
+add_files("**.cpp", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)
 	import("detect.sdks.find_cuda")
 	local cuda = find_cuda()
@@ -19,7 +19,7 @@ on_load(function(target)
 			if type(value) == "string" then
 				target:add(key, value)
 			elseif type(value) == "table" then
-				for i,v in ipairs(value) do
+				for i, v in ipairs(value) do
 					target:add(key, v)
 				end
 			end
@@ -32,7 +32,7 @@ on_load(function(target)
 		return
 	end
 	if is_plat("windows") then
-		target:add("defines", "UNICODE")
+		target:add("defines", "UNICODE", "_CRT_SECURE_NO_WARNINGS")
 		target:add("syslinks", "Cfgmgr32", "Advapi32")
 	end
 end)

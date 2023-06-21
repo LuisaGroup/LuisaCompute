@@ -125,7 +125,7 @@ private:
             },
             [&inside_scope_stack, target_scopes](auto s) noexcept {
                 if (s->tag() == Statement::Tag::SCOPE) {
-                    auto inside_targets = inside_scope_stack.back() |
+                    auto inside_targets = inside_scope_stack.back() ||
                                           std::find(target_scopes.begin(), target_scopes.end(), s) !=
                                               target_scopes.end();
                     inside_scope_stack.emplace_back(inside_targets);
@@ -1674,8 +1674,9 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
 }
 
 CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept
-    : _scratch{scratch}, _allow_indirect_dispatch{allow_indirect},
+    : _scratch{scratch}, 
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
+      _allow_indirect_dispatch{allow_indirect},
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},

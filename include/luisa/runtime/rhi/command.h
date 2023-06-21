@@ -139,10 +139,10 @@ public:
                           luisa::vector<std::byte> &&argument_buffer,
                           size_t argument_count,
                           DispatchSize dispatch_size) noexcept
-        : ShaderDispatchCommandBase{shader_handle,
+        : Command{Tag::EShaderDispatchCommand},
+          ShaderDispatchCommandBase{shader_handle,
                                     std::move(argument_buffer),
                                     argument_count},
-          Command{Tag::EShaderDispatchCommand},
           _dispatch_size{dispatch_size} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
@@ -249,8 +249,8 @@ public:
         : Command{Command::Tag::EBufferToTextureCopyCommand},
           _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_size{size.x, size.y, size.z},
-          _texture_offset{texture_offset.x, texture_offset.y, texture_offset.z} {}
+          _texture_offset{texture_offset.x, texture_offset.y, texture_offset.z},
+          _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
@@ -283,8 +283,8 @@ public:
         : Command{Command::Tag::ETextureToBufferCopyCommand},
           _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_size{size.x, size.y, size.z},
-          _texture_offset{texture_offset.x, texture_offset.y, texture_offset.z} {}
+          _texture_offset{texture_offset.x, texture_offset.y, texture_offset.z},
+          _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
@@ -350,8 +350,9 @@ public:
                          uint level, uint3 size, const void *data, uint3 offset = uint3::zero()) noexcept
         : Command{Command::Tag::ETextureUploadCommand},
           _handle{handle}, _storage{storage}, _level{level},
-          _size{size.x, size.y, size.z}, _data{data},
-          _offset{offset.x, offset.y, offset.z} {}
+          _offset{offset.x, offset.y, offset.z},
+          _size{size.x, size.y, size.z},
+          _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
@@ -381,8 +382,8 @@ public:
                            uint level, uint3 size, void *data, uint3 offset = uint3::zero()) noexcept
         : Command{Command::Tag::ETextureDownloadCommand},
           _handle{handle}, _storage{storage}, _level{level},
-          _size{size.x, size.y, size.z},
           _offset{offset.x, offset.y, offset.z},
+          _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
@@ -528,8 +529,8 @@ public:
                       bool update_instance_buffer_only) noexcept
         : Command{Command::Tag::EAccelBuildCommand},
           _handle{handle}, _instance_count{instance_count},
-          _update_instance_buffer_only{update_instance_buffer_only},
-          _request{request}, _modifications{std::move(modifications)} {}
+          _request{request}, _update_instance_buffer_only{update_instance_buffer_only},
+          _modifications{std::move(modifications)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto instance_count() const noexcept { return _instance_count; }
@@ -662,4 +663,3 @@ public:
 };
 
 }// namespace luisa::compute
-

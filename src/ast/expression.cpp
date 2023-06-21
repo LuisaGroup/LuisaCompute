@@ -110,14 +110,14 @@ CallExpr::CallExpr(const Type *type, CallOp builtin, CallExpr::ArgumentList args
 CallExpr::CallExpr(const Type *type, Function callable, CallExpr::ArgumentList args) noexcept
     : Expression{Tag::CALL, type},
       _arguments{std::move(args)},
-      _func{callable.builder()},
-      _op{CallOp::CUSTOM} { _mark(); }
+      _op{CallOp::CUSTOM},
+      _func{callable.builder()} { _mark(); }
 
 CallExpr::CallExpr(const Type *type, const ExternalFunction *external, ArgumentList args) noexcept
     : Expression{Tag::CALL, type},
       _arguments{std::move(args)},
-      _func{external},
-      _op{CallOp::EXTERNAL} { _mark(); }
+      _op{CallOp::EXTERNAL},
+      _func{external} { _mark(); }
 
 Function CallExpr::custom() const noexcept {
     LUISA_ASSERT(is_custom(), "Not a custom function.");
@@ -211,4 +211,3 @@ void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
 }// namespace luisa::compute
-

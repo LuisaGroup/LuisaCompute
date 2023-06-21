@@ -8,7 +8,6 @@ private:
     mutable vstd::unordered_map<uint, uint> uavIdcs;
     mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable std::mutex allocMtx;
-    bool allowUav;
 
 public:
     RenderTexture(

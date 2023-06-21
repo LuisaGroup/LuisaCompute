@@ -176,7 +176,6 @@ VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
     ComPtr<IDXGIFactory2> dxgiFactory;
     ComPtr<IDXGIAdapter1> adapter;
     ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
-    auto capableAdapterIndex = 0u;
     for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, adapter.GetAddressOf()) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
         DXGI_ADAPTER_DESC1 desc;
         adapter->GetDesc1(&desc);

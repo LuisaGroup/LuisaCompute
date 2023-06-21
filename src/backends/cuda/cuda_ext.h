@@ -10,7 +10,7 @@
 
 namespace luisa::compute::cuda {
 
-class CUDADenoiserExt : public DenoiserExt {
+class CUDADenoiserExt final : public DenoiserExt {
     CUDADevice *_device;
     std::vector<optix::DenoiserLayer> _layers;
     optix::Denoiser _denoiser = nullptr;
@@ -46,4 +46,3 @@ public:
 };
 
 }// namespace luisa::compute::cuda
-

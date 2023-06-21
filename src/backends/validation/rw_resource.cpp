@@ -15,7 +15,7 @@ struct ResMap {
 };
 static ResMap res_map;
 RWResource::RWResource(uint64_t handle, Tag tag, bool non_simultaneous)
-    : Resource{tag}, _handle{handle}, _non_simultaneous{non_simultaneous} {
+    : Resource{tag}, _non_simultaneous{non_simultaneous}, _handle{handle} {
     std::lock_guard lck{mtx};
     res_map.map.force_emplace(handle, this);
 }
@@ -35,7 +35,7 @@ void RWResource::set_usage(Stream *stream, RWResource *res, Usage usage, Range r
         }();
     }
     {
-        auto iter = res->_info.try_emplace(luisa::weak_ptr<Stream> {stream->shared_from_this()});
+        auto iter = res->_info.try_emplace(luisa::weak_ptr<Stream>{stream->shared_from_this()});
         auto &info = iter.first->second;
         if (stream->executed_layer() > info.last_frame) {
             info.last_frame = stream->executed_layer();

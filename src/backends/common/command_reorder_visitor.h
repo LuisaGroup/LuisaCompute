@@ -591,8 +591,8 @@ private:
         }
     }
 
-    template<bool contain_binding, typename... Callbacks>
-    void visit(const ShaderDispatchCommandBase *command, const Command *cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
+    template<bool contain_binding, typename Callback>
+    void visit(const ShaderDispatchCommandBase *command, const Command *cmd_base, uint64_t shader_handle, Callback callback) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
@@ -669,9 +669,7 @@ private:
         for (auto &&i : command->arguments()) {
             ite_arg(i);
         }
-        if constexpr (sizeof...(callbacks) > 0) {
-            auto cb = {(callbacks(), 0)...};
-        }
+        callback();
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
         }

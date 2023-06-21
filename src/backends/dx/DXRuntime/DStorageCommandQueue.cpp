@@ -175,7 +175,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
     curFrame = ++lastFrame;
     executedAllocators.push(waitQueueHandle, curFrame, callbackEmpty);
     if (!callbackEmpty) {
-        executedAllocators.push(std::move(list.steal_callbacks()), curFrame, true);
+        executedAllocators.push(list.steal_callbacks(), curFrame, true);
     }
     mtx.lock();
     mtx.unlock();

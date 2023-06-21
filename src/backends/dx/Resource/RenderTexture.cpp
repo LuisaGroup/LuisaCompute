@@ -14,8 +14,7 @@ RenderTexture::RenderTexture(
     bool allowSimul,
     GpuAllocator *allocator)
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
-      allocHandle(allocator),
-      allowUav(allowUav) {
+      allocHandle(allocator) {
     auto texDesc = GetResourceDescBase(allowUav, allowSimul);
     if (!allocator) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
@@ -54,7 +53,6 @@ D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc(uint mipOffset) c
     return GetColorSrvDescBase(mipOffset);
 }
 D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetColorUavDesc(uint targetMipLevel) const {
-    assert(allowUav);
     return GetColorUavDescBase(targetMipLevel);
 }
 D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRenderTargetDesc(uint mipOffset) const {

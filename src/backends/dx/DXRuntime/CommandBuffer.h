@@ -27,7 +27,6 @@ private:
     void SetRasterResources(
         Shader const *s,
         vstd::span<const BindProperty> resources);
-    DescriptorHeap const *currentDesc = nullptr;
 
 public:
     CommandBuffer const *GetCB() const { return cb; }
