@@ -30,8 +30,15 @@ enum class DStorageCompressionQuality : uint {
     Best
 };
 
+enum class DStorageStreamSource : uint {
+    MemorySource = 1,
+    FileSource = 2,
+    AnySource = MemorySource | FileSource
+};
+
 struct DStorageStreamOption {
-    bool supports_hdd = false;
+    DStorageStreamSource source{DStorageStreamSource::FileSource};
+    bool supports_hdd{false};
 };
 
 class DStorageExt : public DeviceExtension {
@@ -77,4 +84,3 @@ public:
 };
 
 }// namespace luisa::compute
-

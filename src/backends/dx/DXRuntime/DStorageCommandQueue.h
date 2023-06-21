@@ -5,6 +5,8 @@
 #include <DXRuntime/DxPtr.h>
 #include <DXApi/CmdQueueBase.h>
 #include <luisa/runtime/command_list.h>
+#include <luisa/backends/ext/dstorage_ext_interface.h>
+
 namespace lc::dx {
 class LCEvent;
 class DStorageFileImpl : public vstd::IOperatorNewBase {
@@ -15,7 +17,7 @@ public:
 };
 class DStorageCommandQueue : public CmdQueueBase{
     struct WaitQueueHandle {
-        HANDLE handles[2];
+        HANDLE handle;
     };
     struct CallbackEvent {
         using Variant = vstd::variant<
@@ -40,16 +42,16 @@ class DStorageCommandQueue : public CmdQueueBase{
     std::condition_variable mainCv;
     uint64 executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
+    DSTORAGE_REQUEST_SOURCE_TYPE sourceType;
     bool enabled = true;
-    ComPtr<IDStorageQueue2> fileQueue;
-    ComPtr<IDStorageQueue2> memQueue;
+    ComPtr<IDStorageQueue2> queue;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
 
 public:
-    void Signal(ID3D12Fence *fence, UINT64 value);
+    void Signal(ID3D12Fence *fence, UINT64 &value);
     uint64 LastFrame() const { return lastFrame; }
-    DStorageCommandQueue(IDStorageFactory *factory, Device *device);
+    DStorageCommandQueue(IDStorageFactory *factory, Device *device, luisa::compute::DStorageStreamSource source);
     void AddEvent(LCEvent const *evt);
     uint64 Execute(luisa::compute::CommandList &&list);
     void Complete(uint64 fence);
