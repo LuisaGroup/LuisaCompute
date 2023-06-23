@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-12, macos-13 ]
+        os: [ macos-13 ]
         compiler: [ homebrew-clang, system-clang ]
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
