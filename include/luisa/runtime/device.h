@@ -89,12 +89,11 @@ template<typename... Args>
 struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 }// namespace detail
-template<typename Ext>
-concept ExtClass =
-    requires {
-        requires(std::is_base_of_v<DeviceExtension, Ext>);
-        requires(std::is_same_v<const luisa::string_view, decltype(Ext::name)>);
-    };
+
+template<typename T>
+concept device_extension = std::is_base_of_v<DeviceExtension, T> &&
+                           std::is_same_v<const luisa::string_view, decltype(T::name)>;
+
 class LC_RUNTIME_API Device {
 
 public:
@@ -109,11 +108,12 @@ private:
     [[nodiscard]] auto _create(Args &&...args) noexcept {
         return T{this->_impl.get(), std::forward<Args>(args)...};
     }
+
     static void _check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept;
 
 public:
-    Device() noexcept {}
-    // Device construct from backend handle, use Context::create_device for convenient usage
+    Device() noexcept = default;
+    // Device construct from backend handle, use Context::create_device for convenience
     explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
     // The backend name in lower case, can be used to recognize the corresponding backend
     [[nodiscard]] auto backend_name() const noexcept { return _impl->backend_name(); }
@@ -122,7 +122,7 @@ public:
     // Is device initialized
     [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_impl); }
     // backend native plugins & extensions interface
-    template<ExtClass Ext>
+    template<device_extension Ext>
     [[nodiscard]] auto extension() const noexcept {
         return static_cast<Ext *>(_impl->extension(Ext::name));
     }
