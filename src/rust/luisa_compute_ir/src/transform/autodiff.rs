@@ -172,6 +172,7 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
                 grad_field_to_primal_field: map.clone(),
             })
         }
+        Type::Opaque(_) => None,
     };
     record
 }
@@ -1125,6 +1126,7 @@ impl Backward {
                 todo!()
             }
             crate::ir::Instruction::AdDetach(_) => {}
+            Instruction::RayQuery { .. } => panic!("RayQuery is not supported yet"),
             crate::ir::Instruction::Call(func, args) => {
                 if grad_type.is_none() {
                     return;

@@ -23,6 +23,41 @@ struct alignas(16) Mat4 {
     float _0[16];
 };
 
+struct alignas(8) CommitedHit {
+    uint32_t inst;
+    uint32_t prim;
+    float bary[2];
+    uint32_t hit_type;
+    float committed_ray_t;
+};
+
+struct alignas(8) TriangleHit {
+    uint32_t inst;
+    uint32_t prim;
+    float bary[2];
+};
+
+struct alignas(8) ProceduralHit {
+    uint32_t inst;
+    uint32_t prim;
+};
+
+struct alignas(16) RayQuery {
+    CommitedHit hit;
+    Ray ray;
+    uint8_t mask;
+    float cur_committed_ray_t;
+    TriangleHit cur_triangle_hit;
+    ProceduralHit cur_procedural_hit;
+    bool cur_commited;
+    bool terminate_on_first;
+    bool terminated;
+    void *user_data;
+    const Accel *accel;
+};
+
+using OnHitCallback = void(*)(RayQuery*);
+
 struct Accel {
     const void *handle;
     Hit (*trace_closest)(const void*, const Ray*, uint8_t);
@@ -30,6 +65,7 @@ struct Accel {
     void (*set_instance_visibility)(const void*, uint32_t, uint8_t);
     void (*set_instance_transform)(const void*, uint32_t, const Mat4*);
     Mat4 (*instance_transform)(const void*, uint32_t);
+    CommitedHit (*ray_query)(const void*, RayQuery*, OnHitCallback, OnHitCallback);
 };
 
 struct BufferView {

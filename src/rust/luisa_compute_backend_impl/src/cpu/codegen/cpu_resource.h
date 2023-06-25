@@ -201,11 +201,76 @@ inline lc_float4x4 lc_accel_instance_transform(const Accel &accel, lc_uint inst_
     return lc_bit_cast<lc_float4x4>(m4);
 }
 
-inline void set_instance_visibility(const Accel &accel, lc_uint inst_id, bool visible) noexcept {
+inline void lc_set_instance_visibility(const Accel &accel, lc_uint inst_id, bool visible) noexcept {
     accel.set_instance_visibility(accel.handle, inst_id, visible);
 }
 
-inline void set_instance_transform(const Accel &accel, lc_uint inst_id, const lc_float4x4 &transform) noexcept {
+inline void lc_set_instance_transform(const Accel &accel, lc_uint inst_id, const lc_float4x4 &transform) noexcept {
     auto m4 = lc_bit_cast<Mat4>(transform);
     accel.set_instance_transform(accel.handle, inst_id, &m4);
+}
+using RayQueryAll = RayQuery;
+using RayQueryAny = RayQuery;
+
+template<bool TERMINATE_ON_FISRST_HIT>
+inline RayQueryAll make_rq(const Accel &accel,const Ray& ray, uint8_t mask) {
+    RayQuery rq{};
+    rq.hit.inst = ~0u;
+    rq.hit.prim = ~0u;
+    rq.ray = ray;
+    rq.mask = mask;
+    rq.user_data = nullptr;
+    rq.terminate_on_first = TERMINATE_ON_FISRST_HIT;
+    rq.accel = &accel;
+    return rq;
+}
+
+inline RayQueryAny lc_ray_query_any(const Accel &accel,const Ray& ray, uint8_t mask) {
+    return make_rq<true>(accel, ray, mask);
+}
+inline RayQueryAll lc_ray_query_all(const Accel &accel,const Ray& ray, uint8_t mask) {
+    return make_rq<false>(accel, ray, mask);
+}
+inline Ray lc_ray_query_world_space_ray(const RayQuery& rq) {
+    return rq.ray;
+}
+static_assert(sizeof(TriangleHit)  == 16);
+inline TriangleHit lc_ray_query_triangle_candidate_hit(const RayQuery& rq) {
+    return rq.cur_triangle_hit;
+}
+inline ProceduralHit lc_ray_query_procedural_candidate_hit(const RayQuery& rq) {
+    return rq.cur_procedural_hit;
+}
+inline void lc_ray_query_commit_triangle(RayQuery& rq) {
+    rq.cur_commited = true;
+}
+inline void lc_ray_query_commit_procedural(RayQuery& rq, float t) {
+    rq.cur_commited = true;
+    rq.cur_committed_ray_t = t;
+}
+inline void lc_ray_query_terminate(RayQuery& rq) {
+    rq.terminated = true;
+}
+
+template<class T, class P>
+struct Callbacks {
+    T on_triangle_hit;
+    P on_procedural_hit;
+};
+template<class T, class P>
+void on_triangle_hit_wrapper(RayQuery* rq) {
+    auto callbacks = reinterpret_cast<Callbacks<T, P>*>(rq->user_data);
+    callbacks->on_triangle_hit(rq->cur_triangle_hit);
+}
+template<class T, class P>
+void on_procedural_hit_wrapper(RayQuery* rq) {
+    auto callbacks = reinterpret_cast<Callbacks<T, P>*>(rq->user_data);
+    callbacks->on_procedural_hit(rq->cur_procedural_hit);
+}
+template<class T, class P>
+inline CommitedHit lc_ray_query(RayQuery& rq, T on_triangle_hit, P on_procedural_hit) {
+    auto callbacks = Callbacks<T, P>{on_triangle_hit, on_procedural_hit};
+    rq.user_data = &callbacks;
+    auto accel = rq.accel;
+    return accel->ray_query(accel->handle, &rq, on_triangle_hit_wrapper<T, P>, on_procedural_hit_wrapper<T, P>);
 }

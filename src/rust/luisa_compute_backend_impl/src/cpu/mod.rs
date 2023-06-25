@@ -411,6 +411,21 @@ impl RustBackend {
             shared_pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(num_threads)
+                    .start_handler(|_| {
+                        #[cfg(target_arch = "x86_64")]
+                        {
+                            unsafe {
+                                use core::arch::x86_64::*;
+                                _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+                                const _MM_DENORMALS_ZERO_MASK: u32 = 0x0040;
+                                const _MM_DENORMALS_ZERO_ON: u32 = 0x0040;
+                                _mm_setcsr(
+                                    (_mm_getcsr() & !_MM_DENORMALS_ZERO_MASK)
+                                        | (_MM_DENORMALS_ZERO_ON),
+                                );
+                            }
+                        }
+                    })
                     .build()
                     .unwrap(),
             ),

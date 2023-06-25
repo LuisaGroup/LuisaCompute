@@ -110,6 +110,7 @@ struct Type {
         Matrix,
         Struct,
         Array,
+        Opaque,
     };
 
     struct Primitive_Body {
@@ -132,6 +133,10 @@ struct Type {
         ArrayType _0;
     };
 
+    struct Opaque_Body {
+        CBoxedSlice<uint8_t> _0;
+    };
+
     Tag tag;
     union {
         Primitive_Body primitive;
@@ -139,6 +144,7 @@ struct Type {
         Matrix_Body matrix;
         Struct_Body struct_;
         Array_Body array;
+        Opaque_Body opaque;
     };
 };
 
@@ -251,6 +257,7 @@ struct Func {
         RayTracingTraceAny,
         RayTracingQueryAll,
         RayTracingQueryAny,
+        RayQueryWorldSpaceRay,
         RayQueryProceduralCandidateHit,
         RayQueryTriangleCandidateHit,
         RayQueryCommittedHit,
@@ -585,6 +592,7 @@ struct Instruction {
         If,
         Switch,
         AdScope,
+        RayQuery,
         AdDetach,
         Comment,
     };
@@ -651,6 +659,12 @@ struct Instruction {
         Pooled<BasicBlock> body;
     };
 
+    struct RayQuery_Body {
+        NodeRef ray_query;
+        Pooled<BasicBlock> on_triangle_hit;
+        Pooled<BasicBlock> on_procedural_hit;
+    };
+
     struct AdDetach_Body {
         Pooled<BasicBlock> _0;
     };
@@ -674,6 +688,7 @@ struct Instruction {
         If_Body if_;
         Switch_Body switch_;
         AdScope_Body ad_scope;
+        RayQuery_Body ray_query;
         AdDetach_Body ad_detach;
         Comment_Body comment;
     };

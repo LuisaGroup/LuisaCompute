@@ -171,6 +171,7 @@ pub enum Type {
     Matrix(MatrixType),
     Struct(StructType),
     Array(ArrayType),
+    Opaque(CBoxedSlice<u8>),
 }
 
 impl std::fmt::Display for Type {
@@ -183,6 +184,7 @@ impl std::fmt::Display for Type {
             Self::Matrix(matrix) => std::fmt::Display::fmt(matrix, f),
             Self::Struct(struct_type) => std::fmt::Display::fmt(struct_type, f),
             Self::Array(arr) => std::fmt::Display::fmt(arr, f),
+            Self::Opaque(name) => std::fmt::Display::fmt(&name.to_string(), f),
         }
     }
 }
@@ -288,6 +290,7 @@ impl Type {
             Self::Matrix(mt) => mt.column(),
             Self::Array(arr) => arr.element.clone(),
             Self::Struct(s) => s.fields[i].clone(),
+            Self::Opaque(_) => unreachable!(),
         }
     }
     pub fn size(&self) -> usize {
@@ -298,6 +301,7 @@ impl Type {
             Type::Vector(t) => t.size(),
             Type::Matrix(t) => t.size(),
             Type::Array(t) => t.element.size() * t.length,
+            Self::Opaque(_) => unreachable!(),
         }
     }
     pub fn element(&self) -> CArc<Type> {
@@ -309,6 +313,7 @@ impl Type {
             Type::Matrix(mat_type) => mat_type.element.to_type(),
             Type::Struct(_) => CArc::null(),
             Type::Array(arr_type) => arr_type.element.clone(),
+            Self::Opaque(_) => unreachable!(),
         }
     }
     pub fn dimension(&self) -> usize {
@@ -319,6 +324,7 @@ impl Type {
             Type::Matrix(mat_type) => mat_type.dimension as usize,
             Type::Struct(struct_type) => struct_type.fields.as_ref().len(),
             Type::Array(arr_type) => arr_type.length,
+            Self::Opaque(_) => unreachable!(),
         }
     }
     pub fn alignment(&self) -> usize {
@@ -329,6 +335,7 @@ impl Type {
             Type::Vector(t) => t.element.size(), // TODO
             Type::Matrix(t) => t.element.size(),
             Type::Array(t) => t.element.alignment(),
+            Self::Opaque(_) => unreachable!(),
         }
     }
     pub fn vector_to_bool(from: &VectorType) -> CArc<VectorType> {
@@ -351,6 +358,9 @@ impl Type {
             },
             _ => panic!("Cannot convert to bool"),
         }
+    }
+    pub fn opaque(name: String) -> CArc<Type> {
+        context::register_type(Type::Opaque(name.into()))
     }
     pub fn vector(element: Primitive, length: u32) -> CArc<Type> {
         context::register_type(Type::Vector(VectorType {
@@ -375,6 +385,12 @@ impl Type {
             element: VectorElementType::Vector(element),
             dimension,
         }))
+    }
+    pub fn is_opaque(&self, name: &str) -> bool {
+        match self {
+            Type::Opaque(name_) => name_.to_string().as_str() == name,
+            _ => false,
+        }
     }
     pub fn is_primitive(&self) -> bool {
         match self {
@@ -495,15 +511,16 @@ pub enum Func {
     RayTracingTraceClosest,
     // (handle, Ray, mask) -> bool
     RayTracingTraceAny,
-    RayTracingQueryAll,
-    RayTracingQueryAny,
+    RayTracingQueryAll, // (ray, mask)-> rq
+    RayTracingQueryAny, // (ray, mask)-> rq
 
-    RayQueryProceduralCandidateHit,
-    RayQueryTriangleCandidateHit,
-    RayQueryCommittedHit,
-    RayQueryCommitTriangle,
-    RayQueryCommitProcedural,
-    RayQueryTerminate,
+    RayQueryWorldSpaceRay,          // (rq) -> Ray
+    RayQueryProceduralCandidateHit, // (rq) -> ProceduralHit
+    RayQueryTriangleCandidateHit,   // (rq) -> TriangleHit
+    RayQueryCommittedHit,           // (rq) -> CommitedHit
+    RayQueryCommitTriangle,         // (rq) -> ()
+    RayQueryCommitProcedural,       // (rq, f32) -> ()
+    RayQueryTerminate,              // (rq) -> ()
 
     RasterDiscard,
 
@@ -934,11 +951,11 @@ pub enum Instruction {
     AdScope {
         body: Pooled<BasicBlock>,
     },
-    // RayQuery{
-    //     ray: NodeRef,
-    //     on_triangle_hit:Pooled<BasicBlock>,
-    //     on_procedural_hit:Pooled<BasicBlock>,
-    // },
+    RayQuery {
+        ray_query: NodeRef,
+        on_triangle_hit: Pooled<BasicBlock>,
+        on_procedural_hit: Pooled<BasicBlock>,
+    },
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
 }
@@ -1745,6 +1762,25 @@ impl IrBuilder {
                 false_branch,
             }),
             Type::void(),
+        );
+        let node = new_node(&self.pools, node);
+        self.append(node);
+        node
+    }
+    pub fn ray_query(
+        &mut self,
+        ray_query: NodeRef,
+        on_triangle_hit: Pooled<BasicBlock>,
+        on_procedural_hit: Pooled<BasicBlock>,
+        type_: CArc<Type>,
+    ) -> NodeRef {
+        let node = Node::new(
+            CArc::new(Instruction::RayQuery {
+                ray_query,
+                on_triangle_hit,
+                on_procedural_hit,
+            }),
+            type_,
         );
         let node = new_node(&self.pools, node);
         self.append(node);

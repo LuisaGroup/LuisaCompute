@@ -797,7 +797,11 @@ impl Context {
                     if err.is_none() {
                         *err = Some(shader.messages[msg as usize].clone());
                     }
+                    if cfg!(target_os = "windows") {
+                        eprintln!("{}", shader.messages[msg as usize]);
+                    }
                 }
+
                 panic!("##lc_kernel##");
             }
             add_symbol!(lc_abort, lc_abort);
@@ -827,6 +831,9 @@ impl Context {
                     display.push_str(&msg[idx + 2..idx + 2 + idx2]);
                     display.push_str(&format!("{}", j));
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
+                    if cfg!(target_os = "windows") {
+                        eprintln!("{}", display);
+                    }
                     let mut err = (&*ctx.error).lock();
                     if err.is_none() {
                         *err = Some(display);

@@ -47,6 +47,7 @@ impl KernelSerializer {
             Type::Array(v) => {
                 SerializedType::Array(self.serialize_type(&v.element), v.length as u32)
             }
+            Type::Opaque(name) => SerializedType::Opqaue(name.to_string()),
         }
     }
     fn serialize_type(&mut self, ty: &CArc<Type>) -> SerializedTypeRef {
@@ -235,6 +236,20 @@ impl KernelSerializer {
                 let b = self.serialize_block(b);
                 SerializedInstruction::AdDetach(b)
             }
+            Instruction::RayQuery {
+                ray_query,
+                on_triangle_hit,
+                on_procedural_hit,
+            } => {
+                let ray_query = self.serialize_noderef(*ray_query);
+                let on_triangle_hit = self.serialize_block(on_triangle_hit);
+                let on_procedural_hit = self.serialize_block(on_procedural_hit);
+                SerializedInstruction::RayQuery {
+                    ray_query,
+                    on_triangle_hit,
+                    on_procedural_hit,
+                }
+            }
             Instruction::Comment(s) => {
                 let s = s.as_ref().to_vec();
                 SerializedInstruction::Comment(s)
@@ -267,6 +282,7 @@ impl KernelSerializer {
             Func::RayTracingTraceAny => SerializedFunc::RayTracingTraceAny,
             Func::RayTracingQueryAll => SerializedFunc::RayTracingQueryAll,
             Func::RayTracingQueryAny => SerializedFunc::RayTracingQueryAny,
+            Func::RayQueryWorldSpaceRay => SerializedFunc::RayQueryWorldSpaceRay,
             Func::RayQueryProceduralCandidateHit => SerializedFunc::RayQueryProceduralCandidateHit,
             Func::RayQueryTriangleCandidateHit => SerializedFunc::RayQueryTriangleCandidateHit,
             Func::RayQueryCommittedHit => SerializedFunc::RayQueryCommittedHit,
@@ -380,11 +396,15 @@ impl KernelSerializer {
             Func::BindlessTexture2dSample => SerializedFunc::BindlessTexture2dSample,
             Func::BindlessTexture2dSampleLevel => SerializedFunc::BindlessTexture2dSampleLevel,
             Func::BindlessTexture2dSampleGrad => SerializedFunc::BindlessTexture2dSampleGrad,
-            Func::BindlessTexture2dSampleGradLevel => SerializedFunc::BindlessTexture2dSampleGradLevel,
+            Func::BindlessTexture2dSampleGradLevel => {
+                SerializedFunc::BindlessTexture2dSampleGradLevel
+            }
             Func::BindlessTexture3dSample => SerializedFunc::BindlessTexture3dSample,
             Func::BindlessTexture3dSampleLevel => SerializedFunc::BindlessTexture3dSampleLevel,
             Func::BindlessTexture3dSampleGrad => SerializedFunc::BindlessTexture3dSampleGrad,
-            Func::BindlessTexture3dSampleGradLevel => SerializedFunc::BindlessTexture3dSampleGradLevel,
+            Func::BindlessTexture3dSampleGradLevel => {
+                SerializedFunc::BindlessTexture3dSampleGradLevel
+            }
             Func::BindlessTexture2dRead => SerializedFunc::BindlessTexture2dRead,
             Func::BindlessTexture3dRead => SerializedFunc::BindlessTexture3dRead,
             Func::BindlessTexture2dReadLevel => SerializedFunc::BindlessTexture2dReadLevel,

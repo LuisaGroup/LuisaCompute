@@ -190,6 +190,7 @@ impl ToSSAImpl {
                 let v = builder.continue_();
                 return v;
             }
+            Instruction::RayQuery { .. } => panic!("ray query not supported"),
             Instruction::If {
                 cond,
                 true_branch,
