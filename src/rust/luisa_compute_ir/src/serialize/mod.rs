@@ -1,7 +1,7 @@
 pub mod convert;
 use crate::ir::{Binding, KernelModule, Primitive};
-use serde::{Deserialize, Serialize};
 use crate::CBoxedSlice;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SerializedKernelModule {
@@ -52,6 +52,7 @@ pub enum SerializedType {
         align: u32,
         size: u32,
     },
+    Opqaue(String),
 }
 #[derive(Serialize, Deserialize, Clone)]
 #[repr(C)]
@@ -138,6 +139,11 @@ pub enum SerializedInstruction {
         body: SerializedBlockRef,
     },
     AdDetach(SerializedBlockRef),
+    RayQuery {
+        ray_query: SerializedNodeRef,
+        on_triangle_hit: SerializedBlockRef,
+        on_procedural_hit: SerializedBlockRef,
+    },
     Comment(Vec<u8>),
     Assert(SerializedNodeRef, Vec<u8>),
 }
@@ -156,7 +162,7 @@ pub enum SerializedFunc {
     DispatchSize,
 
     RequiresGradient,
-    Backward,       // marks the beginning of backward pass
+    Backward, // marks the beginning of backward pass
     Gradient,
     GradientMarker, // marks a (node, gradient) tuple
     AccGrad,        // grad (local), increment
@@ -176,6 +182,7 @@ pub enum SerializedFunc {
     RayTracingQueryAll,
     RayTracingQueryAny,
 
+    RayQueryWorldSpaceRay,
     RayQueryProceduralCandidateHit,
     RayQueryTriangleCandidateHit,
     RayQueryCommittedHit,

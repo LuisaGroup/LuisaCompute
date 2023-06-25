@@ -51,6 +51,56 @@ pub struct Ray {
     pub dir_z: f32,
     pub tmax: f32,
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct Aabb {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub enum HitType {
+    Miss = 0,
+    Triangle = 1,
+    Procedural = 2,
+}
+
+#[repr(C, align(8))]
+#[derive(Copy, Clone, Default)]
+pub struct CommitedHit {
+    pub inst: u32,
+    pub prim: u32,
+    pub bary: [f32; 2],
+    pub hit_type: u32,
+    pub committed_ray_t: f32,
+}
+impl CommitedHit {
+    pub fn set_from_triangle_hit(&mut self, hit: TriangleHit) {
+        self.inst = hit.inst;
+        self.prim = hit.prim;
+        self.bary = hit.bary;
+        self.hit_type = HitType::Triangle as u32;
+    }
+    pub fn set_from_procedural_hit(&mut self, hit: ProceduralHit, t: f32) {
+        self.inst = hit.inst;
+        self.prim = hit.prim;
+        self.hit_type = HitType::Procedural as u32;
+        self.committed_ray_t = t;
+    }
+}
+#[repr(C, align(8))]
+#[derive(Copy, Clone, Debug)]
+pub struct TriangleHit {
+    pub inst: u32,
+    pub prim: u32,
+    pub bary: [f32; 2],
+}
+#[repr(C, align(8))]
+#[derive(Copy, Clone, Debug)]
+pub struct ProceduralHit {
+    pub inst: u32,
+    pub prim: u32,
+}
 #[repr(C, align(8))]
 #[derive(Copy, Clone)]
 pub struct Hit {
@@ -63,6 +113,8 @@ pub struct Hit {
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]
 pub struct Mat4(pub [f32; 16]);
+
+pub type OnHitCallback = extern "C" fn(&mut RayQuery);
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Accel {
@@ -72,7 +124,26 @@ pub struct Accel {
     pub set_instance_visibility: extern "C" fn(*const c_void, u32, u8),
     pub set_instance_transform: extern "C" fn(*const c_void, u32, &Mat4),
     pub instance_transform: extern "C" fn(*const c_void, u32) -> Mat4,
+    pub ray_query:
+        extern "C" fn(*const c_void, &mut RayQuery, OnHitCallback, OnHitCallback) -> CommitedHit,
 }
+
+#[repr(C, align(16))]
+#[derive(Copy, Clone)]
+pub struct RayQuery {
+    pub hit: CommitedHit,
+    pub ray: Ray,
+    pub mask: u8,
+    pub cur_committed_ray_t: f32,
+    pub cur_triangle_hit: TriangleHit,
+    pub cur_procedural_hit: ProceduralHit,
+    pub cur_commited: bool,
+    pub terminate_on_first: bool,
+    pub terminated: bool,
+    pub user_data: *mut c_void,
+    pub accel: *const Accel,
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct BindlessArray {

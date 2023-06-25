@@ -138,6 +138,9 @@ impl TypeGenInner {
                 let element_type = self.to_c_type(&at.element);
                 format!("lc_array<{}, {}>", element_type, at.length)
             }
+            Type::Opaque(name) => {
+                format!("struct {};", name.to_string())
+            }
         }
     }
     pub(crate) fn to_c_type(&mut self, t: &CArc<Type>) -> String {
@@ -238,7 +241,7 @@ struct GlobalEmitter {
     global_vars: HashMap<NodeRef, String>,
     generated_callables: HashMap<u64, String>,
     generated_callable_sources: HashMap<String, String>,
-    callable_def:String,
+    callable_def: String,
     captures: IndexMap<NodeRef, usize>,
     args: IndexMap<NodeRef, usize>,
     cpu_custom_ops: IndexMap<usize, usize>,
@@ -300,6 +303,7 @@ impl<'a> FunctionEmitter<'a> {
                     }
                 }
                 Instruction::Phi(_) => format!("phi{}", index),
+                Instruction::RayQuery { .. } => format!("rq{}", index),
                 _ => unreachable!(),
             };
             self.node_to_var.insert(node, var.clone());
@@ -380,9 +384,17 @@ impl<'a> FunctionEmitter<'a> {
             }
             callable_emitter.gen_callable_module(&f.0);
             callable_emitter.indent += self.indent;
-            
-            let fname = format!("callable_{}", callable_emitter.globals.generated_callables.len());
-            let source = format!("[=]({}){{\n{}\n{};}}", params.join(","), callable_emitter.fwd_defs, callable_emitter.body);
+
+            let fname = format!(
+                "callable_{}",
+                callable_emitter.globals.generated_callables.len()
+            );
+            let source = format!(
+                "[=]({}){{\n{}\n{};}}",
+                params.join(","),
+                callable_emitter.fwd_defs,
+                callable_emitter.body
+            );
             if let Some(fname) = self.globals.generated_callable_sources.get(&source) {
                 self.globals.generated_callables.insert(fid, fname.clone());
             } else {
@@ -390,7 +402,12 @@ impl<'a> FunctionEmitter<'a> {
                 self.globals
                     .generated_callable_sources
                     .insert(source.clone(), fname.clone());
-                writeln!(&mut self.globals.callable_def, "const auto {} = {};\n", fname, source).unwrap();
+                writeln!(
+                    &mut self.globals.callable_def,
+                    "const auto {} = {};\n",
+                    fname, source
+                )
+                .unwrap();
                 self.write_ident();
             }
         }
@@ -786,10 +803,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::Assert(msg) => {
-                let msg = CString::from_vec_with_nul(msg.to_vec())
-                    .unwrap()
-                    .into_string()
-                    .unwrap();
+                let msg = msg.to_string();
                 let id = self.globals.message.len();
                 self.globals.message.push(msg);
                 writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
@@ -1192,6 +1206,77 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::RayTracingQueryAll => {
+                writeln!(
+                    self.body,
+                    "RayQueryAll _{0} = lc_ray_query_all({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayTracingQueryAny => {
+                writeln!(
+                    self.body,
+                    "RayQueryAny& _{0} = lc_ray_query_any({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayQueryWorldSpaceRay => {
+                writeln!(
+                    self.body,
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_world_space_ray({2}));",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayQueryProceduralCandidateHit => {
+                writeln!(
+                    self.body,
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_procedural_candidate_hit({2}));",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayQueryTriangleCandidateHit => {
+                writeln!(
+                    self.body,
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_triangle_candidate_hit({2}));",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayQueryCommittedHit => {
+                writeln!(
+                    self.body,
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_committed_hit({2}));",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayQueryCommitTriangle => {
+                writeln!(self.body, "lc_ray_query_commit_triangle({0});", args_v[0]).unwrap();
+                true
+            }
+            Func::RayQueryCommitProcedural => {
+                writeln!(
+                    self.body,
+                    "lc_ray_query_commit_procedural({0}, {1});",
+                    args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayQueryTerminate => {
+                writeln!(self.body, "lc_ray_query_terminate({0});", args_v[0]).unwrap();
+                true
+            }
             _ => false,
         }
     }
@@ -1475,6 +1560,7 @@ impl<'a> FunctionEmitter<'a> {
             Instruction::AdScope { body } => {
                 writeln!(&mut self.body, "/* AdScope */").unwrap();
                 self.gen_block(*body);
+                self.write_ident();
                 writeln!(&mut self.body, "/* AdScope End */").unwrap();
             }
             Instruction::AdDetach(bb) => {
@@ -1483,6 +1569,30 @@ impl<'a> FunctionEmitter<'a> {
                 self.gen_block(*bb);
                 self.write_ident();
                 writeln!(&mut self.body, "/* AdDetach End */").unwrap();
+            }
+            Instruction::RayQuery {
+                ray_query,
+                on_triangle_hit,
+                on_procedural_hit,
+            } => {
+                writeln!(&mut self.body, "/* RayQuery */").unwrap();
+                let rq_v = self.gen_node(*ray_query);
+                self.write_ident();
+                let var = self.gen_node(node);
+                writeln!(
+                    &mut self.body,
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query({2}, [&](const TriangleHit& hit) {{",
+                    node_ty_s, var, rq_v
+                )
+                .unwrap();
+                self.gen_block(*on_triangle_hit);
+                self.write_ident();
+                writeln!(&mut self.body, "}}, [&](const ProceduralHit& hit) {{").unwrap();
+                self.gen_block(*on_procedural_hit);
+                self.write_ident();
+                writeln!(&mut self.body, "}}));").unwrap();
+                self.write_ident();
+                writeln!(&mut self.body, "/* RayQuery End*/").unwrap();
             }
             Instruction::Comment(comment) => {
                 self.write_ident();
@@ -1656,7 +1766,7 @@ impl CpuCodeGen {
             captures: IndexMap::new(),
             args: IndexMap::new(),
             cpu_custom_ops: IndexMap::new(),
-            callable_def:String::new(),
+            callable_def: String::new(),
         };
         let type_gen = TypeGen::new();
         let mut codegen = FunctionEmitter::new(&mut globals, &type_gen);
@@ -1669,7 +1779,8 @@ using int8_t = signed char;
 using int16_t = signed short;
 using int32_t = signed int;
 using int64_t = signed long long;
-using size_t = unsigned long long;"#;
+using size_t = unsigned long long;
+struct Accel;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         Generated {
             source: format!(

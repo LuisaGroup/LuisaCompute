@@ -397,7 +397,7 @@ impl EvaluatorImpl {
                 }
                 Value::Struct(result)
             }
-            Type::Void | Type::UserData => Value::Unit,
+            Type::Void | Type::UserData | Type::Opaque(_) => Value::Unit,
         }
     }
 }

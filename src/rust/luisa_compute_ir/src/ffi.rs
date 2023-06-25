@@ -265,6 +265,21 @@ pub struct CBoxedSlice<T> {
     len: usize,
     destructor: unsafe extern "C" fn(*mut T, usize),
 }
+impl From<String> for CBoxedSlice<u8> {
+    fn from(s: String) -> Self {
+        let mut v = s.into_bytes();
+        v.push(0);
+        Self::new(v)
+    }
+}
+impl CBoxedSlice<u8> {
+    pub fn to_string(&self) -> String {
+        CString::from_vec_with_nul(self.to_vec())
+            .unwrap()
+            .into_string()
+            .unwrap()
+    }
+}
 impl<T: Clone> From<&[T]> for CBoxedSlice<T> {
     fn from(slice: &[T]) -> Self {
         let v = slice.to_vec();

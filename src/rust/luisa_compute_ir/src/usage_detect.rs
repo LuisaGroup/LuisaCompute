@@ -117,6 +117,15 @@ impl UsageDetector {
                 self.mark(*cond, UsageMark::READ);
                 self.detect_block(body);
             }
+            crate::ir::Instruction::RayQuery {
+                ray_query,
+                on_procedural_hit,
+                on_triangle_hit,
+            } => {
+                self.mark(*ray_query, UsageMark::READ);
+                self.detect_block(on_procedural_hit);
+                self.detect_block(on_triangle_hit);
+            }
             crate::ir::Instruction::GenericLoop {
                 prepare,
                 cond,

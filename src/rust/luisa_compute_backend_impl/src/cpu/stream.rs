@@ -473,6 +473,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 set_instance_visibility,
                 set_instance_transform,
                 instance_transform,
+                ray_query,
             })
         }
         api::Argument::BindlessArray(a) => {
@@ -540,6 +541,7 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
                 set_instance_visibility,
                 set_instance_transform,
                 instance_transform,
+                ray_query,
             })
         }
     }
@@ -610,6 +612,17 @@ extern "C" fn set_instance_visibility(
     }
 }
 
+extern "C" fn ray_query(
+    accel: *const std::ffi::c_void,
+    rq: &mut defs::RayQuery,
+    on_triangle_hit: defs::OnHitCallback,
+    on_procedural_hit: defs::OnHitCallback,
+) -> defs::CommitedHit {
+    unsafe {
+        let accel = &*(accel as *const AccelImpl);
+        accel.ray_query(rq, on_triangle_hit, on_procedural_hit)
+    }
+}
 pub(crate) struct ShaderDispatchContext {
     pub(crate) shader: *const ShaderImpl,
     pub(crate) error: *const Mutex<Option<String>>,

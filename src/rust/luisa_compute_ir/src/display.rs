@@ -167,6 +167,7 @@ impl DisplayIR {
                 self.output += "}\n";
                 self.output += "}";
             }
+            Instruction::RayQuery { .. } => todo!(),
             Instruction::Loop { body, cond } => {
                 let temp = format!("while ${} {{\n", self.get(cond));
                 self.output += temp.as_str();
@@ -205,9 +206,7 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::AdScope {
-                body,
-            } => {
+            Instruction::AdScope { body } => {
                 self.output += "AdScope {\n";
                 for node in body.nodes().iter() {
                     self.display(*node, ident + 1, false);
@@ -223,7 +222,7 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::Comment(_) => {},
+            Instruction::Comment(_) => {}
             Instruction::Return(_) => todo!(),
         }
         if !no_new_line {

@@ -1,6 +1,7 @@
 use std::os::raw::c_void;
 
 use super::resource::BufferImpl;
+use crate::panic_abort;
 use api::{
     AccelBuildModification, AccelBuildModificationFlags, AccelBuildRequest, AccelUsageHint,
     MeshBuildCommand,
@@ -9,7 +10,6 @@ use embree_sys as sys;
 use lazy_static::lazy_static;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use crate::panic_abort;
 use parking_lot::{Mutex, RwLock};
 struct Device(sys::RTCDevice);
 unsafe impl Send for Device {}
@@ -149,6 +149,14 @@ pub struct AccelImpl {
     pub(crate) handle: sys::RTCScene,
     instances: Vec<RwLock<Instance>>,
 }
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RayQueryContext {
+    parent: sys::RTCRayQueryContext,
+    rq: *mut defs::RayQuery,
+    on_triangle_hit: defs::OnHitCallback,
+    on_procedural_hit: defs::OnHitCallback,
+}
 impl AccelImpl {
     pub unsafe fn new() -> Self {
         init_device();
@@ -185,6 +193,7 @@ impl AccelImpl {
                     sys::rtcCommitGeometry(geometry);
                     sys::rtcSetGeometryInstancedScene(geometry, mesh.handle);
                     sys::rtcAttachGeometryByID(self.handle, geometry, m.index);
+                    sys::rtcSetGeometryEnableFilterFunctionFromArguments(geometry, true);
                     *self.instances[m.index as usize].write() = Instance {
                         affine,
                         dirty: false,
@@ -330,6 +339,138 @@ impl AccelImpl {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
         instance.visible = visibility;
+    }
+
+    #[inline]
+    pub unsafe fn ray_query(
+        &self,
+        rq: &mut defs::RayQuery,
+        on_triangle_hit: defs::OnHitCallback,
+        on_procedural_hit: defs::OnHitCallback,
+    ) -> defs::CommitedHit {
+        let ray = rq.ray;
+        let mut ray = sys::RTCRay {
+            org_x: ray.orig_x,
+            org_y: ray.orig_y,
+            org_z: ray.orig_z,
+            tnear: ray.tmin,
+            dir_x: ray.dir_x,
+            dir_y: ray.dir_y,
+            dir_z: ray.dir_z,
+            time: 0.0,
+            tfar: ray.tmax,
+            mask: rq.mask as u32,
+            id: 0,
+            flags: 0,
+        };
+        let mut ctx = RayQueryContext {
+            parent: sys::RTCRayQueryContext {
+                instID: [u32::MAX; 1],
+            },
+            rq,
+            on_procedural_hit,
+            on_triangle_hit,
+        };
+
+        /* Helper functions to access ray packets of runtime size N */
+        // RTC_FORCEINLINE float& RTCRayN_org_x(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[0*N+i]; }
+        // RTC_FORCEINLINE float& RTCRayN_org_y(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[1*N+i]; }
+        // RTC_FORCEINLINE float& RTCRayN_org_z(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[2*N+i]; }
+        // RTC_FORCEINLINE float& RTCRayN_tnear(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[3*N+i]; }
+
+        // RTC_FORCEINLINE float& RTCRayN_dir_x(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[4*N+i]; }
+        // RTC_FORCEINLINE float& RTCRayN_dir_y(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[5*N+i]; }
+        // RTC_FORCEINLINE float& RTCRayN_dir_z(RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[6*N+i]; }
+        // RTC_FORCEINLINE float& RTCRayN_time (RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[7*N+i]; }
+
+        // RTC_FORCEINLINE float&        RTCRayN_tfar (RTCRayN* ray, unsigned int N, unsigned int i) { return ((float*)ray)[8*N+i]; }
+        // RTC_FORCEINLINE unsigned int& RTCRayN_mask (RTCRayN* ray, unsigned int N, unsigned int i) { return ((unsigned*)ray)[9*N+i]; }
+        // RTC_FORCEINLINE unsigned int& RTCRayN_id   (RTCRayN* ray, unsigned int N, unsigned int i) { return ((unsigned*)ray)[10*N+i]; }
+        // RTC_FORCEINLINE unsigned int& RTCRayN_flags(RTCRayN* ray, unsigned int N, unsigned int i) { return ((unsigned*)ray)[11*N+i]; }
+        /* Helper functions to access hit packets of runtime size N */
+        // RTC_FORCEINLINE float& RTCHitN_Ng_x(RTCHitN* hit, unsigned int N, unsigned int i) { return ((float*)hit)[0*N+i]; }
+        // RTC_FORCEINLINE float& RTCHitN_Ng_y(RTCHitN* hit, unsigned int N, unsigned int i) { return ((float*)hit)[1*N+i]; }
+        // RTC_FORCEINLINE float& RTCHitN_Ng_z(RTCHitN* hit, unsigned int N, unsigned int i) { return ((float*)hit)[2*N+i]; }
+
+        // RTC_FORCEINLINE float& RTCHitN_u(RTCHitN* hit, unsigned int N, unsigned int i) { return ((float*)hit)[3*N+i]; }
+        // RTC_FORCEINLINE float& RTCHitN_v(RTCHitN* hit, unsigned int N, unsigned int i) { return ((float*)hit)[4*N+i]; }
+
+        // RTC_FORCEINLINE unsigned int& RTCHitN_primID(RTCHitN* hit, unsigned int N, unsigned int i) { return ((unsigned*)hit)[5*N+i]; }
+        // RTC_FORCEINLINE unsigned int& RTCHitN_geomID(RTCHitN* hit, unsigned int N, unsigned int i) { return ((unsigned*)hit)[6*N+i]; }
+        // RTC_FORCEINLINE unsigned int& RTCHitN_instID(RTCHitN* hit, unsigned int N, unsigned int i, unsigned int l) { return ((unsigned*)hit)[7*N+i+N*l]; }
+
+        // /* Helper functions to extract RTCRayN and RTCHitN from RTCRayHitN */
+        // RTC_FORCEINLINE RTCRayN* RTCRayHitN_RayN(RTCRayHitN* rayhit, unsigned int N) { return (RTCRayN*)&((float*)rayhit)[0*N]; }
+        // RTC_FORCEINLINE RTCHitN* RTCRayHitN_HitN(RTCRayHitN* rayhit, unsigned int N) { return (RTCHitN*)&((float*)rayhit)[12*N]; }
+        unsafe extern "C" fn filter_fn(args: *const sys::RTCFilterFunctionNArguments) {
+            let args = &*args;
+            let ctx = &mut *(args.context as *mut RayQueryContext);
+            debug_assert!(args.N == 1);
+            let hit = args.hit as *mut u32;
+            let prim_id = *hit.add(5);
+            let geom_id = *hit.add(6);
+            let inst_id = *hit.add(7);
+            let hit_u = *(args.hit as *mut f32).add(3);
+            let hit_v = *(args.hit as *mut f32).add(4);
+            let t_far = &mut *(args.ray as *mut f32).add(8);
+            debug_assert!(prim_id != u32::MAX && geom_id != u32::MAX);
+            let rq = &mut *ctx.rq;
+            rq.cur_triangle_hit = defs::TriangleHit {
+                prim: prim_id,
+                inst: inst_id,
+                bary: [hit_u, hit_v],
+            };
+            let on_triangle_hit = ctx.on_triangle_hit;
+            rq.cur_commited = false;
+            rq.terminated = false;
+            on_triangle_hit(rq);
+            if !rq.cur_commited {
+                *args.valid = 0;
+            } else {
+                // eprintln!("accepting hit");
+                rq.hit.set_from_triangle_hit(rq.cur_triangle_hit);
+            }
+            if rq.terminated {
+                *t_far = f32::NEG_INFINITY;
+            }
+        }
+        unsafe extern "C" fn occluded_fn(args: *const sys::RTCOccludedFunctionNArguments) {}
+        if rq.terminate_on_first {
+            let mut args = sys::RTCOccludedArguments {
+                flags: sys::RTC_RAY_QUERY_FLAG_INCOHERENT
+                    | sys::RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER,
+                feature_mask: sys::RTC_FEATURE_FLAG_ALL,
+                filter: Some(filter_fn),
+                occluded: None,
+                context: &mut ctx.parent as *mut _,
+            };
+            sys::rtcOccluded1(self.handle, &mut ray as *mut _, &mut args as *mut _);
+        } else {
+            let mut rayhit = sys::RTCRayHit {
+                ray,
+                hit: sys::RTCHit {
+                    Ng_x: 0.0,
+                    Ng_y: 0.0,
+                    Ng_z: 0.0,
+                    u: 0.0,
+                    v: 0.0,
+                    primID: u32::MAX,
+                    geomID: u32::MAX,
+                    instID: [u32::MAX],
+                },
+            };
+            let mut args = sys::RTCIntersectArguments {
+                flags: sys::RTC_RAY_QUERY_FLAG_INCOHERENT
+                    | sys::RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER,
+                feature_mask: sys::RTC_FEATURE_FLAG_ALL,
+                filter: Some(filter_fn),
+                intersect: None,
+                context: &mut ctx.parent as *mut _,
+            };
+
+            sys::rtcIntersect1(self.handle, &mut rayhit as *mut _, &mut args as *mut _);
+        }
+        rq.hit
     }
 }
 
