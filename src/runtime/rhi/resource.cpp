@@ -19,7 +19,7 @@ Resource::Resource(DeviceInterface *device,
     : _device{device->shared_from_this()},
       _info{info}, _tag{tag} {}
 
-void Resource::set_name(luisa::string_view name) noexcept {
+void Resource::set_name(luisa::string_view name) const noexcept {
     _device->set_name(_tag, _info.handle, name);
 }
 

@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device(argv[1], nullptr, true);
     auto stream = device.create_stream();
     auto dstorage_ext = device.extension<DStorageExt>();
-    Stream dstorage_stream = dstorage_ext->create_stream();
+    Stream dstorage_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource});
     SparseCommandList sparse_cmdlist;
     // Test sparse buffer
     {

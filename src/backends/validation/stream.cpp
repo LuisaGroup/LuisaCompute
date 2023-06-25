@@ -345,7 +345,6 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             } break;
             case CmdTag::EBindlessArrayUpdateCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
-                using Operation = BindlessArrayUpdateCommand::Modification::Operation;
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
                 mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;

@@ -29,7 +29,6 @@ private:
     mutable vstd::unordered_map<Tile, TileInfo, TileHash, TileEqual> allocatedTiles;
     mutable std::mutex allocMtx;
     uint3 tileSize;
-    bool allowUav;
 
 public:
     uint3 TilingSize() const;

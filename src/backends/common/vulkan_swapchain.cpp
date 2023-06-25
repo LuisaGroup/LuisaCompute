@@ -100,7 +100,7 @@ static const std::array vulkan_swapchain_screen_shader_fragment_bytecode = {
 static constexpr auto REQUIRED_VULKAN_VERSION = VK_API_VERSION_1_1;
 
 namespace detail {
-
+#ifndef NDEBUG
 static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                            VkDebugUtilsMessageTypeFlagsEXT /* types */,
                                            const VkDebugUtilsMessengerCallbackDataEXT *data,
@@ -112,7 +112,7 @@ static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEX
     }
     return VK_FALSE;
 }
-
+#endif
 }// namespace detail
 
 class VulkanInstance {

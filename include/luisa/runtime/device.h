@@ -112,12 +112,15 @@ private:
     static void _check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept;
 
 public:
+    Device() noexcept {}
     // Device construct from backend handle, use Context::create_device for convenient usage
     explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
     // The backend name in lower case, can be used to recognize the corresponding backend
     [[nodiscard]] auto backend_name() const noexcept { return _impl->backend_name(); }
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
+    // Is device initialized
+    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_impl); }
     // backend native plugins & extensions interface
     template<ExtClass Ext>
     [[nodiscard]] auto extension() const noexcept {

@@ -19,7 +19,7 @@ namespace luisa::compute {
 namespace detail {
 
 template<typename BufferOrView>
-struct BufferExprProxy;
+class BufferExprProxy;
 
 LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noexcept;
 LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst) noexcept;
@@ -160,8 +160,8 @@ public:
     BufferView(DeviceInterface *device, uint64_t handle,
                size_t element_stride, size_t offset_bytes,
                size_t size, size_t total_size) noexcept
-        : _device(device), _handle{handle}, _element_stride{element_stride},
-          _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
+        : _device(device), _handle{handle}, _offset_bytes{offset_bytes},
+          _element_stride{element_stride}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
             detail::error_buffer_invalid_alignment(_offset_bytes, alignof(T));
         }
@@ -252,4 +252,3 @@ struct buffer_element_impl<BufferView<T>> {
 }// namespace detail
 
 }// namespace luisa::compute
-

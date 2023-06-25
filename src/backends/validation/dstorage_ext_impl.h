@@ -7,7 +7,7 @@ namespace lc::validation {
 
 using namespace luisa::compute;
 
-class DStorageExtImpl : public DStorageExt, public vstd::IOperatorNewBase {
+class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
     DStorageExt *_impl;
     DeviceInterface *_self;
 

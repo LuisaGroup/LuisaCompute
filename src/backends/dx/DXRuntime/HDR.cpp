@@ -8,7 +8,7 @@ inline int ComputeIntersectionArea(int ax1, int ay1, int ax2, int ay2, int bx1, 
 HDR::HDR(IDXGIFactory2 *factory, IDXGIAdapter1 *adapter) {
     UINT i = 0;
     ComPtr<IDXGIOutput> currentOutput;
-    float bestIntersectArea = -1;
+    // float bestIntersectArea = -1;
     supportHdr = false;
     while (adapter->EnumOutputs(i, &currentOutput) != DXGI_ERROR_NOT_FOUND) {
         ComPtr<IDXGIOutput6> output6;

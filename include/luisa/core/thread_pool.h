@@ -19,7 +19,7 @@ namespace luisa {
 class LC_CORE_API ThreadPool {
 
 public:
-    class Impl;
+    struct Impl;
 
 private:
     luisa::unique_ptr<Impl> _impl;

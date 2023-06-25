@@ -36,7 +36,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_mesh.cpp metal_mesh.h
             metal_accel.cpp metal_accel.h
             metal_buffer.cpp metal_buffer.h
-            metal_dstorage.cpp metal_dstorage.h)
+            metal_dstorage.cpp metal_dstorage.h
+            metal_pinned_memory.cpp metal_pinned_memory.h)
 
     if (LUISA_COMPUTE_ENABLE_RUST)
         list(APPEND METAL_SOURCES metal_codegen_ir.cpp metal_codegen_ir.h)

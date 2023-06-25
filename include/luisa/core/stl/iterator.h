@@ -22,7 +22,7 @@ public:
 
     public:
         iterator_type(T value, T end, T step) noexcept
-            : _value{value}, _end{end}, _step{step} {}
+            : _value{value}, _step{step}, _end{end} {}
         auto &operator++() noexcept {
             _value += _step;
             return *this;
@@ -74,4 +74,3 @@ template<typename T>
 }
 
 }// namespace luisa
-

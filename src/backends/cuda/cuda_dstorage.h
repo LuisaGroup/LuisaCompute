@@ -178,7 +178,7 @@ public:
     [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
 };
 
-class CUDADStorageExt : public DStorageExt {
+class CUDADStorageExt final : public DStorageExt {
 
 private:
     CUDADevice *_device;

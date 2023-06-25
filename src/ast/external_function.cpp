@@ -12,8 +12,9 @@ ExternalFunction::ExternalFunction(luisa::string name,
                                    const Type *return_type,
                                    luisa::vector<const Type *> argument_types,
                                    luisa::vector<Usage> argument_usages) noexcept
-    : _name{std::move(name)}, _hash{},
+    : _name{std::move(name)}, 
       _return_type{return_type},
+      _hash{},
       _argument_types{std::move(argument_types)},
       _argument_usages{std::move(argument_usages)} { _compute_hash(); }
 

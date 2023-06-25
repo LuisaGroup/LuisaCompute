@@ -4,7 +4,7 @@
 namespace lc::validation {
 class Device;
 using namespace luisa::compute;
-class RasterExtImpl : public RasterExt, public vstd::IOperatorNewBase {
+class RasterExtImpl final : public RasterExt, public vstd::IOperatorNewBase {
     RasterExt *_impl;
 
 public:

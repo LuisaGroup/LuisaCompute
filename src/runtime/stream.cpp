@@ -62,7 +62,7 @@ Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
     s._stream = nullptr;
 }
 
-Stream::Delegate Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept {
     if (!_command_list.callbacks().empty()) { _commit(); }
     _command_list.append(std::move(cmd));
     return std::move(*this);
@@ -73,7 +73,7 @@ Stream &Stream::Delegate::operator<<(CommandList::Commit &&commit) && noexcept {
     return *_stream << std::move(commit);
 }
 
-Stream::Delegate Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) && noexcept {
     _command_list.add_callback(std::move(f));
     return std::move(*this);
 }

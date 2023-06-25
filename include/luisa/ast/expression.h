@@ -439,7 +439,7 @@ class CpuCustomOpExpr final : public Expression {
 public:
     using Callback = void (*)(void *arg, void *user_data);
     CpuCustomOpExpr(const Type *type, Callback callback, void *user_data, const Expression *arg) noexcept
-        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _user_data{user_data}, _arg(arg) {}
+        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _arg(arg), _user_data{user_data} {}
     [[nodiscard]] auto callback() const noexcept { return _callback; }
     [[nodiscard]] auto user_data() const noexcept { return _user_data; }
     LUISA_EXPRESSION_COMMON()
@@ -453,6 +453,9 @@ protected:
     // TODO
     void _mark(Usage usage) const noexcept override {}
     [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
+
+public:
+    [[nodiscard]] auto arg() const noexcept { return _arg; }
 };
 
 class GpuCustomOpExpr final : public Expression {
@@ -471,6 +474,9 @@ protected:
     // TODO
     void _mark(Usage usage) const noexcept override {}
     [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
+
+public:
+    [[nodiscard]] auto arg() const noexcept { return _arg; }
 };
 
 #undef LUISA_EXPRESSION_COMMON
@@ -526,4 +532,3 @@ void traverse_subexpressions(const Expression *expr,
 }
 
 }// namespace luisa::compute
-

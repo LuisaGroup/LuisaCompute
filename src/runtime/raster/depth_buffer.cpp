@@ -10,7 +10,7 @@ DepthBuffer::DepthBuffer(const ResourceCreationInfo &create_info, RasterExt *ras
           device,
           Tag::DEPTH_BUFFER,
           create_info),
-      _size(size), _format(format), _raster_ext{raster_ext} {
+      _size(size), _raster_ext{raster_ext}, _format(format) {
 }
 DepthBuffer Device::create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept {
     return _create<DepthBuffer>(extension<RasterExt>(), depth_format, size);
@@ -21,7 +21,7 @@ DepthBuffer::DepthBuffer(DeviceInterface *device, RasterExt *raster_ext, DepthFo
           device,
           Tag::DEPTH_BUFFER,
           raster_ext->create_depth_buffer(format, size.x, size.y)),
-      _size{size}, _format{format}, _raster_ext{raster_ext} {
+      _size{size}, _raster_ext{raster_ext}, _format{format} {
 #ifndef NDEBUG
     if (format == DepthFormat::None) {
         LUISA_ERROR_WITH_LOCATION("Depth format cannot be none!");
@@ -58,4 +58,3 @@ ImageView<float> DepthBuffer::to_img() noexcept {
 }
 
 }// namespace luisa::compute
-

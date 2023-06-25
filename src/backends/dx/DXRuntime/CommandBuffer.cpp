@@ -56,8 +56,6 @@ void CommandBufferBuilder::SetComputeResources(
 void CommandBufferBuilder::SetRasterResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    size_t a = resources.size();
-    size_t b = s->Properties().size();
     assert(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(

@@ -64,9 +64,9 @@ struct ScalarType<Matrix<N>> {
 template<typename T>
 using ScalarType_t = typename ScalarType<T>::type;
 
-template <typename T, typename Variant>
-T& force_get(Variant&& variant) {
-    return *variant.template get_as<T*>();
+template<typename T, typename Variant>
+T &force_get(Variant &&variant) {
+    return *variant.template get_as<T *>();
 }
 
 }// namespace analyzer_detail
@@ -454,7 +454,7 @@ void ASTEvaluator::end_switch() {
 }
 
 void ASTEvaluator::begin_branch_scope(bool is_loop) {
-    auto &branch = var_values.emplace_back(is_loop);
+    var_values.emplace_back(is_loop);
     branch_scope++;
 }
 
@@ -752,7 +752,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             auto popcount = [](uint32_t v) -> uint32_t {
                 constexpr uint32_t mask = 1u;
                 uint32_t r = 0;
-                for (auto i : range(32)) {
+                for (size_t i = 0; i < 32; ++i) {
                     if (v & mask) r += 1;
                     v >>= 1;
                 }
@@ -782,7 +782,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             auto reverse = [](uint32_t v) -> uint32_t {
                 uint32_t result = 0;
                 constexpr uint32_t mask = 1u;
-                for (auto i : range(32)) {
+                for (size_t i = 0; i < 32; ++i) {
                     result <<= 1;
                     result |= (v & mask);
                     v >>= 1;
@@ -1611,4 +1611,3 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
 }
 
 }// namespace luisa::compute
-

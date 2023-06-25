@@ -18,8 +18,8 @@ TextureBase::TextureBase(
       format(format),
       dimension(dimension),
       depth(depth),
-      initState(initState),
-      mip(mip) {
+      mip(mip),
+      initState(initState) {
     this->depth = std::max<uint>(this->depth, 1);
     this->mip = std::max<uint>(this->mip, 1);
     switch (dimension) {

@@ -1,7 +1,5 @@
 set_xmakever("2.7.8")
 add_rules("mode.release", "mode.debug", "mode.releasedbg")
--- disable ccache in-case error
-set_policy("build.ccache", false)
 -- pre-defined options
 -- enable mimalloc as default allocator: https://github.com/LuisaGroup/mimalloc
 option("enable_mimalloc")

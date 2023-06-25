@@ -110,6 +110,7 @@ public:
             LUISA_CHECK_CUDA(cuMemFree(buffer));
         }
     }
+    [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] CUdeviceptr create(CUstream stream) noexcept {
         auto ptr = [this] {
             std::scoped_lock lock{_mutex};
@@ -1038,4 +1039,3 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         }
     }
 }
-

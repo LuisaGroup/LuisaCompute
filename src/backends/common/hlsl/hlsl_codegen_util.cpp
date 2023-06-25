@@ -40,9 +40,6 @@ vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, l
     return {get_func(), static_cast<size_t>(get_size_func())};
 }
 namespace detail {
-static inline uint64 CalcAlign(uint64 value, uint64 align) {
-    return (value + (align - 1)) & ~(align - 1);
-}
 static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
     builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
     size_t immutable_size = builder.size();
@@ -701,16 +698,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
             } else {
-                uint tarDim = [&]() -> uint {
-                    switch (expr->type()->tag()) {
-                        case Type::Tag::VECTOR:
-                            return expr->type()->dimension();
-                        case Type::Tag::MATRIX:
-                            return expr->type()->dimension() * expr->type()->dimension();
-                        default:
-                            return 1;
-                    }
-                }();
                 if (args.size() == 1) {//  && args[0]->type()->is_scalar()
                     str << "(("sv;
                     GetTypeName(*expr->type(), str, Usage::READ);
@@ -720,7 +707,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 } else {
                     GetTypeName(*expr->type(), str, Usage::READ);
                     str << '(';
-                    uint count = 0;
                     for (auto &&i : args) {
                         i->accept(vis);
                         str << ',';

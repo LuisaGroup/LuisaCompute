@@ -134,6 +134,8 @@ public:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const ConstantExpr *expr) override;
+    void visit(const CpuCustomOpExpr *) override {}
+    void visit(const GpuCustomOpExpr *) override {}
 
     void visit(const BreakStmt *) override;
     void visit(const ContinueStmt *) override;
@@ -147,9 +149,10 @@ public:
     void visit(const SwitchDefaultStmt *) override;
     void visit(const AssignStmt *) override;
     void visit(const ForStmt *) override;
-    void VisitFunction(Function func);
     void visit(const CommentStmt *) override;
     void visit(const RayQueryStmt *) override;
+    void visit(const AutoDiffStmt *stmt) override {}
+    void VisitFunction(Function func);
     StringStateVisitor(
         Function f,
         vstd::StringBuilder &str,

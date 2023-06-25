@@ -37,7 +37,12 @@ struct BufferCreationInfo : public ResourceCreationInfo {
     size_t element_stride;
     size_t total_size_bytes;
     [[nodiscard]] static constexpr auto make_invalid() noexcept {
-        return BufferCreationInfo{invalid_resource_handle, nullptr, 0, 0};
+        BufferCreationInfo info{
+            .element_stride = 0,
+            .total_size_bytes = 0};
+        info.handle = invalid_resource_handle;
+        info.native_handle = nullptr;
+        return info;
     }
 };
 
@@ -191,7 +196,7 @@ public:
     [[nodiscard]] void *native_handle() const noexcept { return _info.native_handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] explicit operator bool() const noexcept { return _info.valid(); }
-    void set_name(luisa::string_view name) noexcept;
+    void set_name(luisa::string_view name) const noexcept;
 };
 
 }// namespace luisa::compute
@@ -233,4 +238,3 @@ struct hash<compute::AccelOption> {
 };
 
 }// namespace luisa
-

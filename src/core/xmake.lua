@@ -33,6 +33,9 @@ on_load(function(target)
 		})
 	end
 	target:add("defines", "LC_CORE_EXPORT_DLL")
+	if is_plat("windows") then
+		target:add("defines", "_CRT_SECURE_NO_WARNINGS")
+	end
     target:add("deps", "eastl", "spdlog")
 end)
 add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp", "../ext/parallel-hashmap/**.h")

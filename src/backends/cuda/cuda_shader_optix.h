@@ -17,7 +17,7 @@ class CUDAShaderOptiX final : public CUDAShader {
 public:
     struct IndirectParameters {
         CUDAIndirectDispatchBuffer::Header header;
-        [[no_unique_address]] CUDAIndirectDispatchBuffer::Dispatch dispatches[];
+        /*[[no_unique_address]]*/ CUDAIndirectDispatchBuffer::Dispatch dispatches[];
     };
 
 private:
