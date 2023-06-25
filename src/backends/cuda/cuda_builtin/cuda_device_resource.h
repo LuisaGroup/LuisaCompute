@@ -22,13 +22,22 @@ template<typename T = void>
 }
 
 #ifdef LUISA_DEBUG
-#define lc_assert(x)                                \
-    do {                                            \
-        if (!(x)) {                                 \
-            printf("Assertion failed: %s, %s:%d\n", \
-                   #x, __FILE__, __LINE__);         \
-            asm("trap;");                           \
-        }                                           \
+#define lc_assert(x)                                          \
+    do {                                                      \
+        if (!(x)) {                                           \
+            printf("Assertion failed: %s [%s:%d]\n",          \
+                   #x, __FILE__, static_cast<int>(__LINE__)); \
+            asm("trap;");                                     \
+        }                                                     \
+    } while (false)
+#define lc_check_in_bounds(size, max_size)                            \
+    do {                                                              \
+        if (!((size) < (max_size))) {                                 \
+            printf("Out of bounds: !(%s: %llu < %s: %llu) [%s:%d]\n", \
+                   #size, static_cast<size_t>(size),                  \
+                   #max_size, static_cast<size_t>(max_size),          \
+                   __FILE__, static_cast<int>(__LINE__));             \
+        }                                                             \
     } while (false)
 #else
 inline __device__ void lc_assert(bool) noexcept {}
@@ -96,7 +105,7 @@ void lc_indirect_buffer_clear(const LCIndirectBuffer buffer) noexcept {
 void lc_indirect_buffer_emplace(LCIndirectBuffer buffer, lc_uint3 block_size, lc_uint3 dispatch_size, lc_uint kernel_id) noexcept {
     auto index = atomicAdd(&(buffer.header()->size), 1u);
 #ifdef LUISA_DEBUG
-    lc_assert(index < buffer.capacity);
+    lc_check_in_bounds(index, buffer.capacity);
 #endif
     buffer.dispatches()[index] = LCIndirectDispatch{
         block_size, lc_make_uint4(dispatch_size, kernel_id)};
@@ -125,14 +134,18 @@ template<typename T>
 template<typename T, typename Index>
 [[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
-    lc_assert(index < lc_buffer_size(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(index, lc_buffer_size(buffer));
+#endif
     return buffer.ptr[index];
 }
 
 template<typename T, typename Index>
 __device__ inline void lc_buffer_write(LCBuffer<T> buffer, Index index, T value) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
-    lc_assert(index < lc_buffer_size(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(index, lc_buffer_size(buffer));
+#endif
     buffer.ptr[index] = value;
 }
 
@@ -1025,7 +1038,9 @@ template<typename T>
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
-    lc_assert(lc_bindless_buffer_size<T>(array, index) > i);
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
     return buffer[i];
 }
 
@@ -2087,4 +2102,3 @@ __device__ inline void lc_synchronize_block() noexcept {
 #define LC_GRAD(x) (x##_grad)
 #define LC_ACCUM_GRAD(x_grad, dx) lc_accumulate_grad(&(x_grad), (dx))
 #define LC_REQUIRES_GRAD(x) x##_grad = lc_zero<decltype(x##_grad)>()
-
