@@ -42,7 +42,9 @@ class Image2D:
         self.texture_size = self.texture2DType.texture_size
         self.write = self.texture2DType.write
         # instantiate texture on device
-        self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, mip)
+        info = get_global_device().impl().create_texture(self.format, 2, width, height, 1, mip)
+        self.handle = info.handle()
+        self.native_handle = info.native_handle()
 
     def __del__(self):
         if self.handle is not None:

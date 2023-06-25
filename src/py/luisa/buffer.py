@@ -27,7 +27,9 @@ class Buffer:
         self.stride = lc_type.size()
         self.bytesize = size * self.stride
         # instantiate buffer on device
-        self.handle = get_global_device().impl().create_buffer(lc_type, size)
+        info = get_global_device().impl().create_buffer(lc_type, size)
+        self.handle = info.handle()
+        self.native_handle = info.native_handle()
 
     def __del__(self):
         if self.handle is not None:

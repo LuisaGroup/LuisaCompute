@@ -8,7 +8,8 @@ class Vars:
         self.stream = None
         self.stream_support_gui = False
     def __del__(self):
-        lcapi.delete_all_swapchain()
+        if lcapi:
+            lcapi.delete_all_swapchain()
         global device
         if self.stream:
             del self.stream

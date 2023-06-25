@@ -87,11 +87,16 @@ void export_runtime(py::module &m) {
             fmt.format.emplace_vertex_stream(fmt.attributes);
             fmt.attributes.clear();
         });
+    py::class_<ResourceCreationInfo>(m, "ResourceCreationInfo")
+        .def(py::init<>())
+        .def("handle", [](ResourceCreationInfo &self) { return self.handle; })
+        .def("native_handle", [](ResourceCreationInfo &self) { return reinterpret_cast<uint64_t>(self.native_handle); });
     py::class_<BufferCreationInfo>(m, "BufferCreationInfo")
         .def(py::init<>())
         .def("element_stride", [](BufferCreationInfo &self) { return self.element_stride; })
         .def("size_bytes", [](BufferCreationInfo &self) { return self.total_size_bytes; })
-        .def("handle", [](BufferCreationInfo &self) { return self.handle; });
+        .def("handle", [](BufferCreationInfo &self) { return self.handle; })
+        .def("native_handle", [](BufferCreationInfo &self) { return reinterpret_cast<uint64_t>(self.native_handle); });
     py::class_<Context>(m, "Context")
         .def(py::init<luisa::string>())
         .def("create_device", [](Context &self, luisa::string_view backend_name) {
@@ -320,9 +325,9 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
-                auto ptr = d.create_buffer(type, size).handle;
-                RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
-                return ptr;
+                auto info = d.create_buffer(type, size);
+                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+                return info;
             },
             pyref)
         .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
@@ -335,9 +340,9 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
-                auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false).handle;
-                RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
-                return ptr;
+                auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false);
+                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
+                return info;
             },
             pyref)
         .def("destroy_texture", [](DeviceInterface &d, uint64_t handle) {
