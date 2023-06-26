@@ -496,6 +496,16 @@ struct LCBindlessArray {
     return t.tex3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
 }
 
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad_level(LCBindlessArray array, uint index, float2 uv, float2 dpdx, float2 dpdy, float min_level) {
+    device const auto &t = array.items[index];
+    return t.tex2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy), min_lod_clamp(min_level));
+}
+
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad_level(LCBindlessArray array, uint index, float3 uvw, float3 dpdx, float3 dpdy, float min_level) {
+    device const auto &t = array.items[index];
+    return t.tex3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy), min_lod_clamp(min_level));
+}
+
 [[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(LCBindlessArray array, uint i) {
     return uint2(array.items[i].tex2d.get_width(), array.items[i].tex2d.get_height());
 }
