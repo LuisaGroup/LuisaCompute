@@ -835,11 +835,11 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "bindless_texture_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: break;// TODO
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: _scratch << "bindless_texture_sample2d_grad_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "bindless_texture_sample3d"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample3d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "bindless_texture_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: break;// TODO
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: _scratch << "bindless_texture_sample3d_grad_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "bindless_texture_read2d"; break;
         case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "bindless_texture_read3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "bindless_texture_read2d_level"; break;
