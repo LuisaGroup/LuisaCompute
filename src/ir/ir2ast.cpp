@@ -565,7 +565,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             for (const auto &arg : args) {
                 converted_args.push_back(_convert_node(arg));
             }
-            auto callable = convert_callable(p_callable.get())->function();
+            auto callable_fb = convert_callable(p_callable.get());
+            auto callable = callable_fb->function();
+            return _ctx->function_builder->call(type, callable, luisa::span{converted_args});
         }
         case ir::Func::Tag::CpuCustomOp: LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
         default: LUISA_ERROR_WITH_LOCATION("Invalid function tag: {}.", function_name);
@@ -1053,8 +1055,14 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 [[nodiscard]] const RefExpr *IR2AST::_convert_argument(const ir::Node *node) noexcept {
     auto type = _convert_type(node->type_.get());
     switch (node->instruction->tag) {
-        case ir::Instruction::Tag::Uniform: [[fallthrough]];
-        case ir::Instruction::Tag::Argument: return _ctx->function_builder->argument(type);
+        case ir::Instruction::Tag::Uniform: return _ctx->function_builder->argument(type);;
+        case ir::Instruction::Tag::Argument: {
+            if (node->instruction->argument.by_value) {
+                return _ctx->function_builder->argument(type);
+            } else {
+                return _ctx->function_builder->reference(type);
+            }
+        }
         // Uniform is the argument of a kernel
         // while Argument is the argument of a callable
         case ir::Instruction::Tag::Texture2D: [[fallthrough]];
@@ -1152,6 +1160,10 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 }
 
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
+    if (_converted_callables.find(callable) != _converted_callables.end()) {
+        printf("found callable\n");
+        return _converted_callables.at(callable);
+    }
     IR2ASTContext ctx{
         .module = callable->module,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE)};
@@ -1169,7 +1181,12 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         _process_local_declarations(entry);
         _convert_block(entry);
     });
+    if (ctx.function_builder->function().tag() != Function::Tag::CALLABLE) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Calling non-callable function in device code.");
+    }
     _ctx = old_ctx;
+    _converted_callables.emplace(callable, ctx.function_builder);
     return ctx.function_builder;
 }
 

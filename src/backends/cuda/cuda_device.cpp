@@ -817,6 +817,9 @@ void CUDADevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 string CUDADevice::query(luisa::string_view property) noexcept {
+    if (property == "device_name") {
+        return "cuda";
+    }
     LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
     return {};
 }

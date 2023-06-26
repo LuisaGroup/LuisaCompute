@@ -1152,8 +1152,8 @@ void CUDACodegenAST::emit(Function f, luisa::string_view native_include) {
 
 void CUDACodegenAST::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find(_generated_functions.cbegin(),
-                              _generated_functions.cend(), f);
+    if (auto iter = std::find_if(_generated_functions.cbegin(),
+                              _generated_functions.cend(), [&](auto &&other) noexcept { return other.hash() == f.hash(); });
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
