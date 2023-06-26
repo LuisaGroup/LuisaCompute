@@ -1,8 +1,7 @@
 #pragma once
 
-#include <functional>
-
 #include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/functional.h>
 #include <luisa/core/platform.h>
 #include <luisa/core/concepts.h>
 
@@ -64,7 +63,7 @@ public:
      */
     template<concepts::function F, typename... Args>
     decltype(auto) invoke(std::string_view name, Args &&...args) const noexcept {
-        return std::invoke(function<F>(name), std::forward<Args>(args)...);
+        return luisa::invoke(function<F>(name), std::forward<Args>(args)...);
     }
 
     /**

@@ -18,7 +18,6 @@
 #include <fstream>
 #include <assert.h>
 #include <stdio.h>
-#include <vector>
 #include <iostream>
 #include <stdexcept>
 #include <fstream>

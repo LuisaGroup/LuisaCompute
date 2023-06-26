@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <vector>
 
 #include <cuda.h>
 

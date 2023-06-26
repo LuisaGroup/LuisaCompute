@@ -5,7 +5,7 @@
 #pragma once
 
 #include <mutex>
-#include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa {
 
@@ -19,7 +19,7 @@ public:
     template<typename F>
     decltype(auto) with_lock(F &&f) const noexcept {
         std::lock_guard lock{_mutex};
-        return std::invoke(std::forward<F>(f));
+        return luisa::invoke(std::forward<F>(f));
     }
 };
 
@@ -28,7 +28,7 @@ class thread_safety<void> {
 public:
     template<typename F>
     decltype(auto) with_lock(F &&f) const noexcept {
-        return std::invoke(std::forward<F>(f));
+        return luisa::invoke(std::forward<F>(f));
     }
 };
 

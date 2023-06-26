@@ -71,7 +71,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <vector>
 #include <cassert>
 
 #define ANKERL_UNORDERED_DENSE_PMR 0// NOLINT(cppcoreguidelines-macro-usage)
