@@ -65,8 +65,6 @@ void DStorageCommandQueue::AddEvent(LCEvent const *evt) {
 }
 uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
     size_t curFrame;
-    bool memQueueUsed = false;
-    bool fileQueueUsed = false;
     WaitQueueHandle waitQueueHandle;
     waitQueueHandle.handle = nullptr;
     {
@@ -82,6 +80,7 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<T, DStorageReadCommand::FileSource>) {
                         auto file = reinterpret_cast<DStorageFileImpl *>(t.handle);
+                        request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
                         request.Source.File.Source = file->file.Get();
                         request.Source.File.Offset = t.offset_bytes;
                         request.Source.File.Size = t.size_bytes;
@@ -136,13 +135,11 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 cmd->request());
             queue->EnqueueRequest(&request);
         }
-        auto setQueueHandle = [&](auto queue, bool used, auto &handle) {
-            if (!used) return;
-            handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-            queue->EnqueueSetEvent(handle);
+        if (!list.commands().empty()) {
+            waitQueueHandle.handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
+            queue->EnqueueSetEvent(waitQueueHandle.handle);
             queue->Submit();
-        };
-        setQueueHandle(queue, fileQueueUsed, waitQueueHandle.handle);
+        }
     }
     bool callbackEmpty = list.callbacks().empty();
     curFrame = ++lastFrame;

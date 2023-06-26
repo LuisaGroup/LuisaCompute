@@ -161,8 +161,8 @@ class func:
             get_global_device().impl().save_shader(f.function, name)
         if print_cpp_header:
             front = '''#pragma once
-#include <runtime/device.h>
-#include <runtime/shader.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
 '''
             type_idx = 0
             type_map = {}
@@ -202,7 +202,7 @@ class func:
                         name = f"Image<{dtype_name}>"
                         type_map[arg] = name
                         if not image_declared:
-                            front += "#include <runtime/image.h>\n"
+                            front += "#include <luisa/runtime/image.h>\n"
                             image_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif type(arg).__name__ == "Texture3DType":
@@ -211,7 +211,7 @@ class func:
                         name = f"Volume<{dtype_name}>"
                         type_map[arg] = name
                         if not volume_declared:
-                            front += "#include <runtime/volume.h>\n"
+                            front += "#include <luisa/runtime/volume.h>\n"
                             volume_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif type(arg).__name__ == "BufferType":
@@ -220,7 +220,7 @@ class func:
                         name = f"Buffer<{dtype_name}>"
                         type_map[arg] = name
                         if not buffer_declared:
-                            front += "#include <runtime/buffer.h>\n"
+                            front += "#include <luisa/runtime/buffer.h>\n"
                             buffer_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "BindlessArray":
@@ -228,21 +228,21 @@ class func:
                     if name == None:
                         name = "BindlessArray"
                         type_map[arg] = name
-                        front += "#include <runtime/bindless_array.h>\n"
+                        front += "#include <luisa/runtime/bindless_array.h>\n"
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "Accel":
                     name = type_map.get(arg)
                     if name == None:
                         name = "Accel"
                         type_map[arg] = name
-                        front += "#include <runtime/rtx/accel.h>\n"
+                        front += "#include <luisa/runtime/rtx/accel.h>\n"
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "IndirectDispatchBuffer":
                     name = type_map.get(arg)
                     if name == None:
                         name = "IndirectDispatchBuffer"
                         type_map[arg] = name
-                        front += "#include <runtime/dispatch_buffer.h>\n"
+                        front += "#include <luisa/runtime/dispatch_buffer.h>\n"
                     type_defines.append("luisa::compute::" + name)
                 else:
                     assert False
