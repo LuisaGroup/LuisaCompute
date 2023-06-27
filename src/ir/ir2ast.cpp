@@ -180,8 +180,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 call_op, luisa::span{converted_args});
             return nullptr;
         } else {
-            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST ||
-                (call_op >= CallOp::RAY_QUERY_WORLD_SPACE_RAY && call_op <= CallOp::RAY_QUERY_COMMITTED_HIT )) {
+            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
                 auto ret = _ctx->function_builder->call(
                     Type::of<TriangleHit>(), call_op, converted_args);
                 return _ctx->function_builder->cast(

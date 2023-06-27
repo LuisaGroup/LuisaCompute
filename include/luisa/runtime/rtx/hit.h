@@ -23,7 +23,8 @@ struct CommittedHit {
     uint hit_type; // HitType
     float committed_ray_t;
 };
-
+static_assert(sizeof(CommittedHit) == 24u, "CommittedHit size mismatch");
+static_assert(alignof(CommittedHit) == 8u, "CommittedHit align mismatch");
 // Return type of Accel::trace_closest() and RayQuery::triangle_candidate(), it represents a hit that can be a triangle or nothing
 struct TriangleHit {
     uint inst;
