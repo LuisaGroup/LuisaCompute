@@ -57,8 +57,8 @@ void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size
     D3D12_TILED_RESOURCE_COORDINATE tileCoord{
         .X = coord,
         .Subresource = 0};
-    if (heap->size_bytes != size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) [[unlikely]]{
-        LUISA_ERROR("Un-matchheap size. Required size: {}, heap size: {}", size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, heap->size_bytes);
+    if (heap->size_bytes < size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) [[unlikely]]{
+        LUISA_ERROR("Map size out of range. Required size: {}, heap size: {}", size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, heap->size_bytes);
     }
     D3D12_TILE_REGION_SIZE tileSize{
         .NumTiles = size,

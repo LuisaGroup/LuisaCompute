@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1], nullptr);
+    auto device = context.create_device(argv[1], nullptr, true);
     auto stream = device.create_stream();
     auto dstorage_ext = device.extension<DStorageExt>();
     Stream dstorage_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource});
