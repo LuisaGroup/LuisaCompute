@@ -61,7 +61,7 @@ row_major float4x4 m;
 template<typename T>
 T _fract(T x){return x-floor(x);}
 struct _Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
-struct _Hit1{uint v0;uint v1;float2 v2;float v3;};
+struct _Hit1{uint v0;uint v1;float2 v2;float v3;uint _a0;};
 struct _Hit2{uint v0;uint v1;};
 struct _MeshInst {
 float4 p0;
