@@ -8,21 +8,25 @@ class DeviceInterface;
 struct SparseTextureMapOperation {
     uint3 start_tile;
     uint3 tile_count;
+    uint64_t allocated_heap;
     uint mip_level;
 };
 
 struct SparseTextureUnMapOperation {
     uint3 start_tile;
+    uint3 tile_count;
     uint mip_level;
 };
 
 struct SparseBufferMapOperation {
+    uint64_t allocated_heap;
     uint start_tile;
     uint tile_count;
 };
 
 struct SparseBufferUnMapOperation {
     uint start_tile;
+    uint tile_count;
 };
 
 using SparseOperation = luisa::variant<

@@ -2,6 +2,7 @@
 
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/sparse_texture.h>
+#include <luisa/runtime/sparse_heap.h>
 
 namespace luisa::compute {
 
@@ -61,21 +62,23 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size.xy(); }
 
-    [[nodiscard]] auto map_tile(uint2 start_tile, uint2 tile_count, uint mip_level) noexcept {
+    [[nodiscard]] auto map_tile(uint2 start_tile, uint2 tile_count, uint mip_level, const SparseTextureHeap &heap) noexcept {
         detail::check_sparse_tex2d_map(_size, _tile_size.xy(), start_tile, tile_count);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseTextureMapOperation{
                 .start_tile = make_uint3(start_tile, 0u),
                 .tile_count = make_uint3(tile_count, 1u),
+                .allocated_heap = heap.handle(),
                 .mip_level = mip_level}};
     }
-    [[nodiscard]] auto unmap_tile(uint2 start_tile, uint mip_level) noexcept {
+    [[nodiscard]] auto unmap_tile(uint2 start_tile, uint2 tile_count, uint mip_level) noexcept {
         detail::check_sparse_tex2d_unmap(_size, _tile_size.xy(), start_tile);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseTextureUnMapOperation{
                 .start_tile = make_uint3(start_tile, 0u),
+                .tile_count = make_uint3(tile_count, 0u),
                 .mip_level = mip_level}};
     }
 

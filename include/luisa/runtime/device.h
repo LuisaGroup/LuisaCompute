@@ -26,6 +26,8 @@ class Accel;
 class Swapchain;
 class BindlessArray;
 class IndirectDispatchBuffer;
+class SparseBufferHeap;
+class SparseTextureHeap;
 
 template<typename T>
 class Buffer;
@@ -191,6 +193,10 @@ public:
     [[nodiscard]] auto create_sparse_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u, bool simultaneous_access = true) noexcept {
         return _create<SparseVolume<T>>(pixel, size, mip_levels, simultaneous_access);
     }
+
+    [[nodiscard]] SparseBufferHeap allocate_sparse_buffer_heap(size_t byte_size);
+
+    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size);
 
     template<typename T>
         requires(!is_custom_struct_v<T>)//backend-specific type not allowed

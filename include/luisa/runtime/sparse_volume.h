@@ -2,6 +2,7 @@
 
 #include <luisa/runtime/volume.h>
 #include <luisa/runtime/sparse_texture.h>
+#include <luisa/runtime/sparse_heap.h>
 
 namespace luisa::compute {
 
@@ -62,7 +63,7 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
     [[nodiscard]] auto tile_size() const noexcept { return _tile_size; }
 
-    [[nodiscard]] auto map_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
+    [[nodiscard]] auto map_tile(uint3 start_tile, uint3 tile_count, uint mip_level, const SparseTextureHeap &heap) noexcept {
         detail::check_sparse_tex3d_map(_size, _tile_size, start_tile, tile_count);
         return SparseUpdateTile{
             .handle = handle(),
@@ -70,14 +71,16 @@ public:
                 SparseTextureMapOperation{
                     .start_tile = start_tile,
                     .tile_count = tile_count,
+                    .allocated_heap = heap.handle(),
                     .mip_level = mip_level}};
     }
-    [[nodiscard]] auto unmap_tile(uint3 start_tile, uint mip_level) noexcept {
+    [[nodiscard]] auto unmap_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
         detail::check_sparse_tex3d_unmap(_size, _tile_size, start_tile);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseTextureMapOperation{
                 .start_tile = start_tile,
+                .tile_count = tile_count,
                 .mip_level = mip_level}};
     }
 

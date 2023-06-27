@@ -139,12 +139,16 @@ public:
     [[nodiscard]] virtual SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
         return SparseBufferCreationInfo::make_invalid();
     }
+    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_buffer_heap(size_t byte_size) noexcept { return ResourceCreationInfo::make_invalid(); }
+    virtual void deallocate_sparse_buffer_heap(uint64_t handle) noexcept {}
     virtual void update_sparse_resources(
         uint64_t stream_handle,
         luisa::vector<SparseUpdateTile> &&textures_update) noexcept {}
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture
+    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept { return ResourceCreationInfo::make_invalid(); }
+    virtual void deallocate_sparse_texture_heap(uint64_t handle) noexcept {}
     [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
@@ -155,4 +159,3 @@ public:
 };
 
 }// namespace luisa::compute
-

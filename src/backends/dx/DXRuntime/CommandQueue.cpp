@@ -92,13 +92,6 @@ void CommandQueue::ExecuteThread() {
             device->WaitFence(cmdFence.Get(), fence);
             Weakup();
         };
-        auto ExecuteReleaseQueue = [&](vstd::vector<uint64> &vec) {
-            auto alloc = device->defaultAllocator.get();
-            for (auto &&i : vec) {
-                alloc->Release(i);
-            }
-            Weakup();
-        };
         while (auto b = executedAllocators.pop()) {
             fence = b->fence;
             wakeupThread = b->wakeupThread;
@@ -106,8 +99,7 @@ void CommandQueue::ExecuteThread() {
                 ExecuteAllocator,
                 ExecuteCallbacks,
                 ExecuteEvent,
-                ExecuteHandle,
-                ExecuteReleaseQueue);
+                ExecuteHandle);
         }
         std::unique_lock lck(mtx);
         while (enabled && executedAllocators.length() == 0) {
@@ -142,11 +134,10 @@ void CommandQueue::WaitFrame(uint64 lastFrame) {
     if (lastFrame > 0)
         queue->Wait(cmdFence.Get(), lastFrame);
 }
-void CommandQueue::Signal(vstd::vector<uint64> &&deallocatedHandle) {
+void CommandQueue::Signal() {
     auto curFrame = ++lastFrame;
     ThrowIfFailed(queue->Signal(cmdFence.Get(), curFrame));
-    executedAllocators.push(WaitFence{}, curFrame, false);
-    executedAllocators.push(std::move(deallocatedHandle), curFrame, true);
+    executedAllocators.push(WaitFence{}, curFrame, true);
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();

@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1], nullptr, true);
+    auto device = context.create_device(argv[1], nullptr);
     auto stream = device.create_stream();
     auto dstorage_ext = device.extension<DStorageExt>();
     Stream dstorage_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource});
@@ -39,7 +39,8 @@ int main(int argc, char *argv[]) {
         auto sparse_buffer = device.create_sparse_buffer<float>(buffer_size);
         auto one_tile_size = sparse_buffer.tile_size() / sizeof(float);
         luisa::vector<float> result(one_tile_size);
-        sparse_cmdlist << sparse_buffer.map_tile(1, 1);
+        SparseBufferHeap buffer_heap = device.allocate_sparse_buffer_heap(sparse_buffer.tile_size());
+        sparse_cmdlist << sparse_buffer.map_tile(1, 1, buffer_heap);
         auto buffer_view = sparse_buffer.view(one_tile_size, one_tile_size);
         stream
             << sparse_cmdlist.commit()
@@ -76,9 +77,8 @@ int main(int argc, char *argv[]) {
         Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
         luisa::vector<std::byte> pinned(image.view().size_bytes());
         luisa::vector<std::byte> result(image.view().size_bytes());
-        sparse_cmdlist << sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0)
-                       << sparse_image.unmap_tile(pixel_offset / sparse_image.tile_size(), 0)
-                       << sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0);
+        SparseTextureHeap tex_heap = device.allocate_sparse_texture_heap(pixel_storage_size(image.storage(), make_uint3(resolution, 1u)));
+        sparse_cmdlist << sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0, tex_heap);
         stream
             << bindless_arr.update()
             << write_shader(image, make_uint2(0)).dispatch(resolution)

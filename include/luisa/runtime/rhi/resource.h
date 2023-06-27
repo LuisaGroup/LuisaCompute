@@ -150,6 +150,8 @@ public:
         DSTORAGE_PINNED_MEMORY,
         SPARSE_BUFFER,
         SPARSE_TEXTURE,
+        SPARSE_BUFFER_HEAP,
+        SPARSE_TEXTURE_HEAP,
     };
 
 private:

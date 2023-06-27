@@ -29,6 +29,7 @@
 #include <DXApi/TypeCheck.h>
 #include <Resource/SparseTexture.h>
 #include <Resource/SparseBuffer.h>
+#include <Resource/SparseHeap.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ir2ast.h>
@@ -664,7 +665,6 @@ void LCDevice::update_sparse_resources(
     uint64_t stream_handle,
     luisa::vector<SparseUpdateTile> &&update_cmds) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
-    vstd::vector<uint64> destroyList;
 
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("sparse-texture update not allowed in Direct-Storage.");
@@ -675,21 +675,21 @@ void LCDevice::update_sparse_resources(
             [&]<typename T>(T const &t) {
                 if constexpr (std::is_same_v<T, SparseTextureMapOperation>) {
                     auto tex = reinterpret_cast<SparseTexture *>(i.handle);
-                    tex->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count, t.mip_level);
+                    tex->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count, t.mip_level, t.allocated_heap);
                 } else if constexpr (std::is_same_v<T, SparseBufferMapOperation>) {
                     auto buffer = reinterpret_cast<SparseBuffer *>(i.handle);
-                    buffer->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count);
+                    buffer->AllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count, t.allocated_heap);
                 } else if constexpr (std::is_same_v<T, SparseTextureUnMapOperation>) {
                     auto tex = reinterpret_cast<SparseTexture *>(i.handle);
-                    tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.mip_level, destroyList);
+                    tex->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count, t.mip_level);
                 } else {
                     auto buffer = reinterpret_cast<SparseBuffer *>(i.handle);
-                    buffer->DeAllocateTile(queuePtr.Queue(), t.start_tile, destroyList);
+                    buffer->DeAllocateTile(queuePtr.Queue(), t.start_tile, t.tile_count);
                 }
             },
             i.operations);
     }
-    queuePtr.Signal(std::move(destroyList));
+    queuePtr.Signal();
 }
 
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
@@ -711,7 +711,35 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
     LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
 #endif
 }
+ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
+    auto heap = reinterpret_cast<SparseHeap*>(vengine_malloc(sizeof(SparseHeap)));
+    heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
+    heap->size_bytes = byte_size;
+    ResourceCreationInfo r;
+    r.handle = reinterpret_cast<uint64>(heap);
+    r.native_handle = heap->heap;
+    return r;
+}
+void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
+    auto heap = reinterpret_cast<SparseHeap*>(handle);
+    nativeDevice.defaultAllocator->Release(heap->allocation);
+    vengine_free(heap);
+}
+ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) noexcept {
+    auto heap = reinterpret_cast<SparseHeap*>(vengine_malloc(sizeof(SparseHeap)));
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, true);
+    heap->size_bytes = byte_size;
+    ResourceCreationInfo r;
+    r.handle = reinterpret_cast<uint64>(heap);
+    r.native_handle = heap->heap;
+    return r;
+}
 
+void LCDevice::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
+    auto heap = reinterpret_cast<SparseHeap*>(handle);
+    nativeDevice.defaultAllocator->Release(heap->allocation);
+    vengine_free(heap);
+}
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);
 }

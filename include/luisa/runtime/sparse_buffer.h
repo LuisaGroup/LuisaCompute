@@ -3,13 +3,13 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/stream_event.h>
 #include <luisa/runtime/rhi/tile_modification.h>
+#include <luisa/runtime/sparse_heap.h>
 
 namespace luisa::compute {
 namespace detail {
 LC_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count);
 LC_RUNTIME_API void check_sparse_buffer_unmap(size_t size_bytes, size_t tile_size, uint start_tile);
 }// namespace detail
-
 template<typename T>
 class SparseBuffer final : public Resource {
 public:
@@ -49,20 +49,22 @@ public:
         _move_from(std::move(rhs));
         return *this;
     }
-    [[nodiscard]] auto map_tile(uint start_tile, uint tile_count) noexcept {
+    [[nodiscard]] auto map_tile(uint start_tile, uint tile_count, const SparseBufferHeap &heap) noexcept {
         detail::check_sparse_buffer_map(size_bytes(), _tile_size, start_tile, tile_count);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseBufferMapOperation{
+                .allocated_heap = heap.handle(),
                 .start_tile = start_tile,
                 .tile_count = tile_count}};
     }
-    [[nodiscard]] auto unmap_tile(uint start_tile) noexcept {
+    [[nodiscard]] auto unmap_tile(uint start_tile, uint tile_count) noexcept {
         detail::check_sparse_buffer_unmap(size_bytes(), _tile_size, start_tile);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseBufferUnMapOperation{
-                .start_tile = start_tile}};
+                .start_tile = start_tile,
+                .tile_count = tile_count}};
     }
 
     SparseBuffer &operator=(SparseBuffer const &) noexcept = delete;
