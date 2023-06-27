@@ -67,19 +67,19 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
 
     auto expr = [&, index = _ctx->node_to_exprs.size()]() -> const Expression * {
         switch (node->instruction->tag) {
-            case ir::Instruction::Tag::Buffer: return _ctx->function_builder->buffer(type->element());
+            case ir::Instruction::Tag::Buffer: return _ctx->function_builder->buffer(type);
             case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
             case ir::Instruction::Tag::Texture2D: [[fallthrough]];
             case ir::Instruction::Tag::Texture3D: {
                 // for Texture{2|3}D, type is vector<primitive,4>
                 // where primitive could be int, float or uint
                 auto dimension = node->instruction->tag == ir::Instruction::Tag::Texture2D ? 2u : 3u;
-                auto texture_type = Type::texture(type->element(), dimension);
+                auto texture_type = Type::texture(type, dimension);
                 return _ctx->function_builder->texture(texture_type);
             }
             case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
             case ir::Instruction::Tag::Shared: return _ctx->function_builder->shared(type);
-            case ir::Instruction::Tag::UserData: LUISA_ERROR_WITH_LOCATION("Instruction 'UserData' is not implemented.");
+            case ir::Instruction::Tag::UserData: return _ctx->function_builder->literal(Type::from("float"), 0.0f); 
             case ir::Instruction::Tag::Const: return _convert_constant(node->instruction->const_._0);
             case ir::Instruction::Tag::Call: {
                 auto ret = _convert_instr_call(node);
@@ -119,8 +119,8 @@ void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
     _ctx->function_builder->assign(expr, init);
 }
 
-void IR2AST::_convert_instr_user_data(const ir::Node *user_data) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Instruction 'UserData' is not implemented.");
+void IR2AST::_convert_instr_user_data(const ir::Node *_user_data) noexcept {
+   
 }
 
 void IR2AST::_convert_instr_invalid(const ir::Node *invalid) noexcept {
@@ -327,8 +327,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::RayQueryTriangleCandidateHit: return builtin_func(1, CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT);
         case ir::Func::Tag::RayQueryCommittedHit: return builtin_func(1, CallOp::RAY_QUERY_COMMITTED_HIT);
         case ir::Func::Tag::RayQueryCommitTriangle: return builtin_func(1, CallOp::RAY_QUERY_COMMIT_TRIANGLE);
-        case ir::Func::Tag::RayQueryCommitProcedural: return builtin_func(1, CallOp::RAY_QUERY_COMMIT_PROCEDURAL);
-        case ir::Func::Tag::RayQueryTerminate: return builtin_func(0, CallOp::RAY_QUERY_TERMINATE);
+        case ir::Func::Tag::RayQueryCommitProcedural: return builtin_func(2, CallOp::RAY_QUERY_COMMIT_PROCEDURAL);
+        case ir::Func::Tag::RayQueryTerminate: return builtin_func(1, CallOp::RAY_QUERY_TERMINATE);
         case ir::Func::Tag::RasterDiscard: return builtin_func(0, CallOp::RASTER_DISCARD);
         case ir::Func::Tag::IndirectClearDispatchBuffer: return builtin_func(1, CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER);
         case ir::Func::Tag::IndirectEmplaceDispatchKernel: return builtin_func(4, CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL);
@@ -516,24 +516,26 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             return _ctx->function_builder->call(type, op, luisa::span{reconstruct_args});
         }
         case ir::Func::Tag::InsertElement: {
-            // for Sturct, a.c = b
-            // for Vector/Matrix, a[c] = b;
+            // for Sturct, auto a = b; a.c = d; return a;
+            // for Vector/Matrix, auto a = b; a[i] = c; return a;
             LUISA_ASSERT(args.size() == 3u, "`InsertElement` takes 3 arguments.");
             auto self = ir::luisa_compute_ir_node_get(args[0]);
             auto self_type = _convert_type(self->type_.get());
+            auto tmp = _ctx->function_builder->local(self_type);
+            _ctx->function_builder->assign(tmp, _convert_node(self));
             auto new_value = _convert_node(args[1]);
             if (self->type_->tag == ir::Type::Tag::Struct) {
                 auto member_index = constant_index(args[2]);
                 auto member_type = self_type->members()[member_index];
-                auto ref = _ctx->function_builder->member(member_type, _convert_node(self), member_index);
+                auto ref = _ctx->function_builder->member(member_type, tmp, member_index);
                 _ctx->function_builder->assign(ref, new_value);
             } else {
                 auto index = _convert_node(args[2]);
                 auto inner_type = self_type->element();
-                auto ref = _ctx->function_builder->access(inner_type, _convert_node(self), index);
+                auto ref = _ctx->function_builder->access(inner_type, tmp, index);
                 _ctx->function_builder->assign(ref, new_value);
             }
-            return nullptr;
+            return tmp;
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
@@ -884,9 +886,9 @@ const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept 
         case ir::Primitive::Float32: return Type::from("float");
         case ir::Primitive::Int32: return Type::from("int");
         case ir::Primitive::Uint32: return Type::from("uint");
-        case ir::Primitive::Float64: [[fallthrough]];
-        case ir::Primitive::Int64: [[fallthrough]];
-        case ir::Primitive::Uint64: LUISA_ERROR_WITH_LOCATION("64-bit primitive types are not yet supported.");
+        case ir::Primitive::Float64: LUISA_ERROR_WITH_LOCATION("64-bit primitive types are not yet supported.");;
+        case ir::Primitive::Int64: return Type::from("long");
+        case ir::Primitive::Uint64: return Type::from("ulong");
         default: LUISA_ERROR_WITH_LOCATION("Invalid primitive type.");
     }
 }
@@ -922,9 +924,12 @@ const Type *IR2AST::_convert_type(const ir::Type *type) noexcept {
             auto opaque_type = luisa::string_view((const char*)type->opaque._0.ptr);
             return Type::custom(opaque_type);
         }
+        case ir::Type::Tag::UserData: {
+            return Type::from("float");
+        }
         default: break;
     }
-    LUISA_ERROR_WITH_LOCATION("Invalid type.");
+    LUISA_ERROR_WITH_LOCATION("Invalid type. {}", to_string(type->tag));
 }
 
 void IR2AST::_collect_phis(const ir::BasicBlock *bb) noexcept {
@@ -1198,7 +1203,6 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
     if (_converted_callables.find(callable) != _converted_callables.end()) {
-        printf("found callable\n");
         return _converted_callables.at(callable);
     }
     IR2ASTContext ctx{
