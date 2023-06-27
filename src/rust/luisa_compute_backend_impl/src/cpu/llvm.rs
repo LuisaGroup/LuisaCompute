@@ -858,7 +858,7 @@ impl Context {
             add_libm_symbol!(
                 fminf, fmaxf, sinf, fabsf, acosf, asinf, atanf, acoshf, asinhf, atanhf, atan2f,
                 cosf, coshf, sinf, sinhf, tanf, tanhf, expf, exp2f, exp10f, logf, log2f, log10f,
-                sqrtf, ceilf, floorf, truncf, roundf, fmaf, copysignf, powf
+                sqrtf, ceilf, floorf, truncf, roundf, fmaf, copysignf, powf, fmodf
             );
             extern "C" fn rsqrtf(x: f32) -> f32 {
                 1.0 / x.sqrt()
