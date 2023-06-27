@@ -37,6 +37,7 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::Switch: _convert_instr_switch(node); break;
             case ir::Instruction::Tag::AdScope: _convert_instr_ad_scope(node); break;
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
+            case ir::Instruction::Tag::RayQuery: _convert_instr_ray_query(node); break;
             case ir::Instruction::Tag::Comment:
                 _convert_instr_comment(node);
                 break;
@@ -160,12 +161,27 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             converted_args[1] = _ctx->function_builder->cast(
                 Type::of<Ray>(), CastOp::BITWISE, converted_args[1]);
         }
+        if (call_op == CallOp::RAY_TRACING_QUERY_ANY) {
+            auto type = Type::custom("LC_RayQueryAny");
+            auto local =  _ctx->function_builder->local(type);
+            auto call =  _ctx->function_builder->call(type, call_op, converted_args);
+            _ctx->function_builder->assign(local, call);
+            return local;
+        }
+        if (call_op == CallOp::RAY_TRACING_QUERY_ALL) {
+            auto type = Type::custom("LC_RayQueryAll");
+            auto local = _ctx->function_builder->local(type);
+            auto call = _ctx->function_builder->call(type, call_op, converted_args);
+            _ctx->function_builder->assign(local, call);
+            return local;
+        }
         if (type == nullptr) {
             _ctx->function_builder->call(
                 call_op, luisa::span{converted_args});
             return nullptr;
         } else {
-            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
+            if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST ||
+                (call_op >= CallOp::RAY_QUERY_WORLD_SPACE_RAY && call_op <= CallOp::RAY_QUERY_COMMITTED_HIT )) {
                 auto ret = _ctx->function_builder->call(
                     Type::of<TriangleHit>(), call_op, converted_args);
                 return _ctx->function_builder->cast(
@@ -689,7 +705,20 @@ void IR2AST::_convert_instr_ad_detach(const ir::Node *node) noexcept {
     _convert_block(node->instruction->ad_detach._0.get());
     _ctx->function_builder->comment_("AD Detach End");
 }
+void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
+    _ctx->function_builder->comment_("Ray Query Begin");
+    auto rq = static_cast<const RefExpr*>(_convert_node(node->instruction->ray_query.ray_query));
+    auto rq_scope = _ctx->function_builder->ray_query_(rq);
 
+    _ctx->function_builder->with(rq_scope->on_triangle_candidate(), [&]{
+        _convert_block(node->instruction->ray_query.on_triangle_hit.get());
+    });
+    _ctx->function_builder->with(rq_scope->on_procedural_candidate(), [&]{
+        _convert_block(node->instruction->ray_query.on_procedural_hit.get());
+    });
+  
+    _ctx->function_builder->comment_("Ray Query End");
+}
 void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
     auto comment_body = node->instruction->comment._0;
     auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), comment_body.len};
@@ -890,6 +919,10 @@ const Type *IR2AST::_convert_type(const ir::Type *type) noexcept {
             }
             return Type::structure(struct_type.alignment, fields);
         }
+        case ir::Type::Tag::Opaque: {
+            auto opaque_type = luisa::string_view((const char*)type->opaque._0.ptr);
+            return Type::custom(opaque_type);
+        }
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid type.");
@@ -1001,6 +1034,11 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             }
             case ir::Instruction::Tag::AdDetach: {
                 _process_local_declarations(instr->ad_detach._0.get());
+                break;
+            }
+            case ir::Instruction::Tag::RayQuery: {
+                _process_local_declarations(instr->ray_query.on_triangle_hit.get());
+                _process_local_declarations(instr->ray_query.on_procedural_hit.get());
                 break;
             }
             case ir::Instruction::Tag::Comment: break;

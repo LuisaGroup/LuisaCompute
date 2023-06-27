@@ -83,6 +83,7 @@ private:
     void _convert_instr_switch(const ir::Node *node) noexcept;
     void _convert_instr_ad_scope(const ir::Node *node) noexcept;
     void _convert_instr_ad_detach(const ir::Node *node) noexcept;
+    void _convert_instr_ray_query(const ir::Node *node) noexcept;
     void _convert_instr_comment(const ir::Node *node) noexcept;
     void _convert_instr_debug(const ir::Node *node) noexcept;
     void _collect_phis(const ir::BasicBlock *bb) noexcept;

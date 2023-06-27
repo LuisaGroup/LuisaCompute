@@ -617,7 +617,7 @@ extern "C" fn ray_query(
     rq: &mut defs::RayQuery,
     on_triangle_hit: defs::OnHitCallback,
     on_procedural_hit: defs::OnHitCallback,
-) -> defs::CommitedHit {
+) {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.ray_query(rq, on_triangle_hit, on_procedural_hit)

@@ -209,11 +209,11 @@ inline void lc_set_instance_transform(const Accel &accel, lc_uint inst_id, const
     auto m4 = lc_bit_cast<Mat4>(transform);
     accel.set_instance_transform(accel.handle, inst_id, &m4);
 }
-using RayQueryAll = RayQuery;
-using RayQueryAny = RayQuery;
+using LC_RayQueryAll = RayQuery;
+using LC_RayQueryAny = RayQuery;
 
 template<bool TERMINATE_ON_FISRST_HIT>
-inline RayQueryAll make_rq(const Accel &accel,const Ray& ray, uint8_t mask) {
+inline RayQuery make_rq(const Accel &accel,const Ray& ray, uint8_t mask) {
     RayQuery rq{};
     rq.hit.inst = ~0u;
     rq.hit.prim = ~0u;
@@ -225,16 +225,16 @@ inline RayQueryAll make_rq(const Accel &accel,const Ray& ray, uint8_t mask) {
     return rq;
 }
 
-inline RayQueryAny lc_ray_query_any(const Accel &accel,const Ray& ray, uint8_t mask) {
+inline LC_RayQueryAny lc_ray_query_any(const Accel &accel,const Ray& ray, uint8_t mask) {
     return make_rq<true>(accel, ray, mask);
 }
-inline RayQueryAll lc_ray_query_all(const Accel &accel,const Ray& ray, uint8_t mask) {
+inline LC_RayQueryAll lc_ray_query_all(const Accel &accel,const Ray& ray, uint8_t mask) {
     return make_rq<false>(accel, ray, mask);
 }
 inline Ray lc_ray_query_world_space_ray(const RayQuery& rq) {
     return rq.ray;
 }
-static_assert(sizeof(TriangleHit)  == 16);
+
 inline TriangleHit lc_ray_query_triangle_candidate_hit(const RayQuery& rq) {
     return rq.cur_triangle_hit;
 }
@@ -268,9 +268,12 @@ void on_procedural_hit_wrapper(RayQuery* rq) {
     callbacks->on_procedural_hit(rq->cur_procedural_hit);
 }
 template<class T, class P>
-inline CommitedHit lc_ray_query(RayQuery& rq, T on_triangle_hit, P on_procedural_hit) {
+inline void lc_ray_query(RayQuery& rq, T on_triangle_hit, P on_procedural_hit) {
     auto callbacks = Callbacks<T, P>{on_triangle_hit, on_procedural_hit};
     rq.user_data = &callbacks;
     auto accel = rq.accel;
     return accel->ray_query(accel->handle, &rq, on_triangle_hit_wrapper<T, P>, on_procedural_hit_wrapper<T, P>);
+}
+inline CommitedHit lc_ray_query_committed_hit(RayQuery& rq) {
+    return rq.hit;
 }

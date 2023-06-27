@@ -94,14 +94,15 @@ pub struct TriangleHit {
     pub inst: u32,
     pub prim: u32,
     pub bary: [f32; 2],
+    pub committed_ray_t: f32,
 }
-#[repr(C, align(8))]
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct ProceduralHit {
     pub inst: u32,
     pub prim: u32,
 }
-#[repr(C, align(8))]
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Hit {
     pub inst_id: u32,
@@ -124,8 +125,7 @@ pub struct Accel {
     pub set_instance_visibility: extern "C" fn(*const c_void, u32, u8),
     pub set_instance_transform: extern "C" fn(*const c_void, u32, &Mat4),
     pub instance_transform: extern "C" fn(*const c_void, u32) -> Mat4,
-    pub ray_query:
-        extern "C" fn(*const c_void, &mut RayQuery, OnHitCallback, OnHitCallback) -> CommitedHit,
+    pub ray_query: extern "C" fn(*const c_void, &mut RayQuery, OnHitCallback, OnHitCallback),
 }
 
 #[repr(C, align(16))]

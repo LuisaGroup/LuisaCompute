@@ -303,7 +303,6 @@ impl<'a> FunctionEmitter<'a> {
                     }
                 }
                 Instruction::Phi(_) => format!("phi{}", index),
-                Instruction::RayQuery { .. } => format!("rq{}", index),
                 _ => unreachable!(),
             };
             self.node_to_var.insert(node, var.clone());
@@ -1209,7 +1208,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingQueryAll => {
                 writeln!(
                     self.body,
-                    "RayQueryAll _{0} = lc_ray_query_all({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
+                    "LC_RayQueryAll _{0} = lc_ray_query_all({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -1218,7 +1217,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingQueryAny => {
                 writeln!(
                     self.body,
-                    "RayQueryAny& _{0} = lc_ray_query_any({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
+                    "LC_RayQueryAny& _{0} = lc_ray_query_any({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
@@ -1578,11 +1577,10 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "/* RayQuery */").unwrap();
                 let rq_v = self.gen_node(*ray_query);
                 self.write_ident();
-                let var = self.gen_node(node);
                 writeln!(
                     &mut self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query({2}, [&](const TriangleHit& hit) {{",
-                    node_ty_s, var, rq_v
+                    "lc_ray_query({}, [&](const TriangleHit& hit) {{",
+                    rq_v
                 )
                 .unwrap();
                 self.gen_block(*on_triangle_hit);
@@ -1590,7 +1588,7 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "}}, [&](const ProceduralHit& hit) {{").unwrap();
                 self.gen_block(*on_procedural_hit);
                 self.write_ident();
-                writeln!(&mut self.body, "}}));").unwrap();
+                writeln!(&mut self.body, "}});").unwrap();
                 self.write_ident();
                 writeln!(&mut self.body, "/* RayQuery End*/").unwrap();
             }

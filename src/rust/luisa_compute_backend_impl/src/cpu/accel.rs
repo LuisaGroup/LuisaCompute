@@ -347,7 +347,7 @@ impl AccelImpl {
         rq: &mut defs::RayQuery,
         on_triangle_hit: defs::OnHitCallback,
         on_procedural_hit: defs::OnHitCallback,
-    ) -> defs::CommitedHit {
+    ) {
         let ray = rq.ray;
         let mut ray = sys::RTCRay {
             org_x: ray.orig_x,
@@ -419,6 +419,7 @@ impl AccelImpl {
                 prim: prim_id,
                 inst: inst_id,
                 bary: [hit_u, hit_v],
+                committed_ray_t: *t_far,
             };
             let on_triangle_hit = ctx.on_triangle_hit;
             rq.cur_commited = false;
@@ -470,7 +471,6 @@ impl AccelImpl {
 
             sys::rtcIntersect1(self.handle, &mut rayhit as *mut _, &mut args as *mut _);
         }
-        rq.hit
     }
 }
 
