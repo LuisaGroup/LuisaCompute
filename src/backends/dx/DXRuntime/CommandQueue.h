@@ -20,8 +20,7 @@ private:
             AllocatorPtr,
             vstd::vector<vstd::function<void()>>,
             LCEvent const *,
-            WaitFence,
-            vstd::vector<uint64>>;
+            WaitFence>;
         Variant evt;
         uint64_t fence;
         bool wakeupThread;
@@ -59,7 +58,7 @@ public:
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
-    void Signal(vstd::vector<uint64> &&deallocatedHandle);
+    void Signal();
     void Execute(AllocatorPtr &&alloc);
     void ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
     void ExecuteEmpty(AllocatorPtr &&alloc);

@@ -1,6 +1,8 @@
 #include "SparseBuffer.h"
 #include <Resource/GpuAllocator.h>
 #include <luisa/core/logging.h>
+#include "SparseHeap.h"
+
 namespace lc::dx {
 SparseBuffer::SparseBuffer(
     Device *device,
@@ -29,27 +31,15 @@ vstd::optional<D3D12_UNORDERED_ACCESS_VIEW_DESC> SparseBuffer::GetColorUavDesc(u
     return GetColorUavDescBase(offset, byteSize, isRaw);
 }
 SparseBuffer::~SparseBuffer() {
-    resource.Reset();
-    auto alloc = device->defaultAllocator.get();
-    for (auto &&i : allocatedTiles) {
-        alloc->Release(i.second.allocation);
-    }
 }
-void SparseBuffer::DeAllocateTile(ID3D12CommandQueue *queue, uint coord, vstd::vector<uint64> &destroyList) const {
-    std::lock_guard lck{allocMtx};
-    auto iter = allocatedTiles.find(coord);
-    if (iter == allocatedTiles.end()) [[unlikely]] {
-        return;
-    }
-    auto &tileInfo = iter->second;
-    destroyList.emplace_back(tileInfo.allocation);
+void SparseBuffer::DeAllocateTile(ID3D12CommandQueue *queue, uint coord, uint size) const {
     D3D12_TILED_RESOURCE_COORDINATE tileCoord{
         .X = coord,
         .Subresource = 0};
     D3D12_TILE_REGION_SIZE tileSize{
-        .NumTiles = static_cast<uint>(tileInfo.tileCount),
+        .NumTiles = static_cast<uint>(size),
         .UseBox = true,
-        .Width = static_cast<uint>(tileInfo.tileCount),
+        .Width = static_cast<uint>(size),
         .Height = 1,
         .Depth = 1};
     queue->UpdateTileMappings(
@@ -61,43 +51,31 @@ void SparseBuffer::DeAllocateTile(ID3D12CommandQueue *queue, uint coord, vstd::v
         nullptr,
         nullptr,
         D3D12_TILE_MAPPING_FLAG_NONE);
-    allocatedTiles.erase(iter);
 }
-void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size) const {
-    std::lock_guard lck{allocMtx};
-    allocatedTiles.try_emplace(
-        coord,
-        vstd::lazy_eval([&] {
-            TileInfo tileInfo;
-            tileInfo.tileCount = size;
-            ID3D12Heap *heap;
-            uint64 offset;
-            tileInfo.allocation = device->defaultAllocator->AllocateBufferHeap(
-                device,
-                size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES,
-                D3D12_HEAP_TYPE_DEFAULT,
-                &heap, &offset);
-            D3D12_TILED_RESOURCE_COORDINATE tileCoord{
-                .X = coord,
-                .Subresource = 0};
-            D3D12_TILE_REGION_SIZE tileSize{
-                .NumTiles = size,
-                .UseBox = true,
-                .Width = size,
-                .Height = 1,
-                .Depth = 1};
-            uint tileOffset = offset / D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
-            queue->UpdateTileMappings(
-                resource.Get(), 1,
-                &tileCoord,
-                &tileSize,
-                heap,
-                1,
-                vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NONE),
-                &tileOffset,
-                &size,
-                D3D12_TILE_MAPPING_FLAG_NONE);
-            return tileInfo;
-        }));
+void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size, uint64 alloc) const {
+    auto heap = reinterpret_cast<SparseHeap const *>(alloc);
+    D3D12_TILED_RESOURCE_COORDINATE tileCoord{
+        .X = coord,
+        .Subresource = 0};
+    if (heap->size_bytes != size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) [[unlikely]]{
+        LUISA_ERROR("Un-matchheap size. Required size: {}, heap size: {}", size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, heap->size_bytes);
+    }
+    D3D12_TILE_REGION_SIZE tileSize{
+        .NumTiles = size,
+        .UseBox = true,
+        .Width = size,
+        .Height = 1,
+        .Depth = 1};
+    uint tileOffset = heap->offset / D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    queue->UpdateTileMappings(
+        resource.Get(), 1,
+        &tileCoord,
+        &tileSize,
+        heap->heap,
+        1,
+        vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NONE),
+        &tileOffset,
+        &size,
+        D3D12_TILE_MAPPING_FLAG_NONE);
 }
 }// namespace lc::dx
