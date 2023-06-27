@@ -9,6 +9,7 @@
 #include "mesh.h"
 #include "procedural_primitives.h"
 #include "shader.h"
+#include "sparse_heap.h"
 #include "swap_chain.h"
 #include <luisa/ast/function_builder.h>
 #include "raster_ext_impl.h"
@@ -48,12 +49,12 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
 }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept {
     auto buffer = _native->create_buffer(element, elem_count);
-    new Buffer{buffer.handle};
+    new Buffer{buffer.handle, 0};
     return buffer;
 }
 BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
     auto buffer = _native->create_buffer(element, elem_count);
-    new Buffer{buffer.handle};
+    new Buffer{buffer.handle, 0};
     return buffer;
 }
 void Device::destroy_buffer(uint64_t handle) noexcept {
@@ -67,7 +68,7 @@ ResourceCreationInfo Device::create_texture(
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
     auto tex = _native->create_texture(format, dimension, width, height, depth, mipmap_levels, simultaneous_access);
-    new Texture{tex.handle, dimension, simultaneous_access};
+    new Texture{tex.handle, dimension, simultaneous_access, uint3(0, 0, 0), format};
     return tex;
 }
 void Device::destroy_texture(uint64_t handle) noexcept {
@@ -303,7 +304,7 @@ SparseTextureCreationInfo Device::create_sparse_texture(
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
     auto tex = _native->create_sparse_texture(format, dimension, width, height, depth, mipmap_levels, simultaneous_access);
-    new Texture{tex.handle, dimension, simultaneous_access};
+    new Texture{tex.handle, dimension, simultaneous_access, tex.tile_size, format};
     return tex;
 }
 void Device::destroy_sparse_texture(uint64_t handle) noexcept {
@@ -313,11 +314,33 @@ void Device::destroy_sparse_texture(uint64_t handle) noexcept {
 void Device::update_sparse_resources(
     uint64_t stream_handle,
     luisa::vector<SparseUpdateTile> &&update_cmds) noexcept {
+    for (auto &&i : update_cmds) {
+        luisa::visit(
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_same_v<T, SparseTextureMapOperation>) {
+                    auto tex = RWResource::get<Texture>(i.handle);
+                    auto dst_byte_size = pixel_format_size(tex->format(), t.tile_count * tex->tile_size());
+                    auto heap = RWResource::get<SparseHeap>(t.allocated_heap);
+                    if (dst_byte_size > heap->size()) {
+                        LUISA_ERROR("Map size out of range. Required size: {}, heap size: {}", dst_byte_size, heap->size());
+                    }
+
+                } else if constexpr (std::is_same_v<T, SparseBufferMapOperation>) {
+                    auto heap = RWResource::get<SparseHeap>(t.allocated_heap);
+                    auto buffer = RWResource::get<Buffer>(i.handle);
+                    auto dst_byte_size = buffer->tile_size() * t.tile_count;
+                    if (dst_byte_size > heap->size()) {
+                        LUISA_ERROR("Map size out of range. Required size: {}, heap size: {}", dst_byte_size, heap->size());
+                    }
+                }
+            },
+            i.operations);
+    }
     _native->update_sparse_resources(stream_handle, std::move(update_cmds));
 }
 SparseBufferCreationInfo Device::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
     auto buffer = _native->create_sparse_buffer(element, elem_count);
-    new Buffer{buffer.handle};
+    new Buffer{buffer.handle, buffer.tile_size_bytes};
     return buffer;
 }
 
@@ -325,5 +348,22 @@ void Device::destroy_sparse_buffer(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_sparse_buffer(handle);
 }
-
+ResourceCreationInfo Device::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
+    auto r = _native->allocate_sparse_buffer_heap(byte_size);
+    new SparseHeap(r.handle, byte_size);
+    return r;
+}
+void Device::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
+    RWResource::dispose(handle);
+    _native->deallocate_sparse_buffer_heap(handle);
+}
+ResourceCreationInfo Device::allocate_sparse_texture_heap(size_t byte_size) noexcept {
+    auto r = _native->allocate_sparse_texture_heap(byte_size);
+    new SparseHeap(r.handle, byte_size);
+    return r;
+}
+void Device::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
+    RWResource::dispose(handle);
+    _native->deallocate_sparse_texture_heap(handle);
+}
 }// namespace lc::validation

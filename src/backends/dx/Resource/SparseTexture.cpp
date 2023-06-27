@@ -68,8 +68,8 @@ uint SparseTexture::GetGlobalUAVIndex(uint mipLevel) const {
 }
 void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 size, uint mipLevel, uint64 alloc) const {
     auto heap = reinterpret_cast<SparseHeap const *>(alloc);
-    if (heap->size_bytes != (size.x * size.y * size.z) * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) [[unlikely]] {
-        LUISA_ERROR("Un-matchheap size. Required size: {}, heap size: {}", (size.x * size.y * size.z) * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, heap->size_bytes);
+    if (heap->size_bytes < (size.x * size.y * size.z) * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) [[unlikely]] {
+        LUISA_ERROR("Map size out of range. Required size: {}, heap size: {}", (size.x * size.y * size.z) * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, heap->size_bytes);
     }
     D3D12_TILED_RESOURCE_COORDINATE tileCoord{
         .X = coord.x,

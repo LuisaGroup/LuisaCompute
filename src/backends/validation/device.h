@@ -113,6 +113,10 @@ public:
     void update_sparse_resources(
         uint64_t stream_handle,
         luisa::vector<SparseUpdateTile> &&update_cmds) noexcept override;
+    ResourceCreationInfo allocate_sparse_buffer_heap(size_t byte_size) noexcept override;
+    void deallocate_sparse_buffer_heap(uint64_t handle) noexcept override;
+    ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept override;
+    void deallocate_sparse_texture_heap(uint64_t handle) noexcept override;
 };
 
 }// namespace lc::validation
