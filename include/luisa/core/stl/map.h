@@ -1,8 +1,13 @@
 #pragma once
 
-#define LUISA_COMPUTE_USE_BTREE_MAP
+// #define LUISA_COMPUTE_USE_BTREE_MAP
+#define LUISA_COMPUTE_USE_EASTL_MAP
+
 #ifdef LUISA_COMPUTE_USE_BTREE_MAP
 #include <parallel_hashmap/btree.h>
+#elif defined(LUISA_COMPUTE_USE_EASTL_MAP)
+#include <EASTL/set.h>
+#include <EASTL/map.h>
 #else
 #include <map>
 #include <set>
@@ -32,6 +37,26 @@ template<typename Key, typename Value,
          typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
 using multimap = phmap::btree_multimap<
     Key, Value, Compare, allocator>;
+#elif defined(LUISA_COMPUTE_USE_EASTL_MAP)
+template<typename Key,
+         typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
+using set = eastl::set<
+    Key, Compare, allocator>;
+
+template<typename Key, typename Value,
+         typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
+using map = eastl::map<
+    Key, Value, Compare, allocator>;
+
+template<typename Key,
+         typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
+using multiset = eastl::multiset<
+    Key, Compare, allocator>;
+
+template<typename Key, typename Value,
+         typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
+using multimap = eastl::multimap<
+    Key, Value, Compare, allocator>;
 #else
 template<typename Key,
          typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
@@ -55,4 +80,3 @@ using multimap = std::multimap<
 #endif
 
 }// namespace luisa
-

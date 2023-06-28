@@ -7,8 +7,8 @@ on_load(function(target)
 	local function rela(p)
 		return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
 	end
-	target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
-					rela("../ext/parallel-hashmap"), {
+	target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"), -- rela("../ext/parallel-hashmap"),
+					{
 						public = true
 					})
 	if is_plat("windows") then
@@ -36,8 +36,8 @@ on_load(function(target)
 	if is_plat("windows") then
 		target:add("defines", "_CRT_SECURE_NO_WARNINGS")
 	end
-    target:add("deps", "eastl", "spdlog")
+	target:add("deps", "eastl", "spdlog")
 end)
-add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp", "../ext/parallel-hashmap/**.h")
+add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp") -- , "../ext/parallel-hashmap/**.h"
 add_files("**.cpp")
 target_end()
