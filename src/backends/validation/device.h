@@ -77,9 +77,9 @@ public:
     // event
     ResourceCreationInfo create_event() noexcept override;
     void destroy_event(uint64_t handle) noexcept override;
-    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
-    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
-    bool is_event_completed(uint64_t handle) const noexcept override;
+    void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept override;
+    void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept override;
+    bool is_event_completed(uint64_t handle, uint64_t fence) const noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
 
     // accel

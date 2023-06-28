@@ -49,10 +49,10 @@ class DStorageCommandQueue : public CmdQueueBase{
     void ExecuteThread();
 
 public:
-    void Signal(ID3D12Fence *fence, UINT64 &value);
+    void Signal(ID3D12Fence *fence, UINT64 value);
     uint64 LastFrame() const { return lastFrame; }
     DStorageCommandQueue(IDStorageFactory *factory, Device *device, luisa::compute::DStorageStreamSource source);
-    void AddEvent(LCEvent const *evt);
+    void AddEvent(LCEvent const *evt, uint64 fenceIdx);
     uint64 Execute(luisa::compute::CommandList &&list);
     void Complete(uint64 fence);
     void Complete();

@@ -57,8 +57,8 @@ void DStorageCommandQueue::ExecuteThread() {
         }
     }
 }
-void DStorageCommandQueue::AddEvent(LCEvent const *evt) {
-    executedAllocators.push(evt, evt->fenceIndex, true);
+void DStorageCommandQueue::AddEvent(LCEvent const *evt, uint64 fenceIdx) {
+    executedAllocators.push(evt, fenceIdx, true);
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();
@@ -189,9 +189,9 @@ DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *de
             break;
     }
 }
-void DStorageCommandQueue::Signal(ID3D12Fence *fence, UINT64 &value) {
+void DStorageCommandQueue::Signal(ID3D12Fence *fence, UINT64 value) {
     std::lock_guard lck{exec_mtx};
-    queue->EnqueueSignal(fence, ++value);
+    queue->EnqueueSignal(fence, value);
     queue->Submit();
 }
 DStorageCommandQueue::~DStorageCommandQueue() {

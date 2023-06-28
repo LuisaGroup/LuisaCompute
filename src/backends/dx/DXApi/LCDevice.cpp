@@ -315,29 +315,29 @@ ResourceCreationInfo LCDevice::create_event() noexcept {
 void LCDevice::destroy_event(uint64 handle) noexcept {
     delete reinterpret_cast<LCEvent *>(handle);
 }
-void LCDevice::signal_event(uint64 handle, uint64 stream_handle) noexcept {
+void LCDevice::signal_event(uint64 handle, uint64 stream_handle, uint64_t fence) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     switch (queue->Tag()) {
         case CmdQueueTag::MainCmd:
             reinterpret_cast<LCEvent *>(handle)->Signal(
-                &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
+                &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue, fence);
             break;
         case CmdQueueTag::DStorage:
             reinterpret_cast<LCEvent *>(handle)->Signal(
-                reinterpret_cast<DStorageCommandQueue *>(stream_handle));
+                reinterpret_cast<DStorageCommandQueue *>(stream_handle), fence);
             break;
     }
 }
-bool LCDevice::is_event_completed(uint64_t handle) const noexcept {
-    return reinterpret_cast<LCEvent *>(handle)->IsComplete();
+bool LCDevice::is_event_completed(uint64_t handle, uint64_t fence) const noexcept {
+    return reinterpret_cast<LCEvent *>(handle)->IsComplete(fence);
 }
-void LCDevice::wait_event(uint64 handle, uint64 stream_handle) noexcept {
+void LCDevice::wait_event(uint64 handle, uint64 stream_handle, uint64_t fence) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("Wait command not allowed in Direct-Storage.");
     }
     reinterpret_cast<LCEvent *>(handle)->Wait(
-        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
+        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue, fence);
 }
 void LCDevice::synchronize_event(uint64 handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Sync();

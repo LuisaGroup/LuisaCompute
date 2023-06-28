@@ -742,7 +742,8 @@ void CUDADevice::destroy_event(uint64_t handle) noexcept {
     });
 }
 
-void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
+void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
+    // TODO: fence not implemented
     with_handle([=] {
         auto event = reinterpret_cast<CUevent>(handle);
         auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
@@ -750,7 +751,8 @@ void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept 
     });
 }
 
-void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
+void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
+    // TODO: fence not implemented
     with_handle([=] {
         auto event = reinterpret_cast<CUevent>(handle);
         auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
@@ -758,7 +760,8 @@ void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     });
 }
 
-bool CUDADevice::is_event_completed(uint64_t handle) const noexcept {
+bool CUDADevice::is_event_completed(uint64_t handle, uint64_t fence) const noexcept {
+    // TODO: fence not implemented
     return with_handle([=] {
         auto event = reinterpret_cast<CUevent>(handle);
         return cuEventQuery(event) == CUDA_SUCCESS;

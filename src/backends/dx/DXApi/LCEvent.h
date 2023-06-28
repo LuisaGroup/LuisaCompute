@@ -7,18 +7,18 @@ class DStorageCommandQueue;
 class LCEvent : public Resource {
 public:
     ComPtr<ID3D12Fence> fence;
-    mutable uint64 fenceIndex = 0;
     mutable std::mutex eventMtx;
     mutable std::condition_variable cv;
     mutable uint64 finishedEvent = 0;
-    Tag GetTag() const override {return Tag::Event;}
+    mutable uint64 lastFence = 0;
+    Tag GetTag() const override { return Tag::Event; }
     ID3D12Fence *Fence() const { return fence.Get(); }
     LCEvent(Device *device);
     ~LCEvent();
     void Sync() const;
-    void Signal(CommandQueue *queue) const;
-    void Signal(DStorageCommandQueue *queue) const;
-    void Wait(CommandQueue *queue) const;
-    bool IsComplete() const;
+    void Signal(CommandQueue *queue, uint64 fenceIdx) const;
+    void Signal(DStorageCommandQueue *queue, uint64 fenceIdx) const;
+    void Wait(CommandQueue *queue, uint64 fenceIdx) const;
+    bool IsComplete(uint64 fenceIdx) const;
 };
 }// namespace lc::dx

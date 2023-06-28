@@ -47,8 +47,8 @@ CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
     return AllocatorPtr(new CommandAllocator(device, resourceAllocator, type));
 }
 
-void CommandQueue::AddEvent(LCEvent const *evt) {
-    executedAllocators.push(evt, evt->fenceIndex, true);
+void CommandQueue::AddEvent(LCEvent const *evt, uint64 fenceIdx) {
+    executedAllocators.push(evt, fenceIdx, true);
     mtx.lock();
     mtx.unlock();
     waitCv.notify_one();
