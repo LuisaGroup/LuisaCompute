@@ -2,12 +2,9 @@
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/core/stl/vector.h>
 namespace vstd {
-template<typename T>
-using vector = luisa::vector<T>;
-template<typename T, size_t node_count>
-using fixed_vector = luisa::fixed_vector<T, node_count>;
-template<typename T>
-using span = luisa::span<T>;
+using luisa::vector;
+using luisa::fixed_vector;
+using luisa::span;
 namespace detail {
 template<typename F>
 constexpr auto VectorFuncReturnType() {
