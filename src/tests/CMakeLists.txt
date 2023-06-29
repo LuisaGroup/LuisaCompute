@@ -126,15 +126,10 @@ if (WIN32 AND NOT MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # FIXME: Qt adds the invalid flags -Zc:__cplusplus and -permissive- to clang
     message(WARNING "Clang has trouble with Qt on Windows. The Qt example will not be built.")
 else ()
-    set(CMAKE_AUTOMOC ON)
-    set(CMAKE_AUTORCC ON)
-    set(CMAKE_AUTOUIC ON)
-
     find_package(Qt6 COMPONENTS Widgets Core Gui QUIET CONFIG)
     if (NOT Qt6_FOUND)
         find_package(Qt5 COMPONENTS Widgets Core Gui QUIET CONFIG)
     endif ()
-
     if (Qt6_FOUND OR Qt5_FOUND)
         message(STATUS "Found Qt")
         luisa_compute_add_executable(test_swapchain_qt test_swapchain_qt.cpp)

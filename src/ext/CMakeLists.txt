@@ -107,11 +107,6 @@ target_include_directories(unordered_dense INTERFACE $<BUILD_INTERFACE:${CMAKE_C
 target_link_libraries(luisa-compute-ext INTERFACE unordered_dense)
 luisa_compute_install_extension(unordered_dense INCLUDE unordered_dense/include)
 
-add_library(parallel-hashmap INTERFACE)
-target_include_directories(parallel-hashmap INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/parallel-hashmap>)
-target_link_libraries(luisa-compute-ext INTERFACE parallel-hashmap)
-luisa_compute_install_extension(parallel-hashmap INCLUDE parallel-hashmap/parallel_hashmap)
-
 if (SKBUILD)
     add_subdirectory(pybind11)
 endif ()
