@@ -10,18 +10,12 @@
 [submodule "src/ext/glfw"]
 	path = src/ext/glfw
 	url = https://github.com/glfw/glfw.git
-[submodule "src/ext/imgui/imgui"]
-	path = src/ext/imgui/imgui
-	url = https://github.com/ocornut/imgui.git
 [submodule "src/ext/EASTL"]
 	path = src/ext/EASTL
 	url = https://github.com/LuisaGroup/EASTL.git
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/LuisaGroup/pybind11.git
-[submodule "src/ext/parallel-hashmap"]
-	path = src/ext/parallel-hashmap
-	url = https://github.com/greg7mdp/parallel-hashmap.git
 [submodule "src/ext/corrosion"]
 	path = src/ext/corrosion
 	url = https://github.com/corrosion-rs/corrosion.git
