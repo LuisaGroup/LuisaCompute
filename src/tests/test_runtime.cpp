@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         .device_index = 0,
         // To avoid memory overflows, the backend automatically waits 2 - 3 frames before committing, set .inqueue_buffer_limit to false when multi-stream interactions are involved
         .inqueue_buffer_limit = false};
-    Device device = context.create_device(argv[1], nullptr, true /*use validation layer for debug*/);
+    Device device = context.create_device(argv[1], &device_config, true /*use validation layer for debug*/);
     // graphics stream for present
     Stream graphics_stream = device.create_stream(StreamTag::GRAPHICS);
     // compute stream for kernel
