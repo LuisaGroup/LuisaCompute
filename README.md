@@ -42,7 +42,7 @@ Welcome to join the [discussion channel on Discord](https://discord.com/invite/y
 LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***unification***, ***programmability***, and ***performance***. To achieve this goal, we design three major components:
 - A domain-specific language (DSL) embedded inside modern C++ for kernel programming exploiting JIT code generation and compilation;
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
-- Multiple optimized backends, including CUDA, DirectX, Metal, and LLVM.
+- Multiple optimized backends, including CUDA, DirectX, Metal, and CPU.
 
 To demonstrate the practicality of the system, we also build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is faster than the state-of-the-art rendering frameworks on modern GPUs.
 
@@ -82,12 +82,23 @@ On the programming interfaces for users, we provide high-level resource wrappers
 
 The backends are the final realizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
 
-Currently, we have 3 working GPU backends for the C++ and Python frontends, based on CUDA, Metal, and DirectX, respectively. A CPU backend (re-)implemented in Rust is work in progress and currently can only be accessed from the [Rust frontend](https://github.com/LuisaGroup/luisa-compute-rs).
+Currently, we have 3 working GPU backends for the C++ and Python frontends, based on CUDA, Metal, and DirectX, respectively. A CPU backend (re-)implemented in Rust is a work in progress and currently can only be accessed from the [Rust frontend](https://github.com/LuisaGroup/luisa-compute-rs).
 
 ### Python Frontend
 
-Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend. Examples using the Python frontend can be found under `src/tests/python`. Please add ./bin/release and ./src/py to environment variable PYTHONPATH so that test can access binaries and depended scripts.
-> Note: Due to the differences between native Python syntax and C++, some by-design difference may occur. For instance, there is no "reference" concept in Python's method argument, so we mark "structure" and "array" type as reference-argument and builtin type (scalar, vector, matrix, etc.) as value-argument defaultly.
+Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend and have published early-access packages to PyPI. You may install the pre-built wheels with pip (Python >= 3.10 required):
+```bash
+python -m pip install luisa-python
+```
+
+You may also build your own wheels with pip:
+```bash
+python -m pip wheel <path-to-project> -w <output-dir>
+```
+
+Examples using the Python frontend can be found under `src/tests/python`.
+
+> Note: Due to the different syntax and idioms between Python and C++, the Python frontend does not 1:1 reflects the C++ DSL and APIs. For instance, Python does not have a dedicated reference type qualifier, so we follow the Python idiom that structures and arrays are passed as references to `@luisa.func` and built-in types (scalar, vector, matrix, etc.) as values by default.
 
 ### C API and Frontends in Other Languages
 
@@ -95,12 +106,12 @@ We are also making a C API for creating other language bindings and frontends (e
 
 ## Building
 
-> Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is designed to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try out a Monte Carlo renderer out of the box rather than building one from the scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
+> Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is designed to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try a Monte Carlo renderer out of the box rather than building one from scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
 
 ### Preparation
 - Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and CPU on all the major platforms. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
 
-- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+.
+- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.4, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.7+.
 
 - Clone the repo with the `--recursive` option:
     ```bash
@@ -108,7 +119,7 @@ We are also making a C API for creating other language bindings and frontends (e
     ```
   Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required.
 
-### Build via bootstrap script
+### Build via the bootstrap script
 The easiest way to build LuisaCompute is to use the bootstrap script. It can even download and install the required dependencies and build the project.
 ```bash
 python bootstrap.py cmake -f cuda -b # build with CUDA backend using CMake
@@ -361,7 +372,7 @@ Note that users are still able to use the *native* C++ control flows, i.e., `if`
 
 ### Callable and Kernels
 
-LuisaCompute supports two categories of device functions: `Kernel`s (`Kernel1D`, `Kernel2D`, or `Kernel3D`) and `Callable`s. Kernels are entries to the parallelized computation tasks on the device (equivelant to CUDA's `__global__` functions). Callables are function objects invocable from kernels or other callables (i.e., like CUDA's `__device__` functions). Both kinds are template classes that are constructible from C++ functions or function objects including lambda expressions:
+LuisaCompute supports two categories of device functions: `Kernel`s (`Kernel1D`, `Kernel2D`, or `Kernel3D`) and `Callable`s. Kernels are entries to the parallelized computation tasks on the device (equivalent to CUDA's `__global__` functions). Callables are function objects invocable from kernels or other callables (i.e., like CUDA's `__device__` functions). Both kinds are template classes that are constructible from C++ functions or function objects including lambda expressions:
 
 ```cpp
 // Define a callable from a lambda expression
@@ -397,7 +408,7 @@ auto some_shader    = device.compile(some_kernel);
 
 > ⚠️ Note that the compilation blocks the calling thread. For large kernels this might take a considerably long time. You may accelerate the process by compiling multiple kernels concurrently, e.g., with thread pools.
 
-Most backends supports caching the compiled shaders to accelerate future compilations of the same shader. The cache files are at `<build-folder>/bin/.cache`.
+Most backends support caching the compiled shaders to accelerate future compilations of the same shader. The cache files are at `<build-folder>/bin/.cache`.
 
 ### Backends, Context, Devices and Resources<a name="devices-and-resources"/>
 
