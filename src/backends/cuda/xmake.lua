@@ -36,4 +36,15 @@ on_load(function(target)
 		target:add("syslinks", "Cfgmgr32", "Advapi32")
 	end
 end)
+after_build(function(target)
+	import("detect.sdks.find_cuda")
+	local cuda = find_cuda()
+	if cuda then
+		local linkdirs = cuda["linkdirs"]
+		local bin_dir = target:targetdir()
+		for i, v in ipairs(linkdirs) do
+			os.cp(path.join(v, "cudadevrt.lib"), bin_dir)
+		end
+	end
+end)
 target_end()
