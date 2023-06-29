@@ -177,7 +177,7 @@ public:
 struct ForStmtBodyInvoke {
     template<typename F>
     void operator%(F &&body) && noexcept {
-        std::invoke(std::forward<F>(body));
+        luisa::invoke(std::forward<F>(body));
     }
 };
 
@@ -346,7 +346,7 @@ template<typename Tb, typename Te, typename Ts>
 template<typename N, typename Body>
 inline void loop(N &&n, Body &&body) noexcept {
     for (auto i : dynamic_range(std::forward<N>(n))) {
-        std::invoke(std::forward<Body>(body), std::move(i));
+        luisa::invoke(std::forward<Body>(body), std::move(i));
     }
 }
 
@@ -354,7 +354,7 @@ inline void loop(N &&n, Body &&body) noexcept {
 template<typename Begin, typename End, typename Body>
 inline void loop(Begin &&begin, End &&end, Body &&body) noexcept {
     for (auto i : dynamic_range(std::forward<Begin>(begin), std::forward<End>(end))) {
-        std::invoke(std::forward<Body>(body), std::move(i));
+        luisa::invoke(std::forward<Body>(body), std::move(i));
     }
 }
 
@@ -362,7 +362,7 @@ inline void loop(Begin &&begin, End &&end, Body &&body) noexcept {
 template<typename Begin, typename End, typename Step, typename Body>
 inline void loop(Begin &&begin, End &&end, Step &&step, Body &&body) noexcept {
     for (auto i : dynamic_range(std::forward<Begin>(begin), std::forward<End>(end), std::forward<Step>(step))) {
-        std::invoke(std::forward<Body>(body), std::move(i));
+        luisa::invoke(std::forward<Body>(body), std::move(i));
     }
 }
 
@@ -426,4 +426,3 @@ inline void return_() noexcept {
 }// namespace dsl
 
 }// namespace luisa::compute
-
