@@ -13,9 +13,10 @@ LCEvent::LCEvent(Device *device)
 LCEvent::~LCEvent() {
 }
 
-void LCEvent::Sync() const {
+void LCEvent::Sync(uint64_t fenceIdx) const {
+    auto fc = std::min(fenceIdx, lastFence);
     std::unique_lock lck(eventMtx);
-    while (finishedEvent < lastFence) {
+    while (finishedEvent < fc) {
         cv.wait(lck);
     }
 }

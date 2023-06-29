@@ -35,7 +35,7 @@ void RWResource::set_usage(Stream *stream, RWResource *res, Usage usage, Range r
         }();
     }
     {
-        auto iter = res->_info.try_emplace(luisa::weak_ptr<Stream>{stream->shared_from_this()});
+        auto iter = res->_info.try_emplace(stream->handle());
         auto &info = iter.first->second;
         if (stream->executed_layer() > info.last_frame) {
             info.last_frame = stream->executed_layer();
@@ -47,7 +47,7 @@ void RWResource::set_usage(Stream *stream, RWResource *res, Usage usage, Range r
 }
 RWResource::~RWResource() {
     for (auto &&i : _info) {
-        auto ptr = i.first.lock();
+        auto ptr = RWResource::get<Stream>(i.first);
         if (ptr && i.second.last_frame > ptr->synced_layer()) {
             LUISA_ERROR("Resource {} destroyed when {} is still using it.", get_name(), ptr->get_name());
         }

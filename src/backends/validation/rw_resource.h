@@ -11,20 +11,7 @@ struct RWInfo {
 };
 class RWResource : public Resource {
     friend struct ResMap;
-    struct StreamHash {
-        size_t operator()(luisa::weak_ptr<Stream> const &h) const {
-            auto ptr = h.lock().get();
-            return luisa::hash<void const *>{}(ptr);
-        }
-    };
-    struct StreamEqual {
-        bool operator()(luisa::weak_ptr<Stream> const &a, luisa::weak_ptr<Stream> const &b) const {
-            auto a_ptr = a.lock().get();
-            auto b_ptr = b.lock().get();
-            return a_ptr == b_ptr;
-        }
-    };
-    vstd::unordered_map<luisa::weak_ptr<Stream>, RWInfo, StreamHash, StreamEqual> _info;
+    vstd::unordered_map<uint64_t , RWInfo> _info;
     bool _non_simultaneous;
     uint64_t _handle;
 

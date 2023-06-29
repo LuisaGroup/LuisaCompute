@@ -15,7 +15,7 @@ public:
     ID3D12Fence *Fence() const { return fence.Get(); }
     LCEvent(Device *device);
     ~LCEvent();
-    void Sync() const;
+    void Sync(uint64_t fence) const;
     void Signal(CommandQueue *queue, uint64 fenceIdx) const;
     void Signal(DStorageCommandQueue *queue, uint64 fenceIdx) const;
     void Wait(CommandQueue *queue, uint64 fenceIdx) const;

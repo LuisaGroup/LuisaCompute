@@ -116,7 +116,7 @@ public:
     virtual void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept = 0;
     virtual void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept = 0;
     virtual bool is_event_completed(uint64_t handle, uint64_t fence) const noexcept = 0;
-    virtual void synchronize_event(uint64_t handle) noexcept = 0;
+    virtual void synchronize_event(uint64_t handle, uint64_t fence) noexcept = 0;
 
     // accel
     [[nodiscard]] virtual ResourceCreationInfo create_mesh(

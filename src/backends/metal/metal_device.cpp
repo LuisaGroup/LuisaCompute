@@ -305,8 +305,8 @@ void MetalDevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept 
 }
 
 SwapchainCreationInfo MetalDevice::create_swapchain(uint64_t window_handle, uint64_t stream_handle,
-                                                     uint width, uint height, bool allow_hdr,
-                                                     bool vsync, uint back_buffer_size) noexcept {
+                                                    uint width, uint height, bool allow_hdr,
+                                                    bool vsync, uint back_buffer_size) noexcept {
     return with_autorelease_pool([=, this] {
         auto swapchain = new_with_allocator<MetalSwapchain>(
             this, window_handle, width, height,
@@ -486,7 +486,8 @@ void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t f
     });
 }
 
-void MetalDevice::synchronize_event(uint64_t handle) noexcept {
+void MetalDevice::synchronize_event(uint64_t handle, uint64_t fence_index) noexcept {
+    // TODO: fence not implemented
     with_autorelease_pool([=] {
         auto event = reinterpret_cast<MetalEvent *>(handle);
         event->synchronize();
@@ -677,4 +678,3 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         all_devices->release();
     });
 }
-

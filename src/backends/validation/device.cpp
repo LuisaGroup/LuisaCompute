@@ -206,23 +206,23 @@ void Device::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fenc
     check_stream(stream_handle, StreamFunc::Signal);
     auto evt = RWResource::get<Event>(handle);
     auto stream = RWResource::get<Stream>(stream_handle);
-    stream->signal(evt);
+    stream->signal(evt, fence);
     _native->signal_event(handle, stream_handle, fence);
 }
 void Device::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
     check_stream(stream_handle, StreamFunc::Wait);
     auto evt = RWResource::get<Event>(handle);
     auto stream = RWResource::get<Stream>(stream_handle);
-    stream->wait(evt);
+    stream->wait(evt, fence);
     _native->wait_event(handle, stream_handle, fence);
 }
 bool Device::is_event_completed(uint64_t handle, uint64_t fence) const noexcept {
     return _native->is_event_completed(handle, fence);
 }
-void Device::synchronize_event(uint64_t handle) noexcept {
+void Device::synchronize_event(uint64_t handle, uint64_t fence) noexcept {
     auto evt = RWResource::get<Event>(handle);
-    evt->sync();
-    _native->synchronize_event(handle);
+    evt->sync(fence);
+    _native->synchronize_event(handle, fence);
 }
 
 // accel

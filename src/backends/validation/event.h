@@ -5,8 +5,12 @@ namespace lc::validation {
 class Stream;
 class Event : public RWResource {
 public:
-    vstd::unordered_map<Stream *, uint64_t> signaled;
+    struct Signaled {
+        uint64_t event_fence;
+        uint64_t stream_fence;
+    };
+    vstd::unordered_map<Stream *, Signaled> signaled;
     Event(uint64_t handle) : RWResource{handle, Tag::EVENT, false} {}
-    void sync();
+    void sync(uint64_t fence);
 };
 }// namespace lc::validation

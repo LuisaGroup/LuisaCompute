@@ -22,8 +22,8 @@ Event::Event(Event &&rhs) noexcept
       _fence{rhs._fence.load()} {
 }
 
-void Event::synchronize() const noexcept {
-    device()->synchronize_event(handle());
+void Event::synchronize(uint64_t fence) const noexcept {
+    device()->synchronize_event(handle(), fence);
 }
 
 Event::~Event() noexcept {

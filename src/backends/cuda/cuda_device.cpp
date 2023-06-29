@@ -768,7 +768,8 @@ bool CUDADevice::is_event_completed(uint64_t handle, uint64_t fence) const noexc
     });
 }
 
-void CUDADevice::synchronize_event(uint64_t handle) noexcept {
+void CUDADevice::synchronize_event(uint64_t handle, uint64_t fence_index) noexcept {
+    // TODO: fence not implemented
     with_handle([=] {
         auto event = reinterpret_cast<CUevent>(handle);
         LUISA_CHECK_CUDA(cuEventSynchronize(event));

@@ -73,7 +73,7 @@ public:
     void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept override;
     bool is_event_completed(uint64_t handle, uint64_t fence) const noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept override;
-    void synchronize_event(uint64_t handle) noexcept override;
+    void synchronize_event(uint64_t handle, uint64_t fence_index) noexcept override;
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
     ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override;

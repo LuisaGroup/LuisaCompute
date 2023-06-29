@@ -17,7 +17,7 @@ struct CompeteResource {
 
 class CustomDispatchArgumentVisitor;
 
-class Stream : public RWResource, public luisa::enable_shared_from_this<Stream> {
+class Stream : public RWResource {
 
     friend class CustomDispatchArgumentVisitor;
 
@@ -43,8 +43,8 @@ public:
     void dispatch(DeviceInterface *dev, CommandList &cmd_list);
     void sync();
     void sync_layer(uint64_t layer);
-    void signal(Event *evt);
-    void wait(Event *evt);
+    void signal(Event *evt, uint64_t fence);
+    void wait(Event *evt, uint64_t fence);
     void check_compete();
 };
 }// namespace lc::validation

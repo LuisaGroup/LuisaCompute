@@ -339,8 +339,8 @@ void LCDevice::wait_event(uint64 handle, uint64 stream_handle, uint64_t fence) n
     reinterpret_cast<LCEvent *>(handle)->Wait(
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue, fence);
 }
-void LCDevice::synchronize_event(uint64 handle) noexcept {
-    reinterpret_cast<LCEvent *>(handle)->Sync();
+void LCDevice::synchronize_event(uint64 handle, uint64_t fence) noexcept {
+    reinterpret_cast<LCEvent *>(handle)->Sync(fence);
 }
 ResourceCreationInfo LCDevice::create_procedural_primitive(const AccelOption &option) noexcept {
     return create_mesh(option);
@@ -712,7 +712,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
 #endif
 }
 ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
-    auto heap = reinterpret_cast<SparseHeap*>(vengine_malloc(sizeof(SparseHeap)));
+    auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
     heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
@@ -721,12 +721,12 @@ ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noe
     return r;
 }
 void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
-    auto heap = reinterpret_cast<SparseHeap*>(handle);
+    auto heap = reinterpret_cast<SparseHeap *>(handle);
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
 }
 ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) noexcept {
-    auto heap = reinterpret_cast<SparseHeap*>(vengine_malloc(sizeof(SparseHeap)));
+    auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
     heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, true);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
@@ -736,7 +736,7 @@ ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) no
 }
 
 void LCDevice::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
-    auto heap = reinterpret_cast<SparseHeap*>(handle);
+    auto heap = reinterpret_cast<SparseHeap *>(handle);
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
 }
