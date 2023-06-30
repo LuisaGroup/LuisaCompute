@@ -30,6 +30,12 @@ Event::~Event() noexcept {
     if (*this) { device()->destroy_event(handle()); }
 }
 
+auto Event::wait(uint64_t fence) const noexcept -> Wait {
+    if (fence == std::numeric_limits<uint64_t>::max()) {
+        return Wait{handle(), _fence.load()};
+    }
+}
+
 void Event::Signal::operator()(
     DeviceInterface *device,
     uint64_t stream_handle) && noexcept {

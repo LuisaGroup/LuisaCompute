@@ -14,7 +14,7 @@ LCEvent::~LCEvent() {
 }
 
 void LCEvent::Sync(uint64_t fenceIdx) const {
-    auto fc = std::min(fenceIdx, lastFence);
+    auto fc = fenceIdx;
     std::unique_lock lck(eventMtx);
     while (finishedEvent < fc) {
         cv.wait(lck);
@@ -34,10 +34,10 @@ void LCEvent::Signal(DStorageCommandQueue *queue, uint64 fenceIdx) const {
 }
 void LCEvent::Wait(CommandQueue *queue, uint64 fenceIdx) const {
     std::lock_guard lck(eventMtx);
-    queue->Queue()->Wait(fence.Get(), std::min(fenceIdx, lastFence));
+    queue->Queue()->Wait(fence.Get(), fenceIdx);
 }
 bool LCEvent::IsComplete(uint64 fenceIdx) const {
     std::lock_guard lck(eventMtx);
-    return finishedEvent >= std::min(fenceIdx, lastFence);
+    return finishedEvent >= fenceIdx;
 }
 }// namespace lc::dx

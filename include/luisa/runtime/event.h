@@ -44,7 +44,7 @@ public:
     }
     Event &operator=(Event const &) noexcept = delete;
     [[nodiscard]] auto signal() const noexcept { return Signal{handle(), ++_fence}; }
-    [[nodiscard]] auto wait(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept { return Wait{handle(), fence}; }
+    [[nodiscard]] Wait wait(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept;
     [[nodiscard]] bool is_completed(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept;
     [[nodiscard]] uint64_t last_fence() const noexcept { return _fence; }
     void synchronize(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept;
