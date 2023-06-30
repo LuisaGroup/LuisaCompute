@@ -229,7 +229,7 @@ public:
                 using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
                 auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                 static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
-                std::invoke(std::forward<decltype(def)>(def),
+                luisa::invoke(std::forward<decltype(def)>(def),
                             static_cast<detail::prototype_to_creation_t<
                                 std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
@@ -357,7 +357,7 @@ public:
                   using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
                   auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                   static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
-                  return std::invoke(std::forward<decltype(def)>(def),
+                  return luisa::invoke(std::forward<decltype(def)>(def),
                                      static_cast<detail::prototype_to_creation_t<
                                          std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
               };
