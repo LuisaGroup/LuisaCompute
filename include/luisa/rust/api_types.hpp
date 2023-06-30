@@ -547,9 +547,10 @@ struct DeviceInterface {
     void (*destroy_shader)(Device, Shader);
     CreatedResourceInfo (*create_event)(Device);
     void (*destroy_event)(Device, Event);
-    void (*signal_event)(Device, Event, Stream);
-    void (*synchronize_event)(Device, Event);
-    void (*wait_event)(Device, Event, Stream);
+    void (*signal_event)(Device, Event, Stream, uint64_t);
+    void (*synchronize_event)(Device, Event, uint64_t);
+    void (*wait_event)(Device, Event, Stream, uint64_t);
+    bool (*is_event_completed)(Device, Event, uint64_t);
     CreatedResourceInfo (*create_mesh)(Device, const AccelOption*);
     void (*destroy_mesh)(Device, Mesh);
     CreatedResourceInfo (*create_procedural_primitive)(Device, const AccelOption*);

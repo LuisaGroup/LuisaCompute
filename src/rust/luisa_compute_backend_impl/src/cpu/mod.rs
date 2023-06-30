@@ -319,7 +319,8 @@ impl Backend for RustBackend {
         }
     }
 
-    fn signal_event(&self, event: api::Event, stream: api::Stream) {
+    fn signal_event(&self, event: api::Event, stream: api::Stream, value: u64) {
+        todo!("Timeline event is not supported yet.");
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             let stream = &*(stream.0 as *mut StreamImpl);
@@ -332,7 +333,8 @@ impl Backend for RustBackend {
             )
         }
     }
-    fn wait_event(&self, event: luisa_compute_api_types::Event, stream: api::Stream) {
+    fn wait_event(&self, event: luisa_compute_api_types::Event, stream: api::Stream, value: u64) {
+        todo!("Timeline event is not supported yet.");
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             let stream = &*(stream.0 as *mut StreamImpl);
@@ -345,11 +347,15 @@ impl Backend for RustBackend {
             );
         }
     }
-    fn synchronize_event(&self, event: luisa_compute_api_types::Event) {
+    fn synchronize_event(&self, event: luisa_compute_api_types::Event, value: u64) {
+        todo!("Timeline event is not supported yet.");
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             event.synchronize();
         }
+    }
+    fn is_event_completed(&self, event: luisa_compute_api_types::Event, value: u64) -> bool {
+        todo!("Timeline event is not supported yet.");
     }
     fn create_mesh(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {

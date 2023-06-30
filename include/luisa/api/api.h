@@ -46,9 +46,10 @@ LUISA_EXPORT_API void luisa_compute_shader_destroy(LCDevice device, LCShader sha
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_event_create(LCDevice device) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_event_destroy(LCDevice device, LCEvent event) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_event_signal(LCDevice device, LCEvent event, LCStream stream) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_event_wait(LCDevice device, LCEvent event, LCStream stream) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent event) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_event_signal(LCDevice device, LCEvent event, LCStream stream, uint64_t value) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_event_wait(LCDevice device, LCEvent event, LCStream stream, uint64_t value) LUISA_NOEXCEPT;
+LUISA_EXPORT_API bool luisa_compute_is_event_completed(LCDevice device, LCEvent event, uint64_t value) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent event, uint64_t value) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT;

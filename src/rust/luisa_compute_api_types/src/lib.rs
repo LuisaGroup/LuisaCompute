@@ -676,9 +676,10 @@ pub struct DeviceInterface {
     pub destroy_shader: unsafe extern "C" fn(Device, Shader),
     pub create_event: unsafe extern "C" fn(Device) -> CreatedResourceInfo,
     pub destroy_event: unsafe extern "C" fn(Device, Event),
-    pub signal_event: unsafe extern "C" fn(Device, Event, Stream),
-    pub synchronize_event: unsafe extern "C" fn(Device, Event),
-    pub wait_event: unsafe extern "C" fn(Device, Event, Stream),
+    pub signal_event: unsafe extern "C" fn(Device, Event, Stream, u64),
+    pub synchronize_event: unsafe extern "C" fn(Device, Event, u64),
+    pub wait_event: unsafe extern "C" fn(Device, Event, Stream, u64),
+    pub is_event_completed: unsafe extern "C" fn(Device, Event, u64) -> bool,
     pub create_mesh: unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_mesh: unsafe extern "C" fn(Device, Mesh),
     pub create_procedural_primitive:

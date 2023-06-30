@@ -230,8 +230,8 @@ public:
                 auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                 static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
                 luisa::invoke(std::forward<decltype(def)>(def),
-                            static_cast<detail::prototype_to_creation_t<
-                                std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
+                              static_cast<detail::prototype_to_creation_t<
+                                  std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
     }
@@ -358,8 +358,8 @@ public:
                   auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                   static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
                   return luisa::invoke(std::forward<decltype(def)>(def),
-                                     static_cast<detail::prototype_to_creation_t<
-                                         std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
+                                       static_cast<detail::prototype_to_creation_t<
+                                           std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
               };
               if constexpr (std::is_same_v<Ret, void>) {
                   create(std::forward<Def>(f), std::index_sequence_for<Args...>{});
@@ -559,4 +559,3 @@ template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
-

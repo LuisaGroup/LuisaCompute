@@ -489,9 +489,10 @@ typedef struct LCDeviceInterface {
     void (*destroy_shader)(struct LCDevice, struct LCShader);
     struct LCCreatedResourceInfo (*create_event)(struct LCDevice);
     void (*destroy_event)(struct LCDevice, struct LCEvent);
-    void (*signal_event)(struct LCDevice, struct LCEvent, struct LCStream);
-    void (*synchronize_event)(struct LCDevice, struct LCEvent);
-    void (*wait_event)(struct LCDevice, struct LCEvent, struct LCStream);
+    void (*signal_event)(struct LCDevice, struct LCEvent, struct LCStream, uint64_t);
+    void (*synchronize_event)(struct LCDevice, struct LCEvent, uint64_t);
+    void (*wait_event)(struct LCDevice, struct LCEvent, struct LCStream, uint64_t);
+    bool (*is_event_completed)(struct LCDevice, struct LCEvent, uint64_t);
     struct LCCreatedResourceInfo (*create_mesh)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_mesh)(struct LCDevice, struct LCMesh);
     struct LCCreatedResourceInfo (*create_procedural_primitive)(struct LCDevice,

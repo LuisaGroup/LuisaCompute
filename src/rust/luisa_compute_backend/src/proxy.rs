@@ -250,16 +250,20 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.destroy_event)(self.device.device, event) })
     }
     #[inline]
-    fn signal_event(&self, event: api::Event, stream: api::Stream) {
-        catch_abort!({ (self.device.signal_event)(self.device.device, event, stream) })
+    fn signal_event(&self, event: api::Event, stream: api::Stream, value: u64) {
+        catch_abort!({ (self.device.signal_event)(self.device.device, event, stream, value) })
     }
     #[inline]
-    fn wait_event(&self, event: api::Event, stream: api::Stream) {
-        catch_abort!({ (self.device.wait_event)(self.device.device, event, stream) })
+    fn wait_event(&self, event: api::Event, stream: api::Stream, value: u64) {
+        catch_abort!({ (self.device.wait_event)(self.device.device, event, stream, value) })
     }
     #[inline]
-    fn synchronize_event(&self, event: api::Event) {
-        catch_abort!({ (self.device.synchronize_event)(self.device.device, event) })
+    fn synchronize_event(&self, event: api::Event, value: u64) {
+        catch_abort!({ (self.device.synchronize_event)(self.device.device, event, value) })
+    }
+    #[inline]
+    fn is_event_completed(&self, event: api::Event, value: u64) -> bool {
+        catch_abort!({ (self.device.is_event_completed)(self.device.device, event, value) })
     }
     #[inline]
     fn create_mesh(&self, option: api::AccelOption) -> api::CreatedResourceInfo {

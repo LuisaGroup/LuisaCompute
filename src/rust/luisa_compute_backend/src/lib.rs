@@ -219,9 +219,10 @@ pub trait Backend: Sync + Send {
     fn destroy_shader(&self, shader: api::Shader);
     fn create_event(&self) -> api::CreatedResourceInfo;
     fn destroy_event(&self, event: api::Event);
-    fn signal_event(&self, event: api::Event, stream: api::Stream);
-    fn wait_event(&self, event: api::Event, stream: api::Stream);
-    fn synchronize_event(&self, event: api::Event);
+    fn signal_event(&self, event: api::Event, stream: api::Stream, value: u64);
+    fn wait_event(&self, event: api::Event, stream: api::Stream, value: u64);
+    fn synchronize_event(&self, event: api::Event, value: u64);
+    fn is_event_completed(&self, event: api::Event, value: u64) -> bool;
     fn create_mesh(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
     fn create_procedural_primitive(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
     fn destroy_mesh(&self, mesh: api::Mesh);
@@ -367,19 +368,38 @@ extern "C" fn signal_event<B: Backend>(
     backend: api::Device,
     event: api::Event,
     stream: api::Stream,
+    value: u64,
 ) {
     let backend: &B = get_backend(backend);
-    backend.signal_event(event, stream)
+    backend.signal_event(event, stream, value)
 }
 
-extern "C" fn wait_event<B: Backend>(backend: api::Device, event: api::Event, stream: api::Stream) {
+extern "C" fn wait_event<B: Backend>(
+    backend: api::Device,
+    event: api::Event,
+    stream: api::Stream,
+    value: u64,
+) {
     let backend: &B = get_backend(backend);
-    backend.wait_event(event, stream)
+    backend.wait_event(event, stream, value)
 }
 
-extern "C" fn synchronize_event<B: Backend>(backend: api::Device, event: api::Event) {
+extern "C" fn synchronize_event<B: Backend>(
+    backend: api::Device,
+    event: api::Event,
+    value: u64,
+) {
     let backend: &B = get_backend(backend);
-    backend.synchronize_event(event)
+    backend.synchronize_event(event, value)
+}
+
+extern "C" fn is_event_completed<B: Backend>(
+    backend: api::Device,
+    event: api::Event,
+    value: u64,
+) -> bool {
+    let backend: &B = get_backend(backend);
+    backend.is_event_completed(event, value)
 }
 
 extern "C" fn create_accel<B: Backend>(
@@ -505,6 +525,7 @@ pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
         signal_event: signal_event::<B>,
         synchronize_event: synchronize_event::<B>,
         wait_event: wait_event::<B>,
+        is_event_completed: is_event_completed::<B>,
         create_mesh: create_mesh::<B>,
         destroy_mesh: destroy_mesh::<B>,
         create_procedural_primitive: create_procedural_primitive::<B>,

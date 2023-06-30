@@ -516,24 +516,30 @@ LUISA_EXPORT_API void luisa_compute_event_destroy(LCDevice device, LCEvent event
     d->release();
 }
 
-LUISA_EXPORT_API void luisa_compute_event_signal(LCDevice device, LCEvent event, LCStream stream) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_signal(LCDevice device, LCEvent event, LCStream stream, uint64_t value) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto stream_handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->signal_event(handle, stream_handle);
+    d->object()->impl()->signal_event(handle, stream_handle, value);
 }
 
-LUISA_EXPORT_API void luisa_compute_event_wait(LCDevice device, LCEvent event, LCStream stream) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_wait(LCDevice device, LCEvent event, LCStream stream, uint64_t value) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto stream_handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->wait_event(handle, stream_handle);
+    d->object()->impl()->wait_event(handle, stream_handle, value);
 }
 
-LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent event) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent event, uint64_t value) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->synchronize_event(handle);
+    d->object()->impl()->synchronize_event(handle, value);
+}
+
+LUISA_EXPORT_API bool luisa_compute_is_event_completed(LCDevice device, LCEvent event, uint64_t value) LUISA_NOEXCEPT {
+    auto handle = event._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    return d->object()->impl()->is_event_completed(handle, value);
 }
 
 LUISA_EXPORT_API LCCreatedResourceInfo
@@ -698,6 +704,8 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.destroy_event = luisa_compute_event_destroy;
     interface.wait_event = luisa_compute_event_wait;
     interface.signal_event = luisa_compute_event_signal;
+    interface.is_event_completed = luisa_compute_is_event_completed;
+    interface.synchronize_event = luisa_compute_event_synchronize;
     interface.create_shader = luisa_compute_shader_create;
     interface.destroy_shader = luisa_compute_shader_destroy;
     interface.create_stream = luisa_compute_stream_create;

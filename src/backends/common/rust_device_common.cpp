@@ -196,21 +196,20 @@ public:
         device.destroy_event(device.device, api::Event{handle});
     }
 
-    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {
-        device.signal_event(device.device, api::Event{handle}, api::Stream{stream_handle});
+    void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept override {
+        device.signal_event(device.device, api::Event{handle}, api::Stream{stream_handle}, value);
     }
 
-    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {
-        device.wait_event(device.device, api::Event{handle}, api::Stream{stream_handle});
+    void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept override {
+        device.wait_event(device.device, api::Event{handle}, api::Stream{stream_handle}, value);
     }
 
-    void synchronize_event(uint64_t handle) noexcept override {
-        device.synchronize_event(device.device, api::Event{handle});
+    void synchronize_event(uint64_t handle, uint64_t value) noexcept override {
+        device.synchronize_event(device.device, api::Event{handle}, value);
     }
 
-    bool is_event_completed(uint64_t handle) const noexcept override {
-        // FIXME: implement this
-        LUISA_ERROR_WITH_LOCATION("TODO");
+    bool is_event_completed(uint64_t handle, uint64_t value) const noexcept override {
+        return device.is_event_completed(device.device, api::Event{handle}, value);
     }
 
     ResourceCreationInfo create_mesh(const AccelOption &option_) noexcept override {

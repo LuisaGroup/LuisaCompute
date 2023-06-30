@@ -26,7 +26,7 @@ class LC_RUNTIME_API SparseTextureHeap : public Resource {
 
 private:
     friend class Device;
-    explicit SparseTextureHeap(DeviceInterface *device, uint64_t byte_size) noexcept;
+    explicit SparseTextureHeap(DeviceInterface *device, size_t byte_size) noexcept;
 
 public:
     SparseTextureHeap() noexcept = default;

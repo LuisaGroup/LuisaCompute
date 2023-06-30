@@ -10,9 +10,6 @@
 [submodule "src/ext/glfw"]
 	path = src/ext/glfw
 	url = https://github.com/glfw/glfw.git
-[submodule "src/ext/imgui/imgui"]
-	path = src/ext/imgui/imgui
-	url = https://github.com/ocornut/imgui.git
 [submodule "src/ext/EASTL"]
 	path = src/ext/EASTL
 	url = https://github.com/LuisaGroup/EASTL.git
