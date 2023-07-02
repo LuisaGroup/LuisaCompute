@@ -13,7 +13,6 @@ use super::texture::TextureImpl;
 
 pub struct EventImpl {
     pub mutex: Mutex<u64>,
-    pub host: AtomicU64,
     pub device: AtomicU64,
     pub on_signal: Condvar,
 }
@@ -21,19 +20,14 @@ impl EventImpl {
     pub fn new() -> Self {
         Self {
             mutex: Mutex::new(0),
-            host: AtomicU64::new(0),
             device: AtomicU64::new(0),
             on_signal: Condvar::new(),
         }
     }
-    pub fn signal(&self) {
+    pub fn signal(&self, ticket: u64) {
         let _lk = self.mutex.lock();
-        self.device.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.device.fetch_max(ticket, std::sync::atomic::Ordering::SeqCst);
         self.on_signal.notify_all();
-    }
-    pub fn record(&self) {
-        let _lk = self.mutex.lock();
-        self.host.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
     pub fn wait(&self, ticket: u64) {
         let mut lk = self.mutex.lock();
@@ -44,9 +38,11 @@ impl EventImpl {
             self.on_signal.wait(&mut lk);
         }
     }
-    pub fn synchronize(&self) {
-        let ticket = self.host.load(std::sync::atomic::Ordering::Relaxed);
+    pub fn synchronize(&self, ticket: u64) {
         self.wait(ticket);
+    }
+    pub fn is_completed(&self, ticket: u64) -> bool {
+        return self.device.load(std::sync::atomic::Ordering::SeqCst) >= ticket;
     }
 }
 #[repr(C)]

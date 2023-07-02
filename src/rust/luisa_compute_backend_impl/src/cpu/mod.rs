@@ -324,10 +324,9 @@ impl Backend for RustBackend {
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             let stream = &*(stream.0 as *mut StreamImpl);
-            event.record();
             stream.enqueue(
                 move || {
-                    event.signal();
+                    event.signal(value);
                 },
                 (empty_callback, std::ptr::null_mut()),
             )
@@ -338,10 +337,9 @@ impl Backend for RustBackend {
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
             let stream = &*(stream.0 as *mut StreamImpl);
-            let ticket = event.host.load(std::sync::atomic::Ordering::Acquire);
             stream.enqueue(
                 move || {
-                    event.wait(ticket);
+                    event.wait(value);
                 },
                 (empty_callback, std::ptr::null_mut()),
             );
@@ -351,11 +349,14 @@ impl Backend for RustBackend {
         todo!("Timeline event is not supported yet.");
         unsafe {
             let event = &*(event.0 as *mut EventImpl);
-            event.synchronize();
+            event.synchronize(value);
         }
     }
     fn is_event_completed(&self, event: luisa_compute_api_types::Event, value: u64) -> bool {
-        todo!("Timeline event is not supported yet.");
+        unsafe {
+            let event = &*(event.0 as *mut EventImpl);
+            event.is_completed(value)
+        }
     }
     fn create_mesh(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
