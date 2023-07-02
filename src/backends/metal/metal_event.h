@@ -14,18 +14,15 @@ class MetalEvent {
 
 private:
     MTL::SharedEvent *_handle;
-    uint64_t _signaled_value{0u};
-    mutable spin_mutex _mutex;
 
 public:
     explicit MetalEvent(MTL::Device *device) noexcept;
     ~MetalEvent() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] uint64_t value_to_wait() const noexcept;
-    [[nodiscard]] bool is_completed() const noexcept;
-    void signal(MTL::CommandBuffer *command_buffer) noexcept;
-    void wait(MTL::CommandBuffer *command_buffer) noexcept;
-    void synchronize() noexcept;
+    [[nodiscard]] bool is_completed(uint64_t value) const noexcept;
+    void signal(MTL::CommandBuffer *command_buffer, uint64_t value) noexcept;
+    void wait(MTL::CommandBuffer *command_buffer, uint64_t value) noexcept;
+    void synchronize(uint64_t value) noexcept;
     void set_name(luisa::string_view name) noexcept;
 };
 

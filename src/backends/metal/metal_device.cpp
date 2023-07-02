@@ -468,37 +468,37 @@ void MetalDevice::destroy_event(uint64_t handle) noexcept {
     });
 }
 
-void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
+void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept {
     // TODO: fence not implemented
     with_autorelease_pool([=] {
         auto event = reinterpret_cast<MetalEvent *>(handle);
         auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-        stream->signal(event);
+        stream->signal(event, value);
     });
 }
 
-void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
+void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept {
     // TODO: fence not implemented
     with_autorelease_pool([=] {
         auto event = reinterpret_cast<MetalEvent *>(handle);
         auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-        stream->wait(event);
+        stream->wait(event, value);
     });
 }
 
-void MetalDevice::synchronize_event(uint64_t handle, uint64_t fence_index) noexcept {
+void MetalDevice::synchronize_event(uint64_t handle, uint64_t value) noexcept {
     // TODO: fence not implemented
     with_autorelease_pool([=] {
         auto event = reinterpret_cast<MetalEvent *>(handle);
-        event->synchronize();
+        event->synchronize(value);
     });
 }
 
-bool MetalDevice::is_event_completed(uint64_t handle, uint64_t fence) const noexcept {
+bool MetalDevice::is_event_completed(uint64_t handle, uint64_t value) const noexcept {
     // TODO: fence not implemented
     return with_autorelease_pool([=] {
         auto event = reinterpret_cast<MetalEvent *>(handle);
-        return event->is_completed();
+        return event->is_completed(value);
     });
 }
 

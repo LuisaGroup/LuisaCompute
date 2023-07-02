@@ -43,15 +43,15 @@ MetalStageBufferPool *MetalStream::download_pool() noexcept {
     return _download_pool.get();
 }
 
-void MetalStream::signal(MetalEvent *event) noexcept {
+void MetalStream::signal(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
-    event->signal(command_buffer);
+    event->signal(command_buffer, value);
     command_buffer->commit();
 }
 
-void MetalStream::wait(MetalEvent *event) noexcept {
+void MetalStream::wait(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
-    event->wait(command_buffer);
+    event->wait(command_buffer, value);
     command_buffer->commit();
 }
 

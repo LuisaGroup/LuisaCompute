@@ -41,8 +41,8 @@ protected:
 public:
     MetalStream(MTL::Device *device, size_t max_commands) noexcept;
     virtual ~MetalStream() noexcept;
-    virtual void signal(MetalEvent *event) noexcept;
-    virtual void wait(MetalEvent *event) noexcept;
+    virtual void signal(MetalEvent *event, uint64_t value) noexcept;
+    virtual void wait(MetalEvent *event, uint64_t value) noexcept;
     virtual void synchronize() noexcept;
     virtual void dispatch(CommandList &&list) noexcept;
     void present(MetalSwapchain *swapchain, MetalTexture *image) noexcept;

@@ -519,21 +519,20 @@ void MetalIOStream::barrier(MTL::CommandBuffer *command_buffer) noexcept {
     command_buffer->encodeWait(_io_event, io_event_value);
 }
 
-void MetalIOStream::signal(MetalEvent *event) noexcept {
+void MetalIOStream::signal(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
     barrier(command_buffer);
-    event->signal(command_buffer);
+    event->signal(command_buffer, value);
     command_buffer->commit();
 }
 
-void MetalIOStream::wait(MetalEvent *event) noexcept {
-    auto value_to_wait = event->value_to_wait();
+void MetalIOStream::wait(MetalEvent *event, uint64_t value) noexcept {
     auto io_command_buffer = _io_queue->commandBufferWithUnretainedReferences();
-    io_command_buffer->wait(event->handle(), value_to_wait);
+    io_command_buffer->wait(event->handle(), value);
     io_command_buffer->commit();
     _io_queue->enqueueBarrier();
     auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
-    command_buffer->encodeWait(event->handle(), value_to_wait);
+    command_buffer->encodeWait(event->handle(), value);
     command_buffer->commit();
 }
 

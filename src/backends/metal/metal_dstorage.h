@@ -84,8 +84,8 @@ public:
     [[nodiscard]] auto io_queue() const noexcept { return _io_queue; }
     [[nodiscard]] auto io_event() const noexcept { return _io_event; }
     void barrier(MTL::CommandBuffer *command_buffer) noexcept;
-    void signal(MetalEvent *event) noexcept override;
-    void wait(MetalEvent *event) noexcept override;
+    void signal(MetalEvent *event, uint64_t value) noexcept override;
+    void wait(MetalEvent *event, uint64_t value) noexcept override;
     void synchronize() noexcept override;
     void dispatch(CommandList &&list) noexcept override;
     void set_name(luisa::string_view name) noexcept override;

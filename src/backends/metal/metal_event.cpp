@@ -16,26 +16,15 @@ MetalEvent::~MetalEvent() noexcept {
     _handle->release();
 }
 
-void MetalEvent::signal(MTL::CommandBuffer *command_buffer) noexcept {
-    // encode a signal event into a new command buffer
-    auto value = [this] {
-        std::scoped_lock lock{_mutex};
-        return ++_signaled_value;
-    }();
+void MetalEvent::signal(MTL::CommandBuffer *command_buffer, uint64_t value) noexcept {
     command_buffer->encodeSignalEvent(_handle, value);
 }
 
-uint64_t MetalEvent::value_to_wait() const noexcept {
-    std::scoped_lock lock{_mutex};
-    return _signaled_value;
+bool MetalEvent::is_completed(uint64_t value) const noexcept {
+    return _handle->signaledValue() >= value;
 }
 
-bool MetalEvent::is_completed() const noexcept {
-    return _handle->signaledValue() >= value_to_wait();
-}
-
-void MetalEvent::wait(MTL::CommandBuffer *command_buffer) noexcept {
-    auto value = value_to_wait();
+void MetalEvent::wait(MTL::CommandBuffer *command_buffer, uint64_t value) noexcept {
     if (value == 0u) {// not signaled yet
         LUISA_WARNING_WITH_LOCATION(
             "MetalEvent::wait() is called "
@@ -45,15 +34,14 @@ void MetalEvent::wait(MTL::CommandBuffer *command_buffer) noexcept {
     }
 }
 
-void MetalEvent::synchronize() noexcept {
-    auto value = value_to_wait();
+void MetalEvent::synchronize(uint64_t value) noexcept {
     if (value == 0u) {
         LUISA_WARNING_WITH_LOCATION(
             "MetalEvent::synchronize() is called "
             "before any signal event.");
         return;
     }
-    while (_handle->signaledValue() < value) {
+    while (!is_completed(value)) {
         // wait until the signaled value is greater than or equal to the value to wait
         std::this_thread::yield();
     }
