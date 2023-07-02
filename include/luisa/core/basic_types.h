@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <utility>
 
 #include <luisa/core/stl/hash_fwd.h>
@@ -18,9 +17,25 @@ namespace detail {
 
 template<typename T>
 [[nodiscard]] constexpr auto vector_alignment(size_t N) noexcept {
-    auto a = alignof(T) * (N == 3 ? 4 : N);
-    return std::min<size_t>(a, 16u);
+    auto a = sizeof(T) * (N == 3 ? 4 : N);
+    return a > 16u ? 16u : a;
 }
+
+static_assert(vector_alignment<float>(2) == 8u);
+static_assert(vector_alignment<float>(3) == 16u);
+static_assert(vector_alignment<float>(4) == 16u);
+static_assert(vector_alignment<bool>(2) == 2u);
+static_assert(vector_alignment<bool>(3) == 4u);
+static_assert(vector_alignment<bool>(4) == 4u);
+static_assert(vector_alignment<short>(2) == 4u);
+static_assert(vector_alignment<short>(3) == 8u);
+static_assert(vector_alignment<short>(4) == 8u);
+static_assert(vector_alignment<int>(2) == 8u);
+static_assert(vector_alignment<int>(3) == 16u);
+static_assert(vector_alignment<int>(4) == 16u);
+static_assert(vector_alignment<long long>(2) == 16u);
+static_assert(vector_alignment<long long>(3) == 16u);
+static_assert(vector_alignment<long long>(4) == 16u);
 
 /// Vector storage only allows size of 2, 3, 4
 template<typename T, size_t N>
