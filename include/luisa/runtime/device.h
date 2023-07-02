@@ -18,6 +18,7 @@ namespace luisa::compute {
 
 class Context;
 class Event;
+class TimelineEvent;
 class Stream;
 class Mesh;
 class MeshFormat;
@@ -132,6 +133,8 @@ public:
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;
     // see definition in runtime/event.cpp
     [[nodiscard]] Event create_event() noexcept;
+    // see definition in runtime/event.cpp
+    [[nodiscard]] TimelineEvent create_timeline_event() noexcept;
     // see definition in runtime/swap_chain.cpp
     [[nodiscard]] Swapchain create_swapchain(
         uint64_t window_handle, const Stream &stream, uint2 resolution,
