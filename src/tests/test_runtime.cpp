@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
     // Do triple-buffer implementation here
     // Event to let host wait kernel before 3 frame
     static constexpr uint32_t framebuffer_count = 3;
-    Event graphics_event = device.create_event();
+    TimelineEvent graphics_event = device.create_timeline_event();
     static constexpr uint2 resolution = make_uint2(1024u);
     Window window{"test runtime", resolution.x, resolution.x};
     Swapchain swap_chain{device.create_swapchain(
@@ -66,9 +66,13 @@ int main(int argc, char *argv[]) {
 
     Clock clk;
     clk.tic();
+    // Fence index is a self-incremental integer
+    uint64_t fence_index = 0;
     while (!window.should_close()) {
         // Wait for last cycle
-        auto last_fence = graphics_event.last_fence();
+        auto last_fence = fence_index;
+        fence_index += 1;
+        auto next_fence = fence_index;
         if(last_fence >= framebuffer_count){
             graphics_event.synchronize(last_fence - (framebuffer_count - 1));
         }
@@ -93,7 +97,7 @@ int main(int argc, char *argv[]) {
             << compute_event.wait()
             << swap_chain.present(ldr_image)
             // let host wait here
-            << graphics_event.signal();
+            << graphics_event.signal(next_fence);
         window.poll_events();
     }
     compute_stream << synchronize();
