@@ -12,6 +12,12 @@ namespace luisa {
 // vectors
 namespace detail {
 
+template<typename T>
+[[nodiscard]] constexpr auto vector_alignment(size_t N) noexcept {
+    auto a = alignof(T) * (N == 3 ? 4 : N);
+    return std::min<size_t>(a, 16u);
+}
+
 /// Vector storage only allows size of 2, 3, 4
 template<typename T, size_t N>
 struct VectorStorage {
@@ -20,7 +26,7 @@ struct VectorStorage {
 
 /// Vector storage of size 2
 template<typename T>
-struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
+struct alignas(vector_alignment<T>(2)) VectorStorage<T, 2> {
     T x, y;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
@@ -29,7 +35,7 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
 
 /// Vector storage of size 3
 template<typename T>
-struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
+struct alignas(vector_alignment<T>(3)) VectorStorage<T, 3> {
     T x, y, z;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
@@ -38,7 +44,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
 
 /// Vector storage of size 4
 template<typename T>
-struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
+struct alignas(vector_alignment<T>(4)) VectorStorage<T, 4> {
     T x, y, z, w;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
@@ -99,9 +105,11 @@ LUISA_MAKE_VECTOR_TYPES(int)
 LUISA_MAKE_VECTOR_TYPES(uint)
 
 LUISA_MAKE_VECTOR_TYPES(double)
-LUISA_MAKE_VECTOR_TYPES(uint64_t)
-LUISA_MAKE_VECTOR_TYPES(int64_t)
-// TODO: 16-bit
+LUISA_MAKE_VECTOR_TYPES(ulong)
+LUISA_MAKE_VECTOR_TYPES(slong)
+
+LUISA_MAKE_VECTOR_TYPES(short)
+LUISA_MAKE_VECTOR_TYPES(ushort)
 
 #undef LUISA_MAKE_VECTOR_TYPES
 
@@ -757,4 +765,3 @@ LUISA_MAKE_TYPE_N(uint)
 //    for (auto i = 0u; i < N; i++) { r[i] = lhs - rhs[i]; }
 //    return r;
 //}
-

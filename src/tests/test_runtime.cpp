@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         graphics_stream,
         resolution,
-        true, false, framebuffer_count - 1)};
+        false, false, framebuffer_count - 1)};
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     ldr_image.set_name("present");
     compute_stream.set_name("my compute");

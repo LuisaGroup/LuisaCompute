@@ -125,8 +125,6 @@ public:
     [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }
-    [[nodiscard]] CUdeviceptr create_timeline_event(CUstream stream) noexcept;
-    void destroy_timeline_event(CUdeviceptr event) noexcept;
 
 public:
     bool is_c_api() const noexcept override { return false; }
@@ -151,10 +149,10 @@ public:
     void destroy_shader(uint64_t handle) noexcept override;
     ResourceCreationInfo create_event() noexcept override;
     void destroy_event(uint64_t handle) noexcept override;
-    void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept override;
-    void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept override;
-    bool is_event_completed(uint64_t handle, uint64_t fence) const noexcept override;
-    void synchronize_event(uint64_t handle, uint64_t fence_index) noexcept override;
+    void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept override;
+    void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept override;
+    bool is_event_completed(uint64_t handle, uint64_t value) const noexcept override;
+    void synchronize_event(uint64_t handle, uint64_t value) noexcept override;
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
     ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override;

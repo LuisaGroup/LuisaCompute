@@ -119,9 +119,10 @@ public:
                 LUISA_CHECK_CUDA(cuMemAlloc(&buffer, event_count_per_buffer * sizeof(CUevent)));
                 _buffers.emplace_back(buffer);
                 _available_slots.reserve(event_count_per_buffer);
-                for (auto i = event_count_per_buffer - 1u; i != 0u; i--) {
-                    _available_slots.emplace_back(buffer + i * sizeof(CUevent));
+                for (auto i = 0u; i < event_count_per_buffer; i++) {
+                    _available_slots.emplace_back(buffer + i * sizeof(uint64_t));
                 }
+                std::reverse(_available_slots.begin(), _available_slots.end());
             }
             auto ptr = _available_slots.back();
             _available_slots.pop_back();
@@ -726,53 +727,51 @@ void CUDADevice::destroy_shader(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_event() noexcept {
-    auto event_handle = with_handle([] {
-        CUevent event = nullptr;
-        LUISA_CHECK_CUDA(cuEventCreate(
-            &event, CU_EVENT_BLOCKING_SYNC | CU_EVENT_DISABLE_TIMING));
+    auto event_handle = with_handle([this] {
+        auto event = _event_pool->create(nullptr);
+        LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
         return event;
     });
-    return {.handle = reinterpret_cast<uint64_t>(event_handle),
-            .native_handle = event_handle};
+    return {.handle = event_handle,
+            .native_handle = reinterpret_cast<void *>(event_handle)};
 }
 
 void CUDADevice::destroy_event(uint64_t handle) noexcept {
-    with_handle([event = reinterpret_cast<CUevent>(handle)] {
-        LUISA_CHECK_CUDA(cuEventDestroy(event));
+    with_handle([this, handle] {
+        _event_pool->destroy(handle);
     });
 }
 
-void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
-    // TODO: fence not implemented
+void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept {
     with_handle([=] {
-        auto event = reinterpret_cast<CUevent>(handle);
         auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
-        stream->signal(event);
+        stream->signal(handle, value);
     });
 }
 
-void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence) noexcept {
-    // TODO: fence not implemented
+void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept {
     with_handle([=] {
-        auto event = reinterpret_cast<CUevent>(handle);
         auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
-        stream->wait(event);
+        stream->wait(handle, value);
     });
 }
 
-bool CUDADevice::is_event_completed(uint64_t handle, uint64_t fence) const noexcept {
-    // TODO: fence not implemented
+bool CUDADevice::is_event_completed(uint64_t handle, uint64_t value) const noexcept {
     return with_handle([=] {
-        auto event = reinterpret_cast<CUevent>(handle);
-        return cuEventQuery(event) == CUDA_SUCCESS;
+        // TODO: this implementation might not be very efficient
+        uint64_t signaled_value = 0u;
+        LUISA_CHECK_CUDA(cuMemcpyDtoH(
+            &signaled_value, handle, sizeof(uint64_t)));
+        return signaled_value >= value;
     });
 }
 
-void CUDADevice::synchronize_event(uint64_t handle, uint64_t fence_index) noexcept {
-    // TODO: fence not implemented
+void CUDADevice::synchronize_event(uint64_t handle, uint64_t value) noexcept {
     with_handle([=] {
-        auto event = reinterpret_cast<CUevent>(handle);
-        LUISA_CHECK_CUDA(cuEventSynchronize(event));
+        // TODO: this implementation might not be very efficient
+        LUISA_CHECK_CUDA(cuStreamWaitValue64(
+            nullptr, handle, value, CU_STREAM_WAIT_VALUE_GEQ));
+        LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
     });
 }
 
@@ -998,14 +997,6 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
             case Resource::Tag::SPARSE_TEXTURE: break;
         }
     });
-}
-
-CUdeviceptr CUDADevice::create_timeline_event(CUstream stream) noexcept {
-    return _event_pool->create(stream);
-}
-
-void CUDADevice::destroy_timeline_event(CUdeviceptr event) noexcept {
-    _event_pool->destroy(event);
 }
 
 }// namespace luisa::compute::cuda
