@@ -42,9 +42,12 @@ after_build(function(target)
 	if cuda then
 		local linkdirs = cuda["linkdirs"]
 		local bin_dir = target:targetdir()
-		for i, v in ipairs(linkdirs) do
-			os.cp(path.join(v, "cudadevrt.lib"), bin_dir)
+		if is_plat("windows") then
+			for i, v in ipairs(linkdirs) do
+				os.cp(path.join(v, "cudadevrt.lib"), bin_dir)
+			end
 		end
+		-- TODO: linux
 	end
 end)
 target_end()
