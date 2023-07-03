@@ -410,6 +410,7 @@ public:
     [[nodiscard]] bool is_bindless_array() const noexcept;
     [[nodiscard]] bool is_accel() const noexcept;
     [[nodiscard]] bool is_custom() const noexcept;
+    [[nodiscard]] bool is_resource() const noexcept;
 };
 
 }// namespace luisa::compute
