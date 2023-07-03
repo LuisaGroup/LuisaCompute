@@ -604,6 +604,9 @@ bool Type::is_uint16_vector() const noexcept { return is_vector() && element()->
 bool Type::is_float16_vector() const noexcept { return is_vector() && element()->is_float16(); }
 bool Type::is_int64_vector() const noexcept { return is_vector() && element()->is_int64(); }
 bool Type::is_uint64_vector() const noexcept { return is_vector() && element()->is_uint64(); }
+bool Type::is_resource() const noexcept {
+    return is_buffer() || is_texture() || is_bindless_array() || is_accel();
+}.
 
 }// namespace luisa::compute
 
