@@ -383,12 +383,27 @@ private:
                         bool allow_hdr) noexcept {
 
         luisa::vector<const char *> device_extensions;
-        device_extensions.reserve(required_device_extensions.size() + 1u);
+        device_extensions.reserve(required_device_extensions.size() + 2u);
         device_extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+#ifndef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
+#endif
+
+#ifdef LUISA_PLATFORM_APPLE
+        device_extensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+#endif
         for (auto ext : required_device_extensions) {
+#ifdef LUISA_PLATFORM_APPLE
+            if (luisa::string_view{ext} != VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME &&
+                luisa::string_view{ext} != VK_KHR_SWAPCHAIN_EXTENSION_NAME) {
+                device_extensions.emplace_back(ext);
+            }
+#else
             if (luisa::string_view{ext} != VK_KHR_SWAPCHAIN_EXTENSION_NAME) {
                 device_extensions.emplace_back(ext);
             }
+#endif
         }
 
         auto check_properties = [&device_uuid](auto device) noexcept {
