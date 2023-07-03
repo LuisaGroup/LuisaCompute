@@ -23,22 +23,6 @@ struct vector_alignment {
 template<typename T, size_t N>
 static constexpr size_t vector_alignment_v = vector_alignment<T, N>::value;
 
-// static_assert(vector_alignment<float>(2) == 8u);
-// static_assert(vector_alignment<float>(3) == 16u);
-// static_assert(vector_alignment<float>(4) == 16u);
-// static_assert(vector_alignment<bool>(2) == 2u);
-// static_assert(vector_alignment<bool>(3) == 4u);
-// static_assert(vector_alignment<bool>(4) == 4u);
-// static_assert(vector_alignment<short>(2) == 4u);
-// static_assert(vector_alignment<short>(3) == 8u);
-// static_assert(vector_alignment<short>(4) == 8u);
-// static_assert(vector_alignment<int>(2) == 8u);
-// static_assert(vector_alignment<int>(3) == 16u);
-// static_assert(vector_alignment<int>(4) == 16u);
-// static_assert(vector_alignment<long long>(2) == 16u);
-// static_assert(vector_alignment<long long>(3) == 16u);
-// static_assert(vector_alignment<long long>(4) == 16u);
-
 /// Vector storage only allows size of 2, 3, 4
 template<typename T, size_t N>
 struct VectorStorage {
