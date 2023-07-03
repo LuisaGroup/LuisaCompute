@@ -1227,8 +1227,10 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             "Calling non-callable function in device code.");
     }
     _ctx = old_ctx;
-    _converted_callables.emplace(callable, ctx.function_builder);
-    return ctx.function_builder;
+    auto callable_hash = ctx.function_builder->hash();
+    auto shared_callable = _unique_callables.try_emplace(callable_hash, std::move(ctx.function_builder)).first->second;
+    _converted_callables.emplace(callable, shared_callable);
+    return shared_callable;
 }
 
 const Type *IR2AST::get_type(const ir::Type *type) noexcept {
