@@ -15,6 +15,10 @@ namespace luisa::compute {
 class DeviceInterface;
 class Device;
 
+namespace detail {
+class ShaderInvokeBase;
+}
+
 constexpr auto invalid_resource_handle = ~0ull;
 
 struct ResourceCreationInfo {
@@ -131,6 +135,7 @@ struct ShaderOption {
 class LC_RUNTIME_API Resource {
 
     friend class Device;
+    friend class detail::ShaderInvokeBase;
 
 public:
     enum struct Tag : uint32_t {
@@ -180,6 +185,8 @@ protected:
             new (std::launder(self)) Self{static_cast<Self &&>(rhs)};
         }
     }
+
+    void _check_is_valid() const noexcept;
 
 protected:
     // protected constructors for derived classes

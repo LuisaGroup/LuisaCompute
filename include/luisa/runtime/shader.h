@@ -91,16 +91,19 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(const Buffer<T> &buffer) noexcept {
+        buffer._check_is_valid();
         return *this << buffer.view();
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(const Image<T> &image) noexcept {
+        image._check_is_valid();
         return *this << image.view();
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(const Volume<T> &volume) noexcept {
+        volume._check_is_valid();
         return *this << volume.view();
     }
 
@@ -245,12 +248,16 @@ public:
     Shader &operator=(Shader const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
+        _check_is_valid();
         using invoke_type = detail::ShaderInvoke<dimension>;
         auto arg_count = sizeof...(Args);
         invoke_type invoke{handle(), arg_count, _uniform_size};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
-    [[nodiscard]] uint3 block_size() const noexcept { return _block_size; }
+    [[nodiscard]] uint3 block_size() const noexcept {
+        _check_is_valid();
+        return _block_size;
+    }
 };
 
 template<typename... Args>
@@ -263,4 +270,3 @@ template<typename... Args>
 using Shader3D = Shader<3, Args...>;
 
 }// namespace luisa::compute
-

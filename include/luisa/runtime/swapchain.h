@@ -39,11 +39,13 @@ public:
         return *this;
     }
     Swapchain &operator=(Swapchain const &) noexcept = delete;
-    [[nodiscard]] PixelStorage backend_storage() const { return _storage; }
+    [[nodiscard]] PixelStorage backend_storage() const {
+        _check_is_valid();
+        return _storage;
+    }
     [[nodiscard]] Present present(ImageView<float> frame) const noexcept;
 };
 
 LUISA_MARK_STREAM_EVENT_TYPE(Swapchain::Present)
 
 }// namespace luisa::compute
-

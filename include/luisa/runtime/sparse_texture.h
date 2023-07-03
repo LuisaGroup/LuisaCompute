@@ -22,7 +22,6 @@ class BufferView;
 
 class LC_RUNTIME_API SparseTexture : public Resource {
 public:
-
 protected:
     size_t _tile_size_bytes;
     uint3 _tile_size;
@@ -36,8 +35,10 @@ public:
     SparseTexture &operator=(SparseTexture &&) noexcept = delete;// use _move_from in derived classes
     SparseTexture &operator=(const SparseTexture &) noexcept = delete;
 
-    [[nodiscard]] auto tile_size_bytes() const noexcept { return _tile_size_bytes; }
+    [[nodiscard]] auto tile_size_bytes() const noexcept {
+        _check_is_valid();
+        return _tile_size_bytes;
+    }
 };
 
 }// namespace luisa::compute
-

@@ -13,6 +13,7 @@ namespace luisa::compute {
 namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
+    accel._check_is_valid();
     _encoder.encode_accel(accel.handle());
     return *this;
 }
@@ -32,6 +33,7 @@ Accel::~Accel() noexcept {
 
 luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
                                          bool update_instance_buffer_only) noexcept {
+    _check_is_valid();
     if (_mesh_handles.empty()) { LUISA_ERROR_WITH_LOCATION(
         "Building acceleration structure without instances."); }
     // collect modifications
@@ -47,6 +49,7 @@ luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
 }
 
 void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
+    _check_is_valid();
     auto index = static_cast<uint>(_mesh_handles.size());
     Modification modification{index};
     modification.set_primitive(mesh);
@@ -58,6 +61,7 @@ void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8
 }
 
 void Accel::pop_back() noexcept {
+    _check_is_valid();
     if (auto n = _mesh_handles.size()) {
         _mesh_handles.pop_back();
         _modifications.erase(n - 1u);
@@ -68,6 +72,7 @@ void Accel::pop_back() noexcept {
 }
 
 void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
+    _check_is_valid();
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -86,6 +91,7 @@ void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, 
 }
 
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
+    _check_is_valid();
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -98,6 +104,7 @@ void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
 }
 
 void Accel::set_opaque_on_update(size_t index, bool opaque) noexcept {
+    _check_is_valid();
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -110,6 +117,7 @@ void Accel::set_opaque_on_update(size_t index, bool opaque) noexcept {
 }
 
 void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept {
+    _check_is_valid();
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",

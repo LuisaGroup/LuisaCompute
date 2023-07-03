@@ -2,7 +2,9 @@
 
 namespace luisa::compute {
 
-ProceduralPrimitive::ProceduralPrimitive(DeviceInterface *device, BufferView<AABB> aabb, const AccelOption &option) noexcept
+ProceduralPrimitive::ProceduralPrimitive(DeviceInterface *device,
+                                         BufferView<AABB> aabb,
+                                         const AccelOption &option) noexcept
     : Resource(device, Resource::Tag::PROCEDURAL_PRIMITIVE,
                device->create_procedural_primitive(option)),
       _aabb_buffer(aabb.handle()),
@@ -11,7 +13,9 @@ ProceduralPrimitive::ProceduralPrimitive(DeviceInterface *device, BufferView<AAB
 }
 
 luisa::unique_ptr<Command> ProceduralPrimitive::build(AccelBuildRequest request) noexcept {
-    return luisa::make_unique<ProceduralPrimitiveBuildCommand>(handle(), request, _aabb_buffer, _aabb_buffer_offset, _aabb_buffer_size);
+    _check_is_valid();
+    return luisa::make_unique<ProceduralPrimitiveBuildCommand>(
+        handle(), request, _aabb_buffer, _aabb_buffer_offset, _aabb_buffer_size);
 }
 
 ProceduralPrimitive::~ProceduralPrimitive() noexcept {

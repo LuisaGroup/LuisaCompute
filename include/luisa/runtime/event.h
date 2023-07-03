@@ -40,8 +40,14 @@ public:
         return *this;
     }
     Event &operator=(Event const &) noexcept = delete;
-    [[nodiscard]] auto signal() const noexcept { return Signal{handle()}; }
-    [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }
+    [[nodiscard]] auto signal() const noexcept {
+        _check_is_valid();
+        return Signal{handle()};
+    }
+    [[nodiscard]] auto wait() const noexcept {
+        _check_is_valid();
+        return Wait{handle()};
+    }
     [[nodiscard]] bool is_completed() const noexcept;
     void synchronize() const noexcept;
 };

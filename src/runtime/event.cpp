@@ -12,12 +12,11 @@ Event Device::create_event() noexcept {
 }
 
 Event::Event(DeviceInterface *device) noexcept
-    : Resource{
-          device,
-          Tag::EVENT,
-          device->create_event()} {}
+    : Resource{device, Tag::EVENT,
+               device->create_event()} {}
 
 void Event::synchronize() const noexcept {
+    _check_is_valid();
     device()->synchronize_event(handle());
 }
 
@@ -38,6 +37,7 @@ void Event::Wait::operator()(
 }
 
 bool Event::is_completed() const noexcept {
+    _check_is_valid();
     return device()->is_event_completed(handle());
 }
 

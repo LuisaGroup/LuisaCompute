@@ -2,9 +2,11 @@
 #include <luisa/core/logging.h>
 
 namespace luisa::compute::detail {
-LC_RUNTIME_API void buffer_size_zero_error() noexcept{
+
+LC_RUNTIME_API void error_buffer_size_is_zero() noexcept{
     LUISA_ERROR_WITH_LOCATION("Buffer size must be non-zero.");
 }
+
 LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noexcept {
     LUISA_ERROR_WITH_LOCATION(
         "Incompatible buffer views with different element counts (src = {}, dst = {}).",

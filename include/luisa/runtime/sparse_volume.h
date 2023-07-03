@@ -49,21 +49,41 @@ public:
     SparseVolume &operator=(const SparseVolume &) noexcept = delete;
 
     // properties
-    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto storage() const noexcept { return _storage; }
-    [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
+    [[nodiscard]] auto mip_levels() const noexcept {
+        _check_is_valid();
+        return _mip_levels;
+    }
+    [[nodiscard]] auto size() const noexcept {
+        _check_is_valid();
+        return _size;
+    }
+    [[nodiscard]] auto storage() const noexcept {
+        _check_is_valid();
+        return _storage;
+    }
+    [[nodiscard]] auto format() const noexcept {
+        _check_is_valid();
+        return pixel_storage_to_format<T>(_storage);
+    }
     [[nodiscard]] auto view(uint32_t level) const noexcept {
+        _check_is_valid();
         if (level >= _mip_levels) [[unlikely]] {
             detail::error_volume_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
         return VolumeView<T>{handle(), _storage, level, mip_size};
     }
-    [[nodiscard]] auto view() const noexcept { return view(0u); }
-    [[nodiscard]] auto tile_size() const noexcept { return _tile_size; }
+    [[nodiscard]] auto view() const noexcept {
+        _check_is_valid();
+        return view(0u);
+    }
+    [[nodiscard]] auto tile_size() const noexcept {
+        _check_is_valid();
+        return _tile_size;
+    }
 
     [[nodiscard]] auto map_tile(uint3 start_tile, uint3 tile_count, uint mip_level, const SparseTextureHeap &heap) noexcept {
+        _check_is_valid();
         detail::check_sparse_tex3d_map(_size, _tile_size, start_tile, tile_count);
         return SparseUpdateTile{
             .handle = handle(),
@@ -75,6 +95,7 @@ public:
                     .mip_level = mip_level}};
     }
     [[nodiscard]] auto unmap_tile(uint3 start_tile, uint3 tile_count, uint mip_level) noexcept {
+        _check_is_valid();
         detail::check_sparse_tex3d_unmap(_size, _tile_size, start_tile);
         return SparseUpdateTile{
             .handle = handle(),
@@ -86,30 +107,36 @@ public:
 
     // command
     [[nodiscard]] auto copy_from(uint3 start_tile, uint3 tile_count, uint mip_level, const void *data) const noexcept {
+        _check_is_valid();
         return luisa::make_unique<TextureUploadCommand>(
             handle(), _storage, mip_level, tile_count * _tile_size, data, start_tile * _tile_size);
     }
     [[nodiscard]] auto copy_to(uint3 start_tile, uint3 tile_count, uint mip_level, void *data) const noexcept {
+        _check_is_valid();
         return luisa::make_unique<TextureDownloadCommand>(
             handle(), _storage, mip_level, tile_count * _tile_size, data, start_tile * _tile_size);
     }
     template<typename U>
     [[nodiscard]] auto copy_from(uint3 start_tile, uint3 tile_count, uint mip_level, BufferView<U> buffer_view) const noexcept {
+        _check_is_valid();
         return luisa::make_unique<BufferToTextureCopyCommand>(
             buffer_view.handle(), buffer_view.offset_bytes(), handle(), _storage, mip_level, tile_count * _tile_size, start_tile * _tile_size, _storage, mip_level);
     }
     template<typename U>
     [[nodiscard]] auto copy_from(uint3 start_tile, uint3 tile_count, uint mip_level, const Buffer<U> &buffer) const noexcept {
+        _check_is_valid();
         return luisa::make_unique<BufferToTextureCopyCommand>(
             buffer.handle(), 0u, handle(), _storage, mip_level, tile_count * _tile_size, start_tile * _tile_size, _storage, mip_level);
     }
     template<typename U>
     [[nodiscard]] auto copy_to(uint3 start_tile, uint3 tile_count, uint mip_level, BufferView<U> buffer_view) const noexcept {
+        _check_is_valid();
         return luisa::make_unique<TextureToBufferCopyCommand>(
             buffer_view.handle(), buffer_view.offset_bytes(), handle(), _storage, mip_level, tile_count * _tile_size, start_tile * _tile_size, _storage, mip_level);
     }
     template<typename U>
     [[nodiscard]] auto copy_to(uint3 start_tile, uint3 tile_count, uint mip_level, const Buffer<U> &buffer) const noexcept {
+        _check_is_valid();
         return luisa::make_unique<TextureToBufferCopyCommand>(
             buffer.handle(), 0u, handle(), _storage, mip_level, tile_count * _tile_size, start_tile * _tile_size, _storage, mip_level);
     }

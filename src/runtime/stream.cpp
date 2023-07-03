@@ -16,6 +16,7 @@ Stream Device::create_stream(StreamTag stream_tag) noexcept {
 }
 
 void Stream::_dispatch(CommandList &&list) noexcept {
+    _check_is_valid();
     if (!list.empty()) {
 #ifndef NDEBUG
         for (auto &&i : list.commands()) {
@@ -36,7 +37,11 @@ Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
     return std::move(delegate) << std::move(cmd);
 }
 
-void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
+void Stream::_synchronize() noexcept {
+    _check_is_valid();
+    device()->synchronize_stream(handle());
+}
+
 Stream::Stream(DeviceInterface *device, StreamTag stream_tag) noexcept
     : Stream{device, stream_tag, device->create_stream(stream_tag)} {}
 
@@ -109,4 +114,3 @@ Stream::~Stream() noexcept {
 }
 
 }// namespace luisa::compute
-

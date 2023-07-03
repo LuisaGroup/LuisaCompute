@@ -48,14 +48,20 @@ public:
     }
     IndirectDispatchBuffer &operator=(IndirectDispatchBuffer const &) noexcept = delete;
     using Resource::operator bool;
-    [[nodiscard]] auto capacity() const noexcept { return _capacity; }
-    [[nodiscard]] auto size_bytes() const noexcept { return _byte_size; }
+    [[nodiscard]] auto capacity() const noexcept {
+        _check_is_valid();
+        return _capacity;
+    }
+    [[nodiscard]] auto size_bytes() const noexcept {
+        _check_is_valid();
+        return _byte_size;
+    }
 
     // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
+        _check_is_valid();
         return reinterpret_cast<const detail::IndirectDispatchBufferExprProxy *>(this);
     }
 };
 
 }// namespace luisa::compute
-

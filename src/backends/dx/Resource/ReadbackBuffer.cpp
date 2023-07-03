@@ -1,4 +1,4 @@
-
+#include <luisa/core/logging.h>
 #include <Resource/ReadbackBuffer.h>
 namespace lc::dx {
 ReadbackBuffer::ReadbackBuffer(

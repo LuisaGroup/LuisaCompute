@@ -35,8 +35,14 @@ public:
     // build procedural primitives' based bottom-level acceleration structure
     [[nodiscard]] luisa::unique_ptr<Command> build(
         AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
-    [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
-    [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
+    [[nodiscard]] auto aabb_buffer_offset() const noexcept {
+        _check_is_valid();
+        return _aabb_buffer_offset;
+    }
+    [[nodiscard]] auto aabb_buffer_size() const noexcept {
+        _check_is_valid();
+        return _aabb_buffer_size;
+    }
 };
 
 template<typename AABBBuffer>
@@ -46,4 +52,3 @@ ProceduralPrimitive Device::create_procedural_primitive(
 }
 
 }// namespace luisa::compute
-
