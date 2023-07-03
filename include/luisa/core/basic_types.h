@@ -16,11 +16,12 @@ namespace luisa {
 namespace detail {
 
 template<typename T, size_t N>
-[[nodiscard]] constexpr auto vector_alignment() noexcept {
-    constexpr size_t a = sizeof(T) * (N == 3 ? 4 : N);
-    constexpr size_t max_align = 16u;
-    return a > max_align ? max_align : a;
-}
+struct vector_alignment {
+    static constexpr size_t _a = sizeof(T) * (N == 3 ? 4 : N);
+    static constexpr size_t value = _a > 16u ? 16u : _a;
+};
+template<typename T, size_t N>
+static constexpr size_t vector_alignment_v = vector_alignment<T, N>::value;
 
 // static_assert(vector_alignment<float>(2) == 8u);
 // static_assert(vector_alignment<float>(3) == 16u);
@@ -46,7 +47,7 @@ struct VectorStorage {
 
 /// Vector storage of size 2
 template<typename T>
-struct alignas(vector_alignment<T, 2>()) VectorStorage<T, 2> {
+struct alignas(vector_alignment_v<T, 2>) VectorStorage<T, 2> {
     T x, y;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
@@ -55,7 +56,7 @@ struct alignas(vector_alignment<T, 2>()) VectorStorage<T, 2> {
 
 /// Vector storage of size 3
 template<typename T>
-struct alignas(vector_alignment<T, 3>()) VectorStorage<T, 3> {
+struct alignas(vector_alignment_v<T, 3>) VectorStorage<T, 3> {
     T x, y, z;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
@@ -64,7 +65,7 @@ struct alignas(vector_alignment<T, 3>()) VectorStorage<T, 3> {
 
 /// Vector storage of size 4
 template<typename T>
-struct alignas(vector_alignment<T, 4>()) VectorStorage<T, 4> {
+struct alignas(vector_alignment_v<T, 4>) VectorStorage<T, 4> {
     T x, y, z, w;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
