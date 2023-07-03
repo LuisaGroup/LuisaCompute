@@ -6,10 +6,12 @@
 #include <luisa/runtime/sparse_heap.h>
 
 namespace luisa::compute {
+
 namespace detail {
 LC_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count);
 LC_RUNTIME_API void check_sparse_buffer_unmap(size_t size_bytes, size_t tile_size, uint start_tile);
 }// namespace detail
+
 template<typename T>
 class SparseBuffer final : public Resource {
 public:
@@ -33,7 +35,7 @@ private:
               device,
               [&] {
                   if (size == 0) [[unlikely]] {
-                      detail::buffer_size_zero_error();
+                      detail::error_buffer_size_is_zero();
                   }
                   return device->create_sparse_buffer(Type::of<T>(), size);
               }()} {}
@@ -50,6 +52,7 @@ public:
         return *this;
     }
     [[nodiscard]] auto map_tile(uint start_tile, uint tile_count, const SparseBufferHeap &heap) noexcept {
+        _check_is_valid();
         detail::check_sparse_buffer_map(size_bytes(), _tile_size, start_tile, tile_count);
         return SparseUpdateTile{
             .handle = handle(),
@@ -59,6 +62,7 @@ public:
                 .tile_count = tile_count}};
     }
     [[nodiscard]] auto unmap_tile(uint start_tile, uint tile_count) noexcept {
+        _check_is_valid();
         detail::check_sparse_buffer_unmap(size_bytes(), _tile_size, start_tile);
         return SparseUpdateTile{
             .handle = handle(),
@@ -71,18 +75,23 @@ public:
     using Resource::operator bool;
     // properties
     [[nodiscard]] auto size() const noexcept {
+        _check_is_valid();
         return _size;
     }
     [[nodiscard]] constexpr auto stride() const noexcept {
+        _check_is_valid();
         return _element_stride;
     }
     [[nodiscard]] auto size_bytes() const noexcept {
+        _check_is_valid();
         return _size * _element_stride;
     }
     [[nodiscard]] auto tile_size() const noexcept {
+        _check_is_valid();
         return _tile_size;
     }
     [[nodiscard]] auto view() const noexcept {
+        _check_is_valid();
         return BufferView<T>{this->device(), this->handle(), _element_stride, 0u, _size, _size};
     }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept {
@@ -91,14 +100,17 @@ public:
     // commands
     // copy buffer's data to pointer
     [[nodiscard]] auto copy_to(void *data) const noexcept {
+        _check_is_valid();
         return this->view().copy_to(data);
     }
     // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept {
+        _check_is_valid();
         return this->view().copy_from(data);
     }
     // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
+        _check_is_valid();
         return this->view().copy_from(source);
     }
 };
@@ -114,4 +126,5 @@ struct buffer_element_impl<SparseBuffer<T>> {
 };
 
 }// namespace detail
+
 }// namespace luisa::compute

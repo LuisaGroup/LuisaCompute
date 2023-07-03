@@ -489,6 +489,9 @@ void StringStateVisitor::VisitFunction(Function func) {
     }
     if (sharedVariables) {
         for (auto &&v : func.shared_variables()) {
+            // FIXME: redundant creation of string
+            vstd::StringBuilder typeName;
+            util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
             sharedVariables->emplace(v.hash(), v);
         }
     }

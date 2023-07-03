@@ -89,12 +89,25 @@ public:
     }
     Image &operator=(Image const &) noexcept = delete;
     // properties
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
-    [[nodiscard]] auto storage() const noexcept { return _storage; }
-    [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
+    [[nodiscard]] auto size() const noexcept {
+        _check_is_valid();
+        return _size;
+    }
+    [[nodiscard]] auto mip_levels() const noexcept {
+        _check_is_valid();
+        return _mip_levels;
+    }
+    [[nodiscard]] auto storage() const noexcept {
+        _check_is_valid();
+        return _storage;
+    }
+    [[nodiscard]] auto format() const noexcept {
+        _check_is_valid();
+        return pixel_storage_to_format<T>(_storage);
+    }
 
     [[nodiscard]] auto view(uint32_t level) const noexcept {
+        _check_is_valid();
         if (level >= _mip_levels) [[unlikely]] {
             detail::error_image_invalid_mip_levels(level, _mip_levels);
         }
@@ -107,15 +120,18 @@ public:
     // copy image's data to pointer or another image
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept {
+        _check_is_valid();
         return this->view(0).copy_to(std::forward<U>(dst));
     }
     // copy pointer or another image's data to image
     template<typename U>
     [[nodiscard]] auto copy_from(U &&dst) const noexcept {
+        _check_is_valid();
         return this->view(0).copy_from(std::forward<U>(dst));
     }
     // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
+        _check_is_valid();
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
 };

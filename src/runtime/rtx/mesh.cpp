@@ -9,6 +9,7 @@
 namespace luisa::compute {
 
 luisa::unique_ptr<Command> Mesh::build(Mesh::BuildRequest request) noexcept {
+    _check_is_valid();
     return luisa::make_unique<MeshBuildCommand>(
         handle(), request,
         _v_buffer, _v_buffer_offset, _v_buffer_size, _v_stride,

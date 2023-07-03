@@ -25,7 +25,7 @@ LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noe
 LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst) noexcept;
 LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size, size_t size) noexcept;
 LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) noexcept;
-LC_RUNTIME_API void buffer_size_zero_error() noexcept;
+LC_RUNTIME_API void error_buffer_size_is_zero() noexcept;
 
 template<typename T>
 struct is_buffer_impl : std::false_type {};
@@ -98,7 +98,7 @@ private:
     Buffer(DeviceInterface *device, size_t size) noexcept
         : Buffer{device, [&] {
                      if (size == 0) [[unlikely]] {
-                         detail::buffer_size_zero_error();
+                         detail::error_buffer_size_is_zero();
                      }
                      return device->create_buffer(Type::of<T>(), size);
                  }()} {}
@@ -117,20 +117,41 @@ public:
     Buffer &operator=(Buffer const &) noexcept = delete;
     using Resource::operator bool;
     // properties
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }
-    [[nodiscard]] auto size_bytes() const noexcept { return _size * _element_stride; }
-    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->device(), this->handle(), _element_stride, 0u, _size, _size}; }
-    [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
+    [[nodiscard]] auto size() const noexcept {
+        _check_is_valid();
+        return _size;
+    }
+    [[nodiscard]] constexpr auto stride() const noexcept {
+        _check_is_valid();
+        return _element_stride;
+    }
+    [[nodiscard]] auto size_bytes() const noexcept {
+        _check_is_valid();
+        return _size * _element_stride;
+    }
+    [[nodiscard]] auto view() const noexcept {
+        _check_is_valid();
+        return BufferView<T>{this->device(), this->handle(), _element_stride, 0u, _size, _size};
+    }
+    [[nodiscard]] auto view(size_t offset, size_t count) const noexcept {
+        return view().subview(offset, count);
+    }
     // commands
     // copy buffer's data to pointer
-    [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
+    [[nodiscard]] auto copy_to(void *data) const noexcept {
+        return this->view().copy_to(data);
+    }
     // copy pointer's data to buffer
-    [[nodiscard]] auto copy_from(const void *data) noexcept { return this->view().copy_from(data); }
+    [[nodiscard]] auto copy_from(const void *data) noexcept {
+        return this->view().copy_from(data);
+    }
     // copy source buffer's data to buffer
-    [[nodiscard]] auto copy_from(BufferView<T> source) noexcept { return this->view().copy_from(source); }
+    [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
+        return this->view().copy_from(source);
+    }
     // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
+        _check_is_valid();
         return reinterpret_cast<const detail::BufferExprProxy<Buffer<T>> *>(this);
     }
 };
@@ -167,11 +188,13 @@ public:
         }
     }
 
-    BufferView() noexcept : BufferView{nullptr, invalid_resource_handle, 0, 0, 0, 0} {}
-    [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     template<template<typename> typename B>
         requires(is_buffer_v<B<T>>)
     BufferView(const B<T> &buffer) noexcept : BufferView{buffer.view()} {}
+
+    BufferView() noexcept : BufferView{nullptr, invalid_resource_handle, 0, 0, 0, 0} {}
+    [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
+
     // properties
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }

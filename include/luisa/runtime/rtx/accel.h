@@ -41,8 +41,8 @@ private:
                               uint8_t visibility_mask,
                               bool opaque) noexcept;
     void _set_handle(size_t index, uint64_t mesh_handle,
-                    float4x4 const &transform,
-                    uint8_t visibility_mask, bool opaque) noexcept;
+                     float4x4 const &transform,
+                     uint8_t visibility_mask, bool opaque) noexcept;
 
 public:
     Accel() noexcept = default;
@@ -55,7 +55,10 @@ public:
     }
     Accel &operator=(Accel const &) noexcept = delete;
     using Resource::operator bool;
-    [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }
+    [[nodiscard]] auto size() const noexcept {
+        _check_is_valid();
+        return _mesh_handles.size();
+    }
 
     // host interfaces
     // operations is committed by update_instance() or build()
@@ -102,9 +105,9 @@ public:
 
     // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
+        _check_is_valid();
         return reinterpret_cast<const detail::AccelExprProxy *>(this);
     }
 };
 
 }// namespace luisa::compute
-

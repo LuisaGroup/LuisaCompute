@@ -31,6 +31,7 @@ Event::Event(Event &&rhs) noexcept
       _fence{rhs.last_fence()} {}
 
 void Event::synchronize(uint64_t fence) const noexcept {
+    _check_is_valid();
     if (fence == std::numeric_limits<uint64_t>::max()) { fence = last_fence(); }
     device()->synchronize_event(handle(), fence);
 }
@@ -40,15 +41,18 @@ Event::~Event() noexcept {
 }
 
 bool Event::is_completed(uint64_t fence) const noexcept {
+    _check_is_valid();
     if (fence == std::numeric_limits<uint64_t>::max()) { fence = last_fence(); }
     return device()->is_event_completed(handle(), fence);
 }
 
 [[nodiscard]] Event::Signal Event::signal() const noexcept {
+    _check_is_valid();
     return {handle(), ++_fence};
 }
 
 [[nodiscard]] Event::Wait Event::wait(uint64_t fence) const noexcept {
+    _check_is_valid();
     if (fence == std::numeric_limits<uint64_t>::max()) { fence = last_fence(); }
     return {handle(), fence};
 }
@@ -69,18 +73,22 @@ TimelineEvent::TimelineEvent(TimelineEvent &&event) noexcept
     : Resource{std::move(event)} {}
 
 TimelineEvent::Signal TimelineEvent::signal(uint64_t fence) const noexcept {
+    _check_is_valid();
     return {handle(), fence};
 }
 
 TimelineEvent::Wait TimelineEvent::wait(uint64_t fence) const noexcept {
+    _check_is_valid();
     return {handle(), fence};
 }
 
 bool TimelineEvent::is_completed(uint64_t fence) const noexcept {
+    _check_is_valid();
     return device()->is_event_completed(handle(), fence);
 }
 
 void TimelineEvent::synchronize(uint64_t fence) const noexcept {
+    _check_is_valid();
     device()->synchronize_event(handle(), fence);
 }
 

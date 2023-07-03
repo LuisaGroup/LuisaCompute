@@ -68,7 +68,10 @@ public:
     using Resource::operator bool;
     // build triangle based bottom-level acceleration structure
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
-    [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
+    [[nodiscard]] auto triangle_count() const noexcept {
+        _check_is_valid();
+        return _triangle_count;
+    }
 };
 
 template<typename VBuffer, typename TBuffer>
@@ -77,4 +80,3 @@ Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, const AccelOpt
 }
 
 }// namespace luisa::compute
-
