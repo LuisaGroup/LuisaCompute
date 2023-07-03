@@ -868,8 +868,12 @@ impl Context {
                 *s = a;
                 *c = b;
             }
+            extern "C" fn sincos_stret(x: f32) -> (f32, f32) {
+                x.sin_cos()
+            }
             add_symbol!(rsqrtf, rsqrtf);
             add_symbol!(sincosf, sincos_);
+            add_symbol!(__sincosf_stret, sincos_stret);
         }
         let work_dir = CString::new("").unwrap();
         let ident = CString::new("").unwrap();
@@ -904,7 +908,7 @@ fn target_name() -> String {
     if cfg!(target_arch = "x86_64") {
         "x86-64".to_string()
     } else if cfg!(target_arch = "aarch64") {
-        "aarch64".to_string()
+        "arm64".to_string()
     } else {
         panic_abort!("unsupported target")
     }
@@ -938,7 +942,7 @@ fn target_triple() -> String {
         if cfg!(target_arch = "x86_64") {
             "x86_64-apple-darwin".to_string()
         } else if cfg!(target_arch = "aarch64") {
-            "aarch64-apple-darwin".to_string()
+            "arm64-apple-darwin".to_string()
         } else {
             panic_abort!("unsupported target")
         }
