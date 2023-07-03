@@ -31,8 +31,8 @@ void Resource::_check_same_derived_types(const Resource &lhs,
     }
 }
 
-void Resource::_check_is_valid() const noexcept {
-    LUISA_ASSERT(*this, "Invalid resource.");
+void Resource::_error_invalid() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Invalid resource.");
 }
 
 }// namespace luisa::compute
