@@ -138,6 +138,7 @@ private:
         extensions.emplace_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif defined(LUISA_PLATFORM_APPLE)
         extensions.emplace_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
+        extensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 #else
         extensions.emplace_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 #endif
@@ -177,6 +178,10 @@ private:
         create_info.pApplicationInfo = &app_info;
         create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         create_info.ppEnabledExtensionNames = extensions.data();
+
+#ifdef LUISA_PLATFORM_APPLE
+        create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 
 #ifndef NDEBUG
         VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
