@@ -845,7 +845,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::GetElementPtr => {
-                if args[0].type_().is_array() {
+                if args[0].type_().is_array() || args[0].type_().is_vector() || args[0].type_().is_matrix() {
                     let const_ = if !args[0].is_local() { "const " } else { "" };
                     writeln!(
                         self.body,

@@ -13,7 +13,7 @@ namespace luisa::compute {
 
 namespace detail {
 [[noreturn]] LC_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
-}
+}// namespace detail
 
 enum struct PixelStorage : uint32_t {
 
@@ -295,4 +295,3 @@ template<typename T>
 }
 
 }// namespace luisa::compute
-
