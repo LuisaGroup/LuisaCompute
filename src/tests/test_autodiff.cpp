@@ -5,10 +5,13 @@
 #include <fstream>
 #include <luisa/luisa-compute.h>
 #include <luisa/ir/ast2ir.h>
+#include <luisa/ir/ir2ast.h>
 
 using namespace luisa;
 using namespace luisa::compute;
-
+#ifndef LUISA_ENABLE_IR
+#error "LUISA_ENABLE_IR must be defined."
+#endif
 int main(int argc, char *argv[]) {
     luisa::log_level_verbose();
 
