@@ -253,7 +253,8 @@ void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
         buffer.byteSize);
     cb->GetAlloc()->ExecuteAfterComplete(
         [rBuffer, dst] {
-            dynamic_cast<ReadbackBuffer const *>(rBuffer.buffer)
+            assert(rBuffer.buffer->GetTag() == Resource::Tag::ReadbackBuffer);
+            static_cast<ReadbackBuffer const *>(rBuffer.buffer)
                 ->CopyData(
                     rBuffer.offset,
                     {reinterpret_cast<uint8_t *>(dst), size_t(rBuffer.byteSize)});
