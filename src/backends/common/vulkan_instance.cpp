@@ -96,7 +96,8 @@ VulkanInstance::VulkanInstance() noexcept {
     create_info.ppEnabledExtensionNames = extensions.data();
 
 #ifdef LUISA_PLATFORM_APPLE
-    create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#define ENUMERATE_PORTABILITY_BIT (0x01)
+    create_info.flags = ENUMERATE_PORTABILITY_BIT;
 #endif
 
 #ifndef NDEBUG
