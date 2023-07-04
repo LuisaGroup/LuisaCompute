@@ -42,13 +42,13 @@ int main(int argc, char *argv[]) {
         auto i = dispatch_x();
         auto x = x_buffer.read(i);
         auto y = y_buffer.read(i);
-         $autodiff {
-             requires_grad(x, y);
-             auto z = x * sin(y);
-             backward(z);
-             x_grad_buffer.write(i, grad(x));
-             y_grad_buffer.write(i, grad(y));
-         };
+        $autodiff {
+            requires_grad(x, y);
+            auto z = x * sin(y);
+            backward(z);
+            x_grad_buffer.write(i, grad(x));
+            y_grad_buffer.write(i, grad(y));
+        };
     };
     auto ir = AST2IR{}.convert_kernel(kernel.function()->function());
     LUISA_INFO("AST2IR done.");

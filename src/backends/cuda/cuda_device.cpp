@@ -842,11 +842,30 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
 
 namespace detail {
 
+static constexpr auto required_cuda_version_major = 11;
+static constexpr auto required_cuda_version_minor = 7;
+static constexpr auto required_cuda_version = required_cuda_version_major * 1000 + required_cuda_version_minor * 10;
+
 static void initialize() {
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {
+        // CUDA
         LUISA_CHECK_CUDA(cuInit(0));
+        // check driver version
+        auto driver_version = 0;
+        LUISA_CHECK_CUDA(cuDriverGetVersion(&driver_version));
+        auto driver_version_major = driver_version / 1000;
+        auto driver_version_minor = (driver_version % 1000) / 10;
+        LUISA_ASSERT(driver_version >= required_cuda_version,
+                     "CUDA driver version {}.{} is too old (>= {}.{} required). "
+                     "Please update your driver.",
+                     driver_version_major, driver_version_minor,
+                     required_cuda_version_major, required_cuda_version_minor);
+        LUISA_INFO("Successfully initialized CUDA "
+                   "backend with driver version {}.{}.",
+                   driver_version_major, driver_version_minor);
+        // OptiX
         static_cast<void>(optix::api());
     });
 }

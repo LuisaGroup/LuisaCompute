@@ -703,7 +703,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             "Invalid CallOp: 0x{:02x}.",
             luisa::to_underlying(expr->op()));
     }();
-    LUISA_VERBOSE("CallOp is {}, arg num is {}", luisa::to_underlying(expr->op()), expr->arguments().size());
+    //    LUISA_VERBOSE("CallOp is {}, arg num is {}", luisa::to_underlying(expr->op()), expr->arguments().size());
     luisa::vector<ir::NodeRef> args;
     if (is_vector_maker(expr->op())) {
         // resolve overloaded vector maker
@@ -780,14 +780,13 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     //        }
     //    }
     else if (expr->op() == CallOp::GRADIENT_MARKER) {
-        LUISA_VERBOSE("using gradient marker arg emplace");
+        //        LUISA_VERBOSE("using gradient marker arg emplace");
 
         args.reserve(2);
         args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[0])));
         // args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[1])));
         args.emplace_back(_convert_expr(expr->arguments()[1]));
-    }
-    else {
+    } else {
         LUISA_VERBOSE("using default arg emplace");
         args.reserve(expr->arguments().size());
         for (auto arg : expr->arguments()) {
@@ -1334,4 +1333,3 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 }// namespace luisa::compute
 
 #pragma clang diagnostic pop
-
