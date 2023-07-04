@@ -22,6 +22,22 @@ namespace luisa::compute::rust {
 
 class APICommandConverter final : public CommandVisitor {
 
+public:
+    struct CommandBuffer {
+
+        luisa::vector<void *> temp;
+        luisa::vector<api::Command> commands;
+        CommandList::CallbackContainer callbacks;
+
+        void on_completion() noexcept {
+            for (auto &&callback : callbacks) { callback(); }
+            for (auto p : temp) {
+                luisa::deallocate_with_allocator(
+                    static_cast<std::byte *>(p));
+            }
+        }
+    };
+
 private:
     luisa::vector<void *> _temp;
     luisa::vector<api::Command> _converted;
@@ -53,11 +69,16 @@ public:
     explicit APICommandConverter(size_t n) noexcept
         : _size{n} { _converted.reserve(n); }
 
-    void dispatch(api::DeviceInterface device,
-                  api::Stream stream,
+    void dispatch(api::DeviceInterface device, api::Stream stream,
                   CommandList::CallbackContainer &&callbacks) noexcept {
+
         LUISA_ASSERT(_converted.size() == _size, "Command list size mismatch.");
-        auto ctx = luisa::new_with_allocator<CommandList::CallbackContainer>(std::move(callbacks));
+
+        auto ctx = luisa::new_with_allocator<CommandBuffer>(
+            std::move(_temp),
+            std::move(_converted),
+            std::move(callbacks));
+
         device.dispatch(
             device.device, stream,
             api::CommandList{
@@ -65,15 +86,11 @@ public:
                 .commands_count = _converted.size(),
             },
             [](uint8_t *ctx) noexcept {
-                auto callbacks = reinterpret_cast<CommandList::CallbackContainer *>(ctx);
-                for (auto &&callback : *callbacks) { callback(); }
-                luisa::delete_with_allocator(callbacks);
+                auto cb = reinterpret_cast<CommandBuffer *>(ctx);
+                cb->on_completion();
+                luisa::delete_with_allocator(cb);
             },
             reinterpret_cast<uint8_t *>(ctx));
-        for (auto temp : _temp) {
-            luisa::deallocate_with_allocator(
-                static_cast<std::byte *>(temp));
-        }
     }
     void visit(const BufferUploadCommand *command) noexcept override {
         api::Command converted{.tag = Tag::BUFFER_UPLOAD};
