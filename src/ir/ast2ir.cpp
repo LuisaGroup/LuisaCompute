@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ast/function_builder.h>
 
@@ -182,7 +183,9 @@ ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexce
         return ir::luisa_compute_ir_new_callable_module(
             ir::CallableModule{
                 .module = _convert_body(),
+                .ret_type = _convert_type(_function.return_type()),
                 .args = arguments,
+                // FIXME: .callables?
                 .pools = _pools,
             });
     });
@@ -708,8 +711,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid CallOp: 0x{:02x}.",
-            luisa::to_underlying(expr->op()));
+            "Invalid CallOp: {}.",
+            luisa::to_string(expr->op()));
     }();
     //    LUISA_VERBOSE("CallOp is {}, arg num is {}", luisa::to_underlying(expr->op()), expr->arguments().size());
     luisa::vector<ir::NodeRef> args;
@@ -1332,10 +1335,6 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
     return AST2IR{}._convert_kernel(function);
-}
-
-[[nodiscard]] ir::CArc<ir::CallableModule> AST2IR::build_callable(Function function) noexcept {
-    return AST2IR{}._convert_callable(function);
 }
 
 ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {

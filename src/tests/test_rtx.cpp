@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
     Kernel2D colorspace_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image) noexcept {
         UInt i = dispatch_y() * dispatch_size_x() + dispatch_x();
         Float3 hdr = hdr_image.read(i).xyz();
-        UInt3 ldr = make_uint3(round(saturate(linear_to_srgb(hdr)) * 255.0f));
+        UInt3 ldr = make_uint3(round(clamp(linear_to_srgb(hdr), 0.f, 1.f) * 255.0f));
         ldr_image.write(i, ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u));
     };
     Kernel1D set_transform_kernel = [&](AccelVar accel, Float4x4 matrix, UInt offset) noexcept {
