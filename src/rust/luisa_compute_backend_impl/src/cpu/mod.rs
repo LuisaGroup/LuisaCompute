@@ -9,8 +9,8 @@ use self::{
     texture::TextureImpl,
 };
 use super::Backend;
-use crate::panic_abort;
-use crate::SwapChainForCpuContext;
+use crate::{cpu::llvm::LLVM_PATH, SwapChainForCpuContext};
+use crate::{cpu::shader::clang_args, panic_abort};
 use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
 use libc::c_void;
 use log::info;
@@ -247,35 +247,53 @@ impl Backend for RustBackend {
         //     println!("{}", debug);
         // }
         let tic = std::time::Instant::now();
-        let gened = codegen::cpp::CpuCodeGen::run(&kernel);
+        let mut gened = codegen::cpp::CpuCodeGen::run(&kernel);
         info!(
-            "kernel source generated in {:.3}ms",
+            "Source generated in {:.3}ms",
             (std::time::Instant::now() - tic).as_secs_f64() * 1e3
         );
+        let args = clang_args();
+        let args = args.join(",");
+        gened.source.push_str(&format!(
+            "\n// clang args: {}\n// clang path: {}\n// llvm path:{}",
+            args, LLVM_PATH.clang, LLVM_PATH.llvm
+        ));
         let hash = sha256(&gened.source);
         let gened_src = gened.source.replace("##kernel_fn##", &hash);
-        let lib_path = shader::compile(hash.clone(), gened_src).unwrap();
-        let mut captures = vec![];
-        let mut custom_ops = vec![];
-        unsafe {
-            for c in kernel.captures.as_ref() {
-                captures.push(convert_capture(*c));
+        let mut shader = None;
+        for tries in 0..2 {
+            let lib_path = shader::compile(&hash, &gened_src, tries == 1).unwrap();
+            let mut captures = vec![];
+            let mut custom_ops = vec![];
+            unsafe {
+                for c in kernel.captures.as_ref() {
+                    captures.push(convert_capture(*c));
+                }
+                for op in kernel.cpu_custom_ops.as_ref() {
+                    custom_ops.push(defs::CpuCustomOp {
+                        func: op.func,
+                        data: op.data,
+                    });
+                }
             }
-            for op in kernel.cpu_custom_ops.as_ref() {
-                custom_ops.push(defs::CpuCustomOp {
-                    func: op.func,
-                    data: op.data,
-                });
+            shader = shader::ShaderImpl::new(
+                hash.clone(),
+                lib_path,
+                captures,
+                custom_ops,
+                kernel.block_size,
+                &gened.messages,
+            );
+            if shader.is_some() {
+                break;
+            }
+            if tries == 0 {
+                log::error!("Failed to compile kernel. Could LLVM be updated? Retrying");
+            } else {
+                panic_abort!("Failed to compile kernel. Aborting");
             }
         }
-        let shader = Box::new(shader::ShaderImpl::new(
-            hash,
-            lib_path,
-            captures,
-            custom_ops,
-            kernel.block_size,
-            gened.messages,
-        ));
+        let shader = Box::new(shader.unwrap());
         let shader = Box::into_raw(shader);
         luisa_compute_api_types::CreatedShaderInfo {
             resource: CreatedResourceInfo {

@@ -17,7 +17,7 @@ class Device;
 
 namespace detail {
 class ShaderInvokeBase;
-}
+}// namespace detail
 
 constexpr auto invalid_resource_handle = ~0ull;
 
@@ -164,6 +164,9 @@ private:
     ResourceCreationInfo _info{};
     Tag _tag{};
 
+private:
+    [[noreturn]] static void _error_invalid() noexcept;
+
 protected:
     static void _check_same_derived_types(const Resource &lhs,
                                           const Resource &rhs) noexcept;
@@ -186,7 +189,9 @@ protected:
         }
     }
 
-    void _check_is_valid() const noexcept;
+    void _check_is_valid() const noexcept {
+        if (!*this) [[unlikely]] { _error_invalid(); }
+    }
 
 protected:
     // protected constructors for derived classes

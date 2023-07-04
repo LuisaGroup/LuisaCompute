@@ -6,7 +6,7 @@ use luisa_compute_ir::{
 };
 use parking_lot::{Condvar, Mutex, RwLock};
 use rayon;
-use std::panic::{RefUnwindSafe, UnwindSafe};
+use std::{panic::{RefUnwindSafe, UnwindSafe}, sync::atomic::AtomicBool};
 use std::{
     collections::VecDeque,
     sync::{atomic::AtomicUsize, Arc},
@@ -43,7 +43,6 @@ struct StreamContext {
     sync: Condvar,
     work_count: AtomicUsize,
     finished_count: AtomicUsize,
-    error: Mutex<Option<String>>,
     staging_buffers: Mutex<(Bump, Vec<*mut u8>)>,
 }
 
@@ -66,7 +65,6 @@ impl StreamImpl {
             sync: Condvar::new(),
             work_count: AtomicUsize::new(0),
             finished_count: AtomicUsize::new(0),
-            error: Mutex::new(None),
             staging_buffers: Mutex::new((Bump::new(), Vec::new())),
         });
         let private_thread = {
@@ -102,9 +100,6 @@ impl StreamImpl {
             ctx,
         }
     }
-    pub(super) fn has_error(&self) -> bool {
-        self.ctx.error.lock().is_some()
-    }
     pub(super) fn synchronize(&self) {
         let mut guard = self.ctx.queue.lock();
         while self
@@ -117,10 +112,6 @@ impl StreamImpl {
                 .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.ctx.sync.wait(&mut guard);
-        }
-        let error = self.ctx.error.lock();
-        if error.is_some() {
-            panic_abort!("{}", error.as_ref().unwrap());
         }
     }
     pub(super) fn enqueue(
@@ -167,6 +158,7 @@ impl StreamImpl {
                     });
                     if let Err(_) = result {
                         log::error!("kernel execution aborted");
+                        panic_abort!("kernel execution aborted");
                     }
                 });
             }
@@ -209,12 +201,6 @@ impl StreamImpl {
             let (bump, buffers) = &mut *lk;
             let mut cnt = 0;
             for cmd in command_list {
-                {
-                    let err = self.ctx.error.lock();
-                    if err.is_some() {
-                        break;
-                    }
-                }
                 match cmd {
                     api::Command::BufferUpload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
@@ -356,7 +342,7 @@ impl StreamImpl {
                         let args = Arc::new(args);
                         let ctx = Arc::new(ShaderDispatchContext {
                             shader: shader as *const _,
-                            error: &self.ctx.error,
+                            terminated: AtomicBool::new(false),
                         });
                         let kernel_args = defs::KernelFnArgs {
                             captured: shader.captures.as_ptr(),
@@ -625,5 +611,5 @@ extern "C" fn ray_query(
 }
 pub(crate) struct ShaderDispatchContext {
     pub(crate) shader: *const ShaderImpl,
-    pub(crate) error: *const Mutex<Option<String>>,
+    pub(crate) terminated: AtomicBool,
 }

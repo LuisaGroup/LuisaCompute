@@ -1,3 +1,9 @@
+template<typename D, typename S>
+[[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
+    static_assert(sizeof(D) == sizeof(S));
+    return reinterpret_cast<const D &>(s);
+}
+
 using lc_short = short;
 using lc_ushort = unsigned short;
 using lc_int = int;
@@ -4510,11 +4516,6 @@ template<typename T>
     return v - 2.0f * lc_dot(v, n) * n;
 }
 
-template<typename D, typename S>
-[[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
-    static_assert(sizeof(D) == sizeof(S));
-    return reinterpret_cast<const D &>(s);
-}
 template<class T>
 [[nodiscard]] __device__ inline constexpr auto lc_zero() noexcept{
     return T{};

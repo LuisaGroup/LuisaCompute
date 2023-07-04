@@ -132,12 +132,15 @@ private:
     VulkanInstance() noexcept {
 
         luisa::vector<const char *> extensions;
-        extensions.reserve(3u);
+        extensions.reserve(4u);
         extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
 #if defined(LUISA_PLATFORM_WINDOWS)
         extensions.emplace_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif defined(LUISA_PLATFORM_APPLE)
         extensions.emplace_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
+#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
+#endif
         extensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 #else
         extensions.emplace_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
@@ -153,8 +156,8 @@ private:
             for (auto layer : validation_layers) {
                 if (!std::any_of(available_layers.cbegin(), available_layers.cend(),
                                  [layer = luisa::string_view{layer}](auto available) noexcept {
-                    return layer == available.layerName;
-                    })) {
+                                     return layer == available.layerName;
+                                 })) {
                     return false;
                 }
             }
@@ -383,12 +386,27 @@ private:
                         bool allow_hdr) noexcept {
 
         luisa::vector<const char *> device_extensions;
-        device_extensions.reserve(required_device_extensions.size() + 1u);
+        device_extensions.reserve(required_device_extensions.size() + 2u);
         device_extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+#ifndef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
+#endif
+
+#ifdef LUISA_PLATFORM_APPLE
+        device_extensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+#endif
         for (auto ext : required_device_extensions) {
+#ifdef LUISA_PLATFORM_APPLE
+            if (luisa::string_view{ext} != VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME &&
+                luisa::string_view{ext} != VK_KHR_SWAPCHAIN_EXTENSION_NAME) {
+                device_extensions.emplace_back(ext);
+            }
+#else
             if (luisa::string_view{ext} != VK_KHR_SWAPCHAIN_EXTENSION_NAME) {
                 device_extensions.emplace_back(ext);
             }
+#endif
         }
 
         auto check_properties = [&device_uuid](auto device) noexcept {
@@ -771,7 +789,7 @@ private:
 
         VkPipelineInputAssemblyStateCreateInfo input_assembly{};
         input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+        input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         input_assembly.primitiveRestartEnable = VK_FALSE;
 
         VkPipelineViewportStateCreateInfo viewport_state{};
@@ -859,7 +877,12 @@ private:
     }
 
     void _create_vertex_buffer() noexcept {
-        const std::array vertices = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f};
+        const std::array vertices = {1.f, 0.f,
+                                     0.f, 0.f,
+                                     0.f, 1.f,
+                                     1.f, 0.f,
+                                     0.f, 1.f,
+                                     1.f, 1.f};
         auto buffer_size = sizeof(vertices);
 
         auto find_memory_type = [this](uint type_filter, VkMemoryPropertyFlags properties) noexcept {
@@ -1028,7 +1051,7 @@ private:
         vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, &vertex_buffer_offset);
         vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline_layout, 0, 1, &_descriptor_sets[_current_frame], 0, nullptr);
 
-        vkCmdDraw(command_buffer, 4u, 1, 0, 0);
+        vkCmdDraw(command_buffer, 6u, 1, 0, 0);
         vkCmdEndRenderPass(command_buffer);
 
         LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
@@ -1500,14 +1523,18 @@ public:
 LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
     return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
+
 LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) noexcept {
     return static_cast<uint8_t>(static_cast<VulkanSwapchainForCPU *>(swapchain)->pixel_storage());
 }
+
 LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexcept {
     delete static_cast<VulkanSwapchainForCPU *>(swapchain);
 }
+
 LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const void *pixels, uint64_t size) noexcept {
     static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
 }
+
 }// namespace luisa::compute
 

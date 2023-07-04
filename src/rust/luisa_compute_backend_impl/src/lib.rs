@@ -185,7 +185,7 @@ unsafe extern "C" fn create_device(
     config: *const c_char,
 ) -> DeviceInterface {
     let device = CStr::from_ptr(device).to_str().unwrap();
-    let config = CStr::from_ptr(config).to_str().unwrap();
+    // let config = CStr::from_ptr(config).to_str().unwrap();
     let ctx = &*(ctx.0 as *const Context);
     match device {
         "cpu" => {

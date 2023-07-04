@@ -102,7 +102,7 @@ pub struct ProceduralHit {
     pub inst: u32,
     pub prim: u32,
 }
-#[repr(C)]
+#[repr(C, align(8))]
 #[derive(Copy, Clone)]
 pub struct Hit {
     pub inst_id: u32,

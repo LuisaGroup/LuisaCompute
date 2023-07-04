@@ -34,7 +34,7 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
 
         if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             target_link_libraries(luisa-compute-vulkan-swapchain
-                    PUBLIC "-framework QuartzCore")
+                    PUBLIC "-framework QuartzCore" "-framework AppKit")
         endif ()
 
         set_target_properties(luisa-compute-vulkan-swapchain PROPERTIES
