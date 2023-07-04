@@ -22,6 +22,7 @@ local function test_proj(name, gui_dep, callable)
 	add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
 	if get_config("enable_ir") then
 		add_deps("lc-ir")
+		add_deps("lc-rust")
 	end
 	if get_config("enable_gui") then
 		add_deps("lc-gui")

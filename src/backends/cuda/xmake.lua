@@ -9,6 +9,9 @@ if get_config("_lc_vk_path") then
 	add_deps("lc-vk-swapchain")
 end
 add_deps("lc-runtime")
+if get_config("enable_ir") then
+	add_deps("lc-ir")
+end
 add_headerfiles("**.h", "../common/default_binary_io.h", "../common/string_scratch.h")
 add_files("**.cpp", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)
