@@ -26,11 +26,11 @@ public:
     struct CommandBuffer {
 
         luisa::vector<void *> temp;
-        luisa::vector<api::Command> commands;
-        CommandList::CallbackContainer callbacks;
+        luisa::vector<api::Command> api_commands;
+        CommandList list;
 
         void on_completion() noexcept {
-            for (auto &&callback : callbacks) { callback(); }
+            for (auto &&callback : list.callbacks()) { callback(); }
             for (auto p : temp) {
                 luisa::deallocate_with_allocator(
                     static_cast<std::byte *>(p));
@@ -41,7 +41,6 @@ public:
 private:
     luisa::vector<void *> _temp;
     luisa::vector<api::Command> _converted;
-    size_t _size;
 
 private:
     template<typename T>
@@ -66,18 +65,21 @@ private:
     }
 
 public:
-    explicit APICommandConverter(size_t n) noexcept
-        : _size{n} { _converted.reserve(n); }
-
     void dispatch(api::DeviceInterface device, api::Stream stream,
-                  CommandList::CallbackContainer &&callbacks) noexcept {
+                  CommandList &&list) noexcept {
 
-        LUISA_ASSERT(_converted.size() == _size, "Command list size mismatch.");
+        LUISA_ASSERT(_temp.empty(), "Temporary buffer leak.");
+        LUISA_ASSERT(_converted.empty(), "Command buffer leak.");
+
+        _converted.reserve(list.commands().size());
+        for (auto &&cmd : list.commands()) { cmd->accept(*this); }
+        LUISA_ASSERT(_converted.size() == list.commands().size(),
+                     "Command list size mismatch.");
 
         auto ctx = luisa::new_with_allocator<CommandBuffer>(
             std::move(_temp),
             std::move(_converted),
-            std::move(callbacks));
+            std::move(list));
 
         device.dispatch(
             device.device, stream,
@@ -456,12 +458,8 @@ public:
     }
 
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override {
-        APICommandConverter converter{list.commands().size()};
-        for (auto &&command : list.commands()) {
-            command->accept(converter);
-        }
-        converter.dispatch(device, api::Stream{stream_handle},
-                           list.steal_callbacks());
+        APICommandConverter converter;
+        converter.dispatch(device, api::Stream{stream_handle}, std::move(list));
     }
 
     SwapchainCreationInfo
