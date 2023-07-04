@@ -501,6 +501,10 @@ public:
             affine[11] = m[3][2];
             flags |= flag_transform;
         }
+        void set_transform(float affine[12]) noexcept {
+            std::memcpy(this->affine, affine, sizeof(this->affine));
+            flags |= flag_transform;
+        }
         void set_visibility(uint8_t mask) noexcept {
             flags &= (1u << flag_vis_mask_offset) - 1u;
             flags |= (mask << flag_vis_mask_offset) | flag_visibility;
