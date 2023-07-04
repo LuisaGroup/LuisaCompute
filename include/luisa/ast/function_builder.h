@@ -223,13 +223,14 @@ public:
         return _define(Function::Tag::KERNEL, std::forward<Def>(def));
     }
 
-    template<typename Def>
     /// Define a callable function with given definition
+    template<typename Def>
     static auto define_callable(Def &&def) {
         return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
-    template<typename Def>
+
     /// Define a callable function with given definition
+    template<typename Def>
     static auto define_raster_stage(Def &&def) {
         return _define(Function::Tag::RASTER_STAGE, std::forward<Def>(def));
     }
@@ -394,4 +395,3 @@ public:
 };
 
 }// namespace luisa::compute::detail
-
