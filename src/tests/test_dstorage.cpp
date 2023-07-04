@@ -53,8 +53,6 @@ int main(int argc, char *argv[]) {
         buffer_data.resize(buffer.size_bytes() + 1);
 
         // wait for disk reading and read back to memory.
-        compute_stream << event.wait(1)
-                       << buffer.copy_to(buffer_data.data());
 
         // Read buffer from file
         dstorage_file_stream
@@ -65,7 +63,10 @@ int main(int argc, char *argv[]) {
             // make event signal
             << event.signal(1);
 
-        compute_stream << synchronize();
+        compute_stream << event.wait(1)
+                       << buffer.copy_to(buffer_data.data())
+                       << event.signal(2);
+        event.synchronize(2);
         for (size_t i = file.size_bytes(); i < buffer_data.size(); ++i) {
             buffer_data[i] = 0;
         }

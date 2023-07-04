@@ -2,7 +2,12 @@
 // Created by Mike on 7/2/2023.
 //
 
+
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
+
 #include <vulkan/vulkan.h>
+
+#include <luisa/core/clock.h>
 #include <luisa/core/platform.h>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
@@ -14,8 +19,6 @@
 
 #include "cuda_error.h"
 #include "cuda_event.h"
-
-#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 
 namespace luisa::compute::cuda {
 
@@ -167,6 +170,8 @@ CUDAEventManager::~CUDAEventManager() noexcept {
 
 CUDAEvent *CUDAEventManager::create() noexcept {
 
+    Clock clock;
+
     // create vulkan semaphore
     VkSemaphoreTypeCreateInfo timeline_info;
     timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
@@ -236,7 +241,9 @@ CUDAEvent *CUDAEventManager::create() noexcept {
     LUISA_CHECK_CUDA(cuImportExternalSemaphore(&cuda_semaphore, &cuda_ext_semaphore_handle_desc));
 
     _count++;
-    return luisa::new_with_allocator<CUDAEvent>(_device, vk_semaphore, cuda_semaphore);
+    auto event = luisa::new_with_allocator<CUDAEvent>(_device, vk_semaphore, cuda_semaphore);
+    LUISA_INFO_WITH_LOCATION("Created CUDA event in {} ms.", clock.toc());
+    return event;
 }
 
 void CUDAEventManager::destroy(CUDAEvent *event) noexcept {
