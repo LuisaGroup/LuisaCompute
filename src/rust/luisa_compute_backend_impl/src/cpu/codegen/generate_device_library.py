@@ -108,7 +108,7 @@ if __name__ == "__main__":
             print(file=file)
 
 
-        def gen_binary_op_old(arg_t, ret_t, op):
+        def gen_binary_op(arg_t, ret_t, op):
             for i in range(2, 5):
                 elements = ["x", "y", "z", "w"][:i]
                 # vector-vector
@@ -126,7 +126,7 @@ if __name__ == "__main__":
                     f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
                 
-        def gen_binary_op(arg_t, ret_t, op):
+        def gen_binary_op_(arg_t, ret_t, op):
             for i in [2,4]:
                 elements = ["x", "y", "z", "w"][:i]
                 # vector-vector
