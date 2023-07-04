@@ -76,17 +76,16 @@ public:
         LUISA_ASSERT(_converted.size() == list.commands().size(),
                      "Command list size mismatch.");
 
+        api::CommandList converted_list{
+            .commands = _converted.data(),
+            .commands_count = _converted.size(),
+        };
         auto ctx = luisa::new_with_allocator<CommandBuffer>(
             std::move(_temp),
             std::move(_converted),
             std::move(list));
-
         device.dispatch(
-            device.device, stream,
-            api::CommandList{
-                .commands = _converted.data(),
-                .commands_count = _converted.size(),
-            },
+            device.device, stream, converted_list,
             [](uint8_t *ctx) noexcept {
                 auto cb = reinterpret_cast<CommandBuffer *>(ctx);
                 cb->on_completion();
