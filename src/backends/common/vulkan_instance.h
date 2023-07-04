@@ -62,20 +62,4 @@ public:
     [[nodiscard]] static luisa::shared_ptr<VulkanInstance> retain() noexcept;
 };
 
-#ifdef LUISA_PLATFORM_WINDOWS
-
-class LC_BACKEND_API WindowsSecurityAttributes {
-
-protected:
-    SECURITY_ATTRIBUTES m_winSecurityAttributes{};
-    PSECURITY_DESCRIPTOR m_winPSecurityDescriptor{};
-
-public:
-    WindowsSecurityAttributes() noexcept;
-    ~WindowsSecurityAttributes() noexcept;
-    [[nodiscard]] const SECURITY_ATTRIBUTES *get() const noexcept;
-};
-
-#endif
-
 }// namespace luisa::compute
