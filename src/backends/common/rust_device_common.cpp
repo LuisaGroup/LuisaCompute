@@ -11,6 +11,7 @@ using luisa::compute::ir::Type;
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
+#include <luisa/runtime/rtx/triangle.h>
 #include <luisa/ir/ast2ir.h>
 #include "rust_device_common.h"
 
@@ -18,6 +19,317 @@ using luisa::compute::ir::Type;
 #include <luisa/runtime/rhi/resource.h>
 
 namespace luisa::compute::rust {
+
+class APICommandConverter final : public CommandVisitor {
+
+private:
+    luisa::vector<void *> _temp;
+    luisa::vector<api::Command> _converted;
+    size_t _size;
+
+private:
+    template<typename T>
+    [[nodiscard]] auto _create_temporary(size_t n) noexcept {
+        auto ptr = luisa::allocate_with_allocator<T>(n);
+        memset(ptr, 0, sizeof(T) * n);
+        _temp.emplace_back(ptr);
+        return ptr;
+    }
+
+    using Tag = api::Command::Tag;
+
+    [[nodiscard]] static auto _convert_pixel_storage(PixelStorage s) noexcept {
+        // TODO: might be better to use a lookup table
+        return static_cast<api::PixelStorage>(s);
+    }
+
+    [[nodiscard]] static auto _convert_accel_build_request(AccelBuildRequest r) noexcept {
+        return r == AccelBuildRequest::PREFER_UPDATE ?
+                   api::AccelBuildRequest::PREFER_UPDATE :
+                   api::AccelBuildRequest::FORCE_BUILD;
+    }
+
+public:
+    explicit APICommandConverter(size_t n) noexcept
+        : _size{n} { _converted.reserve(n); }
+
+    void dispatch(api::DeviceInterface device,
+                  api::Stream stream,
+                  CommandList::CallbackContainer &&callbacks) noexcept {
+        LUISA_ASSERT(_converted.size() == _size, "Command list size mismatch.");
+        auto ctx = luisa::new_with_allocator<CommandList::CallbackContainer>(std::move(callbacks));
+        device.dispatch(
+            device.device, stream,
+            api::CommandList{
+                .commands = _converted.data(),
+                .commands_count = _converted.size(),
+            },
+            [](uint8_t *ctx) noexcept {
+                auto callbacks = reinterpret_cast<CommandList::CallbackContainer *>(ctx);
+                for (auto &&callback : *callbacks) { callback(); }
+                luisa::delete_with_allocator(callbacks);
+            },
+            reinterpret_cast<uint8_t *>(ctx));
+        for (auto temp : _temp) {
+            luisa::deallocate_with_allocator(
+                static_cast<std::byte *>(temp));
+        }
+    }
+    void visit(const BufferUploadCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::BUFFER_UPLOAD};
+        converted.BUFFER_UPLOAD._0 = api::BufferUploadCommand{
+            .buffer = {command->handle()},
+            .offset = command->offset(),
+            .size = command->size(),
+            .data = static_cast<const uint8_t *>(command->data())};
+        _converted.emplace_back(converted);
+    }
+    void visit(const BufferDownloadCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::BUFFER_DOWNLOAD};
+        converted.BUFFER_DOWNLOAD._0 = api::BufferDownloadCommand{
+            .buffer = {command->handle()},
+            .offset = command->offset(),
+            .size = command->size(),
+            .data = static_cast<uint8_t *>(command->data())};
+        _converted.emplace_back(converted);
+    }
+    void visit(const BufferCopyCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::BUFFER_COPY};
+        converted.BUFFER_COPY._0 = api::BufferCopyCommand{
+            .src = {command->src_handle()},
+            .src_offset = command->src_offset(),
+            .dst = {command->dst_handle()},
+            .dst_offset = command->dst_offset(),
+            .size = command->size()};
+        _converted.emplace_back(converted);
+    }
+    void visit(const BufferToTextureCopyCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::BUFFER_TO_TEXTURE_COPY};
+        converted.BUFFER_TO_TEXTURE_COPY._0 = api::BufferToTextureCopyCommand{
+            .buffer = {command->buffer()},
+            .buffer_offset = command->buffer_offset(),
+            .texture = {command->texture()},
+            .storage = _convert_pixel_storage(command->storage()),
+            .texture_level = command->level(),
+            .texture_size = {command->size().x,
+                             command->size().y,
+                             command->size().z}};
+        _converted.emplace_back(converted);
+    }
+    void visit(const ShaderDispatchCommand *command) noexcept override {
+        LUISA_ASSERT(!command->is_indirect(),
+                     "Indirect dispatch is not supported.");
+        auto n = command->arguments().size();
+        auto args = _create_temporary<api::Argument>(n);
+        for (size_t i = 0; i < n; i++) {
+            auto &&arg = command->arguments()[i];
+            switch (arg.tag) {
+                case Argument::Tag::BUFFER: {
+                    args[i].tag = api::Argument::Tag::BUFFER;
+                    args[i].BUFFER._0 = api::BufferArgument{
+                        .buffer = {arg.buffer.handle},
+                        .offset = arg.buffer.offset,
+                        .size = arg.buffer.size};
+                    break;
+                }
+                case Argument::Tag::TEXTURE: {
+                    args[i].tag = api::Argument::Tag::TEXTURE;
+                    args[i].TEXTURE._0 = api::TextureArgument{
+                        .texture = {arg.texture.handle},
+                        .level = arg.texture.level};
+                    break;
+                }
+                case Argument::Tag::UNIFORM: {
+                    auto data = command->uniform(arg.uniform);
+                    args[i].tag = api::Argument::Tag::UNIFORM;
+                    args[i].UNIFORM._0 = api::UniformArgument{
+                        .data = reinterpret_cast<const uint8_t *>(data.data()),
+                        .size = data.size()};
+                    break;
+                }
+                case Argument::Tag::BINDLESS_ARRAY: {
+                    args[i].tag = api::Argument::Tag::BINDLESS_ARRAY;
+                    args[i].BINDLESS_ARRAY._0 = {arg.bindless_array.handle};
+                    break;
+                }
+                case Argument::Tag::ACCEL: {
+                    args[i].tag = api::Argument::Tag::ACCEL;
+                    args[i].ACCEL._0 = {arg.accel.handle};
+                    break;
+                }
+                default: LUISA_ERROR_WITH_LOCATION(
+                    "Unsupported shader argument type.");
+            }
+        }
+        api::Command converted{.tag = Tag::SHADER_DISPATCH};
+        converted.SHADER_DISPATCH._0 = api::ShaderDispatchCommand{
+            .shader = {command->handle()},
+            .dispatch_size = {command->dispatch_size().x,
+                              command->dispatch_size().y,
+                              command->dispatch_size().z},
+            .args = args,
+            .args_count = n};
+        _converted.emplace_back(converted);
+    }
+    void visit(const TextureUploadCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::TEXTURE_UPLOAD};
+        converted.TEXTURE_UPLOAD._0 = api::TextureUploadCommand{
+            .texture = {command->handle()},
+            .storage = _convert_pixel_storage(command->storage()),
+            .level = command->level(),
+            .size = {command->size().x,
+                     command->size().y,
+                     command->size().z},
+            .data = static_cast<const uint8_t *>(command->data())};
+        _converted.emplace_back(converted);
+    }
+    void visit(const TextureDownloadCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::TEXTURE_DOWNLOAD};
+        converted.TEXTURE_DOWNLOAD._0 = api::TextureDownloadCommand{
+            .texture = {command->handle()},
+            .storage = _convert_pixel_storage(command->storage()),
+            .level = command->level(),
+            .size = {command->size().x,
+                     command->size().y,
+                     command->size().z},
+            .data = static_cast<uint8_t *>(command->data())};
+        _converted.emplace_back(converted);
+    }
+    void visit(const TextureCopyCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::TEXTURE_COPY};
+        converted.TEXTURE_COPY._0 = api::TextureCopyCommand{
+            .storage = _convert_pixel_storage(command->storage()),
+            .src = {command->src_handle()},
+            .dst = {command->dst_handle()},
+            .size = {command->size().x,
+                     command->size().y,
+                     command->size().z},
+            .src_level = command->src_level(),
+            .dst_level = command->dst_level()};
+        _converted.emplace_back(converted);
+    }
+    void visit(const TextureToBufferCopyCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::TEXTURE_TO_BUFFER_COPY};
+        converted.TEXTURE_TO_BUFFER_COPY._0 = api::TextureToBufferCopyCommand{
+            .buffer = {command->buffer()},
+            .buffer_offset = command->buffer_offset(),
+            .texture = {command->texture()},
+            .storage = _convert_pixel_storage(command->storage()),
+            .texture_level = command->level(),
+            .texture_size = {command->size().x,
+                             command->size().y,
+                             command->size().z}};
+        _converted.emplace_back(converted);
+    }
+    void visit(const AccelBuildCommand *command) noexcept override {
+        auto n = command->modifications().size();
+        auto m = _create_temporary<api::AccelBuildModification>(n);
+        for (auto i = 0u; i < n; i++) {
+            using Mod = AccelBuildCommand::Modification;
+            auto &&mod = command->modifications()[i];
+            m[i].index = mod.index;
+            if (mod.flags & Mod::flag_primitive) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_PRIMITIVE.bits;
+                m[i].mesh = mod.primitive;
+            }
+            if (mod.flags & Mod::flag_transform) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_TRANSFORM.bits;
+                memcpy(m[i].affine, mod.affine, sizeof(float) * 12u);
+            }
+            if (mod.flags & Mod::flag_opaque_on) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_OPAQUE_ON.bits;
+            } else if (mod.flags & Mod::flag_opaque_off) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_OPAQUE_OFF.bits;
+            }
+            if (mod.flags & Mod::flag_visibility) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_VISIBILITY.bits;
+                m[i].visibility = mod.flags >> Mod::flag_vis_mask_offset;
+            }
+        }
+        api::Command converted{.tag = Tag::ACCEL_BUILD};
+        converted.ACCEL_BUILD._0 = api::AccelBuildCommand{
+            .accel = {command->handle()},
+            .request = _convert_accel_build_request(command->request()),
+            .instance_count = command->instance_count(),
+            .modifications = m,
+            .modifications_count = n,
+            .update_instance_buffer_only = command->update_instance_buffer_only()};
+        _converted.emplace_back(converted);
+    }
+    void visit(const MeshBuildCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::MESH_BUILD};
+        converted.MESH_BUILD._0 = api::MeshBuildCommand{
+            .mesh = {command->handle()},
+            .request = _convert_accel_build_request(command->request()),
+            .vertex_buffer = {command->vertex_buffer()},
+            .vertex_buffer_offset = command->vertex_buffer_offset(),
+            .vertex_buffer_size = command->vertex_buffer_size(),
+            .vertex_stride = command->vertex_stride(),
+            .index_buffer = {command->triangle_buffer()},
+            .index_buffer_offset = command->triangle_buffer_offset(),
+            .index_buffer_size = command->triangle_buffer_size(),
+            .index_stride = sizeof(Triangle)};
+        _converted.emplace_back(converted);
+    }
+    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
+        LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    }
+    void visit(const BindlessArrayUpdateCommand *command) noexcept override {
+        auto n = command->modifications().size();
+        auto m = _create_temporary<api::BindlessArrayUpdateModification>(n);
+        auto convert_op = [](auto op) noexcept {
+            using Op = BindlessArrayUpdateCommand::Modification::Operation;
+            switch (op) {
+                case Op::NONE: return api::BindlessArrayUpdateOperation::NONE;
+                case Op::EMPLACE: return api::BindlessArrayUpdateOperation::EMPLACE;
+                case Op::REMOVE: return api::BindlessArrayUpdateOperation::REMOVE;
+                default: break;
+            }
+            LUISA_ERROR_WITH_LOCATION("Invalid bindless array update operation.");
+        };
+        auto convert_sampler = [](Sampler sampler) noexcept {
+            api::Sampler s{};
+            switch (sampler.filter()) {
+                case Sampler::Filter::POINT: s.filter = api::SamplerFilter::POINT; break;
+                case Sampler::Filter::LINEAR_POINT: s.filter = api::SamplerFilter::LINEAR_POINT; break;
+                case Sampler::Filter::LINEAR_LINEAR: s.filter = api::SamplerFilter::LINEAR_LINEAR; break;
+                case Sampler::Filter::ANISOTROPIC: s.filter = api::SamplerFilter::ANISOTROPIC; break;
+            }
+            switch (sampler.address()) {
+                case Sampler::Address::EDGE: s.address = api::SamplerAddress::EDGE; break;
+                case Sampler::Address::REPEAT: s.address = api::SamplerAddress::REPEAT; break;
+                case Sampler::Address::MIRROR: s.address = api::SamplerAddress::MIRROR; break;
+                case Sampler::Address::ZERO: s.address = api::SamplerAddress::ZERO; break;
+            }
+            return s;
+        };
+        for (auto i = 0u; i < n; i++) {
+            auto &&mod = command->modifications()[i];
+            m[i].slot = mod.slot;
+            m[i].buffer = api::BindlessArrayUpdateBuffer{
+                .op = convert_op(mod.buffer.op),
+                .handle = {mod.buffer.handle},
+                .offset = mod.buffer.offset_bytes};
+            m[i].tex2d = api::BindlessArrayUpdateTexture{
+                .op = convert_op(mod.tex2d.op),
+                .handle = {mod.tex2d.handle},
+                .sampler = convert_sampler(mod.tex2d.sampler)};
+            m[i].tex3d = api::BindlessArrayUpdateTexture{
+                .op = convert_op(mod.tex3d.op),
+                .handle = {mod.tex3d.handle},
+                .sampler = convert_sampler(mod.tex3d.sampler)};
+        }
+        api::Command converted{.tag = Tag::BINDLESS_ARRAY_UPDATE};
+        converted.BINDLESS_ARRAY_UPDATE._0 = api::BindlessArrayUpdateCommand{
+            .handle = {command->handle()},
+            .modifications = m,
+            .modifications_count = n};
+        _converted.emplace_back(converted);
+    }
+    void visit(const CustomCommand *command) noexcept override {
+        LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    }
+};
 
 // @Mike-Leo-Smith: fill-in the blanks pls
 class RustDevice final : public DeviceInterface {
@@ -127,98 +439,12 @@ public:
     }
 
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override {
-
-        // hold temporary pointers
-        luisa::vector<void *> temp;
-        auto allocate_temporary = [&temp]<typename T>(size_t count) noexcept {
-            auto ptr = luisa::allocate_with_allocator<T>(count);
-            temp.emplace_back(ptr);
-            return ptr;
-        };
-
-        // convert commands
-        auto converted_commands = allocate_temporary.operator()<api::Command>(list.commands().size());
-
-        for (auto i = 0u; i < list.commands().size(); i++) {
-            auto command = list.commands()[i].get();
-            auto converted = &converted_commands[i];
-            switch (command->tag()) {
-                case Command::Tag::EBufferUploadCommand: {
-                    auto upload_cmd = static_cast<BufferUploadCommand *>(command);
-                    converted->tag = api::Command::Tag::BUFFER_UPLOAD;
-                    converted->BUFFER_UPLOAD._0 = api::BufferUploadCommand{
-                        .buffer = {upload_cmd->handle()},
-                        .offset = upload_cmd->offset(),
-                        .size = upload_cmd->size(),
-                        .data = static_cast<const uint8_t *>(upload_cmd->data())};
-                    break;
-                }
-                case Command::Tag::EBufferDownloadCommand: {
-                    auto download_cmd = static_cast<BufferDownloadCommand *>(command);
-                    converted->tag = api::Command::Tag::BUFFER_DOWNLOAD;
-                    converted->BUFFER_DOWNLOAD._0 = api::BufferDownloadCommand{
-                        .buffer = {download_cmd->handle()},
-                        .offset = download_cmd->offset(),
-                        .size = download_cmd->size(),
-                        .data = static_cast<uint8_t *>(download_cmd->data())};
-                    break;
-                }
-                case Command::Tag::EBufferCopyCommand: {
-                    auto copy_cmd = static_cast<BufferCopyCommand *>(command);
-                    converted->tag = api::Command::Tag::BUFFER_COPY;
-                    converted->BUFFER_COPY._0 = api::BufferCopyCommand{
-                        .src = {copy_cmd->src_handle()},
-                        .src_offset = copy_cmd->src_offset(),
-                        .dst = {copy_cmd->dst_handle()},
-                        .dst_offset = copy_cmd->dst_offset(),
-                        .size = copy_cmd->size()};
-                    break;
-                }
-                case Command::Tag::EBufferToTextureCopyCommand: {
-                }
-                case Command::Tag::EShaderDispatchCommand: {
-                }
-                case Command::Tag::ETextureUploadCommand: {
-                }
-                case Command::Tag::ETextureDownloadCommand: {
-                }
-                case Command::Tag::ETextureCopyCommand: {
-                }
-                case Command::Tag::ETextureToBufferCopyCommand: {
-                }
-                case Command::Tag::EAccelBuildCommand: {
-                }
-                case Command::Tag::EMeshBuildCommand: {
-                }
-                case Command::Tag::EProceduralPrimitiveBuildCommand: {
-                }
-                case Command::Tag::EBindlessArrayUpdateCommand: {
-                }
-                case Command::Tag::ECustomCommand: {
-                }
-                default: LUISA_ERROR_WITH_LOCATION(
-                    "Invalid command tag: {}.",
-                    to_underlying(command->tag()));
-            }
+        APICommandConverter converter{list.commands().size()};
+        for (auto &&command : list.commands()) {
+            command->accept(converter);
         }
-
-        // make the dispatch
-        auto callback_ctx = luisa::new_with_allocator<CommandList::CallbackContainer>(list.steal_callbacks());
-        device.dispatch(
-            device.device, api::Stream{stream_handle},
-            api::CommandList{.commands = converted_commands,
-                             .commands_count = list.commands().size()},
-            [](uint8_t *ctx) noexcept {
-                auto callbacks = reinterpret_cast<CommandList::CallbackContainer *>(ctx);
-                for (auto &&f : *callbacks) { f(); }
-                luisa::delete_with_allocator(callbacks);
-            },
-            reinterpret_cast<uint8_t *>(callback_ctx));
-
-        // free temporary resources
-        for (auto t : temp) {
-            luisa::deallocate_with_allocator(static_cast<std::byte *>(t));
-        }
+        converter.dispatch(device, api::Stream{stream_handle},
+                           list.steal_callbacks());
     }
 
     SwapchainCreationInfo

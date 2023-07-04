@@ -7,6 +7,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/runtime/rtx/triangle.h>
 #include <luisa/api/api.h>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
@@ -285,7 +286,9 @@ private:
                 auto [mesh, request,
                       vertex_buffer, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
                       index_buffer, index_buffer_offset, index_buffer_size, index_stride] = cmd.mesh_build;
-                LUISA_ASSERT(index_stride == 12, "Index stride must be 12.");
+                LUISA_ASSERT(index_stride == sizeof(Triangle),
+                             "Index stride must be {} (got {}).",
+                             sizeof(Triangle), index_stride);
                 return luisa::make_unique<MeshBuildCommand>(
                     mesh._0,
                     convert_accel_request(request),
@@ -310,11 +313,11 @@ private:
                     AccelBuildCommand::Modification modification{index};
 #define LUISA_DEPARANTHESES_IMPL(...) __VA_ARGS__
 #define LUISA_DEPARANTHESES(...) LUISA_DEPARANTHESES_IMPL __VA_ARGS__
-                    constexpr LCAccelBuildModificationFlags flag_primitive = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_PRIMITIVE);
-                    constexpr LCAccelBuildModificationFlags flag_transform = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_TRANSFORM);
-                    constexpr LCAccelBuildModificationFlags flag_opaque_on = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_ON);
-                    constexpr LCAccelBuildModificationFlags flag_opaque_off = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_OFF);
-                    constexpr LCAccelBuildModificationFlags flag_visibility = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_VISIBILITY);
+                    constexpr auto flag_primitive = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_PRIMITIVE);
+                    constexpr auto flag_transform = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_TRANSFORM);
+                    constexpr auto flag_opaque_on = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_ON);
+                    constexpr auto flag_opaque_off = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_OFF);
+                    constexpr auto flag_visibility = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_VISIBILITY);
 #undef LUISA_DEPARANTHESES
 #undef LUISA_DEPARANTHESES_IMPL
                     if (flags.bits & flag_primitive.bits) {

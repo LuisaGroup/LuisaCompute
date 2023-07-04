@@ -98,6 +98,7 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
 };
+
 class ShaderDispatchCommandBase {
 
 public:
