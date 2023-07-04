@@ -63,7 +63,11 @@ pub(super) fn clang_args() -> Vec<&'static str> {
     args.push("-fno-stack-protector");
     args
 }
-pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf> {
+pub(super) fn compile(
+    target: &String,
+    source: &String,
+    force_recompile: bool,
+) -> std::io::Result<PathBuf> {
     let self_path = current_exe().map_err(|e| {
         eprintln!("current_exe() failed");
         e
@@ -84,7 +88,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
 
     let target_lib = format!("{}.bc", target);
     let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
-    if lib_path.exists() {
+    if lib_path.exists() && !force_recompile {
         log::info!("Loading cached LLVM IR {}", &target_lib[1..17]);
         return Ok(lib_path);
     }
@@ -169,26 +173,26 @@ impl ShaderImpl {
         captures: Vec<defs::KernelFnArg>,
         custom_ops: Vec<defs::CpuCustomOp>,
         block_size: [u32; 3],
-        messages: Vec<String>,
-    ) -> Self {
+        messages: &Vec<String>,
+    ) -> Option<Self> {
         // unsafe {
         // let lib = libloading::Library::new(&path)
         //     .unwrap_or_else(|_| panic_abort!("cannot load library {:?}", &path));
         // let entry: libloading::Symbol<KernelFn> = lib.get(b"kernel_fn").unwrap();
         // let entry: libloading::Symbol<'static, KernelFn> = transmute(entry);
         let tic = std::time::Instant::now();
-        let entry = llvm::compile_llvm_ir(&name, &String::from(path.to_str().unwrap()));
+        let entry = llvm::compile_llvm_ir(&name, &String::from(path.to_str().unwrap()))?;
         let elapsed = (std::time::Instant::now() - tic).as_secs_f64() * 1e3;
         log::info!("LLVM IR compiled in {:.3}ms", elapsed);
-        Self {
+        Some(Self {
             // lib,
             entry,
             captures,
             dir: path.clone(),
             custom_ops,
             block_size,
-            messages,
-        }
+            messages: messages.clone(),
+        })
         // }
     }
     pub(crate) fn fn_ptr(&self) -> KernelFn {

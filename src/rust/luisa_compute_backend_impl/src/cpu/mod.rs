@@ -260,28 +260,40 @@ impl Backend for RustBackend {
         ));
         let hash = sha256(&gened.source);
         let gened_src = gened.source.replace("##kernel_fn##", &hash);
-        let lib_path = shader::compile(hash.clone(), gened_src).unwrap();
-        let mut captures = vec![];
-        let mut custom_ops = vec![];
-        unsafe {
-            for c in kernel.captures.as_ref() {
-                captures.push(convert_capture(*c));
+        let mut shader = None;
+        for tries in 0..2 {
+            let lib_path = shader::compile(&hash, &gened_src, tries == 1).unwrap();
+            let mut captures = vec![];
+            let mut custom_ops = vec![];
+            unsafe {
+                for c in kernel.captures.as_ref() {
+                    captures.push(convert_capture(*c));
+                }
+                for op in kernel.cpu_custom_ops.as_ref() {
+                    custom_ops.push(defs::CpuCustomOp {
+                        func: op.func,
+                        data: op.data,
+                    });
+                }
             }
-            for op in kernel.cpu_custom_ops.as_ref() {
-                custom_ops.push(defs::CpuCustomOp {
-                    func: op.func,
-                    data: op.data,
-                });
+            shader = shader::ShaderImpl::new(
+                hash.clone(),
+                lib_path,
+                captures,
+                custom_ops,
+                kernel.block_size,
+                &gened.messages,
+            );
+            if shader.is_some() {
+                break;
+            }
+            if tries == 0 {
+                log::error!("Failed to compile kernel. Could LLVM be updated? Retrying");
+            } else {
+                panic_abort!("Failed to compile kernel. Aborting");
             }
         }
-        let shader = Box::new(shader::ShaderImpl::new(
-            hash,
-            lib_path,
-            captures,
-            custom_ops,
-            kernel.block_size,
-            gened.messages,
-        ));
+        let shader = Box::new(shader.unwrap());
         let shader = Box::into_raw(shader);
         luisa_compute_api_types::CreatedShaderInfo {
             resource: CreatedResourceInfo {

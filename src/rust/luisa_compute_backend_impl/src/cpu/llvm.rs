@@ -603,7 +603,7 @@ impl LibLLVM {
     }
 }
 
-pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
+pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> Option<KernelFn> {
     init_llvm();
     unsafe {
         let c = CONTEXT.lock();
@@ -611,7 +611,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             let mut c = c.borrow_mut();
             let c = c.as_mut().unwrap();
             if let Some(record) = c.cached_functions.get(path_) {
-                return *record;
+                return Some(*record);
             }
         }
         let record = {
@@ -647,7 +647,8 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             if (lib.LLVMParseBitcodeInContext2)(ctx, bc_buffer, &mut module as *mut LLVMModuleRef)
                 != 0
             {
-                panic_abort!("LLVMParseBitcodeInContext2 failed");
+                log::error!("LLVMParseBitcodeInContext2 failed");
+                return None;
             }
             // let mut msg: *mut i8 = std::ptr::null_mut();
             // if (lib.LLVMParseIRInContext)(
@@ -677,11 +678,13 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             let err = (lib.LLVMOrcLLJITAddLLVMIRModule)(c.jit, main_jd, tsm);
             if !err.is_null() {
                 lib.handle_error(err);
+                return None;
             }
             let mut addr: LLVMOrcExecutorAddress = 0;
             let err = (lib.LLVMOrcLLJITLookup)(c.jit, &mut addr, name.as_ptr());
             if !err.is_null() {
                 lib.handle_error(err);
+                return None;
             }
             (lib.LLVMOrcDisposeThreadSafeContext)(tsctx);
             let function = std::mem::transmute(addr as *mut u8);
@@ -692,7 +695,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             let c = c.as_mut().unwrap();
             c.cached_functions.insert(path_.clone(), record);
         }
-        record
+        Some(record)
     }
 }
 
