@@ -7,6 +7,12 @@ if __name__ == "__main__":
         exit(1)
     output_file_name = argv[1]
     with open(f"{output_file_name}", "w") as file:
+        print('''template<typename D, typename S>
+[[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
+    static_assert(sizeof(D) == sizeof(S));
+    return reinterpret_cast<const D &>(s);
+}
+''', file=file)
         # scalar types
         scalar_types = ["short", "ushort", "int",
                         "uint", "float", "bool", "long", "ulong"]
@@ -102,7 +108,7 @@ if __name__ == "__main__":
             print(file=file)
 
 
-        def gen_binary_op(arg_t, ret_t, op):
+        def gen_binary_op_old(arg_t, ret_t, op):
             for i in range(2, 5):
                 elements = ["x", "y", "z", "w"][:i]
                 # vector-vector
@@ -119,6 +125,35 @@ if __name__ == "__main__":
                 print(
                     f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
+                
+        def gen_binary_op(arg_t, ret_t, op):
+            for i in [2,4]:
+                elements = ["x", "y", "z", "w"][:i]
+                # vector-vector
+                print(
+                    f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
+                    file=file)
+                # vector-scalar
+                operation = ", ".join(f"lhs.{e} {op} rhs" for e in "xyzw"[:i])
+                print(
+                    f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
+                    file=file)
+                # scalar-vector
+                operation = ", ".join(f"lhs {op} rhs.{e}" for e in "xyzw"[:i])
+                print(
+                    f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
+                    file=file)
+            print(
+                f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t}3 lhs, lc_{arg_t}3 rhs) noexcept {{ return lc_bit_cast<lc_{ret_t}3>(lc_bit_cast<lc_{arg_t}4>(lhs) {op} lc_bit_cast<lc_{arg_t}4>(rhs));}}",
+                file=file)
+            # vector-scalar
+            print(
+                f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t}3 lhs, lc_{arg_t} rhs) noexcept {{ return lc_bit_cast<lc_{ret_t}3>(lc_bit_cast<lc_{arg_t}4>(lhs) {op} rhs); }}",
+                file=file)
+            # scalar-vector
+            print(
+                f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}3 rhs) noexcept {{ return lc_bit_cast<lc_{ret_t}3>(lhs {op} lc_bit_cast<lc_{arg_t}4>(rhs)); }}",
+                file=file)
 
 
         # binary operators
@@ -651,11 +686,6 @@ __device__ inline constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float
     return v - 2.0f * lc_dot(v, n) * n;
 }
 
-template<typename D, typename S>
-[[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
-    static_assert(sizeof(D) == sizeof(S));
-    return reinterpret_cast<const D &>(s);
-}
 template<class T>
 [[nodiscard]] __device__ inline constexpr auto lc_zero() noexcept{
     return T{};

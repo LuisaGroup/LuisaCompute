@@ -9,8 +9,8 @@ use self::{
     texture::TextureImpl,
 };
 use super::Backend;
-use crate::panic_abort;
-use crate::SwapChainForCpuContext;
+use crate::{cpu::llvm::LLVM_PATH, SwapChainForCpuContext};
+use crate::{cpu::shader::clang_args, panic_abort};
 use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
 use libc::c_void;
 use log::info;
@@ -247,11 +247,17 @@ impl Backend for RustBackend {
         //     println!("{}", debug);
         // }
         let tic = std::time::Instant::now();
-        let gened = codegen::cpp::CpuCodeGen::run(&kernel);
+        let mut gened = codegen::cpp::CpuCodeGen::run(&kernel);
         info!(
-            "kernel source generated in {:.3}ms",
+            "Source generated in {:.3}ms",
             (std::time::Instant::now() - tic).as_secs_f64() * 1e3
         );
+        let args = clang_args();
+        let args = args.join(",");
+        gened.source.push_str(&format!(
+            "\n// clang args: {}\n// clang path: {}\n// llvm path:{}",
+            args, LLVM_PATH.clang, LLVM_PATH.llvm
+        ));
         let hash = sha256(&gened.source);
         let gened_src = gened.source.replace("##kernel_fn##", &hash);
         let lib_path = shader::compile(hash.clone(), gened_src).unwrap();

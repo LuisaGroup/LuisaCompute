@@ -1,7 +1,7 @@
+use crate::cpu::llvm::LLVM_PATH;
+use crate::panic_abort;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
-use crate::panic_abort;
-use crate::cpu::llvm::LLVM_PATH;
 use std::{
     env::{self, current_exe},
     fs::{canonicalize, File},
@@ -28,7 +28,41 @@ fn canonicalize_and_fix_windows_path(path: PathBuf) -> std::io::Result<PathBuf> 
 //     file.unlock().unwrap();
 //     ret
 // }
-
+pub(super) fn clang_args() -> Vec<&'static str> {
+    let mut args = vec![];
+    match env::var("LUISA_DEBUG") {
+        Ok(s) => {
+            if s == "full" {
+                args.push("-DLUISA_DEBUG");
+                args.push("-DLUISA_DEBUG_FULL");
+            }
+            if s == "1" {
+                args.push("-DLUISA_DEBUG");
+            } else {
+                args.push("-O3");
+            }
+        }
+        Err(_) => {
+            args.push("-O3");
+        }
+    }
+    args.push("-march=native");
+    args.push("-std=c++20");
+    args.push("-fno-math-errno");
+    if cfg!(target_arch = "x86_64") {
+        args.push("-mavx2");
+        args.push("-DLUISA_ARCH_X86_64");
+    } else if cfg!(target_arch = "aarch64") {
+        args.push("-DLUISA_ARCH_ARM64");
+    } else {
+        panic_abort!("unsupported target architecture");
+    }
+    args.push("-ffast-math");
+    args.push("-fno-rtti");
+    args.push("-fno-exceptions");
+    args.push("-fno-stack-protector");
+    args
+}
 pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf> {
     let self_path = current_exe().map_err(|e| {
         eprintln!("current_exe() failed");
@@ -51,7 +85,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
     let target_lib = format!("{}.bc", target);
     let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
     if lib_path.exists() {
-        log::info!("loading cached LLVM IR {}", target_lib);
+        log::info!("Loading cached LLVM IR {}", &target_lib[1..17]);
         return Ok(lib_path);
     }
     let dump_src = match env::var("LUISA_DUMP_SOURCE") {
@@ -70,27 +104,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
     };
     // log::info!("compiling kernel {}", source_file);
     {
-        let mut args: Vec<&str> = vec![];
-        if env::var("LUISA_DEBUG").is_ok() {
-            args.push("-g");
-        } else {
-            args.push("-O3");
-        }
-        args.push("-march=native");
-        args.push("-std=c++20");
-        args.push("-fno-math-errno");
-        if cfg!(target_arch = "x86_64") {
-            args.push("-mavx2");
-            args.push("-DLUISA_ARCH_X86_64");
-        } else if cfg!(target_arch = "aarch64") {
-            args.push("-DLUISA_ARCH_ARM64");
-        } else {
-            panic_abort!("unsupported target architecture");
-        }
-        args.push("-ffast-math");
-        args.push("-fno-rtti");
-        args.push("-fno-exceptions");
-        args.push("-fno-stack-protector");
+        let mut args: Vec<&str> = clang_args();
         args.push("-c");
         args.push("-emit-llvm");
         args.push("-x");
@@ -117,7 +131,7 @@ pub(super) fn compile(target: String, source: String) -> std::io::Result<PathBuf
             output @ _ => match output.status.success() {
                 true => {
                     log::info!(
-                        "LLVM IR generated in {}ms",
+                        "LLVM IR generated in {:.3}ms",
                         (std::time::Instant::now() - tic).as_secs_f64() * 1e3
                     );
                 }
@@ -146,7 +160,7 @@ pub(crate) struct ShaderImpl {
     pub(crate) captures: Vec<defs::KernelFnArg>,
     pub(crate) custom_ops: Vec<defs::CpuCustomOp>,
     pub(crate) block_size: [u32; 3],
-    pub(crate) messages:Vec<String>,
+    pub(crate) messages: Vec<String>,
 }
 impl ShaderImpl {
     pub(crate) fn new(
@@ -155,7 +169,7 @@ impl ShaderImpl {
         captures: Vec<defs::KernelFnArg>,
         custom_ops: Vec<defs::CpuCustomOp>,
         block_size: [u32; 3],
-        messages:Vec<String>,
+        messages: Vec<String>,
     ) -> Self {
         // unsafe {
         // let lib = libloading::Library::new(&path)
@@ -165,7 +179,7 @@ impl ShaderImpl {
         let tic = std::time::Instant::now();
         let entry = llvm::compile_llvm_ir(&name, &String::from(path.to_str().unwrap()));
         let elapsed = (std::time::Instant::now() - tic).as_secs_f64() * 1e3;
-        log::info!("LLVM IR compilation completed in {}ms", elapsed);
+        log::info!("LLVM IR compiled in {:.3}ms", elapsed);
         Self {
             // lib,
             entry,

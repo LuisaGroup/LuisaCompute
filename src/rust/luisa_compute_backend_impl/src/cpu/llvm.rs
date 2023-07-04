@@ -4,18 +4,15 @@ use crate::panic_abort;
 use lazy_static::lazy_static;
 use libloading::Symbol;
 use serde::{Deserialize, Serialize};
-use std::env::{current_dir, current_exe, var};
+use std::env::{current_exe, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
-use std::process::{abort, exit};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::yield_now;
 use std::{
     cell::RefCell,
     collections::HashMap,
     ffi::{CStr, CString},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 enum LLVMContext {}
@@ -868,8 +865,14 @@ impl Context {
                 *s = a;
                 *c = b;
             }
-            extern "C" fn sincos_stret(x: f32) -> (f32, f32) {
-                x.sin_cos()
+            #[repr(C)]
+            struct F32x2 {
+                x: f32,
+                y: f32,
+            }
+            extern "C" fn sincos_stret(x: f32) -> F32x2 {
+                let (x, y) = x.sin_cos();
+                F32x2 { x, y }
             }
             add_symbol!(rsqrtf, rsqrtf);
             add_symbol!(sincosf, sincos_);
@@ -913,19 +916,63 @@ fn target_name() -> String {
         panic_abort!("unsupported target")
     }
 }
-
+#[rustfmt::skip]
 fn cpu_features() -> Vec<String> {
     if cfg!(target_arch = "x86_64") {
-        // "+avx,+avx2,+fma,+popcnt,+sse4.1,+sse4.2,+sse4a".to_string()
-        vec![
-            "avx".into(),
-            "avx2".into(),
-            "fma".into(),
-            "popcnt".into(),
-            "sse4.1".into(),
-            "sse4.2".into(),
-            "sse4a".into(),
-        ]
+        let mut features = vec![];
+        if is_x86_feature_detected!("aes") { features.push("aes"); }
+        if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
+        if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
+        if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
+        if is_x86_feature_detected!("tsc") { features.push("tsc"); }
+        if is_x86_feature_detected!("mmx") { features.push("mmx"); }
+        if is_x86_feature_detected!("sse") { features.push("sse"); }
+        if is_x86_feature_detected!("sse2") { features.push("sse2"); }
+        if is_x86_feature_detected!("sse3") { features.push("sse3"); }
+        if is_x86_feature_detected!("ssse3") { features.push("ssse3"); }
+        if is_x86_feature_detected!("sse4.1") { features.push("sse4.1"); }
+        if is_x86_feature_detected!("sse4.2") { features.push("sse4.2"); }
+        if is_x86_feature_detected!("sse4a") { features.push("sse4a"); }
+        if is_x86_feature_detected!("sha") { features.push("sha"); }
+        if is_x86_feature_detected!("avx") { features.push("avx"); }
+        if is_x86_feature_detected!("avx2") { features.push("avx2"); }
+        if is_x86_feature_detected!("avx512f") { features.push("avx512f"); }
+        if is_x86_feature_detected!("avx512cd") { features.push("avx512cd"); }
+        if is_x86_feature_detected!("avx512er") { features.push("avx512er"); }
+        if is_x86_feature_detected!("avx512pf") { features.push("avx512pf"); }
+        if is_x86_feature_detected!("avx512bw") { features.push("avx512bw"); }
+        if is_x86_feature_detected!("avx512dq") { features.push("avx512dq"); }
+        if is_x86_feature_detected!("avx512vl") { features.push("avx512vl"); }
+        if is_x86_feature_detected!("avx512ifma") { features.push("avx512ifma"); }
+        if is_x86_feature_detected!("avx512vbmi") { features.push("avx512vbmi"); }
+        if is_x86_feature_detected!("avx512vpopcntdq") { features.push("avx512vpopcntdq"); }
+        if is_x86_feature_detected!("avx512vbmi2") { features.push("avx512vbmi2"); }
+        if is_x86_feature_detected!("gfni") { features.push("gfni"); }
+        if is_x86_feature_detected!("vaes") { features.push("vaes"); }
+        if is_x86_feature_detected!("vpclmulqdq") { features.push("vpclmulqdq"); }
+        if is_x86_feature_detected!("avx512vnni") { features.push("avx512vnni"); }
+        if is_x86_feature_detected!("avx512bitalg") { features.push("avx512bitalg"); }
+        if is_x86_feature_detected!("avx512bf16") { features.push("avx512bf16"); }
+        if is_x86_feature_detected!("avx512vp2intersect") { features.push("avx512vp2intersect"); }
+        if is_x86_feature_detected!("f16c") { features.push("f16c"); }
+        if is_x86_feature_detected!("fma") { features.push("fma"); }
+        if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
+        if is_x86_feature_detected!("bmi2") { features.push("bmi2"); }
+        if is_x86_feature_detected!("abm") { features.push("abm"); }
+        if is_x86_feature_detected!("lzcnt") { features.push("lzcnt"); }
+        if is_x86_feature_detected!("tbm") { features.push("tbm"); }
+        if is_x86_feature_detected!("popcnt") { features.push("popcnt"); }
+        if is_x86_feature_detected!("fxsr") { features.push("fxsr"); }
+        if is_x86_feature_detected!("xsave") { features.push("xsave"); }
+        if is_x86_feature_detected!("xsaveopt") { features.push("xsaveopt"); }
+        if is_x86_feature_detected!("xsaves") { features.push("xsaves"); }
+        if is_x86_feature_detected!("xsavec") { features.push("xsavec"); }
+        if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
+        if is_x86_feature_detected!("adx") { features.push("adx"); }
+        if is_x86_feature_detected!("rtm") { features.push("rtm"); }
+        if is_x86_feature_detected!("movbe") { features.push("movbe"); }
+        if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
+        features.into_iter().map(|s| s.to_string()).collect()
     } else if cfg!(target_arch = "aarch64") {
         vec!["neon".into()]
     } else {
