@@ -89,9 +89,7 @@ struct ShaderResource : public Resource {
                   function)} {}
 
     ShaderResource(DeviceInterface *device,
-                   const ir::KernelModule *
-
-                       module,
+                   const ir::KernelModule *module,
                    const LCShaderOption &option) noexcept
         : Resource{
               device,
@@ -406,9 +404,9 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
                                                       const char *name,
                                                       const char *properties) LUISA_NOEXCEPT {
     // TODO: handle properties? or convert it to DeviceConfig?
-    auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr)));
+    auto device = new_with_allocator<Device>(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr)));
     return from_ptr<LCDevice>(new_with_allocator<RC<Device>>(
-        device, [](Device *d) { delete d; }));
+        device, [](Device *d) { delete_with_allocator(d); }));
 }
 
 LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT {
@@ -429,7 +427,7 @@ LUISA_EXPORT_API void *luisa_compute_device_native_handle(LCDevice device) LUISA
 
 LUISA_EXPORT_API LCCreatedBufferInfo
 luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count) LUISA_NOEXCEPT {
-    const ir::CArc<ir::Type> *element = reinterpret_cast<const ir::CArc<ir::Type> *>(element_);
+    auto element = reinterpret_cast<const ir::CArc<ir::Type> *>(element_);
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto info = d->retain()->object()->impl()->create_buffer(element, elem_count);
     return LCCreatedBufferInfo{

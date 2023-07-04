@@ -36,9 +36,9 @@ public:
         lib.destroy_context(api_ctx);
     }
 
-    RustDevice(Context &&ctx, luisa::filesystem::path runtime_path, string_view name) noexcept : DeviceInterface(
-                                                                                                     std::move(ctx)),
-                                                                                                 runtime_path(std::move(runtime_path)) {
+    RustDevice(Context &&ctx, luisa::filesystem::path runtime_path, string_view name) noexcept
+        : DeviceInterface(std::move(ctx)),
+          runtime_path(std::move(runtime_path)) {
         dll = DynamicModule::load(this->runtime_path, "luisa_compute_backend_impl");
         luisa_compute_lib_interface = dll.function<api::LibInterface()>("luisa_compute_lib_interface");
         lib = luisa_compute_lib_interface();
@@ -127,8 +127,98 @@ public:
     }
 
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override {
-        // TODO: implement this
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
+
+        // hold temporary pointers
+        luisa::vector<void *> temp;
+        auto allocate_temporary = [&temp]<typename T>(size_t count) noexcept {
+            auto ptr = luisa::allocate_with_allocator<T>(count);
+            temp.emplace_back(ptr);
+            return ptr;
+        };
+
+        // convert commands
+        auto converted_commands = allocate_temporary.operator()<api::Command>(list.commands().size());
+
+        for (auto i = 0u; i < list.commands().size(); i++) {
+            auto command = list.commands()[i].get();
+            auto converted = &converted_commands[i];
+            switch (command->tag()) {
+                case Command::Tag::EBufferUploadCommand: {
+                    auto upload_cmd = static_cast<BufferUploadCommand *>(command);
+                    converted->tag = api::Command::Tag::BUFFER_UPLOAD;
+                    converted->BUFFER_UPLOAD._0 = api::BufferUploadCommand{
+                        .buffer = {upload_cmd->handle()},
+                        .offset = upload_cmd->offset(),
+                        .size = upload_cmd->size(),
+                        .data = static_cast<const uint8_t *>(upload_cmd->data())};
+                    break;
+                }
+                case Command::Tag::EBufferDownloadCommand: {
+                    auto download_cmd = static_cast<BufferDownloadCommand *>(command);
+                    converted->tag = api::Command::Tag::BUFFER_DOWNLOAD;
+                    converted->BUFFER_DOWNLOAD._0 = api::BufferDownloadCommand{
+                        .buffer = {download_cmd->handle()},
+                        .offset = download_cmd->offset(),
+                        .size = download_cmd->size(),
+                        .data = static_cast<uint8_t *>(download_cmd->data())};
+                    break;
+                }
+                case Command::Tag::EBufferCopyCommand: {
+                    auto copy_cmd = static_cast<BufferCopyCommand *>(command);
+                    converted->tag = api::Command::Tag::BUFFER_COPY;
+                    converted->BUFFER_COPY._0 = api::BufferCopyCommand{
+                        .src = {copy_cmd->src_handle()},
+                        .src_offset = copy_cmd->src_offset(),
+                        .dst = {copy_cmd->dst_handle()},
+                        .dst_offset = copy_cmd->dst_offset(),
+                        .size = copy_cmd->size()};
+                    break;
+                }
+                case Command::Tag::EBufferToTextureCopyCommand: {
+                }
+                case Command::Tag::EShaderDispatchCommand: {
+                }
+                case Command::Tag::ETextureUploadCommand: {
+                }
+                case Command::Tag::ETextureDownloadCommand: {
+                }
+                case Command::Tag::ETextureCopyCommand: {
+                }
+                case Command::Tag::ETextureToBufferCopyCommand: {
+                }
+                case Command::Tag::EAccelBuildCommand: {
+                }
+                case Command::Tag::EMeshBuildCommand: {
+                }
+                case Command::Tag::EProceduralPrimitiveBuildCommand: {
+                }
+                case Command::Tag::EBindlessArrayUpdateCommand: {
+                }
+                case Command::Tag::ECustomCommand: {
+                }
+                default: LUISA_ERROR_WITH_LOCATION(
+                    "Invalid command tag: {}.",
+                    to_underlying(command->tag()));
+            }
+        }
+
+        // make the dispatch
+        auto callback_ctx = luisa::new_with_allocator<CommandList::CallbackContainer>(list.steal_callbacks());
+        device.dispatch(
+            device.device, api::Stream{stream_handle},
+            api::CommandList{.commands = converted_commands,
+                             .commands_count = list.commands().size()},
+            [](uint8_t *ctx) noexcept {
+                auto callbacks = reinterpret_cast<CommandList::CallbackContainer *>(ctx);
+                for (auto &&f : *callbacks) { f(); }
+                luisa::delete_with_allocator(callbacks);
+            },
+            reinterpret_cast<uint8_t *>(callback_ctx));
+
+        // free temporary resources
+        for (auto t : temp) {
+            luisa::deallocate_with_allocator(static_cast<std::byte *>(t));
+        }
     }
 
     SwapchainCreationInfo
@@ -262,10 +352,12 @@ public:
     }
 };
 
-luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx, const luisa::compute::DeviceConfig *config,
+luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
+                                        const luisa::compute::DeviceConfig *config,
                                         luisa::string_view name) noexcept {
     auto path = ctx.runtime_directory();
-    return luisa::new_with_allocator<luisa::compute::rust::RustDevice>(std::move(ctx), std::move(path), "cpu");
+    return luisa::new_with_allocator<luisa::compute::rust::RustDevice>(
+        std::move(ctx), std::move(path), "cpu");
 }
 
 void destroy(luisa::compute::DeviceInterface *device) noexcept {
