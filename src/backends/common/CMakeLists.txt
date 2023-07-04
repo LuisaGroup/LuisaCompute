@@ -13,7 +13,8 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
     if (Vulkan_FOUND AND X11_DEPENDENCY_SATISFIED)
 
         set(LUISA_COMPUTE_VULKAN_SWAPCHAIN_SOURCES
-                vulkan_swapchain.h vulkan_swapchain.cpp)
+                vulkan_instance.cpp vulkan_instance.h
+                vulkan_swapchain.cpp vulkan_swapchain.h)
         if (APPLE AND CMAKE_C_COMPILER_ID MATCHES "Clang")
             enable_language(OBJC)
             enable_language(OBJCXX)

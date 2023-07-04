@@ -21,6 +21,7 @@ class CUDADevice;
 struct CUDACallbackContext;
 
 class CUDAStream;
+class CUDAEvent;
 
 /**
  * @brief Stream on CUDA
@@ -49,8 +50,8 @@ public:
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
-    void signal(CUdeviceptr event, uint64_t value) noexcept;
-    void wait(CUdeviceptr event, uint64_t value) noexcept;
+    void signal(CUDAEvent *event, uint64_t value) noexcept;
+    void wait(CUDAEvent *event, uint64_t value) noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;
     void set_name(luisa::string &&name) noexcept;
 };

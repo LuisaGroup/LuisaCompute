@@ -16,10 +16,9 @@
 #include "cuda_swapchain.h"
 
 #if defined(LUISA_PLATFORM_WINDOWS)
-#include <Windows.h>
-#include <AclAPI.h>
-#include <dxgi1_2.h>
+#include <windows.h>
 #include <VersionHelpers.h>
+#include <dxgi1_2.h>
 #include <vulkan/vulkan_win32.h>
 #elif defined(LUISA_PLATFORM_UNIX)
 #include <X11/Xlib.h>
@@ -28,56 +27,10 @@
 #error "Unsupported platform"
 #endif
 
+#include "../common/vulkan_instance.h"
 #include "../common/vulkan_swapchain.h"
 
 namespace luisa::compute::cuda {
-
-#ifdef LUISA_PLATFORM_WINDOWS
-
-class WindowsSecurityAttributes {
-
-protected:
-    SECURITY_ATTRIBUTES m_winSecurityAttributes{};
-    PSECURITY_DESCRIPTOR m_winPSecurityDescriptor{};
-
-public:
-    WindowsSecurityAttributes() noexcept {
-        m_winPSecurityDescriptor = (PSECURITY_DESCRIPTOR)calloc(
-            1, SECURITY_DESCRIPTOR_MIN_LENGTH + 2 * sizeof(void **));
-        PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
-        PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
-        InitializeSecurityDescriptor(m_winPSecurityDescriptor, SECURITY_DESCRIPTOR_REVISION);
-        SID_IDENTIFIER_AUTHORITY sidIdentifierAuthority = SECURITY_WORLD_SID_AUTHORITY;
-        AllocateAndInitializeSid(&sidIdentifierAuthority, 1, SECURITY_WORLD_RID,
-                                 0, 0, 0, 0, 0, 0, 0, ppSID);
-        EXPLICIT_ACCESS explicitAccess;
-        ZeroMemory(&explicitAccess, sizeof(EXPLICIT_ACCESS));
-        explicitAccess.grfAccessPermissions = STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL;
-        explicitAccess.grfAccessMode = SET_ACCESS;
-        explicitAccess.grfInheritance = INHERIT_ONLY;
-        explicitAccess.Trustee.TrusteeForm = TRUSTEE_IS_SID;
-        explicitAccess.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-        explicitAccess.Trustee.ptstrName = (LPTSTR)*ppSID;
-        SetEntriesInAcl(1, &explicitAccess, nullptr, ppACL);
-        SetSecurityDescriptorDacl(m_winPSecurityDescriptor, true, *ppACL, false);
-        m_winSecurityAttributes.nLength = sizeof(m_winSecurityAttributes);
-        m_winSecurityAttributes.lpSecurityDescriptor = m_winPSecurityDescriptor;
-        m_winSecurityAttributes.bInheritHandle = true;
-    }
-    ~WindowsSecurityAttributes() noexcept {
-        PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
-        PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
-        if (*ppSID) { FreeSid(*ppSID); }
-        if (*ppACL) { LocalFree(*ppACL); }
-        free(m_winPSecurityDescriptor);
-    }
-
-    [[nodiscard]] auto get() const noexcept {
-        return &m_winSecurityAttributes;
-    }
-};
-
-#endif
 
 class CUDASwapchain::Impl {
 
@@ -275,25 +228,13 @@ private:
         VkSemaphoreCreateInfo semaphore_info = {};
         semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-#ifdef LUISA_PLATFORM_WINDOWS
-        WindowsSecurityAttributes win_security_attributes;
-        VkExportSemaphoreWin32HandleInfoKHR win_handle_info = {};
-        win_handle_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR;
-        win_handle_info.pNext = nullptr;
-        win_handle_info.pAttributes = win_security_attributes.get();
-        win_handle_info.dwAccess = DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE;
-        win_handle_info.name = nullptr;
-#endif
-
         VkExportSemaphoreCreateInfoKHR export_info = {};
         export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
 #ifdef LUISA_PLATFORM_WINDOWS
-        export_info.pNext = IsWindows8OrGreater() ? &win_handle_info : nullptr;
         export_info.handleTypes = IsWindows8OrGreater() ?
                                       VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT :
                                       VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT;
 #else
-        export_info.pNext = nullptr;
         export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
 #endif
         semaphore_info.pNext = &export_info;
@@ -422,7 +363,8 @@ private:
                 CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32 :
                 CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT;
         cuda_ext_semaphore_handle_desc.handle.win32.handle = vulkan_semaphore_handle(
-            IsWindows8OrGreater() ? VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT : VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT);
+            IsWindows8OrGreater() ? VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT :
+                                    VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT);
 #else
         cuda_ext_semaphore_handle_desc.type = CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD;
         cuda_ext_semaphore_handle_desc.handle.fd = vulkan_semaphore_handle(
@@ -474,7 +416,7 @@ public:
     Impl(CUuuid device_uuid, uint64_t window_handle,
          uint width, uint height, bool allow_hdr,
          bool vsync, uint back_buffer_size) noexcept
-        : _base{luisa::bit_cast<VulkanSwapchain::DeviceUUID>(device_uuid),
+        : _base{luisa::bit_cast<VulkanDeviceUUID>(device_uuid),
                 window_handle,
                 width,
                 height,
@@ -490,7 +432,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     void present(CUstream stream, CUarray image) noexcept {
-        
+
         auto name = [this] {
             std::scoped_lock lock{_name_mutex};
             return _name;
@@ -558,7 +500,7 @@ void CUDASwapchain::present(CUDAStream *stream, CUDATexture *image) noexcept {
     LUISA_ASSERT(image->storage() == _impl->pixel_storage(),
                  "Image pixel format must match the swapchain.");
     LUISA_ASSERT(all(image->size() == make_uint3(_impl->size(), 1u)),
-                     "Image size and pixel format must match the swapchain.");
+                 "Image size and pixel format must match the swapchain.");
     _impl->present(stream->handle(), image->level(0u));
 }
 
@@ -569,4 +511,3 @@ void CUDASwapchain::set_name(luisa::string &&name) noexcept {
 }// namespace luisa::compute::cuda
 
 #endif
-

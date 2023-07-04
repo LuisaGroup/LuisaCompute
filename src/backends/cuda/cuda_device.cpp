@@ -28,6 +28,7 @@
 #include "cuda_procedural_primitive.h"
 #include "cuda_accel.h"
 #include "cuda_stream.h"
+#include "cuda_event.h"
 #include "cuda_codegen_ast.h"
 #include "cuda_compiler.h"
 #include "cuda_bindless_array.h"
@@ -91,53 +92,6 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
-class CUDATimelineEventPool {
-
-public:
-    static constexpr auto event_count_per_buffer = 128u;
-
-private:
-    CUDADevice *_device;
-    luisa::vector<CUdeviceptr> _buffers;
-    luisa::vector<CUdeviceptr> _available_slots;
-    spin_mutex _mutex;
-
-public:
-    explicit CUDATimelineEventPool(CUDADevice *device) noexcept
-        : _device{device} {}
-    ~CUDATimelineEventPool() noexcept {
-        for (auto buffer : _buffers) {
-            LUISA_CHECK_CUDA(cuMemFree(buffer));
-        }
-    }
-    [[nodiscard]] auto device() const noexcept { return _device; }
-    [[nodiscard]] CUdeviceptr create(CUstream stream) noexcept {
-        auto ptr = [this] {
-            std::scoped_lock lock{_mutex};
-            if (_available_slots.empty()) {
-                CUdeviceptr buffer{};
-                LUISA_CHECK_CUDA(cuMemAlloc(&buffer, event_count_per_buffer * sizeof(CUevent)));
-                _buffers.emplace_back(buffer);
-                _available_slots.reserve(event_count_per_buffer);
-                for (auto i = 0u; i < event_count_per_buffer; i++) {
-                    _available_slots.emplace_back(buffer + i * sizeof(uint64_t));
-                }
-                std::reverse(_available_slots.begin(), _available_slots.end());
-            }
-            auto ptr = _available_slots.back();
-            _available_slots.pop_back();
-            return ptr;
-        }();
-        LUISA_CHECK_CUDA(cuStreamWriteValue64(
-            stream, ptr, 0ull, CU_STREAM_WRITE_VALUE_DEFAULT));
-        return ptr;
-    }
-    [[nodiscard]] auto destroy(CUdeviceptr ptr) noexcept {
-        std::scoped_lock lock{_mutex};
-        _available_slots.emplace_back(ptr);
-    }
-};
-
 CUDADevice::CUDADevice(Context &&ctx,
                        size_t device_id,
                        const BinaryIO *io) noexcept
@@ -199,7 +153,7 @@ CUDADevice::CUDADevice(Context &&ctx,
     }
 
     // event pool
-    _event_pool = luisa::make_unique<CUDATimelineEventPool>(this);
+    _event_manager = luisa::make_unique<CUDAEventManager>(handle().uuid());
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -728,51 +682,43 @@ void CUDADevice::destroy_shader(uint64_t handle) noexcept {
 
 ResourceCreationInfo CUDADevice::create_event() noexcept {
     auto event_handle = with_handle([this] {
-        auto event = _event_pool->create(nullptr);
-        LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
-        return event;
+        return _event_manager->create();
     });
-    return {.handle = event_handle,
-            .native_handle = reinterpret_cast<void *>(event_handle)};
+    return {.handle = reinterpret_cast<uint64_t>(event_handle),
+            .native_handle = event_handle->handle()};
 }
 
 void CUDADevice::destroy_event(uint64_t handle) noexcept {
     with_handle([this, handle] {
-        _event_pool->destroy(handle);
+        auto event = reinterpret_cast<CUDAEvent *>(handle);
+        _event_manager->destroy(event);
     });
 }
 
 void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept {
     with_handle([=] {
+        auto event = reinterpret_cast<CUDAEvent *>(handle);
         auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
-        stream->signal(handle, value);
+        stream->signal(event, value);
     });
 }
 
 void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t value) noexcept {
     with_handle([=] {
+        auto event = reinterpret_cast<CUDAEvent *>(handle);
         auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
-        stream->wait(handle, value);
+        stream->wait(event, value);
     });
 }
 
 bool CUDADevice::is_event_completed(uint64_t handle, uint64_t value) const noexcept {
-    return with_handle([=] {
-        // TODO: this implementation might not be very efficient
-        uint64_t signaled_value = 0u;
-        LUISA_CHECK_CUDA(cuMemcpyDtoH(
-            &signaled_value, handle, sizeof(uint64_t)));
-        return signaled_value >= value;
-    });
+    auto event = reinterpret_cast<CUDAEvent *>(handle);
+    return event->is_completed(value);
 }
 
 void CUDADevice::synchronize_event(uint64_t handle, uint64_t value) noexcept {
-    with_handle([=] {
-        // TODO: this implementation might not be very efficient
-        LUISA_CHECK_CUDA(cuStreamWaitValue64(
-            nullptr, handle, value, CU_STREAM_WAIT_VALUE_GEQ));
-        LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
-    });
+    auto event = reinterpret_cast<CUDAEvent *>(handle);
+    event->synchronize(value);
 }
 
 ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept {
@@ -998,7 +944,6 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 reinterpret_cast<CUDAStream *>(handle)->set_name(std::move(name));
                 break;
             case Resource::Tag::EVENT:
-                nvtxNameCuEventA(reinterpret_cast<CUevent>(handle), name.c_str());
                 break;
             case Resource::Tag::SHADER:
                 reinterpret_cast<CUDAShader *>(handle)->set_name(std::move(name));

@@ -8,43 +8,21 @@
 
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/memory.h>
-#include <luisa/core/stl/string.h>
-#include <luisa/core/magic_enum.h>
-
-#define LUISA_CHECK_VULKAN(x)                                            \
-    do {                                                                 \
-        auto ret = x;                                                    \
-        if (ret != VK_SUCCESS) [[unlikely]] {                            \
-            if (ret > 0 || ret == VK_ERROR_OUT_OF_DATE_KHR) [[likely]] { \
-                LUISA_WARNING_WITH_LOCATION(                             \
-                    "Vulkan call `" #x "` returned {}.",                 \
-                    ::luisa::to_string(ret));                            \
-            } else [[unlikely]] {                                        \
-                LUISA_ERROR_WITH_LOCATION(                               \
-                    "Vulkan call `" #x "` failed: {}.",                  \
-                    ::luisa::to_string(ret));                            \
-            }                                                            \
-        }                                                                \
-    } while (false)
 
 namespace luisa::compute {
 
+class VulkanDeviceUUID;
+
 class LC_BACKEND_API VulkanSwapchain {
+
 public:
     class Impl;
-    struct DeviceUUID {
-        uint8_t bytes[16];
-
-        [[nodiscard]] auto operator==(const DeviceUUID &rhs) const noexcept {
-            return std::memcmp(bytes, rhs.bytes, sizeof(bytes)) == 0;
-        }
-    };
 
 private:
     luisa::unique_ptr<Impl> _impl;
 
 public:
-    VulkanSwapchain(DeviceUUID device_uuid, uint64_t window_handle,
+    VulkanSwapchain(const VulkanDeviceUUID &device_uuid, uint64_t window_handle,
                     uint width, uint height, bool allow_hdr,
                     bool vsync, uint back_buffer_count,
                     luisa::span<const char *const> required_device_extensions) noexcept;

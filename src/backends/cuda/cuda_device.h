@@ -20,6 +20,7 @@ namespace luisa::compute::cuda {
 class CUDADenoiserExt;
 class CUDADStorageExt;
 class CUDATimelineEventPool;
+class CUDAEventManager;
 
 /**
  * @brief CUDA device
@@ -90,7 +91,7 @@ private:
     CUfunction _bindless_array_update_function{nullptr};
     luisa::unique_ptr<CUDACompiler> _compiler;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
-    luisa::unique_ptr<CUDATimelineEventPool> _event_pool;
+    luisa::unique_ptr<CUDAEventManager> _event_manager;
     const BinaryIO *_io{nullptr};
     luisa::string _cudadevrt_library;
 

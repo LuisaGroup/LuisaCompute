@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
 
         // wait for disk reading and read back to memory.
         compute_stream << event.wait(1)
-                       << buffer.copy_from(buffer);
+                       << buffer.copy_to(buffer_data.data());
 
         // Read buffer from file
         dstorage_file_stream

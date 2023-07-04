@@ -13,6 +13,7 @@
 #include "cuda_callback_context.h"
 #include "cuda_device.h"
 #include "cuda_stream.h"
+#include "cuda_event.h"
 
 namespace luisa::compute::cuda {
 
@@ -60,34 +61,12 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     }
 }
 
-void CUDAStream::signal(CUdeviceptr event, uint64_t value) noexcept {
-    LUISA_CHECK_CUDA(cuStreamWriteValue64(
-        _stream, event, value,
-        CU_STREAM_WRITE_VALUE_DEFAULT));
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        _stream, [](void *p) noexcept {
-            LUISA_INFO("After signal for {}.",
-                       reinterpret_cast<uint64_t>(p));
-        },
-        reinterpret_cast<void *>(value)));
+void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {
+    event->signal(_stream, value);
 }
 
-void CUDAStream::wait(CUdeviceptr event, uint64_t value) noexcept {
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        _stream, [](void *p) noexcept {
-            LUISA_INFO("Before wait for {}.",
-                       reinterpret_cast<uint64_t>(p));
-        },
-        reinterpret_cast<void *>(value)));
-    LUISA_CHECK_CUDA(cuStreamWaitValue64(
-        _stream, event, value,
-        CU_STREAM_WAIT_VALUE_GEQ));
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        _stream, [](void *p) noexcept {
-            LUISA_INFO("After wait for {}.",
-                       reinterpret_cast<uint64_t>(p));
-        },
-        reinterpret_cast<void *>(value)));
+void CUDAStream::wait(CUDAEvent *event, uint64_t value) noexcept {
+    event->wait(_stream, value);
 }
 
 void CUDAStream::set_name(luisa::string &&name) noexcept {
