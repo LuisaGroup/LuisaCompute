@@ -518,14 +518,7 @@ struct DeviceInterface {
     void (*destroy_device)(DeviceInterface);
     CreatedBufferInfo (*create_buffer)(Device, const void*, size_t);
     void (*destroy_buffer)(Device, Buffer);
-    CreatedResourceInfo (*create_texture)(Device,
-                                          PixelFormat,
-                                          uint32_t,
-                                          uint32_t,
-                                          uint32_t,
-                                          uint32_t,
-                                          uint32_t,
-                                          bool);
+    CreatedResourceInfo (*create_texture)(Device, PixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, bool);
     void (*destroy_texture)(Device, Texture);
     CreatedResourceInfo (*create_bindless_array)(Device, size_t);
     void (*destroy_bindless_array)(Device, BindlessArray);
@@ -533,14 +526,7 @@ struct DeviceInterface {
     void (*destroy_stream)(Device, Stream);
     void (*synchronize_stream)(Device, Stream);
     void (*dispatch)(Device, Stream, CommandList, DispatchCallback, uint8_t*);
-    CreatedSwapchainInfo (*create_swapchain)(Device,
-                                             uint64_t,
-                                             Stream,
-                                             uint32_t,
-                                             uint32_t,
-                                             bool,
-                                             bool,
-                                             uint32_t);
+    CreatedSwapchainInfo (*create_swapchain)(Device, uint64_t, Stream, uint32_t, uint32_t, bool, bool, uint32_t);
     void (*present_display_in_stream)(Device, Stream, Swapchain, Texture);
     void (*destroy_swapchain)(Device, Swapchain);
     CreatedShaderInfo (*create_shader)(Device, KernelModule, const ShaderOption*);

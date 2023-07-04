@@ -501,7 +501,7 @@ public:
             affine[11] = m[3][2];
             flags |= flag_transform;
         }
-        void set_transform(float affine[12]) noexcept {
+        void set_transform_data(float affine[12]) noexcept {
             std::memcpy(this->affine, affine, sizeof(this->affine));
             flags |= flag_transform;
         }

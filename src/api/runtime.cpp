@@ -323,7 +323,7 @@ private:
                         modification.set_primitive(mesh);
                     }
                     if (flags.bits & flag_transform.bits) {
-                        modification.set_transform(affine);
+                        modification.set_transform_data(affine);
                     }
                     if (flags.bits & flag_opaque_on.bits) {
                         modification.set_opaque(true);
