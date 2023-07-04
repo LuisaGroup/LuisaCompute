@@ -8,6 +8,7 @@ use std::env::{current_exe, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
+use std::sync::atomic::Ordering;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -788,15 +789,28 @@ impl Context {
                 {
                     let ctx = ctx as *const ShaderDispatchContext;
                     let ctx = &*ctx;
+                    if ctx.terminated.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    loop {
+                        let current = ctx.terminated.load(Ordering::SeqCst);
+                        if current {
+                            return;
+                        }
+                        match ctx.terminated.compare_exchange(
+                            current,
+                            true,
+                            Ordering::SeqCst,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(false) => break,
+                            _ => return,
+                        }
+                    }
                     let shader = ctx.shader as *const ShaderImpl;
                     let shader = &*shader;
-                    let mut err = (&*ctx.error).lock();
-                    if err.is_none() {
-                        *err = Some(shader.messages[msg as usize].clone());
-                    }
-                    if cfg!(target_os = "windows") {
-                        eprintln!("{}", shader.messages[msg as usize]);
-                    }
+
+                    eprintln!("{}", shader.messages[msg as usize]);
                 }
 
                 panic!("##lc_kernel##");
@@ -819,6 +833,24 @@ impl Context {
                 {
                     let ctx = ctx as *const ShaderDispatchContext;
                     let ctx = &*ctx;
+                    if ctx.terminated.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    loop {
+                        let current = ctx.terminated.load(Ordering::SeqCst);
+                        if current {
+                            return;
+                        }
+                        match ctx.terminated.compare_exchange(
+                            current,
+                            true,
+                            Ordering::SeqCst,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(false) => break,
+                            _ => return,
+                        }
+                    }
                     let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
                     let idx = msg.find("{}").unwrap();
                     let mut display = String::new();
@@ -828,13 +860,7 @@ impl Context {
                     display.push_str(&msg[idx + 2..idx + 2 + idx2]);
                     display.push_str(&format!("{}", j));
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
-                    if cfg!(target_os = "windows") {
-                        eprintln!("{}", display);
-                    }
-                    let mut err = (&*ctx.error).lock();
-                    if err.is_none() {
-                        *err = Some(display);
-                    }
+                    eprintln!("{}", display);
                 }
                 panic!("##lc_kernel##");
             }
