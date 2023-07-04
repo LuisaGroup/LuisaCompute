@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
 
     // test ir
     clock.tic();
-    auto ir = AST2IR{}.convert_kernel(kernel_def.function()->function());
+    auto ir = AST2IR::build_kernel(kernel_def.function()->function());
     LUISA_INFO("AST2IR done in {} ms.", clock.toc());
 
     // dump json

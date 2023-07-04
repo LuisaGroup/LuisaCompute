@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     }
     Device device = context.create_device(argv[1]);
 
-    auto render_kernel_ir = AST2IR{}.convert_kernel(render_kernel.function()->function());
+    auto render_kernel_ir = AST2IR::build_kernel(render_kernel.function()->function());
     auto render = device.compile<2, Image<float>>(render_kernel_ir->get());
 
     static constexpr auto width = 1280u;

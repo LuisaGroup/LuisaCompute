@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
             y_grad_buffer.write(i, grad(y));
         };
     };
-    auto ir = AST2IR{}.convert_kernel(kernel.function()->function());
+    auto ir = AST2IR::build_kernel(kernel.function()->function());
     LUISA_INFO("AST2IR done.");
 
     auto dump = ir::luisa_compute_ir_dump_human_readable(&ir->get()->module);
@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
     auto reconstructed_ast = IR2AST::build(ir->get());
     LUISA_INFO("IR2AST done.");
 
-    auto reconstructed_ir = AST2IR{}.convert_kernel(reconstructed_ast->function());
+    auto reconstructed_ir = AST2IR::build_kernel(reconstructed_ast->function());
     LUISA_INFO("2nd AST2IR done.");
 
     auto dump2 = ir::luisa_compute_ir_dump_human_readable(&reconstructed_ir->get()->module);

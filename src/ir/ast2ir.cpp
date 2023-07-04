@@ -58,7 +58,7 @@ ir::Module AST2IR::_convert_body() noexcept {
                       .pools = _pools.clone()};
 }
 
-luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function function) noexcept {
+luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
                  "Invalid function tag.");
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
@@ -162,7 +162,7 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
             }};
 }
 
-ir::CArc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept {
+ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
                  "Invalid function tag.");
 
@@ -307,6 +307,14 @@ ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
                                       .size = type->size()}}});
             _struct_types.emplace(type->hash(), t);
             return t;
+        }
+        case Type::Tag::CUSTOM: {
+            auto type_desc = type->description();
+            auto name = _boxed_slice<uint8_t>(type_desc.size());
+            std::memcpy(name.ptr, type_desc.data(), type_desc.size());
+            return register_type(
+                ir::Type{.tag = ir::Type::Tag::Opaque,
+                         .opaque = {name}});
         }
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:
@@ -506,7 +514,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     if (!expr->is_builtin()) {
         AST2IR cvt;
         auto callable = expr->custom();
-        auto cvted_callable = cvt.convert_callable(callable);
+        auto cvted_callable = cvt._convert_callable(callable);
         luisa::vector<ir::NodeRef> args;
         args.reserve(expr->arguments().size());
         for (auto i = 0u; i < expr->arguments().size(); i++) {
@@ -1323,11 +1331,15 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
-    return AST2IR{}.convert_kernel(function);
+    return AST2IR{}._convert_kernel(function);
 }
 
 [[nodiscard]] ir::CArc<ir::CallableModule> AST2IR::build_callable(Function function) noexcept {
-    return AST2IR{}.convert_callable(function);
+    return AST2IR{}._convert_callable(function);
+}
+
+ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {
+    return AST2IR{}._convert_type(type);
 }
 
 }// namespace luisa::compute

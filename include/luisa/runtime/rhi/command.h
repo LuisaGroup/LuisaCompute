@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <array>
 
 #include <luisa/core/macro.h>
@@ -501,8 +502,8 @@ public:
             affine[11] = m[3][2];
             flags |= flag_transform;
         }
-        void set_transform_data(float affine[12]) noexcept {
-            std::memcpy(this->affine, affine, sizeof(this->affine));
+        void set_transform_data(const float affine_data[12]) noexcept {
+            for (auto i = 0u; i < 12u; i++) { affine[i] = affine_data[i]; }
             flags |= flag_transform;
         }
         void set_visibility(uint8_t mask) noexcept {

@@ -90,12 +90,13 @@ private:
     // helper functions
     [[nodiscard]] ir::NodeRef _cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src) noexcept;
     [[nodiscard]] ir::NodeRef _literal(const Type *type, LiteralExpr::Value value) noexcept;
+    [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> _convert_kernel(Function function) noexcept;
+    [[nodiscard]] ir::CArc<ir::CallableModule> _convert_callable(Function function) noexcept;
 
 public:
-    [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> convert_kernel(Function function) noexcept;
-    [[nodiscard]] ir::CArc<ir::CallableModule> convert_callable(Function function) noexcept;
     [[nodiscard]] static luisa::shared_ptr<ir::CArc<ir::KernelModule>> build_kernel(Function function) noexcept;
     [[nodiscard]] static ir::CArc<ir::CallableModule> build_callable(Function function) noexcept;
+    [[nodiscard]] static ir::CArc<ir::Type> build_type(const Type *type) noexcept;
 };
 
 }// namespace luisa::compute

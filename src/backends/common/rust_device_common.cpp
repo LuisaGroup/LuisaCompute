@@ -11,6 +11,7 @@ using luisa::compute::ir::Type;
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
+#include <luisa/ir/ast2ir.h>
 #include "rust_device_common.h"
 
 // must go last to avoid name conflicts
@@ -64,7 +65,8 @@ public:
     }
 
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("@Mike-Leo-Smith: fix fix pls");
+        auto type = AST2IR::build_type(element);
+        return create_buffer(&type, elem_count);
     }
 
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override {
@@ -125,6 +127,8 @@ public:
     }
 
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override {
+        // TODO: implement this
+        LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 
     SwapchainCreationInfo
@@ -151,7 +155,8 @@ public:
     }
 
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("@Mike-Leo-Smith: fix fix pls");
+        auto shader = AST2IR::build_kernel(kernel);
+        return create_shader(option, shader->get());
     }
 
     ShaderCreationInfo
