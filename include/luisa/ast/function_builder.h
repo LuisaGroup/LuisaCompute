@@ -97,6 +97,7 @@ private:
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
+    bool _hash_computed{false};
     bool _requires_atomic_float{false};
     bool _requires_autodiff{false};
 
@@ -206,7 +207,7 @@ public:
     /// Return block size in uint3.
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     /// Return hash.
-    [[nodiscard]] auto hash() const noexcept { return _hash; }
+    [[nodiscard]] uint64_t hash() const noexcept;
     /// Return if is raytracing.
     [[nodiscard]] bool requires_raytracing() const noexcept;
     /// Return if uses atomic operations

@@ -408,6 +408,9 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
 }
 
 void FunctionBuilder::_compute_hash() noexcept {
+    if (_hash_computed) {
+        LUISA_WARNING_WITH_LOCATION("Hash already computed.");
+    }
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_function"sv);
     luisa::vector<uint64_t> hashes;
@@ -423,6 +426,12 @@ void FunctionBuilder::_compute_hash() noexcept {
     for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
     hashes.emplace_back(hash_value(_block_size));
     _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
+    _hash_computed = true;
+}
+
+uint64_t FunctionBuilder::hash() const noexcept {
+    LUISA_ASSERT(_hash_computed, "Hash not computed.");
+    return _hash;
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
