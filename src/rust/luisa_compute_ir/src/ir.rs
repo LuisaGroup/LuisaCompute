@@ -494,10 +494,13 @@ pub enum Func {
     DispatchSize,
 
     RequiresGradient,
-    Backward, // marks the beginning of backward pass
+    Backward,
+    // marks the beginning of backward pass
     Gradient,
-    GradientMarker, // marks a (node, gradient) tuple
-    AccGrad,        // grad (local), increment
+    GradientMarker,
+    // marks a (node, gradient) tuple
+    AccGrad,
+    // grad (local), increment
     Detach,
 
     // (handle, instance_id) -> Mat4
@@ -511,15 +514,22 @@ pub enum Func {
     RayTracingTraceClosest,
     // (handle, Ray, mask) -> bool
     RayTracingTraceAny,
-    RayTracingQueryAll, // (ray, mask)-> rq
+    RayTracingQueryAll,
+    // (ray, mask)-> rq
     RayTracingQueryAny, // (ray, mask)-> rq
 
-    RayQueryWorldSpaceRay,          // (rq) -> Ray
-    RayQueryProceduralCandidateHit, // (rq) -> ProceduralHit
-    RayQueryTriangleCandidateHit,   // (rq) -> TriangleHit
-    RayQueryCommittedHit,           // (rq) -> CommitedHit
-    RayQueryCommitTriangle,         // (rq) -> ()
-    RayQueryCommitProcedural,       // (rq, f32) -> ()
+    RayQueryWorldSpaceRay,
+    // (rq) -> Ray
+    RayQueryProceduralCandidateHit,
+    // (rq) -> ProceduralHit
+    RayQueryTriangleCandidateHit,
+    // (rq) -> TriangleHit
+    RayQueryCommittedHit,
+    // (rq) -> CommitedHit
+    RayQueryCommitTriangle,
+    // (rq) -> ()
+    RayQueryCommitProcedural,
+    // (rq, f32) -> ()
     RayQueryTerminate,              // (rq) -> ()
 
     RasterDiscard,
@@ -782,11 +792,27 @@ impl std::fmt::Display for Const {
         }
     }
 }
+
 impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
             Const::Int32(v) => *v,
             Const::Uint32(v) => *v as i32,
+            Const::One(t) => {
+                assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
+                1
+            }
+            Const::Zero(t) => {
+                assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
+                0
+            }
+            Const::Generic(slice, t) => {
+                assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
+                assert_eq!(slice.len(), 4, "invalid slice length for i32");
+                let mut buf = [0u8; 4];
+                buf.copy_from_slice(slice);
+                i32::from_le_bytes(buf)
+            }
             _ => panic!("cannot convert to i32"),
         }
     }
@@ -818,12 +844,15 @@ pub struct UserData {
     data: *const u8,
     eq: extern "C" fn(*const u8, *const u8) -> bool,
 }
+
 impl PartialEq for UserData {
     fn eq(&self, other: &Self) -> bool {
         (self.eq)(self.data, other.data)
     }
 }
+
 impl Eq for UserData {}
+
 impl Serialize for UserData {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let state = serializer.serialize_struct("UserData", 1)?;
@@ -959,14 +988,17 @@ pub enum Instruction {
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
 }
+
 extern "C" fn eq_impl<T: UserNodeData>(a: *const u8, b: *const u8) -> bool {
     let a = unsafe { &*(a as *const T) };
     let b = unsafe { &*(b as *const T) };
     a.equal(b)
 }
+
 fn type_id_u64<T: UserNodeData>() -> u64 {
     unsafe { std::mem::transmute(TypeId::of::<T>()) }
 }
+
 pub fn new_user_node<T: UserNodeData>(pools: &CArc<ModulePools>, data: T) -> NodeRef {
     new_node(
         pools,
@@ -980,6 +1012,7 @@ pub fn new_user_node<T: UserNodeData>(pools: &CArc<ModulePools>, data: T) -> Nod
         ),
     )
 }
+
 impl Instruction {
     pub fn is_call(&self) -> bool {
         match self {
@@ -1003,6 +1036,7 @@ impl Instruction {
         self.is_call() || self.is_const() || self.is_phi()
     }
 }
+
 pub const INVALID_INST: Instruction = Instruction::Invalid;
 
 pub fn new_node(pools: &CArc<ModulePools>, node: Node) -> NodeRef {
@@ -1062,11 +1096,13 @@ impl Serialize for BasicBlock {
         state.end()
     }
 }
+
 pub struct BasicBlockIter<'a> {
     cur: NodeRef,
     last: NodeRef,
     _block: &'a BasicBlock,
 }
+
 impl Iterator for BasicBlockIter<'_> {
     type Item = NodeRef;
     fn next(&mut self) -> Option<Self::Item> {
@@ -1079,6 +1115,7 @@ impl Iterator for BasicBlockIter<'_> {
         }
     }
 }
+
 impl BasicBlock {
     pub fn iter(&self) -> BasicBlockIter {
         BasicBlockIter {
@@ -1340,12 +1377,15 @@ impl PartialEq for CallableModuleRef {
         self.0.as_ptr() == other.0.as_ptr()
     }
 }
+
 impl Eq for CallableModuleRef {}
+
 impl Hash for CallableModuleRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.as_ptr().hash(state);
     }
 }
+
 // buffer binding
 #[repr(C)]
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, Hash, PartialEq, Eq)]
@@ -1392,11 +1432,13 @@ pub struct Capture {
     pub node: NodeRef,
     pub binding: Binding,
 }
+
 #[derive(Debug)]
 pub struct ModulePools {
     pub node_pool: Pool<Node>,
     pub bb_pool: Pool<BasicBlock>,
 }
+
 impl ModulePools {
     pub fn new() -> Self {
         Self {
@@ -1419,6 +1461,7 @@ pub struct KernelModule {
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
+
 unsafe impl Send for KernelModule {}
 
 #[repr(C)]
@@ -1426,6 +1469,7 @@ unsafe impl Send for KernelModule {}
 pub struct BlockModule {
     pub module: Module,
 }
+
 unsafe impl Send for BlockModule {}
 
 impl Module {
@@ -1437,10 +1481,12 @@ impl Module {
         }
     }
 }
+
 struct NodeCollector {
     nodes: Vec<NodeRef>,
     unique: HashSet<NodeRef>,
 }
+
 impl NodeCollector {
     fn new() -> Self {
         Self {
@@ -1499,6 +1545,7 @@ impl NodeCollector {
         }
     }
 }
+
 impl Module {
     pub fn collect_nodes(&self) -> Vec<NodeRef> {
         let mut collector = NodeCollector::new();
@@ -1869,7 +1916,7 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
                         "Requested resource {} not exist in usage map",
                         captured.node.0
                     )
-                    .as_str(),
+                        .as_str(),
                 )
                 .to_u8(),
         );
@@ -1939,10 +1986,12 @@ pub extern "C" fn luisa_compute_ir_build_local_zero_init(
 ) -> NodeRef {
     builder.local_zero_init(ty)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<ModulePools> {
     CArc::into_raw(CArc::new(ModulePools::new()))
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_builder(pools: CArc<ModulePools>) -> IrBuilder {
     unsafe { IrBuilder::new(pools.clone()) }
@@ -1971,6 +2020,7 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
 ) -> *mut CArcSharedBlock<KernelModule> {
     CArc::into_raw(CArc::new(m))
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_block_module(
     m: BlockModule,
@@ -1982,6 +2032,7 @@ pub extern "C" fn luisa_compute_ir_new_block_module(
 pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBlock<Type> {
     CArc::into_raw(context::register_type(ty.clone()))
 }
+
 pub mod debug {
     use crate::display::DisplayIR;
     use std::ffi::CString;
