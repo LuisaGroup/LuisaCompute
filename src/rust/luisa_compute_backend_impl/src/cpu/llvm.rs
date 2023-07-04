@@ -64,7 +64,7 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
@@ -208,9 +208,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -219,9 +219,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -231,7 +231,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -266,7 +266,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -276,7 +276,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -299,9 +299,9 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
 }
@@ -456,7 +456,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                .unwrap(),
+                    .unwrap(),
             );
 
             let LLVMInitializeNativeTargetInfo = lift(
@@ -467,7 +467,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                .unwrap(),
+                    .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMC = lift(
@@ -478,7 +478,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                .unwrap(),
+                    .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMCA = lift(
@@ -489,7 +489,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                .unwrap(),
+                    .unwrap(),
             );
 
             let LLVMInitializeNativeAsmPrinter = lift(
@@ -500,7 +500,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                .unwrap(),
+                    .unwrap(),
             );
 
             let LLVMContextDispose = lift(lib.get(b"LLVMContextDispose").unwrap());
@@ -945,69 +945,71 @@ fn target_name() -> String {
         panic_abort!("unsupported target")
     }
 }
-#[rustfmt::skip]
+
+#[cfg(target_arch = "aarch64")]
 fn cpu_features() -> Vec<String> {
-    if cfg!(target_arch = "x86_64") {
-        let mut features = vec![];
-        if is_x86_feature_detected!("aes") { features.push("aes"); }
-        if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
-        if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
-        if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
-        if is_x86_feature_detected!("tsc") { features.push("tsc"); }
-        if is_x86_feature_detected!("mmx") { features.push("mmx"); }
-        if is_x86_feature_detected!("sse") { features.push("sse"); }
-        if is_x86_feature_detected!("sse2") { features.push("sse2"); }
-        if is_x86_feature_detected!("sse3") { features.push("sse3"); }
-        if is_x86_feature_detected!("ssse3") { features.push("ssse3"); }
-        if is_x86_feature_detected!("sse4.1") { features.push("sse4.1"); }
-        if is_x86_feature_detected!("sse4.2") { features.push("sse4.2"); }
-        if is_x86_feature_detected!("sse4a") { features.push("sse4a"); }
-        if is_x86_feature_detected!("sha") { features.push("sha"); }
-        if is_x86_feature_detected!("avx") { features.push("avx"); }
-        if is_x86_feature_detected!("avx2") { features.push("avx2"); }
-        if is_x86_feature_detected!("avx512f") { features.push("avx512f"); }
-        if is_x86_feature_detected!("avx512cd") { features.push("avx512cd"); }
-        if is_x86_feature_detected!("avx512er") { features.push("avx512er"); }
-        if is_x86_feature_detected!("avx512pf") { features.push("avx512pf"); }
-        if is_x86_feature_detected!("avx512bw") { features.push("avx512bw"); }
-        if is_x86_feature_detected!("avx512dq") { features.push("avx512dq"); }
-        if is_x86_feature_detected!("avx512vl") { features.push("avx512vl"); }
-        if is_x86_feature_detected!("avx512ifma") { features.push("avx512ifma"); }
-        if is_x86_feature_detected!("avx512vbmi") { features.push("avx512vbmi"); }
-        if is_x86_feature_detected!("avx512vpopcntdq") { features.push("avx512vpopcntdq"); }
-        if is_x86_feature_detected!("avx512vbmi2") { features.push("avx512vbmi2"); }
-        if is_x86_feature_detected!("gfni") { features.push("gfni"); }
-        if is_x86_feature_detected!("vaes") { features.push("vaes"); }
-        if is_x86_feature_detected!("vpclmulqdq") { features.push("vpclmulqdq"); }
-        if is_x86_feature_detected!("avx512vnni") { features.push("avx512vnni"); }
-        if is_x86_feature_detected!("avx512bitalg") { features.push("avx512bitalg"); }
-        if is_x86_feature_detected!("avx512bf16") { features.push("avx512bf16"); }
-        if is_x86_feature_detected!("avx512vp2intersect") { features.push("avx512vp2intersect"); }
-        if is_x86_feature_detected!("f16c") { features.push("f16c"); }
-        if is_x86_feature_detected!("fma") { features.push("fma"); }
-        if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
-        if is_x86_feature_detected!("bmi2") { features.push("bmi2"); }
-        if is_x86_feature_detected!("abm") { features.push("abm"); }
-        if is_x86_feature_detected!("lzcnt") { features.push("lzcnt"); }
-        if is_x86_feature_detected!("tbm") { features.push("tbm"); }
-        if is_x86_feature_detected!("popcnt") { features.push("popcnt"); }
-        if is_x86_feature_detected!("fxsr") { features.push("fxsr"); }
-        if is_x86_feature_detected!("xsave") { features.push("xsave"); }
-        if is_x86_feature_detected!("xsaveopt") { features.push("xsaveopt"); }
-        if is_x86_feature_detected!("xsaves") { features.push("xsaves"); }
-        if is_x86_feature_detected!("xsavec") { features.push("xsavec"); }
-        if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
-        if is_x86_feature_detected!("adx") { features.push("adx"); }
-        if is_x86_feature_detected!("rtm") { features.push("rtm"); }
-        if is_x86_feature_detected!("movbe") { features.push("movbe"); }
-        if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
-        features.into_iter().map(|s| s.to_string()).collect()
-    } else if cfg!(target_arch = "aarch64") {
-        vec!["neon".into()]
-    } else {
-        panic_abort!("unsupported target")
-    }
+    vec!["neon".into()]
 }
+
+#[rustfmt::skip]
+#[cfg(target_arch = "x86_64")]
+fn cpu_features() -> Vec<String> {
+    let mut features = vec![];
+    if is_x86_feature_detected!("aes") { features.push("aes"); }
+    if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
+    if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
+    if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
+    if is_x86_feature_detected!("tsc") { features.push("tsc"); }
+    if is_x86_feature_detected!("mmx") { features.push("mmx"); }
+    if is_x86_feature_detected!("sse") { features.push("sse"); }
+    if is_x86_feature_detected!("sse2") { features.push("sse2"); }
+    if is_x86_feature_detected!("sse3") { features.push("sse3"); }
+    if is_x86_feature_detected!("ssse3") { features.push("ssse3"); }
+    if is_x86_feature_detected!("sse4.1") { features.push("sse4.1"); }
+    if is_x86_feature_detected!("sse4.2") { features.push("sse4.2"); }
+    if is_x86_feature_detected!("sse4a") { features.push("sse4a"); }
+    if is_x86_feature_detected!("sha") { features.push("sha"); }
+    if is_x86_feature_detected!("avx") { features.push("avx"); }
+    if is_x86_feature_detected!("avx2") { features.push("avx2"); }
+    if is_x86_feature_detected!("avx512f") { features.push("avx512f"); }
+    if is_x86_feature_detected!("avx512cd") { features.push("avx512cd"); }
+    if is_x86_feature_detected!("avx512er") { features.push("avx512er"); }
+    if is_x86_feature_detected!("avx512pf") { features.push("avx512pf"); }
+    if is_x86_feature_detected!("avx512bw") { features.push("avx512bw"); }
+    if is_x86_feature_detected!("avx512dq") { features.push("avx512dq"); }
+    if is_x86_feature_detected!("avx512vl") { features.push("avx512vl"); }
+    if is_x86_feature_detected!("avx512ifma") { features.push("avx512ifma"); }
+    if is_x86_feature_detected!("avx512vbmi") { features.push("avx512vbmi"); }
+    if is_x86_feature_detected!("avx512vpopcntdq") { features.push("avx512vpopcntdq"); }
+    if is_x86_feature_detected!("avx512vbmi2") { features.push("avx512vbmi2"); }
+    if is_x86_feature_detected!("gfni") { features.push("gfni"); }
+    if is_x86_feature_detected!("vaes") { features.push("vaes"); }
+    if is_x86_feature_detected!("vpclmulqdq") { features.push("vpclmulqdq"); }
+    if is_x86_feature_detected!("avx512vnni") { features.push("avx512vnni"); }
+    if is_x86_feature_detected!("avx512bitalg") { features.push("avx512bitalg"); }
+    if is_x86_feature_detected!("avx512bf16") { features.push("avx512bf16"); }
+    if is_x86_feature_detected!("avx512vp2intersect") { features.push("avx512vp2intersect"); }
+    if is_x86_feature_detected!("f16c") { features.push("f16c"); }
+    if is_x86_feature_detected!("fma") { features.push("fma"); }
+    if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
+    if is_x86_feature_detected!("bmi2") { features.push("bmi2"); }
+    if is_x86_feature_detected!("abm") { features.push("abm"); }
+    if is_x86_feature_detected!("lzcnt") { features.push("lzcnt"); }
+    if is_x86_feature_detected!("tbm") { features.push("tbm"); }
+    if is_x86_feature_detected!("popcnt") { features.push("popcnt"); }
+    if is_x86_feature_detected!("fxsr") { features.push("fxsr"); }
+    if is_x86_feature_detected!("xsave") { features.push("xsave"); }
+    if is_x86_feature_detected!("xsaveopt") { features.push("xsaveopt"); }
+    if is_x86_feature_detected!("xsaves") { features.push("xsaves"); }
+    if is_x86_feature_detected!("xsavec") { features.push("xsavec"); }
+    if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
+    if is_x86_feature_detected!("adx") { features.push("adx"); }
+    if is_x86_feature_detected!("rtm") { features.push("rtm"); }
+    if is_x86_feature_detected!("movbe") { features.push("movbe"); }
+    if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
+    features.into_iter().map(|s| s.to_string()).collect()
+}
+
 
 fn target_triple() -> String {
     if cfg!(target_os = "windows") {
