@@ -1162,72 +1162,80 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
     IR2ASTContext ctx{
         .module = kernel->module,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::KERNEL)};
-    auto old_ctx = _ctx;
-    _ctx = &ctx;
 
-    auto guard = detail::FunctionBuilder::FunctionStackGuard(_ctx->function_builder.get());
-    _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
-        auto entry = kernel->module.entry.get();
-        _collect_phis(entry);
+    // do the conversion
+    {
+        auto old_ctx = _ctx;
+        _ctx = &ctx;
+        detail::FunctionBuilder::FunctionStackGuard guard{_ctx->function_builder.get()};
+        _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+            auto entry = kernel->module.entry.get();
+            _collect_phis(entry);
 
-        _ctx->function_builder->set_block_size(uint3{kernel->block_size[0], kernel->block_size[1], kernel->block_size[2]});
+            _ctx->function_builder->set_block_size(uint3{kernel->block_size[0], kernel->block_size[1], kernel->block_size[2]});
 
-        auto captures = kernel->captures;
-        auto args = kernel->args;
-        for (auto i = 0; i < captures.len; i++) {
-            auto captured = captures.ptr[i];
-            auto node = ir::luisa_compute_ir_node_get(captured.node);
-            auto binding = _convert_captured(captured);
-            _ctx->node_to_exprs.emplace(node, binding);
-        }
-        for (auto i = 0; i < args.len; i++) {
-            auto arg = ir::luisa_compute_ir_node_get(args.ptr[i]);
-            auto argument = _convert_argument(arg);
-            _ctx->node_to_exprs.emplace(arg, argument);
-        }
+            auto captures = kernel->captures;
+            auto args = kernel->args;
+            for (auto i = 0; i < captures.len; i++) {
+                auto captured = captures.ptr[i];
+                auto node = ir::luisa_compute_ir_node_get(captured.node);
+                auto binding = _convert_captured(captured);
+                _ctx->node_to_exprs.emplace(node, binding);
+            }
+            for (auto i = 0; i < args.len; i++) {
+                auto arg = ir::luisa_compute_ir_node_get(args.ptr[i]);
+                auto argument = _convert_argument(arg);
+                _ctx->node_to_exprs.emplace(arg, argument);
+            }
 
-        auto shared = kernel->shared;
-        for (auto i = 0; i < shared.len; i++) {
-            auto shared_var = ir::luisa_compute_ir_node_get(shared.ptr[i]);
-            auto type = _convert_type(shared_var->type_.get());
-            auto shared_var_expr = _ctx->function_builder->shared(type);
-            _ctx->node_to_exprs.emplace(shared_var, shared_var_expr);
-        }
-        _process_local_declarations(entry);
-        _convert_block(entry);
-    });
-
-    _ctx = old_ctx;
+            auto shared = kernel->shared;
+            for (auto i = 0; i < shared.len; i++) {
+                auto shared_var = ir::luisa_compute_ir_node_get(shared.ptr[i]);
+                auto type = _convert_type(shared_var->type_.get());
+                auto shared_var_expr = _ctx->function_builder->shared(type);
+                _ctx->node_to_exprs.emplace(shared_var, shared_var_expr);
+            }
+            _process_local_declarations(entry);
+            _convert_block(entry);
+        });
+        _ctx = old_ctx;
+    }
     return ctx.function_builder;
 }
 
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
-    if (_converted_callables.find(callable) != _converted_callables.end()) {
-        return _converted_callables.at(callable);
+    if (auto iter = _converted_callables.find(callable);
+        iter != _converted_callables.end()) {
+        return iter->second;
     }
     IR2ASTContext ctx{
         .module = callable->module,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE)};
-    auto old_ctx = _ctx;
-    _ctx = &ctx;
 
-    auto guard = detail::FunctionBuilder::FunctionStackGuard(_ctx->function_builder.get());
-    _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
-        for (auto i = 0; i < callable->args.len; i++) {
-            auto arg = ir::luisa_compute_ir_node_get(callable->args.ptr[i]);
-            _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
+    // do the conversion
+    {
+        auto old_ctx = _ctx;
+        _ctx = &ctx;
+        detail::FunctionBuilder::FunctionStackGuard guard{_ctx->function_builder.get()};
+        _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+            for (auto i = 0; i < callable->args.len; i++) {
+                auto arg = ir::luisa_compute_ir_node_get(callable->args.ptr[i]);
+                _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
+            }
+            auto entry = callable->module.entry.get();
+            _collect_phis(entry);
+            _process_local_declarations(entry);
+            _convert_block(entry);
+        });
+        if (ctx.function_builder->function().tag() != Function::Tag::CALLABLE) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Calling non-callable function in device code.");
         }
-        auto entry = callable->module.entry.get();
-        _collect_phis(entry);
-        _process_local_declarations(entry);
-        _convert_block(entry);
-    });
-    if (ctx.function_builder->function().tag() != Function::Tag::CALLABLE) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Calling non-callable function in device code.");
+        _ctx = old_ctx;
     }
-    _ctx = old_ctx;
     auto callable_hash = ctx.function_builder->hash();
+    LUISA_INFO("Converted callable (ptr = {}, hash = {:016x}).",
+               (void *)(callable), callable_hash);
     auto shared_callable = _unique_callables.try_emplace(callable_hash, std::move(ctx.function_builder)).first->second;
     _converted_callables.emplace(callable, shared_callable);
     return shared_callable;

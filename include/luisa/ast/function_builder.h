@@ -97,6 +97,7 @@ private:
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
+    bool _hash_computed{false};
     bool _requires_atomic_float{false};
     bool _requires_autodiff{false};
 
@@ -206,7 +207,7 @@ public:
     /// Return block size in uint3.
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     /// Return hash.
-    [[nodiscard]] auto hash() const noexcept { return _hash; }
+    [[nodiscard]] uint64_t hash() const noexcept;
     /// Return if is raytracing.
     [[nodiscard]] bool requires_raytracing() const noexcept;
     /// Return if uses atomic operations
@@ -223,13 +224,14 @@ public:
         return _define(Function::Tag::KERNEL, std::forward<Def>(def));
     }
 
-    template<typename Def>
     /// Define a callable function with given definition
+    template<typename Def>
     static auto define_callable(Def &&def) {
         return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
-    template<typename Def>
+
     /// Define a callable function with given definition
+    template<typename Def>
     static auto define_raster_stage(Def &&def) {
         return _define(Function::Tag::RASTER_STAGE, std::forward<Def>(def));
     }
@@ -394,4 +396,3 @@ public:
 };
 
 }// namespace luisa::compute::detail
-

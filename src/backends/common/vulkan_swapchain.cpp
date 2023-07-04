@@ -138,6 +138,9 @@ private:
         extensions.emplace_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif defined(LUISA_PLATFORM_APPLE)
         extensions.emplace_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
+#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
+#endif
         extensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 #else
         extensions.emplace_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
