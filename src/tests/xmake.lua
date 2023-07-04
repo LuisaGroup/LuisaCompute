@@ -20,6 +20,9 @@ local function test_proj(name, gui_dep, callable)
 	})
 	add_files(name .. ".cpp")
 	add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
+	if get_config("enable_ir") then
+		add_deps("lc-ir")
+	end
 	if get_config("enable_gui") then
 		add_deps("lc-gui")
 	end
@@ -31,6 +34,7 @@ end
 
 -- FIXME: @Maxwell please use the doctest framework
 test_proj("test_helloworld")
+test_proj('test_autodiff', true)
 test_proj("test_ast")
 test_proj("test_atomic")
 test_proj("test_bindless", true)
