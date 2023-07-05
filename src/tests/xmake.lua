@@ -34,7 +34,9 @@ end
 
 -- FIXME: @Maxwell please use the doctest framework
 test_proj("test_helloworld")
-test_proj('test_autodiff', true)
+if get_config("enable_ir") then
+	test_proj('test_autodiff', true)
+end
 test_proj("test_ast")
 test_proj("test_atomic")
 test_proj("test_bindless", true)

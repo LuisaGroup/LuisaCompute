@@ -451,41 +451,18 @@ typedef struct LCDeviceInterface {
     void (*destroy_device)(struct LCDeviceInterface);
     struct LCCreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t);
     void (*destroy_buffer)(struct LCDevice, struct LCBuffer);
-    struct LCCreatedResourceInfo (*create_texture)(struct LCDevice,
-                                                   enum LCPixelFormat,
-                                                   uint32_t,
-                                                   uint32_t,
-                                                   uint32_t,
-                                                   uint32_t,
-                                                   uint32_t,
-                                                   bool);
+    struct LCCreatedResourceInfo (*create_texture)(struct LCDevice, enum LCPixelFormat, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, bool);
     void (*destroy_texture)(struct LCDevice, struct LCTexture);
     struct LCCreatedResourceInfo (*create_bindless_array)(struct LCDevice, size_t);
     void (*destroy_bindless_array)(struct LCDevice, struct LCBindlessArray);
     struct LCCreatedResourceInfo (*create_stream)(struct LCDevice, enum LCStreamTag);
     void (*destroy_stream)(struct LCDevice, struct LCStream);
     void (*synchronize_stream)(struct LCDevice, struct LCStream);
-    void (*dispatch)(struct LCDevice,
-                     struct LCStream,
-                     struct LCCommandList,
-                     LCDispatchCallback,
-                     uint8_t*);
-    struct LCCreatedSwapchainInfo (*create_swapchain)(struct LCDevice,
-                                                      uint64_t,
-                                                      struct LCStream,
-                                                      uint32_t,
-                                                      uint32_t,
-                                                      bool,
-                                                      bool,
-                                                      uint32_t);
-    void (*present_display_in_stream)(struct LCDevice,
-                                      struct LCStream,
-                                      struct LCSwapchain,
-                                      struct LCTexture);
+    void (*dispatch)(struct LCDevice, struct LCStream, struct LCCommandList, LCDispatchCallback, uint8_t*);
+    struct LCCreatedSwapchainInfo (*create_swapchain)(struct LCDevice, uint64_t, struct LCStream, uint32_t, uint32_t, bool, bool, uint32_t);
+    void (*present_display_in_stream)(struct LCDevice, struct LCStream, struct LCSwapchain, struct LCTexture);
     void (*destroy_swapchain)(struct LCDevice, struct LCSwapchain);
-    struct LCCreatedShaderInfo (*create_shader)(struct LCDevice,
-                                                struct LCKernelModule,
-                                                const struct LCShaderOption*);
+    struct LCCreatedShaderInfo (*create_shader)(struct LCDevice, struct LCKernelModule, const struct LCShaderOption*);
     void (*destroy_shader)(struct LCDevice, struct LCShader);
     struct LCCreatedResourceInfo (*create_event)(struct LCDevice);
     void (*destroy_event)(struct LCDevice, struct LCEvent);
@@ -495,8 +472,7 @@ typedef struct LCDeviceInterface {
     bool (*is_event_completed)(struct LCDevice, struct LCEvent, uint64_t);
     struct LCCreatedResourceInfo (*create_mesh)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_mesh)(struct LCDevice, struct LCMesh);
-    struct LCCreatedResourceInfo (*create_procedural_primitive)(struct LCDevice,
-                                                                const struct LCAccelOption*);
+    struct LCCreatedResourceInfo (*create_procedural_primitive)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_procedural_primitive)(struct LCDevice, struct LCProceduralPrimitive);
     struct LCCreatedResourceInfo (*create_accel)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_accel)(struct LCDevice, struct LCAccel);
