@@ -23,15 +23,24 @@ namespace luisa::compute::rust {
 class APICommandConverter final : public CommandVisitor {
 
 public:
-    struct CommandBuffer {
+    class CommandBuffer {
 
-        luisa::vector<void *> temp;
-        luisa::vector<api::Command> api_commands;
-        CommandList list;
+    private:
+        luisa::vector<void *> _temp;
+        luisa::vector<api::Command> _api_commands;
+        CommandList _list;
+
+    public:
+        CommandBuffer(luisa::vector<void *> temp,
+                      luisa::vector<api::Command> api_commands,
+                      CommandList list) noexcept
+            : _temp{std::move(temp)},
+              _api_commands{std::move(api_commands)},
+              _list{std::move(list)} {}
 
         void on_completion() noexcept {
-            for (auto &&callback : list.callbacks()) { callback(); }
-            for (auto p : temp) {
+            for (auto &&callback : _list.callbacks()) { callback(); }
+            for (auto p : _temp) {
                 luisa::deallocate_with_allocator(
                     static_cast<std::byte *>(p));
             }
