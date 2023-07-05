@@ -110,7 +110,8 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         ops.test(CallOp::REDUCE_MIN) ||
         ops.test(CallOp::REDUCE_PRODUCT) ||
         ops.test(CallOp::REDUCE_SUM) ||
-        ops.test(CallOp::OUTER_PRODUCT)) {
+        ops.test(CallOp::OUTER_PRODUCT) ||
+        ops.test(CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION)) {
         builder << CodegenUtility::ReadInternalHLSLFile("reduce", internalDataPath);
     }
     return immutable_size;
@@ -1043,6 +1044,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::REDUCE_MIN: str << "_reduce_min"; break;
         case CallOp::REDUCE_MAX: str << "_reduce_max"; break;
         case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
+        case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: str << "_mat_comp_mul"; break;
         default: {
             LUISA_ERROR("Function Not Implemented");
         } break;
