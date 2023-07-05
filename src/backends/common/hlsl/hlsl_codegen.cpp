@@ -306,6 +306,9 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
         }
     }
 }
+void StringStateVisitor::visit(const AutoDiffStmt *stmt) {
+    visit(stmt->body());
+}
 void StringStateVisitor::visit(const CommentStmt *state) {
     // str << "/* " << state->comment() << " */\n";
 }
@@ -483,7 +486,7 @@ void StringStateVisitor::VisitFunction(
         str << ";\n";
 #ifdef LUISA_ENABLE_IR
         if (grad_vars.contains(v)) {
-            str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0"sv;
+            str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0;\n"sv;
         }
 #endif
     }

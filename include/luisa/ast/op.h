@@ -304,16 +304,6 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
-
-[[nodiscard]] constexpr auto is_autodiff_operation(CallOp op) noexcept {
-    return op == CallOp::REQUIRES_GRADIENT ||
-           op == CallOp::GRADIENT ||
-           op == CallOp::GRADIENT_MARKER ||
-           op == CallOp::ACCUMULATE_GRADIENT ||
-           op == CallOp::BACKWARD ||
-           op == CallOp::DETACH;
-}
-
 /**
  * @brief Set of call operations.
  * 

@@ -5,6 +5,6 @@
 #define _GRAD(x) (x##_grad)
 template<typename A>
 void _accum_grad(inout A x_grad,A dx){
-x_grad+=select(is_nan(dx),(A)0,dx);
+x_grad+=select(isnan(dx),(A)0,dx);
 }
-#define _REQUIRES_GRAD(x,type) x##_grad=_zero<type>()
+#define _REQUIRES_GRAD(x,type) x##_grad=_zero(type)
