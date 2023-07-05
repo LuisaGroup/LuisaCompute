@@ -503,6 +503,9 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
             _requires_atomic_float = true;
         }
     }
+    if(is_autodiff_operation(call_op)){
+        _requires_autodiff = true;
+    }
     auto expr = _create_expression<CallExpr>(
         type, call_op, CallExpr::ArgumentList{args.begin(), args.end()});
     if (type == nullptr) {

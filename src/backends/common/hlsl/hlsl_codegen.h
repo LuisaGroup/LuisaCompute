@@ -152,7 +152,11 @@ public:
     void visit(const CommentStmt *) override;
     void visit(const RayQueryStmt *) override;
     void visit(const AutoDiffStmt *stmt) override {}
-    void VisitFunction(Function func);
+    void VisitFunction(
+#ifdef LUISA_ENABLE_IR
+        vstd::unordered_set<Variable> const &grad_vars,
+#endif
+        Function func);
     StringStateVisitor(
         Function f,
         vstd::StringBuilder &str,

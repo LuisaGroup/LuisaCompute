@@ -285,30 +285,18 @@ enum struct CallOp : uint32_t {
 static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
-    return op == CallOp::ATOMIC_EXCHANGE ||
-           op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
-           op == CallOp::ATOMIC_FETCH_ADD ||
-           op == CallOp::ATOMIC_FETCH_SUB ||
-           op == CallOp::ATOMIC_FETCH_AND ||
-           op == CallOp::ATOMIC_FETCH_OR ||
-           op == CallOp::ATOMIC_FETCH_XOR ||
-           op == CallOp::ATOMIC_FETCH_MIN ||
-           op == CallOp::ATOMIC_FETCH_MAX;
+    auto op_value = luisa::to_underlying(op) ;
+    return op_value >= luisa::to_underlying(CallOp::ATOMIC_EXCHANGE) && op_value <= luisa::to_underlying(CallOp::ATOMIC_FETCH_MAX);
+}
+
+[[nodiscard]] constexpr auto is_autodiff_operation(CallOp op) noexcept {
+    auto op_value = luisa::to_underlying(op) ;
+    return op_value >= luisa::to_underlying(CallOp::REQUIRES_GRADIENT) && op_value <= luisa::to_underlying(CallOp::DETACH);
 }
 
 [[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
-    return op == CallOp::MAKE_BOOL2 ||
-           op == CallOp::MAKE_BOOL3 ||
-           op == CallOp::MAKE_BOOL4 ||
-           op == CallOp::MAKE_INT2 ||
-           op == CallOp::MAKE_INT3 ||
-           op == CallOp::MAKE_INT4 ||
-           op == CallOp::MAKE_UINT2 ||
-           op == CallOp::MAKE_UINT3 ||
-           op == CallOp::MAKE_UINT4 ||
-           op == CallOp::MAKE_FLOAT2 ||
-           op == CallOp::MAKE_FLOAT3 ||
-           op == CallOp::MAKE_FLOAT4;
+    auto op_value = luisa::to_underlying(op) ;
+    return op_value >= luisa::to_underlying(CallOp::MAKE_BOOL2) && op_value <= luisa::to_underlying(CallOp::MAKE_FLOAT4);
 }
 
 [[nodiscard]] constexpr auto is_matrix_maker(CallOp op) noexcept {

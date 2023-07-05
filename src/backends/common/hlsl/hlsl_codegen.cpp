@@ -458,7 +458,11 @@ StringStateVisitor::StringStateVisitor(
     CodegenUtility *util)
     : f(f), util(util), str(str) {
 }
-void StringStateVisitor::VisitFunction(Function func) {
+void StringStateVisitor::VisitFunction(
+#ifdef LUISA_ENABLE_IR
+    vstd::unordered_set<Variable> const &grad_vars,
+#endif
+    Function func) {
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
         if (usage == Usage::NONE) [[unlikely]] {
@@ -467,25 +471,21 @@ void StringStateVisitor::VisitFunction(Function func) {
         if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) == 0) {
             str << "const "sv;
         }
-#if false// clear struct
-        if (v.type()->is_structure()) {
-            vstd::StringBuilder typeName;
-            util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-            str << typeName << ' ';
-            util->GetVariableName(v, str);
-            str << "=("sv << typeName << ")0;\n";
-        } else
-#endif
-        {
-            vstd::StringBuilder typeName;
-            util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-            str << typeName << ' ';
-            util->GetVariableName(v, str);
-            if (eastl::to_underlying(v.type()->tag()) < eastl::to_underlying(Type::Tag::BUFFER)) [[likely]] {
-                str << "=("sv << typeName << ")0"sv;
-            }
-            str << ";\n";
+        vstd::StringBuilder typeName;
+        util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+        vstd::StringBuilder varName;
+        util->GetVariableName(v, varName);
+
+        str << typeName << ' ' << varName;
+        if (eastl::to_underlying(v.type()->tag()) < eastl::to_underlying(Type::Tag::BUFFER)) [[likely]] {
+            str << "=("sv << typeName << ")0"sv;
         }
+        str << ";\n";
+#ifdef LUISA_ENABLE_IR
+        if (grad_vars.contains(v)) {
+            str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0"sv;
+        }
+#endif
     }
     if (sharedVariables) {
         for (auto &&v : func.shared_variables()) {

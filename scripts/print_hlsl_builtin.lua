@@ -4,7 +4,8 @@
 local files_list = {'accel_process', 'bc6_encode_block', 'bc6_header', 'bc6_trymode_g10cs', 'bc6_trymode_le10cs',
                     'bc7_encode_block', 'bc7_header', 'bc7_trymode_02cs', 'bc7_trymode_137cs', 'bc7_trymode_456cs',
                     'hlsl_header', 'raytracing_header', 'tex2d_bindless', 'tex3d_bindless', 'compute_quad',
-                    'determinant', 'inverse', 'indirect', 'resource_size', 'accel_header', 'copy_sign', 'bindless_common'}
+                    'determinant', 'inverse', 'indirect', 'resource_size', 'accel_header', 'copy_sign',
+                    'bindless_common', 'auto_diff', "reduce"}
 local lib = import("lib")
 
 local hlsl_builtin_path = path.join(os.projectdir(), "src/backends/common/hlsl/builtin")

@@ -9,6 +9,27 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
 namespace lc::hlsl {
+static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
+    if (f.requires_autodiff())
+        traverse_expressions<true>(
+            f.body(),
+            [&](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    if (auto call = static_cast<const CallExpr *>(expr);
+                        call->op() == CallOp::GRADIENT ||
+                        call->op() == CallOp::GRADIENT_MARKER ||
+                        call->op() == CallOp::REQUIRES_GRADIENT) {
+                        LUISA_ASSERT(!call->arguments().empty() &&
+                                         call->arguments().front()->tag() == Expression::Tag::REF,
+                                     "Invalid gradient function call.");
+                        auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                        gradient_variables.emplace(v);
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+}
 struct RegisterIndexer {
     virtual void init() = 0;
     virtual uint &get(uint idx) = 0;
@@ -81,6 +102,16 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     }
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
+    }
+    if (ops.test(CallOp::GRADIENT) || ops.test(CallOp::ACCUMULATE_GRADIENT) || ops.test(CallOp::REQUIRES_GRADIENT)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);
+    }
+    if (ops.test(CallOp::REDUCE_MAX) ||
+        ops.test(CallOp::REDUCE_MIN) ||
+        ops.test(CallOp::REDUCE_PRODUCT) ||
+        ops.test(CallOp::REDUCE_SUM) ||
+        ops.test(CallOp::OUTER_PRODUCT)) {
+        builder << CodegenUtility::ReadInternalHLSLFile("reduce", internalDataPath);
     }
     return immutable_size;
 }
@@ -976,6 +1007,42 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[0]->accept(vis);
             str << ".Abort()"sv;
             return;
+        case CallOp::ZERO: {
+            str << "_zero("sv;
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ')';
+            return;
+        }
+        case CallOp::ONE: {
+            str << "_one("sv;
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ')';
+            return;
+        }
+        case CallOp::REQUIRES_GRADIENT: {
+            str << "_REQUIRES_GRAD("sv;
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            GetTypeName(*args[0]->type(), str, Usage::READ, true);
+            str << ')';
+            return;
+        }
+        case CallOp::GRADIENT:
+            str << "_GRAD";
+            break;
+        case CallOp::GRADIENT_MARKER:
+            str << "_MARK_GRAD";
+            break;
+        case CallOp::ACCUMULATE_GRADIENT:
+            str << "_accum_grad";
+            break;
+        case CallOp::REDUCE_SUM: str << "_reduce_sum"; break;
+        case CallOp::REDUCE_PRODUCT: str << "_reduce_prod"; break;
+        case CallOp::REDUCE_MIN: str << "_reduce_min"; break;
+        case CallOp::REDUCE_MAX: str << "_reduce_max"; break;
+        case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
         default: {
             LUISA_ERROR("Function Not Implemented");
         } break;
@@ -1057,7 +1124,10 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
                 dataView);
             result << "};\n"sv;
         }
-
+#ifdef LUISA_ENABLE_IR
+        vstd::unordered_set<Variable> grad_vars;
+        glob_variables_with_grad(func, grad_vars);
+#endif
         if (func.tag() == Function::Tag::KERNEL) {
             opt->funcType = CodegenStackData::FuncType::Kernel;
             result << "[numthreads("
@@ -1108,7 +1178,11 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
 
             StringStateVisitor vis(func, result, this);
             vis.sharedVariables = &opt->sharedVariable;
-            vis.VisitFunction(func);
+            vis.VisitFunction(
+#ifdef LUISA_ENABLE_IR
+                grad_vars,
+#endif
+                func);
         }
         result << "}\n"sv;
     };
@@ -1158,10 +1232,18 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
+#ifdef LUISA_ENABLE_IR
+    vstd::unordered_set<Variable> grad_vars;
+    glob_variables_with_grad(vert, grad_vars);
+#endif
     {
         StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(vert);
+        vis.VisitFunction(
+#ifdef LUISA_ENABLE_IR
+            grad_vars,
+#endif
+            vert);
     }
     result << R"(
 }
@@ -1219,10 +1301,18 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
+#ifdef LUISA_ENABLE_IR
+    vstd::unordered_set<Variable> grad_vars;
+    glob_variables_with_grad(pixel, grad_vars);
+#endif
     {
         StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(pixel);
+        vis.VisitFunction(
+#ifdef LUISA_ENABLE_IR
+            grad_vars,
+#endif
+            pixel);
     }
     result << R"(
 }
