@@ -930,7 +930,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
         case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
         case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DETACH: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DETACH: {
+            _scratch << "static_cast<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
