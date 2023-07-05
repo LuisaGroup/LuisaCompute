@@ -105,7 +105,6 @@ RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
 }
 
 AutoDiffStmt *FunctionBuilder::autodiff_() noexcept {
-    _requires_autodiff = true;
     return _create_and_append_statement<AutoDiffStmt>();
 }
 
@@ -598,7 +597,6 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         // propagate used builtin/custom callables and constants
         _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
         _requires_atomic_float |= f->_requires_atomic_float;
-        _requires_autodiff |= f->_requires_autodiff;
     }
     if (type == nullptr) {
         _void_expr(expr);
@@ -655,7 +653,7 @@ bool FunctionBuilder::requires_atomic_float() const noexcept {
 }
 
 bool FunctionBuilder::requires_autodiff() const noexcept {
-    return _requires_autodiff;
+    return _propagated_builtin_callables.uses_autodiff();
 }
 
 void FunctionBuilder::sort_bindings() noexcept {

@@ -178,22 +178,22 @@ enum struct CallOp : uint32_t {
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
     TEXTURE_SIZE, /// [(texture) -> Vector<uint, dim>]
 
-    BINDLESS_TEXTURE2D_SAMPLE,         // (bindless_array, index: uint, uv: float2): float4
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,   // (bindless_array, index: uint, uv: float2, level: float): float4
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD,    // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+    BINDLESS_TEXTURE2D_SAMPLE,           // (bindless_array, index: uint, uv: float2): float4
+    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,     // (bindless_array, index: uint, uv: float2, level: float): float4
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD,      // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
     BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL,// (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2,  mip_clamp: float): float4
-    BINDLESS_TEXTURE3D_SAMPLE,         // (bindless_array, index: uint, uv: float3): float4
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,   // (bindless_array, index: uint, uv: float3, level: float): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD,    // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,    // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float): float4
-    BINDLESS_TEXTURE2D_READ,           // (bindless_array, index: uint, coord: uint2): float4
-    BINDLESS_TEXTURE3D_READ,           // (bindless_array, index: uint, coord: uint3): float4
-    BINDLESS_TEXTURE2D_READ_LEVEL,     // (bindless_array, index: uint, coord: uint2, level: uint): float4
-    BINDLESS_TEXTURE3D_READ_LEVEL,     // (bindless_array, index: uint, coord: uint3, level: uint): float4
-    BINDLESS_TEXTURE2D_SIZE,           // (bindless_array, index: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE,           // (bindless_array, index: uint): uint3
-    BINDLESS_TEXTURE2D_SIZE_LEVEL,     // (bindless_array, index: uint, level: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE_LEVEL,     // (bindless_array, index: uint, level: uint): uint3
+    BINDLESS_TEXTURE3D_SAMPLE,           // (bindless_array, index: uint, uv: float3): float4
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,     // (bindless_array, index: uint, uv: float3, level: float): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD,      // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,// (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float): float4
+    BINDLESS_TEXTURE2D_READ,             // (bindless_array, index: uint, coord: uint2): float4
+    BINDLESS_TEXTURE3D_READ,             // (bindless_array, index: uint, coord: uint3): float4
+    BINDLESS_TEXTURE2D_READ_LEVEL,       // (bindless_array, index: uint, coord: uint2, level: uint): float4
+    BINDLESS_TEXTURE3D_READ_LEVEL,       // (bindless_array, index: uint, coord: uint3, level: uint): float4
+    BINDLESS_TEXTURE2D_SIZE,             // (bindless_array, index: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE,             // (bindless_array, index: uint): uint3
+    BINDLESS_TEXTURE2D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
     BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
     BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
@@ -242,12 +242,12 @@ enum struct CallOp : uint32_t {
     ONE,
 
     // autodiff ops
-    REQUIRES_GRADIENT,
-    GRADIENT,
-    GRADIENT_MARKER,
-    ACCUMULATE_GRADIENT,
-    BACKWARD,
-    DETACH,
+    REQUIRES_GRADIENT,  // (expr) -> void
+    GRADIENT,           // (expr) -> expr
+    GRADIENT_MARKER,    // (ref, expr) -> void
+    ACCUMULATE_GRADIENT,// (ref, expr) -> void
+    BACKWARD,           // (expr) -> void
+    DETACH,             // (expr) -> expr
 
     // ray tracing
     RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
@@ -317,6 +317,15 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
            op == CallOp::MAKE_FLOAT4X4;
 }
 
+[[nodiscard]] constexpr auto is_autodiff_operation(CallOp op) noexcept {
+    return op == CallOp::REQUIRES_GRADIENT ||
+           op == CallOp::GRADIENT ||
+           op == CallOp::GRADIENT_MARKER ||
+           op == CallOp::ACCUMULATE_GRADIENT ||
+           op == CallOp::BACKWARD ||
+           op == CallOp::DETACH;
+}
+
 /**
  * @brief Set of call operations.
  * 
@@ -373,6 +382,14 @@ public:
                test(CallOp::ATOMIC_EXCHANGE) ||
                test(CallOp::ATOMIC_EXCHANGE) ||
                test(CallOp::ATOMIC_COMPARE_EXCHANGE);
+    }
+    [[nodiscard]] auto uses_autodiff() const noexcept {
+        return test(CallOp::REQUIRES_GRADIENT) ||
+               test(CallOp::GRADIENT) ||
+               test(CallOp::GRADIENT_MARKER) ||
+               test(CallOp::ACCUMULATE_GRADIENT) ||
+               test(CallOp::BACKWARD) ||
+               test(CallOp::DETACH);
     }
 };
 

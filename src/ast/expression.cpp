@@ -51,6 +51,8 @@ void CallExpr::_mark() const noexcept {
             case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
             case CallOp::RAY_QUERY_TERMINATE:
+            case CallOp::GRADIENT_MARKER:
+            case CallOp::ACCUMULATE_GRADIENT:
             case CallOp::ATOMIC_EXCHANGE:
             case CallOp::ATOMIC_COMPARE_EXCHANGE:
             case CallOp::ATOMIC_FETCH_ADD:
