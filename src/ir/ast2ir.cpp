@@ -67,7 +67,7 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
                      !_function,
                  "Invalid state.");
     _function = function;
-    _pools = ir::CppOwnedCArc<ir::ModulePools>(std::move(ir::luisa_compute_ir_new_module_pools()));
+    _pools = ir::CppOwnedCArc<ir::ModulePools>(ir::luisa_compute_ir_new_module_pools());
     auto m = _with_builder([this](auto builder) noexcept {
         auto total_args = _function.builder()->arguments();
         auto bound_args = _function.builder()->bound_arguments();
@@ -131,33 +131,36 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
             shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
         auto module = _convert_body();
+        return ir::KernelModule{
+            .module = module,
+            .captures = captures,
+            .args = non_captures,
+            .shared = shared,
+            .block_size = {_function.block_size().x,
+                           _function.block_size().y,
+                           _function.block_size().z},
+            .pools = _pools.clone()};
+    });
 
+    if (function.requires_autodiff()) {
         LUISA_INFO("creating autodiff pipeline");
         auto autodiff_pipeline = ir::luisa_compute_ir_transform_pipeline_new();
         LUISA_INFO("adding autodiff transform");
         ir::luisa_compute_ir_transform_pipeline_add_transform(autodiff_pipeline, "autodiff");
         LUISA_INFO("converting module");
-        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, module);
-        //
-        auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
-        std::ofstream out2{"autodiff_ir_dump_instant.txt"};
-        out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
-        //
+        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, m.module);
+        // auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
+        // std::ofstream out2{"autodiff_ir_dump_instant.txt"};
+        // out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
         LUISA_INFO("destroying pipeline");
         ir::luisa_compute_ir_transform_pipeline_destroy(autodiff_pipeline);
         LUISA_INFO("autodiff done");
+        // update the module
+        m.module = converted_module;
+    }
 
-        return ir::luisa_compute_ir_new_kernel_module(
-            ir::KernelModule{.module = converted_module,
-                             .captures = captures,
-                             .args = non_captures,
-                             .shared = shared,
-                             .block_size = {_function.block_size().x,
-                                            _function.block_size().y,
-                                            _function.block_size().z},
-                             .pools = _pools.clone()});
-    });
-    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(m),
+    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(
+                ir::luisa_compute_ir_new_kernel_module(m)),
             [](auto p) noexcept {
                 luisa::delete_with_allocator(p);
             }};
