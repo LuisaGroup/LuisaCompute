@@ -891,7 +891,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
-        case CallOp::UNREACHABLE: 
+        case CallOp::UNREACHABLE:
             _scratch << "lc_unreachable<";
             _emit_type_name(expr->type());
             _scratch << ">";
@@ -1127,7 +1127,9 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void CUDACodegenAST::emit(Function f, luisa::string_view native_include) {
+void CUDACodegenAST::emit(Function f,
+                          luisa::string_view device_lib,
+                          luisa::string_view native_include) {
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
@@ -1145,8 +1147,10 @@ void CUDACodegenAST::emit(Function f, luisa::string_view native_include) {
     _scratch << "#define LC_BLOCK_SIZE lc_make_uint3("
              << f.block_size().x << ", "
              << f.block_size().y << ", "
-             << f.block_size().z << ")\n\n"
-             << "#include \"device_library.h\"\n\n";
+             << f.block_size().z << ")\n"
+             << "\n/* built-in device library begin */\n"
+             << device_lib
+             << "\n/* built-in device library end */\n\n";
 
     _emit_type_decl(f);
 
@@ -1162,7 +1166,7 @@ void CUDACodegenAST::emit(Function f, luisa::string_view native_include) {
 void CUDACodegenAST::_emit_function(Function f) noexcept {
 
     if (auto iter = std::find_if(_generated_functions.cbegin(),
-                              _generated_functions.cend(), [&](auto &&other) noexcept { return other.hash() == f.hash(); });
+                                 _generated_functions.cend(), [&](auto &&other) noexcept { return other.hash() == f.hash(); });
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
@@ -1683,7 +1687,7 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
 }
 
 CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept
-    : _scratch{scratch}, 
+    : _scratch{scratch},
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
       _allow_indirect_dispatch{allow_indirect},
       _ray_type{Type::of<Ray>()},
@@ -1697,4 +1701,3 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noex
 CUDACodegenAST::~CUDACodegenAST() noexcept = default;
 
 }// namespace luisa::compute::cuda
-

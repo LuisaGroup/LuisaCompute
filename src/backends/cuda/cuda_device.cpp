@@ -116,7 +116,7 @@ CUDADevice::CUDADevice(Context &&ctx,
     luisa::string builtin_kernel_src{
         luisa_cuda_builtin_cuda_builtin_kernels,
         sizeof(luisa_cuda_builtin_cuda_builtin_kernels)};
-    auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
+    auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
 
     // prepare default shaders
     with_handle([this, &builtin_kernel_ptx] {
@@ -451,16 +451,18 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
 
     // compile if not found in cache
     if (ptx.empty()) {
+        luisa::filesystem::path src_dump_path;
 #if LUISA_CUDA_DUMP_SOURCE
         luisa::span src_data{reinterpret_cast<const std::byte *>(source.data()), source.size()};
         auto src_name = luisa::format("{}.cu", name);
         if (uses_user_path) {
-            _io->write_shader_bytecode(src_name, src_data);
+            src_dump_path = _io->write_shader_bytecode(src_name, src_data);
         } else if (option.enable_cache) {
-            _io->write_shader_cache(src_name, src_data);
+            src_dump_path = _io->write_shader_cache(src_name, src_data);
         }
 #endif
-        ptx = _compiler->compile(source, nvrtc_options, &expected_metadata);
+        luisa::string src_filename{src_dump_path.string()};
+        ptx = _compiler->compile(source, src_filename, nvrtc_options, &expected_metadata);
         if (!ptx.empty()) {
             luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
             if (uses_user_path) {
@@ -507,7 +509,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     Clock clk;
     StringScratch scratch;
     CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
-    codegen.emit(kernel, option.native_include);
+    codegen.emit(kernel, _compiler->device_library(), option.native_include);
     LUISA_INFO("Generated CUDA source in {} ms.", clk.toc());
 
     // process bound arguments
