@@ -28,7 +28,7 @@ public:
 
 private:
     luisa::unordered_map<size_t, Modification> _modifications;
-    luisa::vector<uint64_t> _mesh_handles;
+    size_t _mesh_size{};
 
 private:
     friend class Device;
@@ -57,7 +57,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
-        return _mesh_handles.size();
+        return _mesh_size;
     }
 
     // host interfaces

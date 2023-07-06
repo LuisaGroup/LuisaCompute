@@ -190,7 +190,9 @@ protected:
     }
 
     void _check_is_valid() const noexcept {
+#ifndef NDEBUG
         if (!*this) [[unlikely]] { _error_invalid(); }
+#endif
     }
 
 protected:
