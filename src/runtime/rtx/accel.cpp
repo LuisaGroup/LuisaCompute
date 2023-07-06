@@ -86,7 +86,18 @@ void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, 
         _modifications[index] = modification;
     }
 }
-
+void Accel::_set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
+    _check_is_valid();
+    if (index >= size()) [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Invalid index {} in accel #{}.",
+            index, handle());
+    } else {
+        auto [iter, _] = _modifications.try_emplace(
+            index, Modification{static_cast<uint>(index)});
+        iter->second.set_primitive(prim_handle);
+    }
+}
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
     _check_is_valid();
     if (index >= size()) [[unlikely]] {
