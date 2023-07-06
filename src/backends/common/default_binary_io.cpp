@@ -73,7 +73,11 @@ void DefaultBinaryIO::_unlock(MapIndex const &idx, bool is_write) const noexcept
     }
 }
 
-void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::byte const> data) const noexcept {
+void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::byte const> data) const noexcept {
+    auto folder = luisa::filesystem::path{file_path}.parent_path();
+    std::error_code ec;
+    luisa::filesystem::create_directories(folder, ec);
+    if (ec) { LUISA_WARNING("Create directory {} failed.", folder.string()); }
     auto idx = _lock(file_path, true);
     auto disposer = vstd::scope_exit([&]() { _unlock(idx, true); });
     auto f = fopen(file_path.c_str(), "wb");
@@ -145,4 +149,3 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
 }
 
 }// namespace luisa::compute
-
