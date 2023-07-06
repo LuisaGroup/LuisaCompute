@@ -331,6 +331,7 @@ private:
     using HashMapType = HashMap;
     using MapType = typename HashMapType::Map;
     using K = typename HashMap::KeyType;
+
 public:
     HashSetIndex() noexcept = default;
     HashSetIndex(const HashMapType *map, typename HashMapType::LinkNode *node) noexcept
@@ -346,15 +347,13 @@ public:
     }
     using HashMap::IndexBase::operator bool;
 };
-template <typename V>
-struct HashSetIndexType{
-    template <typename HashMap>
+template<typename V, typename HashMap>
+struct HashSetIndexType {
     using type = HashMapIndex<HashMap>;
 };
 
-template <>
-struct HashSetIndexType<void>{
-    template <typename HashMap>
+template<typename HashMap>
+struct HashSetIndexType<void, HashMap> {
     using type = HashSetIndex<HashMap>;
 };
 
@@ -452,7 +451,7 @@ public:
         }
     };
 
-    using Index = typename hashmap_detail::HashSetIndexType<V>::type<HashMap>;
+    using Index = typename hashmap_detail::HashSetIndexType<V, HashMap>::type;
 
     Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
@@ -672,4 +671,3 @@ public:
     [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
 };
 }// namespace vstd
-

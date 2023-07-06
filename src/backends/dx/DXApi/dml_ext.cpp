@@ -4,15 +4,15 @@
 #define _D3D12MA_IUNKNOWN_IMPL_FUNCTIONS
 #include "DirectMLX.h"
 #include <luisa/backends/ext/dx_custom_cmd.h>
-#include<wrl/client.h>
+#include <wrl/client.h>
+#include <Resource/DefaultBuffer.h>
 //#include <wil/result_macros.h>
 #define THROW_IF_FAILED(hr) hr
 #define IID_GRAPHICS_PPV_ARGS IID_PPV_ARGS
 using namespace luisa;
 using namespace luisa::compute;
 
-class DxDMLGraph : public DMLGraph
-{
+class DxDMLGraph : public DMLGraph {
 public:
     ComPtr<IDMLDevice> dmlDevice;
     ComPtr<IDMLCompiledOperator> dmlCompiledOperator;
@@ -33,29 +33,27 @@ public:
     int hiddenDim;
 
     bool bind = false;
-    bool half = true;
-
+    bool half;
 
     ComPtr<ID3D12Resource> temporaryBuffer;
     ComPtr<ID3D12Resource> persistentBuffer;
+    unique_ptr<Command> build(int batchSize, int input, int layer, int hiddenDim, int output) noexcept override;
+    unique_ptr<Command> forward(Argument::Buffer input_buffer, Argument::Buffer output_buffer, Argument::Buffer weights_buffer) noexcept override;
 };
-class DxGraphBuildCommand : public DXCustomCmd
-{
+class DxGraphBuildCommand : public DXCustomCmd {
 public:
-    DxGraphBuildCommand(DxDMLGraph* graph, int batchSize, int input, int layer, int hiddenDim, int output) : 
-        dmlGraph(graph), batchSize(batchSize), input(input), layer(layer), hiddenDim(hiddenDim), output(output)
-    {
+    DxGraphBuildCommand(DxDMLGraph *graph, int batchSize, int input, int layer, int hiddenDim, int output) : dmlGraph(graph), batchSize(batchSize), input(input), layer(layer), hiddenDim(hiddenDim), output(output) {
         graph->layer = layer;
         graph->input = input;
         graph->output = output;
         graph->hiddenDim = hiddenDim;
     }
-    [[nodiscard]] virtual StreamTag stream_tag() const noexcept override
-    {
+    [[nodiscard]] virtual StreamTag stream_tag() const noexcept override {
         return StreamTag::COMPUTE;
     }
+
 private:
-    DxDMLGraph* dmlGraph;
+    DxDMLGraph *dmlGraph;
     int batchSize;
     int input;
     int layer;
@@ -63,14 +61,13 @@ private:
     int output;
 
     virtual void execute(
-        IDXGIAdapter1* adapter,
-        IDXGIFactory2* dxgi_factory,
-        ID3D12Device* device,
-        ID3D12GraphicsCommandList4* command_list) const noexcept;
+        IDXGIAdapter1 *adapter,
+        IDXGIFactory2 *dxgi_factory,
+        ID3D12Device *device,
+        ID3D12GraphicsCommandList4 *command_list) const noexcept;
 };
 
-void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_factory, ID3D12Device* device, ID3D12GraphicsCommandList4* command_list) const noexcept
-{
+void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_factory, ID3D12Device *device, ID3D12GraphicsCommandList4 *command_list) const noexcept {
     unsigned int dataSize = dmlGraph->half ? 2 : 4;
     DML_TENSOR_DATA_TYPE dataType = dmlGraph->half ? DML_TENSOR_DATA_TYPE_FLOAT16 : DML_TENSOR_DATA_TYPE_FLOAT32;
     DML_CREATE_DEVICE_FLAGS dmlCreateDeviceFlags = DML_CREATE_DEVICE_FLAG_NONE;
@@ -80,38 +77,36 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
         IID_PPV_ARGS(dmlGraph->dmlDevice.GetAddressOf())));
 
     dml::Graph graph(dmlGraph->dmlDevice.Get());
-    UINT tensorSizes[4] = { 1, 1, UINT(batchSize), UINT(input) };
+    UINT tensorSizes[4] = {1, 1, UINT(batchSize), UINT(input)};
     dml::TensorDesc::Dimensions inputDimensions(std::begin(tensorSizes), std::end(tensorSizes));
-    dml::TensorDesc desc = { dataType, inputDimensions };
+    dml::TensorDesc desc = {dataType, inputDimensions};
     dml::Expression inputLayer = dml::InputTensor(graph, 0, desc);
 
-
-    std::vector<dml::Expression> expressions{};
+    vstd::vector<dml::Expression> expressions{};
     int lastDim = input;
-    auto& lastOutput = inputLayer;
-    for (int i = 0; i < layer; i++)
-    {
-        UINT matrixSizes[4] = { 1, 1, UINT(hiddenDim), UINT(lastDim) };
+    auto &lastOutput = inputLayer;
+    for (int i = 0; i < layer; i++) {
+        UINT matrixSizes[4] = {1, 1, UINT(hiddenDim), UINT(lastDim)};
         dml::TensorDesc::Dimensions matrixDimensions = dml::TensorDesc::Dimensions(std::begin(matrixSizes), std::end(matrixSizes));
-        auto mdesc = dml::TensorDesc{ dataType, matrixDimensions };
-        dml::Expression& weights = expressions.emplace_back(dml::InputTensor(graph, i + 1, mdesc));
-        dml::Expression& fc = expressions.emplace_back(dml::Gemm(lastOutput, weights,
-            dml::NullOpt, DML_MATRIX_TRANSFORM_NONE, DML_MATRIX_TRANSFORM_TRANSPOSE, 1.f, 1.f, dml::FusedActivation::Relu()));
+        auto mdesc = dml::TensorDesc{dataType, matrixDimensions};
+        dml::Expression &weights = expressions.emplace_back(dml::InputTensor(graph, i + 1, mdesc));
+        dml::Expression &fc = expressions.emplace_back(
+            dml::Gemm(lastOutput, weights,
+                      dml::NullOpt, DML_MATRIX_TRANSFORM_NONE, DML_MATRIX_TRANSFORM_TRANSPOSE, 1.f, 1.f, dml::FusedActivation::Relu()));
         lastDim = hiddenDim;
         lastOutput = fc;
     }
     {
-        UINT matrixSizes[4] = { 1, 1, UINT(output), UINT(lastDim) };
+        UINT matrixSizes[4] = {1, 1, UINT(output), UINT(lastDim)};
         dml::TensorDesc::Dimensions matrixDimensions = dml::TensorDesc::Dimensions(std::begin(matrixSizes), std::end(matrixSizes));
-        auto mdesc = dml::TensorDesc{ dataType, matrixDimensions };
-        dml::Expression& weights = expressions.emplace_back(dml::InputTensor(graph, layer + 1, mdesc));
-        dml::Expression& fc = expressions.emplace_back(dml::Gemm(lastOutput, weights, dml::NullOpt, DML_MATRIX_TRANSFORM_NONE, DML_MATRIX_TRANSFORM_TRANSPOSE));
+        auto mdesc = dml::TensorDesc{dataType, matrixDimensions};
+        dml::Expression &weights = expressions.emplace_back(dml::InputTensor(graph, layer + 1, mdesc));
+        dml::Expression &fc = expressions.emplace_back(dml::Gemm(lastOutput, weights, dml::NullOpt, DML_MATRIX_TRANSFORM_NONE, DML_MATRIX_TRANSFORM_TRANSPOSE));
         lastDim = hiddenDim;
         lastOutput = fc;
     }
-    int numWeights = input * hiddenDim + hiddenDim * hiddenDim * (layer)+hiddenDim * output;
-    if (layer == 0)
-    {
+    int numWeights = input * hiddenDim + hiddenDim * hiddenDim * (layer) + hiddenDim * output;
+    if (layer == 0) {
         numWeights = input * output;
     }
     dmlGraph->weightSize = numWeights * dataSize;
@@ -119,13 +114,10 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
     dmlGraph->inputSize = input * batchSize * dataSize;
 
     DML_EXECUTION_FLAGS executionFlags = DML_EXECUTION_FLAG_ALLOW_HALF_PRECISION_COMPUTATION;
-    dmlGraph->dmlCompiledOperator.Attach(graph.Compile(executionFlags, { lastOutput }).Detach());
-
-
-
+    dmlGraph->dmlCompiledOperator.Attach(graph.Compile(executionFlags, {lastOutput}).Detach());
 
     ComPtr<IDMLOperatorInitializer> dmlOperatorInitializer;
-    IDMLCompiledOperator* dmlCompiledOperators[] = { dmlGraph->dmlCompiledOperator.Get() };
+    IDMLCompiledOperator *dmlCompiledOperators[] = {dmlGraph->dmlCompiledOperator.Get()};
     THROW_IF_FAILED(dmlGraph->dmlDevice->CreateOperatorInitializer(
         ARRAYSIZE(dmlCompiledOperators),
         dmlCompiledOperators,
@@ -152,7 +144,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
         IID_GRAPHICS_PPV_ARGS(dmlGraph->descriptorHeap.GetAddressOf())));
 
     // Set the descriptor heap(s).
-    ID3D12DescriptorHeap* d3D12DescriptorHeaps[] = { dmlGraph->descriptorHeap.Get() };
+    ID3D12DescriptorHeap *d3D12DescriptorHeaps[] = {dmlGraph->descriptorHeap.Get()};
     command_list->SetDescriptorHeaps(ARRAYSIZE(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
 
     // Create a binding table over the descriptor heap we just created.
@@ -180,8 +172,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
     // Bind and initialize the operator on the GPU.
 
     auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-    if (dmlGraph->temporaryResourceSize != 0)
-    {
+    if (dmlGraph->temporaryResourceSize != 0) {
         auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dmlGraph->temporaryResourceSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         THROW_IF_FAILED(device->CreateCommittedResource(
             &heap,
@@ -191,16 +182,14 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
             nullptr,
             IID_GRAPHICS_PPV_ARGS(dmlGraph->temporaryBuffer.GetAddressOf())));
 
-        if (initializeBindingProperties.TemporaryResourceSize != 0)
-        {
-            DML_BUFFER_BINDING bufferBinding{ dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temporaryResourceSize };
-            DML_BINDING_DESC bindingDesc{ DML_BINDING_TYPE_BUFFER, &bufferBinding };
+        if (initializeBindingProperties.TemporaryResourceSize != 0) {
+            DML_BUFFER_BINDING bufferBinding{dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temporaryResourceSize};
+            DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
             initBindingTable->BindTemporaryResource(&bindingDesc);
         }
     }
 
-    if (dmlGraph->persistentResourceSize != 0)
-    {
+    if (dmlGraph->persistentResourceSize != 0) {
         auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dmlGraph->persistentResourceSize);
         THROW_IF_FAILED(device->CreateCommittedResource(
             &heap,
@@ -211,15 +200,14 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
             IID_GRAPHICS_PPV_ARGS(dmlGraph->persistentBuffer.GetAddressOf())));
 
         // The persistent resource should be bound as the output to the IDMLOperatorInitializer.
-        DML_BUFFER_BINDING bufferBinding{ dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persistentResourceSize };
-        DML_BINDING_DESC bindingDesc{ DML_BINDING_TYPE_BUFFER, &bufferBinding };
+        DML_BUFFER_BINDING bufferBinding{dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persistentResourceSize};
+        DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
         initBindingTable->BindOutputs(1, &bindingDesc);
     }
 
     // The command recorder is a stateless object that records Dispatches into an existing Direct3D 12 command list.
     THROW_IF_FAILED(dmlGraph->dmlDevice->CreateCommandRecorder(
         IID_PPV_ARGS(dmlGraph->dmlCommandRecorder.GetAddressOf())));
-
 
     dmlGraph->dmlCommandRecorder->RecordDispatch(
         command_list,
@@ -231,37 +219,43 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_fa
         IID_PPV_ARGS(dmlGraph->dmlBindingTable.GetAddressOf())));
 }
 
-
-class DxGraphForwardCommand : public DXCustomCmd
-{
+class DxGraphForwardCommand : public DXCustomCmd {
 public:
-    DxGraphForwardCommand(DxDMLGraph* graph, luisa::compute::Resource& ipt, luisa::compute::Resource& opt, luisa::compute::Resource& w) :
-        dmlGraph(graph), input(ipt), output(opt), weight(w)
-    {
-
+    DxGraphForwardCommand(DxDMLGraph *graph, Argument::Buffer const &ipt, Argument::Buffer const &opt, Argument::Buffer const &w)
+        : dmlGraph(graph),
+          input(reinterpret_cast<lc::dx::DefaultBuffer *>(ipt.handle)->GetResource()),
+          output(reinterpret_cast<lc::dx::DefaultBuffer *>(opt.handle)->GetResource()),
+          weight(reinterpret_cast<lc::dx::DefaultBuffer *>(w.handle)->GetResource()) {
+        resource_usages.emplace_back(
+            ipt,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        resource_usages.emplace_back(
+            opt,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        resource_usages.emplace_back(
+            w,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
-    [[nodiscard]] virtual StreamTag stream_tag() const noexcept override
-    {
+    [[nodiscard]] virtual StreamTag stream_tag() const noexcept override {
         return StreamTag::COMPUTE;
     }
+
 private:
-    DxDMLGraph* dmlGraph;
-    luisa::compute::Resource& input;
-    luisa::compute::Resource& output;
-    luisa::compute::Resource& weight;
+    DxDMLGraph *dmlGraph;
+    ID3D12Resource *input;
+    ID3D12Resource *output;
+    ID3D12Resource *weight;
 
     virtual void execute(
-        IDXGIAdapter1* adapter,
-        IDXGIFactory2* dxgi_factory,
-        ID3D12Device* device,
-        ID3D12GraphicsCommandList4* command_list) const noexcept;
+        IDXGIAdapter1 *adapter,
+        IDXGIFactory2 *dxgi_factory,
+        ID3D12Device *device,
+        ID3D12GraphicsCommandList4 *command_list) const noexcept;
 };
 
-void DxGraphForwardCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_factory, ID3D12Device* device, ID3D12GraphicsCommandList4* command_list) const noexcept
-{
+void DxGraphForwardCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_factory, ID3D12Device *device, ID3D12GraphicsCommandList4 *command_list) const noexcept {
     unsigned int dataSize = dmlGraph->half ? 2 : 4;
-    if (!dmlGraph->bind)
-    {
+    if (!dmlGraph->bind) {
         dmlGraph->bind = true;
         DML_BINDING_TABLE_DESC dmlBindingTableDesc{};
         dmlBindingTableDesc.Dispatchable = dmlGraph->dmlCompiledOperator.Get();
@@ -271,77 +265,70 @@ void DxGraphForwardCommand::execute(IDXGIAdapter1* adapter, IDXGIFactory2* dxgi_
         dmlBindingTableDesc.Dispatchable = dmlGraph->dmlCompiledOperator.Get();
         THROW_IF_FAILED(dmlGraph->dmlBindingTable->Reset(&dmlBindingTableDesc));
 
-        if (dmlGraph->temporaryResourceSize != 0)
-        {
-            DML_BUFFER_BINDING bufferBinding{ dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temporaryResourceSize };
-            DML_BINDING_DESC bindingDesc{ DML_BINDING_TYPE_BUFFER, &bufferBinding };
+        if (dmlGraph->temporaryResourceSize != 0) {
+            DML_BUFFER_BINDING bufferBinding{dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temporaryResourceSize};
+            DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
             dmlGraph->dmlBindingTable->BindTemporaryResource(&bindingDesc);
         }
-        if (dmlGraph->persistentResourceSize != 0)
-        {
-            DML_BUFFER_BINDING bufferBinding{ dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persistentResourceSize };
-            DML_BINDING_DESC bindingDesc{ DML_BINDING_TYPE_BUFFER, &bufferBinding };
+        if (dmlGraph->persistentResourceSize != 0) {
+            DML_BUFFER_BINDING bufferBinding{dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persistentResourceSize};
+            DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
             dmlGraph->dmlBindingTable->BindPersistentResource(&bindingDesc);
         }
         {
 
-            std::vector<DML_BINDING_DESC> inputBindingDescs{};
-            std::vector<DML_BUFFER_BINDING> inputBufferBindings{};
+            vstd::vector<DML_BINDING_DESC> inputBindingDescs{};
+            vstd::vector<DML_BUFFER_BINDING> inputBufferBindings{};
             inputBufferBindings.resize(dmlGraph->layer + 2);
-            inputBufferBindings[0] = DML_BUFFER_BINDING{ (ID3D12Resource*)input.native_handle(), 0, dmlGraph->inputSize };
-            inputBindingDescs.emplace_back(DML_BINDING_DESC{ DML_BINDING_TYPE_BUFFER, &inputBufferBindings[0] });
+            inputBufferBindings[0] = DML_BUFFER_BINDING{input, 0, dmlGraph->inputSize};
+            inputBindingDescs.emplace_back(DML_BINDING_DESC{DML_BINDING_TYPE_BUFFER, &inputBufferBindings[0]});
             int lastDim = dmlGraph->input;
             size_t offset = 0;
-            for (int i = 0; i < dmlGraph->layer; i++)
-            {
-                inputBufferBindings[i + 1] = DML_BUFFER_BINDING{ (ID3D12Resource*)weight.native_handle(), offset, size_t(lastDim) * dmlGraph->hiddenDim * dataSize };
-                inputBindingDescs.emplace_back(DML_BINDING_DESC{ DML_BINDING_TYPE_BUFFER, &inputBufferBindings[i + 1] });
+            for (int i = 0; i < dmlGraph->layer; i++) {
+                inputBufferBindings[i + 1] = DML_BUFFER_BINDING{weight, offset, size_t(lastDim) * dmlGraph->hiddenDim * dataSize};
+                inputBindingDescs.emplace_back(DML_BINDING_DESC{DML_BINDING_TYPE_BUFFER, &inputBufferBindings[i + 1]});
                 offset += inputBufferBindings[i + 1].SizeInBytes;
                 lastDim = dmlGraph->hiddenDim;
             }
             {
-                inputBufferBindings[dmlGraph->layer + 1] = DML_BUFFER_BINDING{ (ID3D12Resource*)weight.native_handle(), offset, size_t(lastDim) * dmlGraph->output * dataSize };
-                inputBindingDescs.emplace_back(DML_BINDING_DESC{ DML_BINDING_TYPE_BUFFER, &inputBufferBindings[dmlGraph->layer + 1] });
+                inputBufferBindings[dmlGraph->layer + 1] = DML_BUFFER_BINDING{weight, offset, size_t(lastDim) * dmlGraph->output * dataSize};
+                inputBindingDescs.emplace_back(DML_BINDING_DESC{DML_BINDING_TYPE_BUFFER, &inputBufferBindings[dmlGraph->layer + 1]});
             }
 
             dmlGraph->dmlBindingTable->BindInputs(inputBindingDescs.size(), inputBindingDescs.data());
         }
         {
-            DML_BUFFER_BINDING outputBufferBinding{ (ID3D12Resource*)output.native_handle(), 0, dmlGraph->outputSize };
-            DML_BINDING_DESC outputBindingDesc{ DML_BINDING_TYPE_BUFFER, &outputBufferBinding };
+            auto bt = CD3DX12_RESOURCE_BARRIER::UAV(input);
+            command_list->ResourceBarrier(
+                1,
+                &bt);
+        }
+        {
+            DML_BUFFER_BINDING outputBufferBinding{output, 0, dmlGraph->outputSize};
+            DML_BINDING_DESC outputBindingDesc{DML_BINDING_TYPE_BUFFER, &outputBufferBinding};
             dmlGraph->dmlBindingTable->BindOutputs(1, &outputBindingDesc);
         }
     }
 
-    ID3D12DescriptorHeap* d3D12DescriptorHeaps[] = { dmlGraph->descriptorHeap.Get() };
+    ID3D12DescriptorHeap *d3D12DescriptorHeaps[] = {dmlGraph->descriptorHeap.Get()};
     command_list->SetDescriptorHeaps(ARRAYSIZE(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
-    {
-        auto bt = CD3DX12_RESOURCE_BARRIER::UAV((ID3D12Resource*)input.native_handle());
-        command_list->ResourceBarrier(
-            1,
-            &bt
-        );
-    }
+
     //Dispatch the operator
     dmlGraph->dmlCommandRecorder->RecordDispatch(command_list, dmlGraph->dmlCompiledOperator.Get(), dmlGraph->dmlBindingTable.Get());
 }
 
-lc::dx::DxDirectMLExt::DxDirectMLExt(DeviceInterface* device):device(device)
-{
+lc::dx::DxDirectMLExt::DxDirectMLExt(DeviceInterface *device) : device(device) {
 }
 
-luisa::unique_ptr<DMLGraph> lc::dx::DxDirectMLExt::Build(Stream& stream, int batchSize, int input, int layer, int hiddenDim, int output, bool half)
-{
-    auto result = luisa::make_unique<DxDMLGraph>();
-    result->half = half;
-    CommandList cl{};
-    cl << luisa::make_unique<DxGraphBuildCommand>(result.get(), batchSize, input, layer, hiddenDim, output);
-    stream << cl.commit() << synchronize();
-    return result;
+luisa::unique_ptr<DMLGraph> lc::dx::DxDirectMLExt::create_graph(bool half) noexcept {
+    auto graph = luisa::make_unique<DxDMLGraph>();
+    graph->half = half;
+    return graph;
 }
 
-luisa::unique_ptr<Command> lc::dx::DxDirectMLExt::Forward(DMLGraph* graph, luisa::compute::Resource& input, luisa::compute::Resource& output, luisa::compute::Resource& weights)
-{
-    return luisa::make_unique<DxGraphForwardCommand>((DxDMLGraph*)graph, input, output, weights);
+unique_ptr<Command> DxDMLGraph::build(int batchSize, int input, int layer, int hiddenDim, int output) noexcept {
+    return luisa::make_unique<DxGraphBuildCommand>(this, batchSize, input, layer, hiddenDim, output);
 }
-
+unique_ptr<Command> DxDMLGraph::forward(Argument::Buffer input_buffer, Argument::Buffer output_buffer, Argument::Buffer weights_buffer) noexcept {
+    return luisa::make_unique<DxGraphForwardCommand>(this, input_buffer, output_buffer, weights_buffer);
+}

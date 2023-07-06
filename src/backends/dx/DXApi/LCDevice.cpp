@@ -77,12 +77,12 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         });
     exts.try_emplace(
         DirectMLExt::name,
-        [](LCDevice* device) -> DeviceExtension* {
-        return new DxDirectMLExt(device);
-    },
-        [](DeviceExtension* ext) {
-        delete static_cast<DxDirectMLExt*>(ext);
-    });
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxDirectMLExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxDirectMLExt *>(ext);
+        });
 }
 LCDevice::~LCDevice() {
 }
