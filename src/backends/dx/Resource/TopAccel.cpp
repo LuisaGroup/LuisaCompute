@@ -109,7 +109,7 @@ bool TopAccel::GenerateNewBuffer(
             tracker.RecordState(
                 newBuffer, oldBuffer->GetInitState());
         }
-        builder.GetCB()->GetAlloc()->ExecuteAfterComplete(Buffers{std::move(oldBuffer)});
+        builder.GetCB()->GetAlloc()->DisposeAfterComplete(std::move(oldBuffer));
         oldBuffer = vstd::create_unique(newBuffer);
         return true;
     }
@@ -346,7 +346,7 @@ bool TopAccel::CheckAccel(
         newAccelBuffer->GetAddress(),
         accelBuffer->GetAddress(),
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
-    alloc->ExecuteAfterComplete([b = std::move(accelBuffer)] {});
+    alloc->DisposeAfterComplete(std::move(accelBuffer));
     accelBuffer = std::move(newAccelBuffer);
     return true;
 }

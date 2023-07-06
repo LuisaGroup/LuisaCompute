@@ -324,16 +324,16 @@ struct HashMapIndex : public HashMap::IndexBase {
     using HashMap::IndexBase::operator bool;
 };
 
-template<typename K, typename... Other>
-struct HashMapIndex<HashMap<K, void, Other...>> : public HashMap<K, void, Other...>::IndexBase {
+template<typename HashMap>
+struct HashSetIndex : public HashMap::IndexBase {
 
 private:
-    using HashMapType = HashMap<K, void, Other...>;
+    using HashMapType = HashMap;
     using MapType = typename HashMapType::Map;
-
+    using K = typename HashMap::KeyType;
 public:
-    HashMapIndex() noexcept = default;
-    HashMapIndex(const HashMapType *map, typename HashMapType::LinkNode *node) noexcept
+    HashSetIndex() noexcept = default;
+    HashSetIndex(const HashMapType *map, typename HashMapType::LinkNode *node) noexcept
         : HashMapType::IndexBase(map, node) {}
     K const &Get() const noexcept {
         return MapType::GetFirst(this->node->data);
@@ -344,7 +344,18 @@ public:
     K &operator*() const noexcept {
         return MapType::GetFirst(this->node->data);
     }
-    using HashMap<K, void, Other...>::IndexBase::operator bool;
+    using HashMap::IndexBase::operator bool;
+};
+template <typename V>
+struct HashSetIndexType{
+    template <typename HashMap>
+    using type = HashMapIndex<HashMap>;
+};
+
+template <>
+struct HashSetIndexType<void>{
+    template <typename HashMap>
+    using type = HashSetIndex<HashMap>;
 };
 
 }// namespace hashmap_detail
@@ -417,6 +428,8 @@ public:
 
         template<typename T>
         friend struct hashmap_detail::HashMapIndex;
+        template<typename T>
+        friend struct hashmap_detail::HashSetIndex;
 
     private:
         const HashMap *map;
@@ -439,7 +452,7 @@ public:
         }
     };
 
-    using Index = hashmap_detail::HashMapIndex<HashMap>;
+    using Index = typename hashmap_detail::HashSetIndexType<V>::type<HashMap>;
 
     Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
@@ -556,7 +569,7 @@ public:
         }
         Allocator().Free(nodeArray);
     }
-    HashMap() noexcept : HashMap(16) {}
+    HashMap() noexcept : HashMap(4) {}
     ///////////////////////
     template<typename Key, typename... ARGS>
         requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)

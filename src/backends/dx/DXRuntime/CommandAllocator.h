@@ -51,6 +51,8 @@ private:
     D3D12_COMMAND_LIST_TYPE type;
     GpuAllocator *resourceAllocator;
     vstd::LockFreeArrayQueue<vstd::function<void()>> executeAfterComplete;
+    vstd::vector<vstd::unique_ptr<Resource>> resDisposeList;
+    vstd::spin_mutex resDisposeListMtx;
 
     DescHeapVisitor rtvVisitor;
     DescHeapVisitor dsvVisitor;
@@ -69,6 +71,10 @@ public:
         requires(std::is_constructible_v<vstd::function<void()>, Func &&>)
     void ExecuteAfterComplete(Func &&func) {
         executeAfterComplete.push(std::forward<Func>(func));
+    }
+    void DisposeAfterComplete(vstd::unique_ptr<Resource> &&res) {
+        std::lock_guard lck{resDisposeListMtx};
+        resDisposeList.emplace_back(std::move(res));
     }
     ID3D12CommandAllocator *Allocator() const { return allocator.Get(); }
     D3D12_COMMAND_LIST_TYPE Type() const { return type; }

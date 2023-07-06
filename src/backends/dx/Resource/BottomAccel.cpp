@@ -137,7 +137,7 @@ size_t BottomAccel::PreProcessStates(
         SetAccelBuffer();
     } else if (accelBuffer->GetByteSize() < bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes) {
         update = false;
-        builder.GetCB()->GetAlloc()->ExecuteAfterComplete([v = std::move(accelBuffer)] {});
+        builder.GetCB()->GetAlloc()->DisposeAfterComplete(std::move(accelBuffer));
         SetAccelBuffer();
         SyncTopAccel();
     }
@@ -168,7 +168,7 @@ bool BottomAccel::CheckAccel(
         newAccelBuffer->GetAddress(),
         accelBuffer->GetAddress(),
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
-    alloc->ExecuteAfterComplete([b = std::move(accelBuffer)] {});
+    alloc->DisposeAfterComplete(std::move(accelBuffer));
     accelBuffer = std::move(newAccelBuffer);
     SyncTopAccel();
     return true;

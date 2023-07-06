@@ -118,6 +118,9 @@ void CommandAllocator::Complete(
     while (auto evt = executeAfterComplete.pop()) {
         (*evt)();
     }
+    resDisposeListMtx.lock();
+    auto vec = std::move(resDisposeList);
+    resDisposeListMtx.unlock();
 }
 
 CommandBuffer *CommandAllocator::GetBuffer() const {
@@ -169,7 +172,7 @@ DefaultBuffer const *CommandAllocator::AllocateScratchBuffer(size_t targetSize) 
             while (allocSize < targetSize) {
                 allocSize = std::max<size_t>(allocSize + 1, allocSize * 1.5f);
             }
-            executeAfterComplete.push([s = std::move(scratchBuffer)]() {});
+            DisposeAfterComplete(std::move(scratchBuffer));
             allocSize = CalcAlign(allocSize, 65536);
             scratchBuffer = vstd::create_unique(new DefaultBuffer(device, allocSize, device->defaultAllocator.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
         }
