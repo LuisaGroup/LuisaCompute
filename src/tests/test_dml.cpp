@@ -1,7 +1,6 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/backends/ext/dml_ext.h>
 #include <fstream>
-#include <iostream>
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -54,22 +53,23 @@ void NNForward(const float* inputs, float* outputs, const float* weights)
 
 int main(int argc, char* argv[])
 {
-	auto ctx = luisa::compute::Context(argv[0]);
+	auto ctx = Context(argv[0]);
 	auto device = ctx.create_device("dx");
 	auto stream = device.create_stream();
-	auto ext = device.extension<luisa::compute::DirectMLExt>();
+	auto ext = device.extension<DirectMLExt>();
 
-	auto graph = ext->Build(stream, 1, 64, 3, 128, 50, false);
+	auto graph = ext->create_graph(false);
+    stream << graph->build(1, 64, 3, 128, 50);
 
-    std::vector<float> inputs{};
+    luisa::vector<float> inputs{};
     inputs.resize(64);
     inputs[3] = 1.f;
-    std::vector<float> outputs{};
-    std::vector<float> weights{};
+    luisa::vector<float> outputs{};
+    luisa::vector<float> weights{};
     outputs.resize(50);
     auto weightSize = 64 * 128 + 128 * 128 + 128 * 128 + 128 * 50;
     weights.resize(weightSize);
-    std::ifstream file("E:/OLLF/CPP_params.txt");
+    std::ifstream file("CPP_params.txt");
     if (file.good())
     {
         std::string str;
@@ -87,11 +87,10 @@ int main(int argc, char* argv[])
     auto opt = device.create_buffer<float>(50);
 
 	stream << w.copy_from(weights.data())<<ipt.copy_from(inputs.data());
-    stream << ext->Forward(graph.get(), ipt, opt, w);
-	stream << luisa::compute::synchronize();
-	stream<<opt.copy_to(outputs.data())<< luisa::compute::synchronize();
+    stream << graph->forward(ipt, opt, w);
+	stream<<opt.copy_to(outputs.data())<< synchronize();
 
-    std::vector<float> outputsCPU{};
+    luisa::vector<float> outputsCPU{};
     outputsCPU.resize(50);
     NNForward<64, 128, 50>(inputs.data(), outputsCPU.data(), weights.data());
 
@@ -100,5 +99,5 @@ int main(int argc, char* argv[])
     {
         error += abs(outputs[i] - outputsCPU[i]);
     }
-    std::cout << error << std::endl;
+    LUISA_INFO("Final error: {}", error);
 }
