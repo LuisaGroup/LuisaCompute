@@ -31,7 +31,6 @@ private:
     const CUDADevice *_device;
     uint _nvrtc_version;
     luisa::string _device_library;
-    uint64_t _library_hash;
     mutable luisa::unique_ptr<Cache> _cache;
 
 public:
