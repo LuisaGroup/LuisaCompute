@@ -334,15 +334,22 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         auto uses_cache = is_aot || option.enable_cache;
 
         // try disk cache
-        if (uses_cache && !option.enable_debug_info) {
-            if (auto pso = _load_disk_archive(name, is_aot, metadata);
-                pso.entry && pso.indirect_entry) {
-                _cache.update(hash, pso);
-                return pso;
+        if (uses_cache) {
+            if (option.enable_debug_info) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Debug information is enabled for Metal shader '{}'. "
+                    "The disk cache will not be loaded.",
+                    name);
+            } else {
+                if (auto pso = _load_disk_archive(name, is_aot, metadata);
+                    pso.entry && pso.indirect_entry) {
+                    _cache.update(hash, pso);
+                    return pso;
+                }
+                LUISA_INFO("Failed to load Metal shader archive for '{}'. "
+                           "Falling back to compilation from source.",
+                           name);
             }
-            LUISA_INFO("Failed to load Metal shader archive for '{}'. "
-                       "Falling back to compilation from source.",
-                       name);
         }
 
         if (option.enable_debug_info || LUISA_METAL_BACKEND_DUMP_SOURCE) {
