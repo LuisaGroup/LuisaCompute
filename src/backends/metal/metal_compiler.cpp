@@ -222,9 +222,6 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     NS::Error *error = nullptr;
     auto library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
 
-#ifndef NDEBUG
-    auto should_dump_metallib = true;
-#else
     auto should_dump_metallib = false;
     if (auto dump_env_c_str = getenv("LUISA_DUMP_METAL_LIBRARY")) {
         luisa::string dump_env{dump_env_c_str};
@@ -235,7 +232,6 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
                                dump_env != "OFF"sv &&
                                dump_env != "FALSE"sv;
     }
-#endif
 
     if (should_dump_metallib) {
         LUISA_INFO_WITH_LOCATION(
@@ -335,22 +331,22 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                        name);
         }
 
-#if LUISA_METAL_BACKEND_DUMP_SOURCE
-        auto src_dump_name = luisa::format("{}.metal", name);
-        luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
         luisa::filesystem::path src_dump_path;
-        if (is_aot) {
-            src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
-        } else if (option.enable_cache) {
-            src_dump_path = _device->io()->write_shader_cache(src_dump_name, src_dump);
+        if (option.enable_debug_info || LUISA_METAL_BACKEND_DUMP_SOURCE) {
+            auto src_dump_name = luisa::format("{}.metal", name);
+            luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
+            if (is_aot) {
+                src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
+            } else if (option.enable_cache) {
+                src_dump_path = _device->io()->write_shader_cache(src_dump_name, src_dump);
+            }
+            // TODO: attach shader source to Metal shader archive for debugging.
+            //       Is it possible without using the command line?
+            if (!src_dump_path.empty()) {
+                LUISA_INFO("Dumped Metal shader source for '{}' to '{}'.",
+                           name, src_dump_path.string());
+            }
         }
-        // TODO: attach shader source to Metal shader archive for debugging.
-        //       Is it possible without using the command line?
-        if (!src_dump_path.empty()) {
-            LUISA_INFO("Dumped Metal shader source for '{}' to '{}'.",
-                       name, src_dump_path.string());
-        }
-#endif
 
         // no cache found, compile from source
         auto source = NS::String::alloc()->init(const_cast<char *>(src.data()),
@@ -368,7 +364,38 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         }
 
         NS::Error *error;
-        auto library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
+        NS::SharedPtr<MTL::Library> library;
+        if (option.enable_debug_info && !src_dump_path.empty()) {
+            // try to compile the library with debug symbols
+            auto out_lib_path = src_dump_path;
+            out_lib_path.replace_extension("metallib");
+            auto command = luisa::format("xcrun -sdk macosx metal -frecord-sources=flat -std=metal3.0 {} {} -o {}",
+                                         option.enable_fast_math ? "-ffast-math" : "-fno-fast-math",
+                                         src_dump_path.string(), out_lib_path.string());
+            LUISA_INFO("Compiling Metal shader '{}' with "
+                       "debug symbols via command line: {}",
+                       name, command);
+            if (system(command.c_str()) != 0) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to compile Metal shader '{}' with debug symbols. "
+                    "Falling back to compilation without debug symbols.",
+                    name);
+            } else {
+                auto url = NS::URL::fileURLWithPath(NS::String::string(
+                    out_lib_path.string().c_str(), NS::UTF8StringEncoding));
+                library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
+                if (error != nullptr) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Error during loading Metal library '{}' for '{}': {}.",
+                        out_lib_path.string(), name,
+                        error->localizedDescription()->utf8String());
+                }
+            }
+        }
+        // no debug info, or failed to compile with debug info
+        if (!library) {
+            library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
+        }
         source->release();
         options->release();
         if (error != nullptr) {
