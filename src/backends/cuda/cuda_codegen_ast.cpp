@@ -891,7 +891,11 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
-        case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
+        case CallOp::UNREACHABLE: 
+            _scratch << "lc_unreachable<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
         case CallOp::ZERO: {
             _scratch << "lc_zero<";
             _emit_type_name(expr->type());
