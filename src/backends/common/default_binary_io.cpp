@@ -121,24 +121,27 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::str
     return _read(file_path);
 }
 
-void DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
+luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     std::filesystem::path local_path{name};
     if (local_path.is_absolute()) {
         _write(luisa::to_string(name), data);
-        return;
+        return local_path;
     }
     auto file_path = luisa::to_string(_ctx.runtime_directory() / name);
     _write(file_path, data);
+    return file_path;
 }
 
-void DefaultBinaryIO::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
+luisa::filesystem::path DefaultBinaryIO::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     auto file_path = luisa::to_string(_cache_dir / name);
     _write(file_path, data);
+    return file_path;
 }
 
-void DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
+luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     auto file_path = luisa::to_string(_data_dir / name);
     _write(file_path, data);
+    return file_path;
 }
 
 }// namespace luisa::compute

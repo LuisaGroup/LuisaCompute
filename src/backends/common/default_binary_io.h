@@ -41,9 +41,9 @@ public:
     luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override;
-    void write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
-    void write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
-    void write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
+    luisa::filesystem::path write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
+    luisa::filesystem::path write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
+    luisa::filesystem::path write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept override;
 };
 
 }// namespace luisa::compute

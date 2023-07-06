@@ -338,10 +338,17 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
 #if LUISA_METAL_BACKEND_DUMP_SOURCE
         auto src_dump_name = luisa::format("{}.metal", name);
         luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
+        luisa::filesystem::path src_dump_path;
         if (is_aot) {
-            _device->io()->write_shader_bytecode(src_dump_name, src_dump);
+            src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
         } else if (option.enable_cache) {
-            _device->io()->write_shader_cache(src_dump_name, src_dump);
+            src_dump_path = _device->io()->write_shader_cache(src_dump_name, src_dump);
+        }
+        // TODO: attach shader source to Metal shader archive for debugging.
+        //       Is it possible without using the command line?
+        if (!src_dump_path.empty()) {
+            LUISA_INFO("Dumped Metal shader source for '{}' to '{}'.",
+                       name, src_dump_path.string());
         }
 #endif
 
@@ -399,4 +406,3 @@ MetalShaderHandle MetalCompiler::load(luisa::string_view name,
 }
 
 }// namespace luisa::compute::metal
-
