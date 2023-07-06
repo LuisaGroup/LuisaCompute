@@ -45,7 +45,7 @@ class DStorageCommandQueue : public CmdQueueBase{
     DSTORAGE_REQUEST_SOURCE_TYPE sourceType;
     bool enabled = true;
     ComPtr<IDStorageQueue2> queue;
-    vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
+    vstd::SingleThreadArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
 
 public:

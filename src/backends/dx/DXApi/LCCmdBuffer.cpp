@@ -868,7 +868,7 @@ void LCCmdBuffer::Execute(
     auto allocator = queue.CreateAllocator(maxAlloc);
     bool cmdListIsEmpty = true;
     {
-        std::lock_guard lck{mtx};
+        std::unique_lock lck{mtx};
         tracker.listType = allocator->Type();
         LCPreProcessVisitor ppVisitor;
         ppVisitor.stateTracker = &tracker;
@@ -970,15 +970,17 @@ void LCCmdBuffer::Execute(
                     });
                 }
                 tracker.RestoreState(cmdBuilder);
+                auto localUpdateAccel = std::move(updateAccel);
+                lck.unlock();
                 queue.ForceSync(
                     allocator,
                     *cmdBuffer);
-                for (auto &&i : updateAccel) {
+                for (auto &&i : localUpdateAccel) {
                     i.accel.visit([&](auto &&p) {
                         p->CheckAccel(cmdBuilder);
                     });
                 }
-                updateAccel.clear();
+                lck.lock();
             }
             tracker.ClearFence();
         }
