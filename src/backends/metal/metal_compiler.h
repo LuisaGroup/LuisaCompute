@@ -36,9 +36,6 @@ private:
     _load_disk_archive(luisa::string_view name, bool is_aot,
                        MetalShaderMetadata &metadata) const noexcept;
 
-    [[nodiscard]] MetalShaderHandle
-    _load_disk_archive_debug(luisa::string_view name) const noexcept;
-
     void _store_disk_archive(luisa::string_view name, bool is_aot,
                              const PipelineDescriptorHandle &desc,
                              const MetalShaderMetadata &metadata) const noexcept;
