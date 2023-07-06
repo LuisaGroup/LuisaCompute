@@ -272,18 +272,19 @@ MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_siz
 
     auto load = [&](NS::String *name, bool is_indirect) noexcept -> std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
                                                                               NS::SharedPtr<MTL::ComputePipelineState>> {
+        auto label = is_indirect ?
+                         library->label()->stringByAppendingString(MTLSTR(" (indirect)")) :
+                         library->label();
         auto compute_pipeline_desc = NS::TransferPtr(MTL::ComputePipelineDescriptor::alloc()->init());
         compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
         compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(block_size.x * block_size.y * block_size.z);
         compute_pipeline_desc->setSupportIndirectCommandBuffers(is_indirect);
+        compute_pipeline_desc->setLabel(label);
         NS::Error *error = nullptr;
         auto function_desc = MTL::FunctionDescriptor::alloc()->init();
         function_desc->setName(name);
         function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
         auto function = NS::TransferPtr(library->newFunction(function_desc, &error));
-        auto label = is_indirect ?
-                         library->label()->stringByAppendingString(MTLSTR(" (indirect)")) :
-                         library->label();
         function->setLabel(label);
         function_desc->release();
         if (error != nullptr) {
@@ -386,6 +387,7 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
 
         NS::Error *error;
         auto library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
+        library->setLabel(NS::String::string(name.c_str(), NS::UTF8StringEncoding));
         source->release();
         options->release();
         if (error != nullptr) {
