@@ -46,16 +46,17 @@ luisa::string CUDACompiler::compile(const luisa::string &src, const luisa::strin
     }
     LUISA_CHECK_NVRTC(error);
     size_t ptx_size;
-    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
     luisa::string ptx;
-    if (metadata) {
-        ptx.append(luisa::format(
-            "// METADATA: {}\n\n",
-            serialize_cuda_shader_metadata(*metadata)));
+    // TODO: use OptiX IR for ray tracing shaders
+    if (metadata && metadata->kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
+        LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
+        ptx.resize(ptx_size);
+        LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
+    } else {
+        LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
+        ptx.resize(ptx_size);
+        LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     }
-    auto header_size = ptx.size();
-    ptx.resize(header_size + ptx_size - 1u);
-    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data() + header_size));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
     LUISA_VERBOSE_WITH_LOCATION("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;

@@ -350,6 +350,10 @@ public:
                test(CallOp::RAY_TRACING_QUERY_ALL) ||
                test(CallOp::RAY_TRACING_QUERY_ANY);
     }
+    [[nodiscard]] auto uses_ray_query() const noexcept {
+        return test(CallOp::RAY_TRACING_QUERY_ALL) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY);
+    }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||
                test(CallOp::ATOMIC_FETCH_SUB) ||

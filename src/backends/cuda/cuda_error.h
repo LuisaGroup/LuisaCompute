@@ -45,7 +45,7 @@
 
 #define LUISA_CHECK_OPTIX_WITH_LOG(log, log_size, ...)     \
     do {                                                   \
-        log_size = sizeof(log);                            \
+        log_size = sizeof(log) - 1u;                       \
         if (auto error = __VA_ARGS__; error != 0u) {       \
             using namespace std::string_view_literals;     \
             LUISA_ERROR_WITH_LOCATION(                     \
@@ -56,4 +56,3 @@
                 log_size > sizeof(log) ? " ..."sv : ""sv); \
         }                                                  \
     } while (false)
-

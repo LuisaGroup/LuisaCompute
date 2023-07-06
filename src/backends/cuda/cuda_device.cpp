@@ -332,9 +332,9 @@ void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
 }
 
 [[nodiscard]] inline luisa::optional<CUDAShaderMetadata>
-parse_shader_metadata(luisa::string_view ptx,
+parse_shader_metadata(luisa::string_view data,
                       luisa::string_view name) noexcept {
-    if (ptx.empty()) {
+    if (data.empty()) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to parse shader metadata for '{}': "
             "PTX source is empty.",
@@ -342,15 +342,14 @@ parse_shader_metadata(luisa::string_view ptx,
         return luisa::nullopt;
     }
     constexpr luisa::string_view metadata_prefix = "// METADATA: ";
-    if (!ptx.starts_with(metadata_prefix)) {
+    if (!data.starts_with(metadata_prefix)) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to parse shader metadata for '{}': "
             "PTX source does not start with metadata prefix.",
             name);
         return luisa::nullopt;
     }
-    auto m = ptx.substr(metadata_prefix.size(),
-                        ptx.find('\n') - metadata_prefix.size());
+    auto m = data.substr(metadata_prefix.size());
     auto metadata = deserialize_cuda_shader_metadata(m);
     if (!metadata) {
         LUISA_WARNING_WITH_LOCATION(
@@ -363,7 +362,8 @@ parse_shader_metadata(luisa::string_view ptx,
 }
 
 template<bool allow_update_expected_metadata>
-[[nodiscard]] inline luisa::string load_shader_ptx(BinaryStream *ptx_stream,
+[[nodiscard]] inline luisa::string load_shader_ptx(BinaryStream *metadata_stream,
+                                                   BinaryStream *ptx_stream,
                                                    luisa::string_view name,
                                                    bool warn_not_found,
                                                    std::conditional_t<allow_update_expected_metadata,
@@ -371,7 +371,8 @@ template<bool allow_update_expected_metadata>
                                                                       const CUDAShaderMetadata> &
                                                        expected_metadata) noexcept {
     // check if the stream is valid
-    if (ptx_stream == nullptr || ptx_stream->length() == 0u) {
+    if (ptx_stream == nullptr || ptx_stream->length() == 0u ||
+        metadata_stream == nullptr || metadata_stream->length() == 0u) {
         if (warn_not_found) {
             LUISA_WARNING_WITH_LOCATION(
                 "Shader '{}' is not found in cache. "
@@ -385,14 +386,22 @@ template<bool allow_update_expected_metadata>
         }
         return {};
     }
-    // read the ptx string from stream
+    // read metadata string from stream
+    luisa::string meta_data;
+    meta_data.resize(metadata_stream->length());
+    metadata_stream->read(luisa::span{
+        reinterpret_cast<std::byte *>(meta_data.data()),
+        meta_data.size() * sizeof(char)});
+
+    // read ptx
     luisa::string ptx_data;
     ptx_data.resize(ptx_stream->length());
     ptx_stream->read(luisa::span{
         reinterpret_cast<std::byte *>(ptx_data.data()),
         ptx_data.size() * sizeof(char)});
+
     // parse metadata
-    auto metadata = parse_shader_metadata(ptx_data, name);
+    auto metadata = parse_shader_metadata(meta_data, name);
     if (!metadata) {
         LUISA_WARNING_WITH_LOCATION(
             "Shader '{}' is found in cache, but its metadata is invalid. "
@@ -436,39 +445,48 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
                                                 expected_metadata.checksum); }
     if (!name.ends_with(".ptx") &&
         !name.ends_with(".PTX")) { name.append(".ptx"); }
+    auto metadata_name = luisa::format("{}.metadata", name);
 
     // try disk cache
     auto ptx = [&] {
         luisa::unique_ptr<BinaryStream> ptx_stream;
+        luisa::unique_ptr<BinaryStream> metadata_stream;
         if (uses_user_path) {
             ptx_stream = _io->read_shader_bytecode(name);
+            metadata_stream = _io->read_shader_bytecode(metadata_name);
         } else if (option.enable_cache) {
             ptx_stream = _io->read_shader_cache(name);
+            metadata_stream = _io->read_shader_cache(metadata_name);
         }
         return load_shader_ptx<false>(
-            ptx_stream.get(), name, false, expected_metadata);
+            metadata_stream.get(), ptx_stream.get(),
+            name, false, expected_metadata);
     }();
 
     // compile if not found in cache
     if (ptx.empty()) {
         luisa::filesystem::path src_dump_path;
-#if LUISA_CUDA_DUMP_SOURCE
-        luisa::span src_data{reinterpret_cast<const std::byte *>(source.data()), source.size()};
-        auto src_name = luisa::format("{}.cu", name);
-        if (uses_user_path) {
-            src_dump_path = _io->write_shader_bytecode(src_name, src_data);
-        } else if (option.enable_cache) {
-            src_dump_path = _io->write_shader_cache(src_name, src_data);
+        if (option.enable_debug_info || LUISA_CUDA_DUMP_SOURCE) {
+            luisa::span src_data{reinterpret_cast<const std::byte *>(source.data()), source.size()};
+            auto src_name = luisa::format("{}.cu", name);
+            if (uses_user_path) {
+                src_dump_path = _io->write_shader_bytecode(src_name, src_data);
+            } else if (option.enable_cache) {
+                src_dump_path = _io->write_shader_cache(src_name, src_data);
+            }
         }
-#endif
         luisa::string src_filename{src_dump_path.string()};
         ptx = _compiler->compile(source, src_filename, nvrtc_options, &expected_metadata);
         if (!ptx.empty()) {
             luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
+            auto metadata = luisa::format("// METADATA: {}\n\n", serialize_cuda_shader_metadata(expected_metadata));
+            luisa::span metadata_data{reinterpret_cast<const std::byte *>(metadata.data()), metadata.size()};
             if (uses_user_path) {
                 _io->write_shader_bytecode(name, ptx_data);
+                _io->write_shader_bytecode(metadata_name, metadata_data);
             } else if (option.enable_cache) {
                 _io->write_shader_cache(name, ptx_data);
+                _io->write_shader_cache(metadata_name, metadata_data);
             }
         }
     }
@@ -481,11 +499,8 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
             return new_with_allocator<CUDAShaderOptiX>(
-                handle().optix_context(),
-                ptx.data(), ptx.size(), "__raygen__main",
-                option.enable_debug_info,
-                expected_metadata.argument_usages,
-                std::move(bound_arguments));
+                handle().optix_context(), ptx.data(), ptx.size(),
+                "__raygen__main", expected_metadata, std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
             this, ptx.data(), ptx.size(), "kernel_main",
@@ -572,6 +587,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         nvrtc_options.emplace_back("-use_fast_math");
     }
 
+    // TODO: use OptiX IR for ray tracing shaders
+    //    if (kernel.requires_raytracing()) {
+    //        nvrtc_options.emplace_back("--optix-ir");
+    //    }
+
     // compute hash
     auto src_hash = _compiler->compute_hash(scratch.string(), nvrtc_options);
 
@@ -582,6 +602,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                     CUDAShaderMetadata::Kind::RAY_TRACING :
                     CUDAShaderMetadata::Kind::COMPUTE,
         .enable_debug = option.enable_debug_info,
+        .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST),
+        .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY),
+        .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
         .block_size = kernel.block_size(),
         .argument_types = [kernel] {
             luisa::vector<luisa::string> types;
@@ -619,6 +642,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
     luisa::string name{name_in};
     if (!name.ends_with(".ptx") &&
         !name.ends_with(".PTX")) { name.append(".ptx"); }
+    auto metadata_name = luisa::format("{}.metadata", name);
 
     // prepare (incomplete) metadata
     CUDAShaderMetadata metadata{
@@ -635,8 +659,9 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
 
     // load ptx
     auto ptx = [&] {
+        auto metadata_stream = _io->read_shader_bytecode(metadata_name);
         auto ptx_stream = _io->read_shader_bytecode(name);
-        return load_shader_ptx<true>(ptx_stream.get(), name, true, metadata);
+        return load_shader_ptx<true>(metadata_stream.get(), ptx_stream.get(), name, true, metadata);
     }();
     if (ptx.empty()) {
         LUISA_WARNING_WITH_LOCATION("Failed to load shader bytecode from {}.", name);
@@ -653,10 +678,8 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
             return new_with_allocator<CUDAShaderOptiX>(
-                handle().optix_context(),
-                ptx.data(), ptx.size(), "__raygen__main",
-                metadata.enable_debug,
-                metadata.argument_usages);
+                handle().optix_context(), ptx.data(), ptx.size(),
+                "__raygen__main", metadata);
         }
         return new_with_allocator<CUDAShaderNative>(
             this, ptx.data(), ptx.size(), "kernel_main",

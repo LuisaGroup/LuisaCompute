@@ -19,6 +19,9 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
                                                 "COMPUTE" :
                                                 "RAY_TRACING"));
     result.append(metadata.enable_debug ? "DEBUG TRUE " : "DEBUG FALSE ");
+    result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
+    result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
+    result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
     result.append(luisa::format("BLOCK_SIZE {} {} {} ", metadata.block_size.x, metadata.block_size.y, metadata.block_size.z));
     result.append(luisa::format("ARGUMENT_TYPES {} ", metadata.argument_types.size()));
     for (auto &&type : metadata.argument_types) { result.append(type).append(" "); }
@@ -37,15 +40,19 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
 luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept {
 
     auto read_token = [&metadata] {
+
+        auto is_blank = [](char c) noexcept {
+            return isblank(c) || c == '\r' || c == '\n';
+        };
         // skip blanks
         while (!metadata.empty() &&
-               isblank(metadata.front())) {
+               is_blank(metadata.front())) {
             metadata.remove_prefix(1u);
         }
         // find end
         auto end_pos = 0u;
         while (end_pos < metadata.size() &&
-               !isblank(metadata[end_pos])) { end_pos++; }
+               !is_blank(metadata[end_pos])) { end_pos++; }
         auto token = metadata.substr(0u, end_pos);
         // remove token
         metadata.remove_prefix(end_pos);
@@ -72,6 +79,9 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<uint3> block_size;
     auto kind = CUDAShaderMetadata::Kind::UNKNOWN;
     luisa::optional<bool> enable_debug;
+    luisa::optional<bool> requires_trace_closest;
+    luisa::optional<bool> requires_trace_any;
+    luisa::optional<bool> requires_ray_query;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
 
@@ -120,7 +130,59 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid debug flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
-        } else if (token == "BLOCK_SIZE") {
+        }
+        else if (token == "TRACE_CLOSEST") {
+            if (requires_trace_closest.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate requires_trace_closest flag in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "TRUE") {
+                requires_trace_closest.emplace(true);
+            } else if (x == "FALSE") {
+                requires_trace_closest.emplace(false);
+            } else {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid requires_trace_closest flag '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        }
+        else if (token == "TRACE_ANY") {
+            if (requires_trace_any.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate requires_trace_any flag in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "TRUE") {
+                requires_trace_any.emplace(true);
+            } else if (x == "FALSE") {
+                requires_trace_any.emplace(false);
+            } else {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid requires_trace_any flag '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        }
+        else if (token == "RAY_QUERY") {
+            if (requires_ray_query.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate requires_ray_query flag in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "TRUE") {
+                requires_ray_query.emplace(true);
+            } else if (x == "FALSE") {
+                requires_ray_query.emplace(false);
+            } else {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid requires_ray_query flag '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        }
+        else if (token == "BLOCK_SIZE") {
             if (block_size.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Duplicate block size in shader metadata.");
@@ -223,6 +285,21 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Missing debug flag in shader metadata.");
         return luisa::nullopt;
     }
+    if (!requires_trace_closest.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing requires_trace_closest flag in shader metadata.");
+        return luisa::nullopt;
+    }
+    if (!requires_trace_any.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing requires_trace_any flag in shader metadata.");
+        return luisa::nullopt;
+    }
+    if (!requires_ray_query.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing requires_ray_query flag in shader metadata.");
+        return luisa::nullopt;
+    }
     if (!checksum.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing checksum in shader metadata.");
@@ -257,6 +334,9 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .checksum = checksum.value(),
         .kind = kind,
         .enable_debug = enable_debug.value(),
+        .requires_trace_closest = requires_trace_closest.value(),
+        .requires_trace_any = requires_trace_any.value(),
+        .requires_ray_query = requires_ray_query.value(),
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
         .argument_usages = std::move(argument_usages.value())};
