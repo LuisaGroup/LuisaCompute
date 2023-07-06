@@ -7,8 +7,6 @@
 #include <wrl/client.h>
 #include <Resource/DefaultBuffer.h>
 //#include <wil/result_macros.h>
-#define THROW_IF_FAILED(hr) hr
-#define IID_GRAPHICS_PPV_ARGS IID_PPV_ARGS
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -71,7 +69,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     unsigned int dataSize = dmlGraph->half ? 2 : 4;
     DML_TENSOR_DATA_TYPE dataType = dmlGraph->half ? DML_TENSOR_DATA_TYPE_FLOAT16 : DML_TENSOR_DATA_TYPE_FLOAT32;
     DML_CREATE_DEVICE_FLAGS dmlCreateDeviceFlags = DML_CREATE_DEVICE_FLAG_NONE;
-    THROW_IF_FAILED(DMLCreateDevice(
+    ThrowIfFailed(DMLCreateDevice(
         device,
         dmlCreateDeviceFlags,
         IID_PPV_ARGS(dmlGraph->dmlDevice.GetAddressOf())));
@@ -118,8 +116,8 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
 
     ComPtr<IDMLOperatorInitializer> dmlOperatorInitializer;
     IDMLCompiledOperator *dmlCompiledOperators[] = {dmlGraph->dmlCompiledOperator.Get()};
-    THROW_IF_FAILED(dmlGraph->dmlDevice->CreateOperatorInitializer(
-        ARRAYSIZE(dmlCompiledOperators),
+    ThrowIfFailed(dmlGraph->dmlDevice->CreateOperatorInitializer(
+        vstd::array_count(dmlCompiledOperators),
         dmlCompiledOperators,
         IID_PPV_ARGS(dmlOperatorInitializer.GetAddressOf())));
 
@@ -139,13 +137,13 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     descriptorHeapDesc.NumDescriptors = dmlGraph->descriptorCount;
     descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    THROW_IF_FAILED(device->CreateDescriptorHeap(
+    ThrowIfFailed(device->CreateDescriptorHeap(
         &descriptorHeapDesc,
-        IID_GRAPHICS_PPV_ARGS(dmlGraph->descriptorHeap.GetAddressOf())));
+        IID_PPV_ARGS(dmlGraph->descriptorHeap.GetAddressOf())));
 
     // Set the descriptor heap(s).
     ID3D12DescriptorHeap *d3D12DescriptorHeaps[] = {dmlGraph->descriptorHeap.Get()};
-    command_list->SetDescriptorHeaps(ARRAYSIZE(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
+    command_list->SetDescriptorHeaps(vstd::array_count(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
 
     // Create a binding table over the descriptor heap we just created.
     DML_BINDING_TABLE_DESC dmlBindingTableDesc{};
@@ -155,7 +153,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     dmlBindingTableDesc.SizeInDescriptors = dmlGraph->descriptorCount;
 
     ComPtr<IDMLBindingTable> initBindingTable;
-    THROW_IF_FAILED(dmlGraph->dmlDevice->CreateBindingTable(
+    ThrowIfFailed(dmlGraph->dmlDevice->CreateBindingTable(
         &dmlBindingTableDesc,
         IID_PPV_ARGS(initBindingTable.GetAddressOf())));
 
@@ -174,13 +172,13 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
     if (dmlGraph->temporaryResourceSize != 0) {
         auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dmlGraph->temporaryResourceSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        THROW_IF_FAILED(device->CreateCommittedResource(
+        ThrowIfFailed(device->CreateCommittedResource(
             &heap,
             D3D12_HEAP_FLAG_NONE,
             &bufferDesc,
             D3D12_RESOURCE_STATE_COMMON,
             nullptr,
-            IID_GRAPHICS_PPV_ARGS(dmlGraph->temporaryBuffer.GetAddressOf())));
+            IID_PPV_ARGS(dmlGraph->temporaryBuffer.GetAddressOf())));
 
         if (initializeBindingProperties.TemporaryResourceSize != 0) {
             DML_BUFFER_BINDING bufferBinding{dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temporaryResourceSize};
@@ -191,13 +189,13 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
 
     if (dmlGraph->persistentResourceSize != 0) {
         auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dmlGraph->persistentResourceSize);
-        THROW_IF_FAILED(device->CreateCommittedResource(
+        ThrowIfFailed(device->CreateCommittedResource(
             &heap,
             D3D12_HEAP_FLAG_NONE,
             &bufferDesc,
             D3D12_RESOURCE_STATE_COMMON,
             nullptr,
-            IID_GRAPHICS_PPV_ARGS(dmlGraph->persistentBuffer.GetAddressOf())));
+            IID_PPV_ARGS(dmlGraph->persistentBuffer.GetAddressOf())));
 
         // The persistent resource should be bound as the output to the IDMLOperatorInitializer.
         DML_BUFFER_BINDING bufferBinding{dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persistentResourceSize};
@@ -206,7 +204,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     }
 
     // The command recorder is a stateless object that records Dispatches into an existing Direct3D 12 command list.
-    THROW_IF_FAILED(dmlGraph->dmlDevice->CreateCommandRecorder(
+    ThrowIfFailed(dmlGraph->dmlDevice->CreateCommandRecorder(
         IID_PPV_ARGS(dmlGraph->dmlCommandRecorder.GetAddressOf())));
 
     dmlGraph->dmlCommandRecorder->RecordDispatch(
@@ -214,7 +212,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
         dmlOperatorInitializer.Get(),
         initBindingTable.Get());
 
-    THROW_IF_FAILED(dmlGraph->dmlDevice->CreateBindingTable(
+    ThrowIfFailed(dmlGraph->dmlDevice->CreateBindingTable(
         &dmlBindingTableDesc,
         IID_PPV_ARGS(dmlGraph->dmlBindingTable.GetAddressOf())));
 }
@@ -263,7 +261,7 @@ void DxGraphForwardCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_
         dmlBindingTableDesc.GPUDescriptorHandle = dmlGraph->descriptorHeap->GetGPUDescriptorHandleForHeapStart();
         dmlBindingTableDesc.SizeInDescriptors = dmlGraph->descriptorCount;
         dmlBindingTableDesc.Dispatchable = dmlGraph->dmlCompiledOperator.Get();
-        THROW_IF_FAILED(dmlGraph->dmlBindingTable->Reset(&dmlBindingTableDesc));
+        ThrowIfFailed(dmlGraph->dmlBindingTable->Reset(&dmlBindingTableDesc));
 
         if (dmlGraph->temporaryResourceSize != 0) {
             DML_BUFFER_BINDING bufferBinding{dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temporaryResourceSize};
@@ -311,7 +309,7 @@ void DxGraphForwardCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_
     }
 
     ID3D12DescriptorHeap *d3D12DescriptorHeaps[] = {dmlGraph->descriptorHeap.Get()};
-    command_list->SetDescriptorHeaps(ARRAYSIZE(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
+    command_list->SetDescriptorHeaps(vstd::array_count(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
 
     //Dispatch the operator
     dmlGraph->dmlCommandRecorder->RecordDispatch(command_list, dmlGraph->dmlCompiledOperator.Get(), dmlGraph->dmlBindingTable.Get());
