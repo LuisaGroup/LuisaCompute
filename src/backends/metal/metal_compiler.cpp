@@ -223,10 +223,15 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     auto library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
 
     auto should_dump_metallib = false;
-    if (auto dump_env_c_str = getenv("LUISA_DUMP_METAL_LIBRARY")) {
+    using namespace std::string_view_literals;
+    if (auto metal_debug_env = getenv("MTL_DEBUG_LAYER"),
+        metal_shader_validation = getenv("MTL_SHADER_VALIDATION");
+        (metal_debug_env != nullptr && metal_debug_env != "0"sv) ||
+        (metal_shader_validation != nullptr && metal_shader_validation != "0"sv)) {
+        should_dump_metallib = true;
+    } else if (auto dump_env_c_str = getenv("LUISA_DUMP_METAL_LIBRARY")) {
         luisa::string dump_env{dump_env_c_str};
         for (auto &c : dump_env) { c = static_cast<char>(toupper(c)); }
-        using namespace std::string_view_literals;
         should_dump_metallib = !dump_env.empty() &&
                                dump_env != "0"sv &&
                                dump_env != "OFF"sv &&
@@ -250,6 +255,11 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     }
 
     // load kernel
+    auto ns_name = NS::String::alloc()->init(
+        const_cast<char *>(name.data()), name.size(),
+        NS::UTF8StringEncoding, false);
+    library->setLabel(ns_name);
+    ns_name->release();
     auto [pipeline_desc, pipeline] = _load_kernels_from_library(library.get(), metadata.block_size);
     if (pipeline.entry && pipeline.indirect_entry) {
         LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc());
@@ -271,6 +281,10 @@ MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_siz
         function_desc->setName(name);
         function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
         auto function = NS::TransferPtr(library->newFunction(function_desc, &error));
+        auto label = is_indirect ?
+                         library->label()->stringByAppendingString(MTLSTR(" (indirect)")) :
+                         library->label();
+        function->setLabel(label);
         function_desc->release();
         if (error != nullptr) {
             LUISA_WARNING_WITH_LOCATION(
@@ -320,7 +334,7 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         auto uses_cache = is_aot || option.enable_cache;
 
         // try disk cache
-        if (uses_cache) {
+        if (uses_cache && !option.enable_debug_info) {
             if (auto pso = _load_disk_archive(name, is_aot, metadata);
                 pso.entry && pso.indirect_entry) {
                 _cache.update(hash, pso);
@@ -331,10 +345,10 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                        name);
         }
 
-        luisa::filesystem::path src_dump_path;
         if (option.enable_debug_info || LUISA_METAL_BACKEND_DUMP_SOURCE) {
             auto src_dump_name = luisa::format("{}.metal", name);
             luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
+            luisa::filesystem::path src_dump_path;
             if (is_aot) {
                 src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
             } else if (option.enable_cache) {
@@ -364,38 +378,7 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         }
 
         NS::Error *error;
-        NS::SharedPtr<MTL::Library> library;
-        if (option.enable_debug_info && !src_dump_path.empty()) {
-            // try to compile the library with debug symbols
-            auto out_lib_path = src_dump_path;
-            out_lib_path.replace_extension("metallib");
-            auto command = luisa::format("xcrun -sdk macosx metal -frecord-sources=flat -std=metal3.0 {} {} -o {}",
-                                         option.enable_fast_math ? "-ffast-math" : "-fno-fast-math",
-                                         src_dump_path.string(), out_lib_path.string());
-            LUISA_INFO("Compiling Metal shader '{}' with "
-                       "debug symbols via command line: {}",
-                       name, command);
-            if (system(command.c_str()) != 0) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "Failed to compile Metal shader '{}' with debug symbols. "
-                    "Falling back to compilation without debug symbols.",
-                    name);
-            } else {
-                auto url = NS::URL::fileURLWithPath(NS::String::string(
-                    out_lib_path.string().c_str(), NS::UTF8StringEncoding));
-                library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
-                if (error != nullptr) {
-                    LUISA_WARNING_WITH_LOCATION(
-                        "Error during loading Metal library '{}' for '{}': {}.",
-                        out_lib_path.string(), name,
-                        error->localizedDescription()->utf8String());
-                }
-            }
-        }
-        // no debug info, or failed to compile with debug info
-        if (!library) {
-            library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
-        }
+        auto library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
         source->release();
         options->release();
         if (error != nullptr) {

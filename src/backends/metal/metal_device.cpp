@@ -69,6 +69,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     compile_options->setLibraryType(MTL::LibraryTypeExecutable);
     NS::Error *error{nullptr};
     auto builtin_library = _handle->newLibrary(builtin_kernel_source, compile_options, &error);
+    builtin_library->setLabel(MTLSTR("luisa_builtin"));
 
     builtin_kernel_source->release();
     compile_options->release();
