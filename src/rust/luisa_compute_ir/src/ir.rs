@@ -1250,6 +1250,18 @@ impl NodeRef {
             _ => false,
         }
     }
+    pub fn is_const(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Const(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_uniform(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Uniform => true,
+            _ => false,
+        }
+    }
     pub fn is_phi(&self) -> bool {
         self.get().instruction.is_phi()
     }

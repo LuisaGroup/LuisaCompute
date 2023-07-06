@@ -367,7 +367,7 @@ impl<'a> FunctionEmitter<'a> {
                     Instruction::Argument { by_value } => {
                         let ty = self.type_gen.gen_c_type(arg.type_());
                         if *by_value {
-                            write!(&mut param, "const {}& {}", ty, var).unwrap();
+                            write!(&mut param, "{} {}", ty, var).unwrap();
                         } else {
                             write!(&mut param, "{}& {}", ty, var).unwrap();
                         }
@@ -846,7 +846,11 @@ impl<'a> FunctionEmitter<'a> {
             }
             Func::GetElementPtr => {
                 if args[0].type_().is_array() || args[0].type_().is_vector() || args[0].type_().is_matrix() {
-                    let const_ = if !args[0].is_local() { "const " } else { "" };
+                    let const_ = if args[0].is_const() || args[0].is_uniform() {
+                        "const "
+                    } else {
+                        ""
+                    };
                     writeln!(
                         self.body,
                         "{}{}& {} = {}[{}];",
