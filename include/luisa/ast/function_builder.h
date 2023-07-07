@@ -99,7 +99,6 @@ private:
     Tag _tag;
     bool _hash_computed{false};
     bool _requires_atomic_float{false};
-    bool _requires_autodiff{false};
 
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;

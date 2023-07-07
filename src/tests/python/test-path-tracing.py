@@ -48,7 +48,7 @@ def generate_ray(p):
     origin = float3(-0.01, 0.995, 5.0)
     pixel = origin + float3(p * tan(0.5 * fov), -1.0)
     direction = normalize(pixel - origin)
-    return make_ray(origin, direction, 0.0, 1e30)  # TODO
+    return make_ray(origin, direction, 0.0, 1e30)
 
 
 @func

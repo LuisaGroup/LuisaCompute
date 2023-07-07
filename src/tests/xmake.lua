@@ -35,7 +35,9 @@ end
 
 -- FIXME: @Maxwell please use the doctest framework
 test_proj("test_helloworld")
-test_proj('test_autodiff', true)
+if get_config("enable_ir") then
+	test_proj('test_autodiff')
+end
 test_proj("test_ast")
 test_proj("test_atomic")
 test_proj("test_bindless", true)
@@ -77,6 +79,7 @@ test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
 test_proj("test_sparse_texture", true)
+test_proj("test_dml")
 local enable_fsr2
 local enable_xess
 -- Super-sampling example

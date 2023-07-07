@@ -9,7 +9,7 @@ add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp"
 add_headerfiles("DXApi/**.h", "DXRuntime/**.h", "Resource/**.h", "Shader/**.h", "../common/default_binary_io.h",
 				"../common/hlsl/*.h")
 add_includedirs("./")
-add_syslinks("D3D12", "dxgi")
+add_syslinks("D3D12", "dxgi", "DirectML")
 if is_plat("windows") then
 	add_defines("UNICODE", "_CRT_SECURE_NO_WARNINGS")
 end

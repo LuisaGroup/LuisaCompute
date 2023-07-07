@@ -44,7 +44,7 @@ private:
     DxPtr<ID3D12CommandQueue> queue;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
-    vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
+    vstd::SingleThreadArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
 
 public:

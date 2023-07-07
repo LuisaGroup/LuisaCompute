@@ -50,41 +50,44 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
 }
 
 CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
-                                 const char *ptx, size_t ptx_size,
-                                 const char *entry, bool enable_debug,
-                                 luisa::vector<Usage> argument_usages,
+                                 const char *ptx, size_t ptx_size, const char *entry,
+                                 const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : CUDAShader{std::move(argument_usages)},
+    : CUDAShader{metadata.argument_usages},
       _bound_arguments{std::move(bound_arguments)} {
 
-    // create argument buffer
-    static constexpr auto pattern = "params[";
-    auto ptr = strstr(ptx, pattern);
-    if (ptr == nullptr) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Cannot find global symbol 'params' in PTX for {}.",
-            entry);
+    // compute argument buffer size
+    _argument_buffer_size = 0u;
+    for (auto &&arg : metadata.argument_types) {
+        auto type = Type::from(arg);
+        switch (type->tag()) {
+            case Type::Tag::BUFFER:
+                _argument_buffer_size += sizeof(CUDABuffer::Binding);
+                break;
+            case Type::Tag::TEXTURE:
+                _argument_buffer_size += sizeof(CUDATexture::Binding);
+                break;
+            case Type::Tag::BINDLESS_ARRAY:
+                _argument_buffer_size += sizeof(CUDABindlessArray::Binding);
+                break;
+            case Type::Tag::ACCEL:
+                _argument_buffer_size += sizeof(CUDAAccel::Binding);
+                break;
+            case Type::Tag::CUSTOM:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Invalid custom type '{}' for OptiX shader argument.",
+                    type->description());
+            default:
+                _argument_buffer_size += type->size();
+                break;
+        }
+        _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
     }
-    ptr += std::string_view{pattern}.size();
-    char *end = nullptr;
-    _argument_buffer_size = strtoull(ptr, &end, 10);
-    if (_argument_buffer_size == 0u) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to parse argument buffer size for {}.",
-            entry);
-    }
+    // for dispatch size and kernel id
+    _argument_buffer_size += 16u;
     LUISA_VERBOSE_WITH_LOCATION(
         "Argument buffer size for {}: {}.",
         entry, _argument_buffer_size);
-
-    // reflect ray tracing calls
-    auto detect_rtx_entry = [ptx = luisa::string_view{ptx, ptx_size}](luisa::string_view name) noexcept {
-        auto pattern = luisa::format(".visible .entry __miss__{}()", name);
-        return ptx.find(pattern) != luisa::string_view::npos;
-    };
-    auto uses_trace_closest = detect_rtx_entry("trace_closest");
-    auto uses_trace_any = detect_rtx_entry("trace_any");
-    auto uses_ray_query = detect_rtx_entry("ray_query");
 
     // create module
     static constexpr std::array trace_closest_payload_semantics{
@@ -114,9 +117,11 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
 
     optix::ModuleCompileOptions module_compile_options{};
     module_compile_options.maxRegisterCount = optix::COMPILE_DEFAULT_MAX_REGISTER_COUNT;
-    module_compile_options.debugLevel = enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
-                                                       optix::COMPILE_DEBUG_LEVEL_NONE;
-    module_compile_options.optLevel = optix::COMPILE_OPTIMIZATION_LEVEL_3;
+    module_compile_options.debugLevel = metadata.enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
+                                                                optix::COMPILE_DEBUG_LEVEL_NONE;
+    module_compile_options.optLevel = metadata.enable_debug ?
+                                          optix::COMPILE_OPTIMIZATION_LEVEL_3 :
+                                          optix::COMPILE_OPTIMIZATION_LEVEL_3;
     module_compile_options.numPayloadTypes = payload_types.size();
     module_compile_options.payloadTypes = payload_types.data();
 
@@ -124,9 +129,9 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
     pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
     pipeline_compile_options.numPayloadValues = 0u;
-    auto primitive_flags = uses_ray_query ? (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM |
-                                             optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
-                                            optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+    auto primitive_flags = metadata.requires_ray_query ? (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM |
+                                                          optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
+                                                         optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
     pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
@@ -157,7 +162,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
             log, &log_size, &_program_group_rg));
     program_groups.emplace_back(_program_group_rg);
 
-    if (uses_trace_closest) {
+    if (metadata.requires_trace_closest) {
         optix::ProgramGroupOptions program_group_options_ch_closest{};
         program_group_options_ch_closest.payloadType = &payload_types[0];
         optix::ProgramGroupDesc program_group_desc_ch_closest{};
@@ -190,7 +195,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
         program_groups.emplace_back(_program_group_miss_closest);
     }
 
-    if (uses_ray_query) {
+    if (metadata.requires_ray_query) {
         optix::ProgramGroupOptions program_group_options_ch_query{};
         program_group_options_ch_query.payloadType = &payload_types[2];
         optix::ProgramGroupDesc program_group_desc_ch_query{};
@@ -228,7 +233,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
         program_groups.emplace_back(_program_group_miss_query);
     }
 
-    if (uses_trace_any) {
+    if (metadata.requires_trace_any) {
         optix::ProgramGroupOptions program_group_options_miss_any{};
         program_group_options_miss_any.payloadType = &payload_types[1];
         optix::ProgramGroupDesc program_group_desc_miss_any{};
@@ -248,8 +253,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
 
     // create pipeline
     optix::PipelineLinkOptions pipeline_link_options{};
-    pipeline_link_options.debugLevel = enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
-                                                      optix::COMPILE_DEBUG_LEVEL_NONE;
+    pipeline_link_options.debugLevel = metadata.enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
+                                                               optix::COMPILE_DEBUG_LEVEL_NONE;
     pipeline_link_options.maxTraceDepth = 1u;
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,

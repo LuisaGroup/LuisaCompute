@@ -28,7 +28,7 @@ public:
 
 private:
     luisa::unordered_map<size_t, Modification> _modifications;
-    luisa::vector<uint64_t> _mesh_handles;
+    size_t _mesh_size{};
 
 private:
     friend class Device;
@@ -43,6 +43,7 @@ private:
     void _set_handle(size_t index, uint64_t mesh_handle,
                      float4x4 const &transform,
                      uint8_t visibility_mask, bool opaque) noexcept;
+    void _set_prim_handle(size_t index, uint64_t prim_handle) noexcept;
 
 public:
     Accel() noexcept = default;
@@ -57,7 +58,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
-        return _mesh_handles.size();
+        return _mesh_size;
     }
 
     // host interfaces
@@ -88,7 +89,12 @@ public:
              uint8_t visibility_mask = 0xffu) noexcept {
         _set_handle(index, prim.handle(), transform, visibility_mask, false);
     }
-
+    void set_mesh(size_t index, const Mesh &mesh) noexcept {
+        _set_prim_handle(index, mesh.handle());
+    }
+    void set_procedural_primitive(size_t index, const ProceduralPrimitive &prim) noexcept {
+        _set_prim_handle(index, prim.handle());
+    }
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept;

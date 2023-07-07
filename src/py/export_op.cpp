@@ -136,30 +136,30 @@ void export_op(py::module &m) {
         .value("ATOMIC_FETCH_MIN", CallOp::ATOMIC_FETCH_MIN)              /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
         .value("ATOMIC_FETCH_MAX", CallOp::ATOMIC_FETCH_MAX)              /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-        .value("BUFFER_READ", CallOp::BUFFER_READ)                            /// [(buffer, index) -> value]: reads the index-th element in buffer
-        .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)                          /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-        .value("BUFFER_SIZE", CallOp::BUFFER_SIZE)                            /// [(buffer, index) -> UINT]: writes value into the index-th element of buffer
-        .value("TEXTURE_READ", CallOp::TEXTURE_READ)                          /// [(texture, coord) -> value]
-        .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)                        /// [(texture, coord, value) -> void]
+        .value("BUFFER_READ", CallOp::BUFFER_READ)    /// [(buffer, index) -> value]: reads the index-th element in buffer
+        .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+        .value("BUFFER_SIZE", CallOp::BUFFER_SIZE)    /// [(buffer, index) -> UINT]: writes value into the index-th element of buffer
+        .value("TEXTURE_READ", CallOp::TEXTURE_READ)  /// [(texture, coord) -> value]
+        .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)/// [(texture, coord, value) -> void]
         .value("TEXTURE_SIZE", CallOp::TEXTURE_SIZE)
 
-        .value("BINDLESS_TEXTURE2D_SAMPLE", CallOp::BINDLESS_TEXTURE2D_SAMPLE)            //(bindless_array, index: uint, uv: float2): float4
-        .value("BINDLESS_TEXTURE2D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float2, level: float): float4
-        .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD)  //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
-        .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL)  //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
-        .value("BINDLESS_TEXTURE3D_SAMPLE", CallOp::BINDLESS_TEXTURE3D_SAMPLE)            //(bindless_array, index: uint, uv: float3): float4
-        .value("BINDLESS_TEXTURE3D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float3, level: float): float4
-        .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD)  //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-        .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL)  //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-        .value("BINDLESS_TEXTURE2D_READ", CallOp::BINDLESS_TEXTURE2D_READ)                //(bindless_array, index: uint, coord: uint2): float4
-        .value("BINDLESS_TEXTURE3D_READ", CallOp::BINDLESS_TEXTURE3D_READ)                //(bindless_array, index: uint, coord: uint3): float4
-        .value("BINDLESS_TEXTURE2D_READ_LEVEL", CallOp::BINDLESS_TEXTURE2D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint2, level: uint): float4
-        .value("BINDLESS_TEXTURE3D_READ_LEVEL", CallOp::BINDLESS_TEXTURE3D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint3, level: uint): float4
-        .value("BINDLESS_BUFFER_SIZE", CallOp::BINDLESS_BUFFER_SIZE)                      //(bindless_array, index: uint): uint
-        .value("BINDLESS_TEXTURE2D_SIZE", CallOp::BINDLESS_TEXTURE2D_SIZE)                //(bindless_array, index: uint): uint2
-        .value("BINDLESS_TEXTURE3D_SIZE", CallOp::BINDLESS_TEXTURE3D_SIZE)                //(bindless_array, index: uint): uint3
-        .value("BINDLESS_TEXTURE2D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL)    //(bindless_array, index: uint, level: uint): uint2
-        .value("BINDLESS_TEXTURE3D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL)    //(bindless_array, index: uint, level: uint): uint3
+        .value("BINDLESS_TEXTURE2D_SAMPLE", CallOp::BINDLESS_TEXTURE2D_SAMPLE)                      //(bindless_array, index: uint, uv: float2): float4
+        .value("BINDLESS_TEXTURE2D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL)          //(bindless_array, index: uint, uv: float2, level: float): float4
+        .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD)            //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+        .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL)//(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE", CallOp::BINDLESS_TEXTURE3D_SAMPLE)                      //(bindless_array, index: uint, uv: float3): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL)          //(bindless_array, index: uint, uv: float3, level: float): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD)            //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL)//(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+        .value("BINDLESS_TEXTURE2D_READ", CallOp::BINDLESS_TEXTURE2D_READ)                          //(bindless_array, index: uint, coord: uint2): float4
+        .value("BINDLESS_TEXTURE3D_READ", CallOp::BINDLESS_TEXTURE3D_READ)                          //(bindless_array, index: uint, coord: uint3): float4
+        .value("BINDLESS_TEXTURE2D_READ_LEVEL", CallOp::BINDLESS_TEXTURE2D_READ_LEVEL)              //(bindless_array, index: uint, coord: uint2, level: uint): float4
+        .value("BINDLESS_TEXTURE3D_READ_LEVEL", CallOp::BINDLESS_TEXTURE3D_READ_LEVEL)              //(bindless_array, index: uint, coord: uint3, level: uint): float4
+        .value("BINDLESS_BUFFER_SIZE", CallOp::BINDLESS_BUFFER_SIZE)                                //(bindless_array, index: uint): uint
+        .value("BINDLESS_TEXTURE2D_SIZE", CallOp::BINDLESS_TEXTURE2D_SIZE)                          //(bindless_array, index: uint): uint2
+        .value("BINDLESS_TEXTURE3D_SIZE", CallOp::BINDLESS_TEXTURE3D_SIZE)                          //(bindless_array, index: uint): uint3
+        .value("BINDLESS_TEXTURE2D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL)              //(bindless_array, index: uint, level: uint): uint2
+        .value("BINDLESS_TEXTURE3D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL)              //(bindless_array, index: uint, level: uint): uint3
 
         .value("BINDLESS_BUFFER_READ", CallOp::BINDLESS_BUFFER_READ)//(bindless_array, index: uint): expr->type()
         .value("BINDLESS_BYTE_ADDRESS_BUFFER_READ", CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ)
@@ -218,6 +218,20 @@ void export_op(py::module &m) {
         .value("RAY_TRACING_TRACE_CLOSEST", CallOp::RAY_TRACING_TRACE_CLOSEST)
         .value("RAY_TRACING_TRACE_ANY", CallOp::RAY_TRACING_TRACE_ANY)
         .value("RAY_TRACING_QUERY_ALL", CallOp::RAY_TRACING_QUERY_ALL)
-        .value("RAY_TRACING_QUERY_ANY", CallOp::RAY_TRACING_QUERY_ANY);
-}
+        .value("RAY_TRACING_QUERY_ANY", CallOp::RAY_TRACING_QUERY_ANY)
 
+        .value("REQUIRES_GRADIENT", CallOp::REQUIRES_GRADIENT)
+        .value("GRADIENT", CallOp::GRADIENT)
+        .value("GRADIENT_MARKER", CallOp::GRADIENT_MARKER)
+        .value("ACCUMULATE_GRADIENT", CallOp::ACCUMULATE_GRADIENT)
+        .value("BACKWARD", CallOp::BACKWARD)
+        .value("DETACH", CallOp::DETACH)
+        .value("ZERO", CallOp::ZERO)
+        .value("ONE", CallOp::ONE)
+        .value("REDUCE_SUM", CallOp::REDUCE_SUM)
+        .value("REDUCE_PRODUCT", CallOp::REDUCE_PRODUCT)
+        .value("REDUCE_MIN", CallOp::REDUCE_MIN)
+        .value("REDUCE_MAX", CallOp::REDUCE_MAX)
+        .value("OUTER_PRODUCT", CallOp::OUTER_PRODUCT)
+        .value("MATRIX_COMPONENT_WISE_MULTIPLICATION", CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION);
+}

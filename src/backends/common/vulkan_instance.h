@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <cstdlib>
+#include <cstring>
+
 #include <vulkan/vulkan_core.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
@@ -33,7 +36,7 @@ static constexpr auto LUISA_REQUIRED_VULKAN_VERSION = VK_API_VERSION_1_2;
 struct VulkanDeviceUUID {
     uint8_t bytes[VK_UUID_SIZE];
     [[nodiscard]] auto operator==(const VulkanDeviceUUID &rhs) const noexcept {
-        return std::memcmp(bytes, rhs.bytes, sizeof(bytes)) == 0;
+        return memcmp(bytes, rhs.bytes, sizeof(bytes)) == 0;
     }
 };
 

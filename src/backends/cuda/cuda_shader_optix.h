@@ -11,6 +11,7 @@
 namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
+class CUDAShaderMetadata;
 
 class CUDAShaderOptiX final : public CUDAShader {
 
@@ -43,9 +44,8 @@ private:
 
 public:
     CUDAShaderOptiX(optix::DeviceContext optix_ctx,
-                    const char *ptx, size_t ptx_size,
-                    const char *entry, bool enable_debug,
-                    luisa::vector<Usage> argument_usages,
+                    const char *ptx, size_t ptx_size, const char *entry,
+                    const CUDAShaderMetadata &metadata,
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
     [[nodiscard]] void *handle() const noexcept override { return _pipeline; }

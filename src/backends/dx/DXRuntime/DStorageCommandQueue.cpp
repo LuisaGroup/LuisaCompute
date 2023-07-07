@@ -18,7 +18,7 @@ void DStorageCommandQueue::ExecuteThread() {
             if (wakeupThread) {
                 {
                     std::lock_guard lck(mtx);
-                    executedFrame = fence;
+                    executedFrame = std::max(executedFrame, fence);
                 }
                 mainCv.notify_all();
             }
@@ -30,7 +30,7 @@ void DStorageCommandQueue::ExecuteThread() {
             if (wakeupThread) {
                 {
                     std::lock_guard lck(mtx);
-                    executedFrame = fence;
+                    executedFrame = std::max(executedFrame, fence);
                 }
                 mainCv.notify_all();
             }
@@ -43,7 +43,13 @@ void DStorageCommandQueue::ExecuteThread() {
             }
             evt->cv.notify_all();
         };
-        while (auto b = executedAllocators.pop()) {
+        while (true) {
+            vstd::optional<CallbackEvent> b;
+            {
+                std::lock_guard lck{mtx};
+                b = executedAllocators.pop();
+            }
+            if (!b) break;
             fence = b->fence;
             wakeupThread = b->wakeupThread;
             b->evt.multi_visit(
@@ -58,8 +64,8 @@ void DStorageCommandQueue::ExecuteThread() {
     }
 }
 void DStorageCommandQueue::AddEvent(LCEvent const *evt, uint64 fenceIdx) {
-    executedAllocators.push(evt, fenceIdx, true);
     mtx.lock();
+    executedAllocators.push(evt, fenceIdx, true);
     mtx.unlock();
     waitCv.notify_one();
 }
@@ -143,12 +149,13 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
     }
     bool callbackEmpty = list.callbacks().empty();
     curFrame = ++lastFrame;
-    executedAllocators.push(waitQueueHandle, curFrame, callbackEmpty);
-    if (!callbackEmpty) {
-        executedAllocators.push(list.steal_callbacks(), curFrame, true);
+    {
+        std::unique_lock lck(mtx);
+        executedAllocators.push(waitQueueHandle, curFrame, callbackEmpty);
+        if (!callbackEmpty) {
+            executedAllocators.push(list.steal_callbacks(), curFrame, true);
+        }
     }
-    mtx.lock();
-    mtx.unlock();
     waitCv.notify_one();
     return curFrame;
 }

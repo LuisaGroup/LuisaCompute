@@ -38,12 +38,6 @@ class TopAccel : public Resource {
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
         vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state);
-    struct Buffers {
-        vstd::unique_ptr<DefaultBuffer> v;
-        Buffers(vstd::unique_ptr<DefaultBuffer> &&a)
-            : v(std::move(a)) {}
-        void operator()() const {}
-    };
 
 public:
     bool RequireCompact() const;

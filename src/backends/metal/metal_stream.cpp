@@ -125,8 +125,15 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
             for (auto callback : callbakcs) { callback->recycle(); }
         });
     }
+#ifndef NDEBUG
+    command_buffer->addCompletedHandler(^(MTL::CommandBuffer *cb) noexcept {
+        if (auto error = cb->error()) {
+            LUISA_WARNING("CommandBuffer execution error: {}.",
+                          error->localizedDescription()->utf8String());
+        }
+    });
+#endif
     command_buffer->commit();
 }
 
 }// namespace luisa::compute::metal
-

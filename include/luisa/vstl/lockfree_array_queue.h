@@ -154,11 +154,11 @@ public:
 
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class SingleThreadArrayQueue {
+    using Allocator = VAllocHandle<allocType>;
     size_t head;
     size_t tail;
     size_t capacity;
     T *arr;
-    using Allocator = VAllocHandle<allocType>;
 
     static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
         return index & capacity;
@@ -166,18 +166,9 @@ class SingleThreadArrayQueue {
     using SelfType = SingleThreadArrayQueue<T, allocType>;
 
 public:
-    size_t length() const {
-        return tail - head;
-    }
-    SingleThreadArrayQueue(SelfType &&v)
-        : head(v.head),
-          tail(v.tail),
-          capacity(v.capacity),
-          arr(v.arr) {
-        v.arr = nullptr;
-    }
     SingleThreadArrayQueue(size_t capacity) : head(0), tail(0) {
-        capacity = capacity = [](size_t capacity) {
+        if (capacity < 32) capacity = 32;
+        capacity = [](size_t capacity) {
             size_t ssize = 1;
             while (ssize < capacity)
                 ssize <<= 1;
@@ -186,8 +177,34 @@ public:
         this->capacity = capacity - 1;
         arr = (T *)Allocator().Malloc(sizeof(T) * capacity);
     }
-    SingleThreadArrayQueue() : SingleThreadArrayQueue(32) {}
-
+    SingleThreadArrayQueue(SelfType &&v)
+        : head(v.head),
+          tail(v.tail),
+          capacity(v.capacity),
+          arr(v.arr) {
+        v.arr = nullptr;
+    }
+    void operator=(SelfType &&v) {
+        this->~SelfType();
+        new (this) SelfType(std::move(v));
+    }
+    SingleThreadArrayQueue() : SingleThreadArrayQueue(64) {}
+    void reserve(size_t newCapa) {
+        size_t index = head;
+        if (newCapa > capacity) {
+            auto newCapa = (capacity + 1) * 2;
+            T *newArr = (T *)Allocator().Malloc(sizeof(T) * newCapa);
+            newCapa--;
+            for (size_t s = tail; s != index; ++s) {
+                T *ptr = arr + GetIndex(s, capacity);
+                new (newArr + GetIndex(s, newCapa)) T(std::move(*ptr));
+                vstd::destruct(ptr);
+            }
+            Allocator().Free(arr);
+            arr = newArr;
+            capacity = newCapa;
+        }
+    }
     template<typename... Args>
     void push(Args &&...args) {
         size_t index = head++;
@@ -208,7 +225,6 @@ public:
     }
     bool pop(T *ptr) {
         vstd::destruct(ptr);
-
         if (head == tail)
             return false;
         auto &&value = arr[GetIndex(tail++, capacity)];
@@ -220,11 +236,24 @@ public:
         vstd::destruct(&value);
         return true;
     }
+    optional<T> pop() {
+        if (head == tail) {
+            return optional<T>();
+        }
+        auto value = &arr[GetIndex(tail++, capacity)];
+        auto disp = scope_exit([value, this]() {
+            vstd::destruct(value);
+        });
+        return optional<T>(std::move(*value));
+    }
     ~SingleThreadArrayQueue() {
         for (size_t s = tail; s != head; ++s) {
             vstd::destruct(&arr[GetIndex(s, capacity)]);
         }
         Allocator().Free(arr);
+    }
+    size_t length() const {
+        return head - tail;
     }
 };
 }// namespace vstd

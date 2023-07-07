@@ -31,7 +31,6 @@ private:
     const CUDADevice *_device;
     uint _nvrtc_version;
     luisa::string _device_library;
-    uint64_t _library_hash;
     mutable luisa::unique_ptr<Cache> _cache;
 
 public:
@@ -42,8 +41,7 @@ public:
     CUDACompiler &operator=(const CUDACompiler &) noexcept = delete;
     [[nodiscard]] auto nvrtc_version() const noexcept { return _nvrtc_version; }
     [[nodiscard]] auto device_library() const noexcept { return luisa::string_view{_device_library}; }
-    [[nodiscard]] auto device_library_hash() const noexcept { return _library_hash; }
-    [[nodiscard]] luisa::string compile(const luisa::string &src,
+    [[nodiscard]] luisa::string compile(const luisa::string &src, const luisa::string &src_filename,
                                         luisa::span<const char *const> options,
                                         const CUDAShaderMetadata *metadata = nullptr) const noexcept;
     [[nodiscard]] uint64_t compute_hash(const luisa::string &src,

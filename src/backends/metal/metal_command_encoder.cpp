@@ -49,7 +49,15 @@ MetalCommandEncoder::MetalCommandEncoder(MetalStream *stream) noexcept
 
 void MetalCommandEncoder::_prepare_command_buffer() noexcept {
     if (_command_buffer == nullptr) {
-        _command_buffer = _stream->queue()->commandBufferWithUnretainedReferences();
+        auto desc = MTL::CommandBufferDescriptor::alloc()->init();
+        desc->setRetainedReferences(false);
+#ifndef NDEBUG
+        desc->setErrorOptions(MTL::CommandBufferErrorOptionEncoderExecutionStatus);
+#else
+        desc->setErrorOptions(MTL::CommandBufferErrorOptionNone);
+#endif
+        _command_buffer = _stream->queue()->commandBuffer(desc);
+        desc->release();
     }
 }
 

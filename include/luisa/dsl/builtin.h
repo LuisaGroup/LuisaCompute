@@ -1119,6 +1119,42 @@ template<typename X, typename Y>
         std::forward<Y>(y));
 }
 
+/// Reduce sum.
+template<typename T>
+    requires is_dsl_v<T> && is_vector_expr_v<T>
+[[nodiscard]] inline auto reduce_sum(T &&x) noexcept {
+    using E = vector_expr_element_t<T>;
+    return def<E>(detail::FunctionBuilder::current()->call(
+        Type::of<E>(), CallOp::REDUCE_SUM, {LUISA_EXPR(x)}));
+}
+
+/// Reduce product.
+template<typename T>
+    requires is_dsl_v<T> && is_vector_expr_v<T>
+[[nodiscard]] inline auto reduce_prod(T &&x) noexcept {
+    using E = vector_expr_element_t<T>;
+    return def<E>(detail::FunctionBuilder::current()->call(
+        Type::of<E>(), CallOp::REDUCE_PRODUCT, {LUISA_EXPR(x)}));
+}
+
+/// Reduce min.
+template<typename T>
+    requires is_dsl_v<T> && is_vector_expr_v<T>
+[[nodiscard]] inline auto reduce_min(T &&x) noexcept {
+    using E = vector_expr_element_t<T>;
+    return def<E>(detail::FunctionBuilder::current()->call(
+        Type::of<E>(), CallOp::REDUCE_MIN, {LUISA_EXPR(x)}));
+}
+
+/// Reduce max.
+template<typename T>
+    requires is_dsl_v<T> && is_vector_expr_v<T>
+[[nodiscard]] inline auto reduce_max(T &&x) noexcept {
+    using E = vector_expr_element_t<T>;
+    return def<E>(detail::FunctionBuilder::current()->call(
+        Type::of<E>(), CallOp::REDUCE_MAX, {LUISA_EXPR(x)}));
+}
+
 /// Clz. Count leading zeros.
 template<typename X>
     requires is_dsl_v<X> && is_uint_or_vector_expr_v<X>
@@ -1580,14 +1616,12 @@ void requires_grad(T &&...args) noexcept {
 }
 
 /// Mark that a variable does not require gradient
-template<typename... T>
-    requires any_dsl_v<T...>
-void detach(T &&...args) noexcept {
-    auto builder = detail::FunctionBuilder::current();
-    auto do_detach = [builder]<typename X>(X &&x) noexcept {
-        builder->call(CallOp::DETACH, {LUISA_EXPR(x)});
-    };
-    (do_detach(std::forward<T>(args)), ...);
+template<typename T>
+    requires is_dsl_v<T>
+auto detach(T &&x) noexcept {
+    using X = expr_value_t<T>;
+    return def<X>(detail::FunctionBuilder::current()->call(
+        Type::of<X>(), CallOp::DETACH, {LUISA_EXPR(x)}));
 }
 
 /// Back-propagate gradient from the variable with the given gradient
@@ -1634,4 +1668,3 @@ inline void sync_block() noexcept {
 }// namespace dsl
 
 }// namespace luisa::compute
-

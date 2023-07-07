@@ -295,11 +295,17 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
-    Shader2D<Image<float>, Image<float>, float, bool> hdr2ldr_shader = device.compile(hdr2ldr_kernel);
-    Shader2D<Image<float>, Image<float>> accumulate_shader = device.compile(accumulate_kernel);
-    Shader2D<Image<float>, Image<uint>, Accel, uint2> raytracing_shader = device.compile(raytracing_kernel);
-    Shader2D<Image<uint>> make_sampler_shader = device.compile(make_sampler_kernel);
+    ShaderOption o{.enable_debug_info = true};
+    o.name = "clear";
+    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel, o);
+    o.name = "hdr2ldr";
+    Shader2D<Image<float>, Image<float>, float, bool> hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
+    o.name = "accumulate";
+    Shader2D<Image<float>, Image<float>> accumulate_shader = device.compile(accumulate_kernel, o);
+    o.name = "raytracing";
+    Shader2D<Image<float>, Image<uint>, Accel, uint2> raytracing_shader = device.compile(raytracing_kernel, o);
+    o.name = "make_sampler";
+    Shader2D<Image<uint>> make_sampler_shader = device.compile(make_sampler_kernel, o);
 
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);

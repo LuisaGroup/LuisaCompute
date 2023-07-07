@@ -31,6 +31,8 @@
 #include <Resource/SparseBuffer.h>
 #include <Resource/SparseHeap.h>
 
+#include <DXApi/dml_ext.h>
+
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ir2ast.h>
 #endif
@@ -72,6 +74,14 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         },
         [](DeviceExtension *ext) {
             delete static_cast<DStorageExtImpl *>(ext);
+        });
+    exts.try_emplace(
+        DirectMLExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxDirectMLExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxDirectMLExt *>(ext);
         });
 }
 LCDevice::~LCDevice() {

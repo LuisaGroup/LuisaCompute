@@ -178,22 +178,22 @@ enum struct CallOp : uint32_t {
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
     TEXTURE_SIZE, /// [(texture) -> Vector<uint, dim>]
 
-    BINDLESS_TEXTURE2D_SAMPLE,         // (bindless_array, index: uint, uv: float2): float4
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,   // (bindless_array, index: uint, uv: float2, level: float): float4
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD,    // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+    BINDLESS_TEXTURE2D_SAMPLE,           // (bindless_array, index: uint, uv: float2): float4
+    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,     // (bindless_array, index: uint, uv: float2, level: float): float4
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD,      // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
     BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL,// (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2,  mip_clamp: float): float4
-    BINDLESS_TEXTURE3D_SAMPLE,         // (bindless_array, index: uint, uv: float3): float4
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,   // (bindless_array, index: uint, uv: float3, level: float): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD,    // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,    // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float): float4
-    BINDLESS_TEXTURE2D_READ,           // (bindless_array, index: uint, coord: uint2): float4
-    BINDLESS_TEXTURE3D_READ,           // (bindless_array, index: uint, coord: uint3): float4
-    BINDLESS_TEXTURE2D_READ_LEVEL,     // (bindless_array, index: uint, coord: uint2, level: uint): float4
-    BINDLESS_TEXTURE3D_READ_LEVEL,     // (bindless_array, index: uint, coord: uint3, level: uint): float4
-    BINDLESS_TEXTURE2D_SIZE,           // (bindless_array, index: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE,           // (bindless_array, index: uint): uint3
-    BINDLESS_TEXTURE2D_SIZE_LEVEL,     // (bindless_array, index: uint, level: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE_LEVEL,     // (bindless_array, index: uint, level: uint): uint3
+    BINDLESS_TEXTURE3D_SAMPLE,           // (bindless_array, index: uint, uv: float3): float4
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,     // (bindless_array, index: uint, uv: float3, level: float): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD,      // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,// (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float): float4
+    BINDLESS_TEXTURE2D_READ,             // (bindless_array, index: uint, coord: uint2): float4
+    BINDLESS_TEXTURE3D_READ,             // (bindless_array, index: uint, coord: uint3): float4
+    BINDLESS_TEXTURE2D_READ_LEVEL,       // (bindless_array, index: uint, coord: uint2, level: uint): float4
+    BINDLESS_TEXTURE3D_READ_LEVEL,       // (bindless_array, index: uint, coord: uint3, level: uint): float4
+    BINDLESS_TEXTURE2D_SIZE,             // (bindless_array, index: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE,             // (bindless_array, index: uint): uint3
+    BINDLESS_TEXTURE2D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
     BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
     BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
@@ -242,12 +242,12 @@ enum struct CallOp : uint32_t {
     ONE,
 
     // autodiff ops
-    REQUIRES_GRADIENT,
-    GRADIENT,
-    GRADIENT_MARKER,
-    ACCUMULATE_GRADIENT,
-    BACKWARD,
-    DETACH,
+    REQUIRES_GRADIENT,  // (expr) -> void
+    GRADIENT,           // (expr) -> expr
+    GRADIENT_MARKER,    // (ref, expr) -> void
+    ACCUMULATE_GRADIENT,// (ref, expr) -> void
+    BACKWARD,           // (expr) -> void
+    DETACH,             // (expr) -> expr
 
     // ray tracing
     RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
@@ -285,30 +285,18 @@ enum struct CallOp : uint32_t {
 static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
-    return op == CallOp::ATOMIC_EXCHANGE ||
-           op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
-           op == CallOp::ATOMIC_FETCH_ADD ||
-           op == CallOp::ATOMIC_FETCH_SUB ||
-           op == CallOp::ATOMIC_FETCH_AND ||
-           op == CallOp::ATOMIC_FETCH_OR ||
-           op == CallOp::ATOMIC_FETCH_XOR ||
-           op == CallOp::ATOMIC_FETCH_MIN ||
-           op == CallOp::ATOMIC_FETCH_MAX;
+    auto op_value = luisa::to_underlying(op) ;
+    return op_value >= luisa::to_underlying(CallOp::ATOMIC_EXCHANGE) && op_value <= luisa::to_underlying(CallOp::ATOMIC_FETCH_MAX);
+}
+
+[[nodiscard]] constexpr auto is_autodiff_operation(CallOp op) noexcept {
+    auto op_value = luisa::to_underlying(op) ;
+    return op_value >= luisa::to_underlying(CallOp::REQUIRES_GRADIENT) && op_value <= luisa::to_underlying(CallOp::DETACH);
 }
 
 [[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
-    return op == CallOp::MAKE_BOOL2 ||
-           op == CallOp::MAKE_BOOL3 ||
-           op == CallOp::MAKE_BOOL4 ||
-           op == CallOp::MAKE_INT2 ||
-           op == CallOp::MAKE_INT3 ||
-           op == CallOp::MAKE_INT4 ||
-           op == CallOp::MAKE_UINT2 ||
-           op == CallOp::MAKE_UINT3 ||
-           op == CallOp::MAKE_UINT4 ||
-           op == CallOp::MAKE_FLOAT2 ||
-           op == CallOp::MAKE_FLOAT3 ||
-           op == CallOp::MAKE_FLOAT4;
+    auto op_value = luisa::to_underlying(op) ;
+    return op_value >= luisa::to_underlying(CallOp::MAKE_BOOL2) && op_value <= luisa::to_underlying(CallOp::MAKE_FLOAT4);
 }
 
 [[nodiscard]] constexpr auto is_matrix_maker(CallOp op) noexcept {
@@ -316,7 +304,6 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
-
 /**
  * @brief Set of call operations.
  * 
@@ -363,6 +350,10 @@ public:
                test(CallOp::RAY_TRACING_QUERY_ALL) ||
                test(CallOp::RAY_TRACING_QUERY_ANY);
     }
+    [[nodiscard]] auto uses_ray_query() const noexcept {
+        return test(CallOp::RAY_TRACING_QUERY_ALL) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY);
+    }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||
                test(CallOp::ATOMIC_FETCH_SUB) ||
@@ -373,6 +364,14 @@ public:
                test(CallOp::ATOMIC_EXCHANGE) ||
                test(CallOp::ATOMIC_EXCHANGE) ||
                test(CallOp::ATOMIC_COMPARE_EXCHANGE);
+    }
+    [[nodiscard]] auto uses_autodiff() const noexcept {
+        return test(CallOp::REQUIRES_GRADIENT) ||
+               test(CallOp::GRADIENT) ||
+               test(CallOp::GRADIENT_MARKER) ||
+               test(CallOp::ACCUMULATE_GRADIENT) ||
+               test(CallOp::BACKWARD) ||
+               test(CallOp::DETACH);
     }
 };
 

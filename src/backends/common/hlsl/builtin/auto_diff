@@ -1,0 +1,10 @@
+#define _zero(type) ((type)0)
+#define _one(type) ((type)1)
+// autodiff
+#define _MARK_GRAD(x,dx) x##_grad=dx
+#define _GRAD(x) (x##_grad)
+template<typename A>
+void _accum_grad(inout A x_grad,A dx){
+x_grad+=select(isnan(dx),(A)0,dx);
+}
+#define _REQUIRES_GRAD(x,type) x##_grad=_zero(type)

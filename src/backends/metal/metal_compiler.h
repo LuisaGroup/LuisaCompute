@@ -55,4 +55,3 @@ public:
 };
 
 }// namespace luisa::compute::metal
-

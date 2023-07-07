@@ -14,7 +14,7 @@
 
 namespace luisa::compute::cuda {
 
-luisa::string CUDACompiler::compile(const luisa::string &src,
+luisa::string CUDACompiler::compile(const luisa::string &src, const luisa::string &src_filename,
                                     luisa::span<const char *const> options,
                                     const CUDAShaderMetadata *metadata) const noexcept {
 
@@ -31,12 +31,10 @@ luisa::string CUDACompiler::compile(const luisa::string &src,
 
     if (auto ptx = _cache->fetch(hash)) { return *ptx; }
 
-    std::array header_names{"device_library.h"};
-    std::array header_sources{_device_library.c_str()};
     nvrtcProgram prog;
+    auto filename = src_filename.empty() ? "my_kernel.cu" : src_filename.c_str();
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(
-        &prog, src.data(), "my_kernel.cu",
-        header_sources.size(), header_sources.data(), header_names.data()));
+        &prog, src.data(), filename, 0, nullptr, nullptr));
     auto error = nvrtcCompileProgram(prog, static_cast<int>(options.size()), options.data());
     size_t log_size;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
@@ -48,16 +46,17 @@ luisa::string CUDACompiler::compile(const luisa::string &src,
     }
     LUISA_CHECK_NVRTC(error);
     size_t ptx_size;
-    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
     luisa::string ptx;
-    if (metadata) {
-        ptx.append(luisa::format(
-            "// METADATA: {}\n\n",
-            serialize_cuda_shader_metadata(*metadata)));
+    // TODO: use OptiX IR for ray tracing shaders
+    if (metadata && metadata->kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
+        LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
+        ptx.resize(ptx_size);
+        LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
+    } else {
+        LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
+        ptx.resize(ptx_size);
+        LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     }
-    auto header_size = ptx.size();
-    ptx.resize(header_size + ptx_size - 1u);
-    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data() + header_size));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
     LUISA_VERBOSE_WITH_LOCATION("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;
@@ -96,15 +95,14 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
                       device_resource.data(), device_resource.size());
           return device_library;
       }()},
-      _library_hash{hash_value(_device_library)},
       _cache{Cache::create(max_cache_item_count)} {
     LUISA_VERBOSE_WITH_LOCATION("CUDA NVRTC version: {}.", _nvrtc_version);
-    LUISA_VERBOSE_WITH_LOCATION("CUDA device library size = {} bytes, hash = {:016X}.",
-                                _device_library.size(), _library_hash);
+    LUISA_VERBOSE_WITH_LOCATION("CUDA device library size = {} bytes.",
+                                _device_library.size());
 }
 
 uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *const> options) const noexcept {
-    auto hash = hash_value(src, _library_hash);
+    auto hash = hash_value(src);
     for (auto o : options) { hash = hash_value(o, hash); }
     return hash;
 }

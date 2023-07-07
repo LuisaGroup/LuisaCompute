@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ast/function_builder.h>
 
@@ -66,7 +67,7 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
                      !_function,
                  "Invalid state.");
     _function = function;
-    _pools = ir::CppOwnedCArc<ir::ModulePools>(std::move(ir::luisa_compute_ir_new_module_pools()));
+    _pools = ir::CppOwnedCArc<ir::ModulePools>(ir::luisa_compute_ir_new_module_pools());
     auto m = _with_builder([this](auto builder) noexcept {
         auto total_args = _function.builder()->arguments();
         auto bound_args = _function.builder()->bound_arguments();
@@ -130,33 +131,36 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
             shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
         auto module = _convert_body();
+        return ir::KernelModule{
+            .module = module,
+            .captures = captures,
+            .args = non_captures,
+            .shared = shared,
+            .block_size = {_function.block_size().x,
+                           _function.block_size().y,
+                           _function.block_size().z},
+            .pools = _pools.clone()};
+    });
 
+    if (function.requires_autodiff()) {
         LUISA_INFO("creating autodiff pipeline");
         auto autodiff_pipeline = ir::luisa_compute_ir_transform_pipeline_new();
         LUISA_INFO("adding autodiff transform");
         ir::luisa_compute_ir_transform_pipeline_add_transform(autodiff_pipeline, "autodiff");
         LUISA_INFO("converting module");
-        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, module);
-        //
-        auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
-        std::ofstream out2{"autodiff_ir_dump_instant.txt"};
-        out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
-        //
+        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, m.module);
+        // auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
+        // std::ofstream out2{"autodiff_ir_dump_instant.txt"};
+        // out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
         LUISA_INFO("destroying pipeline");
         ir::luisa_compute_ir_transform_pipeline_destroy(autodiff_pipeline);
         LUISA_INFO("autodiff done");
+        // update the module
+        m.module = converted_module;
+    }
 
-        return ir::luisa_compute_ir_new_kernel_module(
-            ir::KernelModule{.module = converted_module,
-                             .captures = captures,
-                             .args = non_captures,
-                             .shared = shared,
-                             .block_size = {_function.block_size().x,
-                                            _function.block_size().y,
-                                            _function.block_size().z},
-                             .pools = _pools.clone()});
-    });
-    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(m),
+    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(
+                ir::luisa_compute_ir_new_kernel_module(m)),
             [](auto p) noexcept {
                 luisa::delete_with_allocator(p);
             }};
@@ -182,7 +186,9 @@ ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexce
         return ir::luisa_compute_ir_new_callable_module(
             ir::CallableModule{
                 .module = _convert_body(),
+                .ret_type = _convert_type(_function.return_type()),
                 .args = arguments,
+                // FIXME: .callables?
                 .pools = _pools,
             });
     });
@@ -708,8 +714,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid CallOp: 0x{:02x}.",
-            luisa::to_underlying(expr->op()));
+            "Invalid CallOp: {}.",
+            luisa::to_string(expr->op()));
     }();
     //    LUISA_VERBOSE("CallOp is {}, arg num is {}", luisa::to_underlying(expr->op()), expr->arguments().size());
     luisa::vector<ir::NodeRef> args;
@@ -1332,10 +1338,6 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
     return AST2IR{}._convert_kernel(function);
-}
-
-[[nodiscard]] ir::CArc<ir::CallableModule> AST2IR::build_callable(Function function) noexcept {
-    return AST2IR{}._convert_callable(function);
 }
 
 ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {
