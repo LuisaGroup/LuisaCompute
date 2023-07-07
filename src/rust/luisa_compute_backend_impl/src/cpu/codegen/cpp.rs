@@ -367,7 +367,7 @@ impl<'a> FunctionEmitter<'a> {
                     Instruction::Argument { by_value } => {
                         let ty = self.type_gen.gen_c_type(arg.type_());
                         if *by_value {
-                            write!(&mut param, "{} {}", ty, var).unwrap();
+                            write!(&mut param, "const {}& {}", ty, var).unwrap();
                         } else {
                             write!(&mut param, "{}& {}", ty, var).unwrap();
                         }
