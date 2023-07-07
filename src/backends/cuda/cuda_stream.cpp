@@ -9,8 +9,8 @@
 
 #include <luisa/core/logging.h>
 #include "cuda_error.h"
-#include "cuda_command_encoder.h"
 #include "cuda_callback_context.h"
+#include "cuda_command_encoder.h"
 #include "cuda_device.h"
 #include "cuda_stream.h"
 #include "cuda_event.h"
@@ -23,6 +23,7 @@ CUDAStream::CUDAStream(CUDADevice *device) noexcept
       _stream_to_callback{device->event_manager()->create()},
       _callback_to_stream{device->event_manager()->create()} {
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
+    LUISA_CHECK_CUDA(cuStreamCreate(&_callback_stream, CU_STREAM_NON_BLOCKING));
 
     _callback_thread = std::thread{[this] {
         for (;;) {
@@ -43,7 +44,10 @@ CUDAStream::CUDAStream(CUDADevice *device) noexcept
             _stream_to_callback->synchronize(package.ticket);
             for (auto &&callback : package.callbacks) { callback->recycle(); }
             // signal the event that the callbacks have finished
-            _callback_to_stream->notify(package.ticket);
+            _callback_to_stream->signal(_callback_stream, package.ticket);
+            _device->with_handle([this, ticket = package.ticket] {
+                _callback_to_stream->signal(_callback_stream, ticket);
+            });
         }
     }};
 }
@@ -62,6 +66,7 @@ CUDAStream::~CUDAStream() noexcept {
     _device->event_manager()->destroy(_stream_to_callback);
     _device->event_manager()->destroy(_callback_to_stream);
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
+    LUISA_CHECK_CUDA(cuStreamDestroy(_callback_stream));
 }
 
 void CUDAStream::synchronize() noexcept {

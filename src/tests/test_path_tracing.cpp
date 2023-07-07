@@ -339,9 +339,7 @@ int main(int argc, char *argv[]) {
         double dt = clock.toc() - last_time;
         last_time = clock.toc();
         frame_count += spp_per_dispatch;
-        stream << [frame_count, dt] {
-            LUISA_INFO("spp: {}, time: {} ms", frame_count, dt);
-        };
+        LUISA_INFO("spp: {}, time: {} ms", frame_count, dt);
     }
     stream
         << ldr_image.copy_to(host_image.data())
