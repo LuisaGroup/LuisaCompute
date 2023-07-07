@@ -126,6 +126,7 @@ public:
     [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }
+    [[nodiscard]] auto event_manager() const noexcept { return _event_manager.get(); }
 
 public:
     bool is_c_api() const noexcept override { return false; }

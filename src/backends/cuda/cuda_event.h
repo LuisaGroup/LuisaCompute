@@ -29,6 +29,7 @@ public:
               VkSemaphore vk_semaphore,
               CUexternalSemaphore cuda_semaphore) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _cuda_semaphore; }
+    void notify(uint64_t value) noexcept;
     void signal(CUstream stream, uint64_t value) noexcept;
     void wait(CUstream stream, uint64_t value) noexcept;
     void synchronize(uint64_t value) noexcept;

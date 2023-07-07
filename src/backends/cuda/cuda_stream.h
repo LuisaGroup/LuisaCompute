@@ -5,6 +5,7 @@
 #pragma once
 
 #include <mutex>
+#include <thread>
 #include <condition_variable>
 
 #include <cuda.h>
@@ -32,14 +33,26 @@ class CUDAStream {
 public:
     using CallbackContainer = luisa::vector<CUDACallbackContext *>;
 
+    static constexpr auto stop_ticket = std::numeric_limits<uint64_t>::max();
+
+    struct CallbackPackage {
+        uint64_t ticket;
+        CallbackContainer callbacks;
+    };
+
 private:
     CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
     CUDAHostBufferPool _download_pool;
-    luisa::queue<CallbackContainer> _callback_lists;
+    std::thread _callback_thread;
+    std::mutex _callback_mutex;
+    std::condition_variable _callback_cv;
+    std::atomic_uint64_t _current_ticket{0u};
+    CUDAEvent *_stream_to_callback;
+    CUDAEvent *_callback_to_stream;
+    luisa::queue<CallbackPackage> _callback_lists;
     CUstream _stream{};
     spin_mutex _dispatch_mutex;
-    spin_mutex _callback_mutex;
 
 public:
     explicit CUDAStream(CUDADevice *device) noexcept;

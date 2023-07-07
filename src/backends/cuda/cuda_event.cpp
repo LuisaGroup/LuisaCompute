@@ -41,6 +41,15 @@ void CUDAEvent::wait(CUstream stream, uint64_t value) noexcept {
     LUISA_CHECK_CUDA(cuWaitExternalSemaphoresAsync(&_cuda_semaphore, &params, 1, stream));
 }
 
+void CUDAEvent::notify(uint64_t value) noexcept {
+    VkSemaphoreSignalInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
+    info.pNext = nullptr;
+    info.semaphore = _vk_semaphore;
+    info.value = value;
+    LUISA_CHECK_VULKAN(vkSignalSemaphore(_device, &info));
+}
+
 void CUDAEvent::synchronize(uint64_t value) noexcept {
     VkSemaphoreWaitInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
