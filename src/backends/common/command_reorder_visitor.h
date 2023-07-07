@@ -110,13 +110,11 @@ private:
             }
         }
     }
-    vstd::Pool<RangeHandle, true> _range_pool;
-    vstd::Pool<NoRangeHandle, true> _no_range_pool;
-    vstd::Pool<BindlessHandle, true> _bindless_handle_pool;
+    vstd::VEngineMallocVisitor malloc_visitor;
     vstd::unordered_map<uint64_t, RangeHandle *> _res_map;
     vstd::unordered_map<uint64_t, NoRangeHandle *> _no_range_resmap;
-    vstd::unordered_map<uint64_t, BindlessHandle *> _bindless_map;
-    vstd::unordered_set<uint64_t> _write_res_map;
+    vstd::HashMap<uint64_t, BindlessHandle *> _bindless_map;
+    vstd::HashMap<uint64_t> _write_res_map;
     int64_t _bindless_max_layer = -1;
     int64_t _max_mesh_level = -1;
     int64_t _max_accel_read_level = -1;
@@ -125,8 +123,7 @@ private:
         Command const *cmd;
         CommandLink const *p_next;
     };
-    vstd::VEngineMallocVisitor malloc_visitor;
-    vstd::StackAllocator _link_arena;
+    vstd::StackAllocator _arena;
     vstd::vector<CommandLink const *> _cmd_lists;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
@@ -136,25 +133,30 @@ private:
     ResourceHandle *get_handle(
         uint64_t target_handle,
         ResourceType target_type) {
-        auto func = [&](auto &&map, auto &&pool) {
+        auto func = [&](auto &&map, auto &&get_value) {
             auto try_result = map.try_emplace(
                 target_handle);
-            auto &&value = try_result.first->second;
+            auto &&value = get_value(try_result.first);
+            using Type = typename std::remove_pointer_t<std::remove_cvref_t<decltype(value)>>;
             if (try_result.second) {
-                value = pool.create();
+                auto mem = _arena.allocate(sizeof(Type), alignof(Type));
+                value = reinterpret_cast<Type *>(mem.handle + mem.offset);
+                new (value) Type{};
                 value->handle = target_handle;
                 value->type = target_type;
             }
             return value;
         };
+        auto get_umap_value = [](auto &&a) -> auto & { return a->second; };
+        auto get_hashmap_value = [](auto &&a) -> auto & { return a.value(); };
         switch (target_type) {
             case ResourceType::Bindless:
-                return func(_bindless_map, _bindless_handle_pool);
+                return func(_bindless_map, get_hashmap_value);
             case ResourceType::Mesh:
             case ResourceType::Accel:
-                return func(_no_range_resmap, _no_range_pool);
+                return func(_no_range_resmap, get_umap_value);
             default:
-                return func(_res_map, _range_pool);
+                return func(_res_map, get_umap_value);
         }
     }
     // Texture, Buffer
@@ -226,7 +228,7 @@ private:
             _cmd_lists.resize(layer + 1);
         }
         auto &v = _cmd_lists[layer];
-        auto new_cmd_list = _link_arena.allocate_memory<CommandLink>();
+        auto new_cmd_list = _arena.allocate_memory<CommandLink, false>();
         new_cmd_list->cmd = cmd;
         new_cmd_list->p_next = v;
         v = new_cmd_list;
@@ -696,24 +698,14 @@ private:
 
 public:
     explicit CommandReorderVisitor(FuncTable &&func_table) noexcept
-        : _range_pool(256, true),
-          _no_range_pool(256, true),
-          _bindless_handle_pool(32, true),
-          _link_arena(1024, &malloc_visitor),
+        : _arena(4096, &malloc_visitor),
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     ~CommandReorderVisitor() noexcept = default;
     void clear() noexcept {
         for (auto &&i : _res_map) {
-            _range_pool.destroy(i.second);
+            vstd::destruct(i.second);
         }
-        for (auto &&i : _no_range_resmap) {
-            _no_range_pool.destroy(i.second);
-        }
-        for (auto &&i : _bindless_map) {
-            _bindless_handle_pool.destroy(i.second);
-        }
-
         _res_map.clear();
         _no_range_resmap.clear();
         _bindless_map.clear();
@@ -723,7 +715,7 @@ public:
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
         _cmd_lists.clear();
-        _link_arena.clear();
+        _arena.clear();
     }
     [[nodiscard]] auto command_lists() const noexcept {
         return luisa::span{_cmd_lists};
