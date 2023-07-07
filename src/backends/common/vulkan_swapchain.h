@@ -11,7 +11,7 @@
 
 namespace luisa::compute {
 
-class VulkanDeviceUUID;
+struct VulkanDeviceUUID;
 
 class LC_BACKEND_API VulkanSwapchain {
 

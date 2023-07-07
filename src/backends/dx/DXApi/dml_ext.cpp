@@ -38,7 +38,7 @@ public:
     unique_ptr<Command> build(int batchSize, int input, int layer, int hiddenDim, int output) noexcept override;
     unique_ptr<Command> forward(Argument::Buffer input_buffer, Argument::Buffer output_buffer, Argument::Buffer weights_buffer) noexcept override;
 };
-class DxGraphBuildCommand : public DXCustomCmd {
+class DxGraphBuildCommand final : public DXCustomCmd {
 public:
     DxGraphBuildCommand(DxDMLGraph *graph, int batchSize, int input, int layer, int hiddenDim, int output) : dmlGraph(graph), batchSize(batchSize), input(input), layer(layer), hiddenDim(hiddenDim), output(output) {
         graph->layer = layer;
@@ -46,7 +46,7 @@ public:
         graph->output = output;
         graph->hiddenDim = hiddenDim;
     }
-    [[nodiscard]] virtual StreamTag stream_tag() const noexcept override {
+    [[nodiscard]] StreamTag stream_tag() const noexcept override {
         return StreamTag::COMPUTE;
     }
 
@@ -58,11 +58,11 @@ private:
     int hiddenDim;
     int output;
 
-    virtual void execute(
+    void execute(
         IDXGIAdapter1 *adapter,
         IDXGIFactory2 *dxgi_factory,
         ID3D12Device *device,
-        ID3D12GraphicsCommandList4 *command_list) const noexcept;
+        ID3D12GraphicsCommandList4 *command_list) const noexcept override;
 };
 
 void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_factory, ID3D12Device *device, ID3D12GraphicsCommandList4 *command_list) const noexcept {
@@ -217,7 +217,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
         IID_PPV_ARGS(dmlGraph->dmlBindingTable.GetAddressOf())));
 }
 
-class DxGraphForwardCommand : public DXCustomCmd {
+class DxGraphForwardCommand final : public DXCustomCmd {
 public:
     DxGraphForwardCommand(DxDMLGraph *graph, Argument::Buffer const &ipt, Argument::Buffer const &opt, Argument::Buffer const &w)
         : dmlGraph(graph),
@@ -234,7 +234,7 @@ public:
             w,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
-    [[nodiscard]] virtual StreamTag stream_tag() const noexcept override {
+    [[nodiscard]] StreamTag stream_tag() const noexcept override {
         return StreamTag::COMPUTE;
     }
 
@@ -244,11 +244,11 @@ private:
     ID3D12Resource *output;
     ID3D12Resource *weight;
 
-    virtual void execute(
+    void execute(
         IDXGIAdapter1 *adapter,
         IDXGIFactory2 *dxgi_factory,
         ID3D12Device *device,
-        ID3D12GraphicsCommandList4 *command_list) const noexcept;
+        ID3D12GraphicsCommandList4 *command_list) const noexcept override;
 };
 
 void DxGraphForwardCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_factory, ID3D12Device *device, ID3D12GraphicsCommandList4 *command_list) const noexcept {

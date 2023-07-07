@@ -984,6 +984,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
             case Resource::Tag::DSTORAGE_PINNED_MEMORY: break;
             case Resource::Tag::SPARSE_BUFFER: break;
             case Resource::Tag::SPARSE_TEXTURE: break;
+            default: break;
         }
     });
 }

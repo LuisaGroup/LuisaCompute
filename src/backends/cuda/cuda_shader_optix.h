@@ -11,7 +11,7 @@
 namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
-class CUDAShaderMetadata;
+struct CUDAShaderMetadata;
 
 class CUDAShaderOptiX final : public CUDAShader {
 

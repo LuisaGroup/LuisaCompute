@@ -34,7 +34,6 @@ class DStorageCommandQueue : public CmdQueueBase{
                       bool wakeupThread)
             : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
     };
-    IDStorageFactory *factory;
     std::mutex mtx;
     std::mutex exec_mtx;
     std::thread thd;

@@ -9,6 +9,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
 namespace lc::hlsl {
+#ifdef LUISA_ENABLE_IR
 static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
     if (f.requires_autodiff())
         traverse_expressions<true>(
@@ -30,6 +31,7 @@ static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &
             [](auto) noexcept {},
             [](auto) noexcept {});
 }
+#endif
 struct RegisterIndexer {
     virtual void init() = 0;
     virtual uint &get(uint idx) = 0;

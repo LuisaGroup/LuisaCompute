@@ -135,7 +135,7 @@ public:
             return optional<T>();
         }
         auto value = &arr[GetIndex(tail++, capacity)];
-        auto disp = scope_exit([value, this]() {
+        auto disp = scope_exit([value]() {
             vstd::destruct(value);
         });
         return optional<T>(std::move(*value));
@@ -241,7 +241,7 @@ public:
             return optional<T>();
         }
         auto value = &arr[GetIndex(tail++, capacity)];
-        auto disp = scope_exit([value, this]() {
+        auto disp = scope_exit([value]() {
             vstd::destruct(value);
         });
         return optional<T>(std::move(*value));

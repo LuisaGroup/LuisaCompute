@@ -170,7 +170,6 @@ void DStorageCommandQueue::Complete() {
 }
 DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *device, luisa::compute::DStorageStreamSource source)
     : CmdQueueBase(device, CmdQueueTag::DStorage),
-      factory{factory},
       thd([this] { ExecuteThread(); }) {
     switch (source) {
         case DStorageStreamSource::FileSource: {
