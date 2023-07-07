@@ -10,6 +10,7 @@
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/core/logging.h>
 #include <luisa/backends/ext/raster_cmd.h>
+#include <luisa/vstl/stack_allocator.h>
 
 namespace luisa::compute {
 
@@ -120,8 +121,13 @@ private:
     int64_t _max_mesh_level = -1;
     int64_t _max_accel_read_level = -1;
     int64_t _max_accel_write_level = -1;
-    vstd::vector<vstd::fixed_vector<Command const *, fixedVectorSize>> _cmd_lists;
-    size_t _layer_count = 0;
+    struct CommandLink {
+        Command const *cmd;
+        CommandLink const *p_next;
+    };
+    vstd::VEngineMallocVisitor malloc_visitor;
+    vstd::StackAllocator _link_arena;
+    vstd::vector<CommandLink const *> _cmd_lists;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
     size_t _dispatch_layer;
@@ -219,8 +225,11 @@ private:
         if (_cmd_lists.size() <= layer) {
             _cmd_lists.resize(layer + 1);
         }
-        _layer_count = std::max<int64_t>(_layer_count, layer + 1);
-        _cmd_lists[layer].push_back(cmd);
+        auto &v = _cmd_lists[layer];
+        auto new_cmd_list = _link_arena.allocate_memory<CommandLink>();
+        new_cmd_list->cmd = cmd;
+        new_cmd_list->p_next = v;
+        v = new_cmd_list;
     }
     size_t set_read(
         uint64_t handle,
@@ -690,6 +699,7 @@ public:
         : _range_pool(256, true),
           _no_range_pool(256, true),
           _bindless_handle_pool(32, true),
+          _link_arena(1024, &malloc_visitor),
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     ~CommandReorderVisitor() noexcept = default;
@@ -712,14 +722,11 @@ public:
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
-        luisa::span<typename decltype(_cmd_lists)::value_type> sp(_cmd_lists.data(), _layer_count);
-        for (auto &&i : sp) {
-            i.clear();
-        }
-        _layer_count = 0;
+        _cmd_lists.clear();
+        _link_arena.clear();
     }
     [[nodiscard]] auto command_lists() const noexcept {
-        return luisa::span{_cmd_lists.data(), _layer_count};
+        return luisa::span{_cmd_lists};
     }
 
     // Buffer : resource
@@ -860,4 +867,3 @@ public:
 };
 
 }// namespace luisa::compute
-

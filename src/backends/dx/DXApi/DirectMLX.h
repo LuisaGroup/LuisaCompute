@@ -11,17 +11,17 @@
 // clang-format off
 
 #pragma once
-#include "DirectML.h"
+#include <DirectML.h>
 
 #include <cstdint>
 #include <cassert>
-#include <vector>
+#include <luisa/vstl/common.h>
+#include <luisa/vstl/functional.h>
 #include <array>
 #include <deque>
 #include <memory>
 #include <utility>
 #include <type_traits>
-#include <functional>
 #include <stack>
 
 #include <wrl/client.h> // For Microsoft::WRL::ComPtr
@@ -232,7 +232,7 @@ namespace dml
 #endif
 
     template <typename T, size_t N>
-    using SmallVector = std::vector<T>;
+    using SmallVector = vstd::vector<T>;
 
 //#if __cpp_lib_span
 //    template <typename T>
@@ -245,13 +245,13 @@ namespace dml
     using Span = dml::detail::span<T>;
 //#endif
 
-    using std::make_unique;
+    using vstd::make_unique;
 #endif
 
 #if __cplusplus >= 201703L && __has_include(<string_view>)
-    using StringView = std::string_view;
+    using StringView = vstd::string_view;
 #else
-    using StringView = const std::string&;
+    using StringView = const vstd::string&;
 #endif
 
 #if __cpp_exceptions
@@ -288,13 +288,13 @@ namespace dml
     {
     public:
         // A function type that returns a TensorProperties object given a tensor data type, flags, and sizes.
-        using Func = std::function<
+        using Func = vstd::function<
             TensorProperties(DML_TENSOR_DATA_TYPE dataType, DML_TENSOR_FLAGS flags, Span<const uint32_t> sizes)
         >;
 
         TensorPolicy() = default;
         /*implicit*/ TensorPolicy(Func impl)
-            : m_impl(impl)
+            : m_impl(std::move(impl))
         {}
 
         TensorProperties Get(
@@ -528,9 +528,9 @@ namespace dml
             Microsoft::WRL::ComPtr<IDMLOperator> op;
 
             // The inputs to this node
-            std::vector<NodeOutput*> inputs;
+            vstd::vector<NodeOutput*> inputs;
 
-            std::string name;
+            vstd::string name;
         };
 
         // Used for representing reshapes and type punning
@@ -587,10 +587,10 @@ namespace dml
         {
             uint32_t inputCount;
             uint32_t outputCount;
-            std::vector<DML_OPERATOR_GRAPH_NODE_DESC> nodes;
-            std::vector<DML_INPUT_GRAPH_EDGE_DESC> inputEdges;
-            std::vector<DML_OUTPUT_GRAPH_EDGE_DESC> outputEdges;
-            std::vector<DML_INTERMEDIATE_GRAPH_EDGE_DESC> intermediateEdges;
+            vstd::vector<DML_OPERATOR_GRAPH_NODE_DESC> nodes;
+            vstd::vector<DML_INPUT_GRAPH_EDGE_DESC> inputEdges;
+            vstd::vector<DML_OUTPUT_GRAPH_EDGE_DESC> outputEdges;
+            vstd::vector<DML_INTERMEDIATE_GRAPH_EDGE_DESC> intermediateEdges;
         };
 
         class GraphBuilder
@@ -598,7 +598,7 @@ namespace dml
         public:
             GraphBuilder(IDMLDevice* device, TensorPolicy tensorPolicy = {})
                 : m_device(device)
-                , m_tensorPolicy(tensorPolicy)
+                , m_tensorPolicy(std::move(tensorPolicy))
             {}
 
             IDMLDevice* GetDevice() const
@@ -640,12 +640,12 @@ namespace dml
         private:
             Microsoft::WRL::ComPtr<IDMLDevice> m_device;
             TensorPolicy m_tensorPolicy;
-            std::vector<InputNode> m_inputNodes;
-            std::vector<OperatorNode> m_operatorNodes;
-            std::vector<ReinterpretNode> m_reinterpretNodes;
-            std::deque<NodeOutput> m_nodeOutputs; // deque doesn't invalidate references to elements when it resizes
+            vstd::vector<InputNode> m_inputNodes;
+            vstd::vector<OperatorNode> m_operatorNodes;
+            vstd::vector<ReinterpretNode> m_reinterpretNodes;
+            std::deque<NodeOutput, luisa::allocator<NodeOutput>> m_nodeOutputs; // deque doesn't invalidate references to elements when it resizes
 
-            std::string m_name;
+            vstd::string m_name;
             std::stack<size_t> m_nameSubLengths;
         };
 
@@ -694,7 +694,7 @@ namespace dml
     {
     public:
         explicit Graph(IDMLDevice* device, TensorPolicy tensorPolicy = {})
-            : m_graphBuilder(make_unique<detail::GraphBuilder>(device, tensorPolicy))
+            : m_graphBuilder(vstd::make_unique<detail::GraphBuilder>(device, std::move(tensorPolicy)))
         {}
 
         // For internal use only
@@ -722,25 +722,25 @@ namespace dml
             // number of input nodes on the graph (e.g. in the case of unused empty inputs), but never smaller.
             assert(inputCount == 0 || inputCount >= graph.inputCount);
 
-            std::vector<DML_GRAPH_NODE_DESC> graphNodes(graph.nodes.size());
+            vstd::vector<DML_GRAPH_NODE_DESC> graphNodes(graph.nodes.size());
             for (size_t i = 0; i < graphNodes.size(); ++i)
             {
                 graphNodes[i] = { DML_GRAPH_NODE_TYPE_OPERATOR, &graph.nodes[i] };
             }
 
-            std::vector<DML_GRAPH_EDGE_DESC> inputEdges(graph.inputEdges.size());
+            vstd::vector<DML_GRAPH_EDGE_DESC> inputEdges(graph.inputEdges.size());
             for (size_t i = 0; i < inputEdges.size(); ++i)
             {
                 inputEdges[i] = { DML_GRAPH_EDGE_TYPE_INPUT, &graph.inputEdges[i] };
             }
 
-            std::vector<DML_GRAPH_EDGE_DESC> outputEdges(graph.outputEdges.size());
+            vstd::vector<DML_GRAPH_EDGE_DESC> outputEdges(graph.outputEdges.size());
             for (size_t i = 0; i < outputEdges.size(); ++i)
             {
                 outputEdges[i] = { DML_GRAPH_EDGE_TYPE_OUTPUT, &graph.outputEdges[i] };
             }
 
-            std::vector<DML_GRAPH_EDGE_DESC> intermediateEdges(graph.intermediateEdges.size());
+            vstd::vector<DML_GRAPH_EDGE_DESC> intermediateEdges(graph.intermediateEdges.size());
             for (size_t i = 0; i < intermediateEdges.size(); ++i)
             {
                 intermediateEdges[i] = { DML_GRAPH_EDGE_TYPE_INTERMEDIATE, &graph.intermediateEdges[i] };
@@ -768,7 +768,7 @@ namespace dml
         }
 
     private:
-        std::unique_ptr<detail::GraphBuilder> m_graphBuilder;
+        vstd::unique_ptr<detail::GraphBuilder> m_graphBuilder;
     };
 
     // Represents an activation to be fused with an existing operator. The meaning of param1 and param2 depend on the
@@ -2382,7 +2382,7 @@ namespace dml
         return output;
     }
 
-    inline std::vector<Expression> Split(
+    inline vstd::vector<Expression> Split(
         Expression input,
         uint32_t axis,
         Span<const uint32_t> outputAxisSizes)
@@ -2391,10 +2391,10 @@ namespace dml
         detail::GraphBuilder* builder = input.Impl()->GetGraphBuilder();
         uint32_t axisSizeSum = 0;
 
-        std::vector<TensorDesc> outputTensors;
+        vstd::vector<TensorDesc> outputTensors;
         outputTensors.reserve(outputAxisSizes.size());
 
-        std::vector<DML_TENSOR_DESC> outputDescs;
+        vstd::vector<DML_TENSOR_DESC> outputDescs;
         outputDescs.reserve(outputAxisSizes.size());
 
         for (uint32_t outputAxisSize : outputAxisSizes)
@@ -2420,7 +2420,7 @@ namespace dml
         detail::NodeOutput* const inputs[] = { input.Impl() };
         detail::NodeID node = builder->CreateOperatorNode(DML_OPERATOR_SPLIT, &desc, inputs);
 
-        std::vector<Expression> outputs;
+        vstd::vector<Expression> outputs;
         outputs.reserve(outputAxisSizes.size());
 
         for (uint32_t i = 0; i < outputAxisSizes.size(); ++i)
@@ -2443,13 +2443,13 @@ namespace dml
         TensorDimensions outputSizes = inputs[0].Impl()->GetOutputDesc().sizes;
         outputSizes[axis] = 0;
 
-        std::vector<TensorDesc> inputTensors;
+        vstd::vector<TensorDesc> inputTensors;
         inputTensors.reserve(inputs.size());
 
-        std::vector<DML_TENSOR_DESC> inputDescs;
+        vstd::vector<DML_TENSOR_DESC> inputDescs;
         inputDescs.reserve(inputs.size());
 
-        std::vector<detail::NodeOutput*> inputNodes;
+        vstd::vector<detail::NodeOutput*> inputNodes;
         inputNodes.reserve(inputs.size());
 
         for (Expression input : inputs)

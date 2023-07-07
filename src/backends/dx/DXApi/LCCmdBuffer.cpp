@@ -907,8 +907,8 @@ void LCCmdBuffer::Execute(
         ID3D12DescriptorHeap *h[2] = {
             device->globalHeap->GetHeap(),
             device->samplerHeap->GetHeap()};
-        for (auto &&lst : cmdLists) {
-            cmdListIsEmpty = cmdListIsEmpty && lst.empty();
+        for (auto lst : cmdLists) {
+            cmdListIsEmpty = cmdListIsEmpty && (lst == nullptr);
             if (!cmdListIsEmpty) {
                 cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
             }
@@ -919,8 +919,9 @@ void LCCmdBuffer::Execute(
             ppVisitor.bottomAccelDatas->clear();
             ppVisitor.buildAccelSize = 0;
             // Preprocess: record resources' states
-            for (auto &&i : lst)
-                i->accept(ppVisitor);
+            for (auto i = lst; i != nullptr; i = i->p_next) {
+                i->cmd->accept(ppVisitor);
+            }
             visitor.bottomAccelData = ppVisitor.bottomAccelDatas->data();
             DefaultBuffer const *accelScratchBuffer;
             if (ppVisitor.buildAccelSize) {
@@ -951,8 +952,9 @@ void LCCmdBuffer::Execute(
                 cmdBuilder);
             visitor.bufferVec = ppVisitor.argVecs->data();
             // Execute commands
-            for (auto &&i : lst)
-                i->accept(visitor);
+            for (auto i = lst; i != nullptr; i = i->p_next) {
+                i->cmd->accept(visitor);
+            }
             if (!updateAccel.empty()) {
                 tracker.ClearFence();
                 tracker.RecordState(
