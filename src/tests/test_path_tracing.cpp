@@ -350,4 +350,3 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
-

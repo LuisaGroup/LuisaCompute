@@ -67,7 +67,7 @@ CUDAStream::~CUDAStream() noexcept {
 void CUDAStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
-    _callback_to_stream->synchronize(ticket);
+    if (ticket != 0u) { _callback_to_stream->synchronize(ticket); }
 }
 
 void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
@@ -90,8 +90,9 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
 
 void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {
     // should also wait for the previous callbacks to finish
-    auto ticket = _current_ticket.load();
-    _callback_to_stream->wait(_stream, ticket);
+    if (auto ticket = _current_ticket.load()) {
+        _callback_to_stream->wait(_stream, ticket);
+    }
     // signal the event
     event->signal(_stream, value);
 }
