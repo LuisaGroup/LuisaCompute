@@ -52,7 +52,6 @@ private:
     CUDAEvent *_callback_to_stream;
     luisa::queue<CallbackPackage> _callback_lists;
     CUstream _stream{};
-    CUstream _callback_stream{};
     spin_mutex _dispatch_mutex;
 
 public:
