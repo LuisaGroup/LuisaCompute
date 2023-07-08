@@ -340,16 +340,12 @@ ir::NodeRef AST2IR::_convert_constant(const ConstantData &data) noexcept {
     auto b = _current_builder();
     auto c = ir::Const{
         .tag = ir::Const::Tag::Generic,
-        .generic = luisa::visit(
-            [this](auto view) noexcept {
-                using T = typename decltype(view)::value_type;
-                auto type = _convert_type(Type::from(luisa::format(
-                    "array<{},{}>", Type::of<T>()->description(), view.size())));
-                auto slice = _boxed_slice<uint8_t>(view.size_bytes());
-                std::memcpy(slice.ptr, view.data(), view.size_bytes());
-                return ir::Const::Generic_Body{slice, type};
-            },
-            data.view())};
+        .generic = [&] {
+            auto type = _convert_type(data.type());
+            auto slice = _boxed_slice<uint8_t>(data.type()->size());
+            std::memcpy(slice.ptr, data.raw(), data.type()->size());
+            return ir::Const::Generic_Body{slice, type};
+        }()};
     auto node = ir::luisa_compute_ir_build_const(b, c);
     _constants.emplace(data.hash(), node);
     return node;
@@ -386,18 +382,13 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                 auto b = _current_builder();
                 return ir::luisa_compute_ir_build_const(b, c);
             } else {
-                auto salt = luisa::hash_value("__ast2ir_literal");// FIXME: use which hash??
-                auto hash = luisa::hash_value(x, luisa::hash_value(expr->type()->hash(), salt));
-                if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
                 std::memcpy(slice.ptr, &x, sizeof(T));
                 auto c = ir::Const{};
                 c.tag = ir::Const::Tag::Generic;
                 c.generic = {slice, _convert_type(expr->type())};
                 auto b = _current_builder();
-                auto node = ir::luisa_compute_ir_build_const(b, c);
-                _constants.emplace(hash, node);
-                return node;
+                return ir::luisa_compute_ir_build_const(b, c);
             }
         },
         expr->value());

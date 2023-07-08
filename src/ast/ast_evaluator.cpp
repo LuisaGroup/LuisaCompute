@@ -329,11 +329,15 @@ ASTEvaluator::Result ASTEvaluator::try_eval(MemberExpr const *expr) {
 }
 
 ASTEvaluator::Result ASTEvaluator::try_eval(AccessExpr const *expr) {
-    if (expr->range()->tag() != Expression::Tag::CONSTANT) [[likely]]
+    return luisa::monostate{};
+    if (expr->range()->tag() != Expression::Tag::CONSTANT ||
+        !expr->range()->type()->is_array()) [[likely]] {
         return monostate{};
+    }
     auto index_result = try_eval(expr->index());
-    if (holds_alternative<monostate>(index_result)) [[likely]]
+    if (holds_alternative<monostate>(index_result)) [[likely]] {
         return monostate{};
+    }
     int64_t index = visit(
         [&]<typename T>(T const &t) -> int64_t {
             if constexpr (std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t>) {
@@ -343,11 +347,32 @@ ASTEvaluator::Result ASTEvaluator::try_eval(AccessExpr const *expr) {
             }
         },
         index_result);
-    return visit(
-        [&]<typename T>(span<T const> const &t) -> Result {
-            return t[index];
-        },
-        static_cast<ConstantExpr const *>(expr->range())->data().view());
+    auto range = static_cast<ConstantExpr const *>(expr->range());
+
+#define LUISA_AST_EVAL_CONST(T)                                         \
+    if (Type::of<T>() == expr->type()) {                                \
+        return reinterpret_cast<const T *>(range->data().raw())[index]; \
+    }
+
+#define LUISA_AST_EVAL_CONST_VEC(T) \
+    LUISA_AST_EVAL_CONST(T)         \
+    LUISA_AST_EVAL_CONST(T##2)      \
+    LUISA_AST_EVAL_CONST(T##3)      \
+    LUISA_AST_EVAL_CONST(T##4)
+
+    LUISA_AST_EVAL_CONST_VEC(bool)
+    LUISA_AST_EVAL_CONST_VEC(int)
+    LUISA_AST_EVAL_CONST_VEC(uint)
+    LUISA_AST_EVAL_CONST_VEC(float)
+
+    LUISA_AST_EVAL_CONST(float2x2)
+    LUISA_AST_EVAL_CONST(float3x3)
+    LUISA_AST_EVAL_CONST(float4x4)
+
+#undef LUISA_AST_EVAL_CONST_VEC
+#undef LUISA_AST_EVAL_CONST
+
+    return monostate{};
 }
 
 ASTEvaluator::Result ASTEvaluator::try_eval(LiteralExpr const *expr) {

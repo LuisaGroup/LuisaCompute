@@ -733,150 +733,57 @@ void IR2AST::_convert_instr_debug(const ir::Node *node) noexcept {
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
-    auto decode = []<typename T>(const uint8_t *data) noexcept {
-        T x{};
-        std::memcpy(&x, data, sizeof(T));
-        return x;
-    };
 
-    auto apply = []<typename F>(const ir::Type *ty, const F &fn) noexcept {
-        auto type = _convert_type(ty);
-        switch (ty->tag) {
-            case ir::Type::Tag::Primitive: {
-                switch (ty->primitive._0) {
-                    case ir::Primitive::Bool: return fn.template operator()<bool>(type);
-                    case ir::Primitive::Int16:
-                    case ir::Primitive::Int32:
-                    case ir::Primitive::Int64: return fn.template operator()<int>(type);
-                    case ir::Primitive::Uint16:
-                    case ir::Primitive::Uint32:
-                    case ir::Primitive::Uint64: return fn.template operator()<uint>(type);
-                    case ir::Primitive::Float32:
-                    case ir::Primitive::Float64: return fn.template operator()<float>(type);
-                }
-                LUISA_ERROR_WITH_LOCATION("bad primitive type: {}", to_underlying(ty->primitive._0));
-            }
-            case ir::Type::Tag::Vector: {
-                LUISA_ASSERT(ty->vector._0.element.tag == ir::VectorElementType::Tag::Scalar, "vector of vectors is not supported.");
-                switch (ty->vector._0.element.scalar._0) {
-                    case ir::Primitive::Bool: {
-                        switch (ty->vector._0.length) {
-                            case 2: return fn.template operator()<bool2>(type);
-                            case 3: return fn.template operator()<bool3>(type);
-                            case 4: return fn.template operator()<bool4>(type);
-                            default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
-                        }
-                    }
-                    case ir::Primitive::Float32: {
-                        switch (ty->vector._0.length) {
-                            case 2: return fn.template operator()<float2>(type);
-                            case 3: return fn.template operator()<float3>(type);
-                            case 4: return fn.template operator()<float4>(type);
-                            default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
-                        }
-                    }
-                    case ir::Primitive::Int32: {
-                        switch (ty->vector._0.length) {
-                            case 2: return fn.template operator()<int2>(type);
-                            case 3: return fn.template operator()<int3>(type);
-                            case 4: return fn.template operator()<int4>(type);
-                            default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
-                        }
-                    }
-                    case ir::Primitive::Uint32: {
-                        switch (ty->vector._0.length) {
-                            case 2: return fn.template operator()<uint2>(type);
-                            case 3: return fn.template operator()<uint3>(type);
-                            case 4: return fn.template operator()<uint4>(type);
-                            default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
-                        }
-                    }
-                    case ir::Primitive::Float64: [[fallthrough]];
-                    case ir::Primitive::Int64: [[fallthrough]];
-                    case ir::Primitive::Uint64: [[fallthrough]];
-                    default: LUISA_ERROR_WITH_LOCATION("64-bit primitive types are not yet supported.");
-                }
-            }
-            case ir::Type::Tag::Matrix: {
-                LUISA_ASSERT(ty->matrix._0.element.tag == ir::VectorElementType::Tag::Scalar, "matrix of vectors is not supported.");
-                switch (ty->matrix._0.dimension) {
-                    case 2: return fn.template operator()<float2x2>(type);
-                    case 3: return fn.template operator()<float3x3>(type);
-                    case 4: return fn.template operator()<float4x4>(type);
-                }
-            }
-            default: LUISA_ERROR_WITH_LOCATION("apply can only be called on Primitive | Vector | Matrix");
-        }
-    };
-    // Primitive -> inline as literal
-    // Generic
-    //     Primitive -> inline as literal
-    //     Array or Vector or Matrix -> Constant
-    //     Other -> Error
+    auto b = _ctx->function_builder.get();
     switch (const_.tag) {
-        case ir::Const::Tag::Zero: {
-            auto type = const_.zero._0.get();
-            auto build_zero_with_type = [&]<typename U>(const Type *type) {
-                if constexpr (luisa::is_matrix_v<U>) {
-                    return _ctx->function_builder->literal(type, U::eye(0));
-                } else {
-                    return _ctx->function_builder->literal(type, U(0));
-                }
-            };
-            return apply(type, build_zero_with_type);
-        }
-        case ir::Const::Tag::One: {
-            auto type = const_.one._0.get();
-            auto build_one_with_type = [&]<typename U>(const Type *type) {
-                if constexpr (luisa::is_matrix_v<U>) {
-                    return _ctx->function_builder->literal(type, U::eye(1));
-                } else {
-                    return _ctx->function_builder->literal(type, U(1));
-                }
-            };
-            return apply(type, build_one_with_type);
-        }
-        case ir::Const::Tag::Bool:
-            return _ctx->function_builder->literal(Type::from("bool"), const_.bool_._0);
-        case ir::Const::Tag::Float32:
-        case ir::Const::Tag::Float64:
-            return _ctx->function_builder->literal(Type::from("float"), const_.float32._0);
-        case ir::Const::Tag::Int32:
-        case ir::Const::Tag::Int64:
-            return _ctx->function_builder->literal(Type::from("int"), const_.int32._0);
-        case ir::Const::Tag::Uint32:
-        case ir::Const::Tag::Uint64:
-            return _ctx->function_builder->literal(Type::from("uint"), const_.uint32._0);
+        case ir::Const::Tag::Zero: return b->call(_convert_type(const_.zero._0.get()), CallOp::ZERO, {});
+        case ir::Const::Tag::One: return b->call(_convert_type(const_.one._0.get()), CallOp::ONE, {});
+        case ir::Const::Tag::Bool: return b->literal(Type::of<bool>(), const_.bool_._0);
+        case ir::Const::Tag::Int32: return b->literal(Type::of<int>(), const_.int32._0);
+        case ir::Const::Tag::Uint32: return b->literal(Type::of<uint>(), const_.uint32._0);
+        case ir::Const::Tag::Int64: LUISA_NOT_IMPLEMENTED(); // return b->literal(Type::of<slong>(), const_.int64._0);
+        case ir::Const::Tag::Uint64: LUISA_NOT_IMPLEMENTED();// return b->literal(Type::of<ulong>(), const_.uint64._0);
+        case ir::Const::Tag::Float32: return b->literal(Type::of<float>(), const_.float32._0);
+        case ir::Const::Tag::Float64: LUISA_NOT_IMPLEMENTED();// return b->literal(Type::of<double>(), const_.float64._0);
         case ir::Const::Tag::Generic: {
-            auto &&data = const_.generic._0;
-            auto type = const_.generic._1.get();
-            switch (type->tag) {
-                case ir::Type::Tag::Primitive: [[fallthrough]];
-                case ir::Type::Tag::Matrix: [[fallthrough]];
-                case ir::Type::Tag::Vector: {
-                    auto build_literal_with_type = [&]<typename U>(const Type *type) {
-                        return _ctx->function_builder->literal(type, decode.operator()<U>(data.ptr));
-                    };
-                    return apply(type, build_literal_with_type);
-                }
-                case ir::Type::Tag::Array: {
-                    auto get_payload = [data]<typename T>() noexcept {
-                        return luisa::span(reinterpret_cast<const T *>(data.ptr), data.len / sizeof(T));
-                    };
-                    auto array_type = _convert_type(type);
-                    auto elem_type = type->array._0.element.get();
-                    auto build_constant_with_type = [&]<typename U>(const Type *type) {
-                        return _ctx->function_builder->constant(
-                            array_type, ConstantData::create(get_payload.operator()<U>()));
-                    };
-                    return apply(elem_type, build_constant_with_type);
-                }
-                default: LUISA_ERROR_WITH_LOCATION("Invalid array type.");
-            }
-        }
+            auto type = _convert_type(const_.generic._1.get());
+            auto [data, size, _] = const_.generic._0;
+            if (type->is_scalar() || type->is_vector() || type->is_matrix()) {
+#define LUISA_IR2AST_DECODE_CONST(T)                                 \
+    if (type == Type::of<T>()) {                                     \
+        return b->literal(type, *reinterpret_cast<const T *>(data)); \
     }
-    // 其余情况生成 literal
-    LUISA_ERROR_WITH_LOCATION("Error.");
+
+#define LUISA_IR2AST_DECODE_CONST_VEC(T) \
+    LUISA_IR2AST_DECODE_CONST(T)         \
+    LUISA_IR2AST_DECODE_CONST(T##2)      \
+    LUISA_IR2AST_DECODE_CONST(T##3)      \
+    LUISA_IR2AST_DECODE_CONST(T##4)
+
+                LUISA_IR2AST_DECODE_CONST_VEC(bool)
+                LUISA_IR2AST_DECODE_CONST_VEC(int)
+                LUISA_IR2AST_DECODE_CONST_VEC(uint)
+                // LUISA_IR2AST_DECODE_CONST_VEC(short)
+                // LUISA_IR2AST_DECODE_CONST_VEC(ushort)
+                // LUISA_IR2AST_DECODE_CONST_VEC(slong)
+                // LUISA_IR2AST_DECODE_CONST_VEC(ulong)
+                // LUISA_IR2AST_DECODE_CONST_VEC(half)
+                LUISA_IR2AST_DECODE_CONST_VEC(float)
+                // LUISA_IR2AST_DECODE_CONST_VEC(double)
+
+                LUISA_IR2AST_DECODE_CONST(float2x2)
+                LUISA_IR2AST_DECODE_CONST(float3x3)
+                LUISA_IR2AST_DECODE_CONST(float4x4)
+
+#undef LUISA_IR2AST_DECODE_CONST_VEC
+#undef LUISA_IR2AST_DECODE_CONST
+            }
+            auto c = ConstantData::create(type, data, size);
+            return b->constant(c);
+        }
+        default: break;
+    }
+    LUISA_ERROR_WITH_LOCATION("Unreachable");
 }
 
 const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept {

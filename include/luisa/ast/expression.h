@@ -338,8 +338,8 @@ public:
      * @param type type
      * @param data const data
      */
-    explicit ConstantExpr(const Type *type, ConstantData data) noexcept
-        : Expression{Tag::CONSTANT, type}, _data{data} {}
+    explicit ConstantExpr(ConstantData data) noexcept
+        : Expression{Tag::CONSTANT, data.type()}, _data{data} {}
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_EXPRESSION_COMMON()
 };
