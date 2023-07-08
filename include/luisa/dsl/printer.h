@@ -4,13 +4,10 @@
 
 #pragma once
 
-#include <mutex>
-#include <thread>
-
 #include <luisa/core/logging.h>
-#include <luisa/ast/function_builder.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/event.h>
+#include <luisa/runtime/stream.h>
 #include <luisa/dsl/expr.h>
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/builtin.h>
@@ -21,7 +18,6 @@
 namespace luisa::compute {
 
 class Device;
-class Stream;
 
 /// Printer in kernel
 class LC_DSL_API Printer {

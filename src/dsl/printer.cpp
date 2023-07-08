@@ -3,7 +3,6 @@
 //
 
 #include <luisa/runtime/device.h>
-#include <luisa/runtime/stream.h>
 #include <luisa/dsl/printer.h>
 
 namespace luisa::compute {
