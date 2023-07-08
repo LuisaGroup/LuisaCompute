@@ -339,7 +339,8 @@ int main(int argc, char *argv[]) {
         double dt = clock.toc() - last_time;
         last_time = clock.toc();
         frame_count += spp_per_dispatch;
-        LUISA_INFO("time: {} ms", dt);
+        LUISA_INFO("spp: {}, time: {} ms, spp/s: {}",
+                   frame_count, dt, spp_per_dispatch / dt * 1000);
     }
     stream
         << ldr_image.copy_to(host_image.data())
@@ -348,4 +349,3 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
-
