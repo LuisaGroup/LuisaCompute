@@ -47,9 +47,9 @@ private:
     std::thread _callback_thread;
     std::mutex _callback_mutex;
     std::condition_variable _callback_cv;
+    CUDAEvent *_callback_event;
     std::atomic_uint64_t _current_ticket{0u};
-    CUDAEvent *_stream_to_callback;
-    CUDAEvent *_callback_to_stream;
+    std::atomic_uint64_t _finished_ticket{0u};
     luisa::queue<CallbackPackage> _callback_lists;
     CUstream _stream{};
     spin_mutex _dispatch_mutex;

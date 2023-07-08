@@ -8,6 +8,7 @@
 #include <nvtx3/nvToolsExtCuda.h>
 
 #include <luisa/core/logging.h>
+
 #include "cuda_error.h"
 #include "cuda_callback_context.h"
 #include "cuda_command_encoder.h"
@@ -20,8 +21,7 @@ namespace luisa::compute::cuda {
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
     : _device{device},
       _upload_pool{64_M, true}, _download_pool{32_M, false},
-      _stream_to_callback{device->event_manager()->create()},
-      _callback_to_stream{device->event_manager()->create()} {
+      _callback_event{device->event_manager()->create()} {
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
     _callback_thread = std::thread{[this] {
         for (;;) {
@@ -39,10 +39,10 @@ CUDAStream::CUDAStream(CUDADevice *device) noexcept
             }();
             if (package.ticket == stop_ticket) { break; }
             // wait for the commands to finish
-            _stream_to_callback->synchronize(package.ticket);
+            _callback_event->synchronize(package.ticket);
             for (auto &&callback : package.callbacks) { callback->recycle(); }
             // signal the event that the callbacks have finished
-            _callback_to_stream->notify(package.ticket);
+            _finished_ticket.store(package.ticket, std::memory_order_release);
         }
     }};
 }
@@ -58,22 +58,29 @@ CUDAStream::~CUDAStream() noexcept {
     // wait for the callback thread to stop
     _callback_thread.join();
     // destroy the events and the stream
-    _device->event_manager()->destroy(_stream_to_callback);
-    _device->event_manager()->destroy(_callback_to_stream);
+    _device->event_manager()->destroy(_callback_event);
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
 }
 
 void CUDAStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
-    if (ticket != 0u) { _callback_to_stream->synchronize(ticket); }
+    auto wait_iterations = 0u;
+    constexpr auto max_wait_iterations_before_yield = 1024u;
+    for (;;) {// TODO: is spinning good enough?
+        if (_finished_ticket.load(std::memory_order_acquire) >= ticket) { break; }
+        if (++wait_iterations >= max_wait_iterations_before_yield) {
+            wait_iterations = 0u;
+            std::this_thread::yield();
+        }
+    }
 }
 
 void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         // signal that the stream has been dispatched
-        auto ticket = ++_current_ticket;
-        _stream_to_callback->signal(_stream, ticket);
+        auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
+        _callback_event->signal(_stream, ticket);
         // enqueue callbacks
         {
             CallbackPackage package{
@@ -88,11 +95,6 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
 }
 
 void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {
-    // should also wait for the previous callbacks to finish
-    if (auto ticket = _current_ticket.load()) {
-        _callback_to_stream->wait(_stream, ticket);
-    }
-    // signal the event
     event->signal(_stream, value);
 }
 

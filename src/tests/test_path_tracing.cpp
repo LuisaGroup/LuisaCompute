@@ -341,7 +341,7 @@ int main(int argc, char *argv[]) {
         frame_count += spp_per_dispatch;
         stream << [frame_count, dt] {
             LUISA_INFO("spp: {}, time: {} ms", frame_count, dt);
-        };
+        } << synchronize();
     }
     stream
         << ldr_image.copy_to(host_image.data())
