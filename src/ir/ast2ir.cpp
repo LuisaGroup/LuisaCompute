@@ -521,7 +521,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         }
         auto call = ir::luisa_compute_ir_build_call(
             _current_builder(),
-            ir::Func{.tag = ir::Func::Tag::Callable, .callable = {cvted_callable.clone()}},
+            ir::Func{.tag = ir::Func::Tag::Callable,
+                     .callable = {cvted_callable.clone()}},
             {.ptr = args.data(), .len = args.size()},
             _convert_type(callable.return_type()));
         return _cast(expr->type(), callable.return_type(), call);
@@ -534,6 +535,16 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         auto c = ir::Const{
             .tag = ir::Const::Tag::One,
             .one = ir::Const::One_Body{
+                ._0 = type,
+            }};
+        return ir::luisa_compute_ir_build_const(_current_builder(), c);
+    }
+
+    if (expr->op() == CallOp::ZERO) {
+        auto type = _convert_type(expr->type());
+        auto c = ir::Const{
+            .tag = ir::Const::Tag::Zero,
+            .zero = ir::Const::Zero_Body{
                 ._0 = type,
             }};
         return ir::luisa_compute_ir_build_const(_current_builder(), c);
@@ -792,7 +803,6 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         // args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[1])));
         args.emplace_back(_convert_expr(expr->arguments()[1]));
     } else {
-        LUISA_VERBOSE("using default arg emplace");
         args.reserve(expr->arguments().size());
         for (auto arg : expr->arguments()) {
             args.emplace_back(_convert_expr(arg));
@@ -1147,38 +1157,35 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
             return node;
         }
         default: {
-            if (_function.tag() == Function::Tag::KERNEL) {
-                auto instr = ir::luisa_compute_ir_new_instruction(
-                    ir::Instruction{.tag = ir::Instruction::Tag::Uniform});
-                auto node = ir::luisa_compute_ir_new_node(
-                    _pools.clone(),
-                    ir::Node{.type_ = _convert_type(v.type()).clone(),
-                             .instruction = instr});
-                // uniform variables are not writable, so make a copy if needed
-                if (auto usage = _function.variable_usage(v.uid());
-                    usage == Usage::NONE || usage == Usage::READ) {// no copy needed
-                    _variables.emplace(v.uid(), node);
-                    return node;
-                }
-                // copy to local
-                auto local = ir::luisa_compute_ir_new_instruction(
-                    ir::Instruction{.tag = ir::Instruction::Tag::Local, .local = {node}});
-                auto copy = ir::luisa_compute_ir_new_node(
-                    _pools.clone(),
-                    ir::Node{.type_ = _convert_type(v.type()).clone(),
-                             .instruction = local});
-                ir::luisa_compute_ir_append_node(b, copy);
-                _variables.emplace(v.uid(), copy);// remap
-                return node;
-            }
-            auto instr = ir::luisa_compute_ir_new_instruction(
-                ir::Instruction{.tag = ir::Instruction::Tag::Argument,
-                                .argument = {v.tag() != Variable::Tag::REFERENCE}});
+            auto instr = _function.tag() == Function::Tag::KERNEL ?
+                             ir::luisa_compute_ir_new_instruction(
+                                 ir::Instruction{.tag = ir::Instruction::Tag::Uniform}) :
+                             ir::luisa_compute_ir_new_instruction(
+                                 ir::Instruction{.tag = ir::Instruction::Tag::Argument,
+                                                 .argument = {.by_value = v.tag() != Variable::Tag::REFERENCE}});
             auto node = ir::luisa_compute_ir_new_node(
                 _pools.clone(),
                 ir::Node{.type_ = _convert_type(v.type()).clone(),
                          .instruction = instr});
-            _variables.emplace(v.uid(), node);
+            // arguments are not writable in IR, so make a copy if needed
+            if (auto usage = _function.variable_usage(v.uid());
+                v.tag() == Variable::Tag::REFERENCE ||
+                usage == Usage::NONE ||
+                usage == Usage::READ) {// no copy needed
+                _variables.emplace(v.uid(), node);
+                return node;
+            }
+            // copy to local
+            auto local = ir::luisa_compute_ir_new_instruction(
+                ir::Instruction{.tag = ir::Instruction::Tag::Local,
+                                .local = {node}});
+            auto copy = ir::luisa_compute_ir_new_node(
+                _pools.clone(),
+                ir::Node{.type_ = _convert_type(v.type()).clone(),
+                         .instruction = local});
+            ir::luisa_compute_ir_append_node(b, copy);
+            _variables.emplace(v.uid(), copy);// remap
+            // still return the original node for the argument
             return node;
         }
     }
@@ -1230,7 +1237,8 @@ ir::NodeRef AST2IR::_convert_builtin_variable(Variable v) noexcept {
 }
 
 ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src) noexcept {
-    if (*type_dst == *type_src) { return node_src; }
+    if (type_dst == nullptr || *type_dst == *type_src) { return node_src; }
+    LUISA_ASSERT(type_src, "Converting void to non-void type.");
     // scalar to scalar
     auto builder = _current_builder();
     if (type_dst->is_scalar() && type_src->is_scalar()) {

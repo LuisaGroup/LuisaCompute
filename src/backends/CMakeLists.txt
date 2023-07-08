@@ -31,9 +31,9 @@ function(luisa_compute_add_backend name)
     endif ()
 endfunction()
 
-#add_subdirectory(common)
-#add_subdirectory(validation)
-#
+add_subdirectory(common)
+add_subdirectory(validation)
+
 #if (LUISA_COMPUTE_ENABLE_DX)
 #    add_subdirectory(dx)
 #endif ()
@@ -45,16 +45,16 @@ endfunction()
 #if (LUISA_COMPUTE_ENABLE_CUDA)
 #    add_subdirectory(cuda)
 #endif ()
-#
-#if (LUISA_COMPUTE_ENABLE_RUST)
-#    if (LUISA_COMPUTE_ENABLE_CPU)
-#        add_subdirectory(cpu)
-#    endif ()
-#
-#    if (LUISA_COMPUTE_ENABLE_REMOTE)
-#        add_subdirectory(remote)
-#    endif ()
-#endif ()
+
+if (LUISA_COMPUTE_ENABLE_RUST)
+    if (LUISA_COMPUTE_ENABLE_CPU)
+        add_subdirectory(cpu)
+    endif ()
+
+    if (LUISA_COMPUTE_ENABLE_REMOTE)
+        add_subdirectory(remote)
+    endif ()
+endif ()
 
 install(TARGETS luisa-compute-backends
         EXPORT LuisaComputeTargets)

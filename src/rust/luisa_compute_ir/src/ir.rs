@@ -1262,6 +1262,24 @@ impl NodeRef {
             _ => false,
         }
     }
+    pub fn is_argument(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Argument { .. } => true,
+            _ => false,
+        }
+    }
+    pub fn is_value_argument(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Argument { by_value } => *by_value,
+            _ => false,
+        }
+    }
+    pub fn is_refernece_argument(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Argument { by_value } => !*by_value,
+            _ => false,
+        }
+    }
     pub fn is_phi(&self) -> bool {
         self.get().instruction.is_phi()
     }

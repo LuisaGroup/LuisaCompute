@@ -256,6 +256,7 @@ struct FunctionEmitter<'a> {
     indent: usize,
     visited: HashSet<NodeRef>,
     globals: &'a mut GlobalEmitter,
+    inside_generic_loop: bool,
     // message: Vec<String>,
 }
 
@@ -271,6 +272,7 @@ impl<'a> FunctionEmitter<'a> {
             indent: 1,
             visited: HashSet::new(),
             globals,
+            inside_generic_loop: false,
         }
     }
     fn write_ident(&mut self) {
@@ -846,7 +848,7 @@ impl<'a> FunctionEmitter<'a> {
             }
             Func::GetElementPtr => {
                 if args[0].type_().is_array() || args[0].type_().is_vector() || args[0].type_().is_matrix() {
-                    let const_ = if args[0].is_const() || args[0].is_uniform() {
+                    let const_ = if args[0].is_const() || args[0].is_value_argument() || args[0].is_uniform() {
                         "const "
                     } else {
                         ""
@@ -1194,8 +1196,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingSetInstanceTransform => {
                 writeln!(
                     self.body,
-                    "lc_set_instance_transform({0}, {1});",
-                    args_v[0], args_v[1]
+                    "lc_set_instance_transform({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1203,8 +1205,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingSetInstanceVisibility => {
                 writeln!(
                     self.body,
-                    "lc_set_instance_visibility({0}, {1});",
-                    args_v[0], args_v[1]
+                    "lc_set_instance_visibility({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1463,12 +1465,17 @@ impl<'a> FunctionEmitter<'a> {
                 }
             }
             Instruction::Loop { body, cond } => {
-                self.write_ident();
-                writeln!(&mut self.body, "do {{").unwrap();
-                self.gen_block(*body);
-                let cond_v = self.gen_node(*cond);
-                self.write_ident();
-                writeln!(&mut self.body, "}} while({});", cond_v).unwrap();
+                let old_inside_generic_loop = self.inside_generic_loop;
+                self.inside_generic_loop = false;
+                {
+                    self.write_ident();
+                    writeln!(&mut self.body, "do {{").unwrap();
+                    self.gen_block(*body);
+                    let cond_v = self.gen_node(*cond);
+                    self.write_ident();
+                    writeln!(&mut self.body, "}} while({});", cond_v).unwrap();
+                }
+                self.inside_generic_loop = old_inside_generic_loop;
             }
             Instruction::GenericLoop {
                 prepare,
@@ -1489,40 +1496,51 @@ impl<'a> FunctionEmitter<'a> {
                     update();
                 }
                 */
-                self.write_ident();
-                writeln!(&mut self.body, "while(true) {{").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "bool loop_break = false;").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "{{").unwrap();
-                self.indent += 1;
-                self.gen_block_(*prepare);
-                let cond_v = self.gen_node(*cond);
-                self.write_ident();
-                writeln!(&mut self.body, "if (!{}) break;", cond_v).unwrap();
-                self.write_ident();
-                self.indent -= 1;
-                writeln!(&mut self.body, "}}").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "do").unwrap();
-                self.write_ident();
-                self.gen_block(*body);
-                self.write_ident();
-                writeln!(&mut self.body, "while(false);").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "if (loop_break) break;").unwrap();
-                self.gen_block(*update);
-                self.write_ident();
-                writeln!(&mut self.body, "}}").unwrap();
+                let old_inside_generic_loop = self.inside_generic_loop;
+                self.inside_generic_loop = true;
+                {
+                    self.write_ident();
+                    writeln!(&mut self.body, "while(true) {{").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "bool loop_break = false;").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "{{").unwrap();
+                    self.indent += 1;
+                    self.gen_block_(*prepare);
+                    let cond_v = self.gen_node(*cond);
+                    self.write_ident();
+                    writeln!(&mut self.body, "if (!{}) break;", cond_v).unwrap();
+                    self.write_ident();
+                    self.indent -= 1;
+                    writeln!(&mut self.body, "}}").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "do").unwrap();
+                    self.write_ident();
+                    self.gen_block(*body);
+                    self.write_ident();
+                    writeln!(&mut self.body, "while(false);").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "if (loop_break) break;").unwrap();
+                    self.gen_block(*update);
+                    self.write_ident();
+                    writeln!(&mut self.body, "}}").unwrap();
+                }
+                self.inside_generic_loop = old_inside_generic_loop;
             }
             Instruction::Break => {
                 self.write_ident();
-                writeln!(&mut self.body, "loop_break = true;").unwrap();
+                if self.inside_generic_loop {
+                    writeln!(&mut self.body, "loop_break = true;").unwrap();
+                }
                 writeln!(&mut self.body, "break;").unwrap();
             }
             Instruction::Continue => {
                 self.write_ident();
-                writeln!(&mut self.body, "break;").unwrap();
+                if self.inside_generic_loop {
+                    writeln!(&mut self.body, "break;").unwrap();
+                } else {
+                    writeln!(&mut self.body, "continue;").unwrap();
+                }
             }
             Instruction::If {
                 cond,

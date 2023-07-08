@@ -749,6 +749,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
             auto type = _convert_type(const_.generic._1.get());
             auto [data, size, _] = const_.generic._0;
             if (type->is_scalar() || type->is_vector() || type->is_matrix()) {
+
 #define LUISA_IR2AST_DECODE_CONST(T)                                 \
     if (type == Type::of<T>()) {                                     \
         return b->literal(type, *reinterpret_cast<const T *>(data)); \
@@ -777,6 +778,8 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
 
 #undef LUISA_IR2AST_DECODE_CONST_VEC
 #undef LUISA_IR2AST_DECODE_CONST
+
+                LUISA_NOT_IMPLEMENTED();
             }
             auto c = ConstantData::create(type, data, size);
             return b->constant(c);
