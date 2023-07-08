@@ -39,7 +39,7 @@ private:
     luisa::vector<uint> _host_buffer;
     luisa::vector<Item> _items;
     luisa::logger _logger;
-    bool _reset_called{false};
+    std::atomic_bool _reset_called{false};
 
 private:
     void _log_to_buffer(Expr<uint>, uint) noexcept {}
@@ -72,7 +72,8 @@ public:
     /// Retrieve and print the logs. Will automatically reset the printer for future use.
     [[nodiscard]] std::tuple<luisa::unique_ptr<Command> /* download */,
                              luisa::move_only_function<void()> /* print */,
-                             luisa::unique_ptr<Command> /* reset */>
+                             luisa::unique_ptr<Command> /* reset */,
+                             Stream::Synchronize /* synchronize */>
     retrieve(bool abort_on_error = false) noexcept;
 
     /// Log in kernel at debug level.
@@ -176,4 +177,3 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
 }
 
 }// namespace luisa::compute
-
