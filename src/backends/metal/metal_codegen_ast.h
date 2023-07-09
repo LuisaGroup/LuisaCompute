@@ -11,7 +11,11 @@
 
 namespace luisa::compute::metal {
 
+class MetalConstantPrinter;
+
 class MetalCodegenAST final : private ExprVisitor, private StmtVisitor {
+
+    friend class MetalConstantPrinter;
 
 private:
     StringScratch &_scratch;

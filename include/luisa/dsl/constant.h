@@ -12,8 +12,6 @@ namespace luisa::compute {
 template<typename T>
 class Constant {
 
-    static_assert(concepts::basic<T>);
-
 private:
     ConstantData _data;
 

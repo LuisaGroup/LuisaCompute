@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
 
-    Callable linear_to_srgb = [](Var<float3> x) noexcept {
+    Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
                             12.92f * x,
                             x <= 0.00031308f),
