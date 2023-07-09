@@ -2,6 +2,7 @@
 #include <luisa/vstl/string_utility.h>
 #include "variant_util.h"
 #include <luisa/ast/constant_data.h>
+#include <luisa/ast/type_registry.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <luisa/vstl/pdqsort.h>
