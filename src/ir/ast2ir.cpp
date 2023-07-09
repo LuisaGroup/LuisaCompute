@@ -214,23 +214,23 @@ ir::NodeRef AST2IR::_convert_expr(const Expression *expr, bool is_lvalue) noexce
 
 ir::NodeRef AST2IR::_convert_stmt(const Statement *stmt) noexcept {
     switch (stmt->tag()) {
-        case Statement::Tag::BREAK: return _convert(static_cast<const BreakStmt *>(stmt)); break;
-        case Statement::Tag::CONTINUE: return _convert(static_cast<const ContinueStmt *>(stmt)); break;
-        case Statement::Tag::RETURN: return _convert(static_cast<const ReturnStmt *>(stmt)); break;
-        case Statement::Tag::SCOPE: return _convert(static_cast<const ScopeStmt *>(stmt)); break;
-        case Statement::Tag::IF: return _convert(static_cast<const IfStmt *>(stmt)); break;
-        case Statement::Tag::LOOP: return _convert(static_cast<const LoopStmt *>(stmt)); break;
-        case Statement::Tag::EXPR: return _convert(static_cast<const ExprStmt *>(stmt)); break;
-        case Statement::Tag::SWITCH: return _convert(static_cast<const SwitchStmt *>(stmt)); break;
-        case Statement::Tag::SWITCH_CASE: return _convert(static_cast<const SwitchCaseStmt *>(stmt)); break;
-        case Statement::Tag::SWITCH_DEFAULT: return _convert(static_cast<const SwitchDefaultStmt *>(stmt)); break;
-        case Statement::Tag::ASSIGN: return _convert(static_cast<const AssignStmt *>(stmt)); break;
-        case Statement::Tag::FOR: return _convert(static_cast<const ForStmt *>(stmt)); break;
-        case Statement::Tag::COMMENT: return _convert(static_cast<const CommentStmt *>(stmt)); break;
-        case Statement::Tag::RAY_QUERY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case Statement::Tag::AUTO_DIFF: return _convert(static_cast<const AutoDiffStmt *>(stmt)); break;
+        case Statement::Tag::BREAK: return _convert(static_cast<const BreakStmt *>(stmt));
+        case Statement::Tag::CONTINUE: return _convert(static_cast<const ContinueStmt *>(stmt));
+        case Statement::Tag::RETURN: return _convert(static_cast<const ReturnStmt *>(stmt));
+        case Statement::Tag::SCOPE: return _convert(static_cast<const ScopeStmt *>(stmt));
+        case Statement::Tag::IF: return _convert(static_cast<const IfStmt *>(stmt));
+        case Statement::Tag::LOOP: return _convert(static_cast<const LoopStmt *>(stmt));
+        case Statement::Tag::EXPR: return _convert(static_cast<const ExprStmt *>(stmt));
+        case Statement::Tag::SWITCH: return _convert(static_cast<const SwitchStmt *>(stmt));
+        case Statement::Tag::SWITCH_CASE: return _convert(static_cast<const SwitchCaseStmt *>(stmt));
+        case Statement::Tag::SWITCH_DEFAULT: return _convert(static_cast<const SwitchDefaultStmt *>(stmt));
+        case Statement::Tag::ASSIGN: return _convert(static_cast<const AssignStmt *>(stmt));
+        case Statement::Tag::FOR: return _convert(static_cast<const ForStmt *>(stmt));
+        case Statement::Tag::COMMENT: return _convert(static_cast<const CommentStmt *>(stmt));
+        case Statement::Tag::RAY_QUERY: return _convert(static_cast<const RayQueryStmt *>(stmt));
+        case Statement::Tag::AUTO_DIFF: return _convert(static_cast<const AutoDiffStmt *>(stmt));
     }
-    LUISA_ERROR_WITH_LOCATION("Invalid statement tag: {}.", to_underlying(stmt->tag()));
+    LUISA_ERROR_WITH_LOCATION("Invalid statement tag: {}.", luisa::to_string(stmt->tag()));
 }
 
 ir::IrBuilder *AST2IR::_current_builder() noexcept {
@@ -513,7 +513,7 @@ ir::NodeRef AST2IR::_convert(const RefExpr *expr, bool is_lvalue) noexcept {
     LUISA_ASSERT(iter != _variables.end(),
                  "Variable #{} not found.",
                  expr->variable().uid());
-    if (is_lvalue || expr->variable().tag() != Variable::Tag::REFERENCE) { // @Mike-Leo-Smith: see if this is correct
+    if (is_lvalue || expr->variable().tag() != Variable::Tag::REFERENCE) {// @Mike-Leo-Smith: see if this is correct
         return iter->second;
     } else {
         std::array args{iter->second};
@@ -828,7 +828,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     } else {
         args.reserve(expr->arguments().size());
         for (auto arg : expr->arguments()) {
-            args.emplace_back(_convert_expr(arg, false)); // TODO: is this correct?
+            args.emplace_back(_convert_expr(arg, false));// TODO: is this correct?
         }
     }
     // TODO: this is too ad-hoc
@@ -924,6 +924,29 @@ ir::NodeRef AST2IR::_convert(const IfStmt *stmt) noexcept {
                         .if_ = {.cond = cond,
                                 .true_branch = true_block,
                                 .false_branch = false_block}});
+    auto node = ir::luisa_compute_ir_new_node(
+        _pools.clone(),
+        ir::Node{.type_ = _convert_type(nullptr).clone(),
+                 .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
+}
+
+ir::NodeRef AST2IR::_convert(const RayQueryStmt *stmt) noexcept {
+    auto rq = _convert_expr(stmt->query(), true);
+    auto triangle_block = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->on_triangle_candidate()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto procedural_block = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->on_procedural_candidate()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        ir::Instruction{.tag = ir::Instruction::Tag::RayQuery,
+                        .ray_query = {.ray_query = rq,
+                                      .on_triangle_hit = triangle_block,
+                                      .on_procedural_hit = procedural_block}});
     auto node = ir::luisa_compute_ir_new_node(
         _pools.clone(),
         ir::Node{.type_ = _convert_type(nullptr).clone(),
