@@ -778,6 +778,15 @@ struct One<array<T, N>> {
 template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto lc_zero() { return T{}; }
 
+template<>
+[[gnu::always_inline, nodiscard]] inline auto lc_zero<float2x2>() { return float2x2{lc_zero<float2>(), lc_zero<float2>()}; }
+
+template<>
+[[gnu::always_inline, nodiscard]] inline auto lc_zero<float3x3>() { return float3x3{lc_zero<float3>(), lc_zero<float3>(), lc_zero<float3>()}; }
+
+template<>
+[[gnu::always_inline, nodiscard]] inline auto lc_zero<float4x4>() { return float4x4{lc_zero<float4>(), lc_zero<float4>(), lc_zero<float4>(), lc_zero<float4>()}; }
+
 template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto lc_one() { return One<T>::make(); }
 
