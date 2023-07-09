@@ -6,6 +6,7 @@
 
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/spin_mutex.h>
+#include <luisa/core/logging.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/ast/constant_data.h>
 
