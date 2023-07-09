@@ -537,27 +537,84 @@ void MetalCodegenAST::_emit_function() noexcept {
     }
 }
 
-void MetalCodegenAST::_emit_constant(const Function::Constant &c) noexcept {
-    _scratch << "constant ";
-    _emit_type_name(c.type);
-    _scratch << " c" << hash_to_string(c.data.hash()) << "{";
-    auto count = c.type->dimension();
-    static constexpr auto wrap = 16u;
-    using namespace std::string_view_literals;
-    luisa::visit([count, this](auto ptr) {
-        detail::LiteralPrinter print{_scratch};
-        for (auto i = 0u; i < count; i++) {
-            if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
-            print(ptr[i]);
-            _scratch << ", ";
-        }
-    },
-                 c.data.view());
-    if (count > 0u) {
-        _scratch.pop_back();
-        _scratch.pop_back();
+class MetalConstantPrinter final : public ConstantDecoder {
+
+private:
+    MetalCodegenAST *_codegen;
+
+public:
+    explicit MetalConstantPrinter(MetalCodegenAST *codegen) noexcept
+        : _codegen{codegen} {}
+
+protected:
+    void _decode_bool(bool x) noexcept override { _codegen->_scratch << (x ? "true" : "false"); }
+    void _decode_short(short x) noexcept override { _codegen->_scratch << luisa::format("short({})", x); }
+    void _decode_ushort(ushort x) noexcept override { _codegen->_scratch << luisa::format("ushort({})", x); }
+    void _decode_int(int x) noexcept override { _codegen->_scratch << luisa::format("int({})", x); }
+    void _decode_uint(uint x) noexcept override { _codegen->_scratch << luisa::format("uint({})", x); }
+    void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("long({})", x); }
+    void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("ulong({})", x); }
+    void _decode_half(half x) noexcept override { _codegen->_scratch << luisa::format("as_type<half>(ushort({}))", x.bits); }
+    void _decode_float(float x) noexcept override {
+        _codegen->_scratch << "float(";
+        detail::LiteralPrinter p{_codegen->_scratch};
+        p(x);
+        _codegen->_scratch << ")";
     }
-    _scratch << "};\n\n";
+    void _decode_double(double x) noexcept override { _codegen->_scratch << luisa::format("double({})", x); }
+    void _vector_separator(const Type *type, uint index) noexcept override {
+        auto n = type->dimension();
+        if (index == 0u) {
+            _codegen->_emit_type_name(type);
+            _codegen->_scratch << "(";
+        } else if (index == n) {
+            _codegen->_scratch << ")";
+        } else {
+            _codegen->_scratch << ", ";
+        }
+    }
+    void _matrix_separator(const Type *type, uint index) noexcept override {
+        auto n = type->dimension();
+        if (index == 0u) {
+            _codegen->_emit_type_name(type);
+            _codegen->_scratch << "(";
+        } else if (index == n) {
+            _codegen->_scratch << ")";
+        } else {
+            _codegen->_scratch << ", ";
+        }
+    }
+    void _struct_separator(const Type *type, uint index) noexcept override {
+        auto n = type->members().size();
+        if (index == 0u) {
+            _codegen->_emit_type_name(type);
+            _codegen->_scratch << "{";
+        } else if (index == n) {
+            _codegen->_scratch << "}";
+        } else {
+            _codegen->_scratch << ", ";
+        }
+    }
+    void _array_separator(const Type *type, uint index) noexcept override {
+        auto n = type->dimension();
+        if (index == 0u) {
+            _codegen->_emit_type_name(type);
+            _codegen->_scratch << "{";
+        } else if (index == n) {
+            _codegen->_scratch << "}";
+        } else {
+            _codegen->_scratch << ", ";
+        }
+    }
+};
+
+void MetalCodegenAST::_emit_constant(const Function::Constant &c) noexcept {
+    _scratch << "constant constexpr ";
+    _emit_type_name(c.type());
+    _scratch << " c" << hash_to_string(c.hash()) << " = ";
+    MetalConstantPrinter printer{this};
+    c.decode(printer);
+    _scratch << ";\n\n";
 }
 
 void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) noexcept {

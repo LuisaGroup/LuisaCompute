@@ -93,6 +93,7 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
+            //    << synchronize()
                << mesh.build();
     }
 
@@ -115,11 +116,10 @@ int main(int argc, char *argv[]) {
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
 
-    Callable linear_to_srgb = [](Var<float3> x) noexcept {
-        return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+    Callable linear_to_srgb = [&](Var<float3> x) noexcept {
+        return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
                             12.92f * x,
-                            x <= 0.00031308f),
-                     0.0f, 1.0f);
+                            x <= 0.00031308f));
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
@@ -334,7 +334,7 @@ int main(int argc, char *argv[]) {
                         .dispatch(resolution);
         cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
         stream << cmd_list.commit()
-               << swap_chain.present(ldr_image);
+               << swap_chain.present(ldr_image) << synchronize();
         window.poll_events();
         double dt = clock.toc() - last_time;
         last_time = clock.toc();

@@ -52,15 +52,6 @@ public:
     void GetVariableName(Variable const &type, vstd::StringBuilder &str);
     void GetVariableName(Variable::Tag type, uint id, vstd::StringBuilder &str);
     void GetTypeName(Type const &type, vstd::StringBuilder &str, Usage usage, bool local_var = true);
-    void GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str);
-    void GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str);
-    // void
-    void GetConstantData(ConstantData const &data, vstd::StringBuilder &str);
-    vstd::StringBuilder GetBasicTypeName(uint64 typeIndex) {
-        vstd::StringBuilder s;
-        GetBasicTypeName(typeIndex, s);
-        return s;
-    }
     void GetFunctionDecl(Function func, vstd::StringBuilder &str);
     void GetFunctionName(Function callable, vstd::StringBuilder &result);
     void GetFunctionName(CallExpr const *expr, vstd::StringBuilder &result, StringStateVisitor &visitor);

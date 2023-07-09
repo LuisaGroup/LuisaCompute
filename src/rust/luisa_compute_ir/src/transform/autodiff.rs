@@ -1197,6 +1197,25 @@ impl Backward {
                         self.accumulate_grad(args[1], a_grad, builder);
                         self.accumulate_grad(args[2], b_grad, builder);
                     }
+                    Func::Saturate => {
+                        let zero = builder.const_(Const::Zero(type_.clone()));
+                        let one = builder.const_(Const::One(type_.clone()));
+                        let gt_zero =
+                            builder.call(Func::Gt, &[args[0], zero], Type::bool(type_.clone()));
+                        let lt_one =
+                            builder.call(Func::Lt, &[args[0], one], Type::bool(type_.clone()));
+                        let between_zero_and_one = builder.call(
+                            Func::BitAnd,
+                            &[gt_zero, lt_one],
+                            Type::bool(type_.clone()),
+                        );
+                        let grad = builder.call(
+                            Func::Select,
+                            &[between_zero_and_one, out_grad, zero],
+                            type_.clone(),
+                        );
+                        self.accumulate_grad(args[0], grad, builder);
+                    }
                     Func::Lerp => {
                         // lerp(a, b, t) = (b - a) * t + a
                         let b_minus_a = builder.call(Func::Sub, &[args[1], args[0]], type_.clone());

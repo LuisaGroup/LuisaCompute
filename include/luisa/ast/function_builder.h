@@ -260,7 +260,7 @@ public:
     [[nodiscard]] const RefExpr *shared(const Type *type) noexcept;
 
     /// Add constant of type and data
-    [[nodiscard]] const ConstantExpr *constant(const Type *type, ConstantData data) noexcept;
+    [[nodiscard]] const ConstantExpr *constant(const ConstantData &c) noexcept;
     /// Add binding of buffer. Will check for already bound arguments.
     [[nodiscard]] const RefExpr *buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept;
     /// Add binding of texture. Will check for already bound arguments.

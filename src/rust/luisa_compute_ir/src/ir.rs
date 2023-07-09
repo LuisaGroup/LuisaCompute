@@ -578,6 +578,7 @@ pub enum Func {
     Clamp,
     Lerp,
     Step,
+    Saturate,
 
     Abs,
     Min,
@@ -1259,6 +1260,24 @@ impl NodeRef {
     pub fn is_uniform(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Uniform => true,
+            _ => false,
+        }
+    }
+    pub fn is_argument(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Argument { .. } => true,
+            _ => false,
+        }
+    }
+    pub fn is_value_argument(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Argument { by_value } => *by_value,
+            _ => false,
+        }
+    }
+    pub fn is_refernece_argument(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Argument { by_value } => !*by_value,
             _ => false,
         }
     }

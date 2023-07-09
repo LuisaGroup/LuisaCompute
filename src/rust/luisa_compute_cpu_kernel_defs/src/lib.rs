@@ -40,7 +40,7 @@ impl Default for BufferView {
     }
 }
 #[repr(C, align(16))]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Ray {
     pub orig_x: f32,
     pub orig_y: f32,
@@ -102,15 +102,7 @@ pub struct ProceduralHit {
     pub inst: u32,
     pub prim: u32,
 }
-#[repr(C, align(8))]
-#[derive(Copy, Clone)]
-pub struct Hit {
-    pub inst_id: u32,
-    pub prim_id: u32,
-    pub u: f32,
-    pub v: f32,
-    pub t: f32,
-}
+pub type Hit = TriangleHit;
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]
 pub struct Mat4(pub [f32; 16]);

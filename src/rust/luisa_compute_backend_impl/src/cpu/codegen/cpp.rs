@@ -256,6 +256,7 @@ struct FunctionEmitter<'a> {
     indent: usize,
     visited: HashSet<NodeRef>,
     globals: &'a mut GlobalEmitter,
+    inside_generic_loop: bool,
     // message: Vec<String>,
 }
 
@@ -271,6 +272,7 @@ impl<'a> FunctionEmitter<'a> {
             indent: 1,
             visited: HashSet::new(),
             globals,
+            inside_generic_loop: false,
         }
     }
     fn write_ident(&mut self) {
@@ -326,7 +328,7 @@ impl<'a> FunctionEmitter<'a> {
                 format!("cols[{}]", i)
             }
             Type::Void | Type::Primitive(_) => unreachable!(),
-            _ => todo!(),
+            _ => unreachable!(),
         }
     }
     fn gen_callable(
@@ -534,7 +536,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Min => Some("lc_min"),
             Func::Max => Some("lc_max"),
             Func::Clamp => Some("lc_clamp"),
-
+            Func::Saturate => Some("lc_saturate"),
             Func::Lerp => Some("lc_lerp"),
             _ => None,
         };
@@ -823,43 +825,64 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::ExtractElement => {
-                let i = args.as_ref()[1].get_i32();
-                let field_name = Self::gep_field_name(args.as_ref()[0], i);
-                writeln!(
-                    self.body,
-                    "const {} {} = {}.{};",
-                    node_ty_s, var, args_v[0], field_name
-                )
-                .unwrap();
-                true
-            }
-            Func::InsertElement => {
-                let i = args.as_ref()[2].get_i32();
-                let field_name = Self::gep_field_name(args.as_ref()[0], i);
-                writeln!(
-                    self.body,
-                    "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
-                    node_ty_s, var, args_v[0], field_name, args_v[1]
-                )
-                .unwrap();
-                true
-            }
-            Func::GetElementPtr => {
-                if args[0].type_().is_array() || args[0].type_().is_vector() || args[0].type_().is_matrix() {
-                    let const_ = if args[0].is_const() || args[0].is_uniform() {
-                        "const "
-                    } else {
-                        ""
-                    };
+                // TODO: support array pls
+                if args[0].type_().is_array() || !args[1].is_const() {
+                    let i = self.gen_node(args[1]);
                     writeln!(
                         self.body,
-                        "{}{}& {} = {}[{}];",
-                        const_, node_ty_s, var, args_v[0], args_v[1]
+                        "const {} {} = {}[{}];",
+                        node_ty_s, var, args_v[0], i
+                    )
+                    .unwrap();
+                    return true;
+                } else {
+                    let i = args[1].get_i32();
+                    let field_name = Self::gep_field_name(args[0], i);
+                    writeln!(
+                        self.body,
+                        "const {} {} = {}.{};",
+                        node_ty_s, var, args_v[0], field_name
+                    )
+                    .unwrap();
+                    true
+                }
+            }
+            Func::InsertElement => {
+                if args[0].type_().is_array() || !args[2].is_const() {
+                    let i = self.gen_node(args[2]);
+                    writeln!(
+                        self.body,
+                        "{0} _{1} = {2}; _{1}[{3}] = {4}; const auto {1} = _{1};",
+                        node_ty_s, var, args_v[0], i, args_v[1]
                     )
                     .unwrap();
                 } else {
-                    let i = args.as_ref()[1].get_i32();
-                    let field_name = Self::gep_field_name(args.as_ref()[0], i);
+                    let i = args[2].get_i32();
+                    let field_name = Self::gep_field_name(args[0], i);
+                    writeln!(
+                        self.body,
+                        "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
+                        node_ty_s, var, args_v[0], field_name, args_v[1]
+                    )
+                    .unwrap();
+                }
+                true
+            }
+            Func::GetElementPtr => {
+                // TODO: fix this
+                if args[0].type_().is_array()
+                    || args[0].type_().is_vector()
+                    || args[0].type_().is_matrix()
+                {
+                    writeln!(
+                        self.body,
+                        "{}& {} = {}[{}];",
+                        node_ty_s, var, args_v[0], args_v[1]
+                    )
+                    .unwrap();
+                } else {
+                    let i = args[1].get_i32();
+                    let field_name = Self::gep_field_name(args[0], i);
                     writeln!(
                         self.body,
                         "{} & {} = {}.{};",
@@ -969,7 +992,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::GradientMarker => {
-                let ty = self.type_gen.gen_c_type(args.as_ref()[1].type_());
+                let ty = self.type_gen.gen_c_type(args[1].type_());
                 writeln!(
                     self.body,
                     "const {} {}_grad = {};",
@@ -1194,8 +1217,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingSetInstanceTransform => {
                 writeln!(
                     self.body,
-                    "lc_set_instance_transform({0}, {1});",
-                    args_v[0], args_v[1]
+                    "lc_set_instance_transform({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1203,8 +1226,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingSetInstanceVisibility => {
                 writeln!(
                     self.body,
-                    "lc_set_instance_visibility({0}, {1});",
-                    args_v[0], args_v[1]
+                    "lc_set_instance_visibility({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1430,18 +1453,10 @@ impl<'a> FunctionEmitter<'a> {
                     done = self.gen_call_op(&var, &node_ty_s, f, &args_v);
                 }
                 if !done {
-                    done = self.gen_buffer_op(&var, &node_ty_s, f, args.as_ref(), &args_v);
+                    done = self.gen_buffer_op(&var, &node_ty_s, f, args, &args_v);
                 }
                 if !done {
-                    done = self.gen_misc(
-                        &var,
-                        node,
-                        &node_ty_s,
-                        node.type_(),
-                        f,
-                        args.as_ref(),
-                        &args_v,
-                    );
+                    done = self.gen_misc(&var, node, &node_ty_s, node.type_(), f, args, &args_v);
                 }
                 if !done {
                     done = self.gen_callable(&var, &node_ty_s, f, &args_v);
@@ -1463,12 +1478,17 @@ impl<'a> FunctionEmitter<'a> {
                 }
             }
             Instruction::Loop { body, cond } => {
-                self.write_ident();
-                writeln!(&mut self.body, "do {{").unwrap();
-                self.gen_block(*body);
-                let cond_v = self.gen_node(*cond);
-                self.write_ident();
-                writeln!(&mut self.body, "}} while({});", cond_v).unwrap();
+                let old_inside_generic_loop = self.inside_generic_loop;
+                self.inside_generic_loop = false;
+                {
+                    self.write_ident();
+                    writeln!(&mut self.body, "do {{").unwrap();
+                    self.gen_block(*body);
+                    let cond_v = self.gen_node(*cond);
+                    self.write_ident();
+                    writeln!(&mut self.body, "}} while({});", cond_v).unwrap();
+                }
+                self.inside_generic_loop = old_inside_generic_loop;
             }
             Instruction::GenericLoop {
                 prepare,
@@ -1489,40 +1509,51 @@ impl<'a> FunctionEmitter<'a> {
                     update();
                 }
                 */
-                self.write_ident();
-                writeln!(&mut self.body, "while(true) {{").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "bool loop_break = false;").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "{{").unwrap();
-                self.indent += 1;
-                self.gen_block_(*prepare);
-                let cond_v = self.gen_node(*cond);
-                self.write_ident();
-                writeln!(&mut self.body, "if (!{}) break;", cond_v).unwrap();
-                self.write_ident();
-                self.indent -= 1;
-                writeln!(&mut self.body, "}}").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "do").unwrap();
-                self.write_ident();
-                self.gen_block(*body);
-                self.write_ident();
-                writeln!(&mut self.body, "while(false);").unwrap();
-                self.write_ident();
-                writeln!(&mut self.body, "if (loop_break) break;").unwrap();
-                self.gen_block(*update);
-                self.write_ident();
-                writeln!(&mut self.body, "}}").unwrap();
+                let old_inside_generic_loop = self.inside_generic_loop;
+                self.inside_generic_loop = true;
+                {
+                    self.write_ident();
+                    writeln!(&mut self.body, "while(true) {{").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "bool loop_break = false;").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "{{").unwrap();
+                    self.indent += 1;
+                    self.gen_block_(*prepare);
+                    let cond_v = self.gen_node(*cond);
+                    self.write_ident();
+                    writeln!(&mut self.body, "if (!{}) break;", cond_v).unwrap();
+                    self.write_ident();
+                    self.indent -= 1;
+                    writeln!(&mut self.body, "}}").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "do").unwrap();
+                    self.write_ident();
+                    self.gen_block(*body);
+                    self.write_ident();
+                    writeln!(&mut self.body, "while(false);").unwrap();
+                    self.write_ident();
+                    writeln!(&mut self.body, "if (loop_break) break;").unwrap();
+                    self.gen_block(*update);
+                    self.write_ident();
+                    writeln!(&mut self.body, "}}").unwrap();
+                }
+                self.inside_generic_loop = old_inside_generic_loop;
             }
             Instruction::Break => {
                 self.write_ident();
-                writeln!(&mut self.body, "loop_break = true;").unwrap();
+                if self.inside_generic_loop {
+                    writeln!(&mut self.body, "loop_break = true;").unwrap();
+                }
                 writeln!(&mut self.body, "break;").unwrap();
             }
             Instruction::Continue => {
                 self.write_ident();
-                writeln!(&mut self.body, "break;").unwrap();
+                if self.inside_generic_loop {
+                    writeln!(&mut self.body, "break;").unwrap();
+                } else {
+                    writeln!(&mut self.body, "continue;").unwrap();
+                }
             }
             Instruction::If {
                 cond,
@@ -1720,7 +1751,7 @@ impl<'a> FunctionEmitter<'a> {
         for (i, capture) in module.captures.as_ref().iter().enumerate() {
             self.gen_arg(capture.node, i, true);
         }
-        for (i, arg) in module.args.as_ref().iter().enumerate() {
+        for (i, arg) in module.args.iter().enumerate() {
             self.gen_arg(*arg, i, false);
         }
         assert!(self.globals.global_vars.is_empty());

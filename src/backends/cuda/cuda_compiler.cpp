@@ -50,11 +50,11 @@ luisa::string CUDACompiler::compile(const luisa::string &src, const luisa::strin
     // TODO: use OptiX IR for ray tracing shaders
     if (metadata && metadata->kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
         LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
-        ptx.resize(ptx_size);
+        ptx.resize(ptx_size - 1u);
         LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     } else {
         LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
-        ptx.resize(ptx_size);
+        ptx.resize(ptx_size - 1u);
         LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     }
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
@@ -108,4 +108,3 @@ uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *c
 }
 
 }// namespace luisa::compute::cuda
-

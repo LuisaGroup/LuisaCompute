@@ -12,10 +12,7 @@ namespace luisa::compute {
 template<typename T>
 class Constant {
 
-    static_assert(concepts::basic<T>);
-
 private:
-    const Type *_type;
     ConstantData _data;
 
 public:
@@ -24,8 +21,8 @@ public:
 
     /// Construct constant from span
     Constant(luisa::span<const T> data) noexcept
-        : _type{Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
-          _data{ConstantData::create(data)} {}
+        : _data{ConstantData::create(Type::array(Type::of<T>(), data.size()),
+                                     data.data(), data.size_bytes())} {}
 
     /// Construct constant from array
     Constant(const T *data, size_t size) noexcept
@@ -47,11 +44,11 @@ public:
 
     /// Access member of constant
     template<typename U>
-    requires is_integral_expr_v<U>
+        requires is_integral_expr_v<U>
     [[nodiscard]] auto operator[](U &&index) const noexcept {
         return def<T>(detail::FunctionBuilder::current()->access(
             Type::of<T>(),
-            detail::FunctionBuilder::current()->constant(_type, _data),
+            detail::FunctionBuilder::current()->constant(_data),
             detail::extract_expression(std::forward<U>(index))));
     }
 
@@ -77,4 +74,3 @@ template<concepts::container T>
 Constant(T &&) -> Constant<std::remove_const_t<typename std::remove_cvref_t<T>::value_type>>;
 
 }// namespace luisa::compute
-

@@ -311,17 +311,14 @@ const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
     return _create_expression<RefExpr>(v);
 }
 
-const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData data) noexcept {
-    LUISA_ASSERT(type->is_array(),
-                 "Constant must be array but got '{}'.",
-                 type->description());
+const ConstantExpr *FunctionBuilder::constant(const ConstantData &c) noexcept {
     if (auto iter = std::find_if(
             _captured_constants.begin(), _captured_constants.end(),
-            [data](auto &&c) noexcept { return c.data.hash() == data.hash(); });
+            [c](auto &&cc) noexcept { return c.hash() == cc.hash(); });
         iter == _captured_constants.end()) {
-        _captured_constants.emplace_back(Constant{type, data});
+        _captured_constants.emplace_back(c);
     }
-    return _create_expression<ConstantExpr>(type, data);
+    return _create_expression<ConstantExpr>(c);
 }
 
 const Statement *FunctionBuilder::pop_stmt() noexcept {

@@ -12,59 +12,49 @@
 
 namespace luisa::compute {
 
-namespace detail {
-
-template<template<typename> typename C, typename T, bool constify>
-struct constant_data_view {
-    static_assert(always_false_v<T>);
-};
-
-template<template<typename> typename C, typename... T>
-struct constant_data_view<C, std::tuple<T...>, true> {
-    using type = luisa::variant<C<const T>...>;
-};
-
-template<template<typename> typename C, typename... T>
-struct constant_data_view<C, std::tuple<T...>, false> {
-    using type = luisa::variant<C<T>...>;
-};
-
-template<template<typename> typename C, typename T, bool constify>
-using constant_data_view_t = typename constant_data_view<C, T, constify>::type;
-
-template<typename T>
-using to_span_t = luisa::span<T>;
-
-template<typename T>
-using to_vector_t = luisa::vector<T>;
-
-}// namespace detail
-
-/// Constant data
-class LC_AST_API ConstantData {
-
-public:
-    using View = detail::constant_data_view_t<detail::to_span_t, basic_types, true>;
+class LC_AST_API ConstantDecoder {
 
 protected:
-    View _view;
-    uint64_t _hash{};
-
-    ConstantData(View v, uint64_t hash) noexcept
-        : _view{v}, _hash{hash} {}
+    virtual void _decode_bool(bool x) noexcept = 0;
+    virtual void _decode_short(short x) noexcept = 0;
+    virtual void _decode_ushort(ushort x) noexcept = 0;
+    virtual void _decode_int(int x) noexcept = 0;
+    virtual void _decode_uint(uint x) noexcept = 0;
+    virtual void _decode_long(slong x) noexcept = 0;
+    virtual void _decode_ulong(ulong x) noexcept = 0;
+    virtual void _decode_half(half x) noexcept = 0;
+    virtual void _decode_float(float x) noexcept = 0;
+    virtual void _decode_double(double x) noexcept = 0;
+    virtual void _vector_separator(const Type *type, uint index) noexcept = 0;
+    virtual void _matrix_separator(const Type *type, uint index) noexcept = 0;
+    virtual void _struct_separator(const Type *type, uint index) noexcept = 0;
+    virtual void _array_separator(const Type *type, uint index) noexcept = 0;
+    virtual void _decode_vector(const Type *type, const std::byte *data) noexcept;
+    virtual void _decode_matrix(const Type *type, const std::byte *data) noexcept;
+    virtual void _decode_struct(const Type *type, const std::byte *data) noexcept;
+    virtual void _decode_array(const Type *type, const std::byte *data) noexcept;
+    virtual void _decode(const Type *type, const std::byte *data) noexcept;
 
 public:
-    ConstantData() noexcept = default;
-    /**
-     * @brief Construct ConstantData from given data
-     * 
-     * @param data must belong to basic_types
-     * @return ConstantData 
-     */
-    [[nodiscard]] static ConstantData create(View data) noexcept;
+    virtual void decode(const Type *type, const std::byte *data) noexcept;
+};
+
+class LC_AST_API ConstantData {
+
+private:
+    const Type *_type;
+    const std::byte *_raw;
+    uint64_t _hash;
+
+private:
+    ConstantData(const Type *type, const std::byte *data, uint64_t hash) noexcept;
+
+public:
+    [[nodiscard]] static ConstantData create(const Type *type, const void *data, size_t size) noexcept;
+    [[nodiscard]] auto raw() const noexcept { return _raw; }
+    [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto hash() const noexcept { return _hash; }
-    [[nodiscard]] auto view() const noexcept { return _view; }
+    void decode(ConstantDecoder &d) const noexcept { d.decode(_type, _raw); }
 };
 
 }// namespace luisa::compute
-

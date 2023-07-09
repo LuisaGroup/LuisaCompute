@@ -149,10 +149,10 @@ impl Backend for RustBackend {
         unsafe {
             let stream = &*(stream_.0 as *mut StreamImpl);
             let command_list = command_list.to_vec();
+            let sb = stream.allocate_staging_buffers(&command_list);
             stream.enqueue(
                 move || {
-                    let stream = &*(stream_.0 as *mut StreamImpl);
-                    stream.dispatch(&command_list)
+                    stream.dispatch(sb, &command_list)
                 },
                 callback,
             );

@@ -34,11 +34,7 @@ public:
         RASTER_STAGE
     };
 
-    struct Constant {
-        const Type *type{nullptr};
-        ConstantData data;
-        [[nodiscard]] uint64_t hash() const noexcept;
-    };
+    using Constant = ConstantData;
 
     /**
      * @brief %Buffer binding.

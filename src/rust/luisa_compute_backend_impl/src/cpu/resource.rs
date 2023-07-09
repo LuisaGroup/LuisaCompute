@@ -6,8 +6,7 @@ use std::{
 
 use luisa_compute_api_types::{BindlessArrayUpdateModification, BindlessArrayUpdateOperation};
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{context::type_hash, ir::Type, CArc};
-use parking_lot::{Condvar, Mutex, RwLock};
+use parking_lot::{Condvar, Mutex};
 
 use super::texture::TextureImpl;
 
@@ -47,7 +46,6 @@ impl EventImpl {
 }
 #[repr(C)]
 pub struct BufferImpl {
-    pub lock: RwLock<()>,
     pub data: *mut u8,
     pub size: usize,
     pub align: usize,
@@ -130,7 +128,6 @@ impl BufferImpl {
         let layout = Layout::from_size_align(size, align).unwrap();
         let data = unsafe { std::alloc::alloc_zeroed(layout) };
         Self {
-            lock: RwLock::new(()),
             data,
             size,
             align,

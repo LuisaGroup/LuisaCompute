@@ -13,6 +13,7 @@ struct alignas(16) Ray {
     std::array<float, 3> compressed_direction;
     float compressed_t_max;
 };
+static_assert(sizeof(Ray) == 32u, "Ray size mismatch");
 
 }// namespace luisa::compute
 
