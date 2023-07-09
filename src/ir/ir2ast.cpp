@@ -688,10 +688,12 @@ void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
                 _convert_block(data[i].block.get());
             });
         }
-        auto default_scope = _ctx->function_builder->default_();
-        _ctx->function_builder->with(default_scope->body(), [&] {
-            _convert_block(node->instruction->switch_.default_.get());
-        });
+        if (node->instruction->switch_.default_.get() != nullptr) {
+            auto default_scope = _ctx->function_builder->default_();
+            _ctx->function_builder->with(default_scope->body(), [&] {
+                _convert_block(node->instruction->switch_.default_.get());
+            });
+        }
     });
 }
 
