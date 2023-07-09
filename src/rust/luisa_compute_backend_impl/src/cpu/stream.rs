@@ -433,6 +433,7 @@ impl StreamImpl {
                                 accel_build.modifications,
                                 accel_build.modifications_count,
                             ),
+                            accel_build.update_instance_buffer_only
                         );
                     }
                     api::Command::BindlessArrayUpdate(bindless_update) => {

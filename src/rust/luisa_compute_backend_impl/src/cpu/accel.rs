@@ -171,6 +171,7 @@ impl AccelImpl {
         &mut self,
         instance_count: usize,
         modifications: &[AccelBuildModification],
+        update_instance_buffer_only: bool,
     ) {
         let device = DEVICE.lock();
         let device = device.0;
@@ -239,6 +240,9 @@ impl AccelImpl {
                 instance.dirty = true;
             }
         }
+        if update_instance_buffer_only {
+            return;
+        }
         for instance in &self.instances {
             let mut instance = instance.write();
             if instance.valid() && instance.dirty {
@@ -246,6 +250,7 @@ impl AccelImpl {
                 instance.dirty = false;
             }
         }
+       
         sys::rtcCommitScene(self.handle);
     }
     #[inline]
