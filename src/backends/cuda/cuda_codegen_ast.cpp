@@ -1611,7 +1611,7 @@ protected:
     void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("lc_long({})", x); }
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("lc_ulong({})", x); }
     void _decode_half(half x) noexcept override {
-        _codegen->_scratch << luisa::format("lc_half{.bits = {}}", x.bits);// TODO
+        _codegen->_scratch << luisa::format("lc_half_from_bits({})", x.bits);// TODO
     }
     void _decode_float(float x) noexcept override {
         _codegen->_scratch << "lc_float(";
@@ -1646,11 +1646,11 @@ protected:
         auto n = type->members().size();
         if (index == 0u) {
             _codegen->_emit_type_name(type);
-            _codegen->_scratch << "{.m0 = ";
+            _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
         } else {
-            _codegen->_scratch << ", .m" << index << " = ";
+            _codegen->_scratch << ", ";
         }
     }
     void _array_separator(const Type *type, uint index) noexcept override {
