@@ -55,6 +55,8 @@ CUDAStream::~CUDAStream() noexcept {
         _callback_lists.emplace(std::move(p));
     }
     _callback_cv.notify_one();
+    // wait for the stream to finish
+    LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
     // wait for the callback thread to stop
     _callback_thread.join();
     // destroy the events and the stream
