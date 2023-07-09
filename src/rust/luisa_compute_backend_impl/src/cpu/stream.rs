@@ -582,35 +582,47 @@ extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u
 }
 
 extern "C" fn instance_transform(accel: *const std::ffi::c_void, instance_id: u32) -> defs::Mat4 {
+    /*
+    0 1 2 3 
+    4 5 6 7
+    8 9 10 11 */
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         let affine = accel.instance_transform(instance_id);
         defs::Mat4([
-            affine[0], affine[1], affine[2], 0.0, affine[3], affine[4], affine[5], 0.0, affine[6],
-            affine[7], affine[8], 0.0, affine[9], affine[10], affine[11], 1.0,
+            affine[0], affine[4], affine[8], 0.0, affine[1], affine[5], affine[9], 0.0, affine[2],
+            affine[6], affine[10], 0.0, affine[3], affine[7], affine[11], 1.0,
         ])
     }
 }
+
+
 
 extern "C" fn set_instance_transform(
     accel: *const std::ffi::c_void,
     instance_id: u32,
     transform: &defs::Mat4,
 ) {
+    /*
+    0   4   8    12
+    1   5   9    13 
+    2   6   10   14
+    3   7   11   15
+ */
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         let affine = [
             transform.0[0],
-            transform.0[1],
-            transform.0[2],
             transform.0[4],
-            transform.0[5],
-            transform.0[6],
             transform.0[8],
-            transform.0[9],
-            transform.0[10],
             transform.0[12],
+            transform.0[1],
+            transform.0[5],
+            transform.0[9],
             transform.0[13],
+            transform.0[2],
+            transform.0[6],
+            transform.0[10],
             transform.0[14],
         ];
         accel.set_instance_transform(instance_id, affine);

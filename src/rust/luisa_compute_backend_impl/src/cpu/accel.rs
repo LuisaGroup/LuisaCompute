@@ -174,6 +174,19 @@ impl AccelImpl {
     ) {
         let device = DEVICE.lock();
         let device = device.0;
+        for instance in &self.instances {
+            let instance = instance.read();
+            let geometry = instance.geometry;
+            if instance.dirty {
+                sys::rtcSetGeometryTransform(
+                    geometry,
+                    0,
+                    sys::RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                    instance.affine.as_ptr() as *const c_void,
+                );
+                sys::rtcSetGeometryMask(geometry, instance.visible as u32);
+            }
+        }
         while instance_count > self.instances.len() {
             self.instances.push(RwLock::new(Instance::default()));
         }
@@ -331,12 +344,14 @@ impl AccelImpl {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
         instance.affine = affine;
+        instance.dirty = true;
     }
     #[inline]
     pub unsafe fn set_instance_visibility(&self, id: u32, visibility: u8) {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
         instance.visible = visibility;
+        instance.dirty = true;
     }
 
     #[inline]
