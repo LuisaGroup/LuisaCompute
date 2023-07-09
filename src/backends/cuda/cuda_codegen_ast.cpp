@@ -1637,7 +1637,7 @@ protected:
             _codegen->_emit_type_name(type);
             _codegen->_scratch << "{";
         } else if (index == n) {
-            _codegen->_scratch << ")";
+            _codegen->_scratch << "}";
         } else {
             _codegen->_scratch << ", ";
         }
