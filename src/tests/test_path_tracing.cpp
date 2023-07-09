@@ -117,10 +117,9 @@ int main(int argc, char *argv[]) {
     };
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
-        return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+        return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
                             12.92f * x,
-                            x <= 0.00031308f),
-                     0.0f, 1.0f);
+                            x <= 0.00031308f));
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {

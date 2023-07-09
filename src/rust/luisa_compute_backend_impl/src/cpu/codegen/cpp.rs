@@ -536,7 +536,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Min => Some("lc_min"),
             Func::Max => Some("lc_max"),
             Func::Clamp => Some("lc_clamp"),
-
+            Func::Saturate => Some("lc_saturate"),
             Func::Lerp => Some("lc_lerp"),
             _ => None,
         };

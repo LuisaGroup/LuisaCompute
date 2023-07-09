@@ -166,10 +166,11 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             }
             return;
         }
-    } else if (expr->range()->tag() == Expression::Tag::CONSTANT) {
-        basicAccess();
-        return;
     }
+    //    else if (expr->range()->tag() == Expression::Tag::CONSTANT) {
+    //        basicAccess();
+    //        return;
+    //    }
     switch (t->tag()) {
         case Type::Tag::BUFFER:
         case Type::Tag::VECTOR: {

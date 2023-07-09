@@ -722,9 +722,9 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::RASTER_DISCARD: return ir::Func::Tag::RasterDiscard;
             case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: return ir::Func::Tag::IndirectClearDispatchBuffer;
             case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
+            case CallOp::SATURATE: return ir::Func::Tag::Saturate;
             // The following callops haven't been implemented by IR yet
             // case CallOp::CUSTOM:
-            // case CallOp::SATURATE:
             // case CallOp::REFLECT:
             // 16-bit types haven't been implemented by IR yet
             // case CallOp::MAKE_INT16_2:
