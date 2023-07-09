@@ -79,7 +79,6 @@ int main(int argc, char *argv[]) {
     stream << vertex_buffer.copy_from(vertices.data());
     luisa::vector<Mesh> meshes;
     luisa::vector<Buffer<Triangle>> triangle_buffers;
-    luisa::vector<luisa::vector<uint>> indices_v;
     for (auto &&shape : obj_reader.GetShapes()) {
         uint index = static_cast<uint>(meshes.size());
         std::vector<tinyobj::index_t> const &t = shape.mesh.indices;
@@ -96,7 +95,6 @@ int main(int argc, char *argv[]) {
         stream << triangle_buffer.copy_from(indices.data())
             //    << synchronize()
                << mesh.build();
-        indices_v.emplace_back(std::move(indices));
     }
 
     Accel accel = device.create_accel({});

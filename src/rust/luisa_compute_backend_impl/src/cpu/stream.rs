@@ -6,7 +6,6 @@ use luisa_compute_ir::{
 };
 use parking_lot::{Condvar, Mutex, RwLock};
 use rayon;
-use std::{panic::{RefUnwindSafe, UnwindSafe}, sync::atomic::AtomicBool};
 use std::{
     collections::VecDeque,
     sync::{atomic::AtomicUsize, Arc},
@@ -15,6 +14,10 @@ use std::{
 use std::{
     collections::{HashMap, HashSet},
     process::abort,
+};
+use std::{
+    panic::{RefUnwindSafe, UnwindSafe},
+    sync::atomic::AtomicBool,
 };
 
 use super::{
@@ -173,7 +176,7 @@ impl StreamImpl {
         std::ptr::copy_nonoverlapping(ptr, buffer, size);
         buffers.push(buffer);
     }
-    unsafe fn allocate_staging_buffers(&self, command_list: &[api::Command]) {
+    pub(super) unsafe fn allocate_staging_buffers(&self, command_list: &[api::Command]) {
         for cmd in command_list {
             match cmd {
                 api::Command::BufferUpload(cmd) => {
@@ -196,7 +199,6 @@ impl StreamImpl {
     }
     pub(super) fn dispatch(&self, command_list: &[api::Command]) {
         unsafe {
-            self.allocate_staging_buffers(command_list);
             let mut lk = self.ctx.staging_buffers.lock();
             let (bump, buffers) = &mut *lk;
             let mut cnt = 0;
