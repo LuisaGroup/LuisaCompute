@@ -11,7 +11,6 @@ pub struct TextureImpl {
     pub(crate) pixel_stride_shift: usize,
     pub(crate) mip_levels: u8,
     pub(crate) mip_offsets: [usize; 16],
-    pub(crate) locks: Vec<RwLock<()>>,
     pub(crate) storage: PixelStorage,
     layout: std::alloc::Layout,
 }
@@ -75,7 +74,6 @@ impl TextureImpl {
             mip_offsets,
             storage,
             layout,
-            locks: (0..levels).map(|_| RwLock::new(())).collect(),
         }
     }
     pub(crate) fn view(&self, level: u8) -> TextureView {
