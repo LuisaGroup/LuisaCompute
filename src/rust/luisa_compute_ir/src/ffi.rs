@@ -274,10 +274,15 @@ impl From<String> for CBoxedSlice<u8> {
 }
 impl CBoxedSlice<u8> {
     pub fn to_string(&self) -> String {
-        CString::from_vec_with_nul(self.to_vec())
-            .unwrap()
-            .into_string()
-            .unwrap()
+        let has_nul = self.as_ref().iter().any(|&x| x == 0);
+        if has_nul {
+            CString::from_vec_with_nul(self.to_vec())
+                .unwrap()
+                .into_string()
+                .unwrap()
+        } else {
+            String::from_utf8(self.to_vec()).unwrap()
+        }
     }
 }
 impl<T: Clone> From<&[T]> for CBoxedSlice<T> {

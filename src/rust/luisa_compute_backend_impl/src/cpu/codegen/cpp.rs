@@ -139,7 +139,13 @@ impl TypeGenInner {
                 format!("lc_array<{}, {}>", element_type, at.length)
             }
             Type::Opaque(name) => {
-                format!("struct {};", name.to_string())
+                let name = name.to_string();
+                let builtin = ["LC_RayQueryAny", "LC_RayQueryAll"];
+                if !builtin.contains(&name.as_str()) {
+                    self.struct_typedefs
+                        .push_str(&format!("struct {};", name.to_string()));
+                }
+                name
             }
         }
     }
@@ -1245,7 +1251,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayTracingQueryAny => {
                 writeln!(
                     self.body,
-                    "LC_RayQueryAny& _{0} = lc_ray_query_any({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
+                    "LC_RayQueryAny _{0} = lc_ray_query_any({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
                     var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
