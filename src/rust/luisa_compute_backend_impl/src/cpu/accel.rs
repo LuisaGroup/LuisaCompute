@@ -273,20 +273,18 @@ impl AccelImpl {
 
         sys::rtcIntersect1(self.handle, &mut rayhit as *mut _, &mut args as *mut _);
         if rayhit.hit.geomID != u32::MAX && rayhit.hit.primID != u32::MAX {
-            defs::Hit {
-                inst_id: rayhit.hit.instID[0],
-                prim_id: rayhit.hit.primID,
-                u: rayhit.hit.u,
-                v: rayhit.hit.v,
-                t: rayhit.ray.tfar,
+            defs::TriangleHit {
+                inst: rayhit.hit.instID[0],
+                prim: rayhit.hit.primID,
+                bary: [rayhit.hit.u, rayhit.hit.v],
+                committed_ray_t: rayhit.ray.tfar,
             }
         } else {
-            defs::Hit {
-                inst_id: u32::MAX,
-                prim_id: u32::MAX,
-                u: 0.0,
-                v: 0.0,
-                t: ray.tmax,
+            defs::TriangleHit {
+                inst: u32::MAX,
+                prim: u32::MAX,
+                bary: [0.0, 0.0],
+                committed_ray_t: ray.tmax,
             }
         }
     }

@@ -195,14 +195,14 @@ ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexce
     return m._0;
 }
 
-ir::NodeRef AST2IR::_convert_expr(const Expression *expr) noexcept {
+ir::NodeRef AST2IR::_convert_expr(const Expression *expr, bool is_lvalue) noexcept {
     switch (expr->tag()) {
         case Expression::Tag::UNARY: return _convert(static_cast<const UnaryExpr *>(expr));
         case Expression::Tag::BINARY: return _convert(static_cast<const BinaryExpr *>(expr));
-        case Expression::Tag::MEMBER: return _convert(static_cast<const MemberExpr *>(expr));
-        case Expression::Tag::ACCESS: return _convert(static_cast<const AccessExpr *>(expr));
+        case Expression::Tag::MEMBER: return _convert(static_cast<const MemberExpr *>(expr), is_lvalue);
+        case Expression::Tag::ACCESS: return _convert(static_cast<const AccessExpr *>(expr), is_lvalue);
         case Expression::Tag::LITERAL: return _convert(static_cast<const LiteralExpr *>(expr));
-        case Expression::Tag::REF: return _convert(static_cast<const RefExpr *>(expr));
+        case Expression::Tag::REF: return _convert(static_cast<const RefExpr *>(expr), is_lvalue);
         case Expression::Tag::CONSTANT: return _convert(static_cast<const ConstantExpr *>(expr));
         case Expression::Tag::CALL: return _convert(static_cast<const CallExpr *>(expr));
         case Expression::Tag::CAST: return _convert(static_cast<const CastExpr *>(expr));
@@ -395,7 +395,7 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const UnaryExpr *expr) noexcept {
-    auto x = _convert_expr(expr->operand());
+    auto x = _convert_expr(expr->operand(), false);
     if (expr->op() == UnaryOp::PLUS) { return x; }
     auto tag = [expr] {
         switch (expr->op()) {
@@ -444,8 +444,8 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
             "Unsupported binary operator: 0x{:02x}.",
             luisa::to_underlying(expr->op()));
     }();
-    auto lhs = _convert_expr(expr->lhs());
-    auto rhs = _convert_expr(expr->rhs());
+    auto lhs = _convert_expr(expr->lhs(), false);
+    auto rhs = _convert_expr(expr->rhs(), false);
     auto prom = promote_types(expr->op(), lhs_type, rhs_type);
     lhs = _cast(prom.lhs, lhs_type, lhs);
     rhs = _cast(prom.rhs, rhs_type, rhs);
@@ -460,8 +460,8 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
         _convert_type(expr->type()));
 }
 
-ir::NodeRef AST2IR::_convert(const MemberExpr *expr) noexcept {
-    auto self = _convert_expr(expr->self());
+ir::NodeRef AST2IR::_convert(const MemberExpr *expr, bool is_lvalue) noexcept {
+    auto self = _convert_expr(expr->self(), is_lvalue);
     auto b = _current_builder();
     if (expr->is_swizzle() && expr->swizzle_size() > 1u) {
         std::array<ir::NodeRef, 5u> args{self};
@@ -477,29 +477,52 @@ ir::NodeRef AST2IR::_convert(const MemberExpr *expr) noexcept {
                      _literal(Type::of<uint>(), expr->swizzle_index(0u)) :
                      _literal(Type::of<uint>(), expr->member_index());
     std::array args{self, index};
-    return ir::luisa_compute_ir_build_call(
-        b, {.tag = ir::Func::Tag::GetElementPtr},
-        {.ptr = args.data(), .len = args.size()},
-        _convert_type(expr->type()));
+    if (is_lvalue) {
+        return ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::GetElementPtr},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(expr->type()));
+    } else {
+        return ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::ExtractElement},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(expr->type()));
+    }
 }
 
-ir::NodeRef AST2IR::_convert(const AccessExpr *expr) noexcept {
-    auto self = _convert_expr(expr->range());
-    auto index = _convert_expr(expr->index());
+ir::NodeRef AST2IR::_convert(const AccessExpr *expr, bool is_lvalue) noexcept {
+    auto self = _convert_expr(expr->range(), is_lvalue);
+    auto index = _convert_expr(expr->index(), is_lvalue);
     auto b = _current_builder();
     std::array args{self, index};
-    return ir::luisa_compute_ir_build_call(
-        b, {.tag = ir::Func::Tag::GetElementPtr},
-        {.ptr = args.data(), .len = args.size()},
-        _convert_type(expr->type()));
+    if (is_lvalue) {
+        return ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::GetElementPtr},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(expr->type()));
+    } else {
+        return ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::ExtractElement},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(expr->type()));
+    }
 }
 
-ir::NodeRef AST2IR::_convert(const RefExpr *expr) noexcept {
+ir::NodeRef AST2IR::_convert(const RefExpr *expr, bool is_lvalue) noexcept {
     auto iter = _variables.find(expr->variable().uid());
     LUISA_ASSERT(iter != _variables.end(),
                  "Variable #{} not found.",
                  expr->variable().uid());
-    return iter->second;
+    if (is_lvalue || expr->variable().tag() != Variable::Tag::REFERENCE) { // @Mike-Leo-Smith: see if this is correct
+        return iter->second;
+    } else {
+        std::array args{iter->second};
+        auto b = _current_builder();
+        return ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::Load},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(expr->type()));
+    }
 }
 
 ir::NodeRef AST2IR::_convert(const ConstantExpr *expr) noexcept {
@@ -517,7 +540,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         for (auto i = 0u; i < expr->arguments().size(); i++) {
             auto t = callable.arguments()[i].type();
             auto arg = expr->arguments()[i];
-            args.emplace_back(_cast(t, arg->type(), _convert_expr(arg)));
+            args.emplace_back(_cast(t, arg->type(), _convert_expr(arg, callable.arguments()[i].tag() == Variable::Tag::REFERENCE)));
         }
         auto call = ir::luisa_compute_ir_build_call(
             _current_builder(),
@@ -728,7 +751,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         if (a.size() == 1u) {
             if (auto t = a.front()->type(); t->is_scalar()) {
                 // vector from a single scalar
-                auto elem = _convert_expr(a.front());
+                auto elem = _convert_expr(a.front(), false);
                 for (uint32_t i = 0u; i < expr->type()->dimension(); i++) {
                     args.emplace_back(elem);
                 }
@@ -738,7 +761,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
                              "Invalid {} vector maker from {}.",
                              expr->type()->description(),
                              a.front()->type()->description());
-                auto v = _convert_expr(a.front());
+                auto v = _convert_expr(a.front(), false);
                 auto b = _current_builder();
                 for (auto i = 0u; i < expr->type()->dimension(); i++) {
                     std::array extract_args{v, _literal(Type::of<uint>(), i)};
@@ -753,9 +776,9 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             // vector from multiple scalars or vectors
             for (auto v : a) {
                 if (v->type()->is_scalar()) {
-                    args.emplace_back(_cast(expr->type()->element(), v->type(), _convert_expr(v)));
+                    args.emplace_back(_cast(expr->type()->element(), v->type(), _convert_expr(v, false)));
                 } else {
-                    auto vv = _convert_expr(v);
+                    auto vv = _convert_expr(v, false);
                     auto b = _current_builder();
                     for (auto i = 0u; i < v->type()->dimension(); i++) {
                         std::array extract_args{vv, _literal(Type::of<uint>(), i)};
@@ -799,13 +822,13 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         //        LUISA_VERBOSE("using gradient marker arg emplace");
 
         args.reserve(2);
-        args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[0])));
+        args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[0], true)));
         // args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[1])));
-        args.emplace_back(_convert_expr(expr->arguments()[1]));
+        args.emplace_back(_convert_expr(expr->arguments()[1], false));
     } else {
         args.reserve(expr->arguments().size());
         for (auto arg : expr->arguments()) {
-            args.emplace_back(_convert_expr(arg));
+            args.emplace_back(_convert_expr(arg, false)); // TODO: is this correct?
         }
     }
     // TODO: this is too ad-hoc
@@ -820,7 +843,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {
-    auto src = _convert_expr(expr->expression());
+    auto src = _convert_expr(expr->expression(), false);
     if (expr->op() == CastOp::STATIC) {
         return _cast(expr->type(), expr->expression()->type(), src);
     }
@@ -864,7 +887,7 @@ ir::NodeRef AST2IR::_convert(const ReturnStmt *stmt) noexcept {
     auto ret_type = _function.return_type();
     auto ret = ret_type ?
                    _cast(ret_type, stmt->expression()->type(),
-                         _convert_expr(stmt->expression())) :
+                         _convert_expr(stmt->expression(), false)) :
                    ir::INVALID_REF;
     auto instr = ir::luisa_compute_ir_new_instruction(
         ir::Instruction{.tag = ir::Instruction::Tag::Return, .return_ = {ret}});
@@ -887,7 +910,7 @@ ir::NodeRef AST2IR::_convert(const ScopeStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const IfStmt *stmt) noexcept {
-    auto cond = _convert_expr(stmt->condition());
+    auto cond = _convert_expr(stmt->condition(), false);
     auto true_block = _with_builder([this, stmt](auto b) noexcept {
         static_cast<void>(_convert(stmt->true_branch()));
         return ir::luisa_compute_ir_build_finish(*b);
@@ -927,14 +950,14 @@ ir::NodeRef AST2IR::_convert(const LoopStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const ExprStmt *stmt) noexcept {
-    return _convert_expr(stmt->expression());
+    return _convert_expr(stmt->expression(), false);
 }
 
 ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
     LUISA_ASSERT(stmt->expression()->type()->tag() == Type::Tag::INT32 ||
                      stmt->expression()->type()->tag() == Type::Tag::UINT32,
                  "Only integer type is supported in switch statement.");
-    auto value = _convert_expr(stmt->expression());
+    auto value = _convert_expr(stmt->expression(), false);
     ir::Instruction switch_instr{.tag = ir::Instruction::Tag::Switch,
                                  .switch_ = {.value = value}};
     luisa::vector<ir::SwitchCase> case_blocks;
@@ -1015,9 +1038,9 @@ ir::NodeRef AST2IR::_convert(const SwitchDefaultStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
-    auto lhs = _convert_expr(stmt->lhs());
+    auto lhs = _convert_expr(stmt->lhs(), true);
     auto rhs = _cast(stmt->lhs()->type(), stmt->rhs()->type(),
-                     _convert_expr(stmt->rhs()));
+                     _convert_expr(stmt->rhs(), false));
     assign_map[lhs._0] = rhs;
     auto instr = ir::luisa_compute_ir_new_instruction(
         ir::Instruction{.tag = ir::Instruction::Tag::Update,
@@ -1032,10 +1055,10 @@ ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
 
 ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
     // for (; cond; var += update) { /* body */ }
-    auto var = _convert_expr(stmt->variable());
+    auto var = _convert_expr(stmt->variable(), true);
     auto [cond, prepare] = _with_builder([this, stmt](auto b) noexcept {
         auto c = _cast(Type::of<bool>(), stmt->condition()->type(),
-                       _convert_expr(stmt->condition()));
+                       _convert_expr(stmt->condition(), false));
         auto p = ir::luisa_compute_ir_build_finish(*b);
         return std::make_pair(c, p);
     });
@@ -1046,7 +1069,7 @@ ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
     auto update = _with_builder([this, stmt, var](auto b) noexcept {
         // step
         auto step = _cast(stmt->variable()->type(), stmt->step()->type(),
-                          _convert_expr(stmt->step()));
+                          _convert_expr(stmt->step(), false));
         // next = var + step
         std::array args{var, step};
         auto next = ir::luisa_compute_ir_build_call(

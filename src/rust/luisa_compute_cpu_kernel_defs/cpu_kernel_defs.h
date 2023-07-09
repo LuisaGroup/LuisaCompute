@@ -11,13 +11,14 @@ struct alignas(16) Ray {
     float tmax;
 };
 
-struct alignas(8) Hit {
-    uint32_t inst_id;
-    uint32_t prim_id;
-    float u;
-    float v;
-    float t;
+struct alignas(8) TriangleHit {
+    uint32_t inst;
+    uint32_t prim;
+    float bary[2];
+    float committed_ray_t;
 };
+
+using Hit = TriangleHit;
 
 struct alignas(16) Mat4 {
     float _0[16];
@@ -28,13 +29,6 @@ struct alignas(8) CommitedHit {
     uint32_t prim;
     float bary[2];
     uint32_t hit_type;
-    float committed_ray_t;
-};
-
-struct alignas(8) TriangleHit {
-    uint32_t inst;
-    uint32_t prim;
-    float bary[2];
     float committed_ray_t;
 };
 

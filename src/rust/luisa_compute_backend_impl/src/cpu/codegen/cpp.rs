@@ -328,7 +328,7 @@ impl<'a> FunctionEmitter<'a> {
                 format!("cols[{}]", i)
             }
             Type::Void | Type::Primitive(_) => unreachable!(),
-            _ => todo!(),
+            _ => unreachable!(),
         }
     }
     fn gen_callable(
@@ -825,43 +825,64 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::ExtractElement => {
-                let i = args.as_ref()[1].get_i32();
-                let field_name = Self::gep_field_name(args.as_ref()[0], i);
-                writeln!(
-                    self.body,
-                    "const {} {} = {}.{};",
-                    node_ty_s, var, args_v[0], field_name
-                )
-                .unwrap();
-                true
-            }
-            Func::InsertElement => {
-                let i = args.as_ref()[2].get_i32();
-                let field_name = Self::gep_field_name(args.as_ref()[0], i);
-                writeln!(
-                    self.body,
-                    "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
-                    node_ty_s, var, args_v[0], field_name, args_v[1]
-                )
-                .unwrap();
-                true
-            }
-            Func::GetElementPtr => {
-                if args[0].type_().is_array() || args[0].type_().is_vector() || args[0].type_().is_matrix() {
-                    let const_ = if args[0].is_const() || args[0].is_value_argument() || args[0].is_uniform() {
-                        "const "
-                    } else {
-                        ""
-                    };
+                // TODO: support array pls
+                if args[0].type_().is_array() || !args[1].is_const() {
+                    let i = self.gen_node(args[1]);
                     writeln!(
                         self.body,
-                        "{}{}& {} = {}[{}];",
-                        const_, node_ty_s, var, args_v[0], args_v[1]
+                        "const {} {} = {}[{}];",
+                        node_ty_s, var, args_v[0], i
+                    )
+                    .unwrap();
+                    return true;
+                } else {
+                    let i = args[1].get_i32();
+                    let field_name = Self::gep_field_name(args[0], i);
+                    writeln!(
+                        self.body,
+                        "const {} {} = {}.{};",
+                        node_ty_s, var, args_v[0], field_name
+                    )
+                    .unwrap();
+                    true
+                }
+            }
+            Func::InsertElement => {
+                if args[0].type_().is_array() || !args[2].is_const() {
+                    let i = self.gen_node(args[2]);
+                    writeln!(
+                        self.body,
+                        "{0} _{1} = {2}; _{1}[{3}] = {4}; const auto {1} = _{1};",
+                        node_ty_s, var, args_v[0], i, args_v[1]
                     )
                     .unwrap();
                 } else {
-                    let i = args.as_ref()[1].get_i32();
-                    let field_name = Self::gep_field_name(args.as_ref()[0], i);
+                    let i = args[2].get_i32();
+                    let field_name = Self::gep_field_name(args[0], i);
+                    writeln!(
+                        self.body,
+                        "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
+                        node_ty_s, var, args_v[0], field_name, args_v[1]
+                    )
+                    .unwrap();
+                }
+                true
+            }
+            Func::GetElementPtr => {
+                // TODO: fix this
+                if args[0].type_().is_array()
+                    || args[0].type_().is_vector()
+                    || args[0].type_().is_matrix()
+                {
+                    writeln!(
+                        self.body,
+                        "{}& {} = {}[{}];",
+                        node_ty_s, var, args_v[0], args_v[1]
+                    )
+                    .unwrap();
+                } else {
+                    let i = args[1].get_i32();
+                    let field_name = Self::gep_field_name(args[0], i);
                     writeln!(
                         self.body,
                         "{} & {} = {}.{};",
@@ -971,7 +992,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::GradientMarker => {
-                let ty = self.type_gen.gen_c_type(args.as_ref()[1].type_());
+                let ty = self.type_gen.gen_c_type(args[1].type_());
                 writeln!(
                     self.body,
                     "const {} {}_grad = {};",
@@ -1432,18 +1453,10 @@ impl<'a> FunctionEmitter<'a> {
                     done = self.gen_call_op(&var, &node_ty_s, f, &args_v);
                 }
                 if !done {
-                    done = self.gen_buffer_op(&var, &node_ty_s, f, args.as_ref(), &args_v);
+                    done = self.gen_buffer_op(&var, &node_ty_s, f, args, &args_v);
                 }
                 if !done {
-                    done = self.gen_misc(
-                        &var,
-                        node,
-                        &node_ty_s,
-                        node.type_(),
-                        f,
-                        args.as_ref(),
-                        &args_v,
-                    );
+                    done = self.gen_misc(&var, node, &node_ty_s, node.type_(), f, args, &args_v);
                 }
                 if !done {
                     done = self.gen_callable(&var, &node_ty_s, f, &args_v);
@@ -1738,7 +1751,7 @@ impl<'a> FunctionEmitter<'a> {
         for (i, capture) in module.captures.as_ref().iter().enumerate() {
             self.gen_arg(capture.node, i, true);
         }
-        for (i, arg) in module.args.as_ref().iter().enumerate() {
+        for (i, arg) in module.args.iter().enumerate() {
             self.gen_arg(*arg, i, false);
         }
         assert!(self.globals.global_vars.is_empty());

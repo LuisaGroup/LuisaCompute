@@ -79,6 +79,7 @@ int main(int argc, char *argv[]) {
     stream << vertex_buffer.copy_from(vertices.data());
     luisa::vector<Mesh> meshes;
     luisa::vector<Buffer<Triangle>> triangle_buffers;
+    luisa::vector<luisa::vector<uint>> indices_v;
     for (auto &&shape : obj_reader.GetShapes()) {
         uint index = static_cast<uint>(meshes.size());
         std::vector<tinyobj::index_t> const &t = shape.mesh.indices;
@@ -93,7 +94,9 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
+            //    << synchronize()
                << mesh.build();
+        indices_v.emplace_back(std::move(indices));
     }
 
     Accel accel = device.create_accel({});
@@ -334,7 +337,7 @@ int main(int argc, char *argv[]) {
                         .dispatch(resolution);
         cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
         stream << cmd_list.commit()
-               << swap_chain.present(ldr_image);
+               << swap_chain.present(ldr_image) << synchronize();
         window.poll_events();
         double dt = clock.toc() - last_time;
         last_time = clock.toc();
