@@ -1105,11 +1105,21 @@ void CUDACodegenAST::visit(const SwitchCaseStmt *stmt) {
     stmt->expression()->accept(*this);
     _scratch << ": ";
     stmt->body()->accept(*this);
+    if (std::none_of(stmt->body()->statements().begin(),
+                     stmt->body()->statements().end(),
+                     [](const auto &s) noexcept { return s->tag() == Statement::Tag::BREAK; })) {
+        _scratch << " break;";
+    }
 }
 
 void CUDACodegenAST::visit(const SwitchDefaultStmt *stmt) {
     _scratch << "default: ";
     stmt->body()->accept(*this);
+    if (std::none_of(stmt->body()->statements().begin(),
+                     stmt->body()->statements().end(),
+                     [](const auto &s) noexcept { return s->tag() == Statement::Tag::BREAK; })) {
+        _scratch << " break;";
+    }
 }
 
 void CUDACodegenAST::visit(const AssignStmt *stmt) {
