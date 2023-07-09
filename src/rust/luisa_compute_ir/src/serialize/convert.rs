@@ -374,6 +374,7 @@ impl KernelSerializer {
             Func::LengthSquared => SerializedFunc::LengthSquared,
             Func::Normalize => SerializedFunc::Normalize,
             Func::Faceforward => SerializedFunc::Faceforward,
+            Func::Reflect => SerializedFunc::Reflect,
             Func::Determinant => SerializedFunc::Determinant,
             Func::Transpose => SerializedFunc::Transpose,
             Func::Inverse => SerializedFunc::Inverse,

@@ -638,12 +638,14 @@ pub enum Func {
     // Vector operations
     Cross,
     Dot,
-    // (a, b) => a * b^T
+    // outer_product(a, b) => a * b^T
     OuterProduct,
     Length,
     LengthSquared,
     Normalize,
     Faceforward,
+    // reflect(i, n) => i - 2 * dot(n, i) * n
+    Reflect,
 
     // Matrix operations
     Determinant,

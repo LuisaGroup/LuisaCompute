@@ -1519,6 +1519,26 @@ impl Backward {
                         );
                         self.accumulate_grad(n, n_grad, builder);
                     }
+                    Func::Reflect => {
+                        // o = v - 2 * dot(v, n) * n
+                        let v = args[0];
+                        let n = args[1];
+                        // do/dv = [1, 1, 1] - 2 * n * n
+                        // do/dn = -2 * v * n
+                        let one = builder.const_(Const::One(v.type_().clone()));
+                        let two = builder.const_(Const::Float32(2.0));
+                        let two = builder.call(Func::Vec, &[two], v.type_().clone());
+                        let nn = builder.call(Func::Mul, &[n, n], v.type_().clone());
+                        let twice_nn = builder.call(Func::Mul, &[two, nn], v.type_().clone());
+                        let do_dv = builder.call(Func::Sub, &[one, twice_nn], v.type_().clone());
+                        let v_grad = builder.call(Func::Mul, &[do_dv, out_grad], v.type_().clone());
+                        self.accumulate_grad(v, v_grad, builder);
+                        let minus_two = builder.call(Func::Neg, &[two], v.type_().clone());
+                        let vn = builder.call(Func::Mul, &[v, n], v.type_().clone());
+                        let do_dn = builder.call(Func::Mul, &[minus_two, vn], v.type_().clone());
+                        let n_grad = builder.call(Func::Mul, &[do_dn, out_grad], v.type_().clone());
+                        self.accumulate_grad(n, n_grad, builder);
+                    }
                     // Matrix operations
                     Func::Determinant => {
                         let x_grad = self.backward_determinant(node, args[0], out_grad, builder);

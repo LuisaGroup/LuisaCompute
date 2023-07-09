@@ -516,6 +516,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::LengthSquared => Some("lc_length_squared"),
             Func::Normalize => Some("lc_normalize"),
             Func::Faceforward => Some("lc_faceforward"),
+            Func::Reflect => Some("lc_reflect"),
             Func::Determinant => Some("lc_determinant"),
             Func::Transpose => Some("lc_transpose"),
             Func::Inverse => Some("lc_inverse"),

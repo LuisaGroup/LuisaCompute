@@ -302,6 +302,7 @@ pub enum SerializedFunc {
     LengthSquared,
     Normalize,
     Faceforward,
+    Reflect,
 
     // Matrix operations
     Determinant,

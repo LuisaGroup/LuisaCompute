@@ -351,6 +351,7 @@ struct Func {
         LengthSquared,
         Normalize,
         Faceforward,
+        Reflect,
         Determinant,
         Transpose,
         Inverse,

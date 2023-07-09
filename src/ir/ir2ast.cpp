@@ -414,6 +414,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                                                                       });
         }
         case ir::Func::Tag::Clamp: return builtin_func(3, CallOp::CLAMP);
+        case ir::Func::Tag::Saturate: return builtin_func(1, CallOp::SATURATE);
         case ir::Func::Tag::Lerp: return builtin_func(3, CallOp::LERP);
         case ir::Func::Tag::Step: return builtin_func(2, CallOp::STEP);
         case ir::Func::Tag::Abs: return builtin_func(1, CallOp::ABS);
@@ -466,6 +467,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::LengthSquared: return builtin_func(1, CallOp::LENGTH_SQUARED);
         case ir::Func::Tag::Normalize: return builtin_func(1, CallOp::NORMALIZE);
         case ir::Func::Tag::Faceforward: return builtin_func(3, CallOp::FACEFORWARD);
+        case ir::Func::Tag::Reflect: return builtin_func(2, CallOp::REFLECT);
         case ir::Func::Tag::Determinant: return builtin_func(1, CallOp::DETERMINANT);
         case ir::Func::Tag::Transpose: return builtin_func(1, CallOp::TRANSPOSE);
         case ir::Func::Tag::Inverse: return builtin_func(1, CallOp::INVERSE);
