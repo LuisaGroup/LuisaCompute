@@ -50,6 +50,7 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
     if (auto iter = _ctx->block_to_phis.find(block);
         iter != _ctx->block_to_phis.end()) {
         for (auto phi : iter->second) {
+            _ctx->function_builder->comment_("phi node assignment");
             _ctx->function_builder->assign(_convert_node(phi.dst), _convert_node(phi.src));
         }
     }
@@ -677,21 +678,21 @@ void IR2AST::_convert_instr_if(const ir::Node *node) noexcept {
 void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
     auto value = _convert_node(node->instruction->switch_.value);
     auto switch_scope = _ctx->function_builder->switch_(value);
-    _ctx->function_builder->push_scope(switch_scope->body());
-    auto data = node->instruction->switch_.cases.ptr;
-    auto len = node->instruction->switch_.cases.len / sizeof(ir::SwitchCase);
-    for (auto i = 0; i < len; i++) {
-        auto value = _ctx->function_builder->literal(Type::from("int"), data[i].value);
-        auto case_scope = _ctx->function_builder->case_(value);
-        _ctx->function_builder->push_scope(case_scope->body());
-        _convert_block(data[i].block.get());
-        _ctx->function_builder->pop_scope(case_scope->body());
-    }
-    auto default_scope = _ctx->function_builder->default_();
-    _ctx->function_builder->push_scope(default_scope->body());
-    _convert_block(node->instruction->switch_.default_.get());
-    _ctx->function_builder->pop_scope(default_scope->body());
-    _ctx->function_builder->pop_scope(switch_scope->body());
+    _ctx->function_builder->with(switch_scope->body(), [&] {
+        auto data = node->instruction->switch_.cases.ptr;
+        auto len = node->instruction->switch_.cases.len;
+        for (auto i = 0; i < len; i++) {
+            auto value = _ctx->function_builder->literal(Type::from("int"), data[i].value);
+            auto case_scope = _ctx->function_builder->case_(value);
+            _ctx->function_builder->with(case_scope->body(), [&] {
+                _convert_block(data[i].block.get());
+            });
+        }
+        auto default_scope = _ctx->function_builder->default_();
+        _ctx->function_builder->with(default_scope->body(), [&] {
+            _convert_block(node->instruction->switch_.default_.get());
+        });
+    });
 }
 
 void IR2AST::_convert_instr_ad_scope(const ir::Node *node) noexcept {
