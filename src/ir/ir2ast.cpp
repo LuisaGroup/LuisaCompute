@@ -249,7 +249,17 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         for (const auto &arg : args) {
             converted_args.push_back(_convert_node(arg));
         }
-        auto matrix_op = _decide_make_matrix_op(type->dimension());
+        auto matrix_op = _decide_make_matrix_op(matrix_dimension);
+        if (dimension == 1u) {// Mat is a broadcasting operation in IR
+            auto col_type = Type::vector(type->element(), type->dimension());
+            auto vector_op = _decide_make_vector_op(type->element(), matrix_dimension);
+            auto col = _ctx->function_builder->call(col_type, vector_op, converted_args);
+            converted_args.clear();
+            converted_args.reserve(matrix_dimension);
+            for (auto i = 0u; i < matrix_dimension; i++) {
+                converted_args.emplace_back(col);
+            }
+        }
         return _ctx->function_builder->call(type, matrix_op, luisa::span{converted_args});
     };
 
