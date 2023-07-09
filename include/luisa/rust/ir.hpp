@@ -300,6 +300,7 @@ struct Func {
         Clamp,
         Lerp,
         Step,
+        Saturate,
         Abs,
         Min,
         Max,

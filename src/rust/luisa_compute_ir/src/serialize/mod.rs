@@ -236,6 +236,7 @@ pub enum SerializedFunc {
     Clamp,
     Lerp,
     Step,
+    Saturate,
 
     Abs,
     Min,

@@ -32,7 +32,8 @@ struct TriangleHit {
     float2 bary;
     float committed_ray_t;
 };
-
+static_assert(sizeof(TriangleHit) == 24u, "TriangleHit size mismatch");
+static_assert(alignof(TriangleHit) == 8u, "TriangleHit align mismatch");
 // Return type of RayQuery::procedural_candidate(), it represents a hit of procedural-primitive
 struct ProceduralHit {
     uint inst;
