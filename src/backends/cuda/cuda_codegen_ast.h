@@ -10,6 +10,8 @@
 
 namespace luisa::compute::cuda {
 
+class CUDAConstantPrinter;
+
 /**
  * @brief CUDA code generator
  * 
@@ -17,6 +19,7 @@ namespace luisa::compute::cuda {
 class CUDACodegenAST final : private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 public:
+    friend class CUDAConstantPrinter;
     class RayQueryLowering;
 
 private:
