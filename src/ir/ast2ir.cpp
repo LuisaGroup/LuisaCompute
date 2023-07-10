@@ -814,10 +814,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     //    }
     else if (expr->op() == CallOp::GRADIENT_MARKER) {
         //        LUISA_VERBOSE("using gradient marker arg emplace");
-
         args.reserve(2);
-        args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[0], true)));
-        // args.emplace_back(get_assign_rhs(_convert_expr(expr->arguments()[1])));
+        args.emplace_back(_convert_expr(expr->arguments()[0], true));
         args.emplace_back(_convert_expr(expr->arguments()[1], false));
     } else {
         args.reserve(expr->arguments().size());

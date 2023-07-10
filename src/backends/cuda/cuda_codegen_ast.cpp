@@ -1734,14 +1734,14 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _emit_indent();
             _emit_variable_decl(f, v, false);
             _scratch << "{};";
-            if (grad_vars.contains(v)) {
-                _scratch << "\n";
-                _emit_indent();
-                _scratch << "LC_GRAD_SHADOW_VARIABLE(";
-                _emit_variable_name(v);
-                _scratch << ");";
-            }
         }
+    }
+    for (auto v : grad_vars) {
+        _scratch << "\n";
+        _emit_indent();
+        _scratch << "LC_GRAD_SHADOW_VARIABLE(";
+        _emit_variable_name(v);
+        _scratch << ");";
     }
 }
 

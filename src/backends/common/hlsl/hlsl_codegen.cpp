@@ -499,12 +499,16 @@ void StringStateVisitor::VisitFunction(
             str << "=("sv << typeName << ")0"sv;
         }
         str << ";\n";
-#ifdef LUISA_ENABLE_IR
-        if (grad_vars.contains(v)) {
-            str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0;\n"sv;
-        }
-#endif
     }
+#ifdef LUISA_ENABLE_IR
+    for (auto v : grad_vars) {
+        vstd::StringBuilder typeName;
+        util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+        vstd::StringBuilder varName;
+        util->GetVariableName(v, varName);
+        str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0;\n"sv;
+    }
+#endif
     if (sharedVariables) {
         for (auto &&v : func.shared_variables()) {
             // FIXME: redundant creation of string
