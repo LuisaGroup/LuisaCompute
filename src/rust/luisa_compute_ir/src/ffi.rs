@@ -263,7 +263,7 @@ impl<T> Drop for CBox<T> {
 pub struct CBoxedSlice<T> {
     ptr: *mut T,
     len: usize,
-    destructor: unsafe extern "C" fn(*mut T, usize),
+    destructor: Option<unsafe extern "C" fn(*mut T, usize)>,
 }
 impl From<String> for CBoxedSlice<u8> {
     fn from(s: String) -> Self {
@@ -341,7 +341,7 @@ impl<T> CBoxedSlice<T> {
             Self {
                 ptr,
                 len,
-                destructor: default_destructor_slice::<T>,
+                destructor: Some(default_destructor_slice::<T>),
             }
         }
     }
@@ -361,7 +361,7 @@ impl<T> Deref for CBoxedSlice<T> {
 }
 impl<T> Drop for CBoxedSlice<T> {
     fn drop(&mut self) {
-        unsafe { (self.destructor)(self.ptr, self.len) }
+        unsafe { if let Some(dtor) = self.destructor { dtor(self.ptr, self.len) }}
     }
 }
 impl<T: Debug> Debug for CBoxedSlice<T> {
