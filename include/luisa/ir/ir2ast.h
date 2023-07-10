@@ -97,6 +97,7 @@ public:
     [[nodiscard]] static const Type *get_type(const ir::NodeRef node) noexcept;
     [[nodiscard]] static const Type *get_type(const ir::Type *type) noexcept;
     [[nodiscard]] static luisa::shared_ptr<detail::FunctionBuilder> build(const ir::KernelModule *kernel) noexcept;
+    [[nodiscard]] static luisa::shared_ptr<detail::FunctionBuilder> build(const ir::CallableModule *callable) noexcept;
 };
 
 }// namespace luisa::compute

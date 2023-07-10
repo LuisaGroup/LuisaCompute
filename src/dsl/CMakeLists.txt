@@ -21,7 +21,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 
     add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
-    target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime)
+    target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime luisa-compute-ir)
     target_compile_definitions(luisa-compute-dsl
             PRIVATE LC_DSL_EXPORT_DLL=1
             PUBLIC LUISA_ENABLE_DSL=1)

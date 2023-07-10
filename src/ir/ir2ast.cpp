@@ -1188,4 +1188,9 @@ const Type *IR2AST::get_type(const ir::Type *type) noexcept {
     return builder.convert_kernel(kernel);
 }
 
+[[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::build(const ir::CallableModule *callable) noexcept {
+    IR2AST builder{};
+    return builder.convert_callable(callable);
+}
+
 }// namespace luisa::compute

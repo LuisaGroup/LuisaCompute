@@ -762,7 +762,7 @@ template<typename T>
 
 template<typename T>
 struct One {
-    [[gnu::always_inline, nodiscard]] inline static auto make() { return T{1}; }
+    [[gnu::always_inline, nodiscard]] inline static auto make() { return T(1); }
 };
 
 template<typename T, size_t N>

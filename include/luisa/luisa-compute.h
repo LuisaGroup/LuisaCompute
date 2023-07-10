@@ -117,6 +117,8 @@
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/sparse_buffer.h>
+#include <luisa/runtime/sparse_command_list.h>
+#include <luisa/runtime/sparse_heap.h>
 #include <luisa/runtime/sparse_image.h>
 #include <luisa/runtime/sparse_texture.h>
 #include <luisa/runtime/sparse_volume.h>

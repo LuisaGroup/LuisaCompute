@@ -138,28 +138,13 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
             .captures = captures,
             .args = non_captures,
             .shared = shared,
+            .cpu_custom_ops = _boxed_slice<ir::CArc<ir::CpuCustomOp>>(0),
+            .callables = _boxed_slice<ir::CallableModuleRef>(0),
             .block_size = {_function.block_size().x,
                            _function.block_size().y,
                            _function.block_size().z},
             .pools = _pools.clone()};
     });
-
-    if (function.requires_autodiff()) {
-        LUISA_INFO("creating autodiff pipeline");
-        auto autodiff_pipeline = ir::luisa_compute_ir_transform_pipeline_new();
-        LUISA_INFO("adding autodiff transform");
-        ir::luisa_compute_ir_transform_pipeline_add_transform(autodiff_pipeline, "autodiff");
-        LUISA_INFO("converting module");
-        auto converted_module = ir::luisa_compute_ir_transform_pipeline_transform(autodiff_pipeline, m.module);
-        // auto d = ir::luisa_compute_ir_dump_human_readable(&converted_module);
-        // std::ofstream out2{"autodiff_ir_dump_instant.txt"};
-        // out2 << luisa::string_view{reinterpret_cast<const char *>(d.ptr), d.len};
-        LUISA_INFO("destroying pipeline");
-        ir::luisa_compute_ir_transform_pipeline_destroy(autodiff_pipeline);
-        LUISA_INFO("autodiff done");
-        // update the module
-        m.module = converted_module;
-    }
 
     return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(
                 ir::luisa_compute_ir_new_kernel_module(m)),
@@ -191,8 +176,7 @@ ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexce
                 .module = _convert_body(),
                 .ret_type = _convert_type(_function.return_type()),
                 .args = arguments,
-                // FIXME: .callables?
-                .pools = _pools,
+                .pools = _pools.clone(),
             });
     });
     return m._0;
@@ -1387,6 +1371,10 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
     return AST2IR{}._convert_kernel(function);
+}
+
+[[nodiscard]] luisa::shared_ptr<ir::CArc<ir::CallableModule>> AST2IR::build_callable(Function function) noexcept {
+    LUISA_NOT_IMPLEMENTED();// TODO
 }
 
 ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {
