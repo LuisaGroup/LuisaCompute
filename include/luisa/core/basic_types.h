@@ -74,11 +74,7 @@ struct Vector : public detail::VectorStorage<T, N> {
     static Vector<T, N> one() noexcept { return Vector<T, N>(1); }
     using value_type = T;
     using Storage = detail::VectorStorage<T, N>;
-    static_assert(std::disjunction_v<std::is_same<T, bool>,
-                                     std::is_same<T, float>,
-                                     std::is_same<T, int>,
-                                     std::is_same<T, uint>>,
-                  "Invalid vector type");
+    static_assert(is_scalar_v<T>, "Invalid vector type");
     static_assert(N == 2 || N == 3 || N == 4, "Invalid vector dimension");
     using Storage::VectorStorage;
     [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }

@@ -1621,7 +1621,7 @@ protected:
     void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("lc_long({})", x); }
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("lc_ulong({})", x); }
     void _decode_half(half x) noexcept override {
-        _codegen->_scratch << luisa::format("lc_half_from_bits({})", x.bits);// TODO
+        LUISA_NOT_IMPLEMENTED();
     }
     void _decode_float(float x) noexcept override {
         _codegen->_scratch << "lc_float(";

@@ -125,7 +125,7 @@ protected:
     void _decode_uint(uint x) noexcept override { _s.append(luisa::format("uint({})", x)); }
     void _decode_long(slong x) noexcept override { _s.append(luisa::format("long({})", x)); }
     void _decode_ulong(ulong x) noexcept override { _s.append(luisa::format("ulong({})", x)); }
-    void _decode_half(half x) noexcept override { _s.append(luisa::format("half({})", x.bits)); }
+    void _decode_half(half x) noexcept override { _s.append(luisa::format("half({})", static_cast<float>(x))); }
     void _decode_float(float x) noexcept override { _s.append(luisa::format("float({})", luisa::bit_cast<uint>(x))); }
     void _decode_double(double x) noexcept override { _s.append(luisa::format("double({})", luisa::bit_cast<ulong>(x))); }
     void _vector_separator(const Type *type, uint index) noexcept override {

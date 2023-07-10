@@ -9,6 +9,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include <half.hpp>
+
 namespace luisa {
 
 template<typename... T>
@@ -31,10 +33,11 @@ template<typename T>
 }
 // clang-format on
 
-struct alignas(2u) half {
-    // TODO: implement half
-    uint16_t bits;
-};
+using half = half_float::half;
+using namespace half_float::literal;
+
+static_assert(sizeof(half) == 2u && alignof(half),
+              "half should be 16-bit.");
 
 using uchar = uint8_t;
 using ushort = uint16_t;
@@ -45,7 +48,11 @@ using slong = int64_t;// long has different size on different platforms
 template<typename T>
 using is_integral = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, int>,
-    std::is_same<std::remove_cvref_t<T>, uint>>;
+    std::is_same<std::remove_cvref_t<T>, uint>,
+    std::is_same<std::remove_cvref_t<T>, slong>,
+    std::is_same<std::remove_cvref_t<T>, ulong>,
+    std::is_same<std::remove_cvref_t<T>, short>,
+    std::is_same<std::remove_cvref_t<T>, ushort>>;
 
 template<typename T>
 constexpr auto is_integral_v = is_integral<T>::value;
@@ -57,7 +64,10 @@ template<typename T>
 constexpr auto is_boolean_v = is_boolean<T>::value;
 
 template<typename T>
-using is_floating_point = std::is_same<std::remove_cvref_t<T>, float>;
+using is_floating_point = std::disjunction<
+    std::is_same<std::remove_cvref_t<T>, half>,
+    std::is_same<std::remove_cvref_t<T>, float>,
+    std::is_same<std::remove_cvref_t<T>, double>>;
 
 template<typename T>
 constexpr auto is_floating_point_v = is_floating_point<T>::value;
@@ -65,13 +75,18 @@ constexpr auto is_floating_point_v = is_floating_point<T>::value;
 template<typename T>
 using is_signed = std::disjunction<
     is_floating_point<T>,
-    std::is_same<std::remove_cvref_t<T>, int>>;
+    std::is_same<std::remove_cvref_t<T>, short>,
+    std::is_same<std::remove_cvref_t<T>, int>,
+    std::is_same<std::remove_cvref_t<T>, slong>>;
 
 template<typename T>
 constexpr auto is_signed_v = is_signed<T>::value;
 
 template<typename T>
-using is_unsigned = std::is_same<std::remove_cvref_t<T>, uint>;
+using is_unsigned = std::disjunction<
+    std::is_same<std::remove_cvref_t<T>, ushort>,
+    std::is_same<std::remove_cvref_t<T>, uint>,
+    std::is_same<std::remove_cvref_t<T>, ulong>>;
 
 template<typename T>
 constexpr auto is_unsigned_v = is_unsigned<T>::value;

@@ -107,6 +107,11 @@ target_include_directories(unordered_dense INTERFACE $<BUILD_INTERFACE:${CMAKE_C
 target_link_libraries(luisa-compute-ext INTERFACE unordered_dense)
 luisa_compute_install_extension(unordered_dense INCLUDE unordered_dense/include)
 
+add_library(half INTERFACE)
+target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>)
+target_link_libraries(luisa-compute-ext INTERFACE half)
+luisa_compute_install_extension(half INCLUDE half/include)
+
 if (SKBUILD)
     add_subdirectory(pybind11)
 endif ()

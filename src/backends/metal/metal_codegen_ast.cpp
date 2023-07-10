@@ -31,6 +31,10 @@ public:
             _s << v << "f";
         }
     }
+    void operator()(half v) const noexcept {
+        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        _s << luisa::format("as_type<half>(ushort({}))", luisa::bit_cast<ushort>(v));
+    }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
 
@@ -554,7 +558,10 @@ protected:
     void _decode_uint(uint x) noexcept override { _codegen->_scratch << luisa::format("uint({})", x); }
     void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("long({})", x); }
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("ulong({})", x); }
-    void _decode_half(half x) noexcept override { _codegen->_scratch << luisa::format("as_type<half>(ushort({}))", x.bits); }
+    void _decode_half(half x) noexcept override {
+        detail::LiteralPrinter p{_codegen->_scratch};
+        p(x);
+    }
     void _decode_float(float x) noexcept override {
         _codegen->_scratch << "float(";
         detail::LiteralPrinter p{_codegen->_scratch};
