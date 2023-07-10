@@ -495,7 +495,7 @@ void StringStateVisitor::VisitFunction(
         util->GetVariableName(v, varName);
 
         str << typeName << ' ' << varName;
-        if (eastl::to_underlying(v.type()->tag()) < eastl::to_underlying(Type::Tag::BUFFER)) [[likely]] {
+        if (!v.type()->is_resource()) [[likely]] {
             str << "=("sv << typeName << ")0"sv;
         }
         str << ";\n";
