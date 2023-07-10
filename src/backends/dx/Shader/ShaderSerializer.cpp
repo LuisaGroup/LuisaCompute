@@ -133,7 +133,8 @@ ComputeShader *ShaderSerializer::DeSerialize(
     if (binStream->length() != sizeof(Header) + targetSize) {
         return nullptr;
     }
-    vstd::vector<std::byte> binCode(targetSize);
+    vstd::vector<std::byte> binCode;
+    binCode.push_back_uninitialized(targetSize);
     vstd::vector<std::byte> psoCode;
 
     binStream->read({binCode.data(), binCode.size()});
@@ -378,6 +379,9 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
     ThrowIfFailed(D3D12SerializeVersionedRootSignature(
         &rootSigDesc,
         serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf()));
+    if (errorBlob && errorBlob->GetBufferSize() > 0) [[unlikely]] {
+        LUISA_ERROR("Serialize root signature error: {}", vstd::string_view(reinterpret_cast<char const *>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize()));
+    }
     return serializedRootSig;
 }
 size_t ShaderSerializer::SerializeRootSig(

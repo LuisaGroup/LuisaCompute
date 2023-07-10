@@ -675,6 +675,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             LUISA_ASSERT(!opt->isRaster, "texture-write can only be used in compute shader");
             str << "_Writetx";
             break;
+        case CallOp::MAKE_LONG2:
+        case CallOp::MAKE_LONG3:
+        case CallOp::MAKE_LONG4:
+        case CallOp::MAKE_ULONG2:
+        case CallOp::MAKE_ULONG3:
+        case CallOp::MAKE_ULONG4:
         case CallOp::MAKE_BOOL2:
         case CallOp::MAKE_BOOL3:
         case CallOp::MAKE_BOOL4:
@@ -1018,12 +1024,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: str << "_mat_comp_mul"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::MAKE_LONG2: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::MAKE_LONG3: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::MAKE_LONG4: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::MAKE_ULONG2: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::MAKE_ULONG3: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::MAKE_ULONG4: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;
