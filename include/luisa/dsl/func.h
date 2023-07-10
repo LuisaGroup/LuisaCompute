@@ -144,7 +144,7 @@ template<typename NextVar, typename... OtherVars, typename NextTag, typename... 
 
 class FunctionBuilder;
 
-[[nodiscard]] luisa::shared_ptr<const FunctionBuilder>
+[[nodiscard]] LC_DSL_API luisa::shared_ptr<const FunctionBuilder>
 transform_function(Function callable) noexcept;
 
 }// namespace detail
