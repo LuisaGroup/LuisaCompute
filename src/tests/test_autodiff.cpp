@@ -51,13 +51,21 @@ int main(int argc, char *argv[]) {
         auto i = dispatch_x();
         auto x = x_buffer.read(i);
         auto y = y_buffer.read(i);
-        $autodiff {
-            requires_grad(x, y);
-            auto z = f(x, y);
-            backward(z);
-            x_grad_buffer.write(i, grad(x));
-            y_grad_buffer.write(i, grad(y));
+        Callable callable = [](Float x, Float2 y) noexcept {
+            auto x_grad = def(0.f);
+            auto y_grad = def(make_float2(0.f));
+            $autodiff {
+                requires_grad(x, y);
+                auto z = f(x, y);
+                backward(z);
+                x_grad = grad(x);
+                y_grad = grad(y);
+            };
+            return make_float3(x_grad, y_grad);
         };
+        auto grad = callable(x, y);
+        x_grad_buffer.write(i, grad.x);
+        y_grad_buffer.write(i, grad.yz());
     };
 
     auto kernel_shader = device.compile(kernel);

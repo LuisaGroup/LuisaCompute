@@ -154,14 +154,13 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
             }};
 }
 
-ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexcept {
+luisa::shared_ptr<ir::CArc<ir::CallableModule>> AST2IR::_convert_callable(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
                  "Invalid function tag.");
-
-    LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
-                     _variables.empty() && _builder_stack.empty() &&
-                     !_function,
-                 "Invalid state.");
+    if (auto iter = _converted_callables.find(function);
+        iter != _converted_callables.end()) {
+        return iter->second;
+    }
     _function = function;
     _pools = ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()};
     auto m = _with_builder([this](auto builder) noexcept {
@@ -179,7 +178,14 @@ ir::CArc<ir::CallableModule> AST2IR::_convert_callable(Function function) noexce
                 .pools = _pools.clone(),
             });
     });
-    return m._0;
+    // TODO: who owns this?
+    auto callable = luisa::shared_ptr<ir::CArc<ir::CallableModule>>{
+        luisa::new_with_allocator<ir::CArc<ir::CallableModule>>(m._0),
+        [](ir::CArc<ir::CallableModule> *p) noexcept {
+            p->release();
+            luisa::delete_with_allocator(p);
+        }};
+    return _converted_callables.emplace(function, std::move(callable)).first->second;
 }
 
 ir::NodeRef AST2IR::_convert_expr(const Expression *expr, bool is_lvalue) noexcept {
@@ -532,7 +538,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
         auto call = ir::luisa_compute_ir_build_call(
             _current_builder(),
             ir::Func{.tag = ir::Func::Tag::Callable,
-                     .callable = {cvted_callable.clone()}},
+                     .callable = {cvted_callable->clone()}},
             {.ptr = args.data(), .len = args.size()},
             _convert_type(callable.return_type()));
         return _cast(expr->type(), callable.return_type(), call);
@@ -1374,7 +1380,7 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::CallableModule>> AST2IR::build_callable(Function function) noexcept {
-    LUISA_NOT_IMPLEMENTED();// TODO
+    return AST2IR{}._convert_callable(function);
 }
 
 ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {

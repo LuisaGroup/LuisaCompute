@@ -35,6 +35,7 @@ private:
     luisa::unordered_map<uint64_t, ir::CArc<ir::Type>> _struct_types;// maps Type::hash() to ir::Type
     luisa::unordered_map<uint64_t, ir::NodeRef> _constants;          // maps Constant::hash() to ir::NodeRef
     luisa::unordered_map<uint32_t, ir::NodeRef> _variables;          // maps Variable::uid to ir::NodeRef
+    luisa::unordered_map<Function, luisa::shared_ptr<ir::CArc<ir::CallableModule>>> _converted_callables;
     luisa::vector<ir::IrBuilder *> _builder_stack;
     Function _function;
     ir::CppOwnedCArc<ir::ModulePools> _pools;
@@ -92,7 +93,7 @@ private:
     [[nodiscard]] ir::NodeRef _cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src) noexcept;
     [[nodiscard]] ir::NodeRef _literal(const Type *type, LiteralExpr::Value value) noexcept;
     [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> _convert_kernel(Function function) noexcept;
-    [[nodiscard]] ir::CArc<ir::CallableModule> _convert_callable(Function function) noexcept;
+    [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::CallableModule>> _convert_callable(Function function) noexcept;
 
 public:
     [[nodiscard]] static luisa::shared_ptr<ir::CArc<ir::KernelModule>> build_kernel(Function function) noexcept;
@@ -101,4 +102,3 @@ public:
 };
 
 }// namespace luisa::compute
-

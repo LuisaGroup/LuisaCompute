@@ -34,7 +34,9 @@ void perform_autodiff_transform(M *m) noexcept {
 luisa::shared_ptr<const FunctionBuilder>
 transform_function(Function function) noexcept {
 
-    if (function.requires_autodiff()) {
+    // Note: we only consider the direct builtin callables here since the indirect
+    //       ones should have been transformed by the called function.
+    if (function.direct_builtin_callables().uses_autodiff()) {
 #ifndef LUISA_ENABLE_IR
         LUISA_ERROR_WITH_LOCATION(
             "Autodiff requires IR support but "
