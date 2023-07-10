@@ -35,21 +35,45 @@
 #define $uint $<uint>
 #define $float $<float>
 #define $bool $<bool>
+#define $short $<short>
+#define $ushort $<ushort>
+#define $slong $<slong>
+#define $ulong $<ulong>
+#define $half $<half>
 
 #define $int2 $<int2>
 #define $uint2 $<uint2>
 #define $float2 $<float2>
 #define $bool2 $<bool2>
+#define $short2 $<short2>
+#define $ushort2 $<ushort2>
+#define $slong2 $<slong2>
+#define $ulong2 $<ulong2>
+#define $half2 $<half2>
 
 #define $int3 $<int3>
 #define $uint3 $<uint3>
 #define $float3 $<float3>
 #define $bool3 $<bool3>
+#define $short3 $<short3>
+#define $ushort3 $<ushort3>
+#define $slong3 $<slong3>
+#define $ulong3 $<ulong3>
+#define $half3 $<half3>
 
 #define $int4 $<int4>
 #define $uint4 $<uint4>
 #define $float4 $<float4>
 #define $bool4 $<bool4>
+#define $short4 $<short4>
+#define $ushort4 $<ushort4>
+#define $slong4 $<slong4>
+#define $ulong4 $<ulong4>
+#define $half4 $<half4>
+
+#define $float2x2 $<float2x2>
+#define $float3x3 $<float3x3>
+#define $float4x4 $<float4x4>
 
 #define $array ::luisa::compute::ArrayVar
 #define $constant ::luisa::compute::Constant

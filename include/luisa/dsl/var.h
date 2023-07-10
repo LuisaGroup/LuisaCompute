@@ -116,6 +116,26 @@ using Bool4 = Var<bool4>;
 using Float2x2 = Var<float2x2>;
 using Float3x3 = Var<float3x3>;
 using Float4x4 = Var<float4x4>;
+using Short = Var<short>;
+using Short2 = Var<short2>;
+using Short3 = Var<short3>;
+using Short4 = Var<short4>;
+using UShort = Var<ushort>;
+using UShort2 = Var<ushort2>;
+using UShort3 = Var<ushort3>;
+using UShort4 = Var<ushort4>;
+using SLong = Var<slong>;
+using SLong2 = Var<slong2>;
+using SLong3 = Var<slong3>;
+using SLong4 = Var<slong4>;
+using ULong = Var<ulong>;
+using ULong2 = Var<ulong2>;
+using ULong3 = Var<ulong3>;
+using ULong4 = Var<ulong4>;
+using Half = Var<half>;
+using Half2 = Var<half2>;
+using Half3 = Var<half3>;
+using Half4 = Var<half4>;
 
 template<size_t N>
 using ArrayInt = ArrayVar<int, N>;
@@ -155,6 +175,46 @@ template<size_t N>
 using ArrayFloat3x3 = ArrayVar<float3x3, N>;
 template<size_t N>
 using ArrayFloat4x4 = ArrayVar<float4x4, N>;
+template<size_t N>
+using ArrayShort = ArrayVar<short, N>;
+template<size_t N>
+using ArrayShort2 = ArrayVar<short2, N>;
+template<size_t N>
+using ArrayShort3 = ArrayVar<short3, N>;
+template<size_t N>
+using ArrayShort4 = ArrayVar<short4, N>;
+template<size_t N>
+using ArrayUShort = ArrayVar<ushort, N>;
+template<size_t N>
+using ArrayUShort2 = ArrayVar<ushort2, N>;
+template<size_t N>
+using ArrayUShort3 = ArrayVar<ushort3, N>;
+template<size_t N>
+using ArrayUShort4 = ArrayVar<ushort4, N>;
+template<size_t N>
+using ArraySLong = ArrayVar<slong, N>;
+template<size_t N>
+using ArraySLong2 = ArrayVar<slong2, N>;
+template<size_t N>
+using ArraySLong3 = ArrayVar<slong3, N>;
+template<size_t N>
+using ArraySLong4 = ArrayVar<slong4, N>;
+template<size_t N>
+using ArrayULong = ArrayVar<ulong, N>;
+template<size_t N>
+using ArrayULong2 = ArrayVar<ulong2, N>;
+template<size_t N>
+using ArrayULong3 = ArrayVar<ulong3, N>;
+template<size_t N>
+using ArrayULong4 = ArrayVar<ulong4, N>;
+template<size_t N>
+using ArrayHalf = ArrayVar<half, N>;
+template<size_t N>
+using ArrayHalf2 = ArrayVar<half2, N>;
+template<size_t N>
+using ArrayHalf3 = ArrayVar<half3, N>;
+template<size_t N>
+using ArrayHalf4 = ArrayVar<half4, N>;
 
 }// namespace luisa::compute
 

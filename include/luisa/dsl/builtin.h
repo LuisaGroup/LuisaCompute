@@ -232,6 +232,36 @@ template<typename T>
         return CallOp::MAKE_FLOAT3;
     } else if constexpr (std::is_same_v<T, float4>) {
         return CallOp::MAKE_FLOAT4;
+    } else if constexpr (std::is_same_v<T, half2>) {
+        return CallOp::MAKE_HALF2;
+    } else if constexpr (std::is_same_v<T, half3>) {
+        return CallOp::MAKE_HALF3;
+    } else if constexpr (std::is_same_v<T, half4>) {
+        return CallOp::MAKE_HALF4;
+    } else if constexpr (std::is_same_v<T, short2>) {
+        return CallOp::MAKE_SHORT2;
+    } else if constexpr (std::is_same_v<T, short3>) {
+        return CallOp::MAKE_SHORT3;
+    } else if constexpr (std::is_same_v<T, short4>) {
+        return CallOp::MAKE_SHORT4;
+    } else if constexpr (std::is_same_v<T, ushort2>) {
+        return CallOp::MAKE_USHORT2;
+    } else if constexpr (std::is_same_v<T, ushort3>) {
+        return CallOp::MAKE_USHORT3;
+    } else if constexpr (std::is_same_v<T, ushort4>) {
+        return CallOp::MAKE_USHORT4;
+    } else if constexpr (std::is_same_v<T, slong2>) {
+        return CallOp::MAKE_LONG2;
+    } else if constexpr (std::is_same_v<T, slong3>) {
+        return CallOp::MAKE_LONG3;
+    } else if constexpr (std::is_same_v<T, slong4>) {
+        return CallOp::MAKE_LONG4;
+    } else if constexpr (std::is_same_v<T, ulong2>) {
+        return CallOp::MAKE_ULONG2;
+    } else if constexpr (std::is_same_v<T, ulong3>) {
+        return CallOp::MAKE_ULONG3;
+    } else if constexpr (std::is_same_v<T, ulong4>) {
+        return CallOp::MAKE_ULONG4;
     } else {
         static_assert(always_false_v<T>);
     }
@@ -576,17 +606,32 @@ using luisa::make_bool2;
 using luisa::make_bool3;
 using luisa::make_bool4;
 using luisa::make_float2;
-using luisa::make_float2x2;
 using luisa::make_float3;
-using luisa::make_float3x3;
 using luisa::make_float4;
-using luisa::make_float4x4;
 using luisa::make_int2;
 using luisa::make_int3;
 using luisa::make_int4;
 using luisa::make_uint2;
 using luisa::make_uint3;
 using luisa::make_uint4;
+using luisa::make_short2;
+using luisa::make_short3;
+using luisa::make_short4;
+using luisa::make_ushort2;
+using luisa::make_ushort3;
+using luisa::make_ushort4;
+using luisa::make_slong2;
+using luisa::make_slong3;
+using luisa::make_slong4;
+using luisa::make_ulong2;
+using luisa::make_ulong3;
+using luisa::make_ulong4;
+using luisa::make_half2;
+using luisa::make_half3;
+using luisa::make_half4;
+using luisa::make_float2x2;
+using luisa::make_float3x3;
+using luisa::make_float4x4;
 
 #define LUISA_MAKE_VECTOR(type)                                  \
     template<typename S>                                         \
@@ -758,10 +803,17 @@ using luisa::make_uint4;
     [[nodiscard]] inline auto make_##type##4(Tv && v) noexcept { \
         return detail::make_vector4<type>(std::forward<Tv>(v));  \
     }
+
 LUISA_MAKE_VECTOR(bool)
 LUISA_MAKE_VECTOR(int)
 LUISA_MAKE_VECTOR(uint)
 LUISA_MAKE_VECTOR(float)
+LUISA_MAKE_VECTOR(short)
+LUISA_MAKE_VECTOR(ushort)
+LUISA_MAKE_VECTOR(slong)
+LUISA_MAKE_VECTOR(ulong)
+LUISA_MAKE_VECTOR(half)
+
 #undef LUISA_MAKE_VECTOR
 
 // make float2x2
