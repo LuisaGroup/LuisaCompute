@@ -70,8 +70,8 @@ struct alignas(vector_alignment_v<T, 4>) VectorStorage<T, 4> {
 template<typename T, size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
     static constexpr auto dimension = N;
-    static Vector<T, N> zero() noexcept { return Vector<T, N>(0); }
-    static Vector<T, N> one() noexcept { return Vector<T, N>(1); }
+    static Vector<T, N> zero() noexcept { return Vector<T, N>(static_cast<T>(0)); }
+    static Vector<T, N> one() noexcept { return Vector<T, N>(static_cast<T>(1)); }
     using value_type = T;
     using Storage = detail::VectorStorage<T, N>;
     static_assert(is_scalar_v<T>, "Invalid vector type");
