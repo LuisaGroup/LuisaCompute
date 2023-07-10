@@ -368,6 +368,18 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                         return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
                     } else if constexpr (std::is_same_v<T, uint>) {
                         return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else if constexpr (std::is_same_v<T, short>) {
+                        LUISA_NOT_IMPLEMENTED();
+                    } else if constexpr (std::is_same_v<T, ushort>) {
+                        LUISA_NOT_IMPLEMENTED();
+                    } else if constexpr (std::is_same_v<T, slong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int64, .int64 = {x}};
+                    } else if constexpr (std::is_same_v<T, ulong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint64, .uint64 = {x}};
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
+                    } else if constexpr (std::is_same_v<T, half>) {
+                        LUISA_NOT_IMPLEMENTED();
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }
@@ -1341,6 +1353,18 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
                         return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
                     } else if constexpr (std::is_same_v<T, uint>) {
                         return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else if constexpr (std::is_same_v<T, short>) {
+                        LUISA_NOT_IMPLEMENTED();
+                    } else if constexpr (std::is_same_v<T, ushort>) {
+                        LUISA_NOT_IMPLEMENTED();
+                    } else if constexpr (std::is_same_v<T, slong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int64, .int64 = {x}};
+                    } else if constexpr (std::is_same_v<T, ulong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint64, .uint64 = {x}};
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
+                    } else if constexpr (std::is_same_v<T, half>) {
+                        LUISA_NOT_IMPLEMENTED();
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }

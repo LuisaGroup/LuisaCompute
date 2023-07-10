@@ -234,10 +234,10 @@ using float3x3 = Matrix<3>;
 using float4x4 = Matrix<4>;
 
 using basic_types = std::tuple<
-    bool, float, int, uint,
-    bool2, float2, int2, uint2,
-    bool3, float3, int3, uint3,
-    bool4, float4, int4, uint4,
+    bool, float, int, uint, short, ushort, slong, ulong, half,
+    bool2, float2, int2, uint2, short2, ushort2, slong2, ulong2, half2,
+    bool3, float3, int3, uint3, short3, ushort3, slong3, ulong3, half3,
+    bool4, float4, int4, uint4, short4, ushort4, slong4, ulong4, half4,
     float2x2, float3x3, float4x4>;
 
 /// any of bool2 is true
@@ -272,11 +272,11 @@ template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolea
 [[nodiscard]] constexpr auto operator-(const luisa::Vector<T, N> v) noexcept {
     using R = luisa::Vector<T, N>;
     if constexpr (N == 2) {
-        return R{-v.x, -v.y};
+        return R{static_cast<T>(-v.x), static_cast<T>(-v.y)};
     } else if constexpr (N == 3) {
-        return R{-v.x, -v.y, -v.z};
+        return R{static_cast<T>(-v.x), static_cast<T>(-v.y), static_cast<T>(-v.z)};
     } else {
-        return R{-v.x, -v.y, -v.z, -v.w};
+        return R{static_cast<T>(-v.x), static_cast<T>(-v.y), static_cast<T>(-v.z), static_cast<T>(-v.w)};
     }
 }
 
@@ -298,11 +298,11 @@ template<typename T, size_t N,
 [[nodiscard]] constexpr auto operator~(const luisa::Vector<T, N> v) noexcept {
     using R = luisa::Vector<T, N>;
     if constexpr (N == 2) {
-        return R{~v.x, ~v.y};
+        return R{static_cast<T>(~v.x), static_cast<T>(~v.y)};
     } else if constexpr (N == 3) {
-        return R{~v.x, ~v.y, ~v.z};
+        return R{static_cast<T>(~v.x), static_cast<T>(~v.y), static_cast<T>(~v.z)};
     } else {
-        return R{~v.x, ~v.y, ~v.z, ~v.w};
+        return R{static_cast<T>(~v.x), static_cast<T>(~v.y), static_cast<T>(~v.z), static_cast<T>(~v.w)};
     }
 }
 
@@ -313,19 +313,19 @@ template<typename T, size_t N,
         luisa::Vector<T, N> lhs, luisa::Vector<T, N> rhs) noexcept {                    \
         if constexpr (N == 2) {                                                         \
             return luisa::Vector<T, 2>{                                                 \
-                lhs.x op rhs.x,                                                         \
-                lhs.y op rhs.y};                                                        \
+                static_cast<T>(lhs.x op rhs.x),                                         \
+                static_cast<T>(lhs.y op rhs.y)};                                        \
         } else if constexpr (N == 3) {                                                  \
             return luisa::Vector<T, 3>{                                                 \
-                lhs.x op rhs.x,                                                         \
-                lhs.y op rhs.y,                                                         \
-                lhs.z op rhs.z};                                                        \
+                static_cast<T>(lhs.x op rhs.x),                                         \
+                static_cast<T>(lhs.y op rhs.y),                                         \
+                static_cast<T>(lhs.z op rhs.z)};                                        \
         } else {                                                                        \
             return luisa::Vector<T, 4>{                                                 \
-                lhs.x op rhs.x,                                                         \
-                lhs.y op rhs.y,                                                         \
-                lhs.z op rhs.z,                                                         \
-                lhs.w op rhs.w};                                                        \
+                static_cast<T>(lhs.x op rhs.x),                                         \
+                static_cast<T>(lhs.y op rhs.y),                                         \
+                static_cast<T>(lhs.z op rhs.z),                                         \
+                static_cast<T>(lhs.w op rhs.w)};                                        \
         }                                                                               \
     }                                                                                   \
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
