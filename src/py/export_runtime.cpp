@@ -446,7 +446,7 @@ void export_runtime(py::module &m) {
         .def("dimension", [](FunctionBuilder &self) {
             if (self.block_size().z > 1) {
                 return 3;
-            }else if (self.block_size().y > 1) {
+            } else if (self.block_size().y > 1) {
                 return 2;
             }
             return 1;
@@ -546,6 +546,7 @@ void export_runtime(py::module &m) {
                 return ptr;
             },
             pyref)
+        .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
         // .def("meta") // unused
         .def("function", &FunctionBuilder::function);// returning object
 

@@ -402,6 +402,18 @@ class ASTVisitor:
         node.lr = 'r'
 
     @staticmethod
+    def build_With(node):
+        for i in node.items:
+            func_name = i.context_expr.func.id
+            if func_name == "autodiff":
+                ad = lcapi.builder().autodiff_()
+                with ad.body():
+                    for x in node.body:
+                        build(x)
+            else:
+                raise SyntaxError("Unknown with.")
+
+    @staticmethod
     def build_If(node):
         # condition
         build(node.test)

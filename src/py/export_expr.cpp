@@ -41,6 +41,8 @@ void export_expr(py::module &m) {
     py::class_<IfStmt>(m, "IfStmt")
         .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref)// using overload_cast because there's also a const method variant
         .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref);
+    py::class_<AutoDiffStmt>(m, "AutoDiffStmt")
+        .def("body", py::overload_cast<>(&AutoDiffStmt::body), pyref);
     py::class_<SwitchStmt>(m, "SwitchStmt")
         .def("body", py::overload_cast<>(&SwitchStmt::body), pyref);
     py::class_<SwitchCaseStmt>(m, "SwitchCaseStmt")

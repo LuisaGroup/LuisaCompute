@@ -5,7 +5,7 @@
 namespace luisa::compute {
 template<typename T>
 class BufferView;
-
+class Stream;
 template<typename T>
 class Image;
 
@@ -28,4 +28,3 @@ public:
 };
 
 }// namespace luisa::compute
-
