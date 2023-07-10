@@ -39,10 +39,6 @@ private:
     luisa::vector<ir::IrBuilder *> _builder_stack;
     Function _function;
     ir::CppOwnedCArc<ir::ModulePools> _pools;
-    // how to add using is_avalanching = void; for ir::NodeRef in cbindgen?
-    // or you'll have to use the inner size_t as key instead of ir::NodeRef itself. see src/core/stl/unordered_dense.h#L371
-    luisa::unordered_map<size_t, ir::NodeRef> assign_map;
-    [[nodiscard]] ir::NodeRef get_assign_rhs(ir::NodeRef lhs);
 
 private:
     template<typename T>

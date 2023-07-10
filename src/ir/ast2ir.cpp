@@ -1056,7 +1056,6 @@ ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
     auto lhs = _convert_expr(stmt->lhs(), true);
     auto rhs = _cast(stmt->lhs()->type(), stmt->rhs()->type(),
                      _convert_expr(stmt->rhs(), false));
-    assign_map[lhs._0] = rhs;
     auto instr = ir::luisa_compute_ir_new_instruction(
         ir::Instruction{.tag = ir::Instruction::Tag::Update,
                         .update = {.var = lhs, .value = rhs}});
@@ -1363,14 +1362,6 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
             }
         },
         value);
-}
-
-[[nodiscard]] ir::NodeRef AST2IR::get_assign_rhs(ir::NodeRef lhs) {
-    if (auto it = assign_map.find(lhs._0); it != nullptr) {
-        return it->second;
-    } else {
-        return lhs;
-    }
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
