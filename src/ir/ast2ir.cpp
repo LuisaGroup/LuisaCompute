@@ -20,9 +20,11 @@ inline auto AST2IR::_boxed_slice(size_t n) noexcept -> ir::CBoxedSlice<T> {
                 .len = 0u,
                 .destructor = [](T *, size_t) noexcept {}};
     }
-    return {.ptr = new T[n],// FIXME: use allocate
+    return {.ptr = luisa::allocate_with_allocator<T>(n),// FIXME: use allocate
             .len = n,
-            .destructor = [](T *ptr, size_t) noexcept { delete[] ptr; }};
+            .destructor = [](T *ptr, size_t) noexcept {
+                luisa::deallocate_with_allocator(ptr);
+            }};
 }
 
 template<typename Fn>
@@ -161,7 +163,8 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
 
     return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(
                 ir::luisa_compute_ir_new_kernel_module(m)),
-            [](auto p) noexcept {
+            [](ir::CArc<ir::KernelModule> *p) noexcept {
+                p->release();
                 luisa::delete_with_allocator(p);
             }};
 }

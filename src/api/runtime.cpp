@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include <luisa/core/logging.h>
 #include <luisa/core/stl.h>
+#include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/rhi/command_encoder.h>
@@ -54,65 +54,12 @@ struct RC {
     }
 };
 
-namespace luisa::compute {
-
-struct BufferResource final : public Resource {
-    BufferResource(DeviceInterface *device, const ir::CArc<ir::Type> *element, size_t elem_count) noexcept
-        : Resource{device, Tag::BUFFER,
-                   device->create_buffer(element, elem_count)} {}
-};
-
-struct TextureResource final : public Resource {
-    TextureResource(DeviceInterface *device,
-                    PixelFormat format, uint dimension,
-                    uint width, uint height, uint depth,
-                    uint mipmap_levels) noexcept
-        : Resource{device, Tag::TEXTURE,
-                   device->create_texture(format, dimension,
-                                          width, height, depth,
-                                          mipmap_levels, false)} {}
-};
-
-struct ShaderResource : public Resource {
-    ShaderResource(DeviceInterface *device,
-                   Function function,
-                   const LCShaderOption &option) noexcept
-        : Resource{
-              device,
-              Tag::SHADER,
-              device->create_shader(
-                  ShaderOption{
-                      .enable_cache = option.enable_cache,
-                      .enable_fast_math = option.enable_fast_math,
-                      .enable_debug_info = option.enable_debug_info,
-                      .compile_only = option.compile_only,
-                      .name = luisa::string{option.name}},
-                  function)} {}
-
-    ShaderResource(DeviceInterface *device,
-                   const ir::KernelModule *module,
-                   const LCShaderOption &option) noexcept
-        : Resource{
-              device,
-              Tag::SHADER,
-              device->create_shader(
-                  ShaderOption{
-                      .enable_cache = option.enable_cache,
-                      .enable_fast_math = option.enable_fast_math,
-                      .enable_debug_info = option.enable_debug_info,
-                      .compile_only = option.compile_only,
-                      .name = luisa::string{option.name}},
-                  module)} {}
-};
-
-}// namespace luisa::compute
-
 // TODO: rewrite with runtime constructs, e.g., Stream, Event, BindlessArray...
 
 using namespace luisa;
 using namespace luisa::compute;
 
-Sampler convert_sampler(LCSampler sampler);
+[[nodiscard]] Sampler convert_sampler(LCSampler sampler);
 
 namespace luisa::compute::detail {
 
@@ -120,9 +67,8 @@ class CommandListConverter {
 
 private:
     LCCommandList _list;
-    bool _is_c_api;
 
-    luisa::unique_ptr<Command> convert_one(LCCommand cmd) const noexcept {
+    static luisa::unique_ptr<Command> convert_one(LCCommand cmd) noexcept {
         auto convert_pixel_storage = [](const LCPixelStorage &storage) noexcept {
             return PixelStorage{(uint32_t)to_underlying(storage)};
         };
@@ -350,24 +296,23 @@ private:
     }
 
     void (*_callback)(uint8_t *) = nullptr;
-
     uint8_t *_callback_ctx = nullptr;
 
 public:
-    CommandListConverter(const LCCommandList list, bool is_c_api, void (*callback)(uint8_t *),
-                         uint8_t *callback_ctx)
-        : _list(list), _is_c_api(is_c_api), _callback(callback), _callback_ctx(callback_ctx) {}
+    CommandListConverter(const LCCommandList list,
+                         void (*callback)(uint8_t *),
+                         uint8_t *callback_ctx) noexcept
+        : _list(list), _callback(callback), _callback_ctx(callback_ctx) {}
 
     [[nodiscard]] auto convert() const noexcept {
-        auto cmd_list = CommandList();
+        CommandList cmd_list;
+        cmd_list.reserve(_list.commands_count, _callback ? 1u : 0u);
         for (int i = 0; i < _list.commands_count; i++) {
             cmd_list.append(convert_one(_list.commands[i]));
         }
-        if (_callback != nullptr && _callback_ctx != nullptr) {
-            auto _callback = this->_callback;
-            auto _callback_ctx = this->_callback_ctx;
-            cmd_list.add_callback([=]() {
-                _callback(_callback_ctx);
+        if (_callback != nullptr) {
+            cmd_list.add_callback([cb = _callback, ctx = _callback_ctx]() {
+                cb(ctx);
             });
         }
         return cmd_list;
@@ -378,8 +323,7 @@ public:
 
 template<class T>
 T from_ptr(void *ptr) {
-    return T{
-        ._0 = reinterpret_cast<uint64_t>(ptr)};
+    return T{._0 = reinterpret_cast<uint64_t>(ptr)};
 }
 
 LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT {
@@ -499,8 +443,7 @@ luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cm
                               uint8_t *callback_ctx) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto converter = luisa::compute::detail::CommandListConverter(cmd_list, d->object()->impl()->is_c_api(), callback,
-                                                                  callback_ctx);
+    auto converter = luisa::compute::detail::CommandListConverter(cmd_list, callback, callback_ctx);
     d->object()->impl()->dispatch(handle, converter.convert());
 }
 
@@ -752,6 +695,7 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.create_swapchain = luisa_compute_swapchain_create;
     interface.present_display_in_stream = luisa_compute_swapchain_present;
     interface.destroy_swapchain = luisa_compute_swapchain_destroy;
+    // TODO: procedural primitive
     //    interface.create_procedural_primitive = [](LCDevice device, const LCProceduralPrimitiveOption* option) -> LCResult_CreatedResourceInfo {
     //        auto primitive = luisa_compute_procedural_primitive_create(device, option);
     //        return LCResult_CreatedResourceInfo{
@@ -760,8 +704,6 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     //        };
     //    };
     //    interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
-    //    interface.set_logger_callback = luisa_compute_set_logger_callback;
-    //    interface.free_string = luisa_compute_free_c_string;
     interface.query = [](LCDevice device, const char *query) -> char * {
         auto d = reinterpret_cast<RC<Device> *>(device._0);
         auto result_s = d->object()->impl()->query(luisa::string_view{query});

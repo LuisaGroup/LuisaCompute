@@ -15,13 +15,7 @@
 
 namespace luisa::compute {
 
-namespace detail {
-class CommandListConverter;
-}// namespace detail
-
 class LC_RUNTIME_API CommandList : concepts::Noncopyable {
-
-    friend class detail::CommandListConverter;
 
 public:
     class Commit;
@@ -32,12 +26,6 @@ private:
     CommandContainer _commands;
     CallbackContainer _callbacks;
     bool _committed{false};
-
-#ifdef LUISA_ENABLE_API
-    // For backends that use C API only
-    // DO NOT USE THIS FIELD OTHERWISE
-    luisa::optional<LCCommandList> _c_list;
-#endif
 
 public:
     CommandList() noexcept = default;
