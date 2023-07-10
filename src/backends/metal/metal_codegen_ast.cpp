@@ -462,7 +462,7 @@ void MetalCodegenAST::_emit_function() noexcept {
                     call->op() == CallOp::GRADIENT ||
                     call->op() == CallOp::GRADIENT_MARKER ||
                     call->op() == CallOp::REQUIRES_GRADIENT) {
-                    LUISA_ASSERT(call->arguments().size() >= 1u &&
+                    LUISA_ASSERT(!call->arguments().empty() &&
                                      call->arguments().front()->tag() == Expression::Tag::REF,
                                  "Invalid gradient function call.");
                     auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
