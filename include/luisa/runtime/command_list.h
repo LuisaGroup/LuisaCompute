@@ -54,8 +54,6 @@ private:
     CommandList _list;
 
 private:
-    friend class lc::validation::Stream;
-    friend class Stream;
     friend class CommandList;
     explicit Commit(CommandList &&list) noexcept
         : _list{std::move(list)} {}
@@ -64,6 +62,7 @@ private:
 public:
     Commit &operator=(Commit &&) noexcept = delete;
     Commit &operator=(const Commit &) noexcept = delete;
+    [[nodiscard]] auto command_list() &&noexcept { return std::move(_list); }
 };
 
 }// namespace luisa::compute

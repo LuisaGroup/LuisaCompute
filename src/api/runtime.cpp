@@ -315,7 +315,7 @@ public:
                 cb(ctx);
             });
         }
-        return cmd_list;
+        return cmd_list.commit();
     }
 };
 
@@ -443,8 +443,9 @@ luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cm
                               uint8_t *callback_ctx) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto converter = luisa::compute::detail::CommandListConverter(cmd_list, callback, callback_ctx);
-    d->object()->impl()->dispatch(handle, converter.convert());
+    luisa::compute::detail::CommandListConverter converter{cmd_list, callback, callback_ctx};
+    auto list = converter.convert().command_list();
+    d->object()->impl()->dispatch(handle, std::move(list));
 }
 
 LUISA_EXPORT_API LCCreatedShaderInfo

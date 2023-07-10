@@ -100,7 +100,7 @@ Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexc
 }
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
-    _dispatch(std::move(commit._list));
+    _dispatch(std::move(commit).command_list());
     return *this;
 }
 
