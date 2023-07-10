@@ -389,6 +389,13 @@ void StringStateVisitor::visit(const SwitchCaseStmt *state) {
             Scope scope{this};
             state->body()->accept(*this);
         }
+        if (std::none_of(state->body()->statements().cbegin(),
+                         state->body()->statements().cend(),
+                         [](const auto &stmt) {
+                             return stmt->tag() == Statement::Tag::BREAK;
+                         })) {
+            str << "break;\n";
+        }
     }
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
@@ -416,6 +423,13 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
         {
             Scope scope{this};
             state->body()->accept(*this);
+        }
+        if (std::none_of(state->body()->statements().cbegin(),
+                         state->body()->statements().cend(),
+                         [](const auto &stmt) {
+                             return stmt->tag() == Statement::Tag::BREAK;
+                         })) {
+            str << "break;\n";
         }
     }
 }

@@ -94,9 +94,3 @@ uint64_t _reduce_min(uint64_t4 a){return uint64_t(min(a.x,min(a.y,min(a.z,a.w)))
 uint64_t _reduce_max(uint64_t2 a){return uint64_t(max(a.x,a.y));}
 uint64_t _reduce_max(uint64_t3 a){return uint64_t(max(a.x,max(a.y,a.z)));}
 uint64_t _reduce_max(uint64_t4 a){return uint64_t(max(a.x,max(a.y,max(a.z,a.w))));}
-float2x2 _outer_product(float2 a,float2 b){return float2x2(a*b.x,a*b.y);}
-float3x3 _outer_product(float3 a,float3 b){return float3x3(a*b.x,a*b.y,a*b.z);}
-float4x4 _outer_product(float4 a,float4 b){return float4x4(a*b.x,a*b.y,a*b.z,a*b.w);}
-float2x2 _mat_comp_mul(float2x2 a,float2x2 b){return float2x2(a[0]*b[0],a[1]*b[1]);}
-float3x3 _mat_comp_mul(float3x3 a,float3x3 b){return float3x3(a[0]*b[0],a[1]*b[1],a[2]*b[2]);}
-float4x4 _mat_comp_mul(float4x4 a,float4x4 b){return float4x4(a[0]*b[0],a[1]*b[1],a[2]*b[2],a[3]*b[3]);}

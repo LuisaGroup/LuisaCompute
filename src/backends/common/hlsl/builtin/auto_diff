@@ -8,3 +8,5 @@ void _accum_grad(inout A x_grad,A dx){
 x_grad+=select(isnan(dx),(A)0,dx);
 }
 #define _REQUIRES_GRAD(x,type) x##_grad=_zero(type)
+template<typename T>
+T _detach(T x) { return x; }
