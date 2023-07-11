@@ -42,6 +42,6 @@ on_load(function(target)
     end
     target:add("deps", "eastl", "spdlog")
 end)
-add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp") -- , "../ext/parallel-hashmap/**.h"
+add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp", "../ext/half/include/half.hpp") -- , "../ext/parallel-hashmap/**.h"
 add_files("**.cpp")
 target_end()

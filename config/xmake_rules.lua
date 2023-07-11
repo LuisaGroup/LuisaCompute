@@ -14,6 +14,8 @@ on_load(function(target)
 	target:add("includedirs", 
 		--[[spdlog]]
 		path.join(lc_dir,"src/ext/spdlog/include"),
+		--[[half]]
+		path.join(lc_dir,"src/ext/half/include"),
 		--[[mimalloc]]
 		path.join(lc_dir,"src/ext/EASTL/packages/mimalloc/include"),
 		--[[eastl]]
