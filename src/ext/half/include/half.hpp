@@ -225,6 +225,19 @@
 	#define HALF_CONSTEXPR_NOERR
 #endif
 
+// throw
+#ifndef HALF_NO_THROW
+#define HALF_THROW_DOMAIN_ERROR(msg) throw std::domain_error(msg)
+#define HALF_THROW_OVERFLOW_ERROR(msg) throw std::overflow_error(msg)
+#define HALF_THROW_UNDERFLOW_ERROR(msg) throw std::underflow_error(msg)
+#define HALF_THROW_RANGE_ERROR(msg) throw std::range_error(msg)
+#else
+#define HALF_THROW_DOMAIN_ERROR(msg) do { fprintf(stderr, "half domain error: %s", msg); std::abort(); } while (false)
+#define HALF_THROW_OVERFLOW_ERROR(msg) do { fprintf(stderr, "half overflow error: %s", msg); std::abort(); } while (false)
+#define HALF_THROW_UNDERFLOW_ERROR(msg) do { fprintf(stderr, "half underflow error: %s", msg); std::abort(); } while (false)
+#define HALF_THROW_RANGE_ERROR(msg) do { fprintf(stderr, "half range error: %s", msg); std::abort(); } while (false)
+#endif
+
 // support noexcept
 #if HALF_ENABLE_CPP11_NOEXCEPT
 	#define HALF_NOEXCEPT	noexcept
@@ -309,6 +322,8 @@
 /// exception flags, nor will explicitly clearing flags clear the corresponding built-in flags.
 #define HALF_ERRHANDLING_FENV	0
 
+#ifndef HALF_NO_THROW
+
 /// Throw C++ exception on domain errors.
 /// Defining this to a string literal causes operations on half-precision values to throw a 
 /// [std::domain_error](https://en.cppreference.com/w/cpp/error/domain_error) with the specified message on domain errors.
@@ -333,6 +348,9 @@
 /// Defining this to 1 causes operations on half-precision values to throw a 
 /// [std::range_error](https://en.cppreference.com/w/cpp/error/range_error) with the specified message on general rounding errors.
 #define HALF_ERRHANDLING_THROW_INEXACT		(undefined)
+
+#endif
+
 #endif
 
 #ifndef HALF_ERRHANDLING_OVERFLOW_TO_INEXACT
@@ -641,23 +659,23 @@ namespace half_float
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_INVALID
 			if(flags & FE_INVALID)
-				throw std::domain_error(HALF_ERRHANDLING_THROW_INVALID);
+				HALF_THROW_DOMAIN_ERROR(HALF_ERRHANDLING_THROW_INVALID);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_DIVBYZERO
 			if(flags & FE_DIVBYZERO)
-				throw std::domain_error(HALF_ERRHANDLING_THROW_DIVBYZERO);
+				HALF_THROW_DOMAIN_ERROR(HALF_ERRHANDLING_THROW_DIVBYZERO);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_OVERFLOW
 			if(flags & FE_OVERFLOW)
-				throw std::overflow_error(HALF_ERRHANDLING_THROW_OVERFLOW);
+				HALF_THROW_OVERFLOW_ERROR(HALF_ERRHANDLING_THROW_OVERFLOW);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_UNDERFLOW
 			if(flags & FE_UNDERFLOW)
-				throw std::underflow_error(HALF_ERRHANDLING_THROW_UNDERFLOW);
+				HALF_THROW_UNDERFLOW_ERROR(HALF_ERRHANDLING_THROW_UNDERFLOW);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_INEXACT
 			if(flags & FE_INEXACT)
-				throw std::range_error(HALF_ERRHANDLING_THROW_INEXACT);
+				HALF_THROW_RANGE_ERROR(HALF_ERRHANDLING_THROW_INEXACT);
 		#endif
 		#if HALF_ERRHANDLING_UNDERFLOW_TO_INEXACT
 			if((flags & FE_UNDERFLOW) && !(flags & FE_INEXACT))
@@ -4573,13 +4591,13 @@ namespace half_float
 	{
 		excepts &= detail::errflags();
 		if(excepts & (FE_INVALID|FE_DIVBYZERO))
-			throw std::domain_error(msg);
+			HALF_THROW_DOMAIN_ERROR(msg);
 		if(excepts & FE_OVERFLOW)
-			throw std::overflow_error(msg);
+			HALF_THROW_OVERFLOW_ERROR(msg);
 		if(excepts & FE_UNDERFLOW)
-			throw std::underflow_error(msg);
+			HALF_THROW_UNDERFLOW_ERROR(msg);
 		if(excepts & FE_INEXACT)
-			throw std::range_error(msg);
+			HALF_THROW_RANGE_ERROR(msg);
 	}
 	/// \}
 }

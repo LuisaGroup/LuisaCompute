@@ -61,7 +61,7 @@ struct alignas(vector_alignment_v<T, 4>) VectorStorage<T, 4> {
 /**
  * @brief Vector class
  * 
- * We only support vector of size 2, 3, 4 and type bool, float, int, uint.
+ * We only support vector of size 2, 3, 4 and type bool, float, half, 16/32/64-bit int/uint.
  * Any other kind of template parameters will fail on compilation.
  * 
  * @tparam T bool/float/int/uint
