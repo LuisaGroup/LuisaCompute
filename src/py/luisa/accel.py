@@ -193,4 +193,4 @@ class Accel:
     def query_any(self, ray, vis_mask: int):
         check_exact_signature([Ray, uint], [ray, vis_mask], "query_any")
         expr = lcapi.builder().call(to_lctype(rayQueryAnyType), lcapi.CallOp.RAY_TRACING_QUERY_ANY, [self.expr, ray.expr, vis_mask.expr])
-        return rayQueryAllType, expr
+        return rayQueryAnyType, expr

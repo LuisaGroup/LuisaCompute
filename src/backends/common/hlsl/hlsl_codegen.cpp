@@ -495,7 +495,7 @@ void StringStateVisitor::VisitFunction(
         util->GetVariableName(v, varName);
 
         str << typeName << ' ' << varName;
-        if (!v.type()->is_resource()) [[likely]] {
+        if (luisa::to_underlying(v.type()->tag()) <= luisa::to_underlying(Type::Tag::STRUCTURE)) [[likely]] {
             str << "=("sv << typeName << ")0"sv;
         }
         str << ";\n";
