@@ -389,12 +389,12 @@ struct array_meta<T[N]> {
 
 template<typename T>
     requires(std::is_bounded_array_v<T>)
-consteval size_t array_count(T const &t) {
+constexpr size_t array_count(T const &t) {
     return array_meta<T>::array_size;
 }
 template<typename T>
     requires(std::is_bounded_array_v<T>)
-consteval size_t array_byte_size(T const &t) {
+constexpr size_t array_byte_size(T const &t) {
     return array_meta<T>::byte_size;
 }
 class IDisposable {
@@ -442,7 +442,7 @@ namespace detail {
 template<VE_SUB_TEMPLATE map, bool reverse, typename... Tar>
 struct AnyMap {
     template<typename T, typename... Args>
-    static consteval bool Run() {
+    static constexpr bool Run() {
         if constexpr ((map<T, Tar...>::value) ^ reverse) {
             return true;
         } else if constexpr (sizeof...(Args) == 0) {
@@ -453,7 +453,7 @@ struct AnyMap {
     }
 };
 template<size_t... size>
-consteval size_t max_size() {
+constexpr size_t max_size() {
     auto sizes = {size...};
     size_t v = 0;
     for (auto i : sizes) {

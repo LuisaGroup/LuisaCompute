@@ -250,7 +250,7 @@ struct ConstTreeElement {
     }
 };
 template<typename K, typename V>
-static consteval decltype(auto) TreeElementType() {
+static constexpr decltype(auto) TreeElementType() {
     if constexpr (std::is_same_v<V, void>) {
         return TypeOf<K>{};
     } else {
@@ -258,7 +258,7 @@ static consteval decltype(auto) TreeElementType() {
     }
 };
 template<typename K, typename V>
-static consteval decltype(auto) ConstTreeElementType() {
+static constexpr decltype(auto) ConstTreeElementType() {
     if constexpr (std::is_same_v<V, void>) {
         return TypeOf<K>{};
     } else {
