@@ -4557,31 +4557,6 @@ namespace half_float
 	/// \param excepts OR of flags to restore
 	/// \retval 0 for success
 	inline int fesetexceptflag(const int *flagp, int excepts) { detail::errflags() = (detail::errflags()|(*flagp&excepts)) & (*flagp|~excepts); return 0; }
-
-	/// Throw C++ exceptions based on set exception flags.
-	/// This function manually throws a corresponding C++ exception if one of the specified flags is set, 
-	/// no matter if automatic throwing (via [HALF_ERRHANDLING_THROW_...](\ref HALF_ERRHANDLING_THROW_INVALID)) is enabled or not.
-	/// This function works even if [automatic exception flag handling](\ref HALF_ERRHANDLING_FLAGS) is disabled, 
-	/// but in that case manual flag management is the only way to raise flags.
-	/// \param excepts OR of exceptions to test
-	/// \param msg error message to use for exception description
-	/// \throw std::domain_error if `FE_INVALID` or `FE_DIVBYZERO` is selected and set
-	/// \throw std::overflow_error if `FE_OVERFLOW` is selected and set
-	/// \throw std::underflow_error if `FE_UNDERFLOW` is selected and set
-	/// \throw std::range_error if `FE_INEXACT` is selected and set
-	inline void fethrowexcept(int excepts, const char *msg = "")
-	{
-		excepts &= detail::errflags();
-		if(excepts & (FE_INVALID|FE_DIVBYZERO))
-			throw std::domain_error(msg);
-		if(excepts & FE_OVERFLOW)
-			throw std::overflow_error(msg);
-		if(excepts & FE_UNDERFLOW)
-			throw std::underflow_error(msg);
-		if(excepts & FE_INEXACT)
-			throw std::range_error(msg);
-	}
-	/// \}
 }
 
 
