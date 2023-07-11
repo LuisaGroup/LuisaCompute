@@ -225,6 +225,19 @@
 	#define HALF_CONSTEXPR_NOERR
 #endif
 
+// throw
+#ifndef HALF_NO_THROW
+#define HALF_THROW_DOMAIN_ERROR(msg) throw std::domain_error(msg)
+#define HALF_THROW_OVERFLOW_ERROR(msg) throw std::overflow_error(msg)
+#define HALF_THROW_UNDERFLOW_ERROR(msg) throw std::underflow_error(msg)
+#define HALF_THROW_RANGE_ERROR(msg) throw std::range_error(msg)
+#else
+#define HALF_THROW_DOMAIN_ERROR(msg) do { fprintf(stderr, "half domain error: %s", msg); std::abort(); } while (false)
+#define HALF_THROW_OVERFLOW_ERROR(msg) do { fprintf(stderr, "half overflow error: %s", msg); std::abort(); } while (false)
+#define HALF_THROW_UNDERFLOW_ERROR(msg) do { fprintf(stderr, "half underflow error: %s", msg); std::abort(); } while (false)
+#define HALF_THROW_RANGE_ERROR(msg) do { fprintf(stderr, "half range error: %s", msg); std::abort(); } while (false)
+#endif
+
 // support noexcept
 #if HALF_ENABLE_CPP11_NOEXCEPT
 	#define HALF_NOEXCEPT	noexcept
@@ -309,6 +322,8 @@
 /// exception flags, nor will explicitly clearing flags clear the corresponding built-in flags.
 #define HALF_ERRHANDLING_FENV	0
 
+#ifndef HALF_NO_THROW
+
 /// Throw C++ exception on domain errors.
 /// Defining this to a string literal causes operations on half-precision values to throw a 
 /// [std::domain_error](https://en.cppreference.com/w/cpp/error/domain_error) with the specified message on domain errors.
@@ -333,6 +348,9 @@
 /// Defining this to 1 causes operations on half-precision values to throw a 
 /// [std::range_error](https://en.cppreference.com/w/cpp/error/range_error) with the specified message on general rounding errors.
 #define HALF_ERRHANDLING_THROW_INEXACT		(undefined)
+
+#endif
+
 #endif
 
 #ifndef HALF_ERRHANDLING_OVERFLOW_TO_INEXACT
@@ -641,23 +659,23 @@ namespace half_float
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_INVALID
 			if(flags & FE_INVALID)
-				throw std::domain_error(HALF_ERRHANDLING_THROW_INVALID);
+				HALF_THROW_DOMAIN_ERROR(HALF_ERRHANDLING_THROW_INVALID);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_DIVBYZERO
 			if(flags & FE_DIVBYZERO)
-				throw std::domain_error(HALF_ERRHANDLING_THROW_DIVBYZERO);
+				HALF_THROW_DOMAIN_ERROR(HALF_ERRHANDLING_THROW_DIVBYZERO);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_OVERFLOW
 			if(flags & FE_OVERFLOW)
-				throw std::overflow_error(HALF_ERRHANDLING_THROW_OVERFLOW);
+				HALF_THROW_OVERFLOW_ERROR(HALF_ERRHANDLING_THROW_OVERFLOW);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_UNDERFLOW
 			if(flags & FE_UNDERFLOW)
-				throw std::underflow_error(HALF_ERRHANDLING_THROW_UNDERFLOW);
+				HALF_THROW_UNDERFLOW_ERROR(HALF_ERRHANDLING_THROW_UNDERFLOW);
 		#endif
 		#ifdef HALF_ERRHANDLING_THROW_INEXACT
 			if(flags & FE_INEXACT)
-				throw std::range_error(HALF_ERRHANDLING_THROW_INEXACT);
+				HALF_THROW_RANGE_ERROR(HALF_ERRHANDLING_THROW_INEXACT);
 		#endif
 		#if HALF_ERRHANDLING_UNDERFLOW_TO_INEXACT
 			if((flags & FE_UNDERFLOW) && !(flags & FE_INEXACT))
@@ -4557,6 +4575,31 @@ namespace half_float
 	/// \param excepts OR of flags to restore
 	/// \retval 0 for success
 	inline int fesetexceptflag(const int *flagp, int excepts) { detail::errflags() = (detail::errflags()|(*flagp&excepts)) & (*flagp|~excepts); return 0; }
+
+	/// Throw C++ exceptions based on set exception flags.
+	/// This function manually throws a corresponding C++ exception if one of the specified flags is set, 
+	/// no matter if automatic throwing (via [HALF_ERRHANDLING_THROW_...](\ref HALF_ERRHANDLING_THROW_INVALID)) is enabled or not.
+	/// This function works even if [automatic exception flag handling](\ref HALF_ERRHANDLING_FLAGS) is disabled, 
+	/// but in that case manual flag management is the only way to raise flags.
+	/// \param excepts OR of exceptions to test
+	/// \param msg error message to use for exception description
+	/// \throw std::domain_error if `FE_INVALID` or `FE_DIVBYZERO` is selected and set
+	/// \throw std::overflow_error if `FE_OVERFLOW` is selected and set
+	/// \throw std::underflow_error if `FE_UNDERFLOW` is selected and set
+	/// \throw std::range_error if `FE_INEXACT` is selected and set
+	inline void fethrowexcept(int excepts, const char *msg = "")
+	{
+		excepts &= detail::errflags();
+		if(excepts & (FE_INVALID|FE_DIVBYZERO))
+			HALF_THROW_DOMAIN_ERROR(msg);
+		if(excepts & FE_OVERFLOW)
+			HALF_THROW_OVERFLOW_ERROR(msg);
+		if(excepts & FE_UNDERFLOW)
+			HALF_THROW_UNDERFLOW_ERROR(msg);
+		if(excepts & FE_INEXACT)
+			HALF_THROW_RANGE_ERROR(msg);
+	}
+	/// \}
 }
 
 

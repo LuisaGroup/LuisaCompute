@@ -9,6 +9,7 @@
 #include <tuple>
 #include <type_traits>
 
+#define HALF_NO_THROW
 #include <half.hpp>
 
 namespace luisa {
