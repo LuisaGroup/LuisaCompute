@@ -608,7 +608,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
             }
         } break;
         default: {
-            LUISA_ERROR("Unknown resource tag.");
+            LUISA_WARNING("Unknown resource tag.");
         } break;
     }
 }
