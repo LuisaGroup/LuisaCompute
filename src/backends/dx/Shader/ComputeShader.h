@@ -27,6 +27,7 @@ private:
     mutable std::mutex cmdSigMtx;
 
 public:
+    static constexpr uint64_t DispatchIndirectStride = 28;
     ID3D12PipelineState *Pso() const { return pso.Get(); }
     vstd::span<luisa::compute::Argument const> ArgBindings() const { return argBindings; }
     ID3D12CommandSignature *CmdSig() const;

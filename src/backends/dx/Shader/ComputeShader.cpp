@@ -200,7 +200,7 @@ ID3D12CommandSignature *ComputeShader::CmdSig() const {
     c.DestOffsetIn32BitValues = 0;
     c.Num32BitValuesToSet = 4;
     indDesc[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
-    desc.ByteStride = 28;
+    desc.ByteStride = DispatchIndirectStride;
     desc.NumArgumentDescs = 2;
     desc.pArgumentDescs = indDesc;
     ThrowIfFailed(device->device->CreateCommandSignature(&desc, rootSig.Get(), IID_PPV_ARGS(&cmdSig)));
