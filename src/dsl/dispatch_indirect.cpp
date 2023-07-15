@@ -20,7 +20,7 @@ void IndirectDispatchBufferExprProxy::dispatch_kernel(
 
 Expr<IndirectDispatchBuffer>::Expr(const IndirectDispatchBuffer &buffer) noexcept
     : _expression{detail::FunctionBuilder::current()->buffer_binding(
-          Type::of<IndirectKernelDispatch>(), buffer.handle(), 0u, buffer.size_bytes())} {}
+          Type::of<IndirectDispatchBuffer>(), buffer.handle(), 0u, buffer.size_bytes())} {}
 
 void Expr<IndirectDispatchBuffer>::clear() const noexcept {
     detail::FunctionBuilder::current()->call(
