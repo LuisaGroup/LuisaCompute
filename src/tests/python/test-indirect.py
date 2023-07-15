@@ -37,6 +37,8 @@ buffer.copy_from(arr)
 clear_indirect(dispatch_size=(1, 1, 1))
 emplace_indirect(dispatch_size=(dispatch_count, 1, 1))
 dispatch(buffer, dispatch_size=dispatch_buffer)
+# Try this: dispatch single kernel with offset
+# dispatch(buffer, dispatch_size=dispatch_buffer, dispatch_buffer_offset=15)
 buffer.copy_to(out_arr)
 result = ""
 for i in out_arr:

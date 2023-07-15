@@ -217,7 +217,6 @@ def from_bytes(dtype, packed):
 
 class IndirectDispatchBuffer:
     def __init__(self, size: int):
-        self.dtype = CustomType("LC_IndirectKernelDispatch")
         buffer = get_global_device().impl().create_dispatch_buffer(size)
         self.size = size
         self.bytesize = buffer.size_bytes()
