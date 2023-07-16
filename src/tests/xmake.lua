@@ -10,6 +10,33 @@ add_includedirs("../ext/stb", {
 	public = true
 })
 target_end()
+
+-- TEST MAIN with testdoc
+------------------------------------
+target("test_main")
+_config_project({
+    project_kind = "binary"
+})
+add_files("common/test_main.cpp")
+add_includedirs("./", {
+    public = true
+})
+add_files("next/**.cpp")
+add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
+if get_config("enable_ir") then
+    add_deps("lc-ir")
+    add_deps("lc-rust")
+end
+if get_config("enable_gui") then
+    add_deps("lc-gui")
+end
+
+target_end()
+------------------------------------
+-- TEST MAIN end
+
+-- OLD TESTS
+
 local function test_proj(name, gui_dep, callable)
 	if gui_dep and not enable_gui then
 		return
