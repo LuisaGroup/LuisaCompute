@@ -21,7 +21,7 @@ use std::{
 };
 
 use super::{
-    accel::{AccelImpl, MeshImpl},
+    accel::{AccelImpl, GeometryImpl},
     resource::{BindlessArrayImpl, BufferImpl},
     shader::ShaderImpl,
     texture::TextureImpl,
@@ -422,8 +422,8 @@ impl StreamImpl {
                         );
                     }
                     api::Command::MeshBuild(mesh_build) => {
-                        let mesh = &mut *(mesh_build.mesh.0 as *mut MeshImpl);
-                        mesh.build(mesh_build);
+                        let mesh = &mut *(mesh_build.mesh.0 as *mut GeometryImpl);
+                        mesh.build_mesh(mesh_build);
                     }
                     api::Command::AccelBuild(accel_build) => {
                         let accel = &mut *(accel_build.accel.0 as *mut AccelImpl);
@@ -443,8 +443,9 @@ impl StreamImpl {
                             bindless_update.modifications_count,
                         ));
                     }
-                    api::Command::ProceduralPrimitiveBuild(_) => {
-                        todo!()
+                    api::Command::ProceduralPrimitiveBuild(mesh_build) => {
+                        let mesh = &mut *(mesh_build.handle.0 as *mut GeometryImpl);
+                        mesh.build_procedural(mesh_build);
                     }
                 }
             }

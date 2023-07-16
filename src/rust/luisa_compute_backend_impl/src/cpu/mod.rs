@@ -3,7 +3,7 @@
 use std::{cell::RefCell, sync::Arc};
 
 use self::{
-    accel::{AccelImpl, MeshImpl},
+    accel::{AccelImpl, GeometryImpl},
     resource::{BindlessArrayImpl, BufferImpl, EventImpl},
     stream::{convert_capture, StreamImpl},
     texture::TextureImpl,
@@ -375,7 +375,7 @@ impl Backend for RustBackend {
     }
     fn create_mesh(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
-            let mesh = Box::new(MeshImpl::new(
+            let mesh = Box::new(GeometryImpl::new(
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
@@ -392,7 +392,7 @@ impl Backend for RustBackend {
     }
     fn destroy_mesh(&self, mesh: api::Mesh) {
         unsafe {
-            let mesh = mesh.0 as *mut MeshImpl;
+            let mesh = mesh.0 as *mut GeometryImpl;
             drop(Box::from_raw(mesh));
         }
     }
