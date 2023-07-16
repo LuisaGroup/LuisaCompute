@@ -206,24 +206,14 @@ impl StreamImpl {
         let nthreads = pool.current_num_threads();
         pool.scope(|s| {
             for _ in 0..nthreads {
-                s.spawn(|_| {
-                    let result = std::panic::catch_unwind(|| {
-                        // let counter = unsafe { &*(p_counter as *const AtomicUsize) };
-                        loop {
-                            let index =
-                                counter.fetch_add(block, std::sync::atomic::Ordering::Relaxed);
-                            if index >= count {
-                                break;
-                            }
+                s.spawn(|_| loop {
+                    let index = counter.fetch_add(block, std::sync::atomic::Ordering::Relaxed);
+                    if index >= count {
+                        break;
+                    }
 
-                            for i in index..(index + block).min(count) {
-                                kernel(i);
-                            }
-                        }
-                    });
-                    if let Err(_) = result {
-                        log::error!("kernel execution aborted");
-                        panic_abort!("kernel execution aborted");
+                    for i in index..(index + block).min(count) {
+                        kernel(i);
                     }
                 });
             }
@@ -433,7 +423,7 @@ impl StreamImpl {
                                 accel_build.modifications,
                                 accel_build.modifications_count,
                             ),
-                            accel_build.update_instance_buffer_only
+                            accel_build.update_instance_buffer_only,
                         );
                     }
                     api::Command::BindlessArrayUpdate(bindless_update) => {
@@ -585,7 +575,7 @@ extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u
 
 extern "C" fn instance_transform(accel: *const std::ffi::c_void, instance_id: u32) -> defs::Mat4 {
     /*
-    0 1 2 3 
+    0 1 2 3
     4 5 6 7
     8 9 10 11 */
     unsafe {
@@ -598,19 +588,17 @@ extern "C" fn instance_transform(accel: *const std::ffi::c_void, instance_id: u3
     }
 }
 
-
-
 extern "C" fn set_instance_transform(
     accel: *const std::ffi::c_void,
     instance_id: u32,
     transform: &defs::Mat4,
 ) {
     /*
-    0   4   8    12
-    1   5   9    13 
-    2   6   10   14
-    3   7   11   15
- */
+       0   4   8    12
+       1   5   9    13
+       2   6   10   14
+       3   7   11   15
+    */
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         let affine = [

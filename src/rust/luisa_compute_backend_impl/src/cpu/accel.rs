@@ -1,4 +1,4 @@
-use std::os::raw::c_void;
+use std::{os::raw::c_void, ptr::null_mut};
 
 use super::resource::BufferImpl;
 use crate::panic_abort;
@@ -86,12 +86,14 @@ impl GeometryImpl {
         if need_rebuild {
             let geometry = sys::rtcNewGeometry(device, sys::RTC_GEOMETRY_TYPE_USER);
 
+            sys::rtcSetGeometryUserData(geometry, aabb_buffer.data as *mut c_void);
             sys::rtcSetGeometryUserPrimitiveCount(geometry, cmd.aabb_count as u32);
             sys::rtcSetGeometryBoundsFunction(
                 geometry,
                 Some(bounds_func),
-                (aabb_buffer.data as *mut u8).add(cmd.aabb_buffer_offset) as *mut c_void,
+                null_mut(),
             );
+          
             check_error!(device);
             sys::rtcCommitGeometry(geometry);
             check_error!(device);
@@ -262,7 +264,9 @@ impl AccelImpl {
         for m in modifications {
             if m.flags.contains(AccelBuildModificationFlags::PRIMITIVE) {
                 let mesh = &*(m.mesh as *const GeometryImpl);
-                assert!(mesh.built);
+                if !mesh.built {
+                    panic_abort!("Mesh not built");
+                }
                 unsafe {
                     let affine = m.affine;
                     let geometry = sys::rtcNewGeometry(device, sys::RTC_GEOMETRY_TYPE_INSTANCE);

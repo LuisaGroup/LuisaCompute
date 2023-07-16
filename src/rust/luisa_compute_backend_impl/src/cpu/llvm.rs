@@ -816,7 +816,7 @@ impl Context {
                     eprintln!("{}", shader.messages[msg as usize]);
                 }
 
-                panic!("##lc_kernel##");
+                panic!("kernel execution aborted");
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
@@ -865,7 +865,7 @@ impl Context {
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
                     eprintln!("{}", display);
                 }
-                panic!("##lc_kernel##");
+                panic!("kernel execution aborted");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
