@@ -11,7 +11,7 @@ add_includedirs("../ext/stb", {
 })
 target_end()
 
--- TEST MAIN with testdoc
+-- TEST MAIN with doctest
 ------------------------------------
 target("test_main")
 _config_project({
