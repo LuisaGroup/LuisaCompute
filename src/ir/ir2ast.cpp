@@ -6,6 +6,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/rust/ir.hpp>
 #include <luisa/ir/ir2ast.h>
+#include <luisa/dsl/rtx/ray_query.h>
 
 namespace luisa::compute {
 
@@ -162,14 +163,14 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 Type::of<Ray>(), CastOp::BITWISE, converted_args[1]);
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ANY) {
-            auto type = Type::custom("LC_RayQueryAny");
+            auto type = Type::of<RayQueryAny>();
             auto local = _ctx->function_builder->local(type);
             auto call = _ctx->function_builder->call(type, call_op, converted_args);
             _ctx->function_builder->assign(local, call);
             return local;
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ALL) {
-            auto type = Type::custom("LC_RayQueryAll");
+            auto type = Type::of<RayQueryAll>();
             auto local = _ctx->function_builder->local(type);
             auto call = _ctx->function_builder->call(type, call_op, converted_args);
             _ctx->function_builder->assign(local, call);
@@ -271,6 +272,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         switch (c.tag) {
             case ir::Const::Tag::Zero: return 0;
             case ir::Const::Tag::One: return 1;
+            case ir::Const::Tag::Int16: return c.int16._0;
+            case ir::Const::Tag::Uint16: return c.uint16._0;
             case ir::Const::Tag::Int32: return c.int32._0;
             case ir::Const::Tag::Uint32: return c.uint32._0;
             case ir::Const::Tag::Int64: return c.int64._0;
@@ -284,6 +287,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                     return static_cast<uint64_t>(x);
                 };
                 switch (t->primitive._0) {
+                    case ir::Primitive::Int16: return do_cast.operator()<int16_t>();
+                    case ir::Primitive::Uint16: return do_cast.operator()<uint16_t>();
                     case ir::Primitive::Int32: return do_cast.operator()<int32_t>();
                     case ir::Primitive::Uint32: return do_cast.operator()<uint32_t>();
                     case ir::Primitive::Int64: return do_cast.operator()<int64_t>();
@@ -299,12 +304,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::ZeroInitializer: return builtin_func(0, CallOp::ZERO);
         case ir::Func::Tag::Assume: return builtin_func(1, CallOp::ASSUME);
         case ir::Func::Tag::Unreachable: return builtin_func(0, CallOp::UNREACHABLE);
-        case ir::Func::Tag::Assert: {
-            LUISA_ASSERT(args.size() == 1u, "`Assert` takes 1 argument.");
-            LUISA_WARNING_WITH_LOCATION("`assert` is not implemented. Mapping to `assume()` currently.");
-            // TODO: support assert
-            return builtin_func(1, CallOp::ASSUME);
-        }
+        case ir::Func::Tag::Assert: return builtin_func(1, CallOp::ASSERT);
         case ir::Func::Tag::ThreadId: {
             LUISA_ASSERT(args.empty(), "`ThreadId` takes no arguments.");
             return _ctx->function_builder->thread_id();
@@ -326,6 +326,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::GradientMarker: return builtin_func(2, CallOp::GRADIENT_MARKER);
         case ir::Func::Tag::AccGrad: return builtin_func(2, CallOp::ACCUMULATE_GRADIENT);
         case ir::Func::Tag::Detach: return builtin_func(1, CallOp::DETACH);
+        case ir::Func::Tag::Backward: return builtin_func(1, CallOp::BACKWARD);
         case ir::Func::Tag::RayTracingInstanceTransform: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_TRANSFORM);
         case ir::Func::Tag::RayTracingSetInstanceTransform: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM);
         case ir::Func::Tag::RayTracingSetInstanceVisibility: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY);
@@ -340,6 +341,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::RayQueryCommitTriangle: return builtin_func(1, CallOp::RAY_QUERY_COMMIT_TRIANGLE);
         case ir::Func::Tag::RayQueryCommitProcedural: return builtin_func(2, CallOp::RAY_QUERY_COMMIT_PROCEDURAL);
         case ir::Func::Tag::RayQueryTerminate: return builtin_func(1, CallOp::RAY_QUERY_TERMINATE);
+        case ir::Func::Tag::RayQueryWorldSpaceRay: return builtin_func(1, CallOp::RAY_QUERY_WORLD_SPACE_RAY);
         case ir::Func::Tag::RasterDiscard: return builtin_func(0, CallOp::RASTER_DISCARD);
         case ir::Func::Tag::IndirectClearDispatchBuffer: return builtin_func(1, CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER);
         case ir::Func::Tag::IndirectEmplaceDispatchKernel: return builtin_func(4, CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL);
@@ -408,11 +410,13 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             LUISA_ASSERT(args.size() == 3u, "Select takes 3 arguments.");
             // In IR the argument order is (condition, value_true, value_false)
             // However in AST it is (value_false, value_true, condition)
-            return _ctx->function_builder->call(type, CallOp::SELECT, {
-                                                                          _convert_node(args[2]),
-                                                                          _convert_node(args[1]),
-                                                                          _convert_node(args[0]),
-                                                                      });
+            return _ctx->function_builder->call(
+                type, CallOp::SELECT,
+                {
+                    _convert_node(args[2]),
+                    _convert_node(args[1]),
+                    _convert_node(args[0]),
+                });
         }
         case ir::Func::Tag::Clamp: return builtin_func(3, CallOp::CLAMP);
         case ir::Func::Tag::Saturate: return builtin_func(1, CallOp::SATURATE);
@@ -584,6 +588,19 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             }
             return struct_instance;
         }
+        case ir::Func::Tag::Array: {
+            LUISA_ASSERT(type->is_array(), "Invalid array type.");
+            auto element_type = type->element();
+            auto array_instance = _ctx->function_builder->local(type);
+            LUISA_ASSERT(args.size() == type->count(), "Array type inconsistent with arguments.");
+            for (auto i = 0u; i < args.size(); i++) {
+                auto index = _ctx->function_builder->literal(Type::of<uint>(), i);
+                auto access = _ctx->function_builder->access(element_type, array_instance, index);
+                auto elem = _convert_node(args[i]);
+                _ctx->function_builder->assign(access, elem);
+            }
+            return array_instance;
+        }
         case ir::Func::Tag::Mat: return make_matrix(1);
         case ir::Func::Tag::Mat2: return make_matrix(2);
         case ir::Func::Tag::Mat3: return make_matrix(3);
@@ -599,8 +616,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             auto callable = callable_fb->function();
             return _ctx->function_builder->call(type, callable, luisa::span{converted_args});
         }
-        case ir::Func::Tag::CpuCustomOp: LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
-        default: LUISA_ERROR_WITH_LOCATION("Invalid function tag: {}.", function_name);
+        case ir::Func::Tag::CpuCustomOp:
+            LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
     }
     return nullptr;
 }
@@ -985,11 +1002,32 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 case 4: return CallOp::MAKE_BOOL4;
                 default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
             }
+        case Type::Tag::FLOAT16:
+            switch (length) {
+                case 2: return CallOp::MAKE_HALF2;
+                case 3: return CallOp::MAKE_HALF3;
+                case 4: return CallOp::MAKE_HALF4;
+                default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
+            }
         case Type::Tag::FLOAT32:
             switch (length) {
                 case 2: return CallOp::MAKE_FLOAT2;
                 case 3: return CallOp::MAKE_FLOAT3;
                 case 4: return CallOp::MAKE_FLOAT4;
+                default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
+            }
+        case Type::Tag::INT16:
+            switch (length) {
+                case 2: return CallOp::MAKE_SHORT2;
+                case 3: return CallOp::MAKE_SHORT3;
+                case 4: return CallOp::MAKE_SHORT4;
+                default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
+            }
+        case Type::Tag::UINT16:
+            switch (length) {
+                case 2: return CallOp::MAKE_USHORT2;
+                case 3: return CallOp::MAKE_USHORT3;
+                case 4: return CallOp::MAKE_USHORT4;
                 default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
             }
         case Type::Tag::INT32:
@@ -1006,7 +1044,22 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 case 4: return CallOp::MAKE_UINT4;
                 default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
             }
-        default: LUISA_ERROR_WITH_LOCATION("64-bit primitive types are not yet supported.");
+        case Type::Tag::INT64:
+            switch (length) {
+                case 2: return CallOp::MAKE_LONG2;
+                case 3: return CallOp::MAKE_LONG3;
+                case 4: return CallOp::MAKE_LONG4;
+                default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
+            }
+        case Type::Tag::UINT64:
+            switch (length) {
+                case 2: return CallOp::MAKE_ULONG2;
+                case 3: return CallOp::MAKE_ULONG3;
+                case 4: return CallOp::MAKE_ULONG4;
+                default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
+            }
+        default: LUISA_ERROR_WITH_LOCATION("Unsupported vector element type: {}.",
+                                           primitive->description());
     }
 }
 

@@ -690,6 +690,12 @@ private:
 public:
     explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
+    void operator()(half v) const noexcept {
+        // TODO
+        LUISA_NOT_IMPLEMENTED();
+        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        _s << luisa::format("lc_half({})", static_cast<float>(v));
+    }
     void operator()(float v) const noexcept {
         if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
@@ -700,6 +706,10 @@ public:
     }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
+    void operator()(short v) const noexcept { _s << luisa::format("lc_ushort({})", v); }
+    void operator()(ushort v) const noexcept { _s << luisa::format("lc_short({})", v); }
+    void operator()(slong v) const noexcept { _s << luisa::format("{}ll", v); }
+    void operator()(ulong v) const noexcept { _s << luisa::format("{}ull", v); }
 
     template<typename T, size_t N>
     void operator()(Vector<T, N> v) const noexcept {
@@ -843,11 +853,11 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: break;// TODO
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED(); break;// TODO
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "lc_bindless_texture_sample3d"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample3d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: break;// TODO
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED(); break;// TODO
         case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "lc_bindless_texture_read2d"; break;
         case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "lc_bindless_texture_read3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "lc_bindless_texture_read2d_level"; break;
@@ -863,7 +873,9 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
-            LUISA_ERROR("Not Implemented.");
+            _scratch << "lc_bindless_byte_address_buffer_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
             break;
         }
         case CallOp::BINDLESS_BUFFER_SIZE: {
@@ -884,13 +896,14 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(long, LONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
-            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
-        case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
+        case CallOp::ASSERT: _scratch << "lc_assert"; break;
+        case CallOp::ASSUME: _scratch << "lc_assume"; break;
         case CallOp::UNREACHABLE:
             _scratch << "lc_unreachable<";
             _emit_type_name(expr->type());

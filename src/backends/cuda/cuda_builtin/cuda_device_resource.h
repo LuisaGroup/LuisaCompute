@@ -1048,6 +1048,17 @@ template<typename T>
     return buffer[i];
 }
 
+template<typename T>
+[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_uint offset) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const char *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+#endif
+    return *reinterpret_cast<const T *>(buffer + offset);
+}
+
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;

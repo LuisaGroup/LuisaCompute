@@ -485,6 +485,8 @@ struct Const {
         Zero,
         One,
         Bool,
+        Int16,
+        Uint16,
         Int32,
         Uint32,
         Int64,
@@ -505,6 +507,14 @@ struct Const {
 
     struct Bool_Body {
         bool _0;
+    };
+
+    struct Int16_Body {
+        int16_t _0;
+    };
+
+    struct Uint16_Body {
+        uint16_t _0;
     };
 
     struct Int32_Body {
@@ -545,6 +555,8 @@ struct Const {
         Zero_Body zero;
         One_Body one;
         Bool_Body bool_;
+        Int16_Body int16;
+        Uint16_Body uint16;
         Int32_Body int32;
         Uint32_Body uint32;
         Int64_Body int64;

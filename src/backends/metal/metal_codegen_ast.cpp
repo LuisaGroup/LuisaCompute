@@ -37,6 +37,10 @@ public:
     }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
+    void operator()(short v) const noexcept { _s << luisa::format("ushort({})", v); }
+    void operator()(ushort v) const noexcept { _s << luisa::format("short({})", v); }
+    void operator()(slong v) const noexcept { _s << luisa::format("{}ll", v); }
+    void operator()(ulong v) const noexcept { _s << luisa::format("{}ull", v); }
 
     template<typename T, size_t N>
     void operator()(Vector<T, N> v) const noexcept {
@@ -919,7 +923,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             break;
         }
         case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
-            LUISA_ERROR("Not Implemented.");
+            _scratch << "bindless_byte_address_buffer_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
             break;
         }
         case CallOp::BINDLESS_BUFFER_SIZE: {
@@ -946,6 +952,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::ASSERT: _scratch << "lc_assert"; break;
         case CallOp::ASSUME: _scratch << "lc_assume"; break;
         case CallOp::UNREACHABLE: {
             _scratch << "lc_unreachable";

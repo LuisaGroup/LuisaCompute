@@ -74,6 +74,8 @@ impl VectorElementType {
     }
     pub fn is_int(&self) -> bool {
         match self {
+            VectorElementType::Scalar(Primitive::Int16) => true,
+            VectorElementType::Scalar(Primitive::Uint16) => true,
             VectorElementType::Scalar(Primitive::Int32) => true,
             VectorElementType::Scalar(Primitive::Uint32) => true,
             VectorElementType::Scalar(Primitive::Int64) => true,
@@ -434,7 +436,9 @@ impl Type {
     pub fn is_int(&self) -> bool {
         match self {
             Type::Primitive(p) => match p {
-                Primitive::Int32 | Primitive::Uint32 | Primitive::Int64 | Primitive::Uint64 => true,
+                Primitive::Int16 | Primitive::Uint16 |
+                Primitive::Int32 | Primitive::Uint32 |
+                Primitive::Int64 | Primitive::Uint64 => true,
                 _ => false,
             },
             Type::Vector(v) => v.element.is_int(),
@@ -775,6 +779,8 @@ pub enum Const {
     Zero(CArc<Type>),
     One(CArc<Type>),
     Bool(bool),
+    Int16(i16),
+    Uint16(u16),
     Int32(i32),
     Uint32(u32),
     Int64(i64),
@@ -791,6 +797,8 @@ impl std::fmt::Display for Const {
             Const::Zero(t) => write!(f, "0_{}", t),
             Const::One(t) => write!(f, "1_{}", t),
             Const::Bool(b) => write!(f, "{}", b),
+            Const::Int16(i) => write!(f, "{}", i),
+            Const::Uint16(u) => write!(f, "{}", u),
             Const::Int32(i) => write!(f, "{}", i),
             Const::Uint32(u) => write!(f, "{}", u),
             Const::Int64(i) => write!(f, "{}", i),
@@ -806,8 +814,12 @@ impl std::fmt::Display for Const {
 impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
+            Const::Int16(v) => *v as i32,
+            Const::Uint16(v) => *v as i32,
             Const::Int32(v) => *v,
             Const::Uint32(v) => *v as i32,
+            Const::Int64(v) => *v as i32,
+            Const::Uint64(v) => *v as i32,
             Const::One(t) => {
                 assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
                 1
@@ -831,6 +843,8 @@ impl Const {
             Const::Zero(ty) => ty.clone(),
             Const::One(ty) => ty.clone(),
             Const::Bool(_) => <bool as TypeOf>::type_(),
+            Const::Int16(_) => <i16 as TypeOf>::type_(),
+            Const::Uint16(_) => <u16 as TypeOf>::type_(),
             Const::Int32(_) => <i32 as TypeOf>::type_(),
             Const::Uint32(_) => <u32 as TypeOf>::type_(),
             Const::Int64(_) => <i64 as TypeOf>::type_(),

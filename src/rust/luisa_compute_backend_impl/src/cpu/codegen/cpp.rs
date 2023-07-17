@@ -1340,6 +1340,12 @@ impl<'a> FunctionEmitter<'a> {
             Const::Bool(v) => {
                 writeln!(&mut self.body, "const bool {} = {};", var, *v).unwrap();
             }
+            Const::Int16(v) => {
+                writeln!(&mut self.body, "const int16_t {} = {};", var, *v).unwrap();
+            }
+            Const::Uint16(v) => {
+                writeln!(&mut self.body, "const uint16_t {} = {};", var, *v).unwrap();
+            }
             Const::Int32(v) => {
                 writeln!(&mut self.body, "const int32_t {} = {};", var, *v).unwrap();
             }

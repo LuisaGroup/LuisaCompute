@@ -15,20 +15,35 @@ using lc_ulong = unsigned long long;
 
 
 struct lc_half {
-    lc_short bits;
-   inline constexpr lc_half() noexcept : bits{0} {}
-   inline constexpr lc_half(float x) noexcept {
-        __fp16 h = x;
-        bits = *reinterpret_cast<const lc_short*>(&h);
+private:
+    union U { __fp16 h; lc_ushort bits; };
+public:
+    lc_ushort bits;
+    inline constexpr lc_half() noexcept : bits{0} {}
+    [[nodiscard]] static inline constexpr auto from_bits(lc_ushort bits) noexcept {
+        lc_half h;
+        h.bits = bits;
+        return h;
     }
-   inline constexpr operator float() const noexcept {
-        __fp16 h;
-        h = *reinterpret_cast<const __fp16*>(&bits);
-        return float(h);
+    inline constexpr lc_half(float x) noexcept {
+        U u;
+        u.h = x;
+        bits = u.bits;
     }
-#define IMPL_HALF_BINOP(op) inline constexpr auto operator op(lc_half rhs) const noexcept {\
-        __fp16 h = *reinterpret_cast<const __fp16*>(&bits) op *reinterpret_cast<const __fp16*>(&rhs.bits);\
-        return *reinterpret_cast<const lc_half*>(&h);\
+    template<typename T>
+    inline constexpr operator T() const noexcept {
+        U u;
+        u.bits = bits;
+        return static_cast<T>(static_cast<float>(u.h));
+    }
+    inline constexpr auto operator-() const noexcept { return from_bits(bits ^ 0x8000u); }
+    inline constexpr auto operator+() const noexcept { return *this; }
+    inline constexpr auto operator!() const noexcept { return bits == 0u || bits == 0x8000u; }
+#define IMPL_HALF_BINOP(op)                                         \
+    inline constexpr auto operator op(lc_half rhs) const noexcept { \
+        U u_lhs; u_lhs.bits = bits;                                 \
+        U u_rhs; u_rhs.bits = rhs.bits;                             \
+        return lc_half{lc_float(u_lhs.h op u_rhs.h)};               \
     }
     IMPL_HALF_BINOP(+)
     IMPL_HALF_BINOP(-)
@@ -46,7 +61,7 @@ struct lc_half {
 };
 static_assert(sizeof(lc_half) == 2);
 
-struct alignas(8) lc_short2 {
+struct alignas(4) lc_short2 {
     lc_short x, y;
     inline constexpr lc_short2() noexcept
         : x{}, y{} {}
@@ -60,7 +75,7 @@ struct alignas(8) lc_short2 {
     inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
 };
 
-struct alignas(16) lc_short3 {
+struct alignas(8) lc_short3 {
     lc_short x, y, z;
     inline constexpr lc_short3() noexcept
         : x{}, y{}, z{} {}
@@ -74,7 +89,7 @@ struct alignas(16) lc_short3 {
     inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
 };
 
-struct alignas(16) lc_short4 {
+struct alignas(8) lc_short4 {
     lc_short x, y, z, w;
     inline constexpr lc_short4() noexcept
         : x{}, y{}, z{}, w{} {}
@@ -88,7 +103,7 @@ struct alignas(16) lc_short4 {
     inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
 };
 
-struct alignas(8) lc_ushort2 {
+struct alignas(4) lc_ushort2 {
     lc_ushort x, y;
     inline constexpr lc_ushort2() noexcept
         : x{}, y{} {}
@@ -102,7 +117,7 @@ struct alignas(8) lc_ushort2 {
     inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
 };
 
-struct alignas(16) lc_ushort3 {
+struct alignas(8) lc_ushort3 {
     lc_ushort x, y, z;
     inline constexpr lc_ushort3() noexcept
         : x{}, y{}, z{} {}
@@ -116,7 +131,7 @@ struct alignas(16) lc_ushort3 {
     inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
 };
 
-struct alignas(16) lc_ushort4 {
+struct alignas(8) lc_ushort4 {
     lc_ushort x, y, z, w;
     inline constexpr lc_ushort4() noexcept
         : x{}, y{}, z{}, w{} {}
@@ -209,6 +224,48 @@ struct alignas(16) lc_uint4 {
     inline explicit constexpr lc_uint4(lc_uint s) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     inline constexpr lc_uint4(lc_uint x, lc_uint y, lc_uint z, lc_uint w) noexcept
+        : x{x}, y{y}, z{z}, w{w} {}
+    inline constexpr auto &operator[](lc_uint i) noexcept { return (&x)[i]; }
+    inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
+};
+
+struct alignas(4) lc_half2 {
+    lc_half x, y;
+    inline constexpr lc_half2() noexcept
+        : x{}, y{} {}
+    inline constexpr static auto zero() noexcept { return lc_half2{}; }
+    inline constexpr static auto one() noexcept { return lc_half2{1, 1}; }
+    inline explicit constexpr lc_half2(lc_half s) noexcept
+        : x{s}, y{s} {}
+    inline constexpr lc_half2(lc_half x, lc_half y) noexcept
+        : x{x}, y{y} {}
+    inline constexpr auto &operator[](lc_uint i) noexcept { return (&x)[i]; }
+    inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
+};
+
+struct alignas(8) lc_half3 {
+    lc_half x, y, z;
+    inline constexpr lc_half3() noexcept
+        : x{}, y{}, z{} {}
+    inline constexpr static auto zero() noexcept { return lc_half3{}; }
+    inline constexpr static auto one() noexcept { return lc_half3{1, 1, 1}; }
+    inline explicit constexpr lc_half3(lc_half s) noexcept
+        : x{s}, y{s}, z{s} {}
+    inline constexpr lc_half3(lc_half x, lc_half y, lc_half z) noexcept
+        : x{x}, y{y}, z{z} {}
+    inline constexpr auto &operator[](lc_uint i) noexcept { return (&x)[i]; }
+    inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
+};
+
+struct alignas(8) lc_half4 {
+    lc_half x, y, z, w;
+    inline constexpr lc_half4() noexcept
+        : x{}, y{}, z{}, w{} {}
+    inline constexpr static auto zero() noexcept { return lc_half4{}; }
+    inline constexpr static auto one() noexcept { return lc_half4{1, 1, 1, 1}; }
+    inline explicit constexpr lc_half4(lc_half s) noexcept
+        : x{s}, y{s}, z{s}, w{s} {}
+    inline constexpr lc_half4(lc_half x, lc_half y, lc_half z, lc_half w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
     inline constexpr auto &operator[](lc_uint i) noexcept { return (&x)[i]; }
     inline constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
@@ -396,6 +453,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_short2(lc_uint2 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_short2(lc_uint3 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_short2(lc_uint4 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_short2(lc_half2 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_short2(lc_half3 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_short2(lc_half4 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_short2(lc_float2 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_short2(lc_float3 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_short2(lc_float4 v) noexcept { return lc_short2{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y)}; }
@@ -420,6 +480,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_short3(lc_int4 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_short3(lc_uint3 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_short3(lc_uint4 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_short3(lc_half3 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_short3(lc_half4 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_short3(lc_float3 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_short3(lc_float4 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_short3(lc_bool3 v) noexcept { return lc_short3{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z)}; }
@@ -440,6 +502,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_short4(lc_ushort4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_short4(lc_int4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_short4(lc_uint4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_short4(lc_half4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_short4(lc_float4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_short4(lc_bool4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_short4(lc_long4 v) noexcept { return lc_short4{static_cast<lc_short>(v.x), static_cast<lc_short>(v.y), static_cast<lc_short>(v.z), static_cast<lc_short>(v.w)}; }
@@ -459,6 +522,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_ushort2(lc_uint2 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort2(lc_uint3 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort2(lc_uint4 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_ushort2(lc_half2 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_ushort2(lc_half3 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_ushort2(lc_half4 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort2(lc_float2 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort2(lc_float3 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort2(lc_float4 v) noexcept { return lc_ushort2{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y)}; }
@@ -483,6 +549,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_ushort3(lc_int4 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ushort3(lc_uint3 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ushort3(lc_uint4 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_ushort3(lc_half3 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_ushort3(lc_half4 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ushort3(lc_float3 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ushort3(lc_float4 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ushort3(lc_bool3 v) noexcept { return lc_ushort3{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z)}; }
@@ -503,6 +571,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_ushort4(lc_ushort4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort4(lc_int4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort4(lc_uint4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_ushort4(lc_half4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort4(lc_float4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort4(lc_bool4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ushort4(lc_long4 v) noexcept { return lc_ushort4{static_cast<lc_ushort>(v.x), static_cast<lc_ushort>(v.y), static_cast<lc_ushort>(v.z), static_cast<lc_ushort>(v.w)}; }
@@ -522,6 +591,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_int2(lc_uint2 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_int2(lc_uint3 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_int2(lc_uint4 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_int2(lc_half2 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_int2(lc_half3 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_int2(lc_half4 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_int2(lc_float2 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_int2(lc_float3 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_int2(lc_float4 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
@@ -546,6 +618,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_int3(lc_int4 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_int3(lc_uint3 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_int3(lc_uint4 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_int3(lc_half3 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_int3(lc_half4 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_int3(lc_float3 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_int3(lc_float4 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_int3(lc_bool3 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
@@ -566,6 +640,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_int4(lc_ushort4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_int4(lc_int4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_int4(lc_uint4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_int4(lc_half4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_int4(lc_float4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_int4(lc_bool4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_int4(lc_long4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
@@ -585,6 +660,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_uint2(lc_uint2 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint2(lc_uint3 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint2(lc_uint4 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_uint2(lc_half2 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_uint2(lc_half3 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_uint2(lc_half4 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint2(lc_float2 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint2(lc_float3 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint2(lc_float4 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
@@ -609,6 +687,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_uint3(lc_int4 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_uint3(lc_uint3 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_uint3(lc_uint4 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_uint3(lc_half3 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_uint3(lc_half4 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_uint3(lc_float3 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_uint3(lc_float4 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_uint3(lc_bool3 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
@@ -629,10 +709,80 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_ushort4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_int4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_uint4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_uint4(lc_half4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_float4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_bool4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_long4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_uint4(lc_ulong4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
+
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_half s = 0) noexcept { return lc_half2{s, s}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_half x, lc_half y) noexcept { return lc_half2{x, y}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_short2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_short3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_short4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_ushort2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_ushort3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_ushort4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_int2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_int3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_int4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_uint2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_uint3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_uint4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_half2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_half3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_half4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_float2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_float3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_float4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_bool2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_bool3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_bool4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_long2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_long3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_long4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_ulong2 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_ulong3 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half2(lc_ulong4 v) noexcept { return lc_half2{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_half3(lc_half s = 0) noexcept { return lc_half3{s, s, s}; }
+[[nodiscard]] inline constexpr auto lc_make_half3(lc_half x, lc_half y, lc_half z) noexcept { return lc_half3{x, y, z}; }
+[[nodiscard]] inline constexpr auto lc_make_half3(lc_half x, lc_half2 yz) noexcept { return lc_half3{x, yz.x, yz.y}; }
+[[nodiscard]] inline constexpr auto lc_make_half3(lc_half2 xy, lc_half z) noexcept { return lc_half3{xy.x, xy.y, z}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_short3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_short4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_ushort3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_ushort4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_int3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_int4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_uint3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_uint4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_half3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_half4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_float3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_float4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_bool3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_bool4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_long3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_long4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_ulong3 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_half3(lc_ulong4 v) noexcept { return lc_half3{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half s = 0) noexcept { return lc_half4{s, s, s, s}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half x, lc_half y, lc_half z, lc_half w) noexcept { return lc_half4{x, y, z, w}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half x, lc_half y, lc_half2 zw) noexcept { return lc_half4{x, y, zw.x, zw.y}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half x, lc_half2 yz, lc_half w) noexcept { return lc_half4{x, yz.x, yz.y, w}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half2 xy, lc_half z, lc_half w) noexcept { return lc_half4{xy.x, xy.y, z, w}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half2 xy, lc_half2 zw) noexcept { return lc_half4{xy.x, xy.y, zw.x, zw.y}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half x, lc_half3 yzw) noexcept { return lc_half4{x, yzw.x, yzw.y, yzw.z}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half3 xyz, lc_half w) noexcept { return lc_half4{xyz.x, xyz.y, xyz.z, w}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_short4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_ushort4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_int4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_uint4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_half4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_float4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_bool4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_long4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_half4(lc_ulong4 v) noexcept { return lc_half4{static_cast<lc_half>(v.x), static_cast<lc_half>(v.y), static_cast<lc_half>(v.z), static_cast<lc_half>(v.w)}; }
 
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_float s = 0) noexcept { return lc_float2{s, s}; }
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_float x, lc_float y) noexcept { return lc_float2{x, y}; }
@@ -648,6 +798,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_uint2 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_uint3 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_uint4 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_float2(lc_half2 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_float2(lc_half3 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_float2(lc_half4 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_float2 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_float3 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_float2(lc_float4 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
@@ -672,6 +825,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_float3(lc_int4 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_float3(lc_uint3 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_float3(lc_uint4 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_float3(lc_half3 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_float3(lc_half4 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_float3(lc_float3 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_float3(lc_float4 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_float3(lc_bool3 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
@@ -692,6 +847,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_float4(lc_ushort4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_float4(lc_int4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_float4(lc_uint4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_float4(lc_half4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_float4(lc_float4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_float4(lc_bool4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_float4(lc_long4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
@@ -711,6 +867,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_bool2(lc_uint2 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool2(lc_uint3 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool2(lc_uint4 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_bool2(lc_half2 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_bool2(lc_half3 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_bool2(lc_half4 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool2(lc_float2 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool2(lc_float3 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool2(lc_float4 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
@@ -735,6 +894,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_bool3(lc_int4 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_bool3(lc_uint3 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_bool3(lc_uint4 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_bool3(lc_half3 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_bool3(lc_half4 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_bool3(lc_float3 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_bool3(lc_float4 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_bool3(lc_bool3 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
@@ -755,6 +916,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_bool4(lc_ushort4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool4(lc_int4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool4(lc_uint4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_bool4(lc_half4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool4(lc_float4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool4(lc_bool4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_bool4(lc_long4 v) noexcept { return lc_bool4{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z), static_cast<lc_bool>(v.w)}; }
@@ -774,6 +936,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_long2(lc_uint2 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_long2(lc_uint3 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_long2(lc_uint4 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_long2(lc_half2 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_long2(lc_half3 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_long2(lc_half4 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_long2(lc_float2 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_long2(lc_float3 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_long2(lc_float4 v) noexcept { return lc_long2{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y)}; }
@@ -798,6 +963,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_long3(lc_int4 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_long3(lc_uint3 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_long3(lc_uint4 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_long3(lc_half3 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_long3(lc_half4 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_long3(lc_float3 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_long3(lc_float4 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_long3(lc_bool3 v) noexcept { return lc_long3{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z)}; }
@@ -818,6 +985,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_long4(lc_ushort4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_long4(lc_int4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_long4(lc_uint4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_long4(lc_half4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_long4(lc_float4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_long4(lc_bool4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_long4(lc_long4 v) noexcept { return lc_long4{static_cast<lc_long>(v.x), static_cast<lc_long>(v.y), static_cast<lc_long>(v.z), static_cast<lc_long>(v.w)}; }
@@ -837,6 +1005,9 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_ulong2(lc_uint2 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong2(lc_uint3 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong2(lc_uint4 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_ulong2(lc_half2 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_ulong2(lc_half3 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
+[[nodiscard]] inline constexpr auto lc_make_ulong2(lc_half4 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong2(lc_float2 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong2(lc_float3 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong2(lc_float4 v) noexcept { return lc_ulong2{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y)}; }
@@ -861,6 +1032,8 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] constexpr auto lc_make_ulong3(lc_int4 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ulong3(lc_uint3 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ulong3(lc_uint4 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_ulong3(lc_half3 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
+[[nodiscard]] constexpr auto lc_make_ulong3(lc_half4 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ulong3(lc_float3 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ulong3(lc_float4 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
 [[nodiscard]] constexpr auto lc_make_ulong3(lc_bool3 v) noexcept { return lc_ulong3{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z)}; }
@@ -881,6 +1054,7 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto lc_make_ulong4(lc_ushort4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong4(lc_int4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong4(lc_uint4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
+[[nodiscard]] inline constexpr auto lc_make_ulong4(lc_half4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong4(lc_float4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong4(lc_bool4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
 [[nodiscard]] inline constexpr auto lc_make_ulong4(lc_long4 v) noexcept { return lc_ulong4{static_cast<lc_ulong>(v.x), static_cast<lc_ulong>(v.y), static_cast<lc_ulong>(v.z), static_cast<lc_ulong>(v.w)}; }
@@ -889,54 +1063,64 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto operator!(lc_short2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_short2 v) noexcept { return lc_make_short2(+v.x, +v.y); }
 [[nodiscard]] inline constexpr auto operator-(lc_short2 v) noexcept { return lc_make_short2(-v.x, -v.y); }
-[[nodiscard]] inline  constexpr auto operator~(lc_short2 v) noexcept { return lc_make_short2(~v.x, ~v.y); }
+[[nodiscard]] inline constexpr auto operator~(lc_short2 v) noexcept { return lc_make_short2(~v.x, ~v.y); }
 [[nodiscard]] inline constexpr auto operator!(lc_short3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] inline constexpr auto operator+(lc_short3 v) noexcept { return lc_make_short3(+v.x, +v.y, +v.z); }
 [[nodiscard]] inline constexpr auto operator-(lc_short3 v) noexcept { return lc_make_short3(-v.x, -v.y, -v.z); }
-[[nodiscard]] inline  constexpr auto operator~(lc_short3 v) noexcept { return lc_make_short3(~v.x, ~v.y, ~v.z); }
+[[nodiscard]] inline constexpr auto operator~(lc_short3 v) noexcept { return lc_make_short3(~v.x, ~v.y, ~v.z); }
 [[nodiscard]] inline constexpr auto operator!(lc_short4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 [[nodiscard]] inline constexpr auto operator+(lc_short4 v) noexcept { return lc_make_short4(+v.x, +v.y, +v.z, +v.w); }
 [[nodiscard]] inline constexpr auto operator-(lc_short4 v) noexcept { return lc_make_short4(-v.x, -v.y, -v.z, -v.w); }
-[[nodiscard]] inline  constexpr auto operator~(lc_short4 v) noexcept { return lc_make_short4(~v.x, ~v.y, ~v.z, ~v.w); }
+[[nodiscard]] inline constexpr auto operator~(lc_short4 v) noexcept { return lc_make_short4(~v.x, ~v.y, ~v.z, ~v.w); }
 
 [[nodiscard]] inline constexpr auto operator!(lc_ushort2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_ushort2 v) noexcept { return lc_make_ushort2(+v.x, +v.y); }
 [[nodiscard]] inline constexpr auto operator-(lc_ushort2 v) noexcept { return lc_make_ushort2(-v.x, -v.y); }
-[[nodiscard]] inline  constexpr auto operator~(lc_ushort2 v) noexcept { return lc_make_ushort2(~v.x, ~v.y); }
+[[nodiscard]] inline constexpr auto operator~(lc_ushort2 v) noexcept { return lc_make_ushort2(~v.x, ~v.y); }
 [[nodiscard]] inline constexpr auto operator!(lc_ushort3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] inline constexpr auto operator+(lc_ushort3 v) noexcept { return lc_make_ushort3(+v.x, +v.y, +v.z); }
 [[nodiscard]] inline constexpr auto operator-(lc_ushort3 v) noexcept { return lc_make_ushort3(-v.x, -v.y, -v.z); }
-[[nodiscard]] inline  constexpr auto operator~(lc_ushort3 v) noexcept { return lc_make_ushort3(~v.x, ~v.y, ~v.z); }
+[[nodiscard]] inline constexpr auto operator~(lc_ushort3 v) noexcept { return lc_make_ushort3(~v.x, ~v.y, ~v.z); }
 [[nodiscard]] inline constexpr auto operator!(lc_ushort4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 [[nodiscard]] inline constexpr auto operator+(lc_ushort4 v) noexcept { return lc_make_ushort4(+v.x, +v.y, +v.z, +v.w); }
 [[nodiscard]] inline constexpr auto operator-(lc_ushort4 v) noexcept { return lc_make_ushort4(-v.x, -v.y, -v.z, -v.w); }
-[[nodiscard]] inline  constexpr auto operator~(lc_ushort4 v) noexcept { return lc_make_ushort4(~v.x, ~v.y, ~v.z, ~v.w); }
+[[nodiscard]] inline constexpr auto operator~(lc_ushort4 v) noexcept { return lc_make_ushort4(~v.x, ~v.y, ~v.z, ~v.w); }
 
 [[nodiscard]] inline constexpr auto operator!(lc_int2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_int2 v) noexcept { return lc_make_int2(+v.x, +v.y); }
 [[nodiscard]] inline constexpr auto operator-(lc_int2 v) noexcept { return lc_make_int2(-v.x, -v.y); }
-[[nodiscard]] inline  constexpr auto operator~(lc_int2 v) noexcept { return lc_make_int2(~v.x, ~v.y); }
+[[nodiscard]] inline constexpr auto operator~(lc_int2 v) noexcept { return lc_make_int2(~v.x, ~v.y); }
 [[nodiscard]] inline constexpr auto operator!(lc_int3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] inline constexpr auto operator+(lc_int3 v) noexcept { return lc_make_int3(+v.x, +v.y, +v.z); }
 [[nodiscard]] inline constexpr auto operator-(lc_int3 v) noexcept { return lc_make_int3(-v.x, -v.y, -v.z); }
-[[nodiscard]] inline  constexpr auto operator~(lc_int3 v) noexcept { return lc_make_int3(~v.x, ~v.y, ~v.z); }
+[[nodiscard]] inline constexpr auto operator~(lc_int3 v) noexcept { return lc_make_int3(~v.x, ~v.y, ~v.z); }
 [[nodiscard]] inline constexpr auto operator!(lc_int4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 [[nodiscard]] inline constexpr auto operator+(lc_int4 v) noexcept { return lc_make_int4(+v.x, +v.y, +v.z, +v.w); }
 [[nodiscard]] inline constexpr auto operator-(lc_int4 v) noexcept { return lc_make_int4(-v.x, -v.y, -v.z, -v.w); }
-[[nodiscard]] inline  constexpr auto operator~(lc_int4 v) noexcept { return lc_make_int4(~v.x, ~v.y, ~v.z, ~v.w); }
+[[nodiscard]] inline constexpr auto operator~(lc_int4 v) noexcept { return lc_make_int4(~v.x, ~v.y, ~v.z, ~v.w); }
 
 [[nodiscard]] inline constexpr auto operator!(lc_uint2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_uint2 v) noexcept { return lc_make_uint2(+v.x, +v.y); }
 [[nodiscard]] inline constexpr auto operator-(lc_uint2 v) noexcept { return lc_make_uint2(-v.x, -v.y); }
-[[nodiscard]] inline  constexpr auto operator~(lc_uint2 v) noexcept { return lc_make_uint2(~v.x, ~v.y); }
+[[nodiscard]] inline constexpr auto operator~(lc_uint2 v) noexcept { return lc_make_uint2(~v.x, ~v.y); }
 [[nodiscard]] inline constexpr auto operator!(lc_uint3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] inline constexpr auto operator+(lc_uint3 v) noexcept { return lc_make_uint3(+v.x, +v.y, +v.z); }
 [[nodiscard]] inline constexpr auto operator-(lc_uint3 v) noexcept { return lc_make_uint3(-v.x, -v.y, -v.z); }
-[[nodiscard]] inline  constexpr auto operator~(lc_uint3 v) noexcept { return lc_make_uint3(~v.x, ~v.y, ~v.z); }
+[[nodiscard]] inline constexpr auto operator~(lc_uint3 v) noexcept { return lc_make_uint3(~v.x, ~v.y, ~v.z); }
 [[nodiscard]] inline constexpr auto operator!(lc_uint4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 [[nodiscard]] inline constexpr auto operator+(lc_uint4 v) noexcept { return lc_make_uint4(+v.x, +v.y, +v.z, +v.w); }
 [[nodiscard]] inline constexpr auto operator-(lc_uint4 v) noexcept { return lc_make_uint4(-v.x, -v.y, -v.z, -v.w); }
-[[nodiscard]] inline  constexpr auto operator~(lc_uint4 v) noexcept { return lc_make_uint4(~v.x, ~v.y, ~v.z, ~v.w); }
+[[nodiscard]] inline constexpr auto operator~(lc_uint4 v) noexcept { return lc_make_uint4(~v.x, ~v.y, ~v.z, ~v.w); }
+
+[[nodiscard]] inline constexpr auto operator!(lc_half2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
+[[nodiscard]] inline constexpr auto operator+(lc_half2 v) noexcept { return lc_make_half2(+v.x, +v.y); }
+[[nodiscard]] inline constexpr auto operator-(lc_half2 v) noexcept { return lc_make_half2(-v.x, -v.y); }
+[[nodiscard]] inline constexpr auto operator!(lc_half3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
+[[nodiscard]] inline constexpr auto operator+(lc_half3 v) noexcept { return lc_make_half3(+v.x, +v.y, +v.z); }
+[[nodiscard]] inline constexpr auto operator-(lc_half3 v) noexcept { return lc_make_half3(-v.x, -v.y, -v.z); }
+[[nodiscard]] inline constexpr auto operator!(lc_half4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
+[[nodiscard]] inline constexpr auto operator+(lc_half4 v) noexcept { return lc_make_half4(+v.x, +v.y, +v.z, +v.w); }
+[[nodiscard]] inline constexpr auto operator-(lc_half4 v) noexcept { return lc_make_half4(-v.x, -v.y, -v.z, -v.w); }
 
 [[nodiscard]] inline constexpr auto operator!(lc_float2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_float2 v) noexcept { return lc_make_float2(+v.x, +v.y); }
@@ -955,28 +1139,28 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto operator!(lc_long2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_long2 v) noexcept { return lc_make_long2(+v.x, +v.y); }
 [[nodiscard]] inline constexpr auto operator-(lc_long2 v) noexcept { return lc_make_long2(-v.x, -v.y); }
-[[nodiscard]] inline  constexpr auto operator~(lc_long2 v) noexcept { return lc_make_long2(~v.x, ~v.y); }
+[[nodiscard]] inline constexpr auto operator~(lc_long2 v) noexcept { return lc_make_long2(~v.x, ~v.y); }
 [[nodiscard]] inline constexpr auto operator!(lc_long3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] inline constexpr auto operator+(lc_long3 v) noexcept { return lc_make_long3(+v.x, +v.y, +v.z); }
 [[nodiscard]] inline constexpr auto operator-(lc_long3 v) noexcept { return lc_make_long3(-v.x, -v.y, -v.z); }
-[[nodiscard]] inline  constexpr auto operator~(lc_long3 v) noexcept { return lc_make_long3(~v.x, ~v.y, ~v.z); }
+[[nodiscard]] inline constexpr auto operator~(lc_long3 v) noexcept { return lc_make_long3(~v.x, ~v.y, ~v.z); }
 [[nodiscard]] inline constexpr auto operator!(lc_long4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 [[nodiscard]] inline constexpr auto operator+(lc_long4 v) noexcept { return lc_make_long4(+v.x, +v.y, +v.z, +v.w); }
 [[nodiscard]] inline constexpr auto operator-(lc_long4 v) noexcept { return lc_make_long4(-v.x, -v.y, -v.z, -v.w); }
-[[nodiscard]] inline  constexpr auto operator~(lc_long4 v) noexcept { return lc_make_long4(~v.x, ~v.y, ~v.z, ~v.w); }
+[[nodiscard]] inline constexpr auto operator~(lc_long4 v) noexcept { return lc_make_long4(~v.x, ~v.y, ~v.z, ~v.w); }
 
 [[nodiscard]] inline constexpr auto operator!(lc_ulong2 v) noexcept { return lc_make_bool2(!v.x, !v.y); }
 [[nodiscard]] inline constexpr auto operator+(lc_ulong2 v) noexcept { return lc_make_ulong2(+v.x, +v.y); }
 [[nodiscard]] inline constexpr auto operator-(lc_ulong2 v) noexcept { return lc_make_ulong2(-v.x, -v.y); }
-[[nodiscard]] inline  constexpr auto operator~(lc_ulong2 v) noexcept { return lc_make_ulong2(~v.x, ~v.y); }
+[[nodiscard]] inline constexpr auto operator~(lc_ulong2 v) noexcept { return lc_make_ulong2(~v.x, ~v.y); }
 [[nodiscard]] inline constexpr auto operator!(lc_ulong3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] inline constexpr auto operator+(lc_ulong3 v) noexcept { return lc_make_ulong3(+v.x, +v.y, +v.z); }
 [[nodiscard]] inline constexpr auto operator-(lc_ulong3 v) noexcept { return lc_make_ulong3(-v.x, -v.y, -v.z); }
-[[nodiscard]] inline  constexpr auto operator~(lc_ulong3 v) noexcept { return lc_make_ulong3(~v.x, ~v.y, ~v.z); }
+[[nodiscard]] inline constexpr auto operator~(lc_ulong3 v) noexcept { return lc_make_ulong3(~v.x, ~v.y, ~v.z); }
 [[nodiscard]] inline constexpr auto operator!(lc_ulong4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 [[nodiscard]] inline constexpr auto operator+(lc_ulong4 v) noexcept { return lc_make_ulong4(+v.x, +v.y, +v.z, +v.w); }
 [[nodiscard]] inline constexpr auto operator-(lc_ulong4 v) noexcept { return lc_make_ulong4(-v.x, -v.y, -v.z, -v.w); }
-[[nodiscard]] inline  constexpr auto operator~(lc_ulong4 v) noexcept { return lc_make_ulong4(~v.x, ~v.y, ~v.z, ~v.w); }
+[[nodiscard]] inline constexpr auto operator~(lc_ulong4 v) noexcept { return lc_make_ulong4(~v.x, ~v.y, ~v.z, ~v.w); }
 
 [[nodiscard]] inline constexpr auto operator==(lc_short2 lhs, lc_short2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
 [[nodiscard]] inline constexpr auto operator==(lc_short2 lhs, lc_short rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
@@ -1014,6 +1198,15 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto operator==(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z, lhs.w == rhs.w); }
 [[nodiscard]] inline constexpr auto operator==(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs, lhs.w == rhs); }
 [[nodiscard]] inline constexpr auto operator==(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z, lhs == rhs.w); }
+[[nodiscard]] inline constexpr auto operator==(lc_half2 lhs, lc_half2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
+[[nodiscard]] inline constexpr auto operator==(lc_half2 lhs, lc_half rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
+[[nodiscard]] inline constexpr auto operator==(lc_half lhs, lc_half2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }
+[[nodiscard]] inline constexpr auto operator==(lc_half3 lhs, lc_half3 rhs) noexcept { return lc_make_bool3(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z); }
+[[nodiscard]] inline constexpr auto operator==(lc_half3 lhs, lc_half rhs) noexcept { return lc_make_bool3(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs); }
+[[nodiscard]] inline constexpr auto operator==(lc_half lhs, lc_half3 rhs) noexcept { return lc_make_bool3(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z); }
+[[nodiscard]] inline constexpr auto operator==(lc_half4 lhs, lc_half4 rhs) noexcept { return lc_make_bool4(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z, lhs.w == rhs.w); }
+[[nodiscard]] inline constexpr auto operator==(lc_half4 lhs, lc_half rhs) noexcept { return lc_make_bool4(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs, lhs.w == rhs); }
+[[nodiscard]] inline constexpr auto operator==(lc_half lhs, lc_half4 rhs) noexcept { return lc_make_bool4(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z, lhs == rhs.w); }
 [[nodiscard]] inline constexpr auto operator==(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
 [[nodiscard]] inline constexpr auto operator==(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
 [[nodiscard]] inline constexpr auto operator==(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }
@@ -1087,6 +1280,15 @@ struct alignas(16) lc_ulong4 {
 [[nodiscard]] inline constexpr auto operator!=(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z, lhs.w != rhs.w); }
 [[nodiscard]] inline constexpr auto operator!=(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs, lhs.w != rhs); }
 [[nodiscard]] inline constexpr auto operator!=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z, lhs != rhs.w); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half2 lhs, lc_half2 rhs) noexcept { return lc_make_bool2(lhs.x != rhs.x, lhs.y != rhs.y); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half2 lhs, lc_half rhs) noexcept { return lc_make_bool2(lhs.x != rhs, lhs.y != rhs); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half lhs, lc_half2 rhs) noexcept { return lc_make_bool2(lhs != rhs.x, lhs != rhs.y); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half3 lhs, lc_half3 rhs) noexcept { return lc_make_bool3(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half3 lhs, lc_half rhs) noexcept { return lc_make_bool3(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half lhs, lc_half3 rhs) noexcept { return lc_make_bool3(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half4 lhs, lc_half4 rhs) noexcept { return lc_make_bool4(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z, lhs.w != rhs.w); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half4 lhs, lc_half rhs) noexcept { return lc_make_bool4(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs, lhs.w != rhs); }
+[[nodiscard]] inline constexpr auto operator!=(lc_half lhs, lc_half4 rhs) noexcept { return lc_make_bool4(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z, lhs != rhs.w); }
 [[nodiscard]] inline constexpr auto operator!=(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x != rhs.x, lhs.y != rhs.y); }
 [[nodiscard]] inline constexpr auto operator!=(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x != rhs, lhs.y != rhs); }
 [[nodiscard]] inline constexpr auto operator!=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs != rhs.x, lhs != rhs.y); }

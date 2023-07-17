@@ -14,29 +14,45 @@ if __name__ == "__main__":
 }
 ''', file=file)
         # scalar types
-        scalar_types = ["short", "ushort", "int",
-                        "uint", "float", "bool", "long", "ulong"]
+        scalar_types = ["short", "ushort", "int", "uint",
+                        "half", "float", "bool", "long", "ulong"]
         native_types = ["short", "unsigned short", "int", "unsigned int",
-                        "float", "bool", "long long", "unsigned long long"]
+                        "half", "float", "bool", "long long", "unsigned long long"]
         for t, native_t in zip(scalar_types, native_types):
-            print(f"using lc_{t} = {native_t};", file=file)
+            if t != "half":
+                print(f"using lc_{t} = {native_t};", file=file)
         print(file=file)
         print('''
 struct lc_half {
-    lc_short bits;
-   inline constexpr lc_half() noexcept : bits{0} {}
-   inline constexpr lc_half(float x) noexcept {
-        __fp16 h = x;
-        bits = *reinterpret_cast<const lc_short*>(&h);
+private:
+    union U { __fp16 h; lc_ushort bits; };
+public:
+    lc_ushort bits;
+    inline constexpr lc_half() noexcept : bits{0} {}
+    [[nodiscard]] static inline constexpr auto from_bits(lc_ushort bits) noexcept {
+        lc_half h;
+        h.bits = bits;
+        return h;
     }
-   inline constexpr operator float() const noexcept {
-        __fp16 h;
-        h = *reinterpret_cast<const __fp16*>(&bits);
-        return float(h);
+    inline constexpr lc_half(float x) noexcept {
+        U u;
+        u.h = x;
+        bits = u.bits;
     }
-#define IMPL_HALF_BINOP(op) inline constexpr auto operator op(lc_half rhs) const noexcept {\\
-        __fp16 h = *reinterpret_cast<const __fp16*>(&bits) op *reinterpret_cast<const __fp16*>(&rhs.bits);\\
-        return *reinterpret_cast<const lc_half*>(&h);\\
+    template<typename T>
+    inline constexpr operator T() const noexcept {
+        U u;
+        u.bits = bits;
+        return static_cast<T>(static_cast<float>(u.h));
+    }
+    inline constexpr auto operator-() const noexcept { return from_bits(bits ^ 0x8000u); }
+    inline constexpr auto operator+() const noexcept { return *this; }
+    inline constexpr auto operator!() const noexcept { return bits == 0u || bits == 0x8000u; }
+#define IMPL_HALF_BINOP(op)                                         \\
+    inline constexpr auto operator op(lc_half rhs) const noexcept { \\
+        U u_lhs; u_lhs.bits = bits;                                 \\
+        U u_rhs; u_rhs.bits = rhs.bits;                             \\
+        return lc_half{lc_float(u_lhs.h op u_rhs.h)};               \\
     }
     IMPL_HALF_BINOP(+)
     IMPL_HALF_BINOP(-)
@@ -58,8 +74,12 @@ static_assert(sizeof(lc_half) == 2);
         vector_alignments = {2: 8, 3: 16, 4: 16}
         for type in scalar_types:
             for i in range(2, 5):
-                align = vector_alignments[i] if type != 'bool' else vector_alignments[i] // 4
-                if "long" in type:
+                align = vector_alignments[i]
+                if type == 'bool':
+                    align = align // 4
+                elif "short" in type or "half" in type:
+                    align = align // 2
+                elif "long" in type:
                     align = 16
                 elements = ["x", "y", "z", "w"][:i]
                 print(
@@ -133,9 +153,9 @@ static_assert(sizeof(lc_half) == 2);
                     print(
                         f"[[nodiscard]] inline constexpr auto operator-(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'-v.{m}' for m in elements)}); }}",
                         file=file)
-                    if type != "float":
+                    if type != "float" and type != "half":
                         print(
-                            f"[[nodiscard]] inline  constexpr auto operator~(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'~v.{m}' for m in elements)}); }}",
+                            f"[[nodiscard]] inline constexpr auto operator~(lc_{type}{i} v) noexcept {{ return lc_make_{type}{i}({', '.join(f'~v.{m}' for m in elements)}); }}",
                             file=file)
             print(file=file)
 
@@ -157,6 +177,7 @@ static_assert(sizeof(lc_half) == 2);
                 print(
                     f"[[nodiscard]] inline constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
+
 
         def gen_binary_op_(arg_t, ret_t, op):
             for i in [2, 4]:

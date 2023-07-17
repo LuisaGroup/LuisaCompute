@@ -233,6 +233,9 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT4X4,// (float2x2) / (float3x3) / (float4x4)
 
+    // debugging
+    ASSERT,// (bool) -> void
+
     // optimization hints
     ASSUME,     // ()
     UNREACHABLE,// ()
@@ -285,17 +288,17 @@ enum struct CallOp : uint32_t {
 static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
-    auto op_value = luisa::to_underlying(op) ;
+    auto op_value = luisa::to_underlying(op);
     return op_value >= luisa::to_underlying(CallOp::ATOMIC_EXCHANGE) && op_value <= luisa::to_underlying(CallOp::ATOMIC_FETCH_MAX);
 }
 
 [[nodiscard]] constexpr auto is_autodiff_operation(CallOp op) noexcept {
-    auto op_value = luisa::to_underlying(op) ;
+    auto op_value = luisa::to_underlying(op);
     return op_value >= luisa::to_underlying(CallOp::REQUIRES_GRADIENT) && op_value <= luisa::to_underlying(CallOp::DETACH);
 }
 
 [[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
-    auto op_value = luisa::to_underlying(op) ;
+    auto op_value = luisa::to_underlying(op);
     return op_value >= luisa::to_underlying(CallOp::MAKE_BOOL2) && op_value <= luisa::to_underlying(CallOp::MAKE_FLOAT4);
 }
 

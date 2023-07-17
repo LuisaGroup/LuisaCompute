@@ -66,6 +66,8 @@ pub enum SerializedConst {
     Zero(SerializedTypeRef),
     One(SerializedTypeRef),
     Bool(bool),
+    Int16(i16),
+    Uint16(u16),
     Int32(i32),
     Uint32(u32),
     Int64(i64),

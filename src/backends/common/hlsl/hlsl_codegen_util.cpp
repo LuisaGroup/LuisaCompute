@@ -810,6 +810,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ",bdls)"sv;
             return;
         }
+        case CallOp::ASSERT:
         case CallOp::ASSUME:
         case CallOp::UNREACHABLE: {
             return;
