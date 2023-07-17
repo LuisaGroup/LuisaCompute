@@ -49,6 +49,9 @@ lc_add_app("test_feat", "test", "feat")
 -- all test suites for release
 lc_add_app("test_all", "test", "all")
 
+-- example app 
+lc_add_app("example", "example", "all")
+
 ------------------------------------
 -- TEST MAIN end
 
