@@ -34,8 +34,7 @@ int main(int argc, char *argv[]) {
     Shader2D<> shader = device.compile(kernel);
     Stream stream = device.create_stream();
     stream << printer.reset()
-           << shader().dispatch(128u, 128u)
-           << printer.retrieve()
+           << shader().dispatch(128u, 128u);
+    stream << printer.retrieve()
            << synchronize();
 }
-
