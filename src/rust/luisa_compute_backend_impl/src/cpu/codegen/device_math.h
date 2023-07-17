@@ -4573,12 +4573,6 @@ public:
     }
 };
 
-template<typename T, size_t N>
-__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
-    #pragma unroll
-    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
-}
-
 [[nodiscard]] __device__ inline auto lc_mat_comp_mul(lc_float2x2 lhs, lc_float2x2 rhs) noexcept {
     return lc_make_float2x2(lhs[0] * rhs[0],
                             lhs[1] * rhs[1]);
@@ -4662,6 +4656,13 @@ __device__ inline void lc_accumulate_grad(lc_ulong4 *dst, lc_ulong4 grad) noexce
 __device__ inline void lc_accumulate_grad(lc_bool2 *dst, lc_bool2 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_bool3 *dst, lc_bool3 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_bool4 *dst, lc_bool4 grad) noexcept {}
+
+template<typename T, size_t N>
+__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
+    #pragma unroll
+    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
+}
+
 struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};
 template<class T> struct element_type_{using type = void;};
 template<class T> using element_type = typename element_type_<T>::type;
