@@ -49,9 +49,9 @@ if __name__ == "__main__":
             print("start to run test")
             for feat in feat_list:
                 for device in device_list:
-                    print("runnint test_{} on {}".format(feat, device))
-                    subprocess.run(["powershell", "xmake", "run", "test_{}".format(feat), device], shell=True)
-                    print("test_{} on {} finished".format(feat, device))
+                    print("running test suite {} on {}".format(feat, device))
+                    subprocess.run(["powershell", "xmake", "run", "test_all", "-ts={}".format(feat), "-sc={}".format(device)], shell=True)
+                    print("test suite {} on {} finished".format(feat, device))
             # TODO: switch device for [dx, cuda, vk, metal]
             print("all test finished")
     else:

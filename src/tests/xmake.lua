@@ -13,25 +13,42 @@ target_end()
 
 -- TEST MAIN with doctest
 ------------------------------------
-target("test_main")
-_config_project({
-    project_kind = "binary"
-})
-add_files("common/test_main.cpp")
-add_includedirs("./", {
-    public = true
-})
-add_files("next/**.cpp")
-add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
-if get_config("enable_ir") then
-    add_deps("lc-ir")
-    add_deps("lc-rust")
-end
-if get_config("enable_gui") then
-    add_deps("lc-gui")
-end
 
-target_end()
+local function lc_add_app(appname, folder, name, options) 
+	target(appname)
+	_config_project({
+		project_kind = "binary"
+	})
+	add_files("common/test_main.cpp")
+	add_includedirs("./", {
+		public = true
+	})
+
+	local match_str = path.join(name, "*.cpp")
+	if name == "all" then
+		match_str = "**.cpp"
+	end
+
+	add_files(path.join("next", folder, match_str))
+
+	add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
+	if get_config("enable_ir") then
+		add_deps("lc-ir")
+		add_deps("lc-rust")
+	end
+	if get_config("enable_gui") then
+		add_deps("lc-gui")
+	end
+	target_end()
+end 
+
+-- single test suite for development
+lc_add_app("test_feat", "test", "feat")
+-- lc_add_app("test_io", "test", "io")
+
+-- all test suites for release
+lc_add_app("test_all", "test", "all")
+
 ------------------------------------
 -- TEST MAIN end
 

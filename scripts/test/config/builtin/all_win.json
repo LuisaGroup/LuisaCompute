@@ -1,9 +1,10 @@
 {
     "build_system": "xmake",
     "device_list": [
-        "dx"
+        "dx",
+        "cuda"
     ],
     "feat_list": [
-        "main"
+        "feat"
     ]
 }
