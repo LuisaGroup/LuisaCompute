@@ -82,6 +82,7 @@ impl Validator {
                     Const::Uint32(_) => <u32 as TypeOf>::type_(),
                     Const::Int64(_) => <i64 as TypeOf>::type_(),
                     Const::Uint64(_) => <u64 as TypeOf>::type_(),
+                    Const::Float16(_) => <f16 as TypeOf>::type_(),
                     Const::Float32(_) => <f32 as TypeOf>::type_(),
                     Const::Float64(_) => <f64 as TypeOf>::type_(),
                     Const::Generic(_, t) => t.clone(),

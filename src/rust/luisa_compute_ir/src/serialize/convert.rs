@@ -114,6 +114,7 @@ impl KernelSerializer {
             Const::Uint32(v) => SerializedConst::Uint32(*v),
             Const::Int64(v) => SerializedConst::Int64(*v),
             Const::Uint64(v) => SerializedConst::Uint64(*v),
+            Const::Float16(v) => SerializedConst::Float16(*v),
             Const::Float32(v) => SerializedConst::Float32(*v),
             Const::Float64(v) => SerializedConst::Float64(*v),
             Const::Generic(v, t) => {

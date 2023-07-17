@@ -1,11 +1,12 @@
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
+use half::f16;
 
 use crate::usage_detect::detect_usage;
 use crate::*;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, write};
 use std::hash::Hasher;
 use std::ops::Deref;
 
@@ -20,6 +21,7 @@ pub enum Primitive {
     Uint32,
     Int64,
     Uint64,
+    Float16,
     Float32,
     Float64,
 }
@@ -37,6 +39,7 @@ impl std::fmt::Display for Primitive {
                 Self::Uint32 => "u32",
                 Self::Int64 => "i64",
                 Self::Uint64 => "u64",
+                Self::Float16 => "f16",
                 Self::Float32 => "f32",
                 Self::Float64 => "f64",
             }
@@ -62,6 +65,7 @@ impl VectorElementType {
     }
     pub fn is_float(&self) -> bool {
         match self {
+            VectorElementType::Scalar(Primitive::Float16) => true,
             VectorElementType::Scalar(Primitive::Float32) => true,
             VectorElementType::Scalar(Primitive::Float64) => true,
             VectorElementType::Vector(v) => v.element.is_float(),
@@ -208,6 +212,7 @@ impl Primitive {
             Primitive::Uint32 => 4,
             Primitive::Int64 => 8,
             Primitive::Uint64 => 8,
+            Primitive::Float16 => 2,
             Primitive::Float32 => 4,
             Primitive::Float64 => 8,
         }
@@ -407,7 +412,7 @@ impl Type {
     pub fn is_float(&self) -> bool {
         match self {
             Type::Primitive(p) => match p {
-                Primitive::Float32 | Primitive::Float64 => true,
+                Primitive::Float16 | Primitive::Float32 | Primitive::Float64 => true,
                 _ => false,
             },
             Type::Vector(v) => v.element.is_float(),
@@ -774,6 +779,7 @@ pub enum Const {
     Uint32(u32),
     Int64(i64),
     Uint64(u64),
+    Float16(f16),
     Float32(f32),
     Float64(f64),
     Generic(CBoxedSlice<u8>, CArc<Type>),
@@ -789,6 +795,7 @@ impl std::fmt::Display for Const {
             Const::Uint32(u) => write!(f, "{}", u),
             Const::Int64(i) => write!(f, "{}", i),
             Const::Uint64(u) => write!(f, "{}", u),
+            Const::Float16(fl) => write!(f, "{}", fl),
             Const::Float32(fl) => write!(f, "{}", fl),
             Const::Float64(fl) => write!(f, "{}", fl),
             Const::Generic(data, t) => write!(f, "byte<{}>[{}]", t, data.as_ref().len()),
@@ -828,6 +835,7 @@ impl Const {
             Const::Uint32(_) => <u32 as TypeOf>::type_(),
             Const::Int64(_) => <i64 as TypeOf>::type_(),
             Const::Uint64(_) => <u64 as TypeOf>::type_(),
+            Const::Float16(_) => <f16 as TypeOf>::type_(),
             Const::Float32(_) => <f32 as TypeOf>::type_(),
             Const::Float64(_) => <f64 as TypeOf>::type_(),
             Const::Generic(_, t) => t.clone(),
