@@ -106,7 +106,7 @@ public:
     bool OnInit() override {
 
         if (argc <= 1) {
-            LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal",
+            LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal",
                        GetAppDisplayName().c_str().AsChar());
             return false;
         }
