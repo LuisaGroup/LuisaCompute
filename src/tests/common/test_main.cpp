@@ -5,7 +5,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
-#define DOCTEST_CONFIG_IMPLEMENT
+#define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
 #include "config.h"
 
 #include <luisa/core/stl/string.h>
@@ -37,4 +37,3 @@ int main(int argc, const char **argv) {
     if (context.shouldExit()) { return test_result; }
     return test_result;
 }
-
