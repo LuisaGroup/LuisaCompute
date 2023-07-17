@@ -2,7 +2,7 @@
 // clang-format off
 
 template<typename T>
-consteval size_t count_member() {
+constexpr size_t count_member() {
 static_assert(std::is_aggregate_v<T>, "Only aggregate types are supported");
 if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
 if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){

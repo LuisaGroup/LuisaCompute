@@ -326,7 +326,7 @@ class func:
         return self.compiled_results[(func_type,) + argtypes]
 
     # dispatch shader to stream
-    def __call__(self, *args, dispatch_size, stream=None):
+    def __call__(self, *args, dispatch_size, stream=None, dispatch_buffer_offset:int=(2**64-1)):
         get_global_device()  # check device is initialized
         if stream is None:
             stream = globalvars.vars.stream
@@ -362,7 +362,7 @@ class func:
                 assert False
         # dispatch
         if is_buffer:
-            command.set_dispatch_buffer(dispatch_size.handle)
+            command.set_dispatch_buffer(dispatch_size.handle, dispatch_buffer_offset)
         else:
             command.set_dispatch_size(*dispatch_size)
         stream.add(command.build())

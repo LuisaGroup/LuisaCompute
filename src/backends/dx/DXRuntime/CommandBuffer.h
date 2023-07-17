@@ -42,6 +42,7 @@ public:
     void DispatchComputeIndirect(
         ComputeShader const *cs,
         Buffer const &indirectBuffer,
+        uint64_t indirectOffset,
         vstd::span<const BindProperty> resources);
     /*void DispatchRT(
         RTShader const *rt,

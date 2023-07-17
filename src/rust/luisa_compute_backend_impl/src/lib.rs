@@ -14,7 +14,7 @@ use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::panic::Location;
 use std::path::{Path, PathBuf};
-use std::process::abort;
+use std::process::{abort, exit};
 use std::sync::Arc;
 
 pub struct SwapChainForCpuContext {
@@ -120,7 +120,7 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
             eprintln!("set RUST_BACKTRACE=1 to display device backtrace");
         }
     };
-    abort();
+    exit(-1);
 }
 
 fn init() {

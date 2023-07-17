@@ -36,4 +36,8 @@ remote = []
 crate-type = ["cdylib"]
 name = "luisa_compute_backend_impl"
 
+[profile.release]
+panic = 'abort'
 
+[profile.dev]
+panic = 'abort'

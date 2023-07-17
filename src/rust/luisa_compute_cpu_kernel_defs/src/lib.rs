@@ -66,7 +66,7 @@ pub enum HitType {
 }
 
 #[repr(C, align(8))]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct CommitedHit {
     pub inst: u32,
     pub prim: u32,
@@ -80,6 +80,7 @@ impl CommitedHit {
         self.prim = hit.prim;
         self.bary = hit.bary;
         self.hit_type = HitType::Triangle as u32;
+        self.committed_ray_t = hit.committed_ray_t;
     }
     pub fn set_from_procedural_hit(&mut self, hit: ProceduralHit, t: f32) {
         self.inst = hit.inst;

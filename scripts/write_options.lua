@@ -1,8 +1,7 @@
 local lib = import("lib")
-local my_is_host
 local function find_process_path(process)
 	local cut
-	local is_win = my_is_host("windows")
+	local is_win = os.is_host("windows")
 	if is_win then
 		cut = ";"
 	else
@@ -37,9 +36,9 @@ end
 
 local function find_llvm()
 	local clang_name = "clang"
-	if my_is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
+	if os.is_host("linux") and os.isfile("/usr/bin/llvm-ar") then
 		return "/usr"
-	elseif my_is_host("macosx") then
+	elseif os.is_host("macosx") then
 		import("lib.detect.find_path")
 		local bindir = find_path("llvm-ar", "/usr/local/Cellar/llvm/*/bin")
 		if bindir then
@@ -56,15 +55,6 @@ local function find_llvm()
 end
 function main(...)
 	-- workaround xmake
-	if type(os.is_host) == "function" then
-		my_is_host = os.is_host
-	elseif type(os.host) == "function" then
-		my_is_host = function(p)
-			return os.host() == p
-		end
-	else
-		my_is_host = is_host
-	end
 	local args = {}
 	for i, v in ipairs({...}) do
 		local kv = lib.string_split(v, "=")
@@ -76,7 +66,7 @@ function main(...)
 	sb:add("lc_toolchain = {\n")
 	local toolchain = args["toolchain"]
 	local sdk_path
-	local is_win = my_is_host("windows")
+	local is_win = os.is_host("windows")
 	if toolchain then
 		args["toolchain"] = nil
 		if toolchain == "llvm" then
@@ -105,7 +95,7 @@ function main(...)
 			end
 		end
 	end
-	if my_is_host("macosx") then
+	if os.is_host("macosx") then
 		sb:add('\tmm = "clang",\n\tmxx = "clang++",\n')
 	end
 	sb:add("\ttoolchain = \""):add(toolchain):add("\",\n")
@@ -117,7 +107,7 @@ function main(...)
 	if py then
 		args["python"] = nil
 	end
-	if my_is_host("linux") and not args["enable_mimalloc"] then
+	if os.is_host("linux") and not args["enable_mimalloc"] then
 		args["enable_mimalloc"] = "false"
 	end
 	sort_key(args, function(k, v)
@@ -128,7 +118,7 @@ function main(...)
 	end)
 	-- python
 
-	if py and args["py_include"] == nil and my_is_host("windows") then
+	if py and args["py_include"] == nil and os.is_host("windows") then
 		local py_path = find_process_path("python.exe")
 		if py_path then
 			sb:add("\t\tpy_include = \""):add(lib.string_replace(path.join(py_path, "include"), "\\", "/")):add(

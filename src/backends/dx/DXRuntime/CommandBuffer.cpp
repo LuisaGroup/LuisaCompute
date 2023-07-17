@@ -97,22 +97,32 @@ void CommandBufferBuilder::SetRasterShader(
 void CommandBufferBuilder::DispatchComputeIndirect(
     ComputeShader const *cs,
     Buffer const &indirectBuffer,
+    uint64_t indirectOffset,
     vstd::span<const BindProperty> resources) {
     auto c = cb->cmdList.Get();
     auto res = indirectBuffer.GetResource();
     size_t byteSize = indirectBuffer.GetByteSize();
-    size_t cmdSize = (byteSize - 4) / 28;
+    size_t cmdSize = (byteSize - 4) / ComputeShader::DispatchIndirectStride;
     assert(cmdSize >= 1);
     c->SetComputeRootSignature(cs->RootSig());
     SetComputeResources(cs, resources);
     c->SetPipelineState(cs->Pso());
-    c->ExecuteIndirect(
-        cs->CmdSig(),
-        cmdSize,
-        res,
-        sizeof(uint),
-        res,
-        0);
+    if (indirectOffset != std::numeric_limits<uint64_t>::max()) {
+        c->ExecuteIndirect(
+            cs->CmdSig(),
+            1,
+            res,
+            sizeof(uint) + indirectOffset * ComputeShader::DispatchIndirectStride,
+            nullptr, 0);
+    } else {
+        c->ExecuteIndirect(
+            cs->CmdSig(),
+            cmdSize,
+            res,
+            sizeof(uint),
+            res,
+            0);
+    }
 }
 /*void CommandBufferBuilder::DispatchRT(
     RTShader const *rt,

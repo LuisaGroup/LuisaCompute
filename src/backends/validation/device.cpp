@@ -144,6 +144,11 @@ void Device::dispatch(
     auto str = RWResource::get<Stream>(stream_handle);
     str->dispatch(_native.get(), list);
     str->check_compete();
+    list._callbacks.emplace(
+        list._callbacks.begin(),
+        [str, executed_layer = str->executed_layer()]() {
+            str->sync_layer(executed_layer);
+        });
     _native->dispatch(stream_handle, std::move(list));
 }
 

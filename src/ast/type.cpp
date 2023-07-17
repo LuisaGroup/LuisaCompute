@@ -495,11 +495,36 @@ uint Type::dimension() const noexcept {
 }
 
 bool Type::is_scalar() const noexcept {
-    return to_underlying(tag()) < to_underlying(Tag::VECTOR);
+    switch (tag()) {
+        case Tag::BOOL:
+        case Tag::FLOAT32:
+        case Tag::INT32:
+        case Tag::UINT32:
+        case Tag::INT64:
+        case Tag::UINT64:
+        case Tag::FLOAT16:
+        case Tag::INT16:
+        case Tag::UINT16:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool Type::is_arithmetic() const noexcept {
-    return to_underlying(tag()) > to_underlying(Tag::BOOL) && to_underlying(tag()) < to_underlying(Tag::VECTOR);
+    switch (tag()) {
+        case Tag::FLOAT32:
+        case Tag::INT32:
+        case Tag::UINT32:
+        case Tag::INT64:
+        case Tag::UINT64:
+        case Tag::FLOAT16:
+        case Tag::INT16:
+        case Tag::UINT16:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool Type::is_basic() const noexcept {

@@ -9,7 +9,19 @@
 //#include <wil/result_macros.h>
 using namespace luisa;
 using namespace luisa::compute;
+class DMLModule {
+    DynamicModule module;
+    std::mutex mtx;
 
+public:
+    DynamicModule &get() {
+        std::lock_guard lck{mtx};
+        if (module) return module;
+        module = DynamicModule::load("DirectML");
+        return module;
+    }
+};
+static DMLModule _dml_module;
 class DxDMLGraph : public DMLGraph {
 public:
     ComPtr<IDMLDevice> dmlDevice;
@@ -69,6 +81,15 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     unsigned int dataSize = dmlGraph->half ? 2 : 4;
     DML_TENSOR_DATA_TYPE dataType = dmlGraph->half ? DML_TENSOR_DATA_TYPE_FLOAT16 : DML_TENSOR_DATA_TYPE_FLOAT32;
     DML_CREATE_DEVICE_FLAGS dmlCreateDeviceFlags = DML_CREATE_DEVICE_FLAG_NONE;
+    auto &md = _dml_module.get();
+    HRESULT(WINAPI * DMLCreateDevice)
+    (
+        ID3D12Device * d3d12Device,
+        DML_CREATE_DEVICE_FLAGS flags,
+        REFIID riid,// Expected: IDMLDevice
+        _COM_Outptr_opt_ void **ppv);
+    DMLCreateDevice = md.function<std::remove_pointer_t<decltype(DMLCreateDevice)>>("DMLCreateDevice");
+
     ThrowIfFailed(DMLCreateDevice(
         device,
         dmlCreateDeviceFlags,

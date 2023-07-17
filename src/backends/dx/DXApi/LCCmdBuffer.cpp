@@ -490,7 +490,7 @@ public:
             auto buffer = reinterpret_cast<Buffer *>(t.handle);
             bindProps->emplace_back();
             BeforeDispatch();
-            bd->DispatchComputeIndirect(cs, *buffer, *bindProps);
+            bd->DispatchComputeIndirect(cs, *buffer, t.offset, *bindProps);
         } else {
             auto &&t = cmd->dispatch_size();
             // auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(16, 16);

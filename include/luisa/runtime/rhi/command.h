@@ -29,6 +29,7 @@ namespace luisa::compute {
 
 struct IndirectDispatchArg {
     uint64_t handle;
+    uint64_t offset;
 };
 
 #define LUISA_COMPUTE_RUNTIME_COMMANDS   \

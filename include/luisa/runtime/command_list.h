@@ -12,10 +12,13 @@
 #ifdef LUISA_ENABLE_API
 #include <luisa/api/common.h>
 #endif
-
+namespace lc::validation {
+class Device;
+}// namespace lc::validation
 namespace luisa::compute {
 
 class LC_RUNTIME_API CommandList : concepts::Noncopyable {
+    friend class lc::validation::Device;
 
 public:
     class Commit;
@@ -62,8 +65,7 @@ private:
 public:
     Commit &operator=(Commit &&) noexcept = delete;
     Commit &operator=(const Commit &) noexcept = delete;
-    [[nodiscard]] auto command_list() &&noexcept { return std::move(_list); }
+    [[nodiscard]] auto command_list() && noexcept { return std::move(_list); }
 };
 
 }// namespace luisa::compute
-
