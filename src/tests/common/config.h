@@ -4,6 +4,7 @@
 
 #pragma once
 
+#define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
 #include "doctest.h"
 
 namespace luisa::test {
@@ -12,4 +13,3 @@ namespace luisa::test {
 [[nodiscard]] const char *const *argv() noexcept;
 
 }// namespace luisa::test
-
