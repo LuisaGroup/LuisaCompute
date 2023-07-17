@@ -535,6 +535,7 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
+                
                 rq.hit.set_from_triangle_hit(rq.cur_triangle_hit);
             }
             if rq.terminated {

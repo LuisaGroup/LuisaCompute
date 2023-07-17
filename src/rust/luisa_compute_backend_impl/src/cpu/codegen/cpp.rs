@@ -1448,7 +1448,7 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "{} = {};", var_v, value_v).unwrap();
             }
             Instruction::Call(f, args) => {
-                println!("call: {:?}({:?})", f, args);
+                // println!("call: {:?}({:?})", f, args);
                 self.write_ident();
                 let args_v = args
                     .as_ref()
