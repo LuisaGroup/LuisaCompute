@@ -27,19 +27,17 @@ struct always_true : std::true_type {};
 template<typename... T>
 constexpr auto always_true_v = always_true<T...>::value;
 
-// clang-format off
 template<typename T>
     requires std::is_enum_v<T>
 [[nodiscard]] constexpr auto to_underlying(T e) noexcept {
     return static_cast<std::underlying_type_t<T>>(e);
 }
-// clang-format on
 
 using half = half_float::half;
 using namespace half_float::literal;
 
-static_assert(sizeof(half) == 2u && alignof(half),
-              "half should be 16-bit.");
+static_assert(sizeof(half) == 2u && alignof(half) == 2u,
+              "half should be 16-bit sized and aligned.");
 
 static_assert(std::is_same_v<decltype(1._h + 1._h), half>,
               "half should support arithmetic operations.");
