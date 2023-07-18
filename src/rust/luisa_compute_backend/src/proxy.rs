@@ -47,22 +47,22 @@ pub(crate) fn _signal_handler(signal: libc::c_int) {
 macro_rules! catch_abort {
     ($stmts:expr) => {
         unsafe {
-            #[cfg(debug_assertions)]
-            {
-                let _guard = CPP_MUTEX.lock();
-                OLD_SIGABRT_HANDLER =
-                    libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
-                OLD_SIGABRT_HANDLER =
-                    libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
+            // #[cfg(debug_assertions)]
+            // {
+            //     let _guard = CPP_MUTEX.lock();
+            //     OLD_SIGABRT_HANDLER =
+            //         libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
+            //     OLD_SIGABRT_HANDLER =
+            //         libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
+            //     let ret = $stmts;
+            //     restore_signal_handler();
+            //     ret
+            // }
+            // #[cfg(not(debug_assertions))]
+            // {
                 let ret = $stmts;
-                restore_signal_handler();
                 ret
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                let ret = $stmts;
-                ret
-            }
+            // }
         }
     };
 }
