@@ -31,9 +31,22 @@ public:
             _s << v << "f";
         }
     }
+    void operator()(double v) const noexcept {
+        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        if (std::isinf(v)) {
+            _s << (v < 0.0 ? "double(-INFINITY)" : "double(+INFINITY)");
+        } else {
+            _s << v;
+        }
+        LUISA_ERROR_WITH_LOCATION("Double literals are not supported.");
+    }
     void operator()(half v) const noexcept {
         if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        _s << luisa::format("as_type<half>(ushort({}))", luisa::bit_cast<ushort>(v));
+        if (luisa::isinf(v)) {
+            _s << (v < 0.0f ? "half(-INFINITY)" : "half(+INFINITY)");
+        } else {
+            _s << static_cast<float>(v) << "h";
+        }
     }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
@@ -250,6 +263,7 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
         case Type::Tag::BOOL: _scratch << "bool"; break;
         case Type::Tag::FLOAT16: _scratch << "half"; break;
         case Type::Tag::FLOAT32: _scratch << "float"; break;
+        case Type::Tag::FLOAT64: _scratch << "double"; break;
         case Type::Tag::INT16: _scratch << "short"; break;
         case Type::Tag::UINT16: _scratch << "ushort"; break;
         case Type::Tag::INT32: _scratch << "int"; break;
@@ -562,17 +576,24 @@ protected:
     void _decode_uint(uint x) noexcept override { _codegen->_scratch << luisa::format("uint({})", x); }
     void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("long({})", x); }
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("ulong({})", x); }
-    void _decode_half(half x) noexcept override {
-        detail::LiteralPrinter p{_codegen->_scratch};
-        p(x);
-    }
     void _decode_float(float x) noexcept override {
         _codegen->_scratch << "float(";
         detail::LiteralPrinter p{_codegen->_scratch};
         p(x);
         _codegen->_scratch << ")";
     }
-    void _decode_double(double x) noexcept override { _codegen->_scratch << luisa::format("double({})", x); }
+    void _decode_half(half x) noexcept override {
+        _codegen->_scratch << "half(";
+        detail::LiteralPrinter p{_codegen->_scratch};
+        p(x);
+        _codegen->_scratch << ")";
+    }
+    void _decode_double(double x) noexcept override {
+        _codegen->_scratch << "double(";
+        detail::LiteralPrinter p{_codegen->_scratch};
+        p(x);
+        _codegen->_scratch << ")";
+    }
     void _vector_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
@@ -948,6 +969,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(double, DOUBLE)
 #undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;

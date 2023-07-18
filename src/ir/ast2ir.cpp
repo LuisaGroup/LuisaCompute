@@ -240,42 +240,43 @@ ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
         .tag = ir::Type::Tag::Void}); }
     // basic types
     switch (type->tag()) {
-        case Type::Tag::BOOL: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Bool}});
-        case Type::Tag::FLOAT32: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Float32}});
-        case Type::Tag::INT32: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Int32}});
-        case Type::Tag::UINT32: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Uint32}});
+#define LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(AST_TAG, IR_TAG) \
+    case Type::Tag::AST_TAG: return register_type(           \
+        ir::Type{.tag = ir::Type::Tag::Primitive,            \
+                 .primitive = {ir::Primitive::IR_TAG}});
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(BOOL, Bool)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(INT16, Int16)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(UINT16, Uint16)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(INT32, Int32)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(UINT32, Uint32)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(INT64, Int64)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(UINT64, Uint64)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(FLOAT16, Float16)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(FLOAT32, Float32)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(FLOAT64, Float64)
+#undef LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE
+
         case Type::Tag::VECTOR: {
             auto dim = static_cast<uint>(type->dimension());
             switch (auto elem = type->element(); elem->tag()) {
-                case Type::Tag::BOOL:
-                    return register_type(
-                        ir::Type{.tag = ir::Type::Tag::Vector,
-                                 .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                         .scalar = {ir::Primitive::Bool}},
-                                             .length = dim}}});
-                case Type::Tag::FLOAT32: return register_type(
-                    ir::Type{.tag = ir::Type::Tag::Vector,
-                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                     .scalar = {ir::Primitive::Float32}},
-                                         .length = dim}}});
-                case Type::Tag::INT32: return register_type(
-                    ir::Type{.tag = ir::Type::Tag::Vector,
-                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                     .scalar = {ir::Primitive::Int32}},
-                                         .length = dim}}});
-                case Type::Tag::UINT32: return register_type(
-                    ir::Type{.tag = ir::Type::Tag::Vector,
-                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                     .scalar = {ir::Primitive::Uint32}},
-                                         .length = dim}}});
+#define LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(AST_TAG, IR_TAG)                       \
+    case Type::Tag::AST_TAG:                                                            \
+        return register_type(                                                           \
+            ir::Type{.tag = ir::Type::Tag::Vector,                                      \
+                     .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar, \
+                                             .scalar = {ir::Primitive::IR_TAG}},        \
+                                 .length = dim}}});
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(BOOL, Bool)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(INT16, Int16)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(UINT16, Uint16)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(INT32, Int32)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(UINT32, Uint32)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(INT64, Int64)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(UINT64, Uint64)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(FLOAT16, Float16)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(FLOAT32, Float32)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(FLOAT64, Float64)
+#undef LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Invalid vector type: {}.", type->description());
@@ -369,9 +370,9 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                     } else if constexpr (std::is_same_v<T, uint>) {
                         return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
                     } else if constexpr (std::is_same_v<T, short>) {
-                        LUISA_NOT_IMPLEMENTED();
+                        return ir::Const{.tag = ir::Const::Tag::Int16, .int16 = {x}};
                     } else if constexpr (std::is_same_v<T, ushort>) {
-                        LUISA_NOT_IMPLEMENTED();
+                        return ir::Const{.tag = ir::Const::Tag::Uint16, .uint16 = {x}};
                     } else if constexpr (std::is_same_v<T, slong>) {
                         return ir::Const{.tag = ir::Const::Tag::Int64, .int64 = {x}};
                     } else if constexpr (std::is_same_v<T, ulong>) {
@@ -379,7 +380,7 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                     } else if constexpr (std::is_same_v<T, double>) {
                         return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
                     } else if constexpr (std::is_same_v<T, half>) {
-                        LUISA_NOT_IMPLEMENTED();
+                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {x}};
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }
@@ -706,6 +707,9 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::MAKE_FLOAT2: return ir::Func::Tag::Vec2;
             case CallOp::MAKE_FLOAT3: return ir::Func::Tag::Vec3;
             case CallOp::MAKE_FLOAT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_DOUBLE2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_DOUBLE3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_DOUBLE4: return ir::Func::Tag::Vec4;
             case CallOp::MAKE_FLOAT2X2: return ir::Func::Tag::Mat2;
             case CallOp::MAKE_FLOAT3X3: return ir::Func::Tag::Mat3;
             case CallOp::MAKE_FLOAT4X4: return ir::Func::Tag::Mat4;

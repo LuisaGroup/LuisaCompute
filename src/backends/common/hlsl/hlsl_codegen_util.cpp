@@ -280,6 +280,9 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::FLOAT16:
             str << "float16_t"sv;
             return;
+        case Type::Tag::FLOAT64:
+            str << "float64_t"sv;
+            return;
         case Type::Tag::INT16:
             str << "int16_t"sv;
             return;
@@ -701,7 +704,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_USHORT4:
         case CallOp::MAKE_HALF2:
         case CallOp::MAKE_HALF3:
-        case CallOp::MAKE_HALF4: {
+        case CallOp::MAKE_HALF4:
+        case CallOp::MAKE_DOUBLE2:
+        case CallOp::MAKE_DOUBLE3:
+        case CallOp::MAKE_DOUBLE4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
             } else {

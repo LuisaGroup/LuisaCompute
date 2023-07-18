@@ -101,18 +101,19 @@ struct hash<Vector<T, N>> {
     using T##4 = Vector<T, 4>;
 
 LUISA_MAKE_VECTOR_TYPES(bool)
-LUISA_MAKE_VECTOR_TYPES(float)
+
+LUISA_MAKE_VECTOR_TYPES(short)
+LUISA_MAKE_VECTOR_TYPES(ushort)
 
 LUISA_MAKE_VECTOR_TYPES(int)
 LUISA_MAKE_VECTOR_TYPES(uint)
 
-LUISA_MAKE_VECTOR_TYPES(double)
 LUISA_MAKE_VECTOR_TYPES(ulong)
 LUISA_MAKE_VECTOR_TYPES(slong)
 
 LUISA_MAKE_VECTOR_TYPES(half)
-LUISA_MAKE_VECTOR_TYPES(short)
-LUISA_MAKE_VECTOR_TYPES(ushort)
+LUISA_MAKE_VECTOR_TYPES(float)
+LUISA_MAKE_VECTOR_TYPES(double)
 
 #undef LUISA_MAKE_VECTOR_TYPES
 
@@ -234,10 +235,10 @@ using float3x3 = Matrix<3>;
 using float4x4 = Matrix<4>;
 
 using basic_types = std::tuple<
-    bool, float, int, uint, short, ushort, slong, ulong, half,
-    bool2, float2, int2, uint2, short2, ushort2, slong2, ulong2, half2,
-    bool3, float3, int3, uint3, short3, ushort3, slong3, ulong3, half3,
-    bool4, float4, int4, uint4, short4, ushort4, slong4, ulong4, half4,
+    bool, float, int, uint, short, ushort, slong, ulong, half, double,
+    bool2, float2, int2, uint2, short2, ushort2, slong2, ulong2, half2, double2,
+    bool3, float3, int3, uint3, short3, ushort3, slong3, ulong3, half3, double3,
+    bool4, float4, int4, uint4, short4, ushort4, slong4, ulong4, half4, double4,
     float2x2, float3x3, float4x4>;
 
 /// any of bool2 is true
@@ -576,6 +577,7 @@ LUISA_MAKE_TYPE_N(ushort)
 LUISA_MAKE_TYPE_N(slong)
 LUISA_MAKE_TYPE_N(ulong)
 LUISA_MAKE_TYPE_N(half)
+LUISA_MAKE_TYPE_N(double)
 
 #undef LUISA_MAKE_TYPE_N
 

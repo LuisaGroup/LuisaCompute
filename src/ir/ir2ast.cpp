@@ -776,8 +776,9 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
         case ir::Const::Tag::Uint32: return b->literal(Type::of<uint>(), const_.uint32._0);
         case ir::Const::Tag::Int64: return b->literal(Type::of<slong>(), const_.int64._0);
         case ir::Const::Tag::Uint64: return b->literal(Type::of<ulong>(), const_.uint64._0);
+        case ir::Const::Tag::Float16: return b->literal(Type::of<half>(), const_.float16._0);
         case ir::Const::Tag::Float32: return b->literal(Type::of<float>(), const_.float32._0);
-        case ir::Const::Tag::Float64: LUISA_NOT_IMPLEMENTED();// return b->literal(Type::of<double>(), const_.float64._0);
+        case ir::Const::Tag::Float64: return b->literal(Type::of<double>(), const_.float64._0);
         case ir::Const::Tag::Generic: {
             auto type = _convert_type(const_.generic._1.get());
             auto [data, size, _] = const_.generic._0;
@@ -803,7 +804,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                 LUISA_IR2AST_DECODE_CONST_VEC(ulong)
                 LUISA_IR2AST_DECODE_CONST_VEC(half)
                 LUISA_IR2AST_DECODE_CONST_VEC(float)
-                // LUISA_IR2AST_DECODE_CONST_VEC(double)
+                LUISA_IR2AST_DECODE_CONST_VEC(double)
 
                 LUISA_IR2AST_DECODE_CONST(float2x2)
                 LUISA_IR2AST_DECODE_CONST(float3x3)
@@ -826,9 +827,11 @@ const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept 
     switch (type) {
         case ir::Primitive::Bool: return Type::from("bool");
         case ir::Primitive::Float32: return Type::from("float");
+        case ir::Primitive::Int16: return Type::from("short");
+        case ir::Primitive::Uint16: return Type::from("ushort");
         case ir::Primitive::Int32: return Type::from("int");
         case ir::Primitive::Uint32: return Type::from("uint");
-        case ir::Primitive::Float64: LUISA_ERROR_WITH_LOCATION("64-bit primitive types are not yet supported."); ;
+        case ir::Primitive::Float64: return Type::from("double");
         case ir::Primitive::Int64: return Type::from("long");
         case ir::Primitive::Uint64: return Type::from("ulong");
         default: LUISA_ERROR_WITH_LOCATION("Invalid primitive type.");
@@ -1014,6 +1017,13 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 case 2: return CallOp::MAKE_FLOAT2;
                 case 3: return CallOp::MAKE_FLOAT3;
                 case 4: return CallOp::MAKE_FLOAT4;
+                default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
+            }
+        case Type::Tag::FLOAT64:
+            switch (length) {
+                case 2: return CallOp::MAKE_DOUBLE2;
+                case 3: return CallOp::MAKE_DOUBLE3;
+                case 4: return CallOp::MAKE_DOUBLE4;
                 default: LUISA_ERROR_WITH_LOCATION("Vectors with length other than 2, 3 and 4 are not supported.");
             }
         case Type::Tag::INT16:

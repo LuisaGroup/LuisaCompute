@@ -228,6 +228,9 @@ enum struct CallOp : uint32_t {
     MAKE_HALF2,  // (scalar, vec2)
     MAKE_HALF3,  // (scalar, vec3)
     MAKE_HALF4,  // (scalar, vec4)
+    MAKE_DOUBLE2,// (scalar, vec2)
+    MAKE_DOUBLE3,// (scalar, vec3)
+    MAKE_DOUBLE4,// (scalar, vec4)
 
     MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)

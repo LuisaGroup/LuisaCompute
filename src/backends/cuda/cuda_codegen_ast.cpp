@@ -690,18 +690,25 @@ private:
 public:
     explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
-    void operator()(half v) const noexcept {
-        // TODO
-        LUISA_NOT_IMPLEMENTED();
-        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        _s << luisa::format("lc_half({})", static_cast<float>(v));
-    }
     void operator()(float v) const noexcept {
         if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
             _s << (v < 0.0f ? " __int_as_float(0xff800000)" : " __int_as_float(0x7f800000)");
         } else {
             _s << v << "f";
+        }
+    }
+    void operator()(half v) const noexcept {
+        LUISA_NOT_IMPLEMENTED();
+        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        _s << luisa::format("lc_half({})", static_cast<float>(v));
+    }
+    void operator()(double v) const noexcept {
+        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        if (std::isinf(v)) {
+            _s << (v < 0.0 ? " __longlong_as_double(0xfff0000000000000)" : " __longlong_as_double(0x7ff0000000000000)");
+        } else {
+            _s << v;
         }
     }
     void operator()(int v) const noexcept { _s << v; }
@@ -898,6 +905,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(double, DOUBLE)
 #undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
@@ -1485,6 +1493,7 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
         case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
         case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
+        case Type::Tag::FLOAT64: _scratch << "lc_double"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
@@ -1642,7 +1651,12 @@ protected:
         p(x);
         _codegen->_scratch << ")";
     }
-    void _decode_double(double x) noexcept override { _codegen->_scratch << luisa::format("lc_double({})", x); }
+    void _decode_double(double x) noexcept override {
+        _codegen->_scratch << "lc_double(";
+        detail::LiteralPrinter p{_codegen->_scratch};
+        p(x);
+        _codegen->_scratch << ")";
+    }
     void _vector_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {

@@ -176,9 +176,30 @@ struct PrintValue<float> {
 };
 
 template<>
+struct PrintValue<double> {
+    void operator()(double const &v, vstd::StringBuilder &str) {
+        if (luisa::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (luisa::isinf(v)) [[unlikely]] {
+            str.append(v < 0.0 ? "(-_INF_d)" : "(_INF_d)");
+        } else {
+            str.append(luisa::format("float64_t({})", v));
+        }
+    }
+};
+
+template<>
 struct PrintValue<half> {
     void operator()(half const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("float16_t({})", static_cast<float>(v)));
+        if (luisa::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (luisa::isinf(v)) [[unlikely]] {
+            str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
+        } else {
+            str.append(luisa::format("float16_t({})", static_cast<float>(v)));
+        }
     }
 };
 
@@ -257,6 +278,8 @@ struct PrintValue<Vector<EleType, N>> {
                 varName << "bool";
             } else if constexpr (std::is_same_v<EleType, half>) {
                 varName << "float16_t";
+            } else if constexpr (std::is_same_v<EleType, double>) {
+                varName << "float64_t";
             } else if constexpr (std::is_same_v<EleType, short>) {
                 varName << "int16_t";
             } else if constexpr (std::is_same_v<EleType, ushort>) {
