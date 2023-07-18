@@ -691,9 +691,9 @@ public:
     explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
-        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (std::isinf(v)) {
-            _s << (v < 0.0f ? " __int_as_float(0xff800000)" : " __int_as_float(0x7f800000)");
+        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        if (luisa::isinf(v)) {
+            _s << (v < 0.0f ? "(-lc_infinity_float())" : "(lc_infinity_float())");
         } else {
             _s << v << "f";
         }
@@ -706,7 +706,7 @@ public:
     void operator()(double v) const noexcept {
         if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
-            _s << (v < 0.0 ? " __longlong_as_double(0xfff0000000000000)" : " __longlong_as_double(0x7ff0000000000000)");
+            _s << (v < 0.0 ? "(-lc_infinity_double())" : "(lc_infinity_double())");
         } else {
             _s << v;
         }
