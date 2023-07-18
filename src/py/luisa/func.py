@@ -176,16 +176,22 @@ class func:
                         return dtype.__name__, r
                     return "luisa::" + dtype.__name__, r
                 elif type(dtype).__name__ == "StructType":
-                    name = type_map.get(arg)
+                    name = type_map.get(dtype)
                     if name == None:
                         name = "Arg" + str(type_idx)
-                        type_map[arg] = name
-
+                        type_map[dtype] = name
                         r += f"struct {name} " + "{\n"
-                        for idx, ele_type in arg._py_args.items():
+                        for idx, ele_type in dtype._py_args.items():
                             ele_name, r = get_value_type_name(ele_type, r)
                             r += f"    {ele_name} {idx};\n"
                         r += "};\n"
+                    return name, r
+                elif type(dtype).__name__ == "ArrayType":
+                    name = type_map.get(dtype)
+                    if name == None:
+                        ele_name, r = get_value_type_name(dtype.dtype, r)
+                        name = "std::array<" + ele_name + ", " + str(dtype.size) + ">"
+                        type_map[dtype] = name
                     return name, r
                 else:
                     return None, r

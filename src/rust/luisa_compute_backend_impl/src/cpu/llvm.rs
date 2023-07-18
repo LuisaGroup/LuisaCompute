@@ -1005,8 +1005,9 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
     if is_x86_feature_detected!("adx") { features.push("adx"); }
     if is_x86_feature_detected!("rtm") { features.push("rtm"); }
-    if is_x86_feature_detected!("movbe") { features.push("movbe"); }
-    if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
+    // this breaks msvc shipped with vs2019
+    // if is_x86_feature_detected!("movbe") { features.push("movbe"); }
+    // if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
     features.into_iter().map(|s| s.to_string()).collect()
 }
 
