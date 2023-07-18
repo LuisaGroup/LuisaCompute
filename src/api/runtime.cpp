@@ -2,13 +2,15 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include <luisa/core/stl.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/rhi/command_encoder.h>
 #include <luisa/runtime/rtx/triangle.h>
+#include <luisa/runtime/rtx/aabb.h>
 #include <luisa/api/api.h>
+
+#include <utility>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
 
@@ -22,7 +24,7 @@ struct RC {
 
     RC(T *object, std::function<void(T *)> deleter)
         : _object{object},
-          _deleter{deleter},
+          _deleter{std::move(deleter)},
           _ref_count{1} { tombstone = 0; }
 
     ~RC() { _deleter(_object); }
@@ -141,7 +143,6 @@ private:
                     c.handle._0, std::move(modifications));
             }
             case LC_COMMAND_SHADER_DISPATCH: {
-
                 auto c = cmd.shader_dispatch;
                 auto uniform_size = 0ull;
                 for (auto i = 0u; i < c.args_count; i++) {
@@ -248,7 +249,7 @@ private:
                     convert_accel_request(request),
                     aabb_buffer._0,
                     aabb_offset,
-                    aabb_count * sizeof(float) * 6);
+                    aabb_count * sizeof(AABB));
             }
             case LC_COMMAND_ACCEL_BUILD: {
                 auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
@@ -282,7 +283,8 @@ private:
                     }
                     modifications.emplace_back(modification);
                 }
-                LUISA_ASSERT(modifications_count == modifications.size(), "modifications size mismatch");
+                LUISA_ASSERT(modifications_count == modifications.size(),
+                             "modifications size mismatch");
                 return luisa::make_unique<AccelBuildCommand>(
                     accel._0,
                     instance_count,
@@ -542,6 +544,7 @@ LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) L
     d->object()->impl()->destroy_mesh(handle);
     d->release();
 }
+
 LUISA_EXPORT_API LCCreatedResourceInfo
 luisa_compute_procedural_primitive_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
@@ -557,12 +560,14 @@ luisa_compute_procedural_primitive_create(LCDevice device, const LCAccelOption *
         .native_handle = info.native_handle,
     };
 }
+
 LUISA_EXPORT_API void luisa_compute_procedural_primitive_destroy(LCDevice device, LCProceduralPrimitive prim) LUISA_NOEXCEPT {
     auto handle = prim._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_procedural_primitive(handle);
     d->release();
 }
+
 LUISA_EXPORT_API LCCreatedResourceInfo
 luisa_compute_accel_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
@@ -585,14 +590,6 @@ LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel
     d->object()->impl()->destroy_accel(handle);
     d->release();
 }
-
-// LCCommand luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
-//     return (LCCommand)MeshUpdateCommand::create(handle);
-// }
-
-// LCCommand luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
-//     return (LCCommand)AccelUpdateCommand::create(handle);
-// }
 
 LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT {
     return static_cast<LCPixelStorage>(
@@ -628,7 +625,7 @@ inline Sampler convert_sampler(LCSampler sampler) {
                 LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
         }
     }();
-    return Sampler(filter, address);
+    return {filter, address};
 }
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT {
@@ -682,6 +679,7 @@ void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapcha
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->present_display_in_stream(stream._0, swapchain._0, image._0);
 }
+
 LUISA_EXPORT_API void luisa_compute_device_interface_destroy(LCDeviceInterface device) {
     luisa_compute_device_destroy(device.device);
 }
@@ -716,7 +714,6 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.create_swapchain = luisa_compute_swapchain_create;
     interface.present_display_in_stream = luisa_compute_swapchain_present;
     interface.destroy_swapchain = luisa_compute_swapchain_destroy;
-    // TODO: procedural primitive
     interface.create_procedural_primitive = luisa_compute_procedural_primitive_create;
     interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
     interface.query = [](LCDevice device, const char *query) -> char * {
