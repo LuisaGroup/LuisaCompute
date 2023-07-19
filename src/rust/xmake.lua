@@ -3,9 +3,7 @@ _config_project({
 	project_kind = "object"
 })
 before_build(function(target)
-	os.addenvs({
-		LC_RS_DO_NOT_GENERATE_BINDING = 1
-	})
+	os.setenv("LC_RS_DO_NOT_GENERATE_BINDINGS", 1)
 end)
 add_rules("build_cargo")
 add_files("Cargo.toml")
