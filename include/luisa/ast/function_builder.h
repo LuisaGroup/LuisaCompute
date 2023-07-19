@@ -14,6 +14,8 @@
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/ast/external_function.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/optional.h>
 
 namespace lc::validation {
 class Device;

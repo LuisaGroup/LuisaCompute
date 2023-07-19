@@ -78,7 +78,9 @@
 #if __has_include(<memory_resource>)
 #undef ANKERL_UNORDERED_DENSE_PMR
 #define ANKERL_UNORDERED_DENSE_PMR 1// NOLINT(cppcoreguidelines-macro-usage)
-#include <memory_resource>
+// #include <memory_resource>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/memory.h>
 #endif
 #endif
 
@@ -1379,16 +1381,16 @@ template<class Key,
          class T,
          class Hash = std::hash<Key>,
          class KeyEqual = std::equal_to<>,
-         class Allocator = std::allocator<std::pair<Key, T>>,
-         class Vector = std::vector<std::pair<Key, T>>,
+         class Allocator = luisa::allocator<std::pair<Key, T>>,
+         class Vector = luisa::vector<std::pair<Key, T>>,
          class Bucket = bucket_type::standard>
 using map = detail::table<Key, T, Hash, KeyEqual, Allocator, Bucket, Vector>;
 
 template<class Key,
          class Hash = std::hash<Key>,
          class KeyEqual = std::equal_to<>,
-         class Allocator = std::allocator<Key>,
-         class Vector = std::vector<Key>,
+         class Allocator = luisa::allocator<Key>,
+         class Vector = luisa::vector<Key>,
          class Bucket = bucket_type::standard>
 using set = detail::table<Key, void, Hash, KeyEqual, Allocator, Bucket, Vector>;
 
@@ -1400,11 +1402,11 @@ template<class Key,
          class T,
          class Hash = std::hash<Key>,
          class KeyEqual = std::equal_to<>,
-         class Vector = std::vector<std::pair<Key, T>>,
+         class Vector = luisa::vector<std::pair<Key, T>>,
          class Bucket = bucket_type::standard>
 using map = detail::table<Key, T, Hash, KeyEqual, std::pmr::polymorphic_allocator<std::pair<Key, T>>, Bucket, Vector>;
 
-template<class Key, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<>, class Bucket = bucket_type::standard, class Vector = std::vector<Key>>
+template<class Key, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<>, class Bucket = bucket_type::standard, class Vector = luisa::vector<Key>>
 using set = detail::table<Key, void, Hash, KeyEqual, std::pmr::polymorphic_allocator<Key>, Bucket, Vector>;
 
 }// namespace pmr

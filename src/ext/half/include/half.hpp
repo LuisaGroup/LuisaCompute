@@ -277,7 +277,7 @@
 	#include <cfenv>
 #endif
 #if HALF_ENABLE_CPP11_HASH
-	#include <functional>
+	#include <luisa/core/stl/hash.h>
 #endif
 
 
@@ -2276,7 +2276,7 @@ namespace half_float
 		template<typename,typename,std::float_round_style> friend struct detail::half_caster;
 		friend class std::numeric_limits<half>;
 	#if HALF_ENABLE_CPP11_HASH
-		friend struct std::hash<half>;
+		friend struct luisa::hash<half>;
 	#endif
 	#if HALF_ENABLE_CPP11_USER_LITERALS
 		friend half literal::operator "" _h(long double);
@@ -2447,8 +2447,9 @@ namespace std
 		/// Smallest positive subnormal value.
 		static HALF_CONSTEXPR half_float::half denorm_min() HALF_NOTHROW { return half_float::half(half_float::detail::binary, 0x0001); }
 	};
-
+}
 #if HALF_ENABLE_CPP11_HASH
+namespace luisa{
 	/// Hash function for half-precision floats.
 	/// This is only defined if C++11 `std::hash` is supported and enabled.
 	///

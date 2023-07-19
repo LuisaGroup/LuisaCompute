@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <luisa/core/stl.h>
 #include <luisa/dsl/expr_traits.h>
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/stmt.h>
