@@ -2443,7 +2443,11 @@ namespace std
 	};
 
 #if HALF_ENABLE_CPP11_TYPE_TRAITS
+
     template<> struct is_floating_point<half_float::half> : std::true_type {};
+
+    // MSVC STL seems not deriving std::is_arithmetic from std::floating_point
+    template<> struct is_arithmetic<half_float::half> : std::true_type {};
 #endif
 
 }
