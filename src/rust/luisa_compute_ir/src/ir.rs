@@ -578,6 +578,7 @@ pub enum Func {
     Clamp,
     Lerp,
     Step,
+    SmoothStep,
     Saturate,
 
     Abs,

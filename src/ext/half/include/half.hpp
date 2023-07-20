@@ -2443,7 +2443,7 @@ namespace std
 	};
 
 #if HALF_ENABLE_CPP11_TYPE_TRAITS
-    template<> struct std::is_floating_point<half_float::half> : std::true_type {};
+    template<> struct is_floating_point<half_float::half> : std::true_type {};
 #endif
 
 }

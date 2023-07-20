@@ -545,6 +545,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::Clamp => Some("lc_clamp"),
             Func::Saturate => Some("lc_saturate"),
             Func::Lerp => Some("lc_lerp"),
+            Func::Step => Some("lc_step"),
+            Func::SmoothStep => Some("lc_smoothstep"),
             _ => None,
         };
         if let Some(func) = func {
