@@ -8,6 +8,7 @@
 #include <luisa/ast/expression.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
+#include <luisa/core/stl/unordered_map.h>
 
 #include <luisa/rust/ir.hpp>
 

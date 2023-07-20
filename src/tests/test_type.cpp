@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/ast/type.h>
 #include <luisa/ast/type_registry.h>
 

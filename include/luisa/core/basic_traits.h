@@ -40,6 +40,9 @@ using namespace half_float::literal;
 static_assert(sizeof(half) == 2u && alignof(half),
               "half should be 16-bit.");
 
+static_assert(std::is_arithmetic_v<half>,
+              "half should be arithmetic.");
+
 using uchar = uint8_t;
 using ushort = uint16_t;
 using uint = uint32_t;
