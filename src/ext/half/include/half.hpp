@@ -2443,10 +2443,12 @@ namespace std
 	};
 
 #if HALF_ENABLE_CPP11_TYPE_TRAITS
-    // MSVC STL uses `bool_constant<is_foo_v<T>>` to define `is_foo<T>`.
+#ifdef _MSVC_STL_VERSION
+    // FIXME: MSVC STL uses `bool_constant<is_foo_v<T>>` to define `is_foo<T>`.
     // Well done, MSVC.
-    template<> static constexpr auto is_floating_point_v<half_float::half> = true;
-    template<> static constexpr auto is_arithmetic_v<half_float::half> = true;
+    template<> inline constexpr auto is_floating_point_v<half_float::half> = true;
+    template<> inline constexpr auto is_arithmetic_v<half_float::half> = true;
+#endif
     template<> struct is_floating_point<half_float::half> : std::true_type {};
     template<> struct is_arithmetic<half_float::half> : std::true_type {};
 #endif
