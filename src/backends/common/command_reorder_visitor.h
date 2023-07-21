@@ -65,6 +65,9 @@ public:
         bool collide(Range const &r) const {
             return min < r.max && r.min < max;
         }
+        bool ajacent(Range const &r) const {
+            return min <= r.max && r.min <= max;
+        }
         bool operator==(Range const &r) const {
             return min == r.min && max == r.max;
         }
@@ -84,7 +87,29 @@ public:
         ResourceType type;
     };
     struct RangeHandle : public ResourceHandle {
-        vstd::HashMap<Range, ResourceView, RangeHash> views;
+        vstd::vector<std::pair<Range, ResourceView>> views;
+        std::pair<ResourceView &, bool> try_emplace(Range range) {
+            range.min &= (~15);
+            range.max = (range.max + 15) & ~15;
+            ResourceView view;
+            bool is_new = true;
+            for (size_t i = 0; i < views.size();) {
+                auto &v = views[i];
+                if (v.first.ajacent(range)) {
+                    range.min = std::min(range.min, v.first.min);
+                    range.max = std::max(range.max, v.first.max);
+                    view.read_layer = std::max(view.read_layer, v.second.read_layer);
+                    view.write_layer = std::max(view.write_layer, v.second.write_layer);
+                    v = views.back();
+                    views.pop_back();
+                    is_new = false;
+                    continue;
+                }
+                ++i;
+            }
+            auto &v = views.emplace_back(range, view);
+            return {v.second, is_new};
+        }
     };
     struct NoRangeHandle : public ResourceHandle {
         ResourceView view;
@@ -261,11 +286,11 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
                 layer = get_last_layer_read(handle, range);
-                auto ite = handle->views.try_emplace(range);
+                auto ite = handle->try_emplace(range);
                 if (ite.second)
-                    ite.first.value().read_layer = std::max<int64_t>(ite.first.value().read_layer, layer);
+                    ite.first.read_layer = std::max<int64_t>(ite.first.read_layer, layer);
                 else
-                    ite.first.value().read_layer = layer;
+                    ite.first.read_layer = layer;
             } break;
         }
         return layer;
@@ -286,11 +311,11 @@ private:
             } break;
             default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
-                auto ite = handle->views.try_emplace(range);
+                auto ite = handle->try_emplace(range);
                 if (ite.second) {
-                    ite.first.value().read_layer = layer;
+                    ite.first.read_layer = layer;
                 } else {
-                    ite.first.value().read_layer = std::max<int64_t>(ite.first.value().read_layer, layer);
+                    ite.first.read_layer = std::max<int64_t>(ite.first.read_layer, layer);
                 }
             } break;
         }
@@ -311,8 +336,8 @@ private:
             } break;
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
-                auto ite = handle->views.try_emplace(range);
-                ite.first.value().write_layer = layer;
+                auto ite = handle->try_emplace(range);
+                ite.first.write_layer = layer;
                 _write_res_map.emplace(dst_handle->handle);
             } break;
         }
@@ -337,8 +362,8 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
                 layer = get_last_layer_write(handle, range);
-                auto ite = handle->views.try_emplace(range);
-                ite.first.value().write_layer = layer;
+                auto ite = handle->try_emplace(range);
+                ite.first.write_layer = layer;
                 _write_res_map.emplace(dst_handle->handle);
             } break;
         }
@@ -391,14 +416,14 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
                 layer = get_last_layer_read(handle, read_range);
-                auto ite = handle->views.try_emplace(read_range);
+                auto ite = handle->try_emplace(read_range);
                 if (ite.second) {
-                    auto view_ptr = &ite.first.value();
+                    auto view_ptr = &ite.first;
                     set_read_layer = [view_ptr, &layer]() {
                         view_ptr->read_layer = std::max<int64_t>(view_ptr->read_layer, layer);
                     };
                 } else {
-                    auto view_ptr = &ite.first.value();
+                    auto view_ptr = &ite.first;
                     set_read_layer = [view_ptr, &layer]() {
                         view_ptr->read_layer = layer;
                     };
@@ -421,8 +446,8 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
                 layer = std::max<int64_t>(layer, get_last_layer_write(handle, write_range));
-                auto ite = handle->views.try_emplace(write_range);
-                ite.first.value().write_layer = layer;
+                auto ite = handle->try_emplace(write_range);
+                ite.first.write_layer = layer;
                 _write_res_map.emplace(write_handle);
             } break;
         }
@@ -445,11 +470,11 @@ private:
         auto layer = get_last_layer_read(static_cast<RangeHandle *>(vb_handle), vb_range);
         layer = std::max<int64_t>(layer, get_last_layer_write(static_cast<NoRangeHandle *>(mesh_handle)));
         auto set_handle = [](auto &&handle, auto &&range, auto layer) {
-            auto ite = handle->views.try_emplace(range);
+            auto ite = handle->try_emplace(range);
             if (ite.second)
-                ite.first.value().read_layer = layer;
+                ite.first.read_layer = layer;
             else
-                ite.first.value().read_layer = std::max<int64_t>(layer, ite.first.value().read_layer);
+                ite.first.read_layer = std::max<int64_t>(layer, ite.first.read_layer);
         };
         auto ib_handle = get_handle(
             ib,
@@ -475,11 +500,11 @@ private:
         auto layer = get_last_layer_read(static_cast<RangeHandle *>(vb_handle), aabb_range);
         layer = std::max<int64_t>(layer, get_last_layer_write(static_cast<NoRangeHandle *>(mesh_handle)));
         auto set_handle = [](auto &&handle, auto &&range, auto layer) {
-            auto ite = handle->views.try_emplace(range);
+            auto ite = handle->try_emplace(range);
             if (ite.second)
-                ite.first.value().read_layer = layer;
+                ite.first.read_layer = layer;
             else
-                ite.first.value().read_layer = std::max<int64_t>(layer, ite.first.value().read_layer);
+                ite.first.read_layer = std::max<int64_t>(layer, ite.first.read_layer);
         };
         set_handle(static_cast<RangeHandle *>(vb_handle), aabb_range, layer);
         static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
