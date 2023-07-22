@@ -510,7 +510,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::STEP:
             str << "step"sv;
             break;
-        case CallOp::SMOOTH_STEP:
+        case CallOp::SMOOTHSTEP:
             str << "smoothstep"sv;
             break;
         case CallOp::ABS:

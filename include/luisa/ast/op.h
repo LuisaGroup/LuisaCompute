@@ -92,7 +92,7 @@ enum struct CallOp : uint32_t {
     SATURATE,// (vecN)
     LERP,    // (vecN, vecN, vecN)
 
-    SMOOTH_STEP,// (vecN, vecN, vecN)
+    SMOOTHSTEP,// (vecN, vecN, vecN)
     STEP,       // (x, y): (x >= y) ? 1 : 0
 
     ABS,// (vecN)

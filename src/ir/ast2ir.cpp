@@ -574,7 +574,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::SELECT: return ir::Func::Tag::Select;
             case CallOp::CLAMP: return ir::Func::Tag::Clamp;
             case CallOp::LERP: return ir::Func::Tag::Lerp;
-            case CallOp::SMOOTH_STEP: return ir::Func::Tag::SmoothStep;
+            case CallOp::SMOOTHSTEP: return ir::Func::Tag::SmoothStep;
             case CallOp::STEP: return ir::Func::Tag::Step;
             case CallOp::ABS: return ir::Func::Tag::Abs;
             case CallOp::MIN: return ir::Func::Tag::Min;

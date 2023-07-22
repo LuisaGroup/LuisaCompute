@@ -1112,7 +1112,7 @@ template<typename L, typename R, typename T>
     requires any_dsl_v<L, R, T> && is_float_or_vector_expr_v<L> && is_float_or_vector_expr_v<R> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto smoothstep(L &&left, R &&right, T &&x) noexcept {
     return detail::make_vector_call<float>(
-        CallOp::SMOOTH_STEP,
+        CallOp::SMOOTHSTEP,
         std::forward<L>(left),
         std::forward<R>(right),
         std::forward<T>(x));

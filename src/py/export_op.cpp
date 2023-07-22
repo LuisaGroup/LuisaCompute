@@ -62,7 +62,7 @@ void export_op(py::module &m) {
         .value("SATURATE", CallOp::SATURATE)
         .value("LERP", CallOp::LERP)
         .value("STEP", CallOp::STEP)
-        .value("SMOOTHSTEP", CallOp::SMOOTH_STEP)
+        .value("SMOOTHSTEP", CallOp::SMOOTHSTEP)
 
         .value("ABS", CallOp::ABS)
         .value("MIN", CallOp::MIN)
