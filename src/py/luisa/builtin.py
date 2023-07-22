@@ -208,7 +208,7 @@ builtin_func_names = {
     'copysign', 'fma',
     'min', 'max',
     'all', 'any',
-    'select', 'clamp', 'saturate', 'step', 'lerp',
+    'select', 'clamp', 'saturate', 'step', 'smoothstep', 'lerp',
     'clz', 'ctz', 'popcount', 'reverse',
     'determinant', 'transpose', 'inverse', "faceforward", "reflect",
     'print',
@@ -641,7 +641,7 @@ for name in ('clamp', 'fma'):
 
 
 def _step(name, *args):
-    op = lcapi.CallOp.STEP
+    op = getattr(lcapi.CallOp, name.upper())
     assert len(args) == 2
     assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
         "invalid parameter"
@@ -657,6 +657,7 @@ def _step(name, *args):
 
 
 _func_map["step"] = _step
+_func_map["smoothstep"] = _step
 
 
 def _int_func(name, *args):
