@@ -776,6 +776,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::SATURATE: _scratch << "lc_saturate"; break;
         case CallOp::LERP: _scratch << "lc_lerp"; break;
         case CallOp::STEP: _scratch << "lc_step"; break;
+        case CallOp::SMOOTHSTEP: _scratch << "lc_smoothstep"; break;
         case CallOp::ABS: _scratch << "lc_abs"; break;
         case CallOp::MIN: _scratch << "lc_min"; break;
         case CallOp::MAX: _scratch << "lc_max"; break;

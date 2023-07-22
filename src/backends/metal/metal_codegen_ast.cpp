@@ -832,6 +832,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::SATURATE: _scratch << "saturate"; break;
         case CallOp::LERP: _scratch << "mix"; break;
         case CallOp::STEP: _scratch << "step"; break;
+        case CallOp::SMOOTH_STEP: _scratch << "smoothstep"; break;
         case CallOp::ABS: _scratch << "abs"; break;
         case CallOp::MIN: _scratch << "min"; break;
         case CallOp::MAX: _scratch << "max"; break;
