@@ -575,10 +575,11 @@ _func_map["cross"] = _cross
 def _lerp(name, *args):
     t_len = length_of(args[2].dtype)
     assert len(args) == 3 and (args[0].dtype == args[1].dtype) and (length_of(args[0].dtype) == t_len or t_len == 1)
-    return make_vector_call(element_of(args[0].dtype), lcapi.CallOp.LERP, args)
+    return make_vector_call(element_of(args[0].dtype), getattr(lcapi.CallOp, name.upper()), args)
 
 
 _func_map["lerp"] = _lerp
+_func_map["smoothstep"] = _lerp
 
 
 def _select(name, *args):
@@ -657,7 +658,6 @@ def _step(name, *args):
 
 
 _func_map["step"] = _step
-_func_map["smoothstep"] = _step
 
 
 def _int_func(name, *args):
