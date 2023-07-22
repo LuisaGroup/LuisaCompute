@@ -85,7 +85,7 @@ public:
         ResourceType type;
     };
     struct RangeHandle : public ResourceHandle {
-        using LinkNode = vstd::ArenaHashMap<Range, ResourceView, RangeHash>::LinkNode;
+        using LinkNode = typename vstd::ArenaHashMap<Range, ResourceView, RangeHash>::LinkNode;
         vstd::ArenaHashMap<Range, ResourceView, RangeHash> views;
         RangeHandle(
             vstd::ArenaPool<LinkNode> &&pool) : views(16, std::move(pool)) {}
@@ -170,7 +170,7 @@ private:
                 if (try_result.second) {
                     auto mem = _arena.allocate(sizeof(RangeHandle), alignof(RangeHandle));
                     value = reinterpret_cast<RangeHandle *>(mem.handle + mem.offset);
-                    new (value) RangeHandle{vstd::ArenaPool<RangeHandle::LinkNode>{_arena}};
+                    new (value) RangeHandle{vstd::ArenaPool<typename RangeHandle::LinkNode>{_arena}};
                     value->handle = target_handle;
                     value->type = target_type;
                 }
