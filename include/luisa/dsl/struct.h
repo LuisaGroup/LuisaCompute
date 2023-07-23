@@ -15,9 +15,6 @@
 template<typename T>
 struct luisa_compute_extension {};
 
-template<typename T, typename U>
-struct luisa_compute_dummy_extension {};
-
 namespace luisa::compute::detail {
 
 template<typename T>
