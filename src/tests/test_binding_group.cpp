@@ -29,7 +29,7 @@ struct NestedArguments {
 };
 
 // clang-format off
-LUISA_BINDING_GROUP(Arguments, image, resolution){
+LUISA_BINDING_GROUP(Arguments, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
         image->write(coord, color);
     }
