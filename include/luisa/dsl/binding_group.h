@@ -22,6 +22,8 @@
     invoke << s.m;
 
 #define LUISA_BINDING_GROUP(S, ...)                                                     \
+    template<>                                                                          \
+    struct luisa_compute_extension<S>;                                                  \
     namespace luisa::compute {                                                          \
     template<>                                                                          \
     struct Var<S> {                                                                     \
