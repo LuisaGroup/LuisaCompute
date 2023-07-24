@@ -1,32 +1,8 @@
 #pragma once
 #include <luisa/vstl/hash_map.h>
-#include <luisa/vstl/stack_allocator.h>
 namespace vstd {
-template<typename T>
-class ArenaPool {
-    StackAllocator &_allocator;
-
-public:
-    ArenaPool(StackAllocator &allocator) : _allocator(allocator) {}
-    ArenaPool(ArenaPool const &) = delete;
-    ArenaPool(ArenaPool &&) = default;
-    void *malloc(size_t size_bytes) {
-        auto handle = _allocator.allocate(size_bytes);
-        auto ptr = reinterpret_cast<void *>(handle.handle + handle.offset);
-        return ptr;
-    }
-    template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
-    T *create(Args &&...args) {
-        auto handle = _allocator.allocate(sizeof(T));
-        auto ptr = reinterpret_cast<T *>(handle.handle + handle.offset);
-        new (ptr) T(std::forward<Args>(args)...);
-        return ptr;
-    }
-    void destroy(T *ptr) {}
-};
-template<typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>>
-    requires(std::is_trivially_destructible_v<K> && std::is_trivially_destructible_v<V>)
+template<typename Arena, typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>>
+    requires(std::is_trivially_destructible_v<K> && (std::is_void_v<V> || std::is_trivially_destructible_v<V>))
 class ArenaHashMap {
 
 public:
@@ -38,6 +14,25 @@ public:
     using NodePair = typename Map::ConstElement;
     using MoveNodePair = typename Map::Element;
 
+private:
+    struct PseudoPool {
+        Arena arena;
+        PseudoPool(Arena &&arena) : arena(std::forward<Arena>(arena)) {}
+        PseudoPool(PseudoPool const &) = delete;
+        PseudoPool(PseudoPool &&) = default;
+        void *allocate(size_t size_bytes) {
+            return arena.allocate(size_bytes);
+        }
+        template<typename... Args>
+            requires(std::is_constructible_v<LinkNode, Args && ...>)
+        LinkNode *create(Args &&...args) {
+            auto ptr = allocate(sizeof(LinkNode));
+            return new (ptr) LinkNode(std::forward<Args>(args)...);
+        }
+        void destroy(LinkNode *ptr) {}
+    };
+
+public:
     struct Iterator {
         friend class ArenaHashMap;
 
@@ -128,7 +123,7 @@ public:
 
 private:
     LinkNode **nodeArray;
-    ArenaPool<LinkNode> pool;
+    PseudoPool pool;
     size_t mSize;
     size_t mCapacity;
 
@@ -159,7 +154,7 @@ private:
     }
     void Resize(size_t newCapacity) noexcept {
         if (mCapacity >= newCapacity) return;
-        LinkNode **newNode = reinterpret_cast<LinkNode **>(pool.malloc(sizeof(LinkNode *) * newCapacity * 2));
+        LinkNode **newNode = reinterpret_cast<LinkNode **>(pool.allocate(sizeof(LinkNode *) * newCapacity * 2));
         memcpy(newNode, nodeArray, sizeof(LinkNode *) * mSize);
         auto nodeVec = newNode + newCapacity;
         memset(nodeVec, 0, sizeof(LinkNode *) * newCapacity);
@@ -197,10 +192,10 @@ public:
         return MoveIterator(nodeArray + mSize);
     }
     //////////////////Construct & Destruct
-    ArenaHashMap(size_t capacity, ArenaPool<LinkNode> &&pool) noexcept : pool(std::move(pool)) {
+    ArenaHashMap(size_t capacity, Arena &&arena) noexcept : pool(std::move(arena)) {
         if (capacity < 2) capacity = 2;
         capacity = GetPow2Size(capacity);
-        nodeArray = reinterpret_cast<LinkNode **>(this->pool.malloc(sizeof(LinkNode *) * capacity * 2));
+        nodeArray = reinterpret_cast<LinkNode **>(this->pool.allocate(sizeof(LinkNode *) * capacity * 2));
         memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode *));
         mCapacity = capacity;
         mSize = 0;
