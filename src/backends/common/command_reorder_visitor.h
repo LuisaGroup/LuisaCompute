@@ -11,10 +11,22 @@
 #include <luisa/core/logging.h>
 #include <luisa/backends/ext/raster_cmd.h>
 #include <luisa/vstl/stack_allocator.h>
-#include "arena_hash_map.h"
+#include <luisa/vstl/arena_hash_map.h>
 
 namespace luisa::compute {
+class ArenaRef {
+    vstd::StackAllocator &_allocator;
 
+public:
+    ArenaRef(vstd::StackAllocator &allocator) : _allocator(allocator) {}
+    ArenaRef(ArenaRef const &) = delete;
+    ArenaRef(ArenaRef &&) = default;
+    void *allocate(size_t size_bytes) {
+        auto handle = _allocator.allocate(size_bytes);
+        auto ptr = reinterpret_cast<void *>(handle.handle + handle.offset);
+        return ptr;
+    }
+};
 template<typename T>
 /*
 struct ReorderFuncTable{
@@ -85,10 +97,10 @@ public:
         ResourceType type;
     };
     struct RangeHandle : public ResourceHandle {
-        using LinkNode = typename vstd::ArenaHashMap<Range, ResourceView, RangeHash>::LinkNode;
-        vstd::ArenaHashMap<Range, ResourceView, RangeHash> views;
+        using Map = vstd::ArenaHashMap<ArenaRef, Range, ResourceView, RangeHash>;
+        Map views;
         RangeHandle(
-            vstd::ArenaPool<LinkNode> &&pool) : views(16, std::move(pool)) {}
+            ArenaRef &&pool) : views(16, std::move(pool)) {}
         auto try_emplace(Range const &r) {
             return views.try_emplace(r);
         }
@@ -119,10 +131,11 @@ private:
     }
 
     vstd::DefaultMallocVisitor malloc_visitor;
-    vstd::unordered_map<uint64_t, RangeHandle *> _res_map;
-    vstd::unordered_map<uint64_t, NoRangeHandle *> _no_range_resmap;
-    vstd::HashMap<uint64_t, BindlessHandle *> _bindless_map;
-    vstd::HashMap<uint64_t> _write_res_map;
+    vstd::StackAllocator _arena;
+    vstd::ArenaHashMap<ArenaRef, uint64_t, RangeHandle *> _res_map;
+    vstd::ArenaHashMap<ArenaRef, uint64_t, NoRangeHandle *> _no_range_resmap;
+    vstd::ArenaHashMap<ArenaRef, uint64_t, BindlessHandle *> _bindless_map;
+    vstd::ArenaHashMap<ArenaRef, uint64_t> _write_res_map;
     int64_t _bindless_max_layer = -1;
     int64_t _max_mesh_level = -1;
     int64_t _max_accel_read_level = -1;
@@ -131,7 +144,6 @@ private:
         Command const *cmd;
         CommandLink const *p_next;
     };
-    vstd::StackAllocator _arena;
     vstd::vector<CommandLink const *> _cmd_lists;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
@@ -141,10 +153,10 @@ private:
     ResourceHandle *get_handle(
         uint64_t target_handle,
         ResourceType target_type) {
-        auto func = [&](auto &&map, auto &&get_value) {
+        auto func = [&](auto &&map) {
             auto try_result = map.try_emplace(
                 target_handle);
-            auto &&value = get_value(try_result.first);
+            auto &&value = try_result.first.value();
             using Type = typename std::remove_pointer_t<std::remove_cvref_t<decltype(value)>>;
             if (try_result.second) {
                 auto mem = _arena.allocate(sizeof(Type), alignof(Type));
@@ -155,22 +167,20 @@ private:
             }
             return value;
         };
-        auto get_umap_value = [](auto &&a) -> auto & { return a->second; };
-        auto get_hashmap_value = [](auto &&a) -> auto & { return a.value(); };
         switch (target_type) {
             case ResourceType::Bindless:
-                return func(_bindless_map, get_hashmap_value);
+                return func(_bindless_map);
             case ResourceType::Mesh:
             case ResourceType::Accel:
-                return func(_no_range_resmap, get_umap_value);
+                return func(_no_range_resmap);
             default: {
                 auto try_result = _res_map.try_emplace(
                     target_handle);
-                auto &&value = try_result.first->second;
+                auto &&value = try_result.first.value();
                 if (try_result.second) {
                     auto mem = _arena.allocate(sizeof(RangeHandle), alignof(RangeHandle));
                     value = reinterpret_cast<RangeHandle *>(mem.handle + mem.offset);
-                    new (value) RangeHandle{vstd::ArenaPool<typename RangeHandle::LinkNode>{_arena}};
+                    new (value) RangeHandle{ArenaRef{_arena}};
                     value->handle = target_handle;
                     value->type = target_type;
                 }
@@ -718,6 +728,10 @@ private:
 public:
     explicit CommandReorderVisitor(FuncTable &&func_table) noexcept
         : _arena(65536, &malloc_visitor),
+          _res_map(256, ArenaRef{_arena}),
+          _no_range_resmap(256, ArenaRef{_arena}),
+          _bindless_map(256, ArenaRef{_arena}),
+          _write_res_map(256, ArenaRef{_arena}),
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     void clear() noexcept {
