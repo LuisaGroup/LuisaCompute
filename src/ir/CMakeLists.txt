@@ -1,7 +1,8 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_COMPUTE_IR_SOURCES
             ast2ir.cpp
-            ir2ast.cpp)
+            ir2ast.cpp
+            ir.cpp)
 
     add_library(luisa-compute-ir SHARED ${LUISA_COMPUTE_IR_SOURCES})
     target_link_libraries(luisa-compute-ir PUBLIC luisa-compute-ast luisa-compute-rust-meta)
