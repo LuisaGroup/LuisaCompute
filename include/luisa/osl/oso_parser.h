@@ -2,10 +2,13 @@
 // Created by Mike Smith on 2023/7/24.
 //
 
-#ifndef LUISACOMPUTE_OSO_PARSER_H
-#define LUISACOMPUTE_OSO_PARSER_H
+#pragma once
 
-class oso_parser {
+#include <luisa/osl/type.h>
+
+namespace luisa::compute::osl {
+
+class OSOParser {
 };
 
-#endif//LUISACOMPUTE_OSO_PARSER_H
+}// namespace luisa::compute::osl
