@@ -6,7 +6,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/rust/ir.hpp>
 #include <luisa/ir/ir2ast.h>
-
+#include <luisa/ir/ir.h>
 namespace luisa::compute {
 
 void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
