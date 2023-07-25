@@ -438,6 +438,7 @@ impl KernelSerializer {
             Func::Mat4 => SerializedFunc::Mat4,
             Func::Callable(_) => todo!(),
             Func::CpuCustomOp(_) => panic!("cpu custom op not serializabl"),
+            _=> todo!()
         }
     }
     fn new() -> Self {
