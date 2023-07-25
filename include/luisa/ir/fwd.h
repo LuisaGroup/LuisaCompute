@@ -9,7 +9,6 @@ using raw::CArc;
 using raw::CBoxedSlice;
 using raw::Pooled;
 using raw::ModulePools;
-using raw::NodeRef;
 using raw::CallableModuleRef;
 using raw::CpuCustomOp;
 namespace detail {
@@ -44,6 +43,7 @@ class Type;
 class Node;
 class Func;
 class Const;
+class NodeRef;
 class PhiIncoming;
 class SwitchCase;
 class Instruction;
