@@ -40,7 +40,6 @@ class LC_OSL_API SimpleType final : public Type {
 
 public:
     enum struct Primitive {
-        VOID,
         INT,
         FLOAT,
         POINT,

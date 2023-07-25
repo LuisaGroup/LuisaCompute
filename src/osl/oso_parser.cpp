@@ -412,9 +412,7 @@ const Type *OSOParser::_parse_type() noexcept {
             iter != _id_to_type.end()) {
             return iter->second;
         }
-        if (ident == "void"sv) {
-            type = luisa::make_unique<SimpleType>(SimpleType::Primitive::VOID);
-        } else if (ident == "int"sv) {
+        if (ident == "int"sv) {
             type = luisa::make_unique<SimpleType>(SimpleType::Primitive::INT);
         } else if (ident == "float"sv) {
             type = luisa::make_unique<SimpleType>(SimpleType::Primitive::FLOAT);
@@ -510,33 +508,13 @@ void OSOParser::_materialize_structs() noexcept {
                 auto member_type = member_iter->second->type();
                 switch (member_type->tag()) {
                     case Type::Tag::SIMPLE: {
-                        switch (static_cast<const SimpleType *>(member_type)->primitive()) {
-                            case SimpleType::Primitive::VOID: {
-                                LUISA_ERROR_WITH_LOCATION(
-                                    "Invalid struct member '{}' with type "
-                                    "'void' in struct '{}'. "
-                                    "Struct members cannot be void.",
-                                    member_ident, struct_type->identifier());
-                            }
-                            case SimpleType::Primitive::INT:
-                            case SimpleType::Primitive::FLOAT:
-                            case SimpleType::Primitive::POINT:
-                            case SimpleType::Primitive::NORMAL:
-                            case SimpleType::Primitive::VECTOR:
-                            case SimpleType::Primitive::COLOR:
-                            case SimpleType::Primitive::MATRIX:
-                            case SimpleType::Primitive::STRING: {
-                                auto label = *(p++);
-                                auto expected = member_type->identifier().front();
-                                LUISA_ASSERT(label == expected,
-                                             "Invalid struct member '{}' with type "
-                                             "'{}' in struct '{}'. Expected '{}' ({}).",
-                                             member_ident, label, struct_type->identifier(),
-                                             expected, member_type->identifier());
-                                break;
-                            }
-                            default: LUISA_ERROR_WITH_LOCATION("Unreachable.");
-                        }
+                        auto label = *(p++);
+                        auto expected = member_type->identifier().front();
+                        LUISA_ASSERT(label == expected,
+                                     "Invalid struct member '{}' with type "
+                                     "'{}' in struct '{}'. Expected '{}' ({}).",
+                                     member_ident, label, struct_type->identifier(),
+                                     expected, member_type->identifier());
                         break;
                     }
                     case Type::Tag::STRUCT: {

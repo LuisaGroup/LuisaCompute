@@ -29,7 +29,6 @@ luisa::string_view ClosureType::identifier() const noexcept {
 string_view SimpleType::identifier() const noexcept {
     using namespace std::string_view_literals;
     switch (_primitive) {
-        case Primitive::VOID: return "void"sv;
         case Primitive::INT: return "int"sv;
         case Primitive::FLOAT: return "float"sv;
         case Primitive::POINT: return "point"sv;
