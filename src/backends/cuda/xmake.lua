@@ -14,7 +14,7 @@ if get_config("enable_ir") then
 end
 set_pcxxheader("pch.h")
 add_headerfiles("**.h", "../common/default_binary_io.h", "../common/string_scratch.h")
-add_files("**.cpp", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
+add_files("**.cpp")
 on_load(function(target)
 	import("detect.sdks.find_cuda")
 	local cuda = find_cuda()

@@ -1,7 +1,7 @@
 extern crate proc_macro;
 extern crate syn;
 use proc_macro2::TokenTree;
-use std::{fs::File, io::Write};
+use std::{fs::File, io::Write, path::Path};
 use syn::__private::ToTokens;
 fn camel_case_to_snake_case(name: &str) -> String {
     let keywords = [
@@ -161,7 +161,7 @@ fn gen_struct_binding(
     }
 
     let name = item.ident.to_string();
-    let exclude = ["CpuCustomOp", "NodeRef", "CallableModuleRef", "UserData"];
+    let exclude = ["CpuCustomOp", "CallableModuleRef", "UserData"];
     if exclude.contains(&name.as_str()) {
         return Ok(());
     }
@@ -169,18 +169,42 @@ fn gen_struct_binding(
     writeln!(h, "class LC_IR_API {} : concepts::Noncopyable {{", name)?;
     writeln!(h, "    raw::{} _inner;", name)?;
     writeln!(h, "public:")?;
-    for f in &item.fields {
-        let fname = f.ident.as_ref().unwrap().to_string();
-        let (decl, def) = gen_field(&name, &fname, &fname, &f);
-        writeln!(h, "{}", decl)?;
-        writeln!(cpp, "{}", def)?;
+    writeln!(h, "    friend class IrBuilder;")?;
+    let is_tuple = item.fields.iter().all(|f| match &f.ident {
+        Some(_) => false,
+        None => true,
+    });
+    if !is_tuple {
+        for f in &item.fields {
+            let fname = f.ident.as_ref().unwrap().to_string();
+            let (decl, def) = gen_field(&name, &fname, &fname, &f);
+            writeln!(h, "{}", decl)?;
+            writeln!(cpp, "{}", def)?;
+        }
+    }
+    {
+        let extra_code = File::open(Path::new(&format!("data/{}.h", name)));
+        if let Ok(mut extra_code) = extra_code {
+            writeln!(h, "// including extra code from data/{}.h", name)?;
+            std::io::copy(&mut extra_code, h)?;
+            writeln!(h, "\n// end include")?;
+        }
+    }
+    {
+        let extra_code = File::open(Path::new(&format!("data/{}.cpp", name)));
+        if let Ok(mut extra_code) = extra_code {
+            writeln!(cpp, "// including extra code from data/{}.cpp", name)?;
+            std::io::copy(&mut extra_code, cpp)?;
+            writeln!(cpp, "\n// end include")?;
+        }
     }
     writeln!(h, "}};")?;
     writeln!(h, "{}", gen_specialization(&name))?;
     Ok(())
 }
 fn gen_specialization(name: &str) -> String {
-    format!("namespace detail {{
+    format!(
+        "namespace detail {{
 template<>struct FromInnerRef<raw::{0}>{{
     using Output = {0};
     static const Output& from(const raw::{0} & _inner) noexcept {{ 
@@ -205,7 +229,9 @@ template<>struct FromInnerRef<CBoxedSlice<raw::{0}>>{{
         return reinterpret_cast<const Output&>(_inner);
     }}
 }};
-}}", name)
+}}",
+        name
+    )
 }
 fn gen_enum_binding(
     item: &syn::ItemEnum,
@@ -249,6 +275,7 @@ fn gen_enum_binding(
     writeln!(h, "    raw::{} _inner;", name)?;
     writeln!(h, "    class Marker{{ }};")?;
     writeln!(h, "public:")?;
+    writeln!(h, "    friend class IrBuilder;")?;
     writeln!(h, "    using Tag = raw::{}::Tag;", name)?;
 
     for (i, variant) in item.variants.iter().enumerate() {
@@ -271,7 +298,12 @@ fn gen_enum_binding(
                 syn::Fields::Named(ref fields) => {
                     for field in &fields.named {
                         let fname = field.ident.as_ref().unwrap().to_string();
-                        let (decl, def) = gen_field(&format!("{}::{}", name, variant_name), &fname, &fname, &field);
+                        let (decl, def) = gen_field(
+                            &format!("{}::{}", name, variant_name),
+                            &fname,
+                            &fname,
+                            &field,
+                        );
                         writeln!(h, "{}", decl)?;
                         writeln!(cpp, "{}", def)?;
                     }
@@ -287,7 +319,17 @@ fn gen_enum_binding(
             )?;
             writeln!(h, "        uint8_t _pad;")?;
             writeln!(h, "    public:")?;
+            writeln!(
+                h,
+                "        static constexpr Tag tag() noexcept {{ return raw::{}::Tag::{}; }}",
+                name, variant_name
+            )?;
             writeln!(h, "    }};")?;
+            writeln!(
+                h,
+                "    explicit {0}({0}::{1} _) noexcept {{ _inner.tag = {1}::tag();}}",
+                name, variant_name
+            )?;
         }
     }
     writeln!(
@@ -362,7 +404,6 @@ fn main() -> std::io::Result<()> {
 using raw::CBoxedSlice;
 using raw::Pooled;
 using raw::ModulePools;
-using raw::NodeRef;
 using raw::CallableModuleRef;
 using raw::CpuCustomOp;
 namespace detail {
