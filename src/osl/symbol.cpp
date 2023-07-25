@@ -9,6 +9,25 @@
 
 namespace luisa::compute::osl {
 
+const Symbol *Symbol::root() const noexcept {
+    auto p = this;
+    while (p->_parent != nullptr) { p = p->_parent; }
+    return p;
+}
+
+void Symbol::add_child(const Symbol *symbol) noexcept {
+    LUISA_ASSERT(symbol != nullptr, "Symbol is null.");
+    LUISA_ASSERT(symbol->_parent == this, "Symbol parent mismatch.");
+    LUISA_ASSERT(symbol->identifier().starts_with(_identifier),
+                 "Symbol identifier mismatch.");
+#ifndef NDEBUG
+    LUISA_ASSERT(std::none_of(_children.begin(), _children.end(),
+                              [symbol](auto &&c) noexcept { return c == symbol; }),
+                 "Symbol already added.");
+#endif
+    _children.emplace_back(symbol);
+}
+
 luisa::string Symbol::dump() const noexcept {
     auto tag_string = [tag = _tag] {
         using namespace std::string_view_literals;
@@ -23,7 +42,9 @@ luisa::string Symbol::dump() const noexcept {
         }
         LUISA_ERROR_WITH_LOCATION("Invalid symbol tag.");
     }();
-    auto s = luisa::format("{}\t{}", tag_string, _type->identifier());
+    auto s = _type->tag() == Type::Tag::STRUCT ?
+                 luisa::format("{}\tstruct {}", tag_string, _type->identifier()) :
+                 luisa::format("{}\t{}", tag_string, _type->identifier());
     if (is_array()) {
         if (is_unbounded()) {
             s.append("[]");
@@ -47,7 +68,17 @@ luisa::string Symbol::dump() const noexcept {
         s.pop_back();
     }
     if (_type->tag() == Type::Tag::STRUCT) {
-        s.append("\t# ").append(static_cast<const StructType *>(_type)->identifier());
+        s.append("\t# ").append(static_cast<const StructType *>(_type)->dump());
+    }
+    if (_parent != nullptr) {
+        s.append("\t# ").append("parent: ").append(_parent->identifier());
+    }
+    if (!_children.empty()) {
+        s.append("\t# ").append("children: ");
+        for (auto &&c : _children) {
+            s.append(c->identifier()).append(" ");
+        }
+        s.pop_back();
     }
     return s;
 }

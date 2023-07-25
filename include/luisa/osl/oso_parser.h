@@ -36,12 +36,12 @@ private:
     luisa::vector<luisa::unique_ptr<Type>> _types;
     luisa::vector<luisa::unique_ptr<Symbol>> _symbols;
     luisa::vector<luisa::unique_ptr<Instruction>> _instructions;
-    luisa::unordered_map<luisa::string, const Symbol *> _id_to_symbol;
-    luisa::unordered_map<luisa::string, const Type *> _id_to_type;
+    luisa::unordered_map<luisa::string, Symbol *> _id_to_symbol;
+    luisa::unordered_map<luisa::string, Type *> _id_to_type;
 
 private:
-    OSOParser(luisa::string_view source,
-              luisa::string_view path = {}) noexcept;
+    explicit OSOParser(luisa::string_view source,
+                       luisa::string_view path = {}) noexcept;
     ~OSOParser() noexcept;
 
 public:
@@ -86,6 +86,7 @@ private:
     [[nodiscard]] luisa::vector<Literal> _parse_initial_values() noexcept;
     [[nodiscard]] luisa::vector<const Symbol *> _parse_arguments() noexcept;
     [[nodiscard]] luisa::vector<int> _parse_jump_targets() noexcept;
+    [[nodiscard]] luisa::unique_ptr<Symbol> _parse_symbol() noexcept;
 
 public:
     [[nodiscard]] static luisa::unique_ptr<Shader> parse(luisa::string_view source) noexcept;

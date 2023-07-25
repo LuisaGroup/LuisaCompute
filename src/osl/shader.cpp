@@ -67,16 +67,18 @@ luisa::string Shader::dump() const noexcept {
     for (auto &&symbol : _symbols) {
         s.append("\n").append(symbol->dump());
     }
-    auto m = 0u;// code marker index
-    for (auto i = 0u; i < _instructions.size(); i++) {
-        while (m < _code_markers.size() &&
-               _code_markers[m].instruction == i) {
-            auto &&marker = _code_markers[m];
+    auto print_code_markers = [m = 0u, &markers = _code_markers, &s](auto i) mutable noexcept {
+        while (m < markers.size() && markers[m].instruction == i) {
+            auto &&marker = markers[m];
             s.append(luisa::format("\ncode {}", marker.identifier));
             m++;
         }
+    };
+    for (auto i = 0u; i < _instructions.size(); i++) {
+        print_code_markers(i);
         s.append("\n\t").append(_instructions[i]->dump());
     }
+    print_code_markers(_instructions.size());
     s.append("\n\tend\n");
     return s;
 }

@@ -6,7 +6,9 @@
 #include <fstream>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/unordered_map.h>
 
 #include <luisa/osl/type.h>
 #include <luisa/osl/literal.h>
@@ -117,65 +119,86 @@ void OSOParser::_parse_shader_decl() noexcept {
         tag, std::move(identifier), std::move(hints));
 }
 
-void OSOParser::_parse_symbols() noexcept {
+luisa::unique_ptr<Symbol> OSOParser::_parse_symbol() noexcept {
+
     // symbol : SYMTYPE typespec arraylen_opt IDENTIFIER initial_values_opt hints_opt ENDOFLINE
     // arraylen_opt : '[' INT_LITERAL ']' | '[' ']'
+    auto backup = _backup();
+    auto op = _parse_identifier();
+    using namespace std::string_view_literals;
+    auto tag = [&op]() noexcept -> luisa::optional<Symbol::Tag> {
+        if (op == "param"sv) { return Symbol::Tag::PARAM; }
+        if (op == "oparam"sv) { return Symbol::Tag::OUTPUT_PARAM; }
+        if (op == "local"sv) { return Symbol::Tag::LOCAL; }
+        if (op == "temp"sv) { return Symbol::Tag::TEMP; }
+        if (op == "global"sv) { return Symbol::Tag::GLOBAL; }
+        if (op == "const"sv) { return Symbol::Tag::CONST; }
+        return luisa::nullopt;
+    }();
+    if (!tag) {
+        LUISA_ASSERT(op == "code"sv,
+                     "Unknown symbol tag '{}' at {}. "
+                     "Expected 'code'.",
+                     op, _location());
+        _restore(backup);
+        return nullptr;
+    }
+    _skip_whitespaces();
+    auto type = _parse_type();
+    _skip_whitespaces();
+    auto array_len = 0;
+    if (_peek() == '[') {
+        static_cast<void>(_read());
+        _skip_whitespaces();
+        if (_is_number()) {
+            auto len = _parse_number();
+            LUISA_ASSERT(len > 0 && static_cast<int>(len) == len,
+                         "Invalid array length '{}' at {}. "
+                         "Expected a positive integer.",
+                         len, _location());
+            array_len = static_cast<int>(len);
+        } else {
+            array_len = -1;// unbounded array
+        }
+        _skip_whitespaces();
+        _match(']');
+        _skip_whitespaces();
+    }
+    auto identifier = _parse_identifier();
+    _skip_whitespaces();
+    auto initial_values = _parse_initial_values();
+    _skip_whitespaces();
+    auto hints = _parse_hints();
+    _skip_whitespaces();
+    _match_eol();
+
+    // find its parent
+    Symbol *parent = nullptr;
+    // find the last '.' in the identifier
+    if (auto dot = identifier.find_last_of('.');
+        dot != luisa::string ::npos) {
+        auto parent_ident = luisa::string_view{identifier}.substr(0u, dot);
+        auto iter = _id_to_symbol.find(parent_ident);
+        LUISA_ASSERT(iter != _id_to_symbol.end(),
+                     "Unknown parent symbol '{}' of '{}' at {}.",
+                     parent_ident, identifier, _location());
+        parent = iter->second;
+    }
+    // create the symbol
+    auto symbol = luisa::make_unique<Symbol>(
+        *tag, type, array_len, parent, std::move(identifier),
+        std::move(initial_values), std::move(hints));
+    if (parent) { parent->add_child(symbol.get()); }
+    return symbol;
+}
+
+void OSOParser::_parse_symbols() noexcept {
     while (!_eof()) {
         _skip_empty_lines();
         _skip_whitespaces();
-        auto backup = _backup();
-        auto op = _parse_identifier();
-        using namespace std::string_view_literals;
-        auto tag = [&op]() noexcept -> luisa::optional<Symbol::Tag> {
-            if (op == "param"sv) { return Symbol::Tag::PARAM; }
-            if (op == "oparam"sv) { return Symbol::Tag::OUTPUT_PARAM; }
-            if (op == "local"sv) { return Symbol::Tag::LOCAL; }
-            if (op == "temp"sv) { return Symbol::Tag::TEMP; }
-            if (op == "global"sv) { return Symbol::Tag::GLOBAL; }
-            if (op == "const"sv) { return Symbol::Tag::CONST; }
-            return luisa::nullopt;
-        }();
-        if (!tag) {
-            LUISA_ASSERT(op == "code"sv,
-                         "Unknown symbol tag '{}' at {}. "
-                         "Expected 'code'.",
-                         op, _location());
-            _restore(backup);
-            break;
-        }
-        _skip_whitespaces();
-        auto type = _parse_type();
-        _skip_whitespaces();
-        auto array_len = 0;
-        if (_peek() == '[') {
-            static_cast<void>(_read());
-            _skip_whitespaces();
-            if (_is_number()) {
-                auto len = _parse_number();
-                LUISA_ASSERT(len > 0 && static_cast<int>(len) == len,
-                             "Invalid array length '{}' at {}. "
-                             "Expected a positive integer.",
-                             len, _location());
-                array_len = static_cast<int>(len);
-            } else {
-                array_len = -1;// unbounded array
-            }
-            _skip_whitespaces();
-            _match(']');
-            _skip_whitespaces();
-        }
-        auto identifier = _parse_identifier();
-        _skip_whitespaces();
-        auto initial_values = _parse_initial_values();
-        _skip_whitespaces();
-        auto hints = _parse_hints();
-        _skip_whitespaces();
-        _match_eol();
-        auto symbol = luisa::make_unique<Symbol>(
-            *tag, type, array_len, std::move(identifier),
-            std::move(initial_values), std::move(hints));
-        auto p_symbol = symbol.get();
-        _id_to_symbol.emplace(p_symbol->identifier(), p_symbol);
+        auto symbol = _parse_symbol();
+        if (!symbol) { break; }
+        _id_to_symbol.emplace(symbol->identifier(), symbol.get());
         _symbols.emplace_back(std::move(symbol));
     }
 }
@@ -467,101 +490,90 @@ luisa::vector<Hint> OSOParser::_parse_hints() noexcept {
 }
 
 void OSOParser::_materialize_structs() noexcept {
-    // FIXME: this is not working
-    luisa::unordered_set<const Type *> materialized;
+
+    // probe all root structs
+    luisa::queue<const Symbol *> queue;
     for (auto &&symbol : _symbols) {
-        if (auto t = symbol->type();
-            t->tag() == Type::Tag::STRUCT &&
-            !materialized.contains(t)) {
-            auto struct_type = static_cast<const StructType *>(t);
-            luisa::span<const luisa::string> field_names;
-            const char *field_types = nullptr;
-            using namespace std::string_view_literals;
-            for (auto &&hint : symbol->hints()) {
-                if (hint.identifier() == "structfields"sv) {
-                    field_names = hint.args();
-                } else if (hint.identifier() == "structfieldtypes"sv) {
-                    LUISA_ASSERT(hint.args().size() == 1u,
-                                 "Invalid struct field types hint at. "
-                                 "Expected 1 argument.");
-                    field_types = hint.args().front().c_str();
-                }
-            }
-            LUISA_ASSERT(!field_names.empty(),
-                         "Missing struct fields hint for struct '{}'.",
-                         struct_type->identifier());
-            LUISA_ASSERT(!field_types,
-                         "Missing struct field types hint for struct '{}'.",
-                         struct_type->identifier());
-            // parse
-            luisa::vector<StructType::Field> fields;
-            fields.reserve(field_names.size());
-            auto p = field_types;
-            for (auto &&field_name : field_names) {
-                auto member_ident = luisa::format(
-                    "{}.{}", symbol->identifier(), field_name);
-                auto member_iter = _id_to_symbol.find(member_ident);
-                LUISA_ASSERT(member_iter != _id_to_symbol.end(),
-                             "Unknown struct member '{}' at {}. "
-                             "Expected a symbol.",
-                             member_ident, _location());
-                auto member_type = member_iter->second->type();
-                switch (member_type->tag()) {
-                    case Type::Tag::SIMPLE: {
-                        auto label = *(p++);
-                        auto expected = member_type->identifier().front();
-                        LUISA_ASSERT(label == expected,
-                                     "Invalid struct member '{}' with type "
-                                     "'{}' in struct '{}'. Expected '{}' ({}).",
-                                     member_ident, label, struct_type->identifier(),
-                                     expected, member_type->identifier());
-                        break;
-                    }
-                    case Type::Tag::STRUCT: {
-                        auto label = *(p++);
-                        LUISA_ASSERT(label == 'S',
-                                     "Invalid struct member '{}' with type "
-                                     "'{}' in struct '{}'. Expected 'S'.",
-                                     member_ident, label, struct_type->identifier());
-                        // skip struct index
-                        while (isdigit(*p)) { p++; }
-                        break;
-                    }
-                    case Type::Tag::CLOSURE: {
-                        auto label = *(p++);
-                        LUISA_ASSERT(label == 'C',
-                                     "Invalid struct member '{}' with type "
-                                     "'{}' in struct '{}'. Expected 'C'.",
-                                     member_ident, label, struct_type->identifier());
-                        break;
-                    }
-                    default: LUISA_ERROR_WITH_LOCATION("Unreachable.");
-                }
-                auto array_len = static_cast<size_t>(0u);
-                if (*p == '[') {
-                    auto len_begin = ++p;
-                    while (isdigit(*p)) { p++; }
-                    LUISA_ASSERT(*p == ']',
-                                 "Invalid array length for member '{}' "
-                                 "in struct '{}'. Expected ']'.",
-                                 member_ident, struct_type->identifier());
-                    auto len_end = p;
-                    array_len = static_cast<size_t>(std::strtoull(
-                        len_begin, const_cast<char **>(&len_end), 10));
-                    LUISA_ASSERT(len_end == p,
-                                 "Invalid array length for member '{}' "
-                                 "in struct '{}'. Expected a positive integer.",
-                                 member_ident, struct_type->identifier());
-                    p++;
-                }
-                fields.emplace_back(StructType::Field{
-                    .name = field_name,
-                    .type = member_type,
-                    .array_length = array_len});
-            }
-            const_cast<StructType *>(struct_type)->set_fields(std::move(fields));
-            materialized.emplace(t);
+        if (symbol->type()->tag() == Type::Tag::STRUCT &&
+            symbol->is_root()) {
+            queue.push(symbol.get());
         }
+    }
+    // process
+    luisa::unordered_set<const Type *> processed;
+    while (!queue.empty()) {
+        auto symbol = queue.front();
+        queue.pop();
+        // skip if already processed
+        if (!processed.emplace(symbol->type()).second) {
+            continue;
+        }
+        // process children
+        luisa::span<const luisa::string> field_names;
+        for (auto &&hint : symbol->hints()) {
+            using namespace std::string_view_literals;
+            if (hint.identifier() == "structfields"sv) {
+                field_names = hint.args();
+                break;
+            }
+        }
+        if (!field_names.empty()) {
+            LUISA_ASSERT(field_names.size() == symbol->children().size(),
+                         "Invalid struct fields hint for struct '{}'. "
+                         "Expected {} field names, but got {}.",
+                         symbol->identifier(), symbol->children().size(),
+                         field_names.size());
+        }
+        luisa::vector<StructType::Field> fields;
+        fields.reserve(symbol->children().size());
+        for (auto i = 0u; i < symbol->children().size(); i++) {
+            auto child = symbol->children()[i];
+            if (child->type()->tag() == Type::Tag::STRUCT) {
+                queue.emplace(child);
+            }
+            // process field
+            LUISA_ASSERT(child->identifier().starts_with(symbol->identifier()),
+                         "Invalid child '{}' of '{}'. Expected '{}.*'.",
+                         child->identifier(), symbol->identifier(),
+                         symbol->identifier());
+            auto field_name = child->identifier().substr(symbol->identifier().size());
+            LUISA_ASSERT(field_name.starts_with('.'),
+                         "Invalid child '{}' of '{}'. Expected '{}.*'.",
+                         child->identifier(), symbol->identifier(),
+                         symbol->identifier());
+            field_name = field_name.substr(1u);
+            if (!field_names.empty()) {
+                LUISA_ASSERT(field_name == field_names[i],
+                             "Invalid child '{}' of '{}'. Expected '{}'.",
+                             child->identifier(), symbol->identifier(),
+                             field_names[i]);
+            }
+            auto array_len = 0u;
+            if (symbol->is_array()) {
+                LUISA_ASSERT(child->array_length() == symbol->array_length(),
+                             "Invalid array length {} for symbol '{}' in struct '{}'. Expected {}.",
+                             child->array_length(), child->identifier(),
+                             symbol->type()->identifier(), symbol->array_length());
+            } else {
+                LUISA_ASSERT(!child->is_unbounded(),
+                             "Invalid unbounded array length "
+                             "for symbol '{}' in struct '{}'.",
+                             child->identifier(),
+                             symbol->type()->identifier());
+                array_len = child->array_length();
+            }
+            fields.emplace_back(StructType::Field{
+                .name = luisa::string{field_name},
+                .type = child->type(),
+                .array_length = array_len});
+        }
+        auto mutable_type_iter = _id_to_type.find(symbol->type()->identifier());
+        LUISA_ASSERT(mutable_type_iter != _id_to_type.end() &&
+                         mutable_type_iter->second->tag() == Type::Tag::STRUCT,
+                     "Unknown struct type '{}' at {}.",
+                     symbol->type()->identifier(), _location());
+        static_cast<StructType *>(mutable_type_iter->second)
+            ->set_fields(std::move(fields));
     }
 }
 
