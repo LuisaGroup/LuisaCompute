@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include "ext.h"
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>

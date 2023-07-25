@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <Resource/SparseTexture.h>
 #include <Resource/DescriptorHeap.h>
 #include <luisa/core/logging.h>

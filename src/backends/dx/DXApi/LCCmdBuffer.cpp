@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCDevice.h>
 #include <luisa/runtime/rhi/command.h>

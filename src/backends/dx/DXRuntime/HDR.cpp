@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include "HDR.h"
 #include <dxgi1_6.h>
 namespace lc::dx {

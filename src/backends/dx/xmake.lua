@@ -31,4 +31,5 @@ after_build(function(target)
 		os.cp(path.join(os.scriptdir(), "dx_support/*.dll"), bin_dir)
 	end
 end)
+set_pcxxheader("pch.h")
 target_end()

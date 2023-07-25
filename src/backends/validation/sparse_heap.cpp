@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "sparse_heap.h"
 #include <luisa/core/logging.h>
 namespace lc::validation {
