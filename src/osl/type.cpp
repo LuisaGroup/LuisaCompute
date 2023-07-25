@@ -47,4 +47,20 @@ StructType::StructType(luisa::string identifier, vector<StructType::Field> field
       _identifier{std::move(identifier)},
       _fields{std::move(fields)} {}
 
+luisa::string StructType::dump() const noexcept {
+    auto s = luisa::format("struct {} {{", _identifier);
+    if (!_fields.empty()) {
+        for (auto &&f : _fields) {
+            s.append(luisa::format(" {} {}", f.type->identifier(), f.name));
+            if (f.is_array()) {
+                s.append(luisa::format("[{}]", f.array_length));
+            }
+            s.append(";");
+        }
+        s.append(" ");
+    }
+    s.append("};");
+    return s;
+}
+
 }// namespace luisa::compute::osl

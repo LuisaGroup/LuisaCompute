@@ -23,7 +23,7 @@ luisa::string Symbol::dump() const noexcept {
         }
         LUISA_ERROR_WITH_LOCATION("Invalid symbol tag.");
     }();
-    auto s = luisa::format("{}\t{}", tag_string, _type->dump());
+    auto s = luisa::format("{}\t{}", tag_string, _type->identifier());
     if (is_array()) {
         if (is_unbounded()) {
             s.append("[]");
@@ -45,6 +45,9 @@ luisa::string Symbol::dump() const noexcept {
             s.append(h.dump()).append(" ");
         }
         s.pop_back();
+    }
+    if (_type->tag() == Type::Tag::STRUCT) {
+        s.append("\t# ").append(static_cast<const StructType *>(_type)->identifier());
     }
     return s;
 }

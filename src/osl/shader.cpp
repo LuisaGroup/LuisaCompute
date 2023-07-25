@@ -46,7 +46,7 @@ luisa::span<const luisa::unique_ptr<Instruction>>
 Shader::instructions() const noexcept { return _instructions; }
 
 luisa::string Shader::dump() const noexcept {
-    auto s = luisa::format("{} {}.{}\n", _osl_spec,
+    auto s = luisa::format("{} {}.{:02}\n", _osl_spec,
                            _osl_version_major,
                            _osl_version_minor);
     switch (_tag) {

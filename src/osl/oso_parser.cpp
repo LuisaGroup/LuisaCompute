@@ -68,10 +68,8 @@ luisa::unique_ptr<Shader> OSOParser::parse(luisa::string_view source) noexcept {
 }
 
 luisa::unique_ptr<Shader> OSOParser::parse_file(luisa::string_view path) noexcept {
-    std::ifstream file{path};
-    LUISA_ASSERT(file.is_open(),
-                 "Failed to open file '{}'.",
-                 path);
+    std::ifstream file{luisa::filesystem::path{path}};
+    LUISA_ASSERT(file.is_open(), "Failed to open file '{}'.", path);
     luisa::string source{std::istreambuf_iterator<char>{file},
                          std::istreambuf_iterator<char>{}};
     OSOParser parser{source, path};
@@ -89,7 +87,7 @@ void OSOParser::_parse_shader_decl() noexcept {
     _match_eol();
     auto osl_version_major = static_cast<uint32_t>(osl_version);
     auto osl_version_minor = static_cast<uint32_t>(std::round((osl_version - osl_version_major) * 100.));
-    LUISA_VERBOSE_WITH_LOCATION("Shader version: {} {}.{}",
+    LUISA_VERBOSE_WITH_LOCATION("Shader version: {} {}.{:02}",
                                 osl_spec, osl_version_major, osl_version_minor);
     _skip_empty_lines();
     // shader_declaration : shader_type IDENTIFIER hints_opt ENDOFLINE
@@ -471,7 +469,122 @@ luisa::vector<Hint> OSOParser::_parse_hints() noexcept {
 }
 
 void OSOParser::_materialize_structs() noexcept {
-    // TODO: materialize structs
+    // FIXME: this is not working
+    luisa::unordered_set<const Type *> materialized;
+    for (auto &&symbol : _symbols) {
+        if (auto t = symbol->type();
+            t->tag() == Type::Tag::STRUCT &&
+            !materialized.contains(t)) {
+            auto struct_type = static_cast<const StructType *>(t);
+            luisa::span<const luisa::string> field_names;
+            const char *field_types = nullptr;
+            using namespace std::string_view_literals;
+            for (auto &&hint : symbol->hints()) {
+                if (hint.identifier() == "structfields"sv) {
+                    field_names = hint.args();
+                } else if (hint.identifier() == "structfieldtypes"sv) {
+                    LUISA_ASSERT(hint.args().size() == 1u,
+                                 "Invalid struct field types hint at. "
+                                 "Expected 1 argument.");
+                    field_types = hint.args().front().c_str();
+                }
+            }
+            LUISA_ASSERT(!field_names.empty(),
+                         "Missing struct fields hint for struct '{}'.",
+                         struct_type->identifier());
+            LUISA_ASSERT(!field_types,
+                         "Missing struct field types hint for struct '{}'.",
+                         struct_type->identifier());
+            // parse
+            luisa::vector<StructType::Field> fields;
+            fields.reserve(field_names.size());
+            auto p = field_types;
+            for (auto &&field_name : field_names) {
+                auto member_ident = luisa::format(
+                    "{}.{}", symbol->identifier(), field_name);
+                auto member_iter = _id_to_symbol.find(member_ident);
+                LUISA_ASSERT(member_iter != _id_to_symbol.end(),
+                             "Unknown struct member '{}' at {}. "
+                             "Expected a symbol.",
+                             member_ident, _location());
+                auto member_type = member_iter->second->type();
+                switch (member_type->tag()) {
+                    case Type::Tag::SIMPLE: {
+                        switch (static_cast<const SimpleType *>(member_type)->primitive()) {
+                            case SimpleType::Primitive::VOID: {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "Invalid struct member '{}' with type "
+                                    "'void' in struct '{}'. "
+                                    "Struct members cannot be void.",
+                                    member_ident, struct_type->identifier());
+                            }
+                            case SimpleType::Primitive::INT:
+                            case SimpleType::Primitive::FLOAT:
+                            case SimpleType::Primitive::POINT:
+                            case SimpleType::Primitive::NORMAL:
+                            case SimpleType::Primitive::VECTOR:
+                            case SimpleType::Primitive::COLOR:
+                            case SimpleType::Primitive::MATRIX:
+                            case SimpleType::Primitive::STRING: {
+                                auto label = *(p++);
+                                auto expected = member_type->identifier().front();
+                                LUISA_ASSERT(label == expected,
+                                             "Invalid struct member '{}' with type "
+                                             "'{}' in struct '{}'. Expected '{}' ({}).",
+                                             member_ident, label, struct_type->identifier(),
+                                             expected, member_type->identifier());
+                                break;
+                            }
+                            default: LUISA_ERROR_WITH_LOCATION("Unreachable.");
+                        }
+                        break;
+                    }
+                    case Type::Tag::STRUCT: {
+                        auto label = *(p++);
+                        LUISA_ASSERT(label == 'S',
+                                     "Invalid struct member '{}' with type "
+                                     "'{}' in struct '{}'. Expected 'S'.",
+                                     member_ident, label, struct_type->identifier());
+                        // skip struct index
+                        while (isdigit(*p)) { p++; }
+                        break;
+                    }
+                    case Type::Tag::CLOSURE: {
+                        auto label = *(p++);
+                        LUISA_ASSERT(label == 'C',
+                                     "Invalid struct member '{}' with type "
+                                     "'{}' in struct '{}'. Expected 'C'.",
+                                     member_ident, label, struct_type->identifier());
+                        break;
+                    }
+                    default: LUISA_ERROR_WITH_LOCATION("Unreachable.");
+                }
+                auto array_len = static_cast<size_t>(0u);
+                if (*p == '[') {
+                    auto len_begin = ++p;
+                    while (isdigit(*p)) { p++; }
+                    LUISA_ASSERT(*p == ']',
+                                 "Invalid array length for member '{}' "
+                                 "in struct '{}'. Expected ']'.",
+                                 member_ident, struct_type->identifier());
+                    auto len_end = p;
+                    array_len = static_cast<size_t>(std::strtoull(
+                        len_begin, const_cast<char **>(&len_end), 10));
+                    LUISA_ASSERT(len_end == p,
+                                 "Invalid array length for member '{}' "
+                                 "in struct '{}'. Expected a positive integer.",
+                                 member_ident, struct_type->identifier());
+                    p++;
+                }
+                fields.emplace_back(StructType::Field{
+                    .name = field_name,
+                    .type = member_type,
+                    .array_length = array_len});
+            }
+            const_cast<StructType *>(struct_type)->set_fields(std::move(fields));
+            materialized.emplace(t);
+        }
+    }
 }
 
 luisa::unique_ptr<Shader> OSOParser::_parse() noexcept {

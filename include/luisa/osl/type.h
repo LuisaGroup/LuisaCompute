@@ -73,6 +73,8 @@ public:
     struct Field {
         luisa::string name;
         const Type *type;
+        size_t array_length;
+        [[nodiscard]] auto is_array() const noexcept { return array_length != 0u; }
     };
 
 private:
@@ -80,12 +82,13 @@ private:
     luisa::vector<Field> _fields;
 
 public:
-    StructType(luisa::string identifier, luisa::vector<Field> fields = {}) noexcept;
+    explicit StructType(luisa::string identifier, luisa::vector<Field> fields = {}) noexcept;
     ~StructType() noexcept override = default;
     void set_fields(luisa::vector<Field> fields) noexcept { _fields = std::move(fields); }
     [[nodiscard]] luisa::string_view identifier() const noexcept override { return _identifier; }
     [[nodiscard]] auto fields() noexcept { return luisa::span{_fields}; }
     [[nodiscard]] auto fields() const noexcept { return luisa::span{_fields}; }
+    [[nodiscard]] luisa::string dump() const noexcept override;
 };
 
 class LC_OSL_API ClosureType final : public Type {
