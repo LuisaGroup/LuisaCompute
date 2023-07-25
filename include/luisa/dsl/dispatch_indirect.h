@@ -22,6 +22,10 @@ public:
     void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
         dispatch_kernel(block_size, dispatch_size, 0u);
     }
+    void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
+    void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
+        set_kernel(offset, block_size, dispatch_size, 0u);
+    }
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
@@ -59,9 +63,12 @@ public:
     void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
         dispatch_kernel(block_size, dispatch_size, 0u);
     }
+    void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
+    void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
+        set_kernel(offset, block_size, dispatch_size, 0u);
+    }
 };
 
 }// namespace detail
 
 }// namespace luisa::compute
-

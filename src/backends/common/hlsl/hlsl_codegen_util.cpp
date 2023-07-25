@@ -76,7 +76,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (ops.test(CallOp::INVERSE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
     }
-    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL)) {
+    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
     }
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE)) {
@@ -947,14 +947,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            auto tp = args[1]->type();
-            if (tp->is_scalar()) {
-                str << "_EmplaceDispInd1D"sv;
-            } else if (tp->dimension() == 2) {
-                str << "_EmplaceDispInd2D"sv;
-            } else {
-                str << "_EmplaceDispInd3D"sv;
-            }
+            str << "_EmplaceDispInd"sv;
+        } break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: {
+            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
+            str << "_SetDispInd"sv;
         } break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
             str << "_RayQueryGetWorldRay<"sv;

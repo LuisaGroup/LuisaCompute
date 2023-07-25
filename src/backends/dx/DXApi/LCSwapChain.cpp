@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <DXApi/LCSwapChain.h>
 #include <dxgi1_2.h>
 #include <DXRuntime/Device.h>
