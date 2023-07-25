@@ -36,6 +36,26 @@ struct OSOParser::ShaderDecl {
           hints{std::move(hints)} {}
 };
 
+namespace detail {
+
+[[nodiscard]] inline auto is_identifier_head(char c) noexcept {
+    return isalpha(c) || c == '_' || c == '$';
+}
+
+[[nodiscard]] inline auto is_identifier_body(char c) noexcept {
+    return isalnum(c) || c == '_' || c == '$' || c == '.';
+}
+
+[[nodiscard]] inline auto is_number_head(char c) noexcept {
+    return isdigit(c) || c == '.' || c == '-' || c == '+';
+}
+
+[[nodiscard]] inline auto is_number_body(char c) noexcept {
+    return isdigit(c) || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-';
+}
+
+}// namespace detail
+
 OSOParser::OSOParser(luisa::string_view source,
                      luisa::string_view path) noexcept
     : _state{source, 0u, 0u}, _path{path} {}
@@ -237,14 +257,8 @@ luisa::vector<int> OSOParser::_parse_jump_targets() noexcept {
 }
 
 luisa::string OSOParser::_parse_identifier() noexcept {
-    constexpr auto is_head = [](char c) noexcept {
-        return isalpha(c) || c == '_' || c == '$';
-    };
-    constexpr auto is_body = [](char c) noexcept {
-        return isalnum(c) || c == '_' || c == '$' || c == '.';
-    };
     auto head = _read();
-    LUISA_ASSERT(is_head(head),
+    LUISA_ASSERT(detail::is_identifier_head(head),
                  "Invalid identifier head '{}' at {}. "
                  "Expected [a-zA-Z_$].",
                  head, _location());
@@ -252,28 +266,22 @@ luisa::string OSOParser::_parse_identifier() noexcept {
     result.push_back(head);
     while (!_eol()) {
         auto c = _peek();
-        if (!is_body(c)) { break; }
+        if (!detail::is_identifier_body(c)) { break; }
         result.push_back(_read());
     }
     return result;
 }
 
 double OSOParser::_parse_number() noexcept {
-    constexpr auto is_head = [](char c) noexcept {
-        return isdigit(c) || c == '.' || c == '-' || c == '+';
-    };
-    constexpr auto is_body = [](char c) noexcept {
-        return isdigit(c) || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-';
-    };
     auto p_begin = _state.source.data();
     auto head = _read();
-    LUISA_ASSERT(is_head(head),
+    LUISA_ASSERT(detail::is_number_head(head),
                  "Invalid number head '{}' at {}. "
                  "Expected [0-9.].",
                  head, _location());
     while (!_eol()) {
         auto c = _peek();
-        if (!is_body(c)) { break; }
+        if (!detail::is_number_body(c)) { break; }
         static_cast<void>(_read());
     }
     if (*p_begin == '+') { ++p_begin; }
@@ -540,9 +548,7 @@ bool OSOParser::_eol() const noexcept {
 }
 
 bool OSOParser::_is_number() const noexcept {
-    if (_eol()) { return false; }
-    auto c = _peek();
-    return isdigit(c) || c == '.' || c == '-' || c == '+';
+    return !_eol() && detail::is_number_head(_peek());
 }
 
 bool OSOParser::_is_string() const noexcept {
@@ -550,10 +556,7 @@ bool OSOParser::_is_string() const noexcept {
 }
 
 bool OSOParser::_is_identifier() const noexcept {
-    constexpr auto is_ident_start = [](char c) noexcept {
-        return isalpha(c) || c == '_' || c == '$';
-    };
-    return !_eol() && is_ident_start(_peek());
+    return !_eol() && detail::is_identifier_head(_peek());
 }
 
 bool OSOParser::_is_hint() const noexcept {
