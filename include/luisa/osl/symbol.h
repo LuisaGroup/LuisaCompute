@@ -21,6 +21,9 @@ public:
         LOCAL,
         TEMP,
         GLOBAL,
+#ifdef CONST// lovely, windows.h
+#undef CONST
+#endif
         CONST
     };
 
@@ -35,17 +38,10 @@ private:
     luisa::vector<const Symbol *> _children;
 
 public:
-    Symbol(Tag tag, const Type *type,
-           int array_length,
-           const Symbol *parent,
-           luisa::string identifier,
+    Symbol(Tag tag, const Type *type, int array_length,
+           const Symbol *parent, luisa::string identifier,
            luisa::vector<Literal> initial_values,
-           luisa::vector<Hint> hints) noexcept
-        : _tag{tag}, _array_length{array_length},
-          _type{type}, _parent{parent},
-          _identifier{std::move(identifier)},
-          _initial_values{std::move(initial_values)},
-          _hints{std::move(hints)} {}
+           luisa::vector<Hint> hints) noexcept;
     ~Symbol() noexcept = default;
     Symbol(Symbol &&) noexcept = default;
     Symbol(const Symbol &) noexcept = delete;

@@ -83,4 +83,14 @@ luisa::string Symbol::dump() const noexcept {
     return s;
 }
 
+Symbol::Symbol(Symbol::Tag tag, const Type *type, int array_length,
+               const Symbol *parent, luisa::string identifier,
+               luisa::vector<Literal> initial_values,
+               luisa::vector<Hint> hints) noexcept
+    : _tag{tag}, _array_length{array_length},
+      _type{type}, _parent{parent},
+      _identifier{std::move(identifier)},
+      _initial_values{std::move(initial_values)},
+      _hints{std::move(hints)} {}
+
 }// namespace luisa::compute::osl
