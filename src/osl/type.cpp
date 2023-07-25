@@ -42,13 +42,6 @@ string_view SimpleType::identifier() const noexcept {
     LUISA_ERROR_WITH_LOCATION("Unknown primitive type.");
 }
 
-ArrayType::ArrayType(const Type *element, size_t length) noexcept
-    : Type{Tag::ARRAY},
-      _element{element}, _length{length},
-      _identifier{length ?
-                      luisa::format("{}[{}]", element->identifier(), length) :
-                      luisa::format("{}[]", element->identifier())} {}
-
 StructType::StructType(luisa::string identifier, vector<StructType::Field> fields) noexcept
     : Type{Tag::STRUCT},
       _identifier{std::move(identifier)},

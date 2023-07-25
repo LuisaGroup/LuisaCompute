@@ -13,8 +13,7 @@ class LC_OSL_API Literal {
 
 public:
     enum struct Tag : uint32_t {
-        INT,
-        FLOAT,
+        NUMBER,
         STRING
     };
 
@@ -22,14 +21,12 @@ private:
     Tag _tag;
     uint32_t _string_length;
     union {
-        int i;
-        float f;
+        double n;
         char *s;
     } _value;
 
 public:
-    explicit Literal(int i) noexcept;
-    explicit Literal(float f) noexcept;
+    explicit Literal(double n) noexcept;
     explicit Literal(luisa::string_view s) noexcept;
     ~Literal() noexcept;
     Literal(Literal &&) noexcept;
@@ -37,12 +34,14 @@ public:
     Literal &operator=(Literal &&) noexcept = delete;
     Literal &operator=(const Literal &) noexcept = delete;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
-    [[nodiscard]] auto is_int() const noexcept { return _tag == Tag::INT; }
-    [[nodiscard]] auto is_float() const noexcept { return _tag == Tag::FLOAT; }
+    [[nodiscard]] auto is_number() const noexcept { return _tag == Tag::NUMBER; }
     [[nodiscard]] auto is_string() const noexcept { return _tag == Tag::STRING; }
     [[nodiscard]] int as_int() const noexcept;
     [[nodiscard]] float as_float() const noexcept;
     [[nodiscard]] luisa::string_view as_string() const noexcept;
+
+    // for debugging
+    [[nodiscard]] luisa::string dump() const noexcept;
 };
 
 }// namespace luisa::compute::osl

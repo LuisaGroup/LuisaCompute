@@ -1,8 +1,11 @@
 if (LUISA_COMPUTE_ENABLE_OSL)
 
     set(LUISA_COMPUTE_OSL_SOURCES
+            hint.cpp
+            instruction.cpp
             literal.cpp
             shader.cpp
+            symbol.cpp
             type.cpp
             oso_parser.cpp)
 

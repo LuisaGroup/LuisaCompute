@@ -14,6 +14,7 @@ namespace luisa::compute::osl {
 class Type;
 class Symbol;
 class Instruction;
+class Hint;
 
 class LC_OSL_API Shader {
 
@@ -28,7 +29,7 @@ public:
 
     struct CodeMarker {
         luisa::string identifier;
-        uint32_t line;
+        uint32_t instruction;
     };
 
 private:
@@ -39,7 +40,7 @@ private:
 private:
     Tag _tag;
     luisa::string _identifier;
-    luisa::vector<luisa::string> _hints;
+    luisa::vector<Hint> _hints;
     luisa::vector<CodeMarker> _code_markers;
     luisa::vector<luisa::unique_ptr<Type>> _types;
     luisa::vector<luisa::unique_ptr<Symbol>> _symbols;
@@ -49,7 +50,7 @@ public:
     Shader(luisa::string osl_spec,
            uint version_major, uint version_minor,
            Tag tag, luisa::string identifier,
-           luisa::vector<luisa::string> hints,
+           luisa::vector<Hint> hints,
            luisa::vector<CodeMarker> code_markers,
            luisa::vector<luisa::unique_ptr<Type>> types,
            luisa::vector<luisa::unique_ptr<Symbol>> symbols,
@@ -64,11 +65,14 @@ public:
     [[nodiscard]] auto osl_version_minor() const noexcept { return static_cast<uint>(_osl_version_minor); }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto identifier() const noexcept { return luisa::string_view{_identifier}; }
-    [[nodiscard]] auto hints() const noexcept { return luisa::span{_hints}; }
     [[nodiscard]] auto code_markers() const noexcept { return luisa::span{_code_markers}; }
+    [[nodiscard]] luisa::span<const Hint> hints() const noexcept;
     [[nodiscard]] luisa::span<const luisa::unique_ptr<Type>> types() const noexcept;
     [[nodiscard]] luisa::span<const luisa::unique_ptr<Symbol>> symbols() const noexcept;
     [[nodiscard]] luisa::span<const luisa::unique_ptr<Instruction>> instructions() const noexcept;
+
+    // for debugging
+    [[nodiscard]] luisa::string dump() const noexcept;
 };
 
 }// namespace luisa::compute::osl

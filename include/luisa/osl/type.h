@@ -16,7 +16,6 @@ public:
     enum struct Tag {
         SIMPLE,
         STRUCT,
-        ARRAY,
         CLOSURE,
     };
 
@@ -30,6 +29,11 @@ public:
     virtual ~Type() noexcept = default;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] virtual luisa::string_view identifier() const noexcept = 0;
+
+    // for debugging
+    [[nodiscard]] virtual luisa::string dump() const noexcept {
+        return luisa::string{identifier()};
+    }
 };
 
 class LC_OSL_API SimpleType final : public Type {
@@ -82,22 +86,6 @@ public:
     [[nodiscard]] luisa::string_view identifier() const noexcept override { return _identifier; }
     [[nodiscard]] auto fields() noexcept { return luisa::span{_fields}; }
     [[nodiscard]] auto fields() const noexcept { return luisa::span{_fields}; }
-};
-
-class LC_OSL_API ArrayType final : public Type {
-
-private:
-    const Type *_element;
-    size_t _length;
-    luisa::string _identifier;
-
-public:
-    ArrayType(const Type *element, size_t length) noexcept;
-    ~ArrayType() noexcept override = default;
-    [[nodiscard]] luisa::string_view identifier() const noexcept override { return _identifier; }
-    [[nodiscard]] auto element() const noexcept { return _element; }
-    [[nodiscard]] auto length() const noexcept { return _length; }
-    [[nodiscard]] auto is_unbounded() const noexcept { return _length == 0u; }
 };
 
 class LC_OSL_API ClosureType final : public Type {
