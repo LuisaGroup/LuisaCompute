@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2023/7/24.
 //
 
+#include <algorithm>
+
 #include <luisa/core/logging.h>
 
 #include <luisa/osl/type.h>
@@ -28,7 +30,25 @@ Shader::Shader(luisa::string osl_spec,
       _code_markers{std::move(code_markers)},
       _types{std::move(types)},
       _symbols{std::move(symbols)},
-      _instructions{std::move(instructions)} {}
+      _instructions{std::move(instructions)} {
+    std::stable_sort(
+        _symbols.begin(), _symbols.end(),
+        [](auto &&lhs, auto &&rhs) noexcept {
+            auto score_tag = [](Symbol::Tag tag) noexcept {
+                switch (tag) {
+                    case Symbol::Tag::CONST: return 0u;
+                    case Symbol::Tag::GLOBAL: return 1u;
+                    case Symbol::Tag::PARAM: return 2u;
+                    case Symbol::Tag::OUTPUT_PARAM: return 3u;
+                    case Symbol::Tag::LOCAL: return 4u;
+                    case Symbol::Tag::TEMP: return 5u;
+                    default: break;
+                }
+                return std::numeric_limits<uint32_t>::max();
+            };
+            return score_tag(lhs->tag()) < score_tag(rhs->tag());
+        });
+}
 
 Shader::~Shader() noexcept = default;
 Shader::Shader(Shader &&) noexcept = default;
@@ -76,7 +96,7 @@ luisa::string Shader::dump() const noexcept {
     };
     for (auto i = 0u; i < _instructions.size(); i++) {
         print_code_markers(i);
-        s.append("\n\t").append(_instructions[i]->dump());
+        s.append(luisa::format("\n{:>6}:\t{}", i, _instructions[i]->dump()));
     }
     print_code_markers(_instructions.size());
     s.append("\n\tend\n");

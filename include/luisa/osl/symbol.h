@@ -27,6 +27,8 @@ public:
         CONST
     };
 
+    [[nodiscard]] static luisa::string_view dump(Tag tag) noexcept;
+
 private:
     Tag _tag;
     int _array_length;

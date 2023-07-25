@@ -29,19 +29,7 @@ void Symbol::add_child(const Symbol *symbol) noexcept {
 }
 
 luisa::string Symbol::dump() const noexcept {
-    auto tag_string = [tag = _tag] {
-        using namespace std::string_view_literals;
-        switch (tag) {
-            case Tag::PARAM: return "param"sv;
-            case Tag::OUTPUT_PARAM: return "oparam"sv;
-            case Tag::LOCAL: return "local"sv;
-            case Tag::TEMP: return "temp"sv;
-            case Tag::GLOBAL: return "global"sv;
-            case Tag::CONST: return "const"sv;
-            default: break;
-        }
-        LUISA_ERROR_WITH_LOCATION("Invalid symbol tag.");
-    }();
+    auto tag_string = dump(_tag);
     auto s = _type->tag() == Type::Tag::STRUCT ?
                  luisa::format("{}\tstruct {}", tag_string, _type->identifier()) :
                  luisa::format("{}\t{}", tag_string, _type->identifier());
@@ -81,6 +69,20 @@ luisa::string Symbol::dump() const noexcept {
         s.pop_back();
     }
     return s;
+}
+
+luisa::string_view Symbol::dump(Symbol::Tag tag) noexcept {
+    using namespace std::string_view_literals;
+    switch (tag) {
+        case Tag::PARAM: return "param"sv;
+        case Tag::OUTPUT_PARAM: return "oparam"sv;
+        case Tag::LOCAL: return "local"sv;
+        case Tag::TEMP: return "temp"sv;
+        case Tag::GLOBAL: return "global"sv;
+        case Tag::CONST: return "const"sv;
+        default: break;
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid symbol tag.");
 }
 
 Symbol::Symbol(Symbol::Tag tag, const Type *type, int array_length,
