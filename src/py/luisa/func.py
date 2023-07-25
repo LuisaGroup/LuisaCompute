@@ -161,6 +161,7 @@ class func:
             get_global_device().impl().save_shader(f.function, name)
         if print_cpp_header:
             front = '''#pragma once
+#include <luisa/core/stl/string.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 '''
@@ -168,7 +169,7 @@ class func:
             type_map = {}
             type_defines = []
             r = ""
-            shader_path = Path(name.replace("\\","/"))
+            shader_path = Path(name)
             shader_name = shader_path.name.split(".")[0]
             def get_value_type_name(dtype, r):
                 if dtype in basic_dtypes:
@@ -176,16 +177,22 @@ class func:
                         return dtype.__name__, r
                     return "luisa::" + dtype.__name__, r
                 elif type(dtype).__name__ == "StructType":
-                    name = type_map.get(arg)
+                    name = type_map.get(dtype)
                     if name == None:
                         name = "Arg" + str(type_idx)
-                        type_map[arg] = name
-
+                        type_map[dtype] = name
                         r += f"struct {name} " + "{\n"
-                        for idx, ele_type in arg._py_args.items():
+                        for idx, ele_type in dtype._py_args.items():
                             ele_name, r = get_value_type_name(ele_type, r)
                             r += f"    {ele_name} {idx};\n"
                         r += "};\n"
+                    return name, r
+                elif type(dtype).__name__ == "ArrayType":
+                    name = type_map.get(dtype)
+                    if name == None:
+                        ele_name, r = get_value_type_name(dtype.dtype, r)
+                        name = "std::array<" + ele_name + ", " + str(dtype.size) + ">"
+                        type_map[dtype] = name
                     return name, r
                 else:
                     return None, r
@@ -258,10 +265,8 @@ class func:
                 if sz != len(type_defines):
                     type_name += ", "
             func_declare += type_name + ">"
-            shader_path = str(shader_path)
-            if sys.platform == 'win32':
-                shader_path = shader_path.replace("\\", "/")
-            r += f"inline {func_declare} load" + "(luisa::compute::Device &device) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_path + "\");\n}\n"
+            r += "using Type = " + func_declare + ";\n"
+            r += f"inline Type load" + "(luisa::compute::Device &device, luisa::string_view path) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(path);\n}\n"
             return front + "namespace " + shader_name + ' {\n' +  r + '}// namespace ' + shader_name + '\n'
 
     # compiles an argument-type-specialized callable/kernel

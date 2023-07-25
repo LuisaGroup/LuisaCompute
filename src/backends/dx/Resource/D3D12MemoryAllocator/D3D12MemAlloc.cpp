@@ -1,3 +1,4 @@
+#include "../../pch.h"
 //
 // Copyright (c) 2019-2022 Advanced Micro Devices, Inc. All rights reserved.
 //

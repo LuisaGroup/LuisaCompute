@@ -125,9 +125,10 @@ if __name__ == "__main__":
                 print(
                     f"[[nodiscard]] inline __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
-                
+
+
         def gen_binary_op_(arg_t, ret_t, op):
-            for i in [2,4]:
+            for i in [2, 4]:
                 elements = ["x", "y", "z", "w"][:i]
                 # vector-vector
                 print(
@@ -743,12 +744,6 @@ public:
     }
 };
 
-template<typename T, size_t N>
-__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
-    #pragma unroll
-    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
-}
-
 [[nodiscard]] __device__ inline auto lc_mat_comp_mul(lc_float2x2 lhs, lc_float2x2 rhs) noexcept {
     return lc_make_float2x2(lhs[0] * rhs[0],
                             lhs[1] * rhs[1]);
@@ -820,6 +815,15 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
         for t in non_differentiable_types:
             print(
                 f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{}}", file=file)
+
+        print("""
+template<typename T, size_t N>
+__device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
+    #pragma unroll
+    for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
+}
+""", file=file)
+
         print(
             "struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};", file=file)
         print('''template<class T> struct element_type_{using type = void;};

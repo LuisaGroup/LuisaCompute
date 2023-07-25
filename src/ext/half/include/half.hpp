@@ -276,9 +276,6 @@
 #if HALF_ENABLE_CPP11_CFENV
 	#include <cfenv>
 #endif
-#if HALF_ENABLE_CPP11_HASH
-	#include <functional>
-#endif
 
 
 #ifndef HALF_ENABLE_F16C_INTRINSICS
@@ -2275,9 +2272,6 @@ namespace half_float
 		friend HALF_CONSTEXPR bool islessgreater(half, half);
 		template<typename,typename,std::float_round_style> friend struct detail::half_caster;
 		friend class std::numeric_limits<half>;
-	#if HALF_ENABLE_CPP11_HASH
-		friend struct std::hash<half>;
-	#endif
 	#if HALF_ENABLE_CPP11_USER_LITERALS
 		friend half literal::operator "" _h(long double);
 	#endif
@@ -2448,25 +2442,17 @@ namespace std
 		static HALF_CONSTEXPR half_float::half denorm_min() HALF_NOTHROW { return half_float::half(half_float::detail::binary, 0x0001); }
 	};
 
-#if HALF_ENABLE_CPP11_HASH
-	/// Hash function for half-precision floats.
-	/// This is only defined if C++11 `std::hash` is supported and enabled.
-	///
-	/// **See also:** Documentation for [std::hash](https://en.cppreference.com/w/cpp/utility/hash)
-	template<> struct hash<half_float::half>
-	{
-		/// Type of function argument.
-		typedef half_float::half argument_type;
-
-		/// Function return type.
-		typedef size_t result_type;
-
-		/// Compute hash function.
-		/// \param arg half to hash
-		/// \return hash value
-		result_type operator()(argument_type arg) const { return hash<half_float::detail::uint16>()(arg.data_&-static_cast<unsigned>(arg.data_!=0x8000)); }
-	};
+#if HALF_ENABLE_CPP11_TYPE_TRAITS
+#ifdef _MSVC_STL_VERSION
+    // FIXME: MSVC STL uses `bool_constant<is_foo_v<T>>` to define `is_foo<T>`.
+    // Well done, MSVC.
+    template<> inline constexpr auto is_floating_point_v<half_float::half> = true;
+    template<> inline constexpr auto is_arithmetic_v<half_float::half> = true;
 #endif
+    template<> struct is_floating_point<half_float::half> : std::true_type {};
+    template<> struct is_arithmetic<half_float::half> : std::true_type {};
+#endif
+
 }
 
 namespace half_float

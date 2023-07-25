@@ -15,6 +15,7 @@
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/polymorphic.h>
 #include <luisa/dsl/struct.h>
+#include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/resource.h>
 
 #include <luisa/dsl/rtx/aabb.h>

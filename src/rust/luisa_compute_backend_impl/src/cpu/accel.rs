@@ -1,10 +1,10 @@
-use std::os::raw::c_void;
+use std::{os::raw::c_void, ptr::null_mut};
 
 use super::resource::BufferImpl;
 use crate::panic_abort;
 use api::{
     AccelBuildModification, AccelBuildModificationFlags, AccelBuildRequest, AccelUsageHint,
-    MeshBuildCommand,
+    MeshBuildCommand, ProceduralPrimitiveBuildCommand,
 };
 use embree_sys as sys;
 use lazy_static::lazy_static;
@@ -24,8 +24,9 @@ fn init_device() {
         device.0 = unsafe { sys::rtcNewDevice(std::ptr::null()) }
     }
 }
-pub struct MeshImpl {
+pub struct GeometryImpl {
     pub(crate) handle: sys::RTCScene,
+    #[allow(dead_code)]
     usage: AccelUsageHint,
     built: bool,
     lock: Mutex<()>,
@@ -38,7 +39,7 @@ macro_rules! check_error {
         }
     }};
 }
-impl MeshImpl {
+impl GeometryImpl {
     pub unsafe fn new(
         hint: api::AccelUsageHint,
         _allow_compact: bool,
@@ -61,7 +62,68 @@ impl MeshImpl {
             lock: Mutex::new(()),
         }
     }
-    pub unsafe fn build(&mut self, cmd: &MeshBuildCommand) {
+    pub unsafe fn build_procedural(&mut self, cmd: &ProceduralPrimitiveBuildCommand) {
+        let device = DEVICE.lock();
+        let device = device.0;
+        let _lk = self.lock.lock();
+        let request = cmd.request;
+        let need_rebuild = request == AccelBuildRequest::ForceBuild || !self.built;
+
+        unsafe extern "C" fn bounds_func(args: *const sys::RTCBoundsFunctionArguments) {
+            let args = &*args;
+            let aabb_buffer = args.geometryUserPtr as *const defs::Aabb;
+            let aabb = unsafe { &*aabb_buffer.add(args.primID as usize) };
+            let bounds = &mut *(args.bounds_o as *mut sys::RTCBounds);
+            bounds.lower_x = aabb.min[0];
+            bounds.lower_y = aabb.min[1];
+            bounds.lower_z = aabb.min[2];
+            bounds.upper_x = aabb.max[0];
+            bounds.upper_y = aabb.max[1];
+            bounds.upper_z = aabb.max[2];
+        }
+        let aabb_buffer = &*(cmd.aabb_buffer.0 as *const BufferImpl);
+
+        if need_rebuild {
+            let geometry = sys::rtcNewGeometry(device, sys::RTC_GEOMETRY_TYPE_USER);
+
+            sys::rtcSetGeometryUserData(geometry, aabb_buffer.data as *mut c_void);
+            sys::rtcSetGeometryUserPrimitiveCount(geometry, cmd.aabb_count as u32);
+            sys::rtcSetGeometryBoundsFunction(
+                geometry,
+                Some(bounds_func),
+                null_mut(),
+            );
+          
+            check_error!(device);
+            sys::rtcCommitGeometry(geometry);
+            check_error!(device);
+            if self.built {
+                sys::rtcDetachGeometry(self.handle, 0);
+                check_error!(device);
+            } else {
+                self.built = true;
+            }
+            sys::rtcAttachGeometryByID(self.handle, geometry, 0);
+            check_error!(device);
+            sys::rtcReleaseGeometry(geometry);
+            check_error!(device);
+        } else {
+            let geometry = sys::rtcGetGeometry(self.handle, 0);
+            sys::rtcSetGeometryUserPrimitiveCount(geometry, cmd.aabb_count as u32);
+            check_error!(device);
+            sys::rtcSetGeometryBoundsFunction(
+                geometry,
+                Some(bounds_func),
+                (aabb_buffer.data as *mut u8).add(cmd.aabb_buffer_offset) as *mut c_void,
+            );
+            check_error!(device);
+            sys::rtcCommitGeometry(geometry);
+            check_error!(device);
+        }
+        sys::rtcCommitScene(self.handle);
+        check_error!(device);
+    }
+    pub unsafe fn build_mesh(&mut self, cmd: &MeshBuildCommand) {
         let device = DEVICE.lock();
         let device = device.0;
         let _lk = self.lock.lock();
@@ -78,7 +140,7 @@ impl MeshImpl {
                 0,
                 sys::RTC_FORMAT_FLOAT3,
                 vbuffer.data as *const c_void,
-                0,
+                cmd.vertex_buffer_offset,
                 cmd.vertex_stride,
                 cmd.vertex_buffer_size / cmd.vertex_stride,
             );
@@ -89,7 +151,7 @@ impl MeshImpl {
                 0,
                 sys::RTC_FORMAT_UINT3,
                 ibuffer.data as *const c_void,
-                0,
+                cmd.index_buffer_offset,
                 cmd.index_stride,
                 cmd.index_buffer_size / cmd.index_stride,
             );
@@ -117,7 +179,7 @@ impl MeshImpl {
         check_error!(device);
     }
 }
-impl Drop for MeshImpl {
+impl Drop for GeometryImpl {
     fn drop(&mut self) {
         unsafe {
             sys::rtcReleaseScene(self.handle);
@@ -129,6 +191,7 @@ struct Instance {
     dirty: bool,
     visible: u8,
     geometry: sys::RTCGeometry,
+    opaque: bool,
 }
 impl Instance {
     pub fn valid(&self) -> bool {
@@ -142,6 +205,7 @@ impl Default for Instance {
             dirty: false,
             visible: u8::MAX,
             geometry: std::ptr::null_mut(),
+            opaque: true,
         }
     }
 }
@@ -199,23 +263,44 @@ impl AccelImpl {
         }
         for m in modifications {
             if m.flags.contains(AccelBuildModificationFlags::PRIMITIVE) {
-                let mesh = &*(m.mesh as *const MeshImpl);
-                assert!(mesh.built);
+                let mesh = &*(m.mesh as *const GeometryImpl);
+                if !mesh.built {
+                    panic_abort!("Mesh not built");
+                }
                 unsafe {
                     let affine = m.affine;
                     let geometry = sys::rtcNewGeometry(device, sys::RTC_GEOMETRY_TYPE_INSTANCE);
                     sys::rtcCommitGeometry(geometry);
                     sys::rtcSetGeometryInstancedScene(geometry, mesh.handle);
                     sys::rtcAttachGeometryByID(self.handle, geometry, m.index);
-                    sys::rtcSetGeometryEnableFilterFunctionFromArguments(geometry, true);
+                    sys::rtcSetGeometryEnableFilterFunctionFromArguments(geometry, false);
                     *self.instances[m.index as usize].write() = Instance {
                         affine,
                         dirty: false,
                         visible: u8::MAX,
                         geometry,
+                        opaque: true,
                     };
                 }
             }
+            if m.flags.contains(AccelBuildModificationFlags::OPAQUE_ON) {
+                let mut instance = self.instances[m.index as usize].write();
+                instance.opaque = true;
+                instance.dirty = true;
+                sys::rtcSetGeometryEnableFilterFunctionFromArguments(
+                    instance.geometry,
+                    !instance.opaque,
+                );
+            };
+            if m.flags.contains(AccelBuildModificationFlags::OPAQUE_OFF) {
+                let mut instance = self.instances[m.index as usize].write();
+                instance.opaque = false;
+                instance.dirty = true;
+                sys::rtcSetGeometryEnableFilterFunctionFromArguments(
+                    instance.geometry,
+                    !instance.opaque,
+                );
+            };
             if m.flags.contains(AccelBuildModificationFlags::TRANSFORM) {
                 let mut instance = self.instances[m.index as usize].write();
                 let geometry = instance.geometry;
@@ -250,7 +335,7 @@ impl AccelImpl {
                 instance.dirty = false;
             }
         }
-       
+
         sys::rtcCommitScene(self.handle);
     }
     #[inline]
@@ -422,6 +507,9 @@ impl AccelImpl {
         // RTC_FORCEINLINE RTCHitN* RTCRayHitN_HitN(RTCRayHitN* rayhit, unsigned int N) { return (RTCHitN*)&((float*)rayhit)[12*N]; }
         unsafe extern "C" fn filter_fn(args: *const sys::RTCFilterFunctionNArguments) {
             let args = &*args;
+            if *args.valid == 0 {
+                return;
+            }
             let ctx = &mut *(args.context as *mut RayQueryContext);
             debug_assert!(args.N == 1);
             let hit = args.hit as *mut u32;
@@ -447,20 +535,99 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
+                
                 rq.hit.set_from_triangle_hit(rq.cur_triangle_hit);
             }
             if rq.terminated {
                 *t_far = f32::NEG_INFINITY;
             }
         }
-        unsafe extern "C" fn occluded_fn(args: *const sys::RTCOccludedFunctionNArguments) {}
+        unsafe extern "C" fn occluded_fn(args: *const sys::RTCOccludedFunctionNArguments) {
+            let args = &*args;
+            if *args.valid == 0 {
+                return;
+            }
+            let ctx = &mut *(args.context as *mut RayQueryContext);
+            debug_assert!(args.N == 1);
+
+            let t_near =*(args.ray as *mut f32).add(3);
+            let t_far = &mut *(args.ray as *mut f32).add(8);
+            let cur_inst_id = (*args.context).instID[0];
+
+            let rq = &mut *ctx.rq;
+            rq.cur_procedural_hit = defs::ProceduralHit {
+                prim: args.primID,
+                inst: cur_inst_id,
+            };
+
+            rq.cur_commited = false;
+            rq.terminated = false;
+            (ctx.on_procedural_hit)(rq);
+            if !rq.cur_commited {
+                *args.valid = 0;
+            } else {
+                // eprintln!("accepting hit");
+                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near{
+                    *args.valid = 0;
+                    return;
+                }
+                rq.hit
+                    .set_from_procedural_hit(rq.cur_procedural_hit, rq.cur_committed_ray_t);
+                *t_far = rq.hit.committed_ray_t;
+            }
+            if rq.terminated {
+                *t_far = f32::NEG_INFINITY;
+            }
+
+        }
+        unsafe extern "C" fn intersect_fn(args: *const sys::RTCIntersectFunctionNArguments) {
+            let args = &*args;
+            if *args.valid == 0 {
+                return;
+            }
+            let ctx = &mut *(args.context as *mut RayQueryContext);
+            debug_assert!(args.N == 1);
+            let hit = (args.rayhit as *mut f32).add(12) as *mut u32;
+            let prim_id = &mut *hit.add(5);
+            // let geom_id = &mut *hit.add(6);
+            let inst_id = &mut *hit.add(7);
+            let t_near =*(args.rayhit as *mut f32).add(3);
+            let t_far = &mut *(args.rayhit as *mut f32).add(8);
+            let cur_inst_id = (*args.context).instID[0];
+            let rq = &mut *ctx.rq;
+            rq.cur_procedural_hit = defs::ProceduralHit {
+                prim: args.primID,
+                inst: cur_inst_id,
+            };
+
+            rq.cur_commited = false;
+            rq.terminated = false;
+            (ctx.on_procedural_hit)(rq);
+            if !rq.cur_commited {
+                *args.valid = 0;
+            } else {
+                // eprintln!("accepting hit");
+                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near{
+                    *args.valid = 0;
+                    return;
+                }
+                rq.hit
+                    .set_from_procedural_hit(rq.cur_procedural_hit, rq.cur_committed_ray_t);
+                *prim_id = rq.hit.prim;
+                *inst_id = rq.hit.inst;
+                *t_far = rq.hit.committed_ray_t;
+            }
+            if rq.terminated {
+                *t_far = f32::NEG_INFINITY;
+            }
+        }
         if rq.terminate_on_first {
             let mut args = sys::RTCOccludedArguments {
                 flags: sys::RTC_RAY_QUERY_FLAG_INCOHERENT
                     | sys::RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER,
                 feature_mask: sys::RTC_FEATURE_FLAG_ALL,
                 filter: Some(filter_fn),
-                occluded: None,
+                occluded: Some(occluded_fn),
                 context: &mut ctx.parent as *mut _,
             };
             sys::rtcOccluded1(self.handle, &mut ray as *mut _, &mut args as *mut _);
@@ -483,7 +650,7 @@ impl AccelImpl {
                     | sys::RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER,
                 feature_mask: sys::RTC_FEATURE_FLAG_ALL,
                 filter: Some(filter_fn),
-                intersect: None,
+                intersect: Some(intersect_fn),
                 context: &mut ctx.parent as *mut _,
             };
 

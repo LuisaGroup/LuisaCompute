@@ -1,3 +1,4 @@
+#include "pch.h"
 //
 // Created by Mike on 2021/11/8.
 //
@@ -776,6 +777,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::SATURATE: _scratch << "lc_saturate"; break;
         case CallOp::LERP: _scratch << "lc_lerp"; break;
         case CallOp::STEP: _scratch << "lc_step"; break;
+        case CallOp::SMOOTHSTEP: _scratch << "lc_smoothstep"; break;
         case CallOp::ABS: _scratch << "lc_abs"; break;
         case CallOp::MIN: _scratch << "lc_min"; break;
         case CallOp::MAX: _scratch << "lc_max"; break;
@@ -943,6 +945,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }

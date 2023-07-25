@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
 #include "../../common/hlsl/hlsl_codegen.h"

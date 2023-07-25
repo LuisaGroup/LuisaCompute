@@ -42,6 +42,7 @@
 #ifdef LUISA_ENABLE_DSL
 #include <luisa/dsl/arg.h>
 #include <luisa/dsl/atomic.h>
+#include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/constant.h>
 #include <luisa/dsl/dispatch_indirect.h>

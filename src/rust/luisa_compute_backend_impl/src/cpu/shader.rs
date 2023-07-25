@@ -35,10 +35,10 @@ pub(super) fn clang_args() -> Vec<&'static str> {
             if s == "full" {
                 args.push("-DLUISA_DEBUG");
                 args.push("-DLUISA_DEBUG_FULL");
-            }
-            if s == "1" {
-                args.push("-DLUISA_DEBUG");
             } else {
+                if s == "1" {
+                    args.push("-DLUISA_DEBUG");
+                }
                 args.push("-O3");
             }
         }
@@ -57,7 +57,7 @@ pub(super) fn clang_args() -> Vec<&'static str> {
     } else {
         panic_abort!("unsupported target architecture");
     }
-    args.push("-ffast-math");
+    // args.push("-ffast-math");
     args.push("-fno-rtti");
     args.push("-fno-exceptions");
     args.push("-fno-stack-protector");
@@ -89,7 +89,7 @@ pub(super) fn compile(
     let target_lib = format!("{}.bc", target);
     let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
     if lib_path.exists() && !force_recompile {
-        log::info!("Loading cached LLVM IR {}", &target_lib[1..17]);
+        log::info!("Loading cached LLVM IR {}", &target_lib);
         return Ok(lib_path);
     }
     let dump_src = match env::var("LUISA_DUMP_SOURCE") {

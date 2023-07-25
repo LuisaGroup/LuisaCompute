@@ -189,16 +189,19 @@ class Shader final : public Resource {
 
 private:
     friend class Device;
-    uint3 _block_size{};
+    uint _block_size[3];
+    uint _argument_count{};
     size_t _uniform_size{};
 
 private:
     // base ctor
     Shader(DeviceInterface *device,
            const ShaderCreationInfo &info,
+           uint argument_count,
            size_t uniform_size) noexcept
         : Resource{device, Tag::SHADER, info},
-          _block_size{info.block_size},
+          _block_size{info.block_size.x, info.block_size.y, info.block_size.z},
+          _argument_count{argument_count},
           _uniform_size{uniform_size} {
     }
 
@@ -208,30 +211,22 @@ private:
            Function kernel,
            const ShaderOption &option) noexcept
         : Shader{device, device->create_shader(option, kernel),
-                 ShaderDispatchCmdEncoder::compute_uniform_size(kernel.arguments())} {}
+                 static_cast<uint>(kernel.unbound_arguments().size()),
+                 ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
 
 #ifdef LUISA_ENABLE_IR
     // JIT shader from IR module
     Shader(DeviceInterface *device,
            const ir::KernelModule *const module,
            const ShaderOption &option) noexcept
-        : Shader{device, device->create_shader(option, module),
-                 [module] {
-                     luisa::vector<const Type *> arg_types;
-                     arg_types.reserve(module->args.len);
-                     for (auto i = 0u; i < module->args.len; i++) {
-                         auto type = IR2AST::get_type(module->args.ptr[i]);
-                         assert(type != nullptr && "Failed to get argument type.");
-                         arg_types.emplace_back(type);
-                     }
-                     return ShaderDispatchCmdEncoder::compute_uniform_size(arg_types);
-                 }()} {}
+        : Shader{device, IR2AST::build(module)->function(), option} {}
 #endif
 
     // AOT shader
     Shader(DeviceInterface *device, string_view file_path) noexcept
         : Shader{device,
                  device->load_shader(file_path, detail::shader_argument_types<Args...>()),
+                 static_cast<uint>(sizeof...(Args)),// TODO: support binding group?
                  ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>())} {}
 
 public:
@@ -247,16 +242,16 @@ public:
     }
     Shader &operator=(Shader const &) noexcept = delete;
     using Resource::operator bool;
+
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         _check_is_valid();
         using invoke_type = detail::ShaderInvoke<dimension>;
-        auto arg_count = sizeof...(Args);
-        invoke_type invoke{handle(), arg_count, _uniform_size};
+        invoke_type invoke{handle(), _argument_count, _uniform_size};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept {
         _check_is_valid();
-        return _block_size;
+        return make_uint3(_block_size[0], _block_size[1], _block_size[2]);
     }
 };
 

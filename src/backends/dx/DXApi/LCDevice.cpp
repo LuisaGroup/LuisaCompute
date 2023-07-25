@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <filesystem>
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>

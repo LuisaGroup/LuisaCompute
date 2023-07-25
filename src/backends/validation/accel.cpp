@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "mesh.h"
 #include "procedural_primitives.h"
 #include "buffer.h"

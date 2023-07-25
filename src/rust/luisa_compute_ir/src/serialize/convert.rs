@@ -323,6 +323,7 @@ impl KernelSerializer {
             Func::Clamp => SerializedFunc::Clamp,
             Func::Lerp => SerializedFunc::Lerp,
             Func::Step => SerializedFunc::Step,
+            Func::SmoothStep => SerializedFunc::SmoothStep,
             Func::Saturate => SerializedFunc::Saturate,
             Func::Abs => SerializedFunc::Abs,
             Func::Min => SerializedFunc::Min,

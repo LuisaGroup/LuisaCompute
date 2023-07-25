@@ -3,7 +3,7 @@
 use std::{cell::RefCell, sync::Arc};
 
 use self::{
-    accel::{AccelImpl, MeshImpl},
+    accel::{AccelImpl, GeometryImpl},
     resource::{BindlessArrayImpl, BufferImpl, EventImpl},
     stream::{convert_capture, StreamImpl},
     texture::TextureImpl,
@@ -19,7 +19,7 @@ use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_ir::{context::type_hash, ir, CArc};
 use parking_lot::RwLock;
 mod codegen;
-use codegen::sha256;
+use codegen::sha256_short;
 mod accel;
 mod llvm;
 mod resource;
@@ -150,12 +150,7 @@ impl Backend for RustBackend {
             let stream = &*(stream_.0 as *mut StreamImpl);
             let command_list = command_list.to_vec();
             let sb = stream.allocate_staging_buffers(&command_list);
-            stream.enqueue(
-                move || {
-                    stream.dispatch(sb, &command_list)
-                },
-                callback,
-            );
+            stream.enqueue(move || stream.dispatch(sb, &command_list), callback);
         }
     }
 
@@ -258,7 +253,7 @@ impl Backend for RustBackend {
             "\n// clang args: {}\n// clang path: {}\n// llvm path:{}",
             args, LLVM_PATH.clang, LLVM_PATH.llvm
         ));
-        let hash = sha256(&gened.source);
+        let hash = sha256_short(&gened.source);
         let gened_src = gened.source.replace("##kernel_fn##", &hash);
         let mut shader = None;
         for tries in 0..2 {
@@ -375,7 +370,7 @@ impl Backend for RustBackend {
     }
     fn create_mesh(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
-            let mesh = Box::new(MeshImpl::new(
+            let mesh = Box::new(GeometryImpl::new(
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
@@ -387,17 +382,31 @@ impl Backend for RustBackend {
             }
         }
     }
-    fn create_procedural_primitive(&self, _option: api::AccelOption) -> api::CreatedResourceInfo {
-        todo!()
+    fn create_procedural_primitive(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
+        unsafe {
+            let mesh = Box::new(GeometryImpl::new(
+                option.hint,
+                option.allow_compaction,
+                option.allow_update,
+            ));
+            let mesh = Box::into_raw(mesh);
+            api::CreatedResourceInfo {
+                handle: mesh as u64,
+                native_handle: mesh as *mut std::ffi::c_void,
+            }
+        }
     }
     fn destroy_mesh(&self, mesh: api::Mesh) {
         unsafe {
-            let mesh = mesh.0 as *mut MeshImpl;
+            let mesh = mesh.0 as *mut GeometryImpl;
             drop(Box::from_raw(mesh));
         }
     }
-    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
-        todo!()
+    fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive) {
+        unsafe {
+            let mesh = primitive.0 as *mut GeometryImpl;
+            drop(Box::from_raw(mesh));
+        }
     }
     fn create_accel(&self, _option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {

@@ -88,10 +88,12 @@ enum struct CallOp : uint32_t {
     ANY,// (boolN)
 
     SELECT,  // (vecN, vecN, boolN)
-    CLAMP,   // (vecN, vecN,vecN)
+    CLAMP,   // (vecN, vecN, vecN)
     SATURATE,// (vecN)
-    LERP,    // (vecN, vecN,vecN)
-    STEP,    // (x, y): (x >= y) ? 1 : 0
+    LERP,    // (vecN, vecN, vecN)
+
+    SMOOTHSTEP,// (vecN, vecN, vecN)
+    STEP,       // (x, y): (x >= y) ? 1 : 0
 
     ABS,// (vecN)
     MIN,// (vecN)
@@ -278,6 +280,7 @@ enum struct CallOp : uint32_t {
 
     // indirect
     INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void
+    INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_EMPLACE_DISPATCH_KERNEL,// (Buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id)
 
 };
@@ -285,17 +288,17 @@ enum struct CallOp : uint32_t {
 static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
-    auto op_value = luisa::to_underlying(op) ;
+    auto op_value = luisa::to_underlying(op);
     return op_value >= luisa::to_underlying(CallOp::ATOMIC_EXCHANGE) && op_value <= luisa::to_underlying(CallOp::ATOMIC_FETCH_MAX);
 }
 
 [[nodiscard]] constexpr auto is_autodiff_operation(CallOp op) noexcept {
-    auto op_value = luisa::to_underlying(op) ;
+    auto op_value = luisa::to_underlying(op);
     return op_value >= luisa::to_underlying(CallOp::REQUIRES_GRADIENT) && op_value <= luisa::to_underlying(CallOp::DETACH);
 }
 
 [[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
-    auto op_value = luisa::to_underlying(op) ;
+    auto op_value = luisa::to_underlying(op);
     return op_value >= luisa::to_underlying(CallOp::MAKE_BOOL2) && op_value <= luisa::to_underlying(CallOp::MAKE_FLOAT4);
 }
 

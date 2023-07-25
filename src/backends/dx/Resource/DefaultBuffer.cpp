@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <Resource/DefaultBuffer.h>
 namespace lc::dx {
 DefaultBuffer::DefaultBuffer(

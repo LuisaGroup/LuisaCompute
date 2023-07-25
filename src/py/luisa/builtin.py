@@ -208,7 +208,7 @@ builtin_func_names = {
     'copysign', 'fma',
     'min', 'max',
     'all', 'any',
-    'select', 'clamp', 'saturate', 'step', 'lerp',
+    'select', 'clamp', 'saturate', 'step', 'smoothstep', 'lerp',
     'clz', 'ctz', 'popcount', 'reverse',
     'determinant', 'transpose', 'inverse', "faceforward", "reflect",
     'print',
@@ -575,10 +575,11 @@ _func_map["cross"] = _cross
 def _lerp(name, *args):
     t_len = length_of(args[2].dtype)
     assert len(args) == 3 and (args[0].dtype == args[1].dtype) and (length_of(args[0].dtype) == t_len or t_len == 1)
-    return make_vector_call(element_of(args[0].dtype), lcapi.CallOp.LERP, args)
+    return make_vector_call(element_of(args[0].dtype), getattr(lcapi.CallOp, name.upper()), args)
 
 
 _func_map["lerp"] = _lerp
+_func_map["smoothstep"] = _lerp
 
 
 def _select(name, *args):
@@ -641,7 +642,7 @@ for name in ('clamp', 'fma'):
 
 
 def _step(name, *args):
-    op = lcapi.CallOp.STEP
+    op = getattr(lcapi.CallOp, name.upper())
     assert len(args) == 2
     assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
         "invalid parameter"

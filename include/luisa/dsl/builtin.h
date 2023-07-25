@@ -606,32 +606,32 @@ using luisa::make_bool2;
 using luisa::make_bool3;
 using luisa::make_bool4;
 using luisa::make_float2;
+using luisa::make_float2x2;
 using luisa::make_float3;
+using luisa::make_float3x3;
 using luisa::make_float4;
-using luisa::make_int2;
-using luisa::make_int3;
-using luisa::make_int4;
-using luisa::make_uint2;
-using luisa::make_uint3;
-using luisa::make_uint4;
-using luisa::make_short2;
-using luisa::make_short3;
-using luisa::make_short4;
-using luisa::make_ushort2;
-using luisa::make_ushort3;
-using luisa::make_ushort4;
-using luisa::make_slong2;
-using luisa::make_slong3;
-using luisa::make_slong4;
-using luisa::make_ulong2;
-using luisa::make_ulong3;
-using luisa::make_ulong4;
+using luisa::make_float4x4;
 using luisa::make_half2;
 using luisa::make_half3;
 using luisa::make_half4;
-using luisa::make_float2x2;
-using luisa::make_float3x3;
-using luisa::make_float4x4;
+using luisa::make_int2;
+using luisa::make_int3;
+using luisa::make_int4;
+using luisa::make_short2;
+using luisa::make_short3;
+using luisa::make_short4;
+using luisa::make_slong2;
+using luisa::make_slong3;
+using luisa::make_slong4;
+using luisa::make_uint2;
+using luisa::make_uint3;
+using luisa::make_uint4;
+using luisa::make_ulong2;
+using luisa::make_ulong3;
+using luisa::make_ulong4;
+using luisa::make_ushort2;
+using luisa::make_ushort3;
+using luisa::make_ushort4;
 
 #define LUISA_MAKE_VECTOR(type)                                  \
     template<typename S>                                         \
@@ -1111,10 +1111,11 @@ template<typename E, typename X>
 template<typename L, typename R, typename T>
     requires any_dsl_v<L, R, T> && is_float_or_vector_expr_v<L> && is_float_or_vector_expr_v<R> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto smoothstep(L &&left, R &&right, T &&x) noexcept {
-    auto edge0 = def(std::forward<L>(left));
-    auto edge1 = def(std::forward<R>(right));
-    auto t = saturate((std::forward<T>(x) - edge0) / (edge1 - edge0));
-    return t * t * fma(t, -2.0f, 3.0f);
+    return detail::make_vector_call<float>(
+        CallOp::SMOOTHSTEP,
+        std::forward<L>(left),
+        std::forward<R>(right),
+        std::forward<T>(x));
 }
 
 /// Abs of float or vector.

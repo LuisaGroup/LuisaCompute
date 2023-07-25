@@ -13,7 +13,7 @@ use luisa_compute_ir::{
     CArc, CBoxedSlice, Pooled,
 };
 
-use super::sha256;
+use super::sha256_short;
 
 use super::decode_const_data;
 use std::fmt::Write;
@@ -54,7 +54,7 @@ impl TypeGenInner {
                     .map(|f| self.to_c_type(f))
                     .collect();
                 let field_types_str = field_types.join(", ");
-                let hash = sha256(&format!("{}_alignas({})", field_types_str, st.alignment));
+                let hash = sha256_short(&format!("{}_alignas({})", field_types_str, st.alignment));
                 let hash = hash.replace("-", "x_");
                 let name = format!("s_{}", hash);
 
@@ -545,6 +545,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::Clamp => Some("lc_clamp"),
             Func::Saturate => Some("lc_saturate"),
             Func::Lerp => Some("lc_lerp"),
+            Func::Step => Some("lc_step"),
+            Func::SmoothStep => Some("lc_smoothstep"),
             _ => None,
         };
         if let Some(func) = func {
@@ -1448,7 +1450,7 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "{} = {};", var_v, value_v).unwrap();
             }
             Instruction::Call(f, args) => {
-                println!("call: {:?}({:?})", f, args);
+                // println!("call: {:?}({:?})", f, args);
                 self.write_ident();
                 let args_v = args
                     .as_ref()

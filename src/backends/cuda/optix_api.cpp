@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "optix_api.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>

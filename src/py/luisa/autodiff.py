@@ -17,7 +17,7 @@ def requires_grad(x):
 def grad(x):
     if not x.dtype in basic_dtypes:
         raise SyntaxError("auto-diff only allow basic types.")
-    return x.dtype, lcapi.builder().call(to_lctype(x.dtype), lcapi.CallOp.GRAD, [x.expr])
+    return x.dtype, lcapi.builder().call(to_lctype(x.dtype), lcapi.CallOp.GRADIENT, [x.expr])
 
 
 @BuiltinFuncBuilder
@@ -25,7 +25,7 @@ def backward(x):
     if not x.dtype in basic_dtypes:
         raise SyntaxError("auto-diff only allow basic types.")
     grad = lcapi.builder().call(to_lctype(x.dtype),
-                                lcapi.CallOp.GRAD, [x.expr])
+                                lcapi.CallOp.GRADIENT, [x.expr])
     lcapi.builder().call(lcapi.CallOp.GRADIENT_MARKER, [x.expr, grad])
 
 

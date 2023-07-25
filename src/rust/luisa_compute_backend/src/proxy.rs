@@ -47,22 +47,22 @@ pub(crate) fn _signal_handler(signal: libc::c_int) {
 macro_rules! catch_abort {
     ($stmts:expr) => {
         unsafe {
-            #[cfg(debug_assertions)]
-            {
-                let _guard = CPP_MUTEX.lock();
-                OLD_SIGABRT_HANDLER =
-                    libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
-                OLD_SIGABRT_HANDLER =
-                    libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
+            // #[cfg(debug_assertions)]
+            // {
+            //     let _guard = CPP_MUTEX.lock();
+            //     OLD_SIGABRT_HANDLER =
+            //         libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
+            //     OLD_SIGABRT_HANDLER =
+            //         libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
+            //     let ret = $stmts;
+            //     restore_signal_handler();
+            //     ret
+            // }
+            // #[cfg(not(debug_assertions))]
+            // {
                 let ret = $stmts;
-                restore_signal_handler();
                 ret
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                let ret = $stmts;
-                ret
-            }
+            // }
         }
     };
 }
@@ -270,16 +270,16 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.create_mesh)(self.device.device, &option,) })
     }
     #[inline]
-    fn create_procedural_primitive(&self, _option: api::AccelOption) -> api::CreatedResourceInfo {
-        todo!()
+    fn create_procedural_primitive(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_procedural_primitive)(self.device.device, &option,) })
     }
     #[inline]
     fn destroy_mesh(&self, mesh: api::Mesh) {
         catch_abort!((self.device.destroy_mesh)(self.device.device, mesh))
     }
     #[inline]
-    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
-        todo!()
+    fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive) {
+        catch_abort!((self.device.destroy_procedural_primitive)(self.device.device, primitive))
     }
 
     #[inline]

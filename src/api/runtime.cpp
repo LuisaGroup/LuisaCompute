@@ -248,7 +248,7 @@ private:
                     convert_accel_request(request),
                     aabb_buffer._0,
                     aabb_offset,
-                    aabb_count);
+                    aabb_count * sizeof(float) * 6);
             }
             case LC_COMMAND_ACCEL_BUILD: {
                 auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
@@ -542,7 +542,27 @@ LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) L
     d->object()->impl()->destroy_mesh(handle);
     d->release();
 }
-
+LUISA_EXPORT_API LCCreatedResourceInfo
+luisa_compute_procedural_primitive_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
+    const auto &option = *option_;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    auto accel_option = AccelOption{
+        .hint = AccelOption::UsageHint{(uint32_t)to_underlying(option.hint)},
+        .allow_compaction = option.allow_compaction,
+        .allow_update = option.allow_update,
+    };
+    auto info = d->retain()->object()->impl()->create_procedural_primitive(accel_option);
+    return LCCreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
+}
+LUISA_EXPORT_API void luisa_compute_procedural_primitive_destroy(LCDevice device, LCProceduralPrimitive prim) LUISA_NOEXCEPT {
+    auto handle = prim._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->destroy_procedural_primitive(handle);
+    d->release();
+}
 LUISA_EXPORT_API LCCreatedResourceInfo
 luisa_compute_accel_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
     const auto &option = *option_;
@@ -697,14 +717,8 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.present_display_in_stream = luisa_compute_swapchain_present;
     interface.destroy_swapchain = luisa_compute_swapchain_destroy;
     // TODO: procedural primitive
-    //    interface.create_procedural_primitive = [](LCDevice device, const LCProceduralPrimitiveOption* option) -> LCResult_CreatedResourceInfo {
-    //        auto primitive = luisa_compute_procedural_primitive_create(device, option);
-    //        return LCResult_CreatedResourceInfo{
-    //                .tag = LCResult_CreatedResourceInfo_Tag::LC_RESULT_CREATED_RESOURCE_INFO_OK_CREATED_RESOURCE_INFO,
-    //                .ok = primitive
-    //        };
-    //    };
-    //    interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
+    interface.create_procedural_primitive = luisa_compute_procedural_primitive_create;
+    interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
     interface.query = [](LCDevice device, const char *query) -> char * {
         auto d = reinterpret_cast<RC<Device> *>(device._0);
         auto result_s = d->object()->impl()->query(luisa::string_view{query});

@@ -4,7 +4,6 @@
 
 #pragma once
 
-
 #include <cuda.h>
 
 #include <luisa/runtime/rtx/accel.h>

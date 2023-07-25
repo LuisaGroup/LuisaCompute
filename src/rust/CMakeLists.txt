@@ -4,6 +4,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
             NO_DEFAULT_FEATURES)
 
+    corrosion_set_env_vars(luisa_compute_ir "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    corrosion_set_env_vars(luisa_compute_api_types "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
     target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types)

@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "rw_resource.h"
 #include "stream.h"
 #include <luisa/core/basic_traits.h>
