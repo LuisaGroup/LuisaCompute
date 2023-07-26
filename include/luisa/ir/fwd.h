@@ -1,6 +1,16 @@
 #pragma once
 #include <luisa/core/dll_export.h>
+#include <luisa/core/stl/memory.h>// for span
 #include <luisa/rust/ir.hpp>
+
+// deduction guide for CSlice
+namespace luisa::compute::ir {
+template<typename T>
+CSlice(T *, size_t) -> CSlice<T>;
+template<typename T>
+CSlice(const T *, size_t) -> CSlice<T>;
+}// namespace luisa::compute::ir
+
 namespace luisa::compute::ir_v2 {
 namespace raw = luisa::compute::ir;
 using raw::CArc;
