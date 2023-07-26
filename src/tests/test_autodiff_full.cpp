@@ -56,7 +56,7 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
         return dinputs_ad;
     }();
     auto f = [&](luisa::span<Var<float>> x) {
-        auto impl = [&]<size_t ...i>(std::index_sequence<i...>) noexcept {
+        auto impl = [&]<size_t... i>(std::index_sequence<i...>) noexcept {
             return f_(x[i]...);
         };
         return impl(std::make_index_sequence<N>{});
