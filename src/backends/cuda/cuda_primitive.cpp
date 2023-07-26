@@ -74,8 +74,8 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
         });
         LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
         LUISA_VERBOSE("CUDAMesh compaction sizes: before = {}B, after = {}B, ratio = {}.",
-                   sizes.outputSizeInBytes, compacted_size,
-                   compacted_size / static_cast<double>(sizes.outputSizeInBytes));
+                      sizes.outputSizeInBytes, compacted_size,
+                      compacted_size / static_cast<double>(sizes.outputSizeInBytes));
 
         if (_bvh_buffer_size < compacted_size) {
             _bvh_buffer_size = compacted_size;
@@ -136,4 +136,3 @@ optix::TraversableHandle CUDAPrimitive::handle() const noexcept {
 }
 
 }// namespace luisa::compute::cuda
-

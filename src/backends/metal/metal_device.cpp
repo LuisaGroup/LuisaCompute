@@ -40,9 +40,6 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
                  "Metal device '{}' at index {} does not support Metal 3.",
                  _handle->name()->utf8String(), device_index);
 
-    LUISA_INFO("Metal device '{}' at index {}",
-               _handle->name()->utf8String(), device_index);
-
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
         _default_io = luisa::make_unique<DefaultBinaryIO>(context());
@@ -168,6 +165,9 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     builtin_swapchain_fragment_shader->release();
 
     builtin_library->release();
+
+    LUISA_INFO("Created Metal device '{}' at index {}.",
+               _handle->name()->utf8String(), device_index);
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -397,7 +397,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, const 
 #ifdef LUISA_ENABLE_IR
         Clock clk;
         auto function = IR2AST::build(kernel);
-        LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+        LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
         return create_shader(option, function->function());
 #else
         LUISA_ERROR_WITH_LOCATION("Metal device does not support creating shader from IR types.");

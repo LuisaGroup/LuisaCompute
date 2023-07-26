@@ -39,9 +39,9 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         optix_ctx, &build_options, &build_input, 1u, &sizes));
     _update_buffer_size = sizes.tempUpdateSizeInBytes;
     LUISA_VERBOSE("Computed accel memory usage in {} ms: "
-               "temp = {}, temp_update = {}, output = {}.",
-               clock.toc(), sizes.tempSizeInBytes,
-               sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
+                  "temp = {}, temp_update = {}, output = {}.",
+                  clock.toc(), sizes.tempSizeInBytes,
+                  sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
 
     if (_option.allow_compaction) {// with compaction
 
@@ -88,8 +88,8 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         });
         LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
         LUISA_VERBOSE("CUDAAccel compaction: before = {}B, after = {}B, ratio = {}.",
-                   sizes.outputSizeInBytes, compacted_size,
-                   compacted_size / static_cast<double>(sizes.outputSizeInBytes));
+                      sizes.outputSizeInBytes, compacted_size,
+                      compacted_size / static_cast<double>(sizes.outputSizeInBytes));
 
         // do compaction
         if (_bvh_buffer_size < compacted_size) {
