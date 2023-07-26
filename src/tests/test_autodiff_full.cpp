@@ -1,11 +1,6 @@
 #include <fstream>
-#include <luisa/luisa-compute.h>
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/ir2ast.h>
-#include <luisa/core/stl/vector.h>
-#include <luisa/runtime/rhi/resource.h>
 #include <random>
-// #include <luisa/backends/commmon/string_sratch.h>
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -124,8 +119,7 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
             }
         };
     };
-    auto o = luisa::compute::ShaderOption();
-    o.enable_fast_math = false;
+    auto o = luisa::compute::ShaderOption{.enable_fast_math = false};
     stream
         << device.compile(fd_kernel, o)(options).dispatch(options.repeats)
         << device.compile(ad_kernel, o)(options).dispatch(options.repeats)
