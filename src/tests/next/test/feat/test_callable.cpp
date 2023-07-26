@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2021/2/27.
 //
 
+#include "common/config.h"
+
 #include <numeric>
 #include <iostream>
 
@@ -17,25 +19,22 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Test {
+namespace luisa::test {
+struct CallableTest {
     float a;
     float b;
     float array[16];
 };
+}// namespace luisa::test
+LUISA_STRUCT(luisa::test::CallableTest, a, b, array) {};
 
-LUISA_STRUCT(Test, a, b, array) {};
+namespace luisa::test {
 
-int main(int argc, char *argv[]) {
-
+int test_callable(Device &device) {
     log_level_verbose();
-
-    Context context{argv[0]};
-    if(argc <= 1){
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
-        exit(1);
-    }
+    
     static constexpr uint n = 1024u * 1024u;
-    Device device = context.create_device(argv[1]);
+
     Buffer<float> buffer = device.create_buffer<float>(n);
 
     Callable load = [](BufferVar<float> buffer, Var<uint> index) noexcept {
@@ -57,7 +56,6 @@ int main(int argc, char *argv[]) {
         store(result, index, add(load(source, index), x) + xx);
     };
     Shader1D<Buffer<float>, Buffer<float>, float> kernel = device.compile(kernel_def);
-
     Stream stream = device.create_stream();
     Buffer<float> result_buffer = device.create_buffer<float>(n);
 
@@ -68,22 +66,39 @@ int main(int argc, char *argv[]) {
     Clock clock;
     stream << buffer.copy_from(data.data());
     CommandList command_list = CommandList::create();
+
     for (size_t i = 0; i < 10; i++) {
         command_list << kernel(buffer, result_buffer, 3).dispatch(n);
     }
     stream << command_list.commit()
-           << result_buffer.copy_to(results.data());
+        << result_buffer.copy_to(results.data());
     double t1 = clock.toc();
     stream << synchronize();
     double t2 = clock.toc();
 
-    LUISA_INFO("Dispatched in {} ms. Finished in {} ms.", t1, t2);
+    LUISA_INFO("Dispatch in {} ms. Finished in {} ms", t1, t2);
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
 
-    // for (size_t i = 0u; i < n; i++) {
-    //     LUISA_ASSERT(results[i] == data[i] + 3.0f, "Results mismatch.");
-    // }
+    for (size_t i = 0u; i < n; i++) {
+        CHECK_MESSAGE(results[i] == data[i] + 3.0f, "Results mismatch.");
+    }
 }
 
+}// namespace luisa::test
+
+
+TEST_SUITE("feat") {
+    TEST_CASE("callable") {
+        Context context{luisa::test::argv()[0]};
+       
+        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
+            luisa::string device_name = luisa::test::supported_backends()[i];
+            SUBCASE(device_name.c_str()) {
+                Device device = context.create_device(device_name.c_str());
+                REQUIRE(luisa::test::test_callable(device) == 0);
+            }
+        }
+    }
+}
