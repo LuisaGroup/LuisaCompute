@@ -1,6 +1,8 @@
 # Generated from CLion C/C++ Code Style settings
 BasedOnStyle: LLVM
 AccessModifierOffset: -4
+EmptyLineBeforeAccessModifier: Leave
+EmptyLineAfterAccessModifier: Leave
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: None
 AlignOperands: Align
@@ -52,7 +54,7 @@ AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakBeforeMultilineStrings: false
 ColumnLimit: 0
 SortIncludes: Never
-SortUsingDeclarations: true
+SortUsingDeclarations: false
 CompactNamespaces: true
 ContinuationIndentWidth: 4
 IndentCaseLabels: true
