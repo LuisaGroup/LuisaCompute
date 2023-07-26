@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandQueue.h>
 namespace lc::dx {

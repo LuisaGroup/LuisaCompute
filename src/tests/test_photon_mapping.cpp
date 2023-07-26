@@ -1,7 +1,3 @@
-//
-// Created by frvdec99 on 2022/9/3.
-//
-
 #include <cstdint>
 #include <iostream>
 

@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2022/9/30.
-//
-
 #include <luisa/core/stl/memory.h>
 
 namespace luisa {

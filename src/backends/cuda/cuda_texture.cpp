@@ -1,7 +1,4 @@
-//
-// Created by Mike on 2021/11/6.
-//
-
+#include "pch.h"
 #include <mutex>
 
 #include "cuda_error.h"

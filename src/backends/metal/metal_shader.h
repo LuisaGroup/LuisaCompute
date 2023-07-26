@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/5/14.
-//
-
 #pragma once
 
 #include <luisa/core/spin_mutex.h>

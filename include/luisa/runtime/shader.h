@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/7/4.
-//
-
 #pragma once
 
 #ifdef LUISA_ENABLE_IR
@@ -211,8 +207,8 @@ private:
            Function kernel,
            const ShaderOption &option) noexcept
         : Shader{device, device->create_shader(option, kernel),
-                 static_cast<uint>(kernel.arguments().size()),
-                 ShaderDispatchCmdEncoder::compute_uniform_size(kernel.arguments())} {}
+                 static_cast<uint>(kernel.unbound_arguments().size()),
+                 ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
 
 #ifdef LUISA_ENABLE_IR
     // JIT shader from IR module

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/12/25.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/dsl/local.h>
 

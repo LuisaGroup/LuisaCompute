@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/20.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rtx/aabb.h>
 #include "metal_buffer.h"

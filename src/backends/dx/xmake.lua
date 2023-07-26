@@ -4,9 +4,8 @@ _config_project({
 	batch_size = 8
 })
 add_deps("lc-runtime", "lc-vstl")
-add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp", "../common/default_binary_io.cpp",
-				"../common/hlsl/*.cpp")
-add_headerfiles("DXApi/**.h", "DXRuntime/**.h", "Resource/**.h", "Shader/**.h", "../common/default_binary_io.h",
+add_files("**.cpp")
+add_headerfiles("**.h", "../common/default_binary_io.h",
 				"../common/hlsl/*.h")
 add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
@@ -31,4 +30,5 @@ after_build(function(target)
 		os.cp(path.join(os.scriptdir(), "dx_support/*.dll"), bin_dir)
 	end
 end)
+set_pcxxheader("pch.h")
 target_end()

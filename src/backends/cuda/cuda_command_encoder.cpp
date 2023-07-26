@@ -1,7 +1,4 @@
-//
-// Created by Mike on 8/1/2021.
-//
-
+#include "pch.h"
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/command_list.h>
 

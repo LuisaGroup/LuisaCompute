@@ -746,11 +746,7 @@ public:
         _cmd_lists.clear();
         _arena.clear();
     }
-    ~CommandReorderVisitor() noexcept {
-        for (auto &&i : _res_map) {
-            vstd::destruct(i.second);
-        }
-    }
+    ~CommandReorderVisitor() noexcept {}
     [[nodiscard]] auto command_lists() const noexcept {
         return luisa::span{_cmd_lists};
     }

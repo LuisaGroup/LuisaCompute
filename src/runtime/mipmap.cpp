@@ -1,7 +1,4 @@
-//
-// Created by Mike Smith on 2023/1/9.
-//
-
+#include "pch.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/mipmap.h>

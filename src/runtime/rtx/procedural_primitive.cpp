@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <luisa/runtime/rtx/procedural_primitive.h>
 
 namespace luisa::compute {

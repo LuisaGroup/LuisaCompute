@@ -1,7 +1,4 @@
-//
-// Created by Mike Smith on 2022/12/25.
-//
-
+#include "pch.h"
 #include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
 

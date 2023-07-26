@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <DXRuntime/Device.h>
 #include <Resource/DescriptorHeap.h>
 #include <Resource/DefaultBuffer.h>

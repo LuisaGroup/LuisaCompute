@@ -1,7 +1,4 @@
-//
-// Created by Mike on 2021/12/2.
-//
-
+#include "pch.h"
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 

@@ -1,7 +1,4 @@
-//
-// Created by Mike Smith on 2021/2/2.
-//
-
+#include "pch.h"
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>

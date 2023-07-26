@@ -161,6 +161,7 @@ class func:
             get_global_device().impl().save_shader(f.function, name)
         if print_cpp_header:
             front = '''#pragma once
+#include <luisa/core/stl/string.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 '''
@@ -168,7 +169,7 @@ class func:
             type_map = {}
             type_defines = []
             r = ""
-            shader_path = Path(name.replace("\\","/"))
+            shader_path = Path(name)
             shader_name = shader_path.name.split(".")[0]
             def get_value_type_name(dtype, r):
                 if dtype in basic_dtypes:
@@ -264,10 +265,8 @@ class func:
                 if sz != len(type_defines):
                     type_name += ", "
             func_declare += type_name + ">"
-            shader_path = str(shader_path)
-            if sys.platform == 'win32':
-                shader_path = shader_path.replace("\\", "/")
-            r += f"inline {func_declare} load" + "(luisa::compute::Device &device) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(\"" + shader_path + "\");\n}\n"
+            r += "using Type = " + func_declare + ";\n"
+            r += f"inline Type load" + "(luisa::compute::Device &device, luisa::string_view path) {\n    return device.load_shader<" + str(dimension) + ", " + type_name + ">(path);\n}\n"
             return front + "namespace " + shader_name + ' {\n' +  r + '}// namespace ' + shader_name + '\n'
 
     # compiles an argument-type-specialized callable/kernel

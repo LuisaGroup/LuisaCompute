@@ -1,3 +1,4 @@
+#include "pch.h"
 #include <luisa/runtime/swapchain.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>

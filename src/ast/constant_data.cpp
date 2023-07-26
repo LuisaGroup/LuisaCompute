@@ -1,7 +1,4 @@
-//
-// Created by Mike Smith on 2021/3/6.
-//
-
+#include "pch.h"
 #include <algorithm>
 
 #include <luisa/core/stl/hash.h>

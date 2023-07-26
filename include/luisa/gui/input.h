@@ -1,7 +1,3 @@
-//
-// Created by Mike on 4/14/2023.
-//
-
 #pragma once
 
 namespace luisa::compute {

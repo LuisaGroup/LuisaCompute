@@ -1,7 +1,4 @@
-//
-// Created by Mike on 5/26/2023.
-//
-
+#include "pch.h"
 #include <cuda.h>
 
 #include <luisa/core/clock.h>

@@ -1,7 +1,3 @@
-//
-// Created by ChenXin on 2021/12/9.
-//
-
 #include <luisa/luisa-compute.h>
 #include <runtime/command_scheduler.h>
 

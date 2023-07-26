@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/15.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/rtx/ray.h>
@@ -1004,6 +1000,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_dispatch_clear"; break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_emplace"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }

@@ -1,7 +1,4 @@
-//
-// Created by Mike on 2021/11/8.
-//
-
+#include "pch.h"
 #include <fstream>
 
 #include <luisa/core/clock.h>

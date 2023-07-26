@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/16.
-//
-
 #include <luisa/core/pool.h>
 #include "metal_stage_buffer_pool.h"
 

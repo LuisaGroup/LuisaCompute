@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/10/17.
-//
-
 #pragma once
 
 #include <luisa/api/common.h>

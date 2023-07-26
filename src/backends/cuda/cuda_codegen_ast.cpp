@@ -1,7 +1,4 @@
-//
-// Created by Mike on 2021/11/8.
-//
-
+#include "pch.h"
 #include <string_view>
 
 #include <luisa/core/logging.h>
@@ -944,6 +941,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
         case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
     }

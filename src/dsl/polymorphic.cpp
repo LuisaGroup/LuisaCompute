@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/5/3.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/dsl/polymorphic.h>
 
