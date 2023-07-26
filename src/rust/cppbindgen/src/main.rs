@@ -426,6 +426,7 @@ fn main() -> std::io::Result<()> {
     let mut fwd: File = std::fs::File::create("../../../include/luisa/ir/fwd.h")?;
     writeln!(fwd, "#pragma once\n")?;
     writeln!(fwd, "#include <luisa/core/dll_export.h>")?;
+    writeln!(fwd, "#include <luisa/core/concepts.h>")?;
     writeln!(fwd, "#include <luisa/core/stl/memory.h>// for span")?;
     writeln!(fwd, "#include <luisa/rust/ir.hpp>\n")?;
     writeln!(
