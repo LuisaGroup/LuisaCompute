@@ -153,14 +153,15 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
             const auto diff = std::abs(fd - ad);
             const auto rel_diff = diff / std::abs(fd);
             if (rel_diff > options.rel_tol) {
-                error_msg.append(luisa::format("x[{}] = {}, fd = {}, ad = {}, diff = {}, rel_diff = {}\n", j, input_data[j][i], fd, ad, diff, rel_diff));
+                if (bad_count <= 20)
+                    error_msg.append(luisa::format("x[{}] = {}, fd = {}, ad = {}, diff = {}, rel_diff = {}\n", j, input_data[j][i], fd, ad, diff, rel_diff));
                 bad_count++;
             }
         }
     }
     const auto bad_percent = static_cast<float>(bad_count) / (options.repeats * N);
     if (bad_percent > options.max_precent_bad) {
-        LUISA_ERROR("Test `{}`:{}\nTest `{}`: Bad percent {}% is greater than max percent {}%.\n", name, error_msg, name, bad_percent * 100, options.max_precent_bad * 100);
+        LUISA_ERROR("Test `{}` First 20 errors:\n{}\nTest `{}`: Bad percent {}% is greater than max percent {}%.\n", name, error_msg, name, bad_percent * 100, options.max_precent_bad * 100);
     }
     LUISA_INFO("Test `{}` passed.", name);
 }
