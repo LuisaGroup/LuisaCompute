@@ -54,7 +54,7 @@ AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakBeforeMultilineStrings: false
 ColumnLimit: 0
 SortIncludes: Never
-SortUsingDeclarations: true
+SortUsingDeclarations: false
 CompactNamespaces: true
 ContinuationIndentWidth: 4
 IndentCaseLabels: true
