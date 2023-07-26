@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/20.
-//
-
 #include <luisa/core/logging.h>
 #include "metal_command_encoder.h"
 #include "metal_primitive.h"

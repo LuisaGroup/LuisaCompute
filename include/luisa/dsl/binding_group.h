@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/7/23.
-//
-
 #pragma once
 
 #include <luisa/dsl/struct.h>

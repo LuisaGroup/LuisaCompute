@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/22/2023.
-//
-
 #include <array>
 #include <algorithm>
 

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/6/22.
-//
-
 #include <luisa/core/logging.h>
 
 #include "metal_device.h"

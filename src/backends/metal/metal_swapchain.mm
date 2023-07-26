@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/19.
-//
-
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 

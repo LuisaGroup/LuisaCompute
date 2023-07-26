@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/18/2023.
-//
-
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>

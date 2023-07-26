@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/7/4.
-//
-
 #pragma once
 
 #ifdef LUISA_ENABLE_IR

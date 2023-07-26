@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike on 7/28/2021.
-//
-
 #include <cstring>
 #include <fstream>
 #include <future>

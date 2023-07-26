@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2021/12/4.
-//
-
 #pragma once
 
 #include <span>

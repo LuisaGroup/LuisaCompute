@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/10/29.
-//
-
 #pragma once
 
 #include <luisa/core/stl/vector.h>

@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike on 8/1/2021.
-//
-
 #include <luisa/core/clock.h>
 #include "cuda_error.h"
 #include "cuda_host_buffer_pool.h"

@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike Smith on 2021/4/7.
-//
-
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/rhi/command.h>
