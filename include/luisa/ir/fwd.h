@@ -1,4 +1,5 @@
 #pragma once
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>// for span
 #include <luisa/rust/ir.hpp>
@@ -20,11 +21,12 @@ using raw::Pooled;
 using raw::ModulePools;
 using raw::CallableModuleRef;
 using raw::CpuCustomOp;
+
 namespace detail {
 template<class T>
 struct FromInnerRef {
     using Output = T;
-    static const FromInnerRef::Output & from(const T & _inner) noexcept {
+    static const FromInnerRef::Output &from(const T &_inner) noexcept {
         return reinterpret_cast<const T &>(_inner);
     }
 };
@@ -33,15 +35,15 @@ struct FromInnerRef<T[N]> {
     using E = std::remove_extent_t<T>;
     using Output = std::array<E, N>;
     using A = T[N];
-    static const Output & from(const A&_inner) noexcept {
+    static const Output &from(const A &_inner) noexcept {
         return reinterpret_cast<const Output &>(_inner);
     }
 };
 template<class T>
-const typename FromInnerRef<T>::Output& from_inner_ref(const T & _inner) noexcept {
+const typename FromInnerRef<T>::Output &from_inner_ref(const T &_inner) noexcept {
     return FromInnerRef<T>::from(_inner);
 }
-}
+}// namespace detail
 
 class VectorElementType;
 class VectorType;
@@ -68,4 +70,5 @@ class Capture;
 class KernelModule;
 class BlockModule;
 class IrBuilder;
-}
+
+}// namespace luisa::compute::ir_v2
