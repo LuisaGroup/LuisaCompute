@@ -56,29 +56,10 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
         return dinputs_ad;
     }();
     auto f = [&](luisa::span<Var<float>> x) {
-        if constexpr (N == 1) {
-            return f_(x[0]);
-        } else if constexpr (N == 2) {
-            return f_(x[0], x[1]);
-        } else if constexpr (N == 3) {
-            return f_(x[0], x[1], x[2]);
-        } else if constexpr (N == 4) {
-            return f_(x[0], x[1], x[2], x[3]);
-        } else if constexpr (N == 5) {
-            return f_(x[0], x[1], x[2], x[3], x[4]);
-        } else if constexpr (N == 6) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5]);
-        } else if constexpr (N == 7) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6]);
-        } else if constexpr (N == 8) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]);
-        } else if constexpr (N == 9) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8]);
-        } else if constexpr (N == 10) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9]);
-        } else {
-            LUISA_ERROR_WITH_LOCATION("N > 10 is not supported.");
-        }
+        auto impl = [&]<size_t ...i>(std::index_sequence<i...>) noexcept {
+            return f_(x[i]...);
+        };
+        return impl(std::make_index_sequence<N>{});
     };
     Kernel1D fd_kernel = [&](Var<AdCheckOptions> options) {
         const auto i = dispatch_x();
