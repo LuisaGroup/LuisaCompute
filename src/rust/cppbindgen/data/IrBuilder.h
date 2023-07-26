@@ -1,3 +1,5 @@
+IrBuilder(raw::IrBuilder inner) noexcept : _inner{inner} {}
+
 NodeRef call(const Func &f, luisa::span<const NodeRef> args, const CArc<Type> &type) noexcept;
 NodeRef phi(luisa::span<const PhiIncoming> incoming, const CArc<Type> &type) noexcept;
 NodeRef local(const CppOwnedCArc<Type> &type) noexcept;

@@ -394,7 +394,17 @@ fn main() -> std::io::Result<()> {
     let mut fwd: File = std::fs::File::create("../../../include/luisa/ir/fwd.h")?;
     writeln!(fwd, "#pragma once")?;
     writeln!(fwd, "#include <luisa/core/dll_export.h>")?;
+    writeln!(fwd, "#include <luisa/core/stl/memory.h>// for span")?;
     writeln!(fwd, "#include <luisa/rust/ir.hpp>")?;
+    writeln!(fwd, "{}", r#"
+// deduction guide for CSlice
+namespace luisa::compute::ir {
+template<typename T>
+CSlice(T *, size_t) -> CSlice<T>;
+template<typename T>
+CSlice(const T *, size_t) -> CSlice<T>;
+}// namespace luisa::compute::ir
+"#)?;
     writeln!(fwd, "namespace luisa::compute::ir_v2 {{")?;
     writeln!(fwd, "namespace raw = luisa::compute::ir;")?;
     writeln!(
