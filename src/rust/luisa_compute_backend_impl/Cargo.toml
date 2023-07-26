@@ -41,3 +41,4 @@ panic = 'abort'
 
 [profile.dev]
 panic = 'abort'
+incremental = true
