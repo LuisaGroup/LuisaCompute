@@ -50,14 +50,6 @@ private:
                 _buffer->write(offset + index + i, data[i]);
             }
             index += N;
-            // if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
-            //     _buffer->write(offset + index, cast<uint>(curr));
-            // } else if constexpr (std::is_same_v<T, float>) {
-            //     _buffer->write(offset + index, as<uint>(curr));
-            // } else {
-
-            //     // static_assert(always_false_v<T>, "unsupported type for printing in kernel.");
-            // }
         }
         _log_to_buffer(offset, index, other...);
     }
@@ -133,14 +125,7 @@ public:
 template<typename... Args>
 void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...args) noexcept {
     std::array<uint, sizeof...(Args)> count_per_arg{};
-    // for (constexpr int i = 0; i < sizeof...(Args); i++) {
-    //     if constexpr (is_dsl_v<std::tuple_element_t<i, std::tuple<Args...>>>) {
-    //         using T = expr_value_t<std::tuple_element_t<i, std::tuple<Args...>>>;
-    //         count_per_arg[i] = (sizeof(T) + sizeof(uint) - 1) / sizeof(uint);
-    //     } else {
-    //         count_per_arg[i] = 0;
-    //     }
-    // }
+
     auto do_count = [&]<size_t... i>(std::index_sequence<i...>) noexcept {
         auto impl = [&]<size_t j>() noexcept {
             if constexpr (is_dsl_v<std::tuple_element_t<j, std::tuple<Args...>>>) {
@@ -158,7 +143,7 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
     if constexpr (sizeof...(Args) > 0) {
         count_by_arg[0] = 0;
         for (int i = 1; i < sizeof...(Args); i++) {
-            count_by_arg[i] = count_by_arg[i - 1] + count_per_arg[i];
+            count_by_arg[i] = count_by_arg[i - 1] + count_per_arg[i - 1];
         }
     }
 
@@ -193,12 +178,6 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
                 T raw{};
                 std::memcpy(&raw, arg_data.data(), sizeof(T));
                 return raw;
-                // if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
-                //     return static_cast<T>(raw);
-                // } else {
-                //     return luisa::bit_cast<T>(raw);
-                // }
-                // return luisa::bit_cast<T>(raw);
             } else {
                 return std::get<i>(args);
             }
