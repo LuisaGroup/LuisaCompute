@@ -8,6 +8,7 @@ includes("core")
 includes("vstl")
 includes("ast")
 includes("runtime")
+includes("osl")
 if get_config("enable_dsl") then
 	includes("dsl")
 end
