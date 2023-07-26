@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/5/11.
-//
-
 #include <random>
 #include <fstream>
 #include <chrono>

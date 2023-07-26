@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/9/13.
-//
-
 #pragma once
 
 #include <luisa/core/stl/deque.h>

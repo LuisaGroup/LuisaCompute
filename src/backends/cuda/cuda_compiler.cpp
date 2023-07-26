@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike on 2021/11/8.
-//
-
 #include <fstream>
 
 #include <luisa/core/clock.h>

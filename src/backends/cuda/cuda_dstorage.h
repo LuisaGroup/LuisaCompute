@@ -1,7 +1,3 @@
-//
-// Created by Mike on 5/26/2023.
-//
-
 #pragma once
 
 #include <luisa/backends/ext/dstorage_ext_interface.h>

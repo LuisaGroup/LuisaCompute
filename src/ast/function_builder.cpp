@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike Smith on 2020/12/2.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 

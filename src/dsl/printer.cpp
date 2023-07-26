@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/2/13.
-//
-
 #include <luisa/runtime/device.h>
 #include <luisa/dsl/printer.h>
 

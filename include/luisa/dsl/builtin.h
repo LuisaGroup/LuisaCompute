@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/4/13.
-//
-
 #pragma once
 
 #include <luisa/core/constants.h>

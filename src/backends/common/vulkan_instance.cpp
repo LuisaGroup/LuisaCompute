@@ -1,7 +1,3 @@
-//
-// Created by Mike on 7/4/2023.
-//
-
 #include <vulkan/vulkan.h>
 
 #if defined(LUISA_PLATFORM_WINDOWS)

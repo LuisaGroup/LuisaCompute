@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/15.
-//
-
 #include "metal_buffer.h"
 #include "metal_texture.h"
 #include "metal_stage_buffer_pool.h"

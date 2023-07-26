@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/10/17.
-//
-
 #pragma once
 
 #include <luisa/ast/variable.h>

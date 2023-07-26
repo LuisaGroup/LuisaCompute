@@ -1,7 +1,3 @@
-//
-// Created by Hercier on 2023/4/6.
-//
-
 #include <iostream>
 
 #include <luisa/core/clock.h>

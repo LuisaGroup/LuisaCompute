@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/10/17.
-//
-
 #include <fstream>
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>

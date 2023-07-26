@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/11.
-//
-
 #pragma once
 
 #include <luisa/core/dll_export.h>
