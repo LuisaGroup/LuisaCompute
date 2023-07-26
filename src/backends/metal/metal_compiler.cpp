@@ -149,10 +149,6 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     auto stream = is_aot ? io->read_shader_bytecode(name) :
                            io->read_shader_cache(name);
     if (stream == nullptr || stream->length() == 0u) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to load Metal shader "
-            "archive for '{}': file not found.",
-            name);
         return {};
     }
 
@@ -237,7 +233,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
         detail::get_bool_env("LUISA_DUMP_METAL_LIBRARY");
 
     if (should_dump_metallib) {
-        LUISA_VERBOSE_WITH_LOCATION(
+        LUISA_VERBOSE(
             "Metal shader archive for '{}' dumped to '{}'.",
             name, temp_file_path.string());
     } else {
@@ -260,7 +256,9 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     ns_name->release();
     auto [pipeline_desc, pipeline] = _load_kernels_from_library(library.get(), metadata.block_size);
     if (pipeline.entry && pipeline.indirect_entry) {
-        LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc());
+        LUISA_VERBOSE(
+            "Loaded Metal shader archive for '{}' in {} ms.",
+            name, clk.toc());
     }
     return pipeline;
 }
@@ -345,9 +343,10 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                     _cache.update(hash, pso);
                     return pso;
                 }
-                LUISA_INFO("Failed to load Metal shader archive for '{}'. "
-                           "Falling back to compilation from source.",
-                           name);
+                LUISA_VERBOSE(
+                    "Failed to load Metal shader archive for '{}'. "
+                    "Falling back to compilation from source.",
+                    name);
             }
         }
 
@@ -363,8 +362,9 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
             // TODO: attach shader source to Metal shader archive for debugging.
             //       Is it possible without using the command line?
             if (!src_dump_path.empty()) {
-                LUISA_INFO("Dumped Metal shader source for '{}' to '{}'.",
-                           name, src_dump_path.string());
+                LUISA_VERBOSE(
+                    "Dumped Metal shader source for '{}' to '{}'.",
+                    name, src_dump_path.string());
             }
         }
 

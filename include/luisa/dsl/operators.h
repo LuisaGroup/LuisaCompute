@@ -82,15 +82,17 @@ LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>, GREATER)
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>=, GREATER_EQUAL)
 #undef LUISA_MAKE_GLOBAL_DSL_BINARY_OP
 
-/// Define global assign operation of dsl objects
-#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                                               \
-    template<typename T, typename U>                                                                      \
-        requires requires { std::declval<T &>() op## =                                                    \
-                                std::declval<luisa::compute::expr_value_t<U>>(); } \
-    void operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept {                                  \
-        auto x = lhs op std::forward<U>(rhs);                                                             \
-        luisa::compute::detail::FunctionBuilder::current()->assign(                                       \
-            lhs.expression(), x.expression());                                                            \
+/// Define global assign operation of dsl objects; returns *const* reference to lhs
+#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                     \
+    template<typename T, typename U>                                            \
+        requires std::same_as<decltype(std::declval<luisa::compute::Var<T> &>() \
+                                           op std::declval<U &>()),             \
+                              luisa::compute::Var<T>>                           \
+    const auto &operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept { \
+        auto x = lhs op std::forward<U>(rhs);                                   \
+        luisa::compute::detail::FunctionBuilder::current()->assign(             \
+            lhs.expression(), x.expression());                                  \
+        return lhs;                                                             \
     }
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(+)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(-)
@@ -145,4 +147,3 @@ template<typename T>
                       LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE); \
         std::abort();                                        \
     }
-

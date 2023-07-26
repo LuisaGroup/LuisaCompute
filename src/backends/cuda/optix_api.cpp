@@ -105,9 +105,9 @@ namespace luisa::compute::optix {
         if (glob(fname, GLOB_BRACE, nullptr, &g) == 0) {
             const char *chosen = nullptr;
             if (g.gl_pathc > 1) {
-                LUISA_VERBOSE("find_optix_library(): Multiple versions of "
-                           "{} were found on your system!",
-                           fname);
+                LUISA_WARNING_WITH_LOCATION("find_optix_library(): Multiple versions of "
+                                            "{} were found on your system!",
+                                            fname);
                 std::sort(g.gl_pathv, g.gl_pathv + g.gl_pathc,
                           [](const char *a, const char *b) {
                               while (a != nullptr && b != nullptr) {
@@ -176,4 +176,3 @@ namespace luisa::compute::optix {
 }
 
 }// namespace luisa::compute::optix
-

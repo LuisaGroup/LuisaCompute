@@ -43,6 +43,7 @@ add_subdirectory(rust)
 add_subdirectory(runtime)
 add_subdirectory(ir)
 add_subdirectory(dsl)
+add_subdirectory(osl)
 add_subdirectory(gui)
 add_subdirectory(backends)
 
@@ -53,6 +54,7 @@ target_link_libraries(compute INTERFACE
         luisa-compute-vstl
         luisa-compute-ast
         luisa-compute-dsl
+        luisa-compute-osl
         luisa-compute-runtime
         luisa-compute-gui
         luisa-compute-api

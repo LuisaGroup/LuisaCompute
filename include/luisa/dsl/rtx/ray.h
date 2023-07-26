@@ -5,7 +5,6 @@
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/var.h>
 
-// clang-format off
 LUISA_STRUCT(luisa::compute::Ray,
              compressed_origin,
              compressed_t_min,
@@ -20,7 +19,6 @@ LUISA_STRUCT(luisa::compute::Ray,
     void set_t_min(luisa::compute::Expr<float> t_min) noexcept { compressed_t_min = t_min; }
     void set_t_max(luisa::compute::Expr<float> t_max) noexcept { compressed_t_max = t_max; }
 };
-// clang-format on
 
 namespace luisa::compute {
 
@@ -41,4 +39,3 @@ namespace luisa::compute {
     Expr<float3> direction) noexcept;
 
 }// namespace luisa::compute
-

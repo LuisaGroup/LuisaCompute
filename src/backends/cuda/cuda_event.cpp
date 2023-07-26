@@ -248,7 +248,7 @@ CUDAEvent *CUDAEventManager::create() noexcept {
 
     _count++;
     auto event = luisa::new_with_allocator<CUDAEvent>(_device, vk_semaphore, cuda_semaphore);
-    LUISA_VERBOSE_WITH_LOCATION("Created CUDA event in {} ms.", clock.toc());
+    LUISA_VERBOSE("Created CUDA event in {} ms.", clock.toc());
     return event;
 }
 

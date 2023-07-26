@@ -383,8 +383,8 @@ template<bool allow_update_expected_metadata>
                 name);
         } else {
             LUISA_VERBOSE("Shader '{}' is not found in cache. "
-                       "The shader will be recompiled.",
-                       name);
+                          "The shader will be recompiled.",
+                          name);
         }
         return {};
     }
@@ -839,8 +839,8 @@ static void initialize() {
                      driver_version_major, driver_version_minor,
                      required_cuda_version_major, required_cuda_version_minor);
         LUISA_VERBOSE("Successfully initialized CUDA "
-                   "backend with driver version {}.{}.",
-                   driver_version_major, driver_version_minor);
+                      "backend with driver version {}.{}.",
+                      driver_version_major, driver_version_minor);
         // OptiX
         static_cast<void>(optix::api());
     });
@@ -897,7 +897,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
         return result;
     };
 
-    LUISA_VERBOSE("Created CUDA device at index {}: {} "
+    LUISA_INFO("Created CUDA device at index {}: {} "
                "(driver = {}, capability = {}.{}, uuid = {}).",
                index, name(), driver_version,
                compute_cap_major, compute_cap_minor,

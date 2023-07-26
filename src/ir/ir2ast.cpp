@@ -7,6 +7,7 @@
 #include <luisa/rust/ir.hpp>
 #include <luisa/ir/ir2ast.h>
 #include <luisa/ir/ir.h>
+
 namespace luisa::compute {
 
 void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
@@ -137,6 +138,117 @@ void IR2AST::_convert_instr_update(const ir::Node *node) noexcept {
     _ctx->function_builder->assign(lhs, rhs);
 }
 
+namespace detail {
+
+[[nodiscard]] inline const Expression *
+ir2ast_convert_ray(FunctionBuilder *b, const Expression *expr) noexcept {
+    // if the types are the same (i.e. Ray), no need to convert
+    if (expr->type() == Type::of<Ray>()) { return expr; }
+    auto ft = Type::of<float>();
+    auto vt = Type::structure(4u, ft, ft, ft);
+    auto rt = Type::structure(16, vt, ft, vt, ft);
+    LUISA_ASSERT(expr->type() == rt,
+                 "Invalid ray type: {}.",
+                 expr->type()->description());
+    // if the ray is not a local variable, make a local copy first
+    if (expr->tag() != Expression::Tag::REF) {
+        auto ref = b->local(expr->type());
+        b->assign(ref, expr);
+        expr = ref;
+    }
+    // decompose the ray
+    auto o = b->member(vt, expr, 0u);
+    auto ox = b->member(ft, o, 0u);
+    auto oy = b->member(ft, o, 1u);
+    auto oz = b->member(ft, o, 2u);
+    auto tmin = b->member(ft, expr, 1u);
+    auto d = b->member(vt, expr, 2u);
+    auto dx = b->member(ft, d, 0u);
+    auto dy = b->member(ft, d, 1u);
+    auto dz = b->member(ft, d, 2u);
+    auto tmax = b->member(ft, expr, 3u);
+    auto at = Type::array(ft, 3u);
+    auto ray = b->local(Type::of<Ray>());
+    auto o_ = b->member(at, ray, 0u);
+    auto d_ = b->member(at, ray, 2u);
+    auto ut = Type::of<uint>();
+    auto u0 = b->literal(ut, 0u);
+    auto u1 = b->literal(ut, 1u);
+    auto u2 = b->literal(ut, 2u);
+    b->assign(b->access(ft, o_, u0), ox);
+    b->assign(b->access(ft, o_, u1), oy);
+    b->assign(b->access(ft, o_, u2), oz);
+    b->assign(b->member(ft, ray, 1u), tmin);
+    b->assign(b->access(ft, d_, u0), dx);
+    b->assign(b->access(ft, d_, u1), dy);
+    b->assign(b->access(ft, d_, u2), dz);
+    b->assign(b->member(ft, ray, 3u), tmax);
+    return ray;
+}
+
+[[nodiscard]] inline const Expression *
+ir2ast_convert_triangle_hit(FunctionBuilder *b, const Type *dst_ht, const Expression *expr) noexcept {
+    LUISA_ASSERT(expr->type() == Type::of<TriangleHit>(),
+                 "Invalid triangle hit type: {}.",
+                 expr->type()->description());
+    if (dst_ht == Type::of<TriangleHit>()) { return expr; }
+    auto ft = Type::of<float>();
+    auto ut = Type::of<uint>();
+    auto vt = Type::of<float2>();
+    auto ht = Type::structure(8u, ut, ut, ft, ft, ft);
+    LUISA_ASSERT(dst_ht == ht,
+                 "Invalid triangle hit type: {}.",
+                 expr->type()->description());
+    if (expr->tag() != Expression::Tag::REF) {
+        auto ref = b->local(expr->type());
+        b->assign(ref, expr);
+        expr = ref;
+    }
+    auto bary = b->member(ft, expr, 2u);
+    auto bary_x = b->access(ft, bary, b->literal(ut, 0u));
+    auto bary_y = b->access(ft, bary, b->literal(ut, 1u));
+    auto hit = b->local(dst_ht);
+    b->assign(b->member(ut, hit, 0u), b->member(ut, expr, 0u));// inst
+    b->assign(b->member(ut, hit, 1u), b->member(ut, expr, 1u));// prim
+    b->assign(b->member(ft, hit, 2u), bary_x);                 // bary_x
+    b->assign(b->member(ft, hit, 3u), bary_y);                 // bary_y
+    b->assign(b->member(ft, hit, 4u), b->member(ft, expr, 3u));// ray_t
+    return hit;
+}
+
+[[nodiscard]] inline const Expression *
+ir2ast_convert_committed_hit(FunctionBuilder *b, const Type *dst_ht, const Expression *expr) noexcept {
+    LUISA_ASSERT(expr->type() == Type::of<CommittedHit>(),
+                 "Invalid committed hit type: {}.",
+                 expr->type()->description());
+    if (dst_ht == Type::of<CommittedHit>()) { return expr; }
+    auto ft = Type::of<float>();
+    auto ut = Type::of<uint>();
+    auto vt = Type::of<float2>();
+    auto ht = Type::structure(8u, ut, ut, ft, ft, ut, ft);
+    LUISA_ASSERT(dst_ht == ht,
+                 "Invalid committed hit type: {}.",
+                 expr->type()->description());
+    if (expr->tag() != Expression::Tag::REF) {
+        auto ref = b->local(expr->type());
+        b->assign(ref, expr);
+        expr = ref;
+    }
+    auto bary = b->member(ft, expr, 2u);
+    auto bary_x = b->access(ft, bary, b->literal(ut, 0u));
+    auto bary_y = b->access(ft, bary, b->literal(ut, 1u));
+    auto hit = b->local(dst_ht);
+    b->assign(b->member(ut, hit, 0u), b->member(ut, expr, 0u));// inst
+    b->assign(b->member(ut, hit, 1u), b->member(ut, expr, 1u));// prim
+    b->assign(b->member(ft, hit, 2u), bary_x);                 // bary_x
+    b->assign(b->member(ft, hit, 3u), bary_y);                 // bary_y
+    b->assign(b->member(ut, hit, 4u), b->member(ut, expr, 3u));// hit_type
+    b->assign(b->member(ft, hit, 5u), b->member(ft, expr, 4u));// ray_t
+    return hit;
+}
+
+}// namespace detail
+
 const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
     auto type = _convert_type(node->type_.get());
     auto &&[func, arg_slice] = node->instruction->call;
@@ -158,8 +270,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             call_op == CallOp::RAY_TRACING_TRACE_ANY ||
             call_op == CallOp::RAY_TRACING_QUERY_ALL ||
             call_op == CallOp::RAY_TRACING_QUERY_ANY) {
-            converted_args[1] = _ctx->function_builder->cast(
-                Type::of<Ray>(), CastOp::BITWISE, converted_args[1]);
+            converted_args[1] = detail::ir2ast_convert_ray(
+                _ctx->function_builder.get(),
+                converted_args[1]);
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ANY) {
             auto type = Type::custom("LC_RayQueryAny");
@@ -183,8 +296,14 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
                 auto ret = _ctx->function_builder->call(
                     Type::of<TriangleHit>(), call_op, converted_args);
-                return _ctx->function_builder->cast(
-                    type, CastOp::BITWISE, ret);
+                return detail::ir2ast_convert_triangle_hit(
+                    _ctx->function_builder.get(), type, ret);
+            }
+            if (call_op == CallOp::RAY_QUERY_COMMITTED_HIT) {
+                auto ret = _ctx->function_builder->call(
+                    Type::of<CommittedHit>(), call_op, converted_args);
+                return detail::ir2ast_convert_committed_hit(
+                    _ctx->function_builder.get(), type, ret);
             }
             auto ret = _ctx->function_builder->call(
                 type, call_op, luisa::span{converted_args});
