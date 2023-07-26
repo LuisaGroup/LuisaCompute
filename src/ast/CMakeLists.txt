@@ -19,4 +19,6 @@ set_target_properties(luisa-compute-ast PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
         OUTPUT_NAME lc-ast)
 
+target_precompile_headers(luisa-compute-ast PRIVATE pch.h)
+
 luisa_compute_install(ast SOURCES ${LUISA_COMPUTE_AST_SOURCES})

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/7/9.
-//
-
 #pragma once
 
 #include <cstdint>

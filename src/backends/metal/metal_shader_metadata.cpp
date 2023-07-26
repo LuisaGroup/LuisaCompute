@@ -1,7 +1,3 @@
-//
-// Created by Mike on 4/4/2023.
-//
-
 #include <charconv>
 
 #include <luisa/core/stl/format.h>

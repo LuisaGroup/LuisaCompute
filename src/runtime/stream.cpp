@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike Smith on 2021/3/18.
-//
-
 #include <utility>
 
 #include <luisa/core/logging.h>

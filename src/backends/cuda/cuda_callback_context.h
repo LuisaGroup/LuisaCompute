@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2021/12/11.
-//
-
 #pragma once
 
 namespace luisa::compute::cuda {

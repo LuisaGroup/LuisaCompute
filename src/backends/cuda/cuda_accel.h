@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2021/12/2.
-//
-
 #pragma once
 
 #include <cuda.h>

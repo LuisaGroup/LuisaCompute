@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2021/12/10.
-//
-
 #include <luisa/core/mathematics.h>
 #include <luisa/core/pool.h>
 #include <luisa/core/logging.h>

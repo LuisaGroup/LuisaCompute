@@ -1,8 +1,4 @@
 #include "pch.h"
-//
-// Created by Mike on 4/1/2023.
-//
-
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
@@ -35,7 +31,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
     LUISA_CHECK_OPTIX(optix::api().accelComputeMemoryUsage(
         optix_ctx, &build_options,
         &build_input, 1u, &sizes));
-    LUISA_INFO(
+    LUISA_VERBOSE(
         "Computed mesh memory usage: temp = {}, temp_update = {}, output = {}.",
         sizes.tempSizeInBytes, sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
     _update_buffer_size = sizes.tempUpdateSizeInBytes;
@@ -77,7 +73,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
             }
         });
         LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
-        LUISA_INFO("CUDAMesh compaction sizes: before = {}B, after = {}B, ratio = {}.",
+        LUISA_VERBOSE("CUDAMesh compaction sizes: before = {}B, after = {}B, ratio = {}.",
                    sizes.outputSizeInBytes, compacted_size,
                    compacted_size / static_cast<double>(sizes.outputSizeInBytes));
 

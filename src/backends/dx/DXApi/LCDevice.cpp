@@ -243,7 +243,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     }
     // Clock clk;
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, option.native_include, mask, false);
-    // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
+    // LUISA_VERBOSE("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
@@ -720,7 +720,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
 #ifdef LUISA_ENABLE_IR
     Clock clk;
     auto function = IR2AST::build(kernel);
-    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
     return create_shader(option, function->function());
 #else
     LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");

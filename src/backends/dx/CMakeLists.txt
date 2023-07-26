@@ -8,7 +8,7 @@ if (WIN32)
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}
             SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR})
-
+    target_precompile_headers(luisa-compute-backend-dx PRIVATE pch.h)
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi luisa-compute-vstl DirectML)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)

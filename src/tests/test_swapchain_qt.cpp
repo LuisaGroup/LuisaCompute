@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/31/2023.
-//
-
 #include <QApplication>
 #include <QPushButton>
 #include <QMainWindow>

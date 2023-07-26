@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/5.
-//
-
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 

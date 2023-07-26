@@ -1,7 +1,3 @@
-//
-// Created by Mike on 4/6/2023.
-//
-
 #include "common/config.h"
 #include <luisa/luisa-compute.h>
 

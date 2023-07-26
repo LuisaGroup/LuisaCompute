@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/7/23.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>

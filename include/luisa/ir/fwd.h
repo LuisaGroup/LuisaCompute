@@ -2,6 +2,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>// for span
+#include <luisa/core/concepts.h>  // for Noncopyable
 #include <luisa/rust/ir.hpp>
 
 // deduction guide for CSlice

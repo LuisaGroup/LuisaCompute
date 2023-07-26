@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/16.
-//
-
 #include <luisa/core/pool.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/pixel.h>

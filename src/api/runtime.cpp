@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/10/17.
-//
-
 #include <luisa/core/stl.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>

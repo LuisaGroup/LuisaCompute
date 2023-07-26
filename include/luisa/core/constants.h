@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/11/8.
-//
-
 #pragma once
 
 namespace luisa {

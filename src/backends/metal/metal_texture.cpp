@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/15.
-//
-
 #include <luisa/core/logging.h>
 #include "metal_texture.h"
 

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/5/29.
-//
-
 #include <sys/mman.h>
 #include <compression.h>
 
