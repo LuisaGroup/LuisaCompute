@@ -7,7 +7,12 @@
 #include <luisa/vstl/md5.h>
 namespace lc::dx {
 namespace ComputeShaderDetail {
-static constexpr bool PRINT_CODE = false;
+static const bool PRINT_CODE = ([]{
+    // read env LUISA_DUMP_SOURCE
+    auto env = std::getenv("LUISA_DUMP_SOURCE");
+    if (env == nullptr) return false;
+    return std::string_view{env} == "1";
+})();
 }// namespace ComputeShaderDetail
 ComputeShader *ComputeShader::LoadPresetCompute(
     BinaryIO const *fileIo,
