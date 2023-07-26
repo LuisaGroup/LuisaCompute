@@ -140,7 +140,8 @@ struct Expr
 /// Class of Expr<std::array<T, N>>
 template<typename T, size_t N>
 struct Expr<std::array<T, N>>
-    : detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>>,
+    : detail::ExprEnableBitwiseCast<Expr<std::array<T, N>>>,
+      detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>>,
       detail::ExprEnableGetMemberByIndex<Expr<std::array<T, N>>> {
     LUISA_EXPR_COMMON(std::array<T, N>)
 };
@@ -148,7 +149,8 @@ struct Expr<std::array<T, N>>
 /// Class of Expr<T[N]>
 template<typename T, size_t N>
 struct Expr<T[N]>
-    : detail::ExprEnableSubscriptAccess<Expr<T[N]>>,
+    : detail::ExprEnableBitwiseCast<Expr<T[N]>>,
+      detail::ExprEnableSubscriptAccess<Expr<T[N]>>,
       detail::ExprEnableGetMemberByIndex<Expr<T[N]>> {
     LUISA_EXPR_COMMON(T[N])
 };
@@ -156,7 +158,8 @@ struct Expr<T[N]>
 /// Class of Expr<Matrix><N>>. Can be constructed from Matrix<N>
 template<size_t N>
 struct Expr<Matrix<N>>
-    : detail::ExprEnableSubscriptAccess<Expr<Matrix<N>>>,
+    : detail::ExprEnableBitwiseCast<Expr<Matrix<N>>>,
+      detail::ExprEnableSubscriptAccess<Expr<Matrix<N>>>,
       detail::ExprEnableGetMemberByIndex<Expr<Matrix<N>>> {
     LUISA_EXPR_COMMON(Matrix<N>)
     LUISA_EXPR_FROM_LITERAL(Matrix<N>)
@@ -308,4 +311,3 @@ Expr(T) -> Expr<T>;
     ~Class() noexcept = delete;
 
 }// namespace luisa::compute
-

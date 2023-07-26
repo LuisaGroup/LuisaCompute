@@ -95,7 +95,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     };                                                                                        \
     }                                                                                         \
     template<>                                                                                \
-    struct Expr<S> {                                                                          \
+    struct Expr<S> : public detail::ExprEnableBitwiseCast<Expr<S>> {                          \
     private:                                                                                  \
         using this_type = S;                                                                  \
         const Expression *_expression;                                                        \
@@ -127,7 +127,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     };                                                                                        \
     namespace detail {                                                                        \
     template<>                                                                                \
-    struct Ref<S> {                                                                           \
+    struct Ref<S> : public detail::ExprEnableBitwiseCast<Ref<S>> {                            \
     private:                                                                                  \
         using this_type = S;                                                                  \
         const Expression *_expression;                                                        \
