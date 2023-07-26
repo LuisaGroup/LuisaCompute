@@ -14,7 +14,7 @@
 namespace luisa::compute::osl {
 
 Shader::Shader(luisa::string osl_spec,
-               uint version_major, uint version_minor,
+               uint32_t version_major, uint32_t version_minor,
                Shader::Tag tag, luisa::string identifier,
                luisa::vector<Hint> hints,
                vector<Shader::CodeMarker> code_markers,
