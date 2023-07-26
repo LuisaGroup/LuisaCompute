@@ -9,7 +9,9 @@ if (WIN32)
     list(APPEND LC_BACKEND_DX_SOURCES
             ../common/default_binary_io.cpp
             ${LC_BACKEND_DX_CODEGEN_SOURCES})
-
+    list(REMOVE_ITEM LC_BACKEND_DX_SOURCES
+         ${CMAKE_CURRENT_SOURCE_DIR}/hlsl.cpp
+         ${CMAKE_CURRENT_SOURCE_DIR}/default_binary_io.cpp)
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}
             SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR})
