@@ -44,7 +44,7 @@ private:
             using T = expr_value_t<Curr>;
             constexpr uint32_t N = (sizeof(T) + sizeof(uint) - 1) / sizeof(uint);
             auto data = ArrayVar<uint, N>{};
-            data = dsl::as<std::array<uint, N>>(curr);
+            data = dsl::pack(curr);
 
             for (uint i = 0; i < N; i++) {
                 _buffer->write(offset + index + i, data[i]);

@@ -1712,6 +1712,32 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
+// pack variable to array
+template<typename T>
+    requires is_dsl_v<T>
+[[nodiscard]] inline auto pack(T &&x) noexcept {
+    using E = expr_value_t<T>;
+    constexpr auto N = (sizeof(E) + sizeof(uint) - 1) / sizeof(uint);
+    using A = std::array<uint, N>;
+    return def<A>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<A>(), CallOp::PACK,
+            {LUISA_EXPR(x)}));
+}
+template<class T>
+    requires is_dsl_v<T> && is_array_expr_v<T>
+[[nodiscard]] inline auto unpack(T && array) noexcept {
+    using A = expr_value_t<T>;
+    using E = typename A::value_type;
+    constexpr auto N = A::size();
+    static_assert(std::is_same_v<E, uint>);
+    static_assert((sizeof(E) + sizeof(uint) - 1) / sizeof(uint) == N);
+    return def<E>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<E>(), CallOp::UNPACK,
+            {LUISA_EXPR(array)}));
+}
+
 #undef LUISA_EXPR
 
 }// namespace dsl

@@ -239,6 +239,10 @@ enum struct CallOp : uint32_t {
     ZERO,
     ONE,
 
+    // Pack/unpack to array<uint, ceil(sizeof(T)/4))
+    PACK,   // (T) -> array<uint, ceil(sizeof(T)/4))
+    UNPACK, // (array<uint, ceil(sizeof(T)/4)) -> T
+
     // autodiff ops
     REQUIRES_GRADIENT,  // (expr) -> void
     GRADIENT,           // (expr) -> expr
