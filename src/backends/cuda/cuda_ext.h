@@ -1,6 +1,7 @@
 //
 // Created by Hercier on 2023/4/6.
 //
+#pragma once
 #include "optix_api.h"
 #include <luisa/core/logging.h>
 #include "cuda_device.h"

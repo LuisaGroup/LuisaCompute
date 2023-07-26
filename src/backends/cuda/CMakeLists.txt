@@ -3,6 +3,8 @@ find_package(CUDAToolkit 11.7)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
 
+    
+
     set(LUISA_COMPUTE_CUDA_SOURCES
 
             ../common/default_binary_io.cpp ../common/default_binary_io.h
@@ -34,6 +36,13 @@ if (CUDAToolkit_FOUND)
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h)
+    
+    if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
+        add_subdirectory("lcub")
+        file(GLOB LCUB_SOURCES "lcub/*.cpp")
+        list(APPEND LUISA_COMPUTE_CUDA_SOURCES ${LCUB_SOURCES})
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE cuda-dcub)
+    endif()
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE

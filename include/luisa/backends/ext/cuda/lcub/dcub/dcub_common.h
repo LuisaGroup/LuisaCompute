@@ -1,0 +1,14 @@
+#pragma once
+#ifdef _MSC_VER
+#ifdef DCUB_DLL_EXPORTS
+#define DCUB_API __declspec(dllexport)
+#else
+#define DCUB_API __declspec(dllimport)
+#endif
+#endif
+
+#include <cstdint>
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
+#include "dcub_utils.h"
