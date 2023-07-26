@@ -428,6 +428,7 @@ fn main() -> std::io::Result<()> {
     writeln!(fwd, "#include <luisa/core/dll_export.h>")?;
     writeln!(fwd, "#include <luisa/core/concepts.h>")?;
     writeln!(fwd, "#include <luisa/core/stl/memory.h>// for span")?;
+    writeln!(fwd, "#include <luisa/core/concepts.h>// for Noncopyable")?;
     writeln!(fwd, "#include <luisa/rust/ir.hpp>\n")?;
     writeln!(
         fwd,
