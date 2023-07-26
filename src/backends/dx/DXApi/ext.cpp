@@ -52,21 +52,21 @@ TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, Image<floa
     return Result::Success;
 }
 TexCompressExt::Result DxTexCompressExt::check_builtin_shader() noexcept {
-    LUISA_INFO("start try compile setAccelKernel");
+    LUISA_VERBOSE("start try compile setAccelKernel");
     if (!device->setAccelKernel.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc6TryModeG10");
+    LUISA_VERBOSE("start try compile bc6TryModeG10");
     if (!device->bc6TryModeG10.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc6TryModeLE10");
+    LUISA_VERBOSE("start try compile bc6TryModeLE10");
     if (!device->bc6TryModeLE10.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc6EncodeBlock");
+    LUISA_VERBOSE("start try compile bc6EncodeBlock");
     if (!device->bc6EncodeBlock.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc7TryMode456");
+    LUISA_VERBOSE("start try compile bc7TryMode456");
     if (!device->bc7TryMode456.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc7TryMode137");
+    LUISA_VERBOSE("start try compile bc7TryMode137");
     if (!device->bc7TryMode137.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc7TryMode02");
+    LUISA_VERBOSE("start try compile bc7TryMode02");
     if (!device->bc7TryMode02.Check(device)) return Result::Failed;
-    LUISA_INFO("start try compile bc7EncodeBlock");
+    LUISA_VERBOSE("start try compile bc7EncodeBlock");
     if (!device->bc7EncodeBlock.Check(device)) return Result::Failed;
     return Result::Success;
 }

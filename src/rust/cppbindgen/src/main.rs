@@ -35,13 +35,13 @@ fn gen_span(class: &str, out_name: &str, fname: &str, ty_s: &str) -> (String, St
         "luisa::span<const {}> {}::{}() const noexcept {{",
         ty_s, class, out_name
     )
-        .unwrap();
+    .unwrap();
     writeln!(
         def,
         "    return {{reinterpret_cast<const {1} *>(_inner.{0}.ptr), _inner.{0}.len}};",
         fname, ty_s
     )
-        .unwrap();
+    .unwrap();
     writeln!(def, "}}").unwrap();
     let decl = format!(
         "    [[nodiscard]] luisa::span<const {}> {}() const noexcept;",
@@ -80,7 +80,11 @@ fn unwrap_generic_param(ty: &syn::Type) -> String {
     let ty_s = ty.to_token_stream().to_string();
     let i = ty_s.find('<').unwrap();
     let j = ty_s.rfind('>').unwrap();
-    ty_s[i + 1..j].trim().to_string().replace(" < ", "<").replace(" >", ">")
+    ty_s[i + 1..j]
+        .trim()
+        .to_string()
+        .replace(" < ", "<")
+        .replace(" >", ">")
 }
 
 fn gen_type(ty: &syn::Type) -> String {
@@ -91,7 +95,11 @@ fn gen_type(ty: &syn::Type) -> String {
             a.len.to_token_stream().to_string()
         );
     }
-    let ty_s = ty.to_token_stream().to_string().replace(" < ", "<").replace(" >", ">");
+    let ty_s = ty
+        .to_token_stream()
+        .to_string()
+        .replace(" < ", "<")
+        .replace(" >", ">");
     if ty_s == "bool" {
         return "bool".to_string();
     }
@@ -402,7 +410,14 @@ fn gen_cpp_binding(file: syn::File, fwd: &mut File, h: &mut File, cpp: &mut File
         }
     }
 }
-
+fn run_clang_format(path: &str) {
+    use std::process::Command;
+    Command::new("clang-format")
+        .arg("-i")
+        .arg(path)
+        .output()
+        .unwrap();
+}
 fn main() -> std::io::Result<()> {
     let source = include_str!("../../luisa_compute_ir/src/ir.rs");
     let file = syn::parse_file(source).unwrap();
@@ -413,14 +428,18 @@ fn main() -> std::io::Result<()> {
     writeln!(fwd, "#include <luisa/core/dll_export.h>")?;
     writeln!(fwd, "#include <luisa/core/stl/memory.h>// for span")?;
     writeln!(fwd, "#include <luisa/rust/ir.hpp>\n")?;
-    writeln!(fwd, "{}", r#"// deduction guide for CSlice
+    writeln!(
+        fwd,
+        "{}",
+        r#"// deduction guide for CSlice
 namespace luisa::compute::ir {
 template<typename T>
 CSlice(T *, size_t) -> CSlice<T>;
 template<typename T>
 CSlice(const T *, size_t) -> CSlice<T>;
 }// namespace luisa::compute::ir
-"#)?;
+"#
+    )?;
     writeln!(fwd, "namespace luisa::compute::ir_v2 {{")?;
     writeln!(fwd, "namespace raw = luisa::compute::ir;")?;
     writeln!(
@@ -472,5 +491,8 @@ namespace luisa::compute::ir_v2 {{
     writeln!(&mut h, "}}// namespace luisa::compute::ir_v2")?;
     writeln!(&mut cpp, "}}// namespace luisa::compute::ir_v2")?;
     writeln!(&mut fwd, "\n}}// namespace luisa::compute::ir_v2")?;
+    run_clang_format("../../../include/luisa/ir/ir.h");
+    run_clang_format("../../ir/ir.cpp");
+    run_clang_format("../../../include/luisa/ir/fwd.h");
     Ok(())
 }

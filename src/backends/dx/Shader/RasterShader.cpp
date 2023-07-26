@@ -497,7 +497,7 @@ ID3D12PipelineState *RasterShader::GetPSO(
             if (psoGenSuccess != S_OK) {
                 newPso = true;
                 // PSO cache miss(probably driver's version or hardware transformed), discard cache
-                LUISA_INFO("{} pipeline cache illegal, discarded.", psoName);
+                LUISA_VERBOSE("{} pipeline cache illegal, discarded.", psoName);
                 if (v.pso == nullptr) {
                     psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
                     psoDesc.CachedPSO.pCachedBlob = nullptr;

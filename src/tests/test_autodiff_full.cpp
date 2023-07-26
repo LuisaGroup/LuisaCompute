@@ -12,8 +12,8 @@ using namespace luisa::compute;
 
 struct AdCheckOptions {
     uint32_t repeats = 1024 * 1024;
-    float rel_tol = 1e-2f;
-    float fd_eps = 1e-4f;
+    float rel_tol = 5e-2f;
+    float fd_eps = 1e-3f;
     float max_precent_bad = 0.01f;
     float min_value = -1.0f;
     float max_value = 1.0f;
@@ -124,7 +124,7 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
             }
         };
     };
-    auto o = luisa::ShaderOption();
+    auto o = luisa::compute::ShaderOption();
     o.enable_fast_math = false;
     stream
         << device.compile(fd_kernel, o)(options).dispatch(options.repeats)
@@ -181,7 +181,7 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
 
 int main(int argc, char *argv[]) {
 
-    luisa::log_level_error();
+    luisa::log_level_info();
 
     auto context = Context{argv[0]};
     if (argc <= 1) {

@@ -235,7 +235,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     }
 
     if (should_dump_metallib) {
-        LUISA_INFO_WITH_LOCATION(
+        LUISA_VERBOSE_WITH_LOCATION(
             "Metal shader archive for '{}' dumped to '{}'.",
             name, temp_file_path.string());
     } else {

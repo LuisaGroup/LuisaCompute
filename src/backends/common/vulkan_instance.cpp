@@ -119,7 +119,7 @@ VulkanInstance::VulkanInstance() noexcept {
         LUISA_CHECK_VULKAN(func(_instance, &debug_create_info, nullptr, &_debug_messenger));
     }
 #endif
-    LUISA_INFO_WITH_LOCATION("Created vulkan instance.");
+    LUISA_VERBOSE_WITH_LOCATION("Created vulkan instance.");
 }
 
 VulkanInstance::~VulkanInstance() noexcept {
@@ -131,7 +131,7 @@ VulkanInstance::~VulkanInstance() noexcept {
     }
 #endif
     vkDestroyInstance(_instance, nullptr);
-    LUISA_INFO_WITH_LOCATION("Destroyed vulkan instance.");
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed vulkan instance.");
 }
 
 luisa::shared_ptr<VulkanInstance> VulkanInstance::retain() noexcept {
