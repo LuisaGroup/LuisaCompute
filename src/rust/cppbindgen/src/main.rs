@@ -402,6 +402,7 @@ fn main() -> std::io::Result<()> {
         "{}",
         r#"using raw::CArc;
 using raw::CBoxedSlice;
+using raw::CppOwnedCArc;
 using raw::Pooled;
 using raw::ModulePools;
 using raw::CallableModuleRef;

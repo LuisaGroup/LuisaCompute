@@ -127,7 +127,7 @@ NodeRef IrBuilder::local(NodeRef init) noexcept {
     auto node = luisa_compute_ir_build_local(&_inner, init._inner);
     return NodeRef::from_raw(node);
 }
-NodeRef IrBuilder::local(const CArc<Type> &type) noexcept {
+NodeRef IrBuilder::local(const CppOwnedCArc<Type> &type) noexcept {
     auto node = luisa_compute_ir_build_local_zero_init(&_inner, luisa::bit_cast<CArc<raw::Type>>(type.clone()));
     return NodeRef::from_raw(node);
 }

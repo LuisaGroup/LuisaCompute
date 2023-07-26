@@ -1,12 +1,11 @@
 #pragma once
 #include <luisa/core/dll_export.h>
-#include <luisa/core/concepts.h>
-#include <luisa/core/stl/memory.h>
 #include <luisa/rust/ir.hpp>
 namespace luisa::compute::ir_v2 {
 namespace raw = luisa::compute::ir;
 using raw::CArc;
 using raw::CBoxedSlice;
+using raw::CppOwnedCArc;
 using raw::Pooled;
 using raw::ModulePools;
 using raw::CallableModuleRef;
