@@ -479,6 +479,7 @@ impl Node {
     }
 }
 
+
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize)]
 #[repr(C)]
 pub enum Func {

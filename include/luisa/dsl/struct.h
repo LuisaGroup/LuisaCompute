@@ -7,6 +7,8 @@
 #include <luisa/dsl/atomic.h>
 #include <luisa/dsl/func.h>
 #include <luisa/runtime/shader.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/bundled/format.h>
 
 template<typename T>
 struct luisa_compute_extension {};
@@ -49,7 +51,24 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     AtomicRef<member_type_##m> m{                   \
         this->member<member_type_##m>(_member_index(#m))};
 
+#define LUISA_DERIVE_FMT_STRUCT_FIELD_FMT(x) #x "={} "
+#define LUISA_DERIVE_FMT_MAP_STRUCT_FIELD(x) input.x
+#define LUISA_DERIVE_FMT(Struct, ...)                                                                       \
+    template<>                                                                                              \
+    struct fmt::formatter<Struct> {                                                                         \
+        constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {                          \
+            return ctx.end();                                                                               \
+        }                                                                                                   \
+        template<typename FormatContext>                                                                    \
+        auto format(const Struct &input, FormatContext &ctx) -> decltype(ctx.out()) {                       \
+            return format_to(ctx.out(),                                                                     \
+                             #Struct " {{ " LUISA_MAP(LUISA_DERIVE_FMT_STRUCT_FIELD_FMT, __VA_ARGS__) "}}", \
+                             LUISA_MAP_LIST(LUISA_DERIVE_FMT_MAP_STRUCT_FIELD, __VA_ARGS__));               \
+        }                                                                                                   \
+    };
+
 #define LUISA_STRUCT(S, ...)                                                                  \
+    LUISA_DERIVE_FMT(S, __VA_ARGS__)                                                          \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                      \
     template<>                                                                                \
     struct luisa_compute_extension<S>;                                                        \
@@ -200,4 +219,3 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     }                                                                                        \
     template<>                                                                               \
     struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
-
