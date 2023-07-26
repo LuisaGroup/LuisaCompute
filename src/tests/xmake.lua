@@ -1,14 +1,14 @@
 local enable_gui = get_config("enable_gui")
 target("stb-image")
-set_basename("lc-ext-stb-image")
-_config_project({
-	project_kind = "shared"
-})
-add_headerfiles("../ext/stb/**.h")
-add_files("../ext/stb/stb.c")
-add_includedirs("../ext/stb", {
-	public = true
-})
+	set_basename("lc-ext-stb-image")
+	_config_project({
+		project_kind = "shared"
+	})
+	add_headerfiles("../ext/stb/**.h")
+	add_files("../ext/stb/stb.c")
+	add_includedirs("../ext/stb", {
+		public = true
+	})
 target_end()
 
 -- TEST MAIN with doctest
@@ -44,6 +44,9 @@ end
 
 -- single test suite for development
 lc_add_app("test_feat", "test", "feat")
+if get_config("enable_gui") then
+	lc_add_app("test_gui", "test", "gui")
+end
 -- lc_add_app("test_io", "test", "io")
 
 -- all test suites for release
