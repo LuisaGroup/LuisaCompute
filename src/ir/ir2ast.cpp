@@ -777,7 +777,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
         case ir::Const::Tag::Uint32: return b->literal(Type::of<uint>(), const_.uint32._0);
         case ir::Const::Tag::Int64: return b->literal(Type::of<slong>(), const_.int64._0);
         case ir::Const::Tag::Uint64: return b->literal(Type::of<ulong>(), const_.uint64._0);
-        case ir::Const::Tag::Float16: return b->literal(Type::of<half>(), const_.float16._0);
+        case ir::Const::Tag::Float16: return b->literal(Type::of<half>(), luisa::bit_cast<half>(const_.float16._0));
         case ir::Const::Tag::Float32: return b->literal(Type::of<float>(), const_.float32._0);
         case ir::Const::Tag::Float64: return b->literal(Type::of<double>(), const_.float64._0);
         case ir::Const::Tag::Generic: {

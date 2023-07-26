@@ -1,16 +1,19 @@
 #pragma once
 
 #include <cstdint>
-#include <cstddef>//
+#include <cstddef>
 #include <atomic>
 
 const static inline size_t usize_MAX = (size_t)-1;
 
 #ifdef __cplusplus
 
-#include <luisa/core/basic_types.h>
-
 namespace luisa::compute::ir {
+
+struct c_half {
+    uint16_t bits;
+};
+
 struct VectorType;
 struct Type;
 using AtomicUsize = std::atomic<size_t>;

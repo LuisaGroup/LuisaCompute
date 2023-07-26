@@ -376,7 +376,7 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                     } else if constexpr (std::is_same_v<T, double>) {
                         return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
                     } else if constexpr (std::is_same_v<T, half>) {
-                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {x}};
+                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {luisa::bit_cast<ir::c_half>(x)}};
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }
@@ -1378,7 +1378,7 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
                     } else if constexpr (std::is_same_v<T, double>) {
                         return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
                     } else if constexpr (std::is_same_v<T, half>) {
-                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {x}};
+                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {luisa::bit_cast<ir::c_half>(x)}};
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }

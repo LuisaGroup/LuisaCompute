@@ -537,7 +537,7 @@ struct Const {
     };
 
     struct Float16_Body {
-        half _0;
+        c_half _0;
     };
 
     struct Float32_Body {
