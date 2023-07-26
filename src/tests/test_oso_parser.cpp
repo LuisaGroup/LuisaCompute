@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/7/25.
-//
-
 #include <cstdio>
 
 #include <luisa/osl/shader.h>

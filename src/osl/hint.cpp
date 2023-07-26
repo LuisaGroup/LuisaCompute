@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/7/25.
-//
-
 #include <luisa/core/stl/format.h>
 #include <luisa/osl/hint.h>
 

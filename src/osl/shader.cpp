@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/7/24.
-//
-
 #include <algorithm>
 
 #include <luisa/core/logging.h>
