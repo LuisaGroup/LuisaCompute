@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/3/14.
-//
-
 #include <luisa/core/basic_types.h>
 
 namespace luisa {

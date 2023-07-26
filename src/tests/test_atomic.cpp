@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/6/23.
-//
-
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>

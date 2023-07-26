@@ -230,3 +230,7 @@ class IndirectDispatchBuffer:
     def dispatch_kernel(self, block_size, size, kernel_id):
         check_exact_signature([uint3, uint3, uint], [block_size, size, kernel_id], "dispatch_kernel")
         return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, kernel_id.expr])
+    @BuiltinFuncBuilder
+    def dispatch_kernel(self, offset, block_size, size, kernel_id):
+        check_exact_signature([uint, uint3, uint3, uint], [offset, block_size, size, kernel_id], "set_kernel")
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_SET_DISPATCH_KERNEL, [self.expr, offset.expr, block_size.expr, size.expr, kernel_id.expr])

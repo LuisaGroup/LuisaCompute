@@ -1,11 +1,6 @@
-//
-// Created by Mike Smith on 2020/12/2.
-//
-
 #pragma once
 
 #include <luisa/core/concepts.h>
-#include <luisa/core/stl.h>
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
 

@@ -40,7 +40,7 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file
         return luisa::make_unique<LockedBinaryFileStream>(this, file, length, file_path, std::move(idx));
     } else {
         _unlock(idx, false);
-        LUISA_INFO("Read file {} failed.", file_path);
+        LUISA_VERBOSE("Read file {} failed.", file_path);
         return nullptr;
     }
 }

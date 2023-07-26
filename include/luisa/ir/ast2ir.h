@@ -1,13 +1,10 @@
-//
-// Created by Mike Smith on 2022/10/17.
-//
-
 #pragma once
 
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
+#include <luisa/core/stl/unordered_map.h>
 
 #include <luisa/rust/ir.hpp>
 

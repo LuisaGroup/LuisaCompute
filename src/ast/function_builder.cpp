@@ -1,7 +1,4 @@
-//
-// Created by Mike Smith on 2020/12/2.
-//
-
+#include "pch.h"
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 

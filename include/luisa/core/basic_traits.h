@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/9/7.
-//
-
 #pragma once
 
 #include <cstdint>
@@ -44,6 +40,9 @@ static_assert(std::is_same_v<decltype(1._h + 1._h), half>,
 
 static_assert(std::is_same_v<decltype(sin(1._h)), half>,
               "half should support std::sin.");
+
+static_assert(std::is_arithmetic_v<half>,
+              "half should be arithmetic.");
 
 using uchar = uint8_t;
 using ushort = uint16_t;

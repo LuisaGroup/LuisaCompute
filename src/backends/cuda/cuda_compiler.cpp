@@ -1,7 +1,4 @@
-//
-// Created by Mike on 2021/11/8.
-//
-
+#include "pch.h"
 #include <fstream>
 
 #include <luisa/core/clock.h>
@@ -58,7 +55,7 @@ luisa::string CUDACompiler::compile(const luisa::string &src, const luisa::strin
         LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     }
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
-    LUISA_VERBOSE_WITH_LOCATION("CUDACompiler::compile() took {} ms.", clk.toc());
+    LUISA_VERBOSE("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;
 }
 
@@ -96,9 +93,8 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
           return device_library;
       }()},
       _cache{Cache::create(max_cache_item_count)} {
-    LUISA_VERBOSE_WITH_LOCATION("CUDA NVRTC version: {}.", _nvrtc_version);
-    LUISA_VERBOSE_WITH_LOCATION("CUDA device library size = {} bytes.",
-                                _device_library.size());
+    LUISA_VERBOSE("CUDA NVRTC version: {}.", _nvrtc_version);
+    LUISA_VERBOSE("CUDA device library size = {} bytes.", _device_library.size());
 }
 
 uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *const> options) const noexcept {

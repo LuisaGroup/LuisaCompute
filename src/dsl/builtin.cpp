@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/6/3.
-//
-
 #include <luisa/core/basic_types.h>
 #include <luisa/core/logging.h>
 

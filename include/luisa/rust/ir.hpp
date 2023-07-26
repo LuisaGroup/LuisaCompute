@@ -301,6 +301,7 @@ struct Func {
         Clamp,
         Lerp,
         Step,
+        SmoothStep,
         Saturate,
         Abs,
         Min,
@@ -442,6 +443,8 @@ struct Func {
         Mat4,
         Callable,
         CpuCustomOp,
+        Unknown0,
+        Unknown1,
     };
 
     struct Unreachable_Body {
@@ -568,16 +571,6 @@ struct Const {
     };
 };
 
-struct BlockModule {
-    Module module;
-};
-
-struct UserData {
-    uint64_t tag;
-    const uint8_t *data;
-    bool (*eq)(const uint8_t*, const uint8_t*);
-};
-
 struct PhiIncoming {
     NodeRef value;
     Pooled<BasicBlock> block;
@@ -586,6 +579,16 @@ struct PhiIncoming {
 struct SwitchCase {
     int32_t value;
     Pooled<BasicBlock> block;
+};
+
+struct BlockModule {
+    Module module;
+};
+
+struct UserData {
+    uint64_t tag;
+    const uint8_t *data;
+    bool (*eq)(const uint8_t*, const uint8_t*);
 };
 
 struct Instruction {
@@ -757,9 +760,27 @@ NodeRef luisa_compute_ir_build_const(IrBuilder *builder, Const const_);
 
 Pooled<BasicBlock> luisa_compute_ir_build_finish(IrBuilder builder);
 
+NodeRef luisa_compute_ir_build_generic_loop(IrBuilder *builder,
+                                            Pooled<BasicBlock> prepare,
+                                            NodeRef cond,
+                                            Pooled<BasicBlock> body,
+                                            Pooled<BasicBlock> update);
+
+NodeRef luisa_compute_ir_build_if(IrBuilder *builder,
+                                  NodeRef cond,
+                                  Pooled<BasicBlock> true_branch,
+                                  Pooled<BasicBlock> false_branch);
+
 NodeRef luisa_compute_ir_build_local(IrBuilder *builder, NodeRef init);
 
 NodeRef luisa_compute_ir_build_local_zero_init(IrBuilder *builder, CArc<Type> ty);
+
+NodeRef luisa_compute_ir_build_phi(IrBuilder *builder, CSlice<PhiIncoming> incoming, CArc<Type> t);
+
+NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
+                                      NodeRef value,
+                                      CSlice<SwitchCase> cases,
+                                      Pooled<BasicBlock> default_);
 
 void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef value);
 

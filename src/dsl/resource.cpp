@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/2/18.
-//
-
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/stmt.h>
 #include <luisa/dsl/resource.h>

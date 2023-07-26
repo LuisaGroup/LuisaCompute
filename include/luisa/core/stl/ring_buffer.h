@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/12/20.
-//
-
 #pragma once
 
 #include <EASTL/bonus/ring_buffer.h>

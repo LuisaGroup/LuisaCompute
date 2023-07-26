@@ -1,15 +1,9 @@
-//
-// Created by Mike Smith on 2023/4/15.
-//
-
 #include <fstream>
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include "metal_device.h"
 #include "metal_compiler.h"
-
-#define LUISA_METAL_BACKEND_DUMP_SOURCE 1
 
 namespace luisa::compute::metal {
 
@@ -32,6 +26,21 @@ namespace detail {
         CFRelease(uuid_string);
     }
     return temp_path;
+}
+
+[[nodiscard]] static auto get_bool_env(const char *name) noexcept {
+    if (auto env_c_str = getenv(name)) {
+        luisa::string env{env_c_str};
+        for (auto &c : env) { c = static_cast<char>(toupper(c)); }
+        using namespace std::string_view_literals;
+        return env != "0"sv &&
+               env != "OFF"sv &&
+               env != "FALSE"sv &&
+               env != "NO"sv &&
+               env != "DISABLE"sv &&
+               env != "DISABLED"sv;
+    }
+    return false;
 }
 
 }// namespace detail
@@ -140,10 +149,6 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     auto stream = is_aot ? io->read_shader_bytecode(name) :
                            io->read_shader_cache(name);
     if (stream == nullptr || stream->length() == 0u) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to load Metal shader "
-            "archive for '{}': file not found.",
-            name);
         return {};
     }
 
@@ -222,24 +227,13 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     NS::Error *error = nullptr;
     auto library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
 
-    auto should_dump_metallib = false;
-    using namespace std::string_view_literals;
-    if (auto metal_debug_env = getenv("MTL_DEBUG_LAYER"),
-        metal_shader_validation = getenv("MTL_SHADER_VALIDATION");
-        (metal_debug_env != nullptr && metal_debug_env != "0"sv) ||
-        (metal_shader_validation != nullptr && metal_shader_validation != "0"sv)) {
-        should_dump_metallib = true;
-    } else if (auto dump_env_c_str = getenv("LUISA_DUMP_METAL_LIBRARY")) {
-        luisa::string dump_env{dump_env_c_str};
-        for (auto &c : dump_env) { c = static_cast<char>(toupper(c)); }
-        should_dump_metallib = !dump_env.empty() &&
-                               dump_env != "0"sv &&
-                               dump_env != "OFF"sv &&
-                               dump_env != "FALSE"sv;
-    }
+    auto should_dump_metallib =
+        detail::get_bool_env("MTL_DEBUG_LAYER") ||
+        detail::get_bool_env("MTL_SHADER_VALIDATION") ||
+        detail::get_bool_env("LUISA_DUMP_METAL_LIBRARY");
 
     if (should_dump_metallib) {
-        LUISA_INFO_WITH_LOCATION(
+        LUISA_VERBOSE(
             "Metal shader archive for '{}' dumped to '{}'.",
             name, temp_file_path.string());
     } else {
@@ -262,7 +256,9 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     ns_name->release();
     auto [pipeline_desc, pipeline] = _load_kernels_from_library(library.get(), metadata.block_size);
     if (pipeline.entry && pipeline.indirect_entry) {
-        LUISA_INFO("Loaded Metal shader archive for '{}' in {} ms.", name, clk.toc());
+        LUISA_VERBOSE(
+            "Loaded Metal shader archive for '{}' in {} ms.",
+            name, clk.toc());
     }
     return pipeline;
 }
@@ -347,13 +343,14 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                     _cache.update(hash, pso);
                     return pso;
                 }
-                LUISA_INFO("Failed to load Metal shader archive for '{}'. "
-                           "Falling back to compilation from source.",
-                           name);
+                LUISA_VERBOSE(
+                    "Failed to load Metal shader archive for '{}'. "
+                    "Falling back to compilation from source.",
+                    name);
             }
         }
 
-        if (option.enable_debug_info || LUISA_METAL_BACKEND_DUMP_SOURCE) {
+        if (option.enable_debug_info || detail::get_bool_env("LUISA_DUMP_SOURCE")) {
             auto src_dump_name = luisa::format("{}.metal", name);
             luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
             luisa::filesystem::path src_dump_path;
@@ -365,8 +362,9 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
             // TODO: attach shader source to Metal shader archive for debugging.
             //       Is it possible without using the command line?
             if (!src_dump_path.empty()) {
-                LUISA_INFO("Dumped Metal shader source for '{}' to '{}'.",
-                           name, src_dump_path.string());
+                LUISA_VERBOSE(
+                    "Dumped Metal shader source for '{}' to '{}'.",
+                    name, src_dump_path.string());
             }
         }
 

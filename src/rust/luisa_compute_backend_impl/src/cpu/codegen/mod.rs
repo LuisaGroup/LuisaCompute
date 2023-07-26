@@ -9,7 +9,7 @@ use luisa_compute_ir::ir;
 
 pub mod cpp;
 
-pub fn sha256(s: &str) -> String {
+pub fn sha256_full(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s);
     let hash = hasher.finalize();
@@ -17,6 +17,9 @@ pub fn sha256(s: &str) -> String {
         "A{}",
         base64ct::Base64UrlUnpadded::encode_string(&hash).replace("-", "m_")
     )
+}
+pub fn sha256_short(s: &str) -> String {
+    sha256_full(s)[0..17].to_string()
 }
 
 pub fn decode_const_data(data: &[u8], ty: &Type) -> String {

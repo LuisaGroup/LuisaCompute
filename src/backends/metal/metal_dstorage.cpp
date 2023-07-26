@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/5/29.
-//
-
 #include <sys/mman.h>
 #include <compression.h>
 
@@ -150,8 +146,8 @@ void MetalDStorageExt::compress(const void *data, size_t size_bytes,
     }
 
     auto ratio = static_cast<double>(result.size_bytes()) / static_cast<double>(size_bytes);
-    LUISA_INFO("Compressed {} bytes to {} bytes (ratio = {}) with {} in {} ms.",
-               size_bytes, result.size_bytes(), ratio, to_string(algorithm), clk.toc());
+    LUISA_VERBOSE("Compressed {} bytes to {} bytes (ratio = {}) with {} in {} ms.",
+                  size_bytes, result.size_bytes(), ratio, to_string(algorithm), clk.toc());
 }
 
 MetalPinnedMemory::MetalPinnedMemory(MTL::Device *device,
@@ -178,13 +174,13 @@ MetalPinnedMemory::MetalPinnedMemory(MTL::Device *device,
                 MTL::ResourceHazardTrackingModeUntracked,
             ^(void *ptr, NS::UInteger size) noexcept {
                 munlock(reinterpret_cast<void *>(aligned_addr), aligned_size);
-                LUISA_INFO("Unpinned page-aligned memory "
-                           "at 0x{:016x} with size {} bytes.",
-                           aligned_addr, aligned_size);
+                LUISA_VERBOSE("Unpinned page-aligned memory "
+                              "at 0x{:016x} with size {} bytes.",
+                              aligned_addr, aligned_size);
             });
-        LUISA_INFO("Pinned host memory in {} ms at 0x{:016x} with size {} bytes "
-                   "(page-aligned address = 0x{:016x}, page-aligned size = {}).",
-                   clk.toc(), host_addr, size_bytes, aligned_addr, aligned_size);
+        LUISA_VERBOSE("Pinned host memory in {} ms at 0x{:016x} with size {} bytes "
+                      "(page-aligned address = 0x{:016x}, page-aligned size = {}).",
+                      clk.toc(), host_addr, size_bytes, aligned_addr, aligned_size);
     }
 }
 
@@ -237,9 +233,9 @@ MTL::IOFileHandle *MetalFileHandle::handle(DStorageCompression compression) noex
     }
 
     if (handle) {
-        LUISA_INFO("Opened file handle (URL: {}) with compression method {}.",
-                   _url->description()->utf8String(),
-                   to_string(compression));
+        LUISA_VERBOSE("Opened file handle (URL: {}) with compression method {}.",
+                      _url->description()->utf8String(),
+                      to_string(compression));
         return handle;
     }
 
@@ -298,7 +294,7 @@ MetalIOStream::MetalIOStream(MTL::Device *device) noexcept
             error->localizedDescription()->utf8String());
     } else {
         _io_event = device->newSharedEvent();
-        LUISA_INFO("Created IO command queue.");
+        LUISA_VERBOSE("Created IO command queue.");
     }
 }
 
@@ -445,9 +441,9 @@ public:
                 uint8_t *scratch = nullptr;
                 if (scratch_buffer_size != 0u) {
                     scratch = luisa::allocate_with_allocator<uint8_t>(scratch_buffer_size);
-                    LUISA_INFO("Allocated scratch memory of {} byte(s) "
-                               "for decompression in DStorageReadCommand.",
-                               scratch_buffer_size);
+                    LUISA_VERBOSE("Allocated scratch memory of {} byte(s) "
+                                  "for decompression in DStorageReadCommand.",
+                                  scratch_buffer_size);
                 }
                 with_upload_buffer(decompressed_size, [&](MetalStageBufferPool::Allocation *alloc) noexcept {
                     // decompress into the scratch buffer
@@ -611,4 +607,3 @@ void MetalDStorageExt::unpin_host_memory(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::metal
-

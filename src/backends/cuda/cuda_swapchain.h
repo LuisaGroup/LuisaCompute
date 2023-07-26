@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/24/2023.
-//
-
 #pragma once
 
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN

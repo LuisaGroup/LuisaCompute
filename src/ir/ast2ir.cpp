@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/10/17.
-//
-
 #include <fstream>
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
@@ -588,6 +584,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::SELECT: return ir::Func::Tag::Select;
             case CallOp::CLAMP: return ir::Func::Tag::Clamp;
             case CallOp::LERP: return ir::Func::Tag::Lerp;
+            case CallOp::SMOOTHSTEP: return ir::Func::Tag::SmoothStep;
             case CallOp::STEP: return ir::Func::Tag::Step;
             case CallOp::ABS: return ir::Func::Tag::Abs;
             case CallOp::MIN: return ir::Func::Tag::Min;
@@ -756,6 +753,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::DDY: LUISA_NOT_IMPLEMENTED();
             case CallOp::CUSTOM: [[fallthrough]];
             case CallOp::ONE: [[fallthrough]];
+            case CallOp::INDIRECT_SET_DISPATCH_KERNEL: [[fallthrough]];
             case CallOp::ZERO: LUISA_ERROR_WITH_LOCATION(
                 "Unexpected CallOp: {}.",
                 luisa::to_string(expr->op()));

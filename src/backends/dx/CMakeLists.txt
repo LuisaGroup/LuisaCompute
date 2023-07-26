@@ -5,15 +5,10 @@ if (WIN32)
     set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
 
     file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp")
-    file(GLOB LC_BACKEND_DX_CODEGEN_SOURCES CONFIGURE_DEPENDS "../common/hlsl/*.cpp")
-    list(APPEND LC_BACKEND_DX_SOURCES
-            ../common/default_binary_io.cpp
-            ${LC_BACKEND_DX_CODEGEN_SOURCES})
-
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}
             SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR})
-
+    target_precompile_headers(luisa-compute-backend-dx PRIVATE pch.h)
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi luisa-compute-vstl DirectML)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)

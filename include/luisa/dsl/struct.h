@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/3/5.
-//
-
 #pragma once
 
 #include <cstdint>
@@ -14,9 +10,6 @@
 
 template<typename T>
 struct luisa_compute_extension {};
-
-template<typename T, typename U>
-struct luisa_compute_dummy_extension {};
 
 namespace luisa::compute::detail {
 

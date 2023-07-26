@@ -1,7 +1,4 @@
-//
-// Created by Mike on 4/6/2023.
-//
-
+#include "pch.h"
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/atomic_ref_node.h>

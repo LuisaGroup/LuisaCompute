@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/4/22.
-//
-
 #pragma once
 
 #include <mutex>

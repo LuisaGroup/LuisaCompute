@@ -538,13 +538,11 @@ template<typename GetValue>
 detail::TransformRange<GetValue> transform_range(GetValue &&func) {
     return {std::forward<GetValue>(func)};
 }
-// clang-format off
-template <typename T>
-concept RangeMap = requires(T rval){
+template<typename T>
+concept RangeMap = requires(T rval) {
     ++decl_lvalue(rval.begin());
     requires(std::is_same_v<bool, decltype(rval.begin() == rval.end())>);
 };
-// clang-format on
 template<RangeMap Map>
 detail::CacheEndRange<Map> cache_end_range(Map &&map) {
     return {std::forward<Map>(map)};

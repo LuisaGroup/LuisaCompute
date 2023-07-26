@@ -62,6 +62,7 @@ void export_op(py::module &m) {
         .value("SATURATE", CallOp::SATURATE)
         .value("LERP", CallOp::LERP)
         .value("STEP", CallOp::STEP)
+        .value("SMOOTHSTEP", CallOp::SMOOTHSTEP)
 
         .value("ABS", CallOp::ABS)
         .value("MIN", CallOp::MIN)
@@ -203,6 +204,7 @@ void export_op(py::module &m) {
         .value("RASTER_DISCARD", CallOp::RASTER_DISCARD)
         .value("INDIRECT_CLEAR_DISPATCH_BUFFER", CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER)
         .value("INDIRECT_EMPLACE_DISPATCH_KERNEL", CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL)
+        .value("INDIRECT_SET_DISPATCH_KERNEL", CallOp::INDIRECT_SET_DISPATCH_KERNEL)
         .value("RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT)
         .value("RAY_QUERY_WORLD_SPACE_RAY", CallOp::RAY_QUERY_WORLD_SPACE_RAY)
         .value("RAY_QUERY_TRIANGLE_CANDIDATE_HIT", CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT)

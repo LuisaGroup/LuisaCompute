@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/2/14.
-//
-
 #pragma once
 
 #include <luisa/runtime/buffer.h>
@@ -56,6 +52,14 @@ public:
     /// Contruct from Buffer. Will call buffer_binding() to bind buffer
     Expr(const Buffer<T> &buffer) noexcept
         : Expr{BufferView{buffer}} {}
+
+    /// Construct from Var<Buffer<T>>.
+    Expr(const Var<Buffer<T>> &buffer) noexcept
+        : Expr{buffer.expression()} {}
+
+    /// Construct from Var<BufferView<T>>.
+    Expr(const Var<BufferView<T>> &buffer) noexcept
+        : Expr{buffer.expression()} {}
 
     /// Return RefExpr
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
@@ -113,6 +117,14 @@ public:
     Expr(const Image<T> &image) noexcept
         : Expr{ImageView{image}} {}
 
+    /// Construct from Var<Image<T>>.
+    Expr(const Var<Image<T>> &image) noexcept
+        : Expr{image.expression()} {}
+
+    /// Construct from Var<ImageView<T>>.
+    Expr(const Var<ImageView<T>> &image) noexcept
+        : Expr{image.expression()} {}
+
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
     /// Read at (u, v)
@@ -166,6 +178,14 @@ public:
     /// Construct from Volume. Will create texture binding.
     Expr(const Volume<T> &volume) noexcept
         : Expr{VolumeView{volume}} {}
+
+    /// Construct from Var<Volume<T>>.
+    Expr(const Var<Volume<T>> &volume) noexcept
+        : Expr{volume.expression()} {}
+
+    /// Construct from Var<VolumeView<T>>.
+    Expr(const Var<VolumeView<T>> &volume) noexcept
+        : Expr{volume.expression()} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 

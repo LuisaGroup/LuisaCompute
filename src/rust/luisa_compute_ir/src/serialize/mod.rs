@@ -240,6 +240,7 @@ pub enum SerializedFunc {
     Clamp,
     Lerp,
     Step,
+    SmoothStep,
     Saturate,
 
     Abs,

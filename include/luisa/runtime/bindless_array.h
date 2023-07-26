@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/4/7.
-//
-
 #pragma once
 
 #include <luisa/core/stl/unordered_map.h>

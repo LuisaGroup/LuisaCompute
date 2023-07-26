@@ -25,6 +25,12 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx2 -mf16c")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mf16c")
     endif ()
+else ()
+    if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # workaround for Apple clang -Xarch_arm64 bug with precompiled headers
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-command-line-argument -Xarch_arm64 \"\"")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-command-line-argument -Xarch_arm64 \"\"")
+    endif ()
 endif ()
 
 if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")

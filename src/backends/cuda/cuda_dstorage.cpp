@@ -1,7 +1,4 @@
-//
-// Created by Mike on 5/26/2023.
-//
-
+#include "pch.h"
 #include <cuda.h>
 
 #include <luisa/core/clock.h>
@@ -27,9 +24,9 @@ CUDAPinnedMemory::CUDAPinnedMemory(void *p, size_t size) noexcept
             CU_MEMHOSTREGISTER_READ_ONLY));
     LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
         &_device_address, p, 0));
-    LUISA_INFO("Registered host memory at 0x{:016x} with {} "
-               "byte(s) into device address space at 0x{:016x}.",
-               reinterpret_cast<uint64_t>(p), size, _device_address);
+    LUISA_VERBOSE("Registered host memory at 0x{:016x} with {} "
+                  "byte(s) into device address space at 0x{:016x}.",
+                  reinterpret_cast<uint64_t>(p), size, _device_address);
 }
 
 CUDAPinnedMemory::~CUDAPinnedMemory() noexcept {
@@ -103,11 +100,11 @@ CUDAMappedFile::CUDAMappedFile(luisa::string_view path) noexcept
             CU_MEMHOSTREGISTER_READ_ONLY));
     LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
         &_device_address, _mapped_pointer, 0));
-    LUISA_INFO("Mapped file '{}' to host address "
-               "0x{:016x} and device address 0x{:016x}.",
-               path,
-               reinterpret_cast<uint64_t>(_mapped_pointer),
-               _device_address);
+    LUISA_VERBOSE("Mapped file '{}' to host address "
+                  "0x{:016x} and device address 0x{:016x}.",
+                  path,
+                  reinterpret_cast<uint64_t>(_mapped_pointer),
+                  _device_address);
 }
 
 CUDAMappedFile::~CUDAMappedFile() noexcept {
@@ -251,8 +248,8 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
     }
 
     auto ratio = static_cast<double>(result.size()) / static_cast<double>(size_bytes);
-    LUISA_INFO("Compressed {}B to {}B (ratio = {}) with {} in {} ms.",
-               size_bytes, result.size(), ratio, to_string(algorithm), clk.toc());
+    LUISA_VERBOSE("Compressed {}B to {}B (ratio = {}) with {} in {} ms.",
+                  size_bytes, result.size(), ratio, to_string(algorithm), clk.toc());
 }
 
 ResourceCreationInfo CUDADStorageExt::create_stream_handle(const DStorageStreamOption &option) noexcept {
@@ -306,4 +303,3 @@ void CUDADStorageExt::unpin_host_memory(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::cuda
-

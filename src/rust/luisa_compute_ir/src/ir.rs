@@ -539,7 +539,7 @@ pub enum Func {
     // (rq) -> ()
     RayQueryCommitProcedural,
     // (rq, f32) -> ()
-    RayQueryTerminate,              // (rq) -> ()
+    RayQueryTerminate, // (rq) -> ()
 
     RasterDiscard,
 
@@ -587,6 +587,7 @@ pub enum Func {
     Clamp,
     Lerp,
     Step,
+    SmoothStep,
     Saturate,
 
     Abs,
@@ -771,6 +772,9 @@ pub enum Func {
 
     // ArgT -> ArgT
     CpuCustomOp(CArc<CpuCustomOp>),
+
+    Unknown0,
+    Unknown1,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -821,15 +825,27 @@ impl Const {
             Const::Int64(v) => *v as i32,
             Const::Uint64(v) => *v as i32,
             Const::One(t) => {
-                assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
+                assert!(
+                    t.is_primitive() && t.is_int(),
+                    "cannot convert {:?} to i32",
+                    t
+                );
                 1
             }
             Const::Zero(t) => {
-                assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
+                assert!(
+                    t.is_primitive() && t.is_int(),
+                    "cannot convert {:?} to i32",
+                    t
+                );
                 0
             }
             Const::Generic(slice, t) => {
-                assert!(t.is_primitive() && t.is_int(), "cannot convert {:?} to i32", t);
+                assert!(
+                    t.is_primitive() && t.is_int(),
+                    "cannot convert {:?} to i32",
+                    t
+                );
                 assert_eq!(slice.len(), 4, "invalid slice length for i32");
                 let mut buf = [0u8; 4];
                 buf.copy_from_slice(slice);
@@ -1839,7 +1855,12 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
-    pub fn switch(&mut self, value: NodeRef, cases: &[SwitchCase], default: Pooled<BasicBlock>) {
+    pub fn switch(
+        &mut self,
+        value: NodeRef,
+        cases: &[SwitchCase],
+        default: Pooled<BasicBlock>,
+    ) -> NodeRef {
         let node = Node::new(
             CArc::new(Instruction::Switch {
                 value,
@@ -1850,6 +1871,7 @@ impl IrBuilder {
         );
         let node = new_node(&self.pools, node);
         self.append(node);
+        node
     }
     pub fn if_(
         &mut self,
@@ -1971,7 +1993,7 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
                         "Requested resource {} not exist in usage map",
                         captured.node.0
                     )
-                        .as_str(),
+                    .as_str(),
                 )
                 .to_u8(),
         );
@@ -2034,6 +2056,44 @@ pub extern "C" fn luisa_compute_ir_build_local(builder: &mut IrBuilder, init: No
     builder.local(init)
 }
 
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_build_if(
+    builder: &mut IrBuilder,
+    cond: NodeRef,
+    true_branch: Pooled<BasicBlock>,
+    false_branch: Pooled<BasicBlock>,
+) -> NodeRef {
+    builder.if_(cond, true_branch, false_branch)
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_build_phi(
+    builder: &mut IrBuilder,
+    incoming: CSlice<PhiIncoming>,
+    t: CArc<Type>,
+) -> NodeRef {
+    let incoming = incoming.as_ref();
+    builder.phi(incoming, t)
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_build_switch(
+    builder: &mut IrBuilder,
+    value: NodeRef,
+    cases: CSlice<SwitchCase>,
+    default: Pooled<BasicBlock>,
+) -> NodeRef {
+    let cases = cases.as_ref();
+    builder.switch(value, cases, default)
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_build_generic_loop(
+    builder: &mut IrBuilder,
+    prepare: Pooled<BasicBlock>,
+    cond: NodeRef,
+    body: Pooled<BasicBlock>,
+    update: Pooled<BasicBlock>,
+) -> NodeRef {
+    builder.generic_loop(prepare, cond, body, update)
+}
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder: &mut IrBuilder,

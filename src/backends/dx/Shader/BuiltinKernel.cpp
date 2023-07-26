@@ -1,3 +1,4 @@
+#include "../pch.h"
 
 #include <Shader/BuiltinKernel.h>
 #include <luisa/core/stl/filesystem.h>

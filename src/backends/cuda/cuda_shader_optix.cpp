@@ -1,7 +1,4 @@
-//
-// Created by Mike on 3/18/2023.
-//
-
+#include "pch.h"
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "cuda_stream.h"
@@ -45,7 +42,7 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
 
 [[nodiscard]] inline uint compute_continuation_stack_size(optix::StackSizes ss) noexcept {
     auto size = ss.cssRG + std::max(std::max(ss.cssCH, ss.cssMS), ss.cssIS + ss.cssAH);
-    LUISA_INFO("Computed OptiX continuation stack size: {}.", size);
+    LUISA_VERBOSE("Computed OptiX continuation stack size: {}.", size);
     return size;
 }
 

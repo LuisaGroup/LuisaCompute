@@ -1,7 +1,4 @@
-//
-// Created by Mike on 5/29/2023.
-//
-
+#include "pch.h"
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>

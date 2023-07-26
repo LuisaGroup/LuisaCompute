@@ -1,7 +1,4 @@
-//
-// Created by Mike on 7/2/2023.
-//
-
+#include "pch.h"
 
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 
@@ -251,7 +248,7 @@ CUDAEvent *CUDAEventManager::create() noexcept {
 
     _count++;
     auto event = luisa::new_with_allocator<CUDAEvent>(_device, vk_semaphore, cuda_semaphore);
-    LUISA_INFO_WITH_LOCATION("Created CUDA event in {} ms.", clock.toc());
+    LUISA_VERBOSE("Created CUDA event in {} ms.", clock.toc());
     return event;
 }
 

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/12/27.
-//
-
 #include <random>
 #include <luisa/luisa-compute.h>
 

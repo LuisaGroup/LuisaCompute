@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/4/6.
-//
-
 #include <stb/stb_image_write.h>
 
 #include <luisa/core/logging.h>

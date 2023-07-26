@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/10/17.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
@@ -19,7 +15,7 @@ struct RC {
 
     T *_object;
     std::atomic_uint64_t _ref_count;
-    std::function<void(T *)> _deleter;
+    luisa::function<void(T *)> _deleter;
     uint32_t tombstone;
 
     RC(T *object, std::function<void(T *)> deleter)

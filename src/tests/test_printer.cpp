@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/11/26.
-//
-
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>

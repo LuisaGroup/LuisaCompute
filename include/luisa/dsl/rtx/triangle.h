@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/2/18.
-//
-
 #pragma once
 
 #include <luisa/runtime/rtx/triangle.h>

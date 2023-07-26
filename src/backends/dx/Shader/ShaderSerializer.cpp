@@ -1,3 +1,4 @@
+#include "../pch.h"
 
 #include <Shader/ShaderSerializer.h>
 #include <Shader/ComputeShader.h>
@@ -173,7 +174,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
         if (psoGenSuccess != S_OK) {
             // PSO cache miss(probably driver's version or hardware transformed), discard cache
             clearCache = true;
-            LUISA_INFO("{} pipeline cache illegal, discarded.", name);
+            LUISA_VERBOSE("{} pipeline cache illegal, discarded.", name);
             if (pso == nullptr) {
                 psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
                 psoDesc.CachedPSO.pCachedBlob = nullptr;
@@ -276,7 +277,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     //     if (psoGenSuccess != S_OK) {
     //         // PSO cache miss(probably driver's version or hardware transformed), discard cache
     //         clearCache = true;
-    //         LUISA_INFO("{} pipeline cache illegal, discarded.", name);
+    //         LUISA_VERBOSE("{} pipeline cache illegal, discarded.", name);
     //         if (pso == nullptr) {
     //             psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
     //             psoDesc.CachedPSO.pCachedBlob = nullptr;

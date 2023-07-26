@@ -1,7 +1,4 @@
-//
-// Created by Mike on 7/28/2021.
-//
-
+#include "pch.h"
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -380,9 +377,9 @@ template<bool allow_update_expected_metadata>
                 "The shader will be recompiled.",
                 name);
         } else {
-            LUISA_INFO("Shader '{}' is not found in cache. "
-                       "The shader will be recompiled.",
-                       name);
+            LUISA_VERBOSE("Shader '{}' is not found in cache. "
+                          "The shader will be recompiled.",
+                          name);
         }
         return {};
     }
@@ -525,7 +522,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     StringScratch scratch;
     CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
     codegen.emit(kernel, _compiler->device_library(), option.native_include);
-    LUISA_INFO("Generated CUDA source in {} ms.", clk.toc());
+    LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
 
     // process bound arguments
     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments;
@@ -628,7 +625,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const i
 #ifdef LUISA_ENABLE_IR
     Clock clk;
     auto function = IR2AST::build(kernel);
-    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
     return create_shader(option, function->function());
 #else
     LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
@@ -836,9 +833,9 @@ static void initialize() {
                      "Please update your driver.",
                      driver_version_major, driver_version_minor,
                      required_cuda_version_major, required_cuda_version_minor);
-        LUISA_INFO("Successfully initialized CUDA "
-                   "backend with driver version {}.{}.",
-                   driver_version_major, driver_version_minor);
+        LUISA_VERBOSE("Successfully initialized CUDA "
+                      "backend with driver version {}.{}.",
+                      driver_version_major, driver_version_minor);
         // OptiX
         static_cast<void>(optix::api());
     });
@@ -878,8 +875,8 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     auto unified_addressing = 0;
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&can_map_host_memory, CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY, _device));
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&unified_addressing, CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING, _device));
-    LUISA_INFO("Device {} can map host memory: {}", index, can_map_host_memory != 0);
-    LUISA_INFO("Device {} supports unified addressing: {}", index, unified_addressing != 0);
+    LUISA_VERBOSE("Device {} can map host memory: {}", index, can_map_host_memory != 0);
+    LUISA_VERBOSE("Device {} supports unified addressing: {}", index, unified_addressing != 0);
 
     auto format_uuid = [](auto uuid) noexcept {
         luisa::string result;
@@ -909,7 +906,7 @@ CUDADevice::Handle::~Handle() noexcept {
         LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
     }
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
-    LUISA_INFO("Destroyed CUDA device: {}.", name());
+    LUISA_VERBOSE("Destroyed CUDA device: {}.", name());
 }
 
 std::string_view CUDADevice::Handle::name() const noexcept {
@@ -931,7 +928,7 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
         optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
             auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
             if (level >= 4) {
-                LUISA_INFO("{}", log);
+                LUISA_VERBOSE("{}", log);
             } else [[unlikely]] {
                 LUISA_WARNING("{}", log);
             }

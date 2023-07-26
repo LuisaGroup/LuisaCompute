@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/2/13.
-//
-
 #pragma once
 
 #include <luisa/core/logging.h>

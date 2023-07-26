@@ -1,3 +1,4 @@
+#include "pch.h"
 #include <luisa/ast/function.h>
 #include <luisa/ast/ast_evaluator.h>
 #include <luisa/ast/type_registry.h>

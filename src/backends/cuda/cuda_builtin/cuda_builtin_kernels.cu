@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2022/4/6.
-//
-
 // built-in update kernel for Accel
 
 struct alignas(16) InstanceProperty {

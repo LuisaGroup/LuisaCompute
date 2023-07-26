@@ -303,10 +303,6 @@ public:
     }
 };
 
-template<typename K, typename V, typename Hash,
-         typename Compare, VEngine_AllocType allocType>
-class HashMap;
-
 namespace hashmap_detail {
 
 template<typename HashMap>

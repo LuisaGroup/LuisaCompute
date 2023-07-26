@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2021/12/10.
-//
-
 #pragma once
 
 #include <luisa/core/stl/string.h>

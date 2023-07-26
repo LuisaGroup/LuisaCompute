@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/11.
-//
-
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <luisa/core/logging.h>
 #include <luisa/vstl/functional.h>

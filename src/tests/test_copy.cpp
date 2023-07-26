@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/13/2023.
-//
-
 #include <random>
 #include <array>
 #include <numeric>

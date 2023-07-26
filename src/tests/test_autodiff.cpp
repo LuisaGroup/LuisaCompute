@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/27.
-//
-
 #include <fstream>
 #include <luisa/luisa-compute.h>
 #include <luisa/ir/ast2ir.h>

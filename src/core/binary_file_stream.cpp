@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/13/2023.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/core/binary_file_stream.h>
 
