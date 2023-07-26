@@ -74,12 +74,12 @@ luisa::string Symbol::dump() const noexcept {
 luisa::string_view Symbol::dump(Symbol::Tag tag) noexcept {
     using namespace std::string_view_literals;
     switch (tag) {
-        case Tag::PARAM: return "param"sv;
-        case Tag::OUTPUT_PARAM: return "oparam"sv;
-        case Tag::LOCAL: return "local"sv;
-        case Tag::TEMP: return "temp"sv;
-        case Tag::GLOBAL: return "global"sv;
-        case Tag::CONST: return "const"sv;
+        case Tag::SYM_PARAM: return "param"sv;
+        case Tag::SYM_OUTPUT_PARAM: return "oparam"sv;
+        case Tag::SYM_LOCAL: return "local"sv;
+        case Tag::SYM_TEMP: return "temp"sv;
+        case Tag::SYM_GLOBAL: return "global"sv;
+        case Tag::SYM_CONST: return "const"sv;
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid symbol tag.");

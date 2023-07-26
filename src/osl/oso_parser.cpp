@@ -127,12 +127,12 @@ luisa::unique_ptr<Symbol> OSOParser::_parse_symbol() noexcept {
     auto op = _parse_identifier();
     using namespace std::string_view_literals;
     auto tag = [&op]() noexcept -> luisa::optional<Symbol::Tag> {
-        if (op == "param"sv) { return Symbol::Tag::PARAM; }
-        if (op == "oparam"sv) { return Symbol::Tag::OUTPUT_PARAM; }
-        if (op == "local"sv) { return Symbol::Tag::LOCAL; }
-        if (op == "temp"sv) { return Symbol::Tag::TEMP; }
-        if (op == "global"sv) { return Symbol::Tag::GLOBAL; }
-        if (op == "const"sv) { return Symbol::Tag::CONST; }
+        if (op == "param"sv) { return Symbol::Tag::SYM_PARAM; }
+        if (op == "oparam"sv) { return Symbol::Tag::SYM_OUTPUT_PARAM; }
+        if (op == "local"sv) { return Symbol::Tag::SYM_LOCAL; }
+        if (op == "temp"sv) { return Symbol::Tag::SYM_TEMP; }
+        if (op == "global"sv) { return Symbol::Tag::SYM_GLOBAL; }
+        if (op == "const"sv) { return Symbol::Tag::SYM_CONST; }
         return luisa::nullopt;
     }();
     if (!tag) {

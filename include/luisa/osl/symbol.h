@@ -15,16 +15,15 @@ class Type;
 class LC_OSL_API Symbol final {
 
 public:
+    // windows.h kindly defines "CONST" as a macro,
+    // so we add the SYM_ prefix here
     enum struct Tag {
-        PARAM,
-        OUTPUT_PARAM,
-        LOCAL,
-        TEMP,
-        GLOBAL,
-#ifdef CONST// lovely, windows.h
-#undef CONST
-#endif
-        CONST
+        SYM_PARAM,
+        SYM_OUTPUT_PARAM,
+        SYM_LOCAL,
+        SYM_TEMP,
+        SYM_GLOBAL,
+        SYM_CONST
     };
 
     [[nodiscard]] static luisa::string_view dump(Tag tag) noexcept;

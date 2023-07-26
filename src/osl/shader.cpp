@@ -36,12 +36,12 @@ Shader::Shader(luisa::string osl_spec,
         [](auto &&lhs, auto &&rhs) noexcept {
             auto score_tag = [](Symbol::Tag tag) noexcept {
                 switch (tag) {
-                    case Symbol::Tag::CONST: return 0u;
-                    case Symbol::Tag::GLOBAL: return 1u;
-                    case Symbol::Tag::PARAM: return 2u;
-                    case Symbol::Tag::OUTPUT_PARAM: return 3u;
-                    case Symbol::Tag::LOCAL: return 4u;
-                    case Symbol::Tag::TEMP: return 5u;
+                    case Symbol::Tag::SYM_CONST: return 0u;
+                    case Symbol::Tag::SYM_GLOBAL: return 1u;
+                    case Symbol::Tag::SYM_PARAM: return 2u;
+                    case Symbol::Tag::SYM_OUTPUT_PARAM: return 3u;
+                    case Symbol::Tag::SYM_LOCAL: return 4u;
+                    case Symbol::Tag::SYM_TEMP: return 5u;
                     default: break;
                 }
                 return std::numeric_limits<uint32_t>::max();
