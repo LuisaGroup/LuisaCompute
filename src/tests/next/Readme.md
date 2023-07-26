@@ -22,7 +22,7 @@
 - [ ] dstorage_decompression
 - [ ] dx_supersampling
 - [ ] game_of_life
-- [ ] helloworld
+- [x] helloworld -> example/write_image
 - [ ] indirect_rtx
 - [ ] indirect
 - [ ] kernel_ir

@@ -28,10 +28,18 @@ inline void dt_remove(const char **argv_in) noexcept {
 int argc() noexcept { return static_cast<int>(args.size()); }
 const char *const *argv() noexcept { return args.data(); }
 
+static luisa::vector<const char *> _backends;
+int supported_backends_count() noexcept { return _backends.size(); }
+const char *const *supported_backends() noexcept {
+    return _backends.data();
+}
+
 }// namespace luisa::test
 
 int main(int argc, const char **argv) {
     doctest::Context context(argc, argv);
+    // TODO: read from config file
+    luisa::test::_backends = {"dx", "cuda"};
     luisa::test::dt_remove(argv);
     auto test_result = context.run();
     if (context.shouldExit()) { return test_result; }

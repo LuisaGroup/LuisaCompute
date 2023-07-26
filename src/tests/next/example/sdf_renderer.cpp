@@ -34,7 +34,7 @@ using namespace luisa;
 using namespace luisa::compute;
 
 namespace luisa::test {
-int sdf_renderer(Device &device) {
+int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
     static constexpr int max_ray_depth = 6;
     static constexpr float eps = 1e-4f;
     static constexpr float inf = 1e10f;
@@ -250,7 +250,7 @@ int sdf_renderer(Device &device) {
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.0).dispatch(width, height)
            << ldr_image.copy_to(host_image.data())
            << synchronize();
-    stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
+    stbi_write_png(filename.c_str(), width, height, 4, host_image.data(), 0);
 
     return 0;
 }
@@ -259,13 +259,13 @@ int sdf_renderer(Device &device) {
 TEST_SUITE("example") {
     TEST_CASE("sdf_renderer") {
         Context context{luisa::test::argv()[0]};
-        SUBCASE("dx") {
-            Device device = context.create_device("dx");
-            REQUIRE(luisa::test::sdf_renderer(device) == 0);
-        }
-        SUBCASE("cuda") {
-            Device device = context.create_device("cuda");
-            REQUIRE(luisa::test::sdf_renderer(device) == 0);
+       
+        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
+            luisa::string device_name = luisa::test::supported_backends()[i];
+            SUBCASE(device_name.c_str()) {
+                Device device = context.create_device(device_name.c_str());
+                REQUIRE(luisa::test::sdf_renderer(device, "sdf_renderer_"+device_name+".png") == 0);
+            }
         }
     }
 }

@@ -40,13 +40,13 @@ int test_ast(Device &device) {
 TEST_SUITE("feat") {
     TEST_CASE("ast") {
         Context context{luisa::test::argv()[0]};
-        SUBCASE("dx") {
-            Device device = context.create_device("dx");
-            REQUIRE(luisa::test::test_ast(device) == 0);
-        }
-        SUBCASE("cuda") {
-            Device device = context.create_device("cuda");
-            REQUIRE(luisa::test::test_ast(device) == 0);
+       
+        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
+            luisa::string device_name = luisa::test::supported_backends()[i];
+            SUBCASE(device_name.c_str()) {
+                Device device = context.create_device(device_name.c_str());
+                REQUIRE(luisa::test::test_ast(device) == 0);
+            }
         }
     }
 }

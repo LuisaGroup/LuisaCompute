@@ -38,13 +38,13 @@ int use_printer(Device &device) {
 TEST_SUITE("example") {
     TEST_CASE("use_printer") {
         Context context{luisa::test::argv()[0]};
-        SUBCASE("dx") {
-            Device device = context.create_device("dx");
-            REQUIRE(luisa::test::use_printer(device) == 0);
-        }
-        SUBCASE("cuda") {
-            Device device = context.create_device("cuda");
-            REQUIRE(luisa::test::use_printer(device) == 0);
+       
+        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
+            luisa::string device_name = luisa::test::supported_backends()[i];
+            SUBCASE(device_name.c_str()) {
+                Device device = context.create_device(device_name.c_str());
+                REQUIRE(luisa::test::use_printer(device) == 0);
+            }
         }
     }
 }
