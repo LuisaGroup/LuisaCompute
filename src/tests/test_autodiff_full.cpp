@@ -9,7 +9,7 @@ struct AdCheckOptions {
     uint32_t repeats = 1024 * 1024;
     float rel_tol = 5e-2f;
     float fd_eps = 1e-3f;
-    float max_precent_bad = 0.01f;
+    float max_precent_bad = 0.003f;
     float min_value = -1.0f;
     float max_value = 1.0f;
 };
@@ -198,4 +198,17 @@ int main(int argc, char *argv[]) {
     TEST_AD_1(exp, -1.0, 1.0);
     TEST_AD_1(exp2, -1.0, 1.0);
     TEST_AD_1(log, 0.001, 10.0);
+    {
+        test_ad_helper<2>("float2_length", device, [](auto x, auto y) { return length(make_float2(x, y)); });
+        test_ad_helper<2>("float2_dot2", device, [](auto x, auto y) { return dot(make_float2(x, y), make_float2(x, y)); });
+        test_ad_helper<4>("float2_dot", device, [](auto x, auto y, auto z, auto w) { return dot(make_float2(x, y), make_float2(z, w)); });
+    }
+    {
+        test_ad_helper<3>("float3_length", device, [](auto x, auto y, auto z) { return length(make_float3(x, y, z)); });
+        test_ad_helper<3>("float3_dot2", device, [](auto x, auto y, auto z) { return dot(make_float3(x, y, z), make_float3(x, y, z)); });
+        test_ad_helper<6>("float3_dot", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return dot(make_float3(vx, vy, vz), make_float3(wx, wy, wz)); });
+        test_ad_helper<6>("float3_cross_x", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).x; });
+        test_ad_helper<6>("float3_cross_y", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).y; });
+        test_ad_helper<6>("float3_cross_z", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).z; });
+    }
 }
