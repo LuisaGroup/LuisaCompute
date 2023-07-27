@@ -201,6 +201,8 @@ pub enum SerializedFunc {
 
     Cast,
     Bitcast,
+    Pack,
+    Unpack,
 
     // Binary op
     Add,

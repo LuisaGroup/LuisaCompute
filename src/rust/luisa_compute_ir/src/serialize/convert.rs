@@ -295,6 +295,8 @@ impl KernelSerializer {
             Func::Load => SerializedFunc::Load,
             Func::Cast => SerializedFunc::Cast,
             Func::Bitcast => SerializedFunc::Bitcast,
+            Func::Pack => SerializedFunc::Pack,
+            Func::Unpack => SerializedFunc::Unpack,
             Func::Add => SerializedFunc::Add,
             Func::Sub => SerializedFunc::Sub,
             Func::Mul => SerializedFunc::Mul,
@@ -438,7 +440,7 @@ impl KernelSerializer {
             Func::Mat4 => SerializedFunc::Mat4,
             Func::Callable(_) => todo!(),
             Func::CpuCustomOp(_) => panic!("cpu custom op not serializabl"),
-            _=> todo!()
+            _ => todo!(),
         }
     }
     fn new() -> Self {

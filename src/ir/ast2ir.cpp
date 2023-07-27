@@ -714,6 +714,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
             case CallOp::SATURATE: return ir::Func::Tag::Saturate;
             case CallOp::REFLECT: return ir::Func::Tag::Reflect;
+            case CallOp::PACK: return ir::Func::Tag::Pack;
+            case CallOp::UNPACK: return ir::Func::Tag::Unpack;
             // The following callops haven't been implemented by IR yet
             // case CallOp::CUSTOM:
             // 16-bit types haven't been implemented by IR yet

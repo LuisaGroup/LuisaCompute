@@ -1,0 +1,5 @@
+#pragma
+
+namespace luisa::compute {
+    
+}

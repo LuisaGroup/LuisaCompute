@@ -272,6 +272,8 @@ struct Func {
         Load,
         Cast,
         Bitcast,
+        Pack,
+        Unpack,
         Add,
         Sub,
         Mul,
@@ -357,23 +359,23 @@ struct Func {
         Transpose,
         Inverse,
         SynchronizeBlock,
-        /// (buffer/smem, index, desired) -> old: stores desired, returns old.
+        /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
         AtomicExchange,
-        /// (buffer/smem, index, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
+        /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
         AtomicCompareExchange,
-        /// (buffer/smem, index, val) -> old: stores (old + val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old + val), returns old.
         AtomicFetchAdd,
-        /// (buffer/smem, index, val) -> old: stores (old - val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old - val), returns old.
         AtomicFetchSub,
-        /// (buffer/smem, index, val) -> old: stores (old & val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old & val), returns old.
         AtomicFetchAnd,
-        /// (buffer/smem, index, val) -> old: stores (old | val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old | val), returns old.
         AtomicFetchOr,
-        /// (buffer/smem, index, val) -> old: stores (old ^ val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old ^ val), returns old.
         AtomicFetchXor,
-        /// (buffer/smem, index, val) -> old: stores min(old, val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores min(old, val), returns old.
         AtomicFetchMin,
-        /// (buffer/smem, index, val) -> old: stores max(old, val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores max(old, val), returns old.
         AtomicFetchMax,
         /// (buffer, index) -> value: reads the index-th element in buffer
         BufferRead,

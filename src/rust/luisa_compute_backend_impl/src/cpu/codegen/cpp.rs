@@ -317,6 +317,53 @@ impl<'a> FunctionEmitter<'a> {
             return var;
         }
     }
+    fn access_chain(&mut self, mut var: String, node: NodeRef, indices: &[NodeRef]) -> String {
+        let mut ty = node.type_().clone();
+        for (i, index) in indices.iter().enumerate() {
+            if ty.is_vector() || ty.is_matrix() {
+                var = format!("{}[{}]", var, self.gen_node(*index));
+                assert_eq!(i, indices.len() - 1);
+                break;
+            } else if ty.is_array() {
+                var = format!("{}[{}]", var, self.gen_node(*index));
+                ty = ty.extract(0)
+            } else {
+                assert!(ty.is_struct());
+                let idx = node.get_i32() as usize;
+                var = format!("{}.f{}", var, idx);
+                ty = ty.extract(idx);
+            }
+        }
+        var
+    }
+    fn atomic_chain_op(
+        &mut self,
+        var: &str,
+        node_ty_s: &String,
+        args: &[NodeRef],
+        args_v: &[String],
+        op: &str,
+        noperand: usize,
+    ) {
+        let n = args.len();
+        let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
+        let indices = &args[2..n - noperand];
+        let buffer_ref = format!(
+            "(*lc_buffer_ref<{0}>(k_args, {1}, {2}))",
+            buffer_ty, args_v[0], args_v[1]
+        );
+        let access_chain = self.access_chain(buffer_ref, args[0], indices);
+        writeln!(
+            self.body,
+            "const {} {} = {}(&{}, {});",
+            node_ty_s,
+            var,
+            op,
+            access_chain,
+            args_v[n - noperand..].join(", ")
+        )
+        .unwrap();
+    }
     fn gep_field_name(node: NodeRef, i: i32) -> String {
         let node_ty = node.type_();
         match node_ty.as_ref() {
@@ -1085,6 +1132,24 @@ impl<'a> FunctionEmitter<'a> {
                 }
                 true
             }
+            Func::Pack => {
+                writeln!(
+                    self.body,
+                    "const {} {} = lc_pack({});",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::Unpack => {
+                writeln!(
+                    self.body,
+                    "const {} {} = lc_unpack({});",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::Permute => {
                 let indices: Vec<_> = args[1..].iter().map(|a| a.get_i32()).collect();
                 let indices_s: Vec<_> = indices
@@ -1103,83 +1168,46 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::AtomicExchange => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_exchange(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_exchange", 1);
                 true
             }
             Func::AtomicCompareExchange => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_compare_exchange(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4}, {5});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2], args_v[3]
-                ).unwrap();
+                self.atomic_chain_op(
+                    var,
+                    node_ty_s,
+                    args,
+                    args_v,
+                    "lc_atomic_compare_exchange",
+                    2,
+                );
                 true
             }
             Func::AtomicFetchAdd => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_add(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_add", 1);
                 true
             }
             Func::AtomicFetchSub => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_sub(lc_buffer_ref<{0}>({2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_sub", 1);
                 true
             }
             Func::AtomicFetchMin => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_min(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_min", 1);
                 true
             }
             Func::AtomicFetchMax => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_max(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_max", 1);
                 true
             }
             Func::AtomicFetchAnd => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_and(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_and", 1);
                 true
             }
             Func::AtomicFetchOr => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_or(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_or", 1);
                 true
             }
             Func::AtomicFetchXor => {
-                writeln!(
-                    self.body,
-                    "const {0} {1} = lc_atomic_fetch_xor(lc_buffer_ref<{0}>(k_args, {2}, {3}), {4});",
-                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
-                )
-                .unwrap();
+                self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_xor", 1);
                 true
             }
             Func::CpuCustomOp(op) => {

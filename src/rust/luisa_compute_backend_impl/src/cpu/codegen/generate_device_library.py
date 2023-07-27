@@ -869,3 +869,26 @@ template<typename T, size_t N>
 
 
         define_array_unary()
+        print("""
+template<typename T, size_t N = (sizeof(T) + 3) / 4>
+[[nodiscard]] __device__ inline lc_array<lc_uint, N> lc_pack(const T & x) noexcept {
+    constexpr static size_t alignT = alignof(T);
+    constexpr static size_t min_align = alignT < 4 ? 4 : alignT;
+    struct alignas(min_align) temp {
+        T data;
+    };
+    temp t{x};
+    return lc_bit_cast<lc_array<lc_uint, N>>(t);
+}
+template<typename T, size_t N = (sizeof(T) + 3) / 4>
+[[nodiscard]] __device__ inline T lc_unpack(const lc_array<lc_uint, N> & a) noexcept {
+    constexpr static size_t alignT = alignof(T);
+    constexpr static size_t min_align = alignT < 4 ? 4 : alignT;
+    struct alignas(min_align) temp {
+        T data;
+    };
+    temp t = lc_bit_cast<temp>(a);
+    return t.data;
+}
+""", file=file)
+
