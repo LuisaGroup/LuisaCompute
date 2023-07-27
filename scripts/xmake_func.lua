@@ -257,6 +257,11 @@ on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
 	-- end
 	sb:add("--manifest-path ")
 	sb:add(sourcefile):add(' ')
+	local features = target:get('features')
+	if features then 
+		sb:add("--features ")
+		sb:add(features):add(' ')
+	end
 	if not is_mode("debug") then
 		sb:add("--release ")
 	end

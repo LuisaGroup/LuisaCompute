@@ -32,7 +32,7 @@ after_build(function(target)
 		if is_plat("windows") then
 			os.cp(path.join(lib_path, "luisa_compute_ir.dll"), bin_dir)
 		else			
-			os.cp(path.join(lib_path, "luisa_compute_ir.so"), bin_dir)
+			os.cp(path.join(lib_path, "libluisa_compute_ir.so"), bin_dir)
 		end
 	end
 	if is_mode("debug") then

@@ -3,7 +3,7 @@ if get_config("vk_backend") or get_config("dx_backend") then
 end
 
 if (get_config("cuda_backend") or get_config("cpu_backend")) and get_config("_lc_vk_path") then
-	target("lc-vk-swapchain")
+	target("lc-vulkan-swapchain")
 	_config_project({
 		project_kind = "shared"
 	})
