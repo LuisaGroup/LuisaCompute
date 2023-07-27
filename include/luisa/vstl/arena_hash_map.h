@@ -283,13 +283,6 @@ public:
             return {this, node};
         return EmptyIndex();
     }
-
-    void clear() noexcept {
-        if (mSize == 0) return;
-        auto nodeVec = nodeArray + mCapacity;
-        memset(nodeVec, 0, mCapacity * sizeof(LinkNode *));
-        mSize = 0;
-    }
     [[nodiscard]] size_t size() const noexcept { return mSize; }
     [[nodiscard]] bool empty() const noexcept { return mSize == 0; }
     [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
