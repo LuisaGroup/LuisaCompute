@@ -20,8 +20,12 @@ on_load(function(target)
 			target:add("links", "luisa_compute_ir.dll", {
 				public = true
 			})
-		else
+		elseif is_plat("linux") then
 			target:add("links", path.join(lib_path, "libluisa_compute_ir.so"), {
+				public = true
+			})
+		else
+			target:add("links", path.join(lib_path, "libluisa_compute_ir.dylib"), {
 				public = true
 			})
 		end
@@ -38,8 +42,10 @@ after_build(function(target)
 		local bin_dir = target:targetdir()
 		if is_plat("windows") then
 			os.cp(path.join(lib_path, "luisa_compute_ir.dll"), bin_dir)
-		else			
+        elseif is_plat("linux") then
 			os.cp(path.join(lib_path, "libluisa_compute_ir.so"), bin_dir)
+		else
+			os.cp(path.join(lib_path, "libluisa_compute_ir.dylib"), bin_dir)
 		end
 	end
 	if is_mode("debug") then

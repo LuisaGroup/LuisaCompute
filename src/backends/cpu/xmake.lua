@@ -22,8 +22,12 @@ on_load(function(target)
 			target:add("links", "luisa_compute_backend_impl.dll", {
 				public = true
 			})
-		else
+		elseif is_plat("linux") then
 			target:add("links", path.join(lib_path, "libluisa_compute_backend_impl.so"), {
+				public = true
+			})
+		else
+			target:add("links", path.join(lib_path, "libluisa_compute_backend_impl.dylib"), {
 				public = true
 			})
 		end
@@ -65,8 +69,14 @@ after_build(function(target)
 		for i, v in ipairs(dlls) do
 			if is_plat("windows") then
 				os.cp(path.join(lib_path, v .. ".dll"), bin_dir)
-			else
+			elseif is_plat("linux") then
 				os.cp(path.join(lib_path, 'lib' .. v .. ".so"), bin_dir)
+			else
+				-- macOS compiles from source, so ignore the copy error if any
+				local dylib = path.join(lib_path, 'lib' .. v .. ".dylib")
+				if os.isfile(dylib) then
+					os.cp(dylib, bin_dir)
+				end
 			end
 		end
 	end
