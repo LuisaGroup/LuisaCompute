@@ -1002,3 +1002,21 @@ void lc_indirect_dispatch_emplace(LCIndirectDispatchBuffer buffer, uint3 block_s
         buffer.slots()[index] = {block_size, uint4(dispatch_size, kernel_id)};
     }
 }
+
+template<typename T>
+struct alignas(alignof(T) >= 4u ? alignof(T) : 4u) LCPackStorage {
+    T value;
+};
+
+template<typename T>
+[[nodiscard]] inline auto lc_pack(T x) {
+    auto s = LCPackStorage<T>{x};
+    using packed_array = array<uint, sizeof(T) / sizeof(uint)>;
+    return bitcast<packed_array>(s);
+}
+
+template<typename T, typename A>
+[[nodiscard]] inline auto lc_unpack(A array) {
+    auto s = bitcast<LCPackStorage<T>>(array);
+    return s.value;
+}

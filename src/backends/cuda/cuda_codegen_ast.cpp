@@ -1472,7 +1472,10 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
 }
 
 void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
-
+    if (type == nullptr) {
+        _scratch << "void";
+        return;
+    }
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
         case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
