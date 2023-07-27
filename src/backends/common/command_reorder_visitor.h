@@ -22,7 +22,7 @@ public:
     ArenaRef(ArenaRef const &) = delete;
     ArenaRef(ArenaRef &&) = default;
     void *allocate(size_t size_bytes) {
-        auto handle = _allocator.allocate(size_bytes);
+        auto handle = _allocator.allocate(size_bytes, 16);
         auto ptr = reinterpret_cast<void *>(handle.handle + handle.offset);
         return ptr;
     }
@@ -291,10 +291,11 @@ private:
                 auto handle = static_cast<RangeHandle *>(src_handle);
                 layer = get_last_layer_read(handle, range);
                 auto ite = handle->views.try_emplace(range);
-                if (ite.second)
-                    ite.first.value().read_layer = std::max<int64_t>(ite.first.value().read_layer, layer);
-                else
+                if (ite.second) {
                     ite.first.value().read_layer = layer;
+                } else {
+                    ite.first.value().read_layer = std::max<int64_t>(ite.first.value().read_layer, layer);
+                }
             } break;
         }
         return layer;
@@ -424,12 +425,12 @@ private:
                 if (ite.second) {
                     auto view_ptr = &ite.first.value();
                     set_read_layer = [view_ptr, &layer]() {
-                        view_ptr->read_layer = std::max<int64_t>(view_ptr->read_layer, layer);
+                        view_ptr->read_layer = layer;
                     };
                 } else {
                     auto view_ptr = &ite.first.value();
                     set_read_layer = [view_ptr, &layer]() {
-                        view_ptr->read_layer = layer;
+                        view_ptr->read_layer = std::max<int64_t>(view_ptr->read_layer, layer);
                     };
                 }
             } break;
@@ -713,6 +714,7 @@ private:
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
         }
+        auto v = _dispatch_layer;
         for (auto &&i : _dispatch_write_handle) {
             set_write_layer(i.second, i.first, _dispatch_layer);
         }
@@ -735,16 +737,20 @@ public:
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     void clear() noexcept {
-        _res_map.clear();
-        _no_range_resmap.clear();
-        _bindless_map.clear();
-        _write_res_map.clear();
+        auto re_construct_map = [&]<typename T>(T &t) {
+            t.~T();
+            new (&t) T(256, ArenaRef{_arena});
+        };
         _bindless_max_layer = -1;
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
         _cmd_lists.clear();
         _arena.clear();
+        re_construct_map(_res_map);
+        re_construct_map(_no_range_resmap);
+        re_construct_map(_bindless_map);
+        re_construct_map(_write_res_map);
     }
     ~CommandReorderVisitor() noexcept {}
     [[nodiscard]] auto command_lists() const noexcept {
@@ -887,5 +893,4 @@ public:
         }
     }
 };
-
 }// namespace luisa::compute
