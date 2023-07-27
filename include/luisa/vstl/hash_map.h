@@ -160,7 +160,6 @@ public:
             }
         }
         Node *node = pool.create(std::forward<Key>(key), std::forward<Value>(value)...);
-        node->parent = nullptr;
         node->left = nullptr;
         node->right = nullptr;
         node->color = true;// new node must be red
@@ -463,12 +462,11 @@ private:
     size_t mCapacity;
 
     inline static const Hash hsFunc;
-    LinkNode *GetNewLinkNode(size_t hashValue, LinkNode *newNode) {
+    void GetNewLinkNode(size_t hashValue, LinkNode *newNode) {
         newNode->hashValue = hashValue;
         newNode->arrayIndex = mSize;
         nodeArray[mSize] = newNode;
         mSize++;
-        return newNode;
     }
     void DeleteLinkNode(size_t arrayIndex) {
         if (arrayIndex != (mSize - 1)) {
