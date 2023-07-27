@@ -108,6 +108,7 @@ SpaceBeforeParensOptions:
 ForEachMacros:
   - LUISA_STRUCT
   - LUISA_BINDING_GROUP
+  - LUISA_BINDING_GROUP_TEMPLATE
 IfMacros:
   - $if
   - $elif

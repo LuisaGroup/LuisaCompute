@@ -24,8 +24,11 @@ struct TNestedArguments {
     TArgumentsView<T> args;
     Image<T> image;
 };
-#define TEMPLATE_T() template<class T> requires is_legal_image_element<T>
-// clang-format off
+
+#define TEMPLATE_T()  \
+    template<class T> \
+        requires is_legal_image_element<T>
+
 LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArguments<T>, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
         this->image->write(coord, color);
@@ -45,7 +48,6 @@ LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TNestedArguments<T>, args, image) {
 using Arguments = TArguments<float>;
 using ArgumentsView = TArgumentsView<float>;
 using NestedArguments = TNestedArguments<float>;
-// clang-format on
 
 int main(int argc, char *argv[]) {
 
