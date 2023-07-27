@@ -9,7 +9,7 @@ struct AdCheckOptions {
     uint32_t repeats = 1024 * 1024;
     float rel_tol = 5e-2f;
     float fd_eps = 1e-3f;
-    float max_precent_bad = 0.01f;
+    float max_precent_bad = 0.003f;
     float min_value = -1.0f;
     float max_value = 1.0f;
 };
@@ -56,29 +56,10 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
         return dinputs_ad;
     }();
     auto f = [&](luisa::span<Var<float>> x) {
-        if constexpr (N == 1) {
-            return f_(x[0]);
-        } else if constexpr (N == 2) {
-            return f_(x[0], x[1]);
-        } else if constexpr (N == 3) {
-            return f_(x[0], x[1], x[2]);
-        } else if constexpr (N == 4) {
-            return f_(x[0], x[1], x[2], x[3]);
-        } else if constexpr (N == 5) {
-            return f_(x[0], x[1], x[2], x[3], x[4]);
-        } else if constexpr (N == 6) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5]);
-        } else if constexpr (N == 7) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6]);
-        } else if constexpr (N == 8) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]);
-        } else if constexpr (N == 9) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8]);
-        } else if constexpr (N == 10) {
-            return f_(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9]);
-        } else {
-            LUISA_ERROR_WITH_LOCATION("N > 10 is not supported.");
-        }
+        auto impl = [&]<size_t... i>(std::index_sequence<i...>) noexcept {
+            return f_(x[i]...);
+        };
+        return impl(std::make_index_sequence<N>{});
     };
     Kernel1D fd_kernel = [&](Var<AdCheckOptions> options) {
         const auto i = dispatch_x();
@@ -153,14 +134,15 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
             const auto diff = std::abs(fd - ad);
             const auto rel_diff = diff / std::abs(fd);
             if (rel_diff > options.rel_tol) {
-                error_msg.append(luisa::format("x[{}] = {}, fd = {}, ad = {}, diff = {}, rel_diff = {}\n", j, input_data[j][i], fd, ad, diff, rel_diff));
+                if (bad_count <= 20)
+                    error_msg.append(luisa::format("x[{}] = {}, fd = {}, ad = {}, diff = {}, rel_diff = {}\n", j, input_data[j][i], fd, ad, diff, rel_diff));
                 bad_count++;
             }
         }
     }
     const auto bad_percent = static_cast<float>(bad_count) / (options.repeats * N);
     if (bad_percent > options.max_precent_bad) {
-        LUISA_ERROR("Test `{}`:{}\nTest `{}`: Bad percent {}% is greater than max percent {}%.\n", name, error_msg, name, bad_percent * 100, options.max_precent_bad * 100);
+        LUISA_ERROR("Test `{}` First 20 errors:\n{}\nTest `{}`: Bad percent {}% is greater than max percent {}%.\n", name, error_msg, name, bad_percent * 100, options.max_precent_bad * 100);
     }
     LUISA_INFO("Test `{}` passed.", name);
 }
@@ -198,4 +180,17 @@ int main(int argc, char *argv[]) {
     TEST_AD_1(exp, -1.0, 1.0);
     TEST_AD_1(exp2, -1.0, 1.0);
     TEST_AD_1(log, 0.001, 10.0);
+    {
+        test_ad_helper<2>("float2_length", device, [](auto x, auto y) { return length(make_float2(x, y)); });
+        test_ad_helper<2>("float2_dot2", device, [](auto x, auto y) { return dot(make_float2(x, y), make_float2(x, y)); });
+        test_ad_helper<4>("float2_dot", device, [](auto x, auto y, auto z, auto w) { return dot(make_float2(x, y), make_float2(z, w)); });
+    }
+    {
+        test_ad_helper<3>("float3_length", device, [](auto x, auto y, auto z) { return length(make_float3(x, y, z)); });
+        test_ad_helper<3>("float3_dot2", device, [](auto x, auto y, auto z) { return dot(make_float3(x, y, z), make_float3(x, y, z)); });
+        test_ad_helper<6>("float3_dot", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return dot(make_float3(vx, vy, vz), make_float3(wx, wy, wz)); });
+        test_ad_helper<6>("float3_cross_x", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).x; });
+        test_ad_helper<6>("float3_cross_y", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).y; });
+        test_ad_helper<6>("float3_cross_z", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).z; });
+    }
 }

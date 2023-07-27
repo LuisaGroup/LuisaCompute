@@ -8,6 +8,11 @@
 using namespace luisa;
 using namespace luisa::compute;
 
+struct MyStruct {
+    float2 a;
+    uint2 b;
+};
+LUISA_STRUCT(MyStruct, a, b) {};
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -22,9 +27,12 @@ int main(int argc, char *argv[]) {
 
     Kernel2D kernel = [&]() noexcept {
         UInt2 coord = dispatch_id().xy();
-        $if(coord.x == coord.y) {
+        $if (coord.x == coord.y) {
             Float2 v = make_float2(coord) / make_float2(dispatch_size().xy());
-            printer.info_with_location("v = ({}, {})", v.x, v.y);
+            Var<MyStruct> s;
+            s.a = v;
+            s.b = coord;
+            printer.info_with_location("s = {}", s);
         };
     };
     Shader2D<> shader = device.compile(kernel);

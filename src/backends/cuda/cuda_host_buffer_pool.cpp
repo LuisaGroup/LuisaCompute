@@ -15,7 +15,7 @@ CUDAHostBufferPool::CUDAHostBufferPool(size_t size, bool write_combined) noexcep
     LUISA_CHECK_CUDA(cuMemHostAlloc(&memory, _first_fit.size(), flags));
     _memory = static_cast<std::byte *>(memory);
     LUISA_VERBOSE("CUDAHostBufferPool (size = {}) initialized in {} ms.",
-               _first_fit.size(), clk.toc());
+                  _first_fit.size(), clk.toc());
 }
 
 CUDAHostBufferPool::~CUDAHostBufferPool() noexcept {
@@ -81,4 +81,3 @@ CUDAHostBufferPool::View *CUDAHostBufferPool::View::create(FirstFit::Node *node,
 }
 
 }// namespace luisa::compute::cuda
-

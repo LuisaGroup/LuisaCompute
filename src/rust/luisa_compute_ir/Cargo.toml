@@ -22,3 +22,7 @@ cbindgen = "0.24.3"
 [lib]
 crate-type = ["rlib", "cdylib"]
 name = "luisa_compute_ir"
+
+[profile.dev]
+panic = 'abort'
+incremental = true

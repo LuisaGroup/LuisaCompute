@@ -61,6 +61,10 @@ luisa_compute_add_executable(test_sparse_texture test_sparse_texture.cpp)
 luisa_compute_add_executable(test_raytracing_weekend test_raytracing_weekend/main.cpp)
 luisa_compute_add_executable(test_dml test_dml.cpp)
 
+if (LUISA_COMPUTE_ENABLE_OSL)
+    luisa_compute_add_executable(test_oso_parser test_oso_parser.cpp)
+endif ()
+
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_swapchain test_swapchain.cpp)
     luisa_compute_add_executable(test_swapchain_static test_swapchain_static.cpp)

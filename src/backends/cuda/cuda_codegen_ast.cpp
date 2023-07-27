@@ -764,6 +764,12 @@ void CUDACodegenAST::visit(const RefExpr *expr) {
 void CUDACodegenAST::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
+        case CallOp::PACK: _scratch << "lc_pack"; break;
+        case CallOp::UNPACK:
+            _scratch << "lc_unpack<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::EXTERNAL: _scratch << expr->external()->name(); break;
         case CallOp::ALL: _scratch << "lc_all"; break;

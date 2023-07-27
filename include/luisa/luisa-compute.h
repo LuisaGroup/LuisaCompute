@@ -79,7 +79,19 @@
 
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ast2ir.h>
+#include <luisa/ir/fwd.h>
+#include <luisa/ir/ir.h>
 #include <luisa/ir/ir2ast.h>
+#endif
+
+#ifdef LUISA_ENABLE_OSL
+#include <luisa/osl/hint.h>
+#include <luisa/osl/instruction.h>
+#include <luisa/osl/literal.h>
+#include <luisa/osl/oso_parser.h>
+#include <luisa/osl/shader.h>
+#include <luisa/osl/symbol.h>
+#include <luisa/osl/type.h>
 #endif
 
 #include <luisa/runtime/bindless_array.h>
@@ -136,6 +148,7 @@
 #endif
 
 #include <luisa/vstl/allocate_type.h>
+#include <luisa/vstl/arena_hash_map.h>
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/compare.h>
 #include <luisa/vstl/config.h>

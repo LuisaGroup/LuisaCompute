@@ -29,7 +29,7 @@ BinaryFileStream::BinaryFileStream(const luisa::string &path) noexcept {
     if (_file) {
         _length = seek_len(_file);
     } else {
-        LUISA_INFO("Read file {} failed.", path);
+        LUISA_VERBOSE("Read file {} failed.", path);
     }
 }
 
