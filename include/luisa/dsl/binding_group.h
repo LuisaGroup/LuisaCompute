@@ -17,11 +17,11 @@
 #define LUISA_BINDING_GROUP_MAKE_INVOKE(m) \
     invoke << s.m;
 
-#define LUISA_BINDING_GROUP(S, ...)                                                     \
-    template<>                                                                          \
+#define LUISA_BINDING_GROUP_TEMPLATE_IMPL(TEMPLATE, TEMPLATE2, S, ...)                  \
+    LUISA_MACRO_EVAL(TEMPLATE())                                                          \
     struct luisa_compute_extension<S>;                                                  \
     namespace luisa::compute {                                                          \
-    template<>                                                                          \
+    LUISA_MACRO_EVAL(TEMPLATE())                                                          \
     struct Var<S> {                                                                     \
         using this_type = S;                                                            \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
@@ -39,7 +39,7 @@
             return reinterpret_cast<const luisa_compute_extension<this_type> *>(this);  \
         }                                                                               \
     };                                                                                  \
-    template<>                                                                          \
+    LUISA_MACRO_EVAL(TEMPLATE())                                                          \
     struct Expr<S> {                                                                    \
         using this_type = S;                                                            \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
@@ -51,15 +51,21 @@
         Expr &operator=(Expr) noexcept = delete;                                        \
     };                                                                                  \
     namespace detail {                                                                  \
+    LUISA_MACRO_EVAL(TEMPLATE2())                                                         \
     CallableInvoke &operator<<(CallableInvoke &invoke, Expr<S> s) noexcept {            \
         LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__)                         \
         return invoke;                                                                  \
     }                                                                                   \
+    LUISA_MACRO_EVAL(TEMPLATE2())                                                         \
     ShaderInvokeBase &operator<<(ShaderInvokeBase &invoke, const S &s) noexcept {       \
         LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__)                         \
         return invoke;                                                                  \
     }                                                                                   \
     }                                                                                   \
     }                                                                                   \
-    template<>                                                                          \
+    LUISA_MACRO_EVAL(TEMPLATE())                                                          \
     struct luisa_compute_extension<S> final : luisa::compute::Var<S>
+#define _LUISA_BIND_GROUP_EMPTY_TEMPLATE() template<>
+#define _LUISA_BIND_GROUP_EMPTY()
+#define LUISA_BINDING_GROUP(S, ...) LUISA_BINDING_GROUP_TEMPLATE_IMPL(_LUISA_BIND_GROUP_EMPTY_TEMPLATE, _LUISA_BIND_GROUP_EMPTY, S, __VA_ARGS__)
+#define LUISA_BINDING_GROUP_TEMPLATE(S, TEMPLATE, ...) LUISA_BINDING_GROUP_TEMPLATE_IMPL(TEMPLATE, TEMPLATE, S, __VA_ARGS__)
