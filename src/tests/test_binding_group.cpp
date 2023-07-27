@@ -26,17 +26,17 @@ struct TNestedArguments {
 };
 #define TEMPLATE_T() template<class T>
 // clang-format off
-LUISA_BINDING_GROUP_TEMPLATE_IMPL(TEMPLATE_T, TEMPLATE_T, TArguments<T>, image, resolution) {
+LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArguments<T>, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
         this->image->write(coord, color);
     }
 };
-LUISA_BINDING_GROUP_TEMPLATE_IMPL(TEMPLATE_T, TEMPLATE_T, TArgumentsView<T>, image, resolution) {
+LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArgumentsView<T>, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
         this->image->write(coord, color);
     }
 };
-LUISA_BINDING_GROUP_TEMPLATE_IMPL(TEMPLATE_T, TEMPLATE_T, TNestedArguments<T>, args, image) {
+LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TNestedArguments<T>, args, image) {
     void blit(const UInt2 &coord) noexcept {
         auto color = args.image.read(coord).xyz();
         this->image->write(coord, make_float4(1.f - color, 1.f));
