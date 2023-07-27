@@ -200,20 +200,38 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
             }
         }
         Type::Matrix(mt) => {
-            // let e = match &mt.element {
-            //     VectorElementType::Scalar(p) => {
-            //         *p
-            //     }
-            //     _ => unimplemented!()
-            // };
-            // let dim = mt.dimension;
-            // match e{
-            //     Primitive::Float32=>{
-            //
-            //     }
-            //     _=>{unimplemented!()}
-            // }
-            todo!()
+            let e = match &mt.element {
+                VectorElementType::Scalar(p) => *p,
+                _ => unimplemented!(),
+            };
+            let dim = mt.dimension;
+            match e {
+                Primitive::Float32 => {
+                    format!(
+                        "lc_float{0}x{0}({1})",
+                        dim,
+                        data.chunks(4 * dim as usize)
+                            .take(dim as usize)
+                            .map(|data| format!(
+                                "lc_float{}({})",
+                                dim,
+                                data.chunks(4)
+                                    .take(dim as usize)
+                                    .map(|x| format!(
+                                        "{}",
+                                        f32::from_le_bytes([x[0], x[1], x[2], x[3]])
+                                    ))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+                _ => {
+                    unimplemented!()
+                }
+            }
         }
         Type::Struct(s) => {
             let fields = s.fields.as_ref();

@@ -24,7 +24,7 @@ struct TNestedArguments {
     TArgumentsView<T> args;
     Image<T> image;
 };
-#define TEMPLATE_T() template<class T>
+#define TEMPLATE_T() template<class T> requires is_legal_image_element<T>
 // clang-format off
 LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArguments<T>, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
