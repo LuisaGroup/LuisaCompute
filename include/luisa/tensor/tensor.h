@@ -1,4 +1,5 @@
 #pragma
+#include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/dsl/syntax.h>
 namespace luisa::compute::tensor {

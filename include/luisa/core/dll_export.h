@@ -64,7 +64,6 @@
 #define LC_TENSOR_API __declspec(dllimport)
 #endif
 
-
 #ifdef LC_OSL_EXPORT_DLL
 #define LC_OSL_API __declspec(dllexport)
 #else
@@ -101,6 +100,7 @@
 #define LC_AST_API
 #define LC_RUNTIME_API
 #define LC_DSL_API
+#define LC_TENSOR_API
 #define LC_OSL_API
 #define LC_IR_API
 #define LC_SERDE_LIB_API
