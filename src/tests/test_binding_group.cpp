@@ -38,7 +38,7 @@ LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArgumentsView<T>, image, resolution) {
 };
 LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TNestedArguments<T>, args, image) {
     void blit(const UInt2 &coord) noexcept {
-        auto color = args.image.read(coord).xyz();
+        auto color = this->args.image.read(coord).xyz();
         this->image->write(coord, make_float4(1.f - color, 1.f));
     }
 };
