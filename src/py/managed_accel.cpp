@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "managed_accel.h"
 #include "ref_counter.h"
 

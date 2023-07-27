@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "managed_collector.h"
 #include "ref_counter.h"
 #include "py_stream.h"

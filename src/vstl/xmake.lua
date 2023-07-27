@@ -4,6 +4,7 @@ _config_project({
     batch_size = 4
 })
 add_deps("lc-core")
+set_pcxxheader("pch.h")
 add_headerfiles("../../include/luisa/vstl/**.h")
 add_files("**.cpp")
 add_defines("LC_VSTL_EXPORT_DLL")

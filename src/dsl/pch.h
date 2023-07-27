@@ -1,7 +1,4 @@
 #pragma once
-#include "d3d12.h"
-#include "dxgi1_6.h"
-#include "d3dx12.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/basic_traits.h>
 #include <luisa/core/basic_types.h>
@@ -11,8 +8,4 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
-#include <luisa/runtime/buffer.h>
-#include <luisa/runtime/image.h>
-#include <luisa/runtime/shader.h>
-#include <luisa/runtime/dispatch_buffer.h>
-#include <luisa/vstl/common.h>
+#include <luisa/dsl/syntax.h>

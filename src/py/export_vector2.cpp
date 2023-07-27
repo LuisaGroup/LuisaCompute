@@ -1,3 +1,4 @@
+#include "pch.h"
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
 #include <luisa/core/logging.h>
