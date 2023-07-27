@@ -1,3 +1,4 @@
+#include "pch.h"
 #include <luisa/vstl/stack_allocator.h>
 namespace vstd {
 StackAllocator::StackAllocator(

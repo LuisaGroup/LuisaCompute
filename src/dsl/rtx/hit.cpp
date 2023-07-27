@@ -1,3 +1,4 @@
+#include "../pch.h"
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/stmt.h>
 #include <luisa/dsl/rtx/hit.h>

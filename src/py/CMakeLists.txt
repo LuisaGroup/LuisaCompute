@@ -25,6 +25,8 @@ if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 endif ()
 target_link_libraries(lcapi PRIVATE luisa::compute)
 
+target_precompile_headers(lcapi PRIVATE pch.h)
+
 install(DIRECTORY luisa
         DESTINATION ${SKBUILD_PLATLIB_DIR})
 install(TARGETS lcapi

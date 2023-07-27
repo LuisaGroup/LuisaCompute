@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "py_stream.h"
 #include <luisa/runtime/command_list.h>
 #include "ref_counter.h"
