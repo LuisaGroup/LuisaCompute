@@ -12,12 +12,19 @@ on_load(function(target)
 		target:add("syslinks", "Ws2_32", "Advapi32", "Bcrypt", "Userenv")
 	end
 	local function add_rs_link(str)
-		target:add("linkdirs", path.absolute(path.join("../rust/target", str), os.scriptdir()), {
+		local lib_path = path.absolute(path.join("../rust/target", str), os.scriptdir())
+		target:add("linkdirs", lib_path, {
 			public = true
 		})
-		target:add("links", "luisa_compute_ir.dll", {
-			public = true
-		})
+		if is_plat("windows") then
+			target:add("links", "luisa_compute_ir.dll", {
+				public = true
+			})
+		else
+			target:add("links", path.join(lib_path, "libluisa_compute_ir.so"), {
+				public = true
+			})
+		end
 	end
 	if is_mode("debug") then
 		add_rs_link("debug")
