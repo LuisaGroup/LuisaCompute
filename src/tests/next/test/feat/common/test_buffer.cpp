@@ -14,7 +14,6 @@
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
 
-
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -30,7 +29,7 @@ int test_floatx(Device &device, int literal_size = 1, int align_size = 4) {
     Kernel1D add_kernel = [&](BufferVar<T_FloatX> a, BufferVar<T_FloatX> b, BufferVar<T_FloatX> c) noexcept {
         set_block_size(64u);
         UInt index = dispatch_id().x;
-        $if(index < n){
+        $if (index < n) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
@@ -39,7 +38,7 @@ int test_floatx(Device &device, int literal_size = 1, int align_size = 4) {
     // init a, b and c
 
     Stream stream = device.create_stream();
-    luisa::vector<float> data_init(n * align_size, 1.f); 
+    luisa::vector<float> data_init(n * align_size, 1.f);
     luisa::vector<float> data_result(n * align_size, 0.f);
     stream << a.copy_from(data_init.data());
     stream << b.copy_from(data_init.data());
@@ -61,7 +60,6 @@ int test_floatx(Device &device, int literal_size = 1, int align_size = 4) {
     return 0;
 }
 
-
 int test_float3x3_order(Device &device) {
     constexpr uint n = 1u;
     Buffer<float3x3> a = device.create_buffer<float3x3>(n);
@@ -71,7 +69,7 @@ int test_float3x3_order(Device &device) {
     Kernel1D add_kernel = [&](BufferVar<float3x3> a, BufferVar<float3x3> b, BufferVar<float3x3> c) noexcept {
         set_block_size(64u);
         UInt index = dispatch_id().x;
-        $if(index < n){
+        $if (index < n) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
@@ -82,7 +80,7 @@ int test_float3x3_order(Device &device) {
     Stream stream = device.create_stream();
     luisa::vector<float> data_init(n * 12, 1.f);
     // align to col major
-    // 1 2 2 
+    // 1 2 2
     // 1 1 2
     // 1 1 1
     // 0 0 0
@@ -91,12 +89,10 @@ int test_float3x3_order(Device &device) {
         for (auto j = 0u; j < 4u; j++) {
             if (j == 3) {
                 data_init[i * 4 + j] = 0.f;
-            }
-            else {
+            } else {
                 if (i > j) {
                     data_init[i * 4 + j] = 2.f;
-                }
-                else {
+                } else {
                     data_init[i * 4 + j] = 1.f;
                 }
             }
@@ -106,7 +102,7 @@ int test_float3x3_order(Device &device) {
     stream << a.copy_from(data_init.data());
     stream << b.copy_from(data_init.data());
     stream << c.copy_from(data_result.data());
- 
+
     stream << add(a, b, c).dispatch(n);
     stream << synchronize();
     stream << c.copy_to(data_result.data());
@@ -137,7 +133,7 @@ int test_float3x3(Device &device) {
     Kernel1D add_kernel = [&](BufferVar<float3x3> a, BufferVar<float3x3> b, BufferVar<float3x3> c) noexcept {
         set_block_size(64u);
         UInt index = dispatch_id().x;
-        $if(index < n){
+        $if (index < n) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
@@ -151,7 +147,7 @@ int test_float3x3(Device &device) {
     stream << a.copy_from(data_init.data());
     stream << b.copy_from(data_init.data());
     stream << c.copy_from(data_result.data());
- 
+
     stream << add(a, b, c).dispatch(n);
     stream << synchronize();
     stream << c.copy_to(data_result.data());
@@ -176,11 +172,12 @@ int test_float4x4(Device &device) {
     Buffer<float4x4> c = device.create_buffer<float4x4>(n);
 
     Kernel1D add_kernel = [&](BufferVar<
-        float4x4> a, BufferVar<float4x4> b, BufferVar<float4x4> c) 
-    noexcept {
+                                  float4x4>
+                                  a,
+                              BufferVar<float4x4> b, BufferVar<float4x4> c) noexcept {
         set_block_size(64u);
         UInt index = dispatch_id().x;
-        $if(index < n){
+        $if (index < n) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
@@ -194,7 +191,7 @@ int test_float4x4(Device &device) {
     stream << a.copy_from(data_init.data());
     stream << b.copy_from(data_init.data());
     stream << c.copy_from(data_result.data());
- 
+
     stream << add(a, b, c).dispatch(n);
     stream << synchronize();
     stream << c.copy_to(data_result.data());
@@ -212,15 +209,12 @@ int test_float4x4(Device &device) {
     return 0;
 }
 
+}// namespace luisa::test
 
-} // namespace luisa::test
-
-
-
-TEST_SUITE("feat::buffer") {
+TEST_SUITE("common") {
     TEST_CASE("buffer::float3x3") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
@@ -232,7 +226,7 @@ TEST_SUITE("feat::buffer") {
 
     TEST_CASE("buffer::float3x3_order") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
@@ -244,7 +238,7 @@ TEST_SUITE("feat::buffer") {
 
     TEST_CASE("buffer::float4x4") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
@@ -254,10 +248,9 @@ TEST_SUITE("feat::buffer") {
         }
     }
 
-    
     TEST_CASE("buffer::float4") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
@@ -269,7 +262,7 @@ TEST_SUITE("feat::buffer") {
 
     TEST_CASE("buffer::float3") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
@@ -281,7 +274,7 @@ TEST_SUITE("feat::buffer") {
 
     TEST_CASE("buffer::float2") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {

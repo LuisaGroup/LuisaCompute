@@ -13,24 +13,22 @@ target_end()
 
 -- TEST MAIN with doctest
 ------------------------------------
-
 local function lc_add_app(appname, folder, name, options) 
 	target(appname)
 	_config_project({
 		project_kind = "binary"
 	})
 	add_files("common/test_main.cpp")
+	add_files("common/test_math_util.cpp")
 	add_includedirs("./", {
 		public = true
 	})
 
-	local match_str = path.join(name, "*.cpp")
+	local match_str = path.join(name, "**.cpp")
 	if name == "all" then
 		match_str = "**.cpp"
 	end
-
 	add_files(path.join("next", folder, match_str))
-
 	add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
 	if get_config("enable_ir") then
 		add_deps("lc-ir")
@@ -45,16 +43,13 @@ end
 -- single test suite for development
 lc_add_app("test_feat", "test", "feat")
 if get_config("enable_gui") then
-	lc_add_app("test_gui", "test", "gui")
+	add_defines("ENABLE_DISPLAY")
+	-- all test suites for release
+	lc_add_app("test_all", "test", "all")
+	-- example app 
+	lc_add_app("gallary", "example", "gallary")
 end
 -- lc_add_app("test_io", "test", "io")
-
--- all test suites for release
-lc_add_app("test_all", "test", "all")
-
--- example app 
-lc_add_app("example", "example", "all")
-
 ------------------------------------
 -- TEST MAIN end
 

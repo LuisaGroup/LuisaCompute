@@ -6,7 +6,7 @@
 #include <luisa/runtime/context.h>
 #include "common/config.h"
 
-TEST_SUITE("feat") {
+TEST_SUITE("common") {
     TEST_CASE("context") {
         luisa::compute::Context context{luisa::test::argv()[0]};
         for (auto &&backend : context.installed_backends()) {

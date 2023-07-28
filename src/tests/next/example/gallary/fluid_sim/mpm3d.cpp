@@ -1,8 +1,8 @@
 /**
- * @file: tests/next/example/mpm.cpp
+ * @file: tests/next/example/mpm3d.cpp
  * @author: sailing-innocent
  * @date: 2023-07-26
- * @brief: the mpm fluid simulation suite, based on the previous MPM3D and MPM88 cases
+ * @brief: the mpm fluid simulation suite, based on the previous MPM3D cases
 */
 
 #include "common/config.h"
@@ -29,7 +29,6 @@ namespace luisa::test {
 
 int mpm3d(Device &device) {
 
-
     auto sqr = [](auto x) noexcept { return x * x; };
     static constexpr int n_grid = 64;
     static constexpr uint n_steps = 25u;
@@ -51,7 +50,7 @@ int mpm3d(Device &device) {
     Buffer<float3x3> C = device.create_buffer<float3x3>(n_particles);
     Buffer<float> J = device.create_buffer<float>(n_particles);
     Buffer<float4> grid = device.create_buffer<float4>(n_grid * n_grid * n_grid);
-    
+
     Window window{"MPM3D", resolution, resolution};
 
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
@@ -65,7 +64,7 @@ int mpm3d(Device &device) {
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), make_uint2(resolution));
 
     auto index = [](UInt3 xyz) noexcept {
-        auto p = clamp(xyz, static_cast<uint3>(0), static_cast<uint3>(n_grid -1));
+        auto p = clamp(xyz, static_cast<uint3>(0), static_cast<uint3>(n_grid - 1));
         return p.x + p.y * n_grid + p.z * n_grid * n_grid;
     };
 
@@ -91,32 +90,31 @@ int mpm3d(Device &device) {
         Int3 base = make_int3(Xp - 0.5f);
         Float3 fx = Xp - make_float3(base);
         std::array w{0.5f * sqr(1.5f - fx),
-            0.75f - sqr(fx - 1.0f),
-            0.5f * sqr(fx - 0.5f)};
-        Float stress = -4.f * dt * E * p_vol * ( J->read(p) - 1.f) / sqr(dx);
+                     0.75f - sqr(fx - 1.0f),
+                     0.5f * sqr(fx - 0.5f)};
+        Float stress = -4.f * dt * E * p_vol * (J->read(p) - 1.f) / sqr(dx);
         // TODO: here C runtime read will raise error
         Float3x3 curr_rho = p_mass * C->read(p);
         Float3x3 affine = make_float3x3(
             stress, 0.f, 0.f,
             0.f, stress, 0.f,
-            0.f, 0.f, stress
-        );
-        // Float3 vp = v->read(p);
+            0.f, 0.f, stress);
+        Float3 vp = v->read(p);
 
-        // for (uint ii = 0; ii < 27; ii++) {
-        //     int3 offset = make_int3(ii % 3, ii / 3 % 3, ii / 3 / 3);
-        //     int i = offset.x;
-        //     int j = offset.y;
-        //     int k = offset.z;
-        //     Float3 dpos = (make_float3(offset) - fx) * dx;
-        //     Float weight = w[i].x * w[j].y * w[k].z;
-        //     Float3 vadd = weight * (p_mass * vp + affine * dpos);
-        //     UInt idx = index(base + offset);
-        //     grid->atomic(idx).x.fetch_add(vadd.x);
-        //     grid->atomic(idx).y.fetch_add(vadd.y);
-        //     grid->atomic(idx).z.fetch_add(vadd.z);
-        //     grid->atomic(idx).w.fetch_add(weight * p_mass);
-        // }
+        for (uint ii = 0; ii < 27; ii++) {
+            int3 offset = make_int3(ii % 3, ii / 3 % 3, ii / 3 / 3);
+            int i = offset.x;
+            int j = offset.y;
+            int k = offset.z;
+            Float3 dpos = (make_float3(offset) - fx) * dx;
+            Float weight = w[i].x * w[j].y * w[k].z;
+            Float3 vadd = weight * (p_mass * vp + affine * dpos);
+            UInt idx = index(base + offset);
+            grid->atomic(idx).x.fetch_add(vadd.x);
+            grid->atomic(idx).y.fetch_add(vadd.y);
+            grid->atomic(idx).z.fetch_add(vadd.z);
+            grid->atomic(idx).w.fetch_add(weight * p_mass);
+        }
     });
 
     Shader3D<> simulate_grid = device.compile<3>([&] {
@@ -131,7 +129,6 @@ int mpm3d(Device &device) {
         v = ite((coord < bound && v < 0.f) || (coord > n_grid - bound && v > 0.f), 0.f, v);
         grid->write(i, make_float4(v, m));
     });
-
 
     Shader1D<> grid_to_point = device.compile<1>([&] {
         set_block_size(64, 1, 1);
@@ -165,10 +162,9 @@ int mpm3d(Device &device) {
     auto substep = [&](CommandList &cmd_list) noexcept {
         cmd_list << clear_grid().dispatch(n_grid, n_grid, n_grid)
                  << point_to_grid().dispatch(n_particles);
-                //  << simulate_grid().dispatch(n_grid, n_grid, n_grid)
-                //  << grid_to_point().dispatch(n_particles);
+        //  << simulate_grid().dispatch(n_grid, n_grid, n_grid)
+        //  << grid_to_point().dispatch(n_particles);
     };
-
 
     auto init = [&](Stream &stream) noexcept {
         luisa::vector<float3> x_init(n_particles);
@@ -213,10 +209,10 @@ int mpm3d(Device &device) {
         Float2 basepos = T(x->read(p));
         for (int i = -1; i < 1; i++) {
             for (int j = -1; j < 1; j++) {
-                Int2 pos = make_int2(basepos * static_cast<float>(resolution)) + make_int2(i,j);
-                $if(pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
+                Int2 pos = make_int2(basepos * static_cast<float>(resolution)) + make_int2(i, j);
+                $if (pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
                     display->write(make_uint2(cast<uint>(pos.x), resolution - 1u - pos.y),
-                        make_float4(.4f, .6f, .6f, 1.f));
+                                   make_float4(.4f, .6f, .6f, 1.f));
                 };
             }
         }
@@ -225,7 +221,7 @@ int mpm3d(Device &device) {
     init(stream);
 
     while (!window.should_close()) {
-        CommandList cmd_list; 
+        CommandList cmd_list;
         for (uint i = 0u; i < n_steps; i++) { substep(cmd_list); }
         cmd_list << clear_display().dispatch(resolution, resolution)
                  << draw_particles().dispatch(n_particles);
@@ -237,13 +233,12 @@ int mpm3d(Device &device) {
     return 0;
 }
 
-} // namespace luisa::test
+}// namespace luisa::test
 
-
-TEST_SUITE("example_sim") {
+TEST_SUITE("fluid_sim") {
     TEST_CASE("mpm3d") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {

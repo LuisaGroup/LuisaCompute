@@ -32,7 +32,7 @@ namespace luisa::test {
 
 int test_callable(Device &device) {
     log_level_verbose();
-    
+
     static constexpr uint n = 10u;
 
     Buffer<float> buffer = device.create_buffer<float>(n);
@@ -68,8 +68,8 @@ int test_callable(Device &device) {
     command_list << kernel(buffer, result_buffer, 3.0f).dispatch(n);
 
     stream << command_list.commit()
-        << result_buffer.copy_to(results.data());
-    
+           << result_buffer.copy_to(results.data());
+
     double t1 = clock.toc();
     stream << synchronize();
     double t2 = clock.toc();
@@ -91,11 +91,10 @@ int test_callable(Device &device) {
 
 }// namespace luisa::test
 
-
-TEST_SUITE("feat") {
+TEST_SUITE("common") {
     TEST_CASE("callable") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {

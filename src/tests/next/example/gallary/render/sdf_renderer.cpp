@@ -107,9 +107,9 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
         Float dist = def(0.0f);
-        $for(j, 100) {
+        $for (j, 100) {
             Float s = sdf(p + dist * d);
-            $if(s <= 1e-6f | dist >= inf) { $break; };
+            $if (s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
         };
         return min(dist, inf);
@@ -132,7 +132,7 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
         normal = make_float3();
         c = make_float3();
         Float ray_march_dist = ray_march(pos, d);
-        $if(ray_march_dist < min(dist_limit, closest)) {
+        $if (ray_march_dist < min(dist_limit, closest)) {
             closest = ray_march_dist;
             Float3 hit_pos = pos + d * closest;
             normal = sdf_normal(hit_pos);
@@ -146,7 +146,7 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 
         Float2 resolution = make_float2(dispatch_size().xy());
         UInt2 coord = dispatch_id().xy();
-        $if(frame_index == 0u) {
+        $if (frame_index == 0u) {
             seed_image.write(coord, make_uint4(tea(coord.x, coord.y)));
             accum_image.write(coord, make_float4(make_float3(0.0f), 1.0f));
         };
@@ -162,17 +162,17 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
         d = normalize(d);
         Float3 throughput = def(make_float3(1.0f, 1.0f, 1.0f));
         Float hit_light = def(0.0f);
-        $for(depth, max_ray_depth) {
+        $for (depth, max_ray_depth) {
             Float closest = def(0.0f);
             Float3 normal = def(make_float3());
             Float3 c = def(make_float3());
             next_hit(closest, normal, c, pos, d);
             Float dist_to_light = intersect_light(pos, d);
-            $if(dist_to_light < closest) {
+            $if (dist_to_light < closest) {
                 hit_light = 1.0f;
                 $break;
             };
-            $if(length_squared(normal) == 0.0f) { $break; };
+            $if (length_squared(normal) == 0.0f) { $break; };
             Float3 hit_pos = pos + closest * d;
             d = out_dir(normal, seed);
             pos = hit_pos + 1e-4f * d;
@@ -256,15 +256,15 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 }
 }// namespace luisa::test
 
-TEST_SUITE("example") {
+TEST_SUITE("gallary") {
     TEST_CASE("sdf_renderer") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
                 Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::sdf_renderer(device, "sdf_renderer_"+device_name+".png") == 0);
+                REQUIRE(luisa::test::sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
             }
         }
     }

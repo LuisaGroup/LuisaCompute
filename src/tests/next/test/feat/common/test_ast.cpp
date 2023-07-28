@@ -37,10 +37,10 @@ int test_ast(Device &device) {
 }
 }// namespace luisa::test
 
-TEST_SUITE("feat") {
+TEST_SUITE("common") {
     TEST_CASE("ast") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
             luisa::string device_name = luisa::test::supported_backends()[i];
             SUBCASE(device_name.c_str()) {
