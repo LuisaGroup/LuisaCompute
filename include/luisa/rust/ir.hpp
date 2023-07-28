@@ -60,6 +60,12 @@ struct CBoxedSlice {
     void (*destructor)(T*, size_t);
 };
 
+struct Module {
+    ModuleKind kind;
+    Pooled<BasicBlock> entry;
+    CArc<ModulePools> pools;
+};
+
 struct VectorElementType {
     enum class Tag {
         Scalar,
@@ -147,12 +153,6 @@ struct Type {
         Array_Body array;
         Opaque_Body opaque;
     };
-};
-
-struct Module {
-    ModuleKind kind;
-    Pooled<BasicBlock> entry;
-    CArc<ModulePools> pools;
 };
 
 struct BufferBinding {
@@ -426,7 +426,7 @@ struct Func {
         BindlessTexture3dSizeLevel,
         /// (bindless_array, index: uint, element: uint) -> T
         BindlessBufferRead,
-        /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
+        /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
         BindlessBufferType,
         Vec,
@@ -457,10 +457,6 @@ struct Func {
         CBoxedSlice<uint8_t> _0;
     };
 
-    struct BindlessBufferSize_Body {
-        CArc<Type> _0;
-    };
-
     struct Callable_Body {
         CallableModuleRef _0;
     };
@@ -473,7 +469,6 @@ struct Func {
     union {
         Unreachable_Body unreachable;
         Assert_Body assert;
-        BindlessBufferSize_Body bindless_buffer_size;
         Callable_Body callable;
         CpuCustomOp_Body cpu_custom_op;
     };
