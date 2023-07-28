@@ -946,12 +946,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BUFFER_SIZE: {
-            _scratch << "bindless_buffer_size<";
-            _emit_type_name(expr->type());
-            _scratch << ">";
-            break;
-        }
+        case CallOp::BINDLESS_BUFFER_SIZE: _scratch << "bindless_buffer_size"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)        \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
