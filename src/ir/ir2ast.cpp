@@ -420,7 +420,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Unreachable: return builtin_func(0, CallOp::UNREACHABLE);
         case ir::Func::Tag::Assert: {
             LUISA_ASSERT(args.size() == 1u, "`Assert` takes 1 argument.");
-            LUISA_WARNING_WITH_LOCATION("`assert` is not implemented. Mapping to `assume()` currently.");
+            // LUISA_WARNING_WITH_LOCATION("`assert` is not implemented. Mapping to `assume()` currently.");
             // TODO: support assert
             return builtin_func(1, CallOp::ASSUME);
         }
