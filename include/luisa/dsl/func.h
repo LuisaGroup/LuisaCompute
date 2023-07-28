@@ -300,7 +300,7 @@ public:
     /// Add an argument.
     template<typename T>
     CallableInvoke &operator<<(Expr<T> arg) noexcept {
-        if constexpr (requires{ typename Expr<T>::is_binding_group; }) {
+        if constexpr (requires { typename Expr<T>::is_binding_group; }) {
             callable_encode_binding_group(*this, arg);
         } else {
             if (_arg_count == max_argument_count) [[unlikely]] {
