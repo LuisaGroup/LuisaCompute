@@ -1,5 +1,3 @@
-#include "pch.h"
-
 namespace py = pybind11;
 using namespace luisa::compute;
 

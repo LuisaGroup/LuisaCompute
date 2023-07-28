@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include "SparseAllocator.h"
 namespace lc::dx {
 SparseAllocator::SparseAllocator(Device *device, bool isTex, uint tileCapacity) : device(device), tileCapacity(tileCapacity), isTex(isTex) {

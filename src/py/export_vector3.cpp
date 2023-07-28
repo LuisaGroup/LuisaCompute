@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <pybind11/pybind11.h>
 #include <luisa/ast/function.h>
 #include <luisa/core/logging.h>

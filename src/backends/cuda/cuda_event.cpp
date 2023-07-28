@@ -1,5 +1,3 @@
-#include "pch.h"
-
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 
 #include <vulkan/vulkan.h>

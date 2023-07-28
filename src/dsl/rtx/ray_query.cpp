@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/rtx/ray_query.h>

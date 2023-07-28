@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Resource/BindlessArray.h>
 #include <Resource/TextureBase.h>
 #include <Resource/Buffer.h>

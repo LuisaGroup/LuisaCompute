@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "ref_counter.h"
 
 namespace luisa::compute {

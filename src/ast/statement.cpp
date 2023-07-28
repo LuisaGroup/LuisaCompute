@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/ast/statement.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/hash.h>

@@ -1,5 +1,3 @@
-#include "../pch.h"
-
 #include <DXApi/LCEvent.h>
 #include <DXRuntime/CommandQueue.h>
 #include <DXRuntime/DStorageCommandQueue.h>

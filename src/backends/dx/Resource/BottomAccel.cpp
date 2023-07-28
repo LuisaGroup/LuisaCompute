@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Resource/BottomAccel.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandBuffer.h>

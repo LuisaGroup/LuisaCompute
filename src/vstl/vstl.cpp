@@ -1,5 +1,3 @@
-#include "pch.h"
-
 #include <luisa/vstl/vstring.h>
 #include <luisa/vstl/pool.h>
 #include <mutex>

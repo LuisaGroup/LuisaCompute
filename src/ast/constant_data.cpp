@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <algorithm>
 
 #include <luisa/core/stl/hash.h>

@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/dsl/stmt.h>
 #include <luisa/dsl/dispatch_indirect.h>
 

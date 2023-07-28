@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/mipmap.h>

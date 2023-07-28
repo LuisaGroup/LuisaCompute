@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/core/magic_enum.h>
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>

@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/core/stl/memory.h>
 
 #define STBIR_MALLOC(size,c) ((void)(c), luisa::detail::allocator_allocate(size,0))

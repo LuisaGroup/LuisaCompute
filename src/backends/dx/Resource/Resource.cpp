@@ -1,5 +1,3 @@
-#include "../pch.h"
-
 #include <Resource/Resource.h>
 namespace lc::dx {
 uint64 Resource::GetTextureSize(

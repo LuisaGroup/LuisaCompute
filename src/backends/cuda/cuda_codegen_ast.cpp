@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <string_view>
 
 #include <luisa/core/logging.h>

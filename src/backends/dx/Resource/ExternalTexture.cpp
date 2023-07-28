@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Resource/ExternalTexture.h>
 #include <Resource/DescriptorHeap.h>
 namespace lc::dx {

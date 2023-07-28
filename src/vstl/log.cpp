@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/vstl/log.h>
 #include <luisa/core/logging.h>
 

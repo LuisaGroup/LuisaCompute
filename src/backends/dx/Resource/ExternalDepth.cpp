@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Resource/ExternalDepth.h>
 #include <Resource/DepthBuffer.h>
 #include <Resource/DescriptorHeap.h>

@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/runtime/device.h>
 #include <luisa/dsl/printer.h>
 

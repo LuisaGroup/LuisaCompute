@@ -1,4 +1,3 @@
-#include "pch.h"
 // This file exports LuisaCompute functionalities to a python library using pybind11.
 //
 // Class:

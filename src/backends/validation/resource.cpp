@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "resource.h"
 #include "texture.h"
 #include "stream.h"

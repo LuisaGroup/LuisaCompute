@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/dsl/raster/raster_kernel.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/type.h>
