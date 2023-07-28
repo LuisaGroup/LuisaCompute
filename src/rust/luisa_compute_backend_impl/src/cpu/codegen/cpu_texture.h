@@ -42,21 +42,7 @@ typedef enum LCSamplerFilter {
     LC_SAMPLER_FILTER_ANISOTROPIC,
 } LCSamplerFilter;
 
-
-//#if defined(LUISA_ARCH_ARM64)
-////#include <arm_neon.h>
-//
-//using float16_t = ::float16_t;
-//
-//#else
-//#ifdef LUISA_ARCH_X86_64
-////#include <immintrin.h>
-////#include <xmmintrin.h>
-//#endif
-
-using float16_t = int16_t;
-//
-//#endif
+using float16_t = lc_half;
 namespace detail {
     template<class A, class B>
     struct lc_pair {
@@ -69,87 +55,6 @@ namespace detail {
         return {a, b};
     }
 
-    inline float16_t float_to_half(float f) noexcept {
-//#if defined(LUISA_ARCH_ARM64)
-//    return static_cast<float16_t>(f);
-//#elif defined(LUISA_ARCH_X86_64)
-//    auto ss = _mm_set_ss(f);
-//    auto ph = _mm_cvtps_ph(ss, 0);
-//    return static_cast<float16_t>(_mm_cvtsi128_si32(ph));
-//#else
-        auto bits = lc_bit_cast<lc_uint>(f);
-        auto fp32_sign = bits >> 31u;
-        auto fp32_exponent = (bits >> 23u) & 0xffu;
-        auto fp32_mantissa = bits & ((1u << 23u) - 1u);
-        auto make_fp16 = [](lc_uint sign, lc_uint exponent, lc_uint mantissa) noexcept {
-            return static_cast<float16_t>((sign << 15u) | (exponent << 10u) | mantissa);
-        };
-        // Signed zero/denormal (which will underflow)
-        if (fp32_exponent == 0u) { return make_fp16(fp32_sign, 0u, 0u); }
-        // Inf or NaN (all exponent bits set)
-        if (fp32_exponent == 255u) {
-            return make_fp16(
-                    fp32_sign, 31u,
-                    // NaN->qNaN and Inf->Inf
-                    fp32_mantissa ? 0x200u : 0u);
-        }
-        // Exponent unbias the single, then bias the halfp
-        auto newexp = static_cast<int>(fp32_exponent - 127u + 15u);
-        // Overflow, return signed infinity
-        if (newexp >= 31) { return make_fp16(fp32_sign, 31u, 0u); }
-        // Underflow
-        if (newexp <= 0) {
-            if ((14 - newexp) > 24) { return 0u; }
-            // Mantissa might be non-zero
-            unsigned int mant = fp32_mantissa | 0x800000u;// Hidden 1 bit
-            auto fp16 = make_fp16(fp32_sign, 0u, mant >> (14u - newexp));
-            if ((mant >> (13u - newexp)) & 1u) { fp16++; }// Check for rounding
-            return fp16;
-        }
-        auto fp16 = make_fp16(fp32_sign, newexp, fp32_mantissa >> 13u);
-        if (fp32_mantissa & 0x1000u) { fp16++; }// Check for rounding
-        return fp16;
-//#endif
-    }
-
-    inline float half_to_float(float16_t half) noexcept {
-//#if defined(LUISA_ARCH_ARM64)
-//    return static_cast<float>(half);
-//#elif defined(LUISA_ARCH_X86_64)
-//    auto si = _mm_cvtsi32_si128(half);
-//    auto ps = _mm_cvtph_ps(si);
-//    return _mm_cvtss_f32(ps);
-//#else
-//    static_assert(std::endian::native == std::endian::little,
-//                  "Only little endian is supported");
-        auto h = static_cast<lc_uint>(half);
-        union FP32 {
-            unsigned int u;
-            float f;
-            struct {// FIXME: assuming little endian here
-                unsigned int Mantissa: 23;
-                unsigned int Exponent: 8;
-                unsigned int Sign: 1;
-            } s;
-        };
-        constexpr auto magic = FP32{113u << 23u};
-        constexpr auto shifted_exp = 0x7c00u << 13u;// exponent mask after shift
-        auto o = FP32{(h & 0x7fffu) << 13u};        // exponent/mantissa bits
-        auto exp_ = shifted_exp & o.u;              // just the exponent
-        o.u += (127u - 15u) << 23u;                 // exponent adjust
-
-        // handle exponent special cases
-        if (exp_ == shifted_exp) {     // Inf/NaN?
-            o.u += (128u - 16u) << 23u;// extra exp adjust
-        } else if (exp_ == 0u) {       // Zero/Denormal?
-            o.u += 1u << 23u;          // extra exp adjust
-            o.f -= magic.f;            // renormalize
-        }
-        o.u |= (h & 0x8000u) << 16u;// sign bit
-        return o.f;
-//#endif
-    }
-
 
     template<typename T>
     [[nodiscard]] inline float scalar_to_float(T x) noexcept {
@@ -160,7 +65,7 @@ namespace detail {
         } else if constexpr (lc_is_same_v<T, uint16_t>) {
             return x / 65535.f;
         } else if constexpr (lc_is_same_v<T, float16_t>) {
-            return half_to_float(x);
+            return (float)x;
         } else {
             return 0.f;
         }
@@ -175,7 +80,7 @@ namespace detail {
         } else if constexpr (lc_is_same_v<T, uint16_t>) {
             return static_cast<T>(lc_clamp(roundf(x * 65535.f), 0.f, 65535.f));
         } else if constexpr (lc_is_same_v<T, float16_t>) {
-            return static_cast<T>(float_to_half(x));
+            return T(x);
         } else {
             return static_cast<T>(0);
         }

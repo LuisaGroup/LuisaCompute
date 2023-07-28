@@ -1,5 +1,8 @@
 #pragma once
 
+[[nodiscard]] __device__ constexpr auto lc_infinity_float() noexcept { return __int_as_float(0x7f800000u); }
+[[nodiscard]] __device__ constexpr auto lc_infinity_double() noexcept { return __longlong_as_double(0x7ff0000000000000ull); }
+
 #if LC_NVRTC_VERSION < 110200
 #define LC_CONSTANT const
 #else
@@ -1046,6 +1049,17 @@ template<typename T>
     lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
 #endif
     return buffer[i];
+}
+
+template<typename T>
+[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_uint offset) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const char *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+#endif
+    return *reinterpret_cast<const T *>(buffer + offset);
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {

@@ -110,10 +110,13 @@ impl KernelSerializer {
             Const::Zero(t) => SerializedConst::Zero(self.serialize_type(t)),
             Const::One(t) => SerializedConst::One(self.serialize_type(t)),
             Const::Bool(v) => SerializedConst::Bool(*v),
+            Const::Int16(v) => SerializedConst::Int16(*v),
+            Const::Uint16(v) => SerializedConst::Uint16(*v),
             Const::Int32(v) => SerializedConst::Int32(*v),
             Const::Uint32(v) => SerializedConst::Uint32(*v),
             Const::Int64(v) => SerializedConst::Int64(*v),
             Const::Uint64(v) => SerializedConst::Uint64(*v),
+            Const::Float16(v) => SerializedConst::Float16(*v),
             Const::Float32(v) => SerializedConst::Float32(*v),
             Const::Float64(v) => SerializedConst::Float64(*v),
             Const::Generic(v, t) => {

@@ -6,6 +6,7 @@
 using namespace metal;
 
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
+#define lc_assert(...) // TODO: implement assert?
 
 template<typename T = void>
 [[noreturn, gnu::always_inline]] inline T lc_unreachable() {
@@ -546,6 +547,11 @@ template<typename T>
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(LCBindlessArray array, uint buffer_index, uint i) {
     return static_cast<device const T *>(array.items[buffer_index].buffer)[i];
+}
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto bindless_byte_address_buffer_read(LCBindlessArray array, uint buffer_index, uint offset) {
+    return reinterpret_cast<device const T *>(static_cast<device const char *>(array.items[buffer_index].buffer) + offset);
 }
 
 using namespace metal::raytracing;

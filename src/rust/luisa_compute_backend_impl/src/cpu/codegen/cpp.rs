@@ -40,6 +40,7 @@ impl TypeGenInner {
                 ir::Primitive::Uint32 => "uint32_t".to_string(),
                 ir::Primitive::Int64 => "int64_t".to_string(),
                 ir::Primitive::Uint64 => "uint64_t".to_string(),
+                ir::Primitive::Float16 => "half".to_string(),
                 ir::Primitive::Float32 => "float".to_string(),
                 ir::Primitive::Float64 => "double".to_string(),
                 // crate::ir::Primitive::USize => format!("i{}", std::mem::size_of::<usize>() * 8),
@@ -89,7 +90,7 @@ impl TypeGenInner {
                     "__device__ inline void lc_accumulate_grad({0} *dst, {0} grad) noexcept {{",
                     name
                 )
-                .unwrap();
+                    .unwrap();
                 for (i, t) in st.fields.as_ref().iter().enumerate() {
                     if grad_type_of(t.clone()).is_none() {
                         continue;
@@ -100,7 +101,7 @@ impl TypeGenInner {
                         "        lc_accumulate_grad(&dst->{}, grad.{});",
                         field_name, field_name
                     )
-                    .unwrap();
+                        .unwrap();
                 }
                 writeln!(tmp, "    }}").unwrap();
                 self.struct_typedefs.push_str(&tmp);
@@ -117,6 +118,7 @@ impl TypeGenInner {
                         Primitive::Uint32 => format!("lc_uint{}", n),
                         Primitive::Int64 => format!("lc_long{}", n),
                         Primitive::Uint64 => format!("lc_ulong{}", n),
+                        Primitive::Float16 => format!("lc_half{}", n),
                         Primitive::Float32 => format!("lc_float{}", n),
                         Primitive::Float64 => format!("lc_double{}", n),
                     },
@@ -159,6 +161,7 @@ impl TypeGenInner {
         }
     }
 }
+
 struct TypeGen {
     inner: RefCell<TypeGenInner>,
 }
@@ -176,6 +179,7 @@ impl TypeGen {
         self.inner.borrow().struct_typedefs.clone()
     }
 }
+
 pub struct PhiCollector {
     phis: IndexSet<NodeRef>,
     phis_per_block: IndexMap<*const BasicBlock, Vec<NodeRef>>,
@@ -242,6 +246,7 @@ impl PhiCollector {
         }
     }
 }
+
 struct GlobalEmitter {
     message: Vec<String>,
     global_vars: HashMap<NodeRef, String>,
@@ -252,6 +257,7 @@ struct GlobalEmitter {
     args: IndexMap<NodeRef, usize>,
     cpu_custom_ops: IndexMap<usize, usize>,
 }
+
 struct FunctionEmitter<'a> {
     type_gen: &'a TypeGen,
     node_to_var: HashMap<NodeRef, String>,
@@ -461,7 +467,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const auto {} = {};\n",
                     fname, source
                 )
-                .unwrap();
+                    .unwrap();
                 self.write_ident();
             }
         }
@@ -475,7 +481,7 @@ impl<'a> FunctionEmitter<'a> {
                 fname,
                 args_v.join(", ")
             )
-            .unwrap();
+                .unwrap();
         } else {
             writeln!(&mut self.body, "{}({});", fname, args_v.join(", ")).unwrap();
         }
@@ -513,7 +519,7 @@ impl<'a> FunctionEmitter<'a> {
                 "const {} {} = {} {} {};",
                 node_ty_s, var, args_v[0], binop, args_v[1]
             )
-            .unwrap();
+                .unwrap();
             true
         } else {
             false
@@ -605,7 +611,7 @@ impl<'a> FunctionEmitter<'a> {
                 func,
                 args_v.join(", ")
             )
-            .unwrap();
+                .unwrap();
             true
         } else {
             false
@@ -627,7 +633,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const auto {1} = lc_buffer_read<{0}>(k_args, {2}, {3});",
                     buffer_ty, var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BufferWrite => {
@@ -637,7 +643,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_buffer_write<{}>(k_args, {}, {}, {});",
                     buffer_ty, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BufferSize => {
@@ -647,7 +653,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_buffer_size<{}>(k_args, {});",
                     node_ty_s, var, buffer_ty, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessBufferRead => {
@@ -656,7 +662,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const auto {1} = lc_bindless_buffer_read<{0}>(k_args, {2}, {3}, {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessBufferSize(t) => {
@@ -666,7 +672,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_bindless_buffer_size<{}>(k_args, {}, {});",
                     node_ty_s, var, buffer_ty, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessBufferType => {
@@ -675,7 +681,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_bindless_buffer_type(k_args, {}, {});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dRead => {
@@ -684,7 +690,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture2d_read(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dRead => {
@@ -693,7 +699,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture3d_read(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dReadLevel => {
@@ -702,7 +708,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture2d_read_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dReadLevel => {
@@ -711,7 +717,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture3d_read_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dSample => {
@@ -720,7 +726,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture2d_sample(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2],
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dSample => {
@@ -729,7 +735,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture3d_sample(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dSampleLevel => {
@@ -738,7 +744,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture2d_sample_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dSampleLevel => {
@@ -747,7 +753,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture3d_sample_level(k_args, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dSampleGrad => {
@@ -756,7 +762,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture2d_sample_grad(k_args, {}, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3], args_v[4]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dSampleGrad => {
@@ -765,7 +771,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_float4 {} = lc_bindless_texture3d_sample_grad(k_args, {}, {}, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2], args_v[3], args_v[4]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dSize => {
@@ -774,7 +780,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_uint2 {} = lc_bindless_texture2d_size(k_args, {}, {});",
                     var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dSize => {
@@ -783,7 +789,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_uint3 {} = lc_bindless_texture3d_size(k_args, {}, {});",
                     var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture2dSizeLevel => {
@@ -792,7 +798,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_uint2 {} = lc_bindless_texture2d_size_level(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BindlessTexture3dSizeLevel => {
@@ -801,7 +807,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const lc_uint3 {} = lc_bindless_texture3d_size_level(k_args, {}, {}, {});",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Texture2dRead => {
@@ -810,7 +816,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_texture2d_read<{0}>(k_args, {2}, {3});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Texture3dRead => {
@@ -819,7 +825,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_texture3d_read<{0}>(k_args, {2}, {3});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Texture2dWrite => {
@@ -828,7 +834,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_texture2d_write(k_args, {0}, {1}, {2});",
                     args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Texture3dWrite => {
@@ -837,7 +843,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_texture3d_write(k_args, {0}, {1}, {2});",
                     args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             _ => false,
@@ -889,7 +895,7 @@ impl<'a> FunctionEmitter<'a> {
                         "const {} {} = {}[{}];",
                         node_ty_s, var, args_v[0], i
                     )
-                    .unwrap();
+                        .unwrap();
                     return true;
                 } else {
                     let i = args[1].get_i32();
@@ -899,7 +905,7 @@ impl<'a> FunctionEmitter<'a> {
                         "const {} {} = {}.{};",
                         node_ty_s, var, args_v[0], field_name
                     )
-                    .unwrap();
+                        .unwrap();
                     true
                 }
             }
@@ -911,7 +917,7 @@ impl<'a> FunctionEmitter<'a> {
                         "{0} _{1} = {2}; _{1}[{3}] = {4}; const auto {1} = _{1};",
                         node_ty_s, var, args_v[0], i, args_v[1]
                     )
-                    .unwrap();
+                        .unwrap();
                 } else {
                     let i = args[2].get_i32();
                     let field_name = Self::gep_field_name(args[0], i);
@@ -920,7 +926,7 @@ impl<'a> FunctionEmitter<'a> {
                         "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
                         node_ty_s, var, args_v[0], field_name, args_v[1]
                     )
-                    .unwrap();
+                        .unwrap();
                 }
                 true
             }
@@ -935,7 +941,7 @@ impl<'a> FunctionEmitter<'a> {
                         "{}& {} = {}[{}];",
                         node_ty_s, var, args_v[0], args_v[1]
                     )
-                    .unwrap();
+                        .unwrap();
                 } else {
                     let i = args[1].get_i32();
                     let field_name = Self::gep_field_name(args[0], i);
@@ -944,7 +950,7 @@ impl<'a> FunctionEmitter<'a> {
                         "{} & {} = {}.{};",
                         node_ty_s, var, args_v[0], field_name
                     )
-                    .unwrap();
+                        .unwrap();
                 }
                 true
             }
@@ -956,7 +962,7 @@ impl<'a> FunctionEmitter<'a> {
                     var,
                     args_v.join(", ")
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::DispatchId => {
@@ -969,7 +975,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_dispatch_size();",
                     node_ty_s, var
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BlockId => {
@@ -986,7 +992,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_zero<{}>();",
                     node_ty_s, var, node_ty_s
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Vec | Func::Vec2 | Func::Vec3 | Func::Vec4 => {
@@ -998,7 +1004,7 @@ impl<'a> FunctionEmitter<'a> {
                     node_ty_s,
                     args_v.join(", ")
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Mat2 | Func::Mat3 | Func::Mat4 => {
@@ -1010,7 +1016,7 @@ impl<'a> FunctionEmitter<'a> {
                     node_ty_s,
                     args_v.join(", ")
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Mat => {
@@ -1022,7 +1028,7 @@ impl<'a> FunctionEmitter<'a> {
                     node_ty_s,
                     args_v.join(", ")
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::MatCompMul => {
@@ -1031,7 +1037,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = {}.comp_mul({});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Select => {
@@ -1040,7 +1046,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_select({4},{3},{2});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Load => {
@@ -1054,7 +1060,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {}_grad = {};",
                     ty, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Detach => {
@@ -1067,7 +1073,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = {2}_grad;",
                     node_ty_s, var, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::AccGrad => {
@@ -1076,7 +1082,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_accumulate_grad(&{0}, {1});",
                     args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::BitNot => {
@@ -1101,7 +1107,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_bit_cast<{0}>({2});",
                     node_ty_s, var, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::Cast => {
@@ -1111,14 +1117,14 @@ impl<'a> FunctionEmitter<'a> {
                         "const {} {} = {} != 0;",
                         node_ty_s, var, args_v[0]
                     )
-                    .unwrap();
+                        .unwrap();
                 } else if (node_ty.is_float() || node_ty.is_int()) && node_ty.is_primitive() {
                     writeln!(
                         self.body,
                         "const {} {} = static_cast<{}>({});",
                         node_ty_s, var, node_ty_s, args_v[0]
                     )
-                    .unwrap();
+                        .unwrap();
                 } else if node_ty.is_vector() {
                     let vt_s = node_ty_s[3..].to_string();
                     writeln!(
@@ -1126,7 +1132,7 @@ impl<'a> FunctionEmitter<'a> {
                         "const {} {} = lc_make_{}({});",
                         node_ty_s, var, vt_s, args_v[0]
                     )
-                    .unwrap();
+                        .unwrap();
                 } else {
                     unreachable!()
                 }
@@ -1164,7 +1170,7 @@ impl<'a> FunctionEmitter<'a> {
                     node_ty_s,
                     indices_s.join(", ")
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::AtomicExchange => {
@@ -1221,7 +1227,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_cpu_custom_op(k_args, {2}, {3});",
                     node_ty_s, var, i, args_v[0],
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingTraceAny => {
@@ -1230,7 +1236,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_trace_any({2}, lc_bit_cast<Ray>({3}), {4});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingTraceClosest => {
@@ -1248,7 +1254,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_accel_instance_transform({2}, {3});",
                     node_ty_s, var, args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingSetInstanceTransform => {
@@ -1257,7 +1263,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_set_instance_transform({0}, {1}, {2});",
                     args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingSetInstanceVisibility => {
@@ -1266,7 +1272,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_set_instance_visibility({0}, {1}, {2});",
                     args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingQueryAll => {
@@ -1275,7 +1281,7 @@ impl<'a> FunctionEmitter<'a> {
                     "LC_RayQueryAll _{0} = lc_ray_query_all({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayTracingQueryAny => {
@@ -1284,7 +1290,7 @@ impl<'a> FunctionEmitter<'a> {
                     "LC_RayQueryAny _{0} = lc_ray_query_any({1}, lc_bit_cast<Ray>({2}), {3});auto& {0} = _{0};",
                     var, args_v[0], args_v[1], args_v[2]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayQueryWorldSpaceRay => {
@@ -1293,7 +1299,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_world_space_ray({2}));",
                     node_ty_s, var, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayQueryProceduralCandidateHit => {
@@ -1302,7 +1308,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_procedural_candidate_hit({2}));",
                     node_ty_s, var, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayQueryTriangleCandidateHit => {
@@ -1311,7 +1317,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_triangle_candidate_hit({2}));",
                     node_ty_s, var, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayQueryCommittedHit => {
@@ -1320,7 +1326,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_committed_hit({2}));",
                     node_ty_s, var, args_v[0]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayQueryCommitTriangle => {
@@ -1333,7 +1339,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_ray_query_commit_procedural({0}, {1});",
                     args_v[0], args_v[1]
                 )
-                .unwrap();
+                    .unwrap();
                 true
             }
             Func::RayQueryTerminate => {
@@ -1351,7 +1357,7 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_zero<{}>();",
                     node_ty_s, var, node_ty_s
                 )
-                .unwrap();
+                    .unwrap();
             }
             Const::One(_) => {
                 writeln!(
@@ -1359,10 +1365,16 @@ impl<'a> FunctionEmitter<'a> {
                     "const {} {} = lc_one<{}>();",
                     node_ty_s, var, node_ty_s
                 )
-                .unwrap();
+                    .unwrap();
             }
             Const::Bool(v) => {
                 writeln!(&mut self.body, "const bool {} = {};", var, *v).unwrap();
+            }
+            Const::Int16(v) => {
+                writeln!(&mut self.body, "const int16_t {} = {};", var, *v).unwrap();
+            }
+            Const::Uint16(v) => {
+                writeln!(&mut self.body, "const uint16_t {} = {};", var, *v).unwrap();
             }
             Const::Int32(v) => {
                 writeln!(&mut self.body, "const int32_t {} = {};", var, *v).unwrap();
@@ -1376,6 +1388,15 @@ impl<'a> FunctionEmitter<'a> {
             Const::Uint64(v) => {
                 writeln!(&mut self.body, "const uint64_t {} = {}ull;", var, *v).unwrap();
             }
+            Const::Float16(v) => {
+                let bits = v.to_bits();
+                writeln!(
+                    &mut self.body,
+                    "const lc_half {} = lc_bit_cast<half>(uint16_t(0x{:04x})); // {}",
+                    var, bits, v
+                )
+                    .unwrap();
+            }
             Const::Float32(v) => {
                 writeln!(
                     &mut self.body,
@@ -1384,7 +1405,7 @@ impl<'a> FunctionEmitter<'a> {
                     v.to_bits(),
                     v
                 )
-                .unwrap();
+                    .unwrap();
             }
             Const::Float64(v) => {
                 writeln!(
@@ -1394,7 +1415,7 @@ impl<'a> FunctionEmitter<'a> {
                     v.to_bits(),
                     v
                 )
-                .unwrap();
+                    .unwrap();
             }
             Const::Generic(bytes, t) => {
                 self.write_ident();
@@ -1405,7 +1426,7 @@ impl<'a> FunctionEmitter<'a> {
                     var,
                     decode_const_data(bytes.as_ref(), t)
                 )
-                .unwrap();
+                    .unwrap();
                 // let gen_def = |dst: &mut String, qualifier| {
                 //     writeln!(
                 //         dst,
@@ -1655,7 +1676,7 @@ impl<'a> FunctionEmitter<'a> {
                     "lc_ray_query({}, [&](const TriangleHit& hit) {{",
                     rq_v
                 )
-                .unwrap();
+                    .unwrap();
                 self.gen_block(*on_triangle_hit);
                 self.write_ident();
                 writeln!(&mut self.body, "}}, [&](const ProceduralHit& hit) {{").unwrap();
@@ -1724,7 +1745,7 @@ impl<'a> FunctionEmitter<'a> {
                     "    const Accel& {} = {}[{}].accel._0;",
                     arg_name, arg_array, index
                 )
-                .unwrap();
+                    .unwrap();
             }
             Instruction::Bindless => {
                 writeln!(
@@ -1732,7 +1753,7 @@ impl<'a> FunctionEmitter<'a> {
                     "    const BindlessArray& {} = {}[{}].bindless_array._0;",
                     arg_name, arg_array, index
                 )
-                .unwrap();
+                    .unwrap();
             }
             Instruction::Buffer => {
                 writeln!(
@@ -1740,7 +1761,7 @@ impl<'a> FunctionEmitter<'a> {
                     "    const BufferView& {} = {}[{}].buffer._0;",
                     arg_name, arg_array, index
                 )
-                .unwrap();
+                    .unwrap();
             }
             Instruction::Texture2D => {
                 writeln!(
@@ -1748,7 +1769,7 @@ impl<'a> FunctionEmitter<'a> {
                     "    const Texture2D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
                 )
-                .unwrap();
+                    .unwrap();
             }
             Instruction::Texture3D => {
                 writeln!(
@@ -1756,7 +1777,7 @@ impl<'a> FunctionEmitter<'a> {
                     "    const Texture3D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
                 )
-                .unwrap();
+                    .unwrap();
             }
             Instruction::Uniform => {
                 let ty = self.type_gen.gen_c_type(node.type_());
@@ -1765,7 +1786,7 @@ impl<'a> FunctionEmitter<'a> {
                     "    const {0}& {1} = *reinterpret_cast<const {0}*>({2}[{3}].uniform._0);",
                     ty, arg_name, arg_array, index
                 )
-                .unwrap();
+                    .unwrap();
             }
             _ => unreachable!(),
         }
@@ -1823,10 +1844,12 @@ impl<'a> FunctionEmitter<'a> {
 }
 
 pub struct CpuCodeGen;
+
 pub struct Generated {
     pub source: String,
     pub messages: Vec<String>,
 }
+
 impl CpuCodeGen {
     pub(crate) fn run(module: &ir::KernelModule) -> Generated {
         let mut globals = GlobalEmitter {

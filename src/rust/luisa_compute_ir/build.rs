@@ -4,7 +4,8 @@ use cbindgen::Config;
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    println!("cargo:rerun-if-env-changed=LC_RS_DO_NOT_GENERATE_BINDINGS");
+    // println!("cargo:rerun-if-env-changed=LC_RS_DO_NOT_GENERATE_BINDINGS");
+    println!("cargo:rerun-if-changed={}/cpp.toml", crate_dir);
     match env::var("LC_RS_DO_NOT_GENERATE_BINDINGS") {
         Ok(s) => {
             if s == "1" {
@@ -13,13 +14,14 @@ fn main() {
         },
         Err(_) => {}
     }
+    let path = format!("{}/../../../include/luisa/rust/ir.hpp", crate_dir);
     cbindgen::Builder::new()
         .with_config(Config::from_file("cpp.toml").unwrap())
         .with_crate(&crate_dir)
         .with_language(cbindgen::Language::Cxx)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("../../../include/luisa/rust/ir.hpp");
+        .write_to_file(path);
 
     // cbindgen::Builder::new()
     //     .with_config(Config::from_file("c.toml").unwrap())

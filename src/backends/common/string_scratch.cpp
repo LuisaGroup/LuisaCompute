@@ -8,6 +8,7 @@
 namespace luisa::compute {
 
 namespace detail {
+
 template<typename T>
 inline auto to_string(T x) noexcept {
     static thread_local std::array<char, 128u> s;
@@ -32,6 +33,7 @@ StringScratch &StringScratch::operator<<(const char *s) noexcept { return *this 
 StringScratch &StringScratch::operator<<(const std::string &s) noexcept { return *this << std::string_view{s}; }
 StringScratch &StringScratch::operator<<(bool x) noexcept { return *this << detail::to_string(x); }
 StringScratch &StringScratch::operator<<(float x) noexcept { return *this << detail::to_string(x); }
+StringScratch &StringScratch::operator<<(double x) noexcept { return *this << detail::to_string(x); }
 StringScratch &StringScratch::operator<<(int x) noexcept { return *this << detail::to_string(x); }
 StringScratch &StringScratch::operator<<(uint x) noexcept { return *this << detail::to_string(x); }
 StringScratch &StringScratch::operator<<(size_t x) noexcept { return *this << detail::to_string(x); }

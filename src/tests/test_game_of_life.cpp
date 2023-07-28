@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
                 if (dx != 0 || dy != 0) {
                     Int2 q = p + make_int2(dx, dy) + make_int2(size);
                     Bool neighbor = read_state(prev, make_uint2(q) % size);
-                    count += neighbor;
+                    count += ite(neighbor, 1, 0);
                 }
             }
         }

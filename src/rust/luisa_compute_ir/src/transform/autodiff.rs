@@ -81,6 +81,7 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
             crate::ir::Primitive::Uint32 => None,
             crate::ir::Primitive::Int64 => None,
             crate::ir::Primitive::Uint64 => None,
+            crate::ir::Primitive::Float16 => todo!(),
             crate::ir::Primitive::Float32 => Some(GradTypeRecord {
                 grad_type: context::register_type(Type::Primitive(crate::ir::Primitive::Float32)),
                 primal_field_to_grad_field: HashMap::new(),
@@ -915,6 +916,7 @@ impl Backward {
     fn fp_constant(&mut self, t: CArc<Type>, x: f64, builder: &mut IrBuilder) -> NodeRef {
         return match t.deref() {
             Type::Primitive(p) => match p {
+                Primitive::Float16 => todo!(),
                 Primitive::Float32 => builder.const_(Const::Float32(x as f32)),
                 Primitive::Float64 => builder.const_(Const::Float64(x)),
                 _ => panic!("fp_constant: invalid type: {:?}", t),

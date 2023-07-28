@@ -25,6 +25,11 @@ int main(int argc, char *argv[]) {
 
     Buffer<int> buf = device.create_buffer<int>(100);
 
+    auto h = 1.0_h;
+    auto f = sin(h);
+
+    LUISA_INFO("h = {}, f = {}, f * f = {}, f + h = {}", h, f, f * f, f + h);
+
     Kernel1D k1 = [&] {
         buf->write(1, 42);
     };

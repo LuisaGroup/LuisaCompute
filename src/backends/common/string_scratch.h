@@ -18,6 +18,7 @@ public:
     StringScratch &operator<<(const std::string &s) noexcept;
     StringScratch &operator<<(bool x) noexcept;
     StringScratch &operator<<(float x) noexcept;
+    StringScratch &operator<<(double x) noexcept;
     StringScratch &operator<<(int x) noexcept;
     StringScratch &operator<<(uint x) noexcept;
     StringScratch &operator<<(size_t x) noexcept;

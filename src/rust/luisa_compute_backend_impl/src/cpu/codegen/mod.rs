@@ -2,6 +2,7 @@ use base64ct::Encoding;
 use luisa_compute_ir::CBoxedSlice;
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
+use half::f16;
 
 use crate::ir::{Primitive, Type, VectorElementType};
 use luisa_compute_ir::ir;
@@ -59,6 +60,12 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                     u64::from_le_bytes([
                         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]
                     ])
+                )
+            }
+            Primitive::Float16 => {
+                format!(
+                    "half({})",
+                    f16::from_le_bytes([data[0], data[1]]).to_f32()
                 )
             }
             Primitive::Float32 => {
@@ -165,6 +172,20 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                                 u64::from_le_bytes([
                                     x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]
                                 ])
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+                Primitive::Float16 => {
+                    format!(
+                        "lc_half{}({})",
+                        len,
+                        data.chunks(2)
+                            .take(len as usize)
+                            .map(|x| format!(
+                                "lc_half({})",
+                                f16::from_le_bytes([x[0], x[1]]).to_f32()
                             ))
                             .collect::<Vec<_>>()
                             .join(", ")

@@ -25,6 +25,7 @@ enum class Primitive {
     Uint32,
     Int64,
     Uint64,
+    Float16,
     Float32,
     Float64,
 };
@@ -489,10 +490,13 @@ struct Const {
         Zero,
         One,
         Bool,
+        Int16,
+        Uint16,
         Int32,
         Uint32,
         Int64,
         Uint64,
+        Float16,
         Float32,
         Float64,
         Generic,
@@ -510,6 +514,14 @@ struct Const {
         bool _0;
     };
 
+    struct Int16_Body {
+        int16_t _0;
+    };
+
+    struct Uint16_Body {
+        uint16_t _0;
+    };
+
     struct Int32_Body {
         int32_t _0;
     };
@@ -524,6 +536,10 @@ struct Const {
 
     struct Uint64_Body {
         uint64_t _0;
+    };
+
+    struct Float16_Body {
+        c_half _0;
     };
 
     struct Float32_Body {
@@ -544,10 +560,13 @@ struct Const {
         Zero_Body zero;
         One_Body one;
         Bool_Body bool_;
+        Int16_Body int16;
+        Uint16_Body uint16;
         Int32_Body int32;
         Uint32_Body uint32;
         Int64_Body int64;
         Uint64_Body uint64;
+        Float16_Body float16;
         Float32_Body float32;
         Float64_Body float64;
         Generic_Body generic;
