@@ -821,6 +821,8 @@ TransformPipeline *luisa_compute_ir_transform_pipeline_new();
 
 Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline, Module module);
 
+size_t luisa_compute_ir_type_size(const CArc<Type> *ty);
+
 } // extern "C"
 
 } // namespace luisa::compute::ir

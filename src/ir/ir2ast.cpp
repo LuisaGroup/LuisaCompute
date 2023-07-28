@@ -305,6 +305,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 return detail::ir2ast_convert_committed_hit(
                     _ctx->function_builder.get(), type, ret);
             }
+            if (call_op == CallOp::BINDLESS_BUFFER_SIZE) {
+                converted_args.emplace_back(_ctx->function_builder->literal(Type::of<uint>(), type->size()));
+            }
             auto ret = _ctx->function_builder->call(
                 type, call_op, luisa::span{converted_args});
             return ret;

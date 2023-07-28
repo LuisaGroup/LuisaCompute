@@ -2014,7 +2014,10 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
     }
     CBoxedSlice::new(usage)
 }
-
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_type_size(ty: &CArc<Type>) -> usize {
+    ty.size()
+}
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
     new_node(&pools, node)
