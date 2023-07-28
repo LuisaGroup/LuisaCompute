@@ -104,6 +104,7 @@ public:
     }
 
     template<typename T>
+        requires(!requires { typename Expr<T>::is_binding_group; })
     ShaderInvokeBase &operator<<(T data) noexcept {
         _encoder.encode_uniform(&data, sizeof(T));
         return *this;
