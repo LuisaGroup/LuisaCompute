@@ -280,6 +280,7 @@ struct Kernel3D<void(Args...)> : LUISA_KERNEL_BASE(3);
 #undef LUISA_KERNEL_BASE
 
 namespace detail {
+
 /// Callable invoke
 class CallableInvoke {
     friend class ExternalCallableInvoke;
@@ -310,7 +311,9 @@ public:
     decltype(auto) operator<<(Ref<T> arg) noexcept {
         return (*this << Expr{arg});
     }
-    [[nodiscard]] auto args() const noexcept { return luisa::span{_args.data(), _arg_count}; }
+    [[nodiscard]] auto args() const noexcept {
+        return luisa::span{_args.data(), _arg_count};
+    }
 };
 
 }// namespace detail

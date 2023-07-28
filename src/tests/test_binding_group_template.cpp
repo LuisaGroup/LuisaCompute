@@ -9,39 +9,45 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Arguments {
-    Image<float> image;
+template<class T>
+struct TArguments {
+    Image<T> image;
     uint2 resolution;
 };
-
-struct ArgumentsView {
-    ImageView<float> image;
+template<class T>
+struct TArgumentsView {
+    ImageView<T> image;
     uint2 resolution;
 };
-
-struct NestedArguments {
-    ArgumentsView args;
-    Image<float> image;
+template<class T>
+struct TNestedArguments {
+    TArgumentsView<T> args;
+    Image<T> image;
 };
 
-LUISA_BINDING_GROUP(Arguments, image, resolution) {
+#define TEMPLATE_T()  \
+    template<class T> \
+        requires is_legal_image_element<T>
+
+LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArguments<T>, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
-        image->write(coord, color);
+        this->image->write(coord, color);
     }
 };
-
-LUISA_BINDING_GROUP(ArgumentsView, image, resolution) {
+LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TArgumentsView<T>, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
-        image->write(coord, color);
+        this->image->write(coord, color);
     }
 };
-
-LUISA_BINDING_GROUP(NestedArguments, args, image) {
+LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE_T, TNestedArguments<T>, args, image) {
     void blit(const UInt2 &coord) noexcept {
-        auto color = args.image.read(coord).xyz();
-        image->write(coord, make_float4(1.f - color, 1.f));
+        auto color = this->args.image.read(coord).xyz();
+        this->image->write(coord, make_float4(1.f - color, 1.f));
     }
 };
+using Arguments = TArguments<float>;
+using ArgumentsView = TArgumentsView<float>;
+using NestedArguments = TNestedArguments<float>;
 
 int main(int argc, char *argv[]) {
 

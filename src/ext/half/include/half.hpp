@@ -2115,11 +2115,11 @@ namespace half_float
 		/// Conversion constructor.
 		/// \param rhs float to convert
 		/// \exception FE_OVERFLOW, ...UNDERFLOW, ...INEXACT according to rounding
-		explicit half(float rhs) : data_(static_cast<detail::uint16>(detail::float2half<round_style>(rhs))) {}
+        explicit half(float rhs) : data_(static_cast<detail::uint16>(detail::float2half<round_style>(rhs))) {}
 	
 		/// Conversion to single-precision.
 		/// \return single precision value representing expression value
-		operator float() const { return detail::half2float<float>(data_); }
+        operator float() const { return detail::half2float<float>(data_); }
 
 		/// Assignment operator.
 		/// \param rhs single-precision value to copy from
@@ -2482,9 +2482,11 @@ namespace std
     // Well done, MSVC.
     template<> inline constexpr auto is_floating_point_v<half_float::half> = true;
     template<> inline constexpr auto is_arithmetic_v<half_float::half> = true;
+    template<> inline constexpr auto is_signed_v<half_float::half> = true;
 #endif
     template<> struct is_floating_point<half_float::half> : std::true_type {};
     template<> struct is_arithmetic<half_float::half> : std::true_type {};
+    template<> struct is_signed<half_float::half> : std::true_type {};
 #endif
 
 }
