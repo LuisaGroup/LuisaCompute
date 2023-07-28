@@ -283,7 +283,6 @@ namespace detail {
 
 /// Callable invoke
 class CallableInvoke {
-    friend class ExternalCallableInvoke;
 
 public:
     static constexpr auto max_argument_count = 64u;

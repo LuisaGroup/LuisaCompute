@@ -176,6 +176,11 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
     }
 };
 
+template<typename T>
+struct shader_argument_encode_count {
+    static constexpr uint value = 1u;
+};
+
 }// namespace detail
 
 template<size_t dimension, typename... Args>
@@ -186,20 +191,16 @@ class Shader final : public Resource {
 private:
     friend class Device;
     uint _block_size[3];
-    uint _argument_count{};
     size_t _uniform_size{};
 
 private:
     // base ctor
     Shader(DeviceInterface *device,
            const ShaderCreationInfo &info,
-           uint argument_count,
            size_t uniform_size) noexcept
         : Resource{device, Tag::SHADER, info},
           _block_size{info.block_size.x, info.block_size.y, info.block_size.z},
-          _argument_count{argument_count},
-          _uniform_size{uniform_size} {
-    }
+          _uniform_size{uniform_size} {}
 
 private:
     // JIT shader
@@ -207,7 +208,6 @@ private:
            Function kernel,
            const ShaderOption &option) noexcept
         : Shader{device, device->create_shader(option, kernel),
-                 static_cast<uint>(kernel.unbound_arguments().size()),
                  ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
 
 #ifdef LUISA_ENABLE_IR
@@ -222,7 +222,6 @@ private:
     Shader(DeviceInterface *device, string_view file_path) noexcept
         : Shader{device,
                  device->load_shader(file_path, detail::shader_argument_types<Args...>()),
-                 static_cast<uint>(sizeof...(Args)),// TODO: support binding group?
                  ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>())} {}
 
 public:
@@ -242,7 +241,8 @@ public:
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         _check_is_valid();
         using invoke_type = detail::ShaderInvoke<dimension>;
-        invoke_type invoke{handle(), _argument_count, _uniform_size};
+        auto arg_count = (0u + ... + detail::shader_argument_encode_count<Args>::value);
+        invoke_type invoke{handle(), arg_count, _uniform_size};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept {
