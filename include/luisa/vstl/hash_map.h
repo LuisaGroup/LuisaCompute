@@ -584,24 +584,6 @@ public:
 
     template<typename Key, typename... ARGS>
         requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
-    Index emplace(Key &&key, ARGS &&...args) {
-        TryResize();
-
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, mCapacity);
-        auto nodeVec = nodeArray + mCapacity;
-
-        Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
-        auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        //Add create
-        if (insertResult.second) {
-            GetNewLinkNode(hashOriginValue, insertResult.first);
-        }
-        return Index(this, insertResult.first);
-    }
-
-    template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     std::pair<Index, bool> try_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -616,6 +598,12 @@ public:
             GetNewLinkNode(hashOriginValue, insertResult.first);
         }
         return {Index(this, insertResult.first), insertResult.second};
+    }
+
+    template<typename Key, typename... ARGS>
+        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+    Index emplace(Key &&key, ARGS &&...args) {
+        return try_emplace(std::forward<Key>(key), std::forward<ARGS>(args)...).first;
     }
 
     void reserve(size_t capacity) noexcept {

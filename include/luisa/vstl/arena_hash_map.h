@@ -13,7 +13,7 @@ public:
     using LinkNode = typename Map::Node;
     using NodePair = typename Map::ConstElement;
     using MoveNodePair = typename Map::Element;
-
+    static_assert(alignof(LinkNode) >= alignof(Map));
 private:
     struct PseudoPool {
         Arena arena;
@@ -126,7 +126,9 @@ public:
 
 private:
     PseudoPool pool;
-    Map *nodeVec;
+    Map *GetNodeVec() const {
+        return reinterpret_cast<Map *>(pool.elements + mCapacity);
+    }
     size_t mCapacity;
 
     inline static const Hash hsFunc;
@@ -145,9 +147,11 @@ private:
     }
     void Resize(size_t newCapacity) noexcept {
         if (mCapacity >= newCapacity) return;
-        LinkNode *newElements = reinterpret_cast<LinkNode *>(pool.allocate(sizeof(LinkNode) * newCapacity));
-        nodeVec = reinterpret_cast<Map *>(pool.allocate(sizeof(Map) * newCapacity));
+        LinkNode *newElements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * newCapacity));
         memcpy(newElements, pool.elements, sizeof(LinkNode) * pool.mSize);
+        pool.elements = newElements;
+        mCapacity = newCapacity;
+        auto nodeVec = GetNodeVec();
         memset(nodeVec, 0, sizeof(Map) * newCapacity);
         for (auto &node : ptr_range(newElements, pool.mSize)) {
             size_t hashValue = node.hashValue;
@@ -155,8 +159,6 @@ private:
             Map *targetTree = nodeVec + hashValue;
             targetTree->weak_insert(pool, &node);
         }
-        pool.elements = newElements;
-        mCapacity = newCapacity;
     }
     static Index EmptyIndex() noexcept {
         return Index(nullptr, nullptr);
@@ -186,15 +188,14 @@ public:
     ArenaHashMap(size_t capacity, Arena &&arena) noexcept : pool(std::move(arena)) {
         if (capacity < 2) capacity = 2;
         capacity = GetPow2Size(capacity);
-        pool.elements = reinterpret_cast<LinkNode *>(this->pool.allocate(sizeof(LinkNode) * capacity));
-        nodeVec = reinterpret_cast<Map *>(this->pool.allocate(sizeof(Map) * capacity));
-        memset(nodeVec, 0, capacity * sizeof(Map));
+        pool.elements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * capacity));
         mCapacity = capacity;
+        auto nodeVec = GetNodeVec();
+        memset(nodeVec, 0, capacity * sizeof(Map));
         pool.mSize = 0;
     }
     ArenaHashMap(ArenaHashMap &&map)
         : pool(std::move(map.pool)),
-          nodeVec(map.nodeVec),
           mCapacity(map.mCapacity) {
         map.elements = nullptr;
         map.nodeVec = nullptr;
@@ -214,26 +215,9 @@ public:
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
-
+        auto nodeVec = GetNodeVec();
         Map *map = nodeVec + hashValue;
         auto insertResult = map->insert_or_assign(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        //Add create
-        if (insertResult.second) {
-            GetNewLinkNode(hashOriginValue, insertResult.first);
-        }
-        return Index(this, insertResult.first);
-    }
-
-    template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
-    Index emplace(Key &&key, ARGS &&...args) {
-        TryResize();
-
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, mCapacity);
-
-        Map *map = nodeVec + hashValue;
-        auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
         //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
@@ -248,14 +232,19 @@ public:
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
-
-        Map *map = nodeVec + hashValue;
+        Map *map = GetNodeVec() + hashValue;
         auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
         //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
         }
         return {Index(this, insertResult.first), insertResult.second};
+    }
+
+    template<typename Key, typename... ARGS>
+        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+    Index emplace(Key &&key, ARGS &&...args) {
+        return try_emplace(std::forward<Key>(key), std::forward<ARGS>(args)...).first;
     }
 
     void reserve(size_t capacity) noexcept {
@@ -266,7 +255,7 @@ public:
     Index find(Key &&key) const noexcept {
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
-        Map *map = nodeVec + hashValue;
+        Map *map = GetNodeVec() + hashValue;
         auto node = map->find(std::forward<Key>(key));
         if (node)
             return {this, node};
