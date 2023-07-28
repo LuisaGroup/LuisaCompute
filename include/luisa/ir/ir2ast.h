@@ -54,7 +54,6 @@ private:
 
     IR2ASTContext *_ctx;
     luisa::unordered_map<const ir::CallableModule *, luisa::shared_ptr<detail::FunctionBuilder>> _converted_callables;
-    luisa::unordered_map<uint64_t, luisa::shared_ptr<detail::FunctionBuilder>> _unique_callables;
 
     [[nodiscard]] static const Type *_convert_primitive_type(const ir::Primitive &type) noexcept;
     [[nodiscard]] static const Type *_convert_type(const ir::Type *type) noexcept;

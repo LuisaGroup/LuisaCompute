@@ -549,25 +549,27 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     if (in_iter != args.end()) [[unlikely]] {
         luisa::string expected_args{"("};
         for (auto a : f->_arguments) {
-            expected_args.append(a.type()->description()).append(", ");
+            expected_args.append("\n    ").append(a.type()->description()).append(",");
         }
         if (!f->_arguments.empty()) {
             expected_args.pop_back();
-            expected_args.pop_back();
+            expected_args.append("\n");
+
         }
         expected_args.append(")");
         luisa::string received_args{"("};
         for (auto a : args) {
-            received_args.append(a->type()->description()).append(", ");
+            received_args.append("\n    ").append(a->type()->description()).append(",");
         }
         if (!args.empty()) {
             received_args.pop_back();
-            received_args.pop_back();
+            received_args.append("\n");
         }
         received_args.append(")");
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid call arguments for custom callable #{:016x}. "
-            "Expected {}, but received {}.",
+            "Invalid call arguments for custom callable #{:016x}.\n"
+            "Expected: {},\n"
+            "Received: {}.",
             custom.hash(), expected_args, received_args);
     }
     auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));

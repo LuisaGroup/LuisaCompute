@@ -48,7 +48,6 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
         }
         node_ref = node->next;
     }
-
     if (auto iter = _ctx->block_to_phis.find(block);
         iter != _ctx->block_to_phis.end()) {
         for (auto phi : iter->second) {
@@ -70,7 +69,7 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
 
     auto expr = [&, index = _ctx->node_to_exprs.size()]() -> const Expression * {
         switch (node->instruction->tag) {
-            case ir::Instruction::Tag::Buffer: return _ctx->function_builder->buffer(type);
+            case ir::Instruction::Tag::Buffer: return _ctx->function_builder->buffer(Type::buffer(type));
             case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
             case ir::Instruction::Tag::Texture2D: [[fallthrough]];
             case ir::Instruction::Tag::Texture3D: {
@@ -1271,6 +1270,10 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 }
 
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_kernel(const ir::KernelModule *kernel) noexcept {
+
+    LUISA_VERBOSE("IR2AST: converting kernel (ptr = {}).",
+                  (void *)(kernel));
+
     IR2ASTContext ctx{
         .module = kernel->module,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::KERNEL)};
@@ -1312,6 +1315,8 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         });
         _ctx = old_ctx;
     }
+    LUISA_VERBOSE("IR2AST: converted kernel (ptr = {}, hash = {:016x}).",
+                  (void *)(kernel), ctx.function_builder->hash());
     return ctx.function_builder;
 }
 
@@ -1320,9 +1325,12 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         iter != _converted_callables.end()) {
         return iter->second;
     }
+    LUISA_VERBOSE("IR2AST: converting callable (ptr = {}).",
+                  (void *)(callable), callable->captures.len);
     IR2ASTContext ctx{
         .module = callable->module,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE)};
+    _converted_callables.emplace(callable, ctx.function_builder);
 
     // do the conversion
     {
@@ -1330,6 +1338,12 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         _ctx = &ctx;
         detail::FunctionBuilder::FunctionStackGuard guard{_ctx->function_builder.get()};
         _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+            for (auto i = 0; i < callable->captures.len; i++) {
+                auto captured = callable->captures.ptr[i];
+                auto node = ir::luisa_compute_ir_node_get(captured.node);
+                auto binding = _convert_captured(captured);
+                _ctx->node_to_exprs.emplace(node, binding);
+            }
             for (auto i = 0; i < callable->args.len; i++) {
                 auto arg = ir::luisa_compute_ir_node_get(callable->args.ptr[i]);
                 _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
@@ -1339,18 +1353,13 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             _process_local_declarations(entry);
             _convert_block(entry);
         });
-        if (ctx.function_builder->function().tag() != Function::Tag::CALLABLE) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Calling non-callable function in device code.");
-        }
         _ctx = old_ctx;
     }
     auto callable_hash = ctx.function_builder->hash();
-    LUISA_INFO("Converted callable (ptr = {}, hash = {:016x}).",
-               (void *)(callable), callable_hash);
-    auto shared_callable = _unique_callables.try_emplace(callable_hash, std::move(ctx.function_builder)).first->second;
-    _converted_callables.emplace(callable, shared_callable);
-    return shared_callable;
+    LUISA_VERBOSE("IR2AST: converted callable (ptr = {}, hash = {:016x}).",
+                  (void *)(callable), callable_hash,
+                  ctx.function_builder->arguments().size());
+    return std::move(ctx.function_builder);
 }
 
 const Type *IR2AST::get_type(const ir::Type *type) noexcept {
