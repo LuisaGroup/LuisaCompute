@@ -18,7 +18,7 @@
     invoke << s.m;
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_ENCODE_COUNT(m) \
-    +shader_argument_encode_count<member_type_##m>::value
+    (shader_argument_encode_count<member_type_##m>::value) +
 
 #define LUISA_BINDING_GROUP_TEMPLATE_IMPL(TEMPLATE, TEMPLATE2, S, ...)                  \
     LUISA_MACRO_EVAL(TEMPLATE())                                                        \
@@ -61,11 +61,12 @@
         using this_type = S;                                                            \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
         static constexpr uint value =                                                   \
-            0u + LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_ENCODE_COUNT, __VA_ARGS__);  \
+            LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_ENCODE_COUNT, __VA_ARGS__)        \
+        0u;                                                                             \
     };                                                                                  \
     LUISA_MACRO_EVAL(TEMPLATE2())                                                       \
     void callable_encode_binding_group(CallableInvoke &invoke, Expr<S> s) noexcept {    \
-        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__);                        \
+        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__)                         \
     }                                                                                   \
     LUISA_MACRO_EVAL(TEMPLATE2())                                                       \
     ShaderInvokeBase &operator<<(ShaderInvokeBase &invoke, const S &s) noexcept {       \
