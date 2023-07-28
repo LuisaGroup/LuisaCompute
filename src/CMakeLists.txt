@@ -7,7 +7,7 @@ if (WIN32)
             WIN32_LEAN_AND_MEAN=1)
     set(CMAKE_SHARED_MODULE_PREFIX "") # for MinGW/Cygwin etc.
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        add_compile_options(/wd4005)
+        add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/wd4005>)
     endif ()
 endif ()
 
@@ -23,12 +23,12 @@ add_subdirectory(ext)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(luisa-compute-include INTERFACE
-            /wd4068 # Maxwell loves custom pragmas
-            /wd5105 # winbase.h: macro expansion producing 'defined' has undefined behavior
+            $<$<COMPILE_LANGUAGE:C,CXX>:/wd4068> # Maxwell loves custom pragmas
+            $<$<COMPILE_LANGUAGE:C,CXX>:/wd5105> # winbase.h: macro expansion producing 'defined' has undefined behavior
             /Zc:preprocessor
             /Zc:__cplusplus)
 elseif (MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(luisa-compute-include INTERFACE /EHsc)
+    target_compile_options(luisa-compute-include INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:/EHsc>)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
             -Wno-invalid-offsetof
