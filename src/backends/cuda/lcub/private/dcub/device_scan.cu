@@ -2,9 +2,8 @@
 #include "device_scan.h"
 #include "dcub_utils.cuh"
 #include <cub/device/device_scan.cuh>
- namespace luisa { namespace compute { namespace cuda { namespace dcub {
- }}}}// namespace luisa::compute::cuda::dcub
- namespace dcub{
+
+namespace luisa::compute::cuda::dcub{
 // DOC:  https://nvlabs.github.io/cub/structcub_1_1_device_scan.html
 cudaError_t DeviceScan::ExclusiveSum(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_in, int32_t*  d_out, int  num_items, cudaStream_t stream, bool debug_synchronous)
 {

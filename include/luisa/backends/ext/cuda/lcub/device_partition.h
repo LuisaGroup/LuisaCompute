@@ -10,8 +10,8 @@ class LC_BACKEND_API DevicePartition {
     template<typename T>
     using BufferView = luisa::compute::BufferView<T>;
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
-
 public:
+
     static void Flagged(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_flags, BufferView<int32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
     static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_flags, BufferView<int32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
 

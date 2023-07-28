@@ -10,8 +10,8 @@ class LC_BACKEND_API DeviceSpmv {
     template<typename T>
     using BufferView = luisa::compute::BufferView<T>;
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
-
 public:
+
     static void CsrMV(size_t &temp_storage_size, BufferView<int32_t> d_values, BufferView<int> d_row_offsets, BufferView<int> d_column_indices, BufferView<int32_t> d_vector_x, BufferView<int32_t> d_vector_y, int num_rows, int num_cols, int num_nonzeros) noexcept;
     static UCommand CsrMV(BufferView<int> d_temp_storage, BufferView<int32_t> d_values, BufferView<int> d_row_offsets, BufferView<int> d_column_indices, BufferView<int32_t> d_vector_x, BufferView<int32_t> d_vector_y, int num_rows, int num_cols, int num_nonzeros) noexcept;
 

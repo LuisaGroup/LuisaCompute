@@ -10,8 +10,8 @@ class LC_BACKEND_API DeviceRadixSort {
     template<typename T>
     using BufferView = luisa::compute::BufferView<T>;
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
-
 public:
+
     static void SortPairs(size_t &temp_storage_size, BufferView<int32_t> d_keys_in, BufferView<int32_t> d_keys_out, BufferView<int32_t> d_values_in, BufferView<int32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8) noexcept;
     static UCommand SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t> d_keys_in, BufferView<int32_t> d_keys_out, BufferView<int32_t> d_values_in, BufferView<int32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8) noexcept;
 

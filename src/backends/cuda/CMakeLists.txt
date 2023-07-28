@@ -34,13 +34,19 @@ if (CUDAToolkit_FOUND)
             default_binary_io.cpp
             string_scratch.cpp)
 
-    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+    
 
     if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
         add_subdirectory("lcub")
         file(GLOB LCUB_SOURCES "lcub/*.cpp")
         list(APPEND LUISA_COMPUTE_CUDA_SOURCES ${LCUB_SOURCES})
+    endif()
+
+    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+
+    if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cuda-dcub)
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE "-DLC_BACKEND_EXPORT_DLL=1")
     endif()
 
     target_link_libraries(luisa-compute-backend-cuda PRIVATE

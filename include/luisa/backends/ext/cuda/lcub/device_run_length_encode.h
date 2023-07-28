@@ -10,8 +10,8 @@ class LC_BACKEND_API DeviceRunLengthEncode {
     template<typename T>
     using BufferView = luisa::compute::BufferView<T>;
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
-
 public:
+
     static void Encode(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_unique_out, BufferView<int32_t> d_counts_out, BufferView<int32_t> d_num_runs_out, int num_items) noexcept;
     static UCommand Encode(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_unique_out, BufferView<int32_t> d_counts_out, BufferView<int32_t> d_num_runs_out, int num_items) noexcept;
 

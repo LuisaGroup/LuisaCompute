@@ -2,10 +2,8 @@
 #pragma once
 
 #include <luisa/backends/ext/cuda/lcub/dcub/dcub_common.h>
-namespace luisa { namespace compute { namespace cuda { namespace dcub {
-}}}}
 
-namespace dcub {
+namespace luisa::compute::cuda::dcub {
 
 class DCUB_API DeviceScan {
     // DOC:  https://nvlabs.github.io/cub/structcub_1_1_device_scan.html

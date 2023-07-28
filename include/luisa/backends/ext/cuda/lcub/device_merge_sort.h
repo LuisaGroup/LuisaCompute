@@ -10,8 +10,8 @@ class LC_BACKEND_API DeviceMergeSort {
     template<typename T>
     using BufferView = luisa::compute::BufferView<T>;
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
-
 public:
+
     static void SortPairs(size_t &temp_storage_size, BufferView<int32_t> d_keys, BufferView<int32_t> d_items, int num_items, dcub::BinaryOperator compare_op = dcub::BinaryOperator::Max) noexcept;
     static UCommand SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t> d_keys, BufferView<int32_t> d_items, int num_items, dcub::BinaryOperator compare_op = dcub::BinaryOperator::Max) noexcept;
 

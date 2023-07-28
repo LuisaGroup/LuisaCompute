@@ -10,8 +10,8 @@ class LC_BACKEND_API DeviceReduce {
     template<typename T>
     using BufferView = luisa::compute::BufferView<T>;
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
-
 public:
+
     static void Sum(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_out, int num_items) noexcept;
     static UCommand Sum(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_out, int num_items) noexcept;
 

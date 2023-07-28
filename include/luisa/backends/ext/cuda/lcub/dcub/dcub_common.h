@@ -13,4 +13,5 @@
 #include <cuda_runtime_api.h>
 #include "dcub_utils.h"
 
-namespace luisa{namespace compute{namespace cuda{namespace dcub{}}}}
+// c++17 workaround
+namespace luisa { namespace compute { namespace cuda { namespace dcub {}}}}
