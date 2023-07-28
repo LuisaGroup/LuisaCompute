@@ -422,10 +422,7 @@ impl KernelSerializer {
             Func::BindlessTexture2dSizeLevel => SerializedFunc::BindlessTexture2dSizeLevel,
             Func::BindlessTexture3dSizeLevel => SerializedFunc::BindlessTexture3dSizeLevel,
             Func::BindlessBufferRead => SerializedFunc::BindlessBufferRead,
-            Func::BindlessBufferSize(ty) => {
-                let ty = self.serialize_type(ty);
-                SerializedFunc::BindlessBufferSize(ty)
-            }
+            Func::BindlessBufferSize => SerializedFunc::BindlessBufferSize,
             Func::BindlessBufferType => SerializedFunc::BindlessBufferType,
             Func::Vec => SerializedFunc::Vec,
             Func::Vec2 => SerializedFunc::Vec2,

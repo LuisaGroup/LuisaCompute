@@ -305,9 +305,6 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 return detail::ir2ast_convert_committed_hit(
                     _ctx->function_builder.get(), type, ret);
             }
-            if (call_op == CallOp::BINDLESS_BUFFER_SIZE) {
-                converted_args.emplace_back(_ctx->function_builder->literal(Type::of<uint>(), type->size()));
-            }
             auto ret = _ctx->function_builder->call(
                 type, call_op, luisa::span{converted_args});
             return ret;
@@ -634,7 +631,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture2dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessBufferRead: return builtin_func(3, CallOp::BINDLESS_BUFFER_READ);
-        case ir::Func::Tag::BindlessBufferSize: return builtin_func(2, CallOp::BINDLESS_BUFFER_SIZE);
+        case ir::Func::Tag::BindlessBufferSize: return builtin_func(3, CallOp::BINDLESS_BUFFER_SIZE);
         case ir::Func::Tag::BindlessBufferType: return builtin_func(2, CallOp::BINDLESS_BUFFER_TYPE);
         case ir::Func::Tag::Vec: return make_vector(1);
         case ir::Func::Tag::Vec2: return make_vector(2);

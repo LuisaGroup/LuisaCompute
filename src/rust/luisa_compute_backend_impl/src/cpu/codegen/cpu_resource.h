@@ -141,10 +141,10 @@ inline T lc_bindless_buffer_read(const KernelFnArgs *k_args, const BindlessArray
     return lc_buffer_read<T>(k_args, buf, element);
 }
 
-template<class T>
-inline size_t lc_bindless_buffer_size(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index) noexcept {
+
+inline size_t lc_bindless_buffer_size(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index, size_t stride) noexcept {
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
-    return lc_buffer_size<T>(k_args, buf);
+    return buf.size / stride;
 }
 
 template<class T>
