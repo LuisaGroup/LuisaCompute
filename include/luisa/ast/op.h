@@ -195,7 +195,7 @@ enum struct CallOp : uint32_t {
 
     BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
     BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
-    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint) -> size
+    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint, stride: uint) -> size
     BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> type
 
     MAKE_BOOL2, // (bool, bool2)

@@ -544,6 +544,10 @@ template<typename T>
     return array.items[buffer_index].buffer_size / sizeof(T);
 }
 
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(LCBindlessArray array, uint buffer_index, uint stride) {
+    return array.items[buffer_index].buffer_size / stride;
+}
+
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(LCBindlessArray array, uint buffer_index, uint i) {
     return static_cast<device const T *>(array.items[buffer_index].buffer)[i];

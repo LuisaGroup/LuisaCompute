@@ -888,12 +888,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BUFFER_SIZE: {
-            _scratch << "lc_bindless_buffer_size<";
-            _emit_type_name(expr->type());
-            _scratch << ">";
-            break;
-        }
+        case CallOp::BINDLESS_BUFFER_SIZE: _scratch << "lc_bindless_buffer_size"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
     case CallOp::MAKE_##tag##2: _scratch << "lc_make_" << #type "2"; break; \

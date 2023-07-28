@@ -1040,6 +1040,11 @@ template<typename T = unsigned char>
     return array.slots[index].buffer_size / sizeof(T);
 }
 
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_size(LCBindlessArray array, lc_uint index, lc_uint stride) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return array.slots[index].buffer_size / stride;
+}
+
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
     lc_assume(__isGlobal(array.slots));

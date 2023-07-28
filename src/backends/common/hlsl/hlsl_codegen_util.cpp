@@ -789,8 +789,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 i->accept(vis);
                 str << ',';
             }
-            vstd::to_string(expr->type()->size(), str);
-            str << ",bdls)"sv;
+            str << "bdls)"sv;
             return;
         }
         case CallOp::BINDLESS_BUFFER_READ: {
