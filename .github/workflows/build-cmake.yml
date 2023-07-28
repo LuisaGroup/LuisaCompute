@@ -42,10 +42,6 @@ jobs:
           sudo dpkg -i cuda-keyring_1.0-1_all.deb
           sudo apt-get update
           sudo apt-get -y install cuda
-      - name: "Setup Python"
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python }}
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
