@@ -12,3 +12,5 @@
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
 #include "dcub_utils.h"
+
+namespace luisa{namespace compute{namespace cuda{namespace dcub{}}}}

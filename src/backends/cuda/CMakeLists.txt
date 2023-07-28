@@ -37,6 +37,8 @@ if (CUDAToolkit_FOUND)
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h)
     
+    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+
     if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
         add_subdirectory("lcub")
         file(GLOB LCUB_SOURCES "lcub/*.cpp")
@@ -44,7 +46,6 @@ if (CUDAToolkit_FOUND)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cuda-dcub)
     endif()
 
-    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain)

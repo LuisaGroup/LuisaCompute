@@ -1,4 +1,5 @@
 find_package(CUDAToolkit REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
 enable_language(CUDA CXX)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
@@ -6,12 +7,18 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 add_library(cuda-dcub SHARED)
+
 target_compile_definitions(cuda-dcub PRIVATE "-DDCUB_DLL_EXPORTS")
-target_compile_features(cuda-dcub PRIVATE cxx_std_17)
+# target_compile_features(cuda-dcub PRIVATE cxx_std_17)
 
 file(GLOB_RECURSE DCUB_SOURCES "private/dcub/*.cu")
 target_sources(cuda-dcub PRIVATE ${DCUB_SOURCES})
 
 target_link_libraries(cuda-dcub PRIVATE CUDA::cudart)
-target_include_directories(cuda-dcub PRIVATE "${PROJECT_SOURCE_DIR}/include") # -> LuisaCompute/include
-
+target_include_directories(cuda-dcub PRIVATE "${CMAKE_SOURCE_DIR}/include") # -> LuisaCompute/include
+# add_compile_options(
+#     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+#     $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>
+#     $<$<COMPILE_LANGUAGE:CUDA>:-rdc=true>
+#     $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_75,code=sm_75>
+# )
