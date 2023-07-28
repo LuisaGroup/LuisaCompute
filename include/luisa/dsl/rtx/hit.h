@@ -12,7 +12,6 @@ namespace luisa::compute {
 [[nodiscard]] LC_DSL_API Var<float4> interpolate(Expr<float2> bary, Expr<float4> a, Expr<float4> b, Expr<float4> c) noexcept;
 }// namespace luisa::compute
 
-// clang-format off
 LUISA_STRUCT(luisa::compute::CommittedHit, inst, prim, bary, hit_type, committed_ray_t) {
     [[nodiscard]] auto miss() const noexcept {
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Miss);
@@ -24,30 +23,19 @@ LUISA_STRUCT(luisa::compute::CommittedHit, inst, prim, bary, hit_type, committed
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Procedural);
     }
     template<typename A, typename B, typename C>
-    [[nodiscard]] auto interpolate(A &&a, B &&b, C &&c) const noexcept {
-        return luisa::compute::interpolate(
-            this->bary,
-            std::forward<A>(a),
-            std::forward<B>(b),
-            std::forward<C>(c));
+    [[nodiscard]] auto interpolate(const A &a, const B &b, const C &c) const noexcept {
+        return luisa::compute::interpolate(this->bary, a, b, c);
     }
 };
+
 LUISA_STRUCT(luisa::compute::TriangleHit, inst, prim, bary, committed_ray_t) {
     [[nodiscard]] auto miss() const noexcept {
         return inst == std::numeric_limits<uint32_t>::max();
     }
-    [[nodiscard]] auto hitted() const noexcept {
-        return inst != std::numeric_limits<uint32_t>::max();
-    }
     template<typename A, typename B, typename C>
-    [[nodiscard]] auto interpolate(A &&a, B &&b, C &&c) const noexcept {
-        return luisa::compute::interpolate(
-            this->bary,
-            std::forward<A>(a),
-            std::forward<B>(b),
-            std::forward<C>(c));
+    [[nodiscard]] auto interpolate(const A &a, const B &b, const C &c) const noexcept {
+        return luisa::compute::interpolate(this->bary, a, b, c);
     }
 };
-LUISA_STRUCT(luisa::compute::ProceduralHit, inst, prim){};
-// clang-format on
 
+LUISA_STRUCT(luisa::compute::ProceduralHit, inst, prim) {};

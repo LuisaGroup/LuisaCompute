@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/13/2023.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/core/binary_file_stream.h>
 
@@ -33,7 +29,7 @@ BinaryFileStream::BinaryFileStream(const luisa::string &path) noexcept {
     if (_file) {
         _length = seek_len(_file);
     } else {
-        LUISA_INFO("Read file {} failed.", path);
+        LUISA_VERBOSE("Read file {} failed.", path);
     }
 }
 

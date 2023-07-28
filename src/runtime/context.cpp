@@ -1,8 +1,3 @@
-#include "pch.h"
-//
-// Created by Mike Smith on 2021/2/2.
-//
-
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
@@ -93,7 +88,7 @@ public:
                     if (filename.starts_with(prefix)) {
                         auto name = filename.substr(prefix.size());
                         for (auto &c : name) { c = static_cast<char>(std::tolower(c)); }
-                        LUISA_INFO_WITH_LOCATION("Found backend: {}.", name);
+                        LUISA_VERBOSE_WITH_LOCATION("Found backend: {}.", name);
                         installed_backends.emplace_back(std::move(name));
                         break;
                     }

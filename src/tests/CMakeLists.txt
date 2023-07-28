@@ -16,6 +16,7 @@ luisa_compute_add_test(buffer_io)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_executable(test_autodiff test_autodiff.cpp)
+    luisa_compute_add_executable(test_autodiff_full test_autodiff_full.cpp)
     luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
     luisa_compute_add_executable(test_ast2ir_headless test_ast2ir_headless.cpp)
     luisa_compute_add_executable(test_ast2ir_ir2ast test_ast2ir_ir2ast.cpp)
@@ -59,6 +60,10 @@ luisa_compute_add_executable(test_select_device test_select_device.cpp)
 luisa_compute_add_executable(test_sparse_texture test_sparse_texture.cpp)
 luisa_compute_add_executable(test_raytracing_weekend test_raytracing_weekend/main.cpp)
 luisa_compute_add_executable(test_dml test_dml.cpp)
+
+if (LUISA_COMPUTE_ENABLE_OSL)
+    luisa_compute_add_executable(test_oso_parser test_oso_parser.cpp)
+endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_swapchain test_swapchain.cpp)

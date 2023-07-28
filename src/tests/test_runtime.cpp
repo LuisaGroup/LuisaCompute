@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/27.
-//
-
 #include <numeric>
 
 #include <luisa/core/clock.h>
@@ -28,7 +24,7 @@ int main(int argc, char *argv[]) {
 
     Buffer<float> buffer;
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     DeviceConfig device_config{

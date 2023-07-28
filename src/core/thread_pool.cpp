@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/12/23.
-//
-
 #include <version>
 #include <sstream>
 #include <thread>

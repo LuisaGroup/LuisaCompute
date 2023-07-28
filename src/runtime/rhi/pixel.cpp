@@ -1,8 +1,3 @@
-#include "../pch.h"
-//
-// Created by Mike Smith on 2023/1/9.
-//
-
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/pixel.h>
 

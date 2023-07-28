@@ -2,6 +2,7 @@ use base64ct::Encoding;
 use luisa_compute_ir::CBoxedSlice;
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
+use half::f16;
 
 use crate::ir::{Primitive, Type, VectorElementType};
 use luisa_compute_ir::ir;
@@ -59,6 +60,12 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                     u64::from_le_bytes([
                         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]
                     ])
+                )
+            }
+            Primitive::Float16 => {
+                format!(
+                    "half({})",
+                    f16::from_le_bytes([data[0], data[1]]).to_f32()
                 )
             }
             Primitive::Float32 => {
@@ -170,6 +177,20 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                             .join(", ")
                     )
                 }
+                Primitive::Float16 => {
+                    format!(
+                        "lc_half{}({})",
+                        len,
+                        data.chunks(2)
+                            .take(len as usize)
+                            .map(|x| format!(
+                                "lc_half({})",
+                                f16::from_le_bytes([x[0], x[1]]).to_f32()
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
                 Primitive::Float32 => {
                     format!(
                         "lc_float{}({})",
@@ -200,20 +221,38 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
             }
         }
         Type::Matrix(mt) => {
-            // let e = match &mt.element {
-            //     VectorElementType::Scalar(p) => {
-            //         *p
-            //     }
-            //     _ => unimplemented!()
-            // };
-            // let dim = mt.dimension;
-            // match e{
-            //     Primitive::Float32=>{
-            //
-            //     }
-            //     _=>{unimplemented!()}
-            // }
-            todo!()
+            let e = match &mt.element {
+                VectorElementType::Scalar(p) => *p,
+                _ => unimplemented!(),
+            };
+            let dim = mt.dimension;
+            match e {
+                Primitive::Float32 => {
+                    format!(
+                        "lc_float{0}x{0}({1})",
+                        dim,
+                        data.chunks(4 * dim as usize)
+                            .take(dim as usize)
+                            .map(|data| format!(
+                                "lc_float{}({})",
+                                dim,
+                                data.chunks(4)
+                                    .take(dim as usize)
+                                    .map(|x| format!(
+                                        "{}",
+                                        f32::from_le_bytes([x[0], x[1], x[2], x[3]])
+                                    ))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+                _ => {
+                    unimplemented!()
+                }
+            }
         }
         Type::Struct(s) => {
             let fields = s.fields.as_ref();

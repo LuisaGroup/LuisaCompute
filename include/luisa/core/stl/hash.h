@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/6.
-//
-
 #pragma once
 
 #include <array>
@@ -9,13 +5,15 @@
 
 #include <luisa/core/stl/hash_fwd.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/basic_traits.h>
 
 namespace luisa {
 
 template<typename T>
     requires std::disjunction_v<std::is_arithmetic<T>,
                                 std::is_pointer<T>,
-                                std::is_enum<T>>
+                                std::is_enum<T>,
+                                std::is_same<T, half>>
 struct hash<T> {
     using is_avalaunching = void;
     [[nodiscard]] constexpr uint64_t operator()(T value, uint64_t seed = hash64_default_seed) const noexcept {
@@ -68,4 +66,3 @@ public:
 };
 
 }// namespace luisa
-

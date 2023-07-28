@@ -1,6 +1,8 @@
 # Generated from CLion C/C++ Code Style settings
 BasedOnStyle: LLVM
 AccessModifierOffset: -4
+EmptyLineBeforeAccessModifier: Leave
+EmptyLineAfterAccessModifier: Leave
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: None
 AlignOperands: Align
@@ -52,7 +54,7 @@ AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakBeforeMultilineStrings: false
 ColumnLimit: 0
 SortIncludes: Never
-SortUsingDeclarations: true
+SortUsingDeclarations: false
 CompactNamespaces: true
 ContinuationIndentWidth: 4
 IndentCaseLabels: true
@@ -73,7 +75,6 @@ SpaceBeforeAssignmentOperators: true
 SpaceBeforeCpp11BracedList: false
 SpaceBeforeCtorInitializerColon: true
 SpaceBeforeInheritanceColon: true
-SpaceBeforeParens: ControlStatements
 SpaceBeforeRangeBasedForLoopColon: true
 SpaceInEmptyParentheses: false
 SpacesBeforeTrailingComments: 0
@@ -89,3 +90,32 @@ SpacesInConditionalStatement: false
 AlignEscapedNewlines: Left
 ReferenceAlignment: Right
 ShortNamespaceLines: 0
+
+# The following options make the DSL macros behave
+#   more like the C++ keywords they correspond to.
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterForeachMacros: false
+  AfterFunctionDeclarationName: false
+  AfterFunctionDefinitionName: false
+  AfterIfMacros: true
+  AfterOverloadedOperator: false
+  BeforeNonEmptyParentheses: false
+
+# This is currently a workaround. Switching to
+#   `Macros` from clangd-17 will be better.
+ForEachMacros:
+  - LUISA_STRUCT
+  - LUISA_BINDING_GROUP
+  - LUISA_BINDING_GROUP_TEMPLATE
+IfMacros:
+  - $if
+  - $elif
+  - $else
+  - $for
+  - $while
+  - $loop
+  - $switch
+  - $case
+  - $default

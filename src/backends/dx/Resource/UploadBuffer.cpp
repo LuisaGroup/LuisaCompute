@@ -1,5 +1,3 @@
-#include "../pch.h"
-
 #include <Resource/UploadBuffer.h>
 namespace lc::dx {
 UploadBuffer::UploadBuffer(

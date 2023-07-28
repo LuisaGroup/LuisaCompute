@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/3/6.
-//
-
 #pragma once
 
 #include <luisa/core/stl/variant.h>

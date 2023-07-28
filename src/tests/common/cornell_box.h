@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/7/27.
-//
-
 #pragma once
 
 static const char *obj_string = R"(

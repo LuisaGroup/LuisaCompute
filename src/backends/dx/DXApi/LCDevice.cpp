@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <filesystem>
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>
@@ -243,7 +242,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     }
     // Clock clk;
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, option.native_include, mask, false);
-    // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
+    // LUISA_VERBOSE("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
@@ -261,7 +260,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         vstd::string_view file_name;
         vstd::string str_cache;
         vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-        CacheType cacheType;
+        CacheType cacheType{};
         if (option.enable_cache) {
             if (option.name.empty()) {
                 str_cache << checkMD5.to_string(false) << ".dxil"sv;
@@ -455,7 +454,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     } else {
         vstd::string_view file_name;
         vstd::string str_cache;
-        CacheType cacheType;
+        CacheType cacheType{};
         if (option.enable_cache) {
             if (option.name.empty()) {
                 str_cache << checkMD5.to_string(false) << ".dxil"sv;
@@ -720,7 +719,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
 #ifdef LUISA_ENABLE_IR
     Clock clk;
     auto function = IR2AST::build(kernel);
-    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
     return create_shader(option, function->function());
 #else
     LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/5/3.
-//
-
 #pragma once
 
 #include <luisa/dsl/expr_traits.h>

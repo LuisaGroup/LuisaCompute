@@ -43,6 +43,9 @@ pub(super) fn clang_args() -> Vec<&'static str> {
             }
         }
         Err(_) => {
+            if cfg!(debug_assertions) {
+                args.push("-DLUISA_DEBUG");
+            }
             args.push("-O3");
         }
     }

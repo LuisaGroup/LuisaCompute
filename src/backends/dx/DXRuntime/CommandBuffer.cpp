@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/Device.h>

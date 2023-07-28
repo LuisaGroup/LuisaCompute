@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include "ext.h"
 #ifdef LCDX_ENABLE_CUDA
 #include <cuda.h>

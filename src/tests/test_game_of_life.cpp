@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/6/25.
-//
-
 #include <iostream>
 #include <random>
 
@@ -30,7 +26,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     Device device = context.create_device(argv[1]);
@@ -52,7 +48,7 @@ int main(int argc, char *argv[]) {
                 if (dx != 0 || dy != 0) {
                     Int2 q = p + make_int2(dx, dy) + make_int2(size);
                     Bool neighbor = read_state(prev, make_uint2(q) % size);
-                    count += neighbor;
+                    count += ite(neighbor, 1, 0);
                 }
             }
         }

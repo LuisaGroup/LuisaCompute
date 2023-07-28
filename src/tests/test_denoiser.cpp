@@ -1,7 +1,3 @@
-//
-// Created by Hercier on 2023/4/6.
-//
-
 #include <iostream>
 
 #include <luisa/core/clock.h>
@@ -36,7 +32,6 @@ struct Onb {
     float3 normal;
 };
 
-// clang-format off
 LUISA_STRUCT(Material, albedo, emission) {};
 
 LUISA_STRUCT(Onb, tangent, binormal, normal) {
@@ -45,7 +40,6 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
-// clang-format on
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -58,10 +52,10 @@ int main(int argc, char *argv[]) {
     //params
     uint optix_examples = 0;//0:cornellbox pathtracing, 1:soane temporal example, 2:aovs example
     //all for online cornell box
-    bool seperate_usage = 1;//check the fullpipeline(denoise) or sperately call functions. the temporal denoise mode can only run when this is true
-    bool temporal = 1;// 1: add camera movement, 0: static camera and accumulate samples
+    bool seperate_usage = 1; //check the fullpipeline(denoise) or sperately call functions. the temporal denoise mode can only run when this is true
+    bool temporal = 1;       // 1: add camera movement, 0: static camera and accumulate samples
     bool flow_validation = 0;// use when temporal on: 1: validation for the flow calculation, 0: normal
-    auto channel_count = 4;//processing buffer channel, for testing.
+    auto channel_count = 4;  //processing buffer channel, for testing.
     // TODO: do not hard code the path
     luisa::string optix_path = "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.4.0";//your optix sdk path, for finding the examples
 
@@ -180,7 +174,7 @@ int main(int argc, char *argv[]) {
         auto state = tea(p.x, p.y);
         seed_image.write(p, make_uint4(state));
     };
-    
+
     Callable lcg = [](UInt &state) noexcept {
         constexpr auto lcg_a = 1664525u;
         constexpr auto lcg_c = 1013904223u;
@@ -240,8 +234,8 @@ int main(int argc, char *argv[]) {
         auto ry = lcg(state);
         auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         auto radiance = def(make_float3(0.0f));
-        $for(i, spp_per_dispatch) {
-            auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f),_origin);
+        $for (i, spp_per_dispatch) {
+            auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f), _origin);
             auto beta = def(make_float3(1.0f));
             auto pdf_bsdf = def(0.0f);
             constexpr auto light_position = make_float3(-0.24f, 1.98f, 0.16f);
@@ -250,11 +244,11 @@ int main(int argc, char *argv[]) {
             constexpr auto light_emission = make_float3(17.0f, 12.0f, 4.0f);
             auto light_area = length(cross(light_u, light_v));
             auto light_normal = normalize(cross(light_u, light_v));
-            $for(depth, 10u) {
+            $for (depth, 10u) {
 
                 // trace
                 auto hit = accel.trace_closest(ray);
-                $if(hit->miss()) { $break; };
+                $if (hit->miss()) { $break; };
                 auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 auto p0 = vertex_buffer->read(triangle.i0);
                 auto p1 = vertex_buffer->read(triangle.i1);
@@ -262,12 +256,12 @@ int main(int argc, char *argv[]) {
                 auto p = hit->interpolate(p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wi = dot(-ray->direction(), n);
-                $if(cos_wi < 1e-4f) { $break; };
+                $if (cos_wi < 1e-4f) { $break; };
                 auto material = material_buffer->read(hit.inst);
 
                 // hit light
-                $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                    $if(depth == 0u) {
+                $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                    $if (depth == 0u) {
                         radiance += light_emission;
                     }
                     $else {
@@ -290,7 +284,7 @@ int main(int argc, char *argv[]) {
                 auto occluded = accel.trace_any(shadow_ray);
                 auto cos_wi_light = dot(wi_light, n);
                 auto cos_light = -dot(light_normal, wi_light);
-                $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     auto pdf_light = (d_light * d_light) / (light_area * cos_light);
                     auto pdf_bsdf = cos_wi_light * inv_pi;
                     auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
@@ -309,19 +303,19 @@ int main(int argc, char *argv[]) {
 
                 // rr
                 auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-                $if(l == 0.0f) { $break; };
+                $if (l == 0.0f) { $break; };
                 auto q = max(l, 0.05f);
                 auto r = lcg(state);
-                $if(r >= q) { $break; };
+                $if (r >= q) { $break; };
                 beta *= 1.0f / q;
             };
         };
         radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
-        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
+        $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
-    Kernel2D aux_kernel = [&](ImageFloat normal, ImageFloat albedo, ImageFloat flow,ImageUInt seed_image, AccelVar accel, UInt2 resolution, Float3 _origin, Float3 last_origin) noexcept {
+    Kernel2D aux_kernel = [&](ImageFloat normal, ImageFloat albedo, ImageFloat flow, ImageUInt seed_image, AccelVar accel, UInt2 resolution, Float3 _origin, Float3 last_origin) noexcept {
         set_block_size(8u, 8u, 1u);
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
@@ -331,32 +325,32 @@ int main(int argc, char *argv[]) {
         auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         auto radiance = def(make_float3(0.0f));
         auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f), _origin);
-            $for(depth, 1u) {
+        $for (depth, 1u) {
 
-                // trace
-                auto hit = accel.trace_closest(ray);
-                $if(hit->miss()) {
-                    normal.write(coord, make_float4(0.0f,0.0f,0.0f,1.0f));
-                    albedo.write(coord, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
-                    flow.write(coord, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
-                    $break; 
-                };
-                auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                auto p0 = vertex_buffer->read(triangle.i0);
-                auto p1 = vertex_buffer->read(triangle.i1);
-                auto p2 = vertex_buffer->read(triangle.i2);
-                auto pos = hit->interpolate(p0, p1, p2);
-                auto n = normalize(cross(p1 - p0, p2 - p0));
-                auto material = material_buffer->read(hit.inst);
-                auto prev_p = pos_to_pix(pos, last_origin);
-                auto prev_pixel = prev_p * make_float2(1.0f, -1.0f);
-                auto prev_coord = (prev_pixel + 1.0f) / 2.0f * frame_size;
-                
-                normal.write(coord, make_float4(n,1.0f));
-                albedo.write(coord, make_float4(material.albedo, 1.0f));
-                flow.write(coord, make_float4(make_float2(coord) + make_float2(rx, ry)-prev_coord, 0.f, 1.f));
+            // trace
+            auto hit = accel.trace_closest(ray);
+            $if (hit->miss()) {
+                normal.write(coord, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
+                albedo.write(coord, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
+                flow.write(coord, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
                 $break;
             };
+            auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
+            auto p0 = vertex_buffer->read(triangle.i0);
+            auto p1 = vertex_buffer->read(triangle.i1);
+            auto p2 = vertex_buffer->read(triangle.i2);
+            auto pos = hit->interpolate(p0, p1, p2);
+            auto n = normalize(cross(p1 - p0, p2 - p0));
+            auto material = material_buffer->read(hit.inst);
+            auto prev_p = pos_to_pix(pos, last_origin);
+            auto prev_pixel = prev_p * make_float2(1.0f, -1.0f);
+            auto prev_coord = (prev_pixel + 1.0f) / 2.0f * frame_size;
+
+            normal.write(coord, make_float4(n, 1.0f));
+            albedo.write(coord, make_float4(material.albedo, 1.0f));
+            flow.write(coord, make_float4(make_float2(coord) + make_float2(rx, ry) - prev_coord, 0.f, 1.f));
+            $break;
+        };
         //seed_image.write(coord, make_uint4(state));
     };
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
@@ -395,7 +389,7 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
         auto ldr = hdr.xyz() / hdr.w * scale;
-        $if(!is_hdr) {
+        $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
@@ -403,7 +397,7 @@ int main(int argc, char *argv[]) {
     Kernel2D convert_kernel = [&](ImageFloat image, BufferFloat buffer, UInt in_channel_count, UInt out_channel_count) noexcept {
         auto coord = dispatch_id().xy();
         auto pix = image.read(coord);
-        $for(channel, out_channel_count) {
+        $for (channel, out_channel_count) {
             auto index = coord.x + coord.y * resolution.x;
             buffer.write(index * out_channel_count + channel, pix[channel]);
         };
@@ -411,24 +405,23 @@ int main(int argc, char *argv[]) {
     Kernel2D deconvert_kernel = [&](BufferFloat buffer, ImageFloat image, UInt in_channel_count) noexcept {
         auto coord = dispatch_id().xy();
         Float4 pix = make_float4(1.0f);
-        $for(channel, in_channel_count) {
+        $for (channel, in_channel_count) {
             auto index = coord.x + coord.y * resolution.x;
             pix[channel] = buffer.read(index * in_channel_count + channel);
         };
-        image.write(coord,pix);
+        image.write(coord, pix);
     };
     Kernel2D flow_apply_kernel = [&](ImageFloat prev_image, ImageFloat flow, ImageFloat output) noexcept {
         auto coord = dispatch_id().xy();
         auto origin_pix = floor(make_float2(coord) - flow.read(coord).xy());
-        $if((origin_pix.x < 0.f) | (origin_pix.x>=resolution.x)|  (origin_pix.y <0.f) | (origin_pix.y>=resolution.y)){
+        $if ((origin_pix.x < 0.f) | (origin_pix.x >= resolution.x) | (origin_pix.y < 0.f) | (origin_pix.y >= resolution.y)) {
             output.write(coord, make_float4(0.f, 0.f, 0.f, 1.f));
         }
         $else {
             output.write(coord, prev_image.read(make_uint2(origin_pix)));
         };
-        
     };
-    
+
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
@@ -439,8 +432,6 @@ int main(int argc, char *argv[]) {
     auto image_to_buf = device.compile(convert_kernel);
     auto buf_to_image = device.compile(deconvert_kernel);
     auto apply_flow = device.compile(flow_apply_kernel);
-
-
 
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
@@ -478,11 +469,10 @@ int main(int argc, char *argv[]) {
     auto specular_buffer = device.create_buffer<float>(specular_image.view().size_bytes() / 4 * channel_count / sizeof(float));
     if (optix_examples) {
         std::vector<std::array<float, 4u>> host_image(resolution.x * resolution.y);
-        
-        
+
         auto image_width = 0;
         auto image_height = 0;
-        
+
         if (optix_examples == 1) {
             luisa::string beauty_path = optix_path + "/SDK/optixDenoiser/motiondata/soane-Beauty-";
             luisa::string normal_path = optix_path + "/SDK/optixDenoiser/motiondata/soane-Normal-";
@@ -547,7 +537,7 @@ int main(int argc, char *argv[]) {
                     (output_file + id + suffix).c_str(),
                     &err);
             }
-        } else if(optix_examples==2){
+        } else if (optix_examples == 2) {
 
             luisa::string beauty_path = optix_path + "/SDK/optixDenoiser/data/beauty.exr";
             luisa::string normal_path = optix_path + "/SDK/optixDenoiser/data/normal.exr";
@@ -560,7 +550,7 @@ int main(int argc, char *argv[]) {
             data.beauty = &hdr_buffer;
             data.normal = &normal_buffer;
             data.albedo = &albedo_buffer;
-            luisa::vector<Buffer<float>*> aovs;
+            luisa::vector<Buffer<float> *> aovs;
             aovs.push_back(&glossy_buffer);
             aovs.push_back(&diffuse_buffer);
             aovs.push_back(&specular_buffer);
@@ -594,11 +584,11 @@ int main(int argc, char *argv[]) {
             stream << cmd_list.commit();
             denoiser_ext->init(stream, mode, data, resolution);
             denoiser_ext->process(stream, data);
-            auto save_image = [&](int index,const char* file_name) {
-                denoiser_ext->get_result(stream, denoised_buffer,index);
+            auto save_image = [&](int index, const char *file_name) {
+                denoiser_ext->get_result(stream, denoised_buffer, index);
                 cmd_list << buf_to_image(denoised_buffer, denoised_image, channel_count).dispatch(resolution);
                 cmd_list << hdr2ldr_shader(denoised_image, ldr_image, 0.001f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
-                if (index>=0)
+                if (index >= 0)
                     cmd_list << accumulate_shader(accum_image, denoised_image).dispatch(resolution);
                 stream << cmd_list.commit()
                        << denoised_image.copy_to(host_image.data())
@@ -615,7 +605,6 @@ int main(int argc, char *argv[]) {
                     static_cast<int32_t>(true),// save_as_fp16
                     file_name,
                     &err);
-            
             };
             save_image(-1, "beauty.exr");
             save_image(0, "glossy.exr");
@@ -642,23 +631,17 @@ int main(int argc, char *argv[]) {
                 static_cast<int32_t>(true),// save_as_fp16
                 "sum.exr",
                 &err);
-            
         }
-        
+
         denoiser_ext->destroy(stream);
-        
+
         return 0;
     }
-
-
-
 
     auto last_time = 0.0;
     auto frame_count = 0u;
     Clock clock;
 
-
-    
     DenoiserExt::DenoiserInput data;
     DenoiserExt::DenoiserMode mode{.temporal = temporal};
     data.beauty = &hdr_buffer;
@@ -667,13 +650,12 @@ int main(int argc, char *argv[]) {
     if (temporal)
         data.flow = &flow_buffer;
 
-
-    bool initialize_flag=true;
-    cmd_list << aux_shader(normal_image,albedo_image,flow_image, seed_image, accel, resolution, origin, origin).dispatch(resolution);
-    cmd_list << image_to_buf(normal_image, normal_buffer, 4, channel_count).dispatch(resolution) 
+    bool initialize_flag = true;
+    cmd_list << aux_shader(normal_image, albedo_image, flow_image, seed_image, accel, resolution, origin, origin).dispatch(resolution);
+    cmd_list << image_to_buf(normal_image, normal_buffer, 4, channel_count).dispatch(resolution)
              << image_to_buf(albedo_image, albedo_buffer, 4, channel_count).dispatch(resolution)
              << image_to_buf(flow_image, flow_buffer, 4, channel_count).dispatch(resolution);
-    
+
     uint state = 42u;
 
     while (!window.should_close()) {
@@ -682,7 +664,7 @@ int main(int argc, char *argv[]) {
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution)
                  << hdr2ldr_shader(accum_image, hdr_image, 1.0f, true).dispatch(resolution);
-        cmd_list << image_to_buf(hdr_image, hdr_buffer, 4,channel_count).dispatch(resolution);
+        cmd_list << image_to_buf(hdr_image, hdr_buffer, 4, channel_count).dispatch(resolution);
         stream << cmd_list.commit() << synchronize();
         if (flow_validation) {
             cmd_list << apply_flow(prev_image, flow_image, denoised_image).dispatch(resolution);
@@ -699,7 +681,7 @@ int main(int argc, char *argv[]) {
                     denoiser_ext->get_result(stream, denoised_buffer);
                 }
             }
-            cmd_list << buf_to_image(denoised_buffer,denoised_image,channel_count).dispatch(resolution);
+            cmd_list << buf_to_image(denoised_buffer, denoised_image, channel_count).dispatch(resolution);
         }
         cmd_list << combine_shader(hdr_image, denoised_image, combined_image).dispatch(resolution);
         cmd_list << hdr2ldr_shader(combined_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
@@ -714,9 +696,9 @@ int main(int argc, char *argv[]) {
         if (temporal) {
             auto new_origin = origin;
             auto v = 0.01;
-            new_origin.z += -0.1*v + 2*v * lcg_host(state) - v;
-            new_origin.x += 2*v * lcg_host(state) - v;
-            new_origin.y += 2*v * lcg_host(state) - v;
+            new_origin.z += -0.1 * v + 2 * v * lcg_host(state) - v;
+            new_origin.x += 2 * v * lcg_host(state) - v;
+            new_origin.y += 2 * v * lcg_host(state) - v;
             //new_origin.x += v;
             cmd_list << prev_image.copy_from(accum_image);
             cmd_list << clear_shader(accum_image).dispatch(resolution);
@@ -730,10 +712,9 @@ int main(int argc, char *argv[]) {
     if (seperate_usage)
         denoiser_ext->destroy(stream);
     stream << cmd_list.commit()
-        << ldr_image.copy_to(host_image.data())
-        << synchronize();
+           << ldr_image.copy_to(host_image.data())
+           << synchronize();
 
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_denoiser.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
- 

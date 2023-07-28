@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Resource/Buffer.h>
 namespace lc::dx {
 BufferView::BufferView(Buffer const *buffer)

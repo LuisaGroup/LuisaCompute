@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/6/22.
-//
-
 #pragma once
 
 #include <luisa/runtime/rhi/resource.h>

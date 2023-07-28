@@ -1,8 +1,3 @@
-#include "../pch.h"
-//
-// Created by Mike Smith on 2021/7/30.
-//
-
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/device.h>
 #include <luisa/core/logging.h>

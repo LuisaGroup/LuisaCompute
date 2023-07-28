@@ -1,8 +1,3 @@
-#include "pch.h"
-//
-// Created by Mike on 3/14/2023.
-//
-
 #include "cuda_error.h"
 #include "cuda_buffer.h"
 

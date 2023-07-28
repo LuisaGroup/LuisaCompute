@@ -15,8 +15,14 @@ add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_EXPORT_DLL=1)
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-ext)
 
+if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(luisa-compute-ast PRIVATE /bigobj)
+endif ()
+
 set_target_properties(luisa-compute-ast PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
         OUTPUT_NAME lc-ast)
+
+target_precompile_headers(luisa-compute-ast PRIVATE pch.h)
 
 luisa_compute_install(ast SOURCES ${LUISA_COMPUTE_AST_SOURCES})

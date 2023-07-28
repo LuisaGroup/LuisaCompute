@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/13/2023.
-//
-
 #include <random>
 #include <array>
 #include <numeric>
@@ -115,7 +111,7 @@ void test_texture(Device &device, PixelStorage storage, Size size, std::mt19937 
 int main(int argc, char *argv[]) {
 
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
 

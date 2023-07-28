@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/4/8.
-//
-
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION

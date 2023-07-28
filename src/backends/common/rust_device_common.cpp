@@ -13,6 +13,7 @@ using luisa::compute::ir::Type;
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/ir/ast2ir.h>
+#include <luisa/runtime/rtx/aabb.h>
 #include "rust_device_common.h"
 
 // must go last to avoid name conflicts
@@ -299,7 +300,14 @@ public:
         _converted.emplace_back(converted);
     }
     void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        api::Command converted{.tag = Tag::PROCEDURAL_PRIMITIVE_BUILD};
+        converted.PROCEDURAL_PRIMITIVE_BUILD._0 = api::ProceduralPrimitiveBuildCommand{
+            .handle = {command->handle()},
+            .request = _convert_accel_build_request(command->request()),
+            .aabb_buffer = {command->aabb_buffer()},
+            .aabb_buffer_offset = command->aabb_buffer_offset(),
+            .aabb_count = command->aabb_buffer_size() / sizeof(AABB)};
+        _converted.emplace_back(converted);
     }
     void visit(const BindlessArrayUpdateCommand *command) noexcept override {
         auto n = command->modifications().size();
@@ -517,11 +525,11 @@ public:
 
     ShaderCreationInfo
     load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("unimplemented");
+        LUISA_NOT_IMPLEMENTED();
     }
 
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override {
-        return Usage::NONE;
+        LUISA_NOT_IMPLEMENTED();
     }
 
     void destroy_shader(uint64_t handle) noexcept override {
@@ -556,11 +564,17 @@ public:
         return device.is_event_completed(device.device, api::Event{handle}, value);
     }
 
+    // make sure that we can convert between the two enums
+    static_assert(luisa::to_underlying(AccelOption::UsageHint::FAST_TRACE) ==
+                  luisa::to_underlying(api::AccelUsageHint::FAST_TRACE));
+    static_assert(luisa::to_underlying(AccelOption::UsageHint::FAST_BUILD) ==
+                  luisa::to_underlying(api::AccelUsageHint::FAST_BUILD));
+
     ResourceCreationInfo create_mesh(const AccelOption &option_) noexcept override {
         api::AccelOption option{};
         option.allow_compaction = option_.allow_compaction;
         option.allow_update = option_.allow_update;
-        option.hint = (api::AccelUsageHint)option_.hint;
+        option.hint = static_cast<api::AccelUsageHint>(option_.hint);
         auto mesh = device.create_mesh(device.device, &option);
         ResourceCreationInfo info{};
         info.handle = mesh.handle;
@@ -572,19 +586,27 @@ public:
         device.destroy_mesh(device.device, api::Mesh{handle});
     }
 
-    ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("unimplemented");
+    ResourceCreationInfo create_procedural_primitive(const AccelOption &option_) noexcept override {
+        api::AccelOption option{};
+        option.allow_compaction = option_.allow_compaction;
+        option.allow_update = option_.allow_update;
+        option.hint = static_cast<api::AccelUsageHint>(option_.hint);
+        auto primitive = device.create_procedural_primitive(device.device, &option);
+        ResourceCreationInfo info{};
+        info.handle = primitive.handle;
+        info.native_handle = primitive.native_handle;
+        return info;
     }
 
     void destroy_procedural_primitive(uint64_t handle) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("unimplemented");
+        device.destroy_procedural_primitive(device.device, api::ProceduralPrimitive{handle});
     }
 
     ResourceCreationInfo create_accel(const AccelOption &option_) noexcept override {
         api::AccelOption option{};
         option.allow_compaction = option_.allow_compaction;
         option.allow_update = option_.allow_update;
-        option.hint = (api::AccelUsageHint)option_.hint;
+        option.hint = static_cast<api::AccelUsageHint>(option_.hint);
         auto accel = device.create_accel(device.device, &option);
         ResourceCreationInfo info{};
         info.handle = accel.handle;

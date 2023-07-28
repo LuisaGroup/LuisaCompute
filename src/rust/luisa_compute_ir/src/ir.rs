@@ -1,11 +1,12 @@
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
+use half::f16;
 
 use crate::usage_detect::detect_usage;
 use crate::*;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, write};
 use std::hash::Hasher;
 use std::ops::Deref;
 
@@ -20,6 +21,7 @@ pub enum Primitive {
     Uint32,
     Int64,
     Uint64,
+    Float16,
     Float32,
     Float64,
 }
@@ -37,6 +39,7 @@ impl std::fmt::Display for Primitive {
                 Self::Uint32 => "u32",
                 Self::Int64 => "i64",
                 Self::Uint64 => "u64",
+                Self::Float16 => "f16",
                 Self::Float32 => "f32",
                 Self::Float64 => "f64",
             }
@@ -62,6 +65,7 @@ impl VectorElementType {
     }
     pub fn is_float(&self) -> bool {
         match self {
+            VectorElementType::Scalar(Primitive::Float16) => true,
             VectorElementType::Scalar(Primitive::Float32) => true,
             VectorElementType::Scalar(Primitive::Float64) => true,
             VectorElementType::Vector(v) => v.element.is_float(),
@@ -70,6 +74,8 @@ impl VectorElementType {
     }
     pub fn is_int(&self) -> bool {
         match self {
+            VectorElementType::Scalar(Primitive::Int16) => true,
+            VectorElementType::Scalar(Primitive::Uint16) => true,
             VectorElementType::Scalar(Primitive::Int32) => true,
             VectorElementType::Scalar(Primitive::Uint32) => true,
             VectorElementType::Scalar(Primitive::Int64) => true,
@@ -208,6 +214,7 @@ impl Primitive {
             Primitive::Uint32 => 4,
             Primitive::Int64 => 8,
             Primitive::Uint64 => 8,
+            Primitive::Float16 => 2,
             Primitive::Float32 => 4,
             Primitive::Float64 => 8,
         }
@@ -407,7 +414,7 @@ impl Type {
     pub fn is_float(&self) -> bool {
         match self {
             Type::Primitive(p) => match p {
-                Primitive::Float32 | Primitive::Float64 => true,
+                Primitive::Float16 | Primitive::Float32 | Primitive::Float64 => true,
                 _ => false,
             },
             Type::Vector(v) => v.element.is_float(),
@@ -429,7 +436,9 @@ impl Type {
     pub fn is_int(&self) -> bool {
         match self {
             Type::Primitive(p) => match p {
-                Primitive::Int32 | Primitive::Uint32 | Primitive::Int64 | Primitive::Uint64 => true,
+                Primitive::Int16 | Primitive::Uint16 |
+                Primitive::Int32 | Primitive::Uint32 |
+                Primitive::Int64 | Primitive::Uint64 => true,
                 _ => false,
             },
             Type::Vector(v) => v.element.is_int(),
@@ -478,6 +487,7 @@ impl Node {
         }
     }
 }
+
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize)]
 #[repr(C)]
@@ -543,6 +553,9 @@ pub enum Func {
 
     Cast,
     Bitcast,
+
+    Pack,
+    Unpack,
 
     // Binary op
     Add,
@@ -655,23 +668,23 @@ pub enum Func {
 
     SynchronizeBlock,
 
-    /// (buffer/smem, index, desired) -> old: stores desired, returns old.
+    /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
     AtomicExchange,
-    /// (buffer/smem, index, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
+    /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
     AtomicCompareExchange,
-    /// (buffer/smem, index, val) -> old: stores (old + val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old + val), returns old.
     AtomicFetchAdd,
-    /// (buffer/smem, index, val) -> old: stores (old - val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old - val), returns old.
     AtomicFetchSub,
-    /// (buffer/smem, index, val) -> old: stores (old & val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old & val), returns old.
     AtomicFetchAnd,
-    /// (buffer/smem, index, val) -> old: stores (old | val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old | val), returns old.
     AtomicFetchOr,
-    /// (buffer/smem, index, val) -> old: stores (old ^ val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old ^ val), returns old.
     AtomicFetchXor,
-    /// (buffer/smem, index, val) -> old: stores min(old, val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores min(old, val), returns old.
     AtomicFetchMin,
-    /// (buffer/smem, index, val) -> old: stores max(old, val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores max(old, val), returns old.
     AtomicFetchMax,
     // memory access
     /// (buffer, index) -> value: reads the index-th element in buffer
@@ -722,8 +735,8 @@ pub enum Func {
     BindlessTexture3dSizeLevel,
     /// (bindless_array, index: uint, element: uint) -> T
     BindlessBufferRead,
-    /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
-    BindlessBufferSize(CArc<Type>),
+    /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
+    BindlessBufferSize,
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
 
@@ -774,10 +787,13 @@ pub enum Const {
     Zero(CArc<Type>),
     One(CArc<Type>),
     Bool(bool),
+    Int16(i16),
+    Uint16(u16),
     Int32(i32),
     Uint32(u32),
     Int64(i64),
     Uint64(u64),
+    Float16(f16),
     Float32(f32),
     Float64(f64),
     Generic(CBoxedSlice<u8>, CArc<Type>),
@@ -789,10 +805,13 @@ impl std::fmt::Display for Const {
             Const::Zero(t) => write!(f, "0_{}", t),
             Const::One(t) => write!(f, "1_{}", t),
             Const::Bool(b) => write!(f, "{}", b),
+            Const::Int16(i) => write!(f, "{}", i),
+            Const::Uint16(u) => write!(f, "{}", u),
             Const::Int32(i) => write!(f, "{}", i),
             Const::Uint32(u) => write!(f, "{}", u),
             Const::Int64(i) => write!(f, "{}", i),
             Const::Uint64(u) => write!(f, "{}", u),
+            Const::Float16(fl) => write!(f, "{}", fl),
             Const::Float32(fl) => write!(f, "{}", fl),
             Const::Float64(fl) => write!(f, "{}", fl),
             Const::Generic(data, t) => write!(f, "byte<{}>[{}]", t, data.as_ref().len()),
@@ -803,8 +822,12 @@ impl std::fmt::Display for Const {
 impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
+            Const::Int16(v) => *v as i32,
+            Const::Uint16(v) => *v as i32,
             Const::Int32(v) => *v,
             Const::Uint32(v) => *v as i32,
+            Const::Int64(v) => *v as i32,
+            Const::Uint64(v) => *v as i32,
             Const::One(t) => {
                 assert!(
                     t.is_primitive() && t.is_int(),
@@ -840,10 +863,13 @@ impl Const {
             Const::Zero(ty) => ty.clone(),
             Const::One(ty) => ty.clone(),
             Const::Bool(_) => <bool as TypeOf>::type_(),
+            Const::Int16(_) => <i16 as TypeOf>::type_(),
+            Const::Uint16(_) => <u16 as TypeOf>::type_(),
             Const::Int32(_) => <i32 as TypeOf>::type_(),
             Const::Uint32(_) => <u32 as TypeOf>::type_(),
             Const::Int64(_) => <i64 as TypeOf>::type_(),
             Const::Uint64(_) => <u64 as TypeOf>::type_(),
+            Const::Float16(_) => <f16 as TypeOf>::type_(),
             Const::Float32(_) => <f32 as TypeOf>::type_(),
             Const::Float64(_) => <f64 as TypeOf>::type_(),
             Const::Generic(_, t) => t.clone(),
@@ -1988,7 +2014,10 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
     }
     CBoxedSlice::new(usage)
 }
-
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_type_size(ty: &CArc<Type>) -> usize {
+    ty.size()
+}
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
     new_node(&pools, node)

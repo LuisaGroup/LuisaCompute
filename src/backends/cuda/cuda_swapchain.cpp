@@ -1,8 +1,3 @@
-#include "pch.h"
-//
-// Created by Mike on 3/24/2023.
-//
-
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 
 #include <vulkan/vulkan.h>

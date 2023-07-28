@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/6/30.
-//
-
 #pragma once
 
 #include <bitset>
@@ -199,7 +195,7 @@ enum struct CallOp : uint32_t {
 
     BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
     BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
-    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint) -> size
+    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint, stride: uint) -> size
     BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> type
 
     MAKE_BOOL2, // (bool, bool2)
@@ -230,10 +226,16 @@ enum struct CallOp : uint32_t {
     MAKE_HALF2,  // (scalar, vec2)
     MAKE_HALF3,  // (scalar, vec3)
     MAKE_HALF4,  // (scalar, vec4)
+    MAKE_DOUBLE2,// (scalar, vec2)
+    MAKE_DOUBLE3,// (scalar, vec3)
+    MAKE_DOUBLE4,// (scalar, vec4)
 
     MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT4X4,// (float2x2) / (float3x3) / (float4x4)
+
+    // debugging
+    ASSERT,// (bool) -> void
 
     // optimization hints
     ASSUME,     // ()
@@ -242,6 +244,10 @@ enum struct CallOp : uint32_t {
     // used by the IR module
     ZERO,
     ONE,
+
+    // Pack/unpack to array<uint, ceil(sizeof(T)/4))
+    PACK,   // (T) -> array<uint, ceil(sizeof(T)/4))
+    UNPACK, // (array<uint, ceil(sizeof(T)/4)) -> T
 
     // autodiff ops
     REQUIRES_GRADIENT,  // (expr) -> void

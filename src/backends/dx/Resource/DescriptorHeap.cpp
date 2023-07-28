@@ -1,5 +1,3 @@
-#include "../pch.h"
-
 #include <Resource/DescriptorHeap.h>
 namespace lc::dx {
 DescriptorHeap::DescriptorHeap(

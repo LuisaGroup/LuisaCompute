@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/core/magic_enum.h>
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>
@@ -178,7 +177,7 @@ void Shader::SetRasterResource(
     cmdList->SetGraphicsRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SavePSO(ID3D12PipelineState *pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const {
-    LUISA_INFO("Write Pipeline cache to {}.", psoName);
+    LUISA_VERBOSE("Write Pipeline cache to {}.", psoName);
     ComPtr<ID3DBlob> psoCache;
     pso->GetCachedBlob(&psoCache);
     fileStream->write_shader_cache(psoName, {reinterpret_cast<std::byte const *>(psoCache->GetBufferPointer()), psoCache->GetBufferSize()});

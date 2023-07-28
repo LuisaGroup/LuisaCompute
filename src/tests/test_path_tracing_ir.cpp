@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/6/23.
-//
-
 #include <iostream>
 
 #include <luisa/core/clock.h>
@@ -51,7 +47,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     Device device = context.create_device(argv[1]);

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/12/21.
-//
-
 #include <luisa/core/binary_buffer.h>
 
 namespace luisa {

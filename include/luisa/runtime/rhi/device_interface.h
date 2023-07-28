@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2023/2/6.
-//
-
 #pragma once
 
 #include <luisa/core/basic_types.h>

@@ -15,6 +15,7 @@ luisa_compute_api_types = { path = "../luisa_compute_api_types", version = "0.1.
 base64ct = { version = "1.5.0", features = ["alloc"] }
 sha2 = "0.10"
 indexmap = "1.9.2"
+half = { version = "2.3.1", features = ["std", "serde", "num-traits", "zerocopy"] }
 
 [build-dependencies]
 cbindgen = "0.24.3"
@@ -22,3 +23,7 @@ cbindgen = "0.24.3"
 [lib]
 crate-type = ["rlib", "cdylib"]
 name = "luisa_compute_ir"
+
+[profile.dev]
+panic = 'abort'
+incremental = true

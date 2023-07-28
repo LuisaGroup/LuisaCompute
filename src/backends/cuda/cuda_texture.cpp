@@ -1,8 +1,3 @@
-#include "pch.h"
-//
-// Created by Mike on 2021/11/6.
-//
-
 #include <mutex>
 
 #include "cuda_error.h"

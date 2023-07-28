@@ -1,8 +1,3 @@
-#include "pch.h"
-//
-// Created by Mike on 2021/11/8.
-//
-
 #include <string_view>
 
 #include <luisa/core/logging.h>
@@ -692,15 +687,32 @@ public:
     explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
-        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (std::isinf(v)) {
-            _s << (v < 0.0f ? " __int_as_float(0xff800000)" : " __int_as_float(0x7f800000)");
+        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        if (luisa::isinf(v)) {
+            _s << (v < 0.0f ? "(-lc_infinity_float())" : "(lc_infinity_float())");
         } else {
             _s << v << "f";
         }
     }
+    void operator()(half v) const noexcept {
+        LUISA_NOT_IMPLEMENTED();
+        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        _s << luisa::format("lc_half({})", static_cast<float>(v));
+    }
+    void operator()(double v) const noexcept {
+        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        if (std::isinf(v)) {
+            _s << (v < 0.0 ? "(-lc_infinity_double())" : "(lc_infinity_double())");
+        } else {
+            _s << v;
+        }
+    }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
+    void operator()(short v) const noexcept { _s << luisa::format("lc_ushort({})", v); }
+    void operator()(ushort v) const noexcept { _s << luisa::format("lc_short({})", v); }
+    void operator()(slong v) const noexcept { _s << luisa::format("{}ll", v); }
+    void operator()(ulong v) const noexcept { _s << luisa::format("{}ull", v); }
 
     template<typename T, size_t N>
     void operator()(Vector<T, N> v) const noexcept {
@@ -768,6 +780,12 @@ void CUDACodegenAST::visit(const RefExpr *expr) {
 void CUDACodegenAST::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
+        case CallOp::PACK: _scratch << "lc_pack"; break;
+        case CallOp::UNPACK:
+            _scratch << "lc_unpack<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::EXTERNAL: _scratch << expr->external()->name(); break;
         case CallOp::ALL: _scratch << "lc_all"; break;
@@ -845,11 +863,11 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: break;// TODO
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED(); break;// TODO
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "lc_bindless_texture_sample3d"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample3d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: break;// TODO
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED(); break;// TODO
         case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "lc_bindless_texture_read2d"; break;
         case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "lc_bindless_texture_read3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "lc_bindless_texture_read2d_level"; break;
@@ -865,15 +883,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
-            LUISA_ERROR("Not Implemented.");
-            break;
-        }
-        case CallOp::BINDLESS_BUFFER_SIZE: {
-            _scratch << "lc_bindless_buffer_size<";
+            _scratch << "lc_bindless_byte_address_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
+        case CallOp::BINDLESS_BUFFER_SIZE: _scratch << "lc_bindless_buffer_size"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
     case CallOp::MAKE_##tag##2: _scratch << "lc_make_" << #type "2"; break; \
@@ -886,13 +901,15 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(long, LONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
-            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(double, DOUBLE)
 #undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
-        case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
+        case CallOp::ASSERT: _scratch << "lc_assert"; break;
+        case CallOp::ASSUME: _scratch << "lc_assume"; break;
         case CallOp::UNREACHABLE:
             _scratch << "lc_unreachable<";
             _emit_type_name(expr->type());
@@ -1470,11 +1487,15 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
 }
 
 void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
-
+    if (type == nullptr) {
+        _scratch << "void";
+        return;
+    }
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
         case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
         case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
+        case Type::Tag::FLOAT64: _scratch << "lc_double"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
@@ -1632,7 +1653,12 @@ protected:
         p(x);
         _codegen->_scratch << ")";
     }
-    void _decode_double(double x) noexcept override { _codegen->_scratch << luisa::format("lc_double({})", x); }
+    void _decode_double(double x) noexcept override {
+        _codegen->_scratch << "lc_double(";
+        detail::LiteralPrinter p{_codegen->_scratch};
+        p(x);
+        _codegen->_scratch << ")";
+    }
     void _vector_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {

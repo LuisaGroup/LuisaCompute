@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/5/11.
-//
-
 #include <random>
 #include <fstream>
 #include <chrono>
@@ -25,7 +21,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     Device device = context.create_device(argv[1]);
@@ -90,10 +86,10 @@ int main(int argc, char *argv[]) {
                      0.75f - sqr(fx - 1.0f),
                      0.5f * sqr(fx - 0.5f)};
         Float stress = -4.f * dt * E * p_vol * (J->read(p) - 1.f) / sqr(dx);
-        Float3x3 affine = make_float3x3(
-            stress, 0.f, 0.f,
-            0.f, stress, 0.f,
-            0.f, 0.f, stress) + p_mass * C->read(p);
+        Float3x3 affine = make_float3x3(stress, 0.f, 0.f,
+                                        0.f, stress, 0.f,
+                                        0.f, 0.f, stress) +
+                          p_mass * C->read(p);
         Float3 vp = v->read(p);
         for (uint ii = 0; ii < 27; ii++) {
             int3 offset = make_int3(ii % 3, ii / 3 % 3, ii / 3 / 3);
@@ -204,7 +200,7 @@ int main(int argc, char *argv[]) {
         for (int i = -1; i <= 1; i++) {
             for (int j = -1; j <= 1; j++) {
                 Int2 pos = make_int2(basepos * static_cast<float>(resolution)) + make_int2(i, j);
-                $if(pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
+                $if (pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
                     display->write(make_uint2(cast<uint>(pos.x), resolution - 1u - pos.y),
                                    make_float4(.4f, .6f, .6f, 1.f));
                 };
@@ -226,4 +222,3 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
-

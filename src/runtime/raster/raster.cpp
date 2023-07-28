@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/runtime/raster/raster_shader.h>
 #include <luisa/runtime/depth_format.h>
 #include <luisa/runtime/raster/depth_buffer.h>

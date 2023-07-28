@@ -1,7 +1,3 @@
-//
-// Created by Mike on 3/22/2023.
-//
-
 #include <array>
 #include <algorithm>
 
@@ -364,7 +360,7 @@ private:
                     return "Other";
             }
         }();
-        LUISA_INFO_WITH_LOCATION(
+        LUISA_VERBOSE_WITH_LOCATION(
             "Vulkan Device: {} ({}), Driver: {}.{}.{}, API: {}.{}.{}",
             properties.deviceName, device_type,
             VK_VERSION_MAJOR(properties.driverVersion),

@@ -202,9 +202,9 @@ unsafe extern "C" fn create_device(
                     todo!()
                 };
                 let swapchain = lib_path.join(swapchain_dll);
-                let swapchain = SwapChainForCpuContext::new(swapchain)
+                let swapchain = SwapChainForCpuContext::new(&swapchain)
                     .map_err(|e| {
-                        log::warn!("failed to load swapchain: {}", e);
+                        eprintln!("failed to load swapchain: {}, path:{}", e, swapchain.display());
                         e
                     })
                     .ok()

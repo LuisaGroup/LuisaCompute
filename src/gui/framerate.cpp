@@ -1,7 +1,3 @@
-//
-// Created by Mike on 2021/11/30.
-//
-
 #include <luisa/gui/framerate.h>
 
 namespace luisa::compute {

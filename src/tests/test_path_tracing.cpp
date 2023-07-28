@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/6/23.
-//
-
 #include <iostream>
 
 #include <luisa/core/clock.h>
@@ -29,13 +25,11 @@ struct Onb {
     float3 normal;
 };
 
-// clang-format off
-LUISA_STRUCT(Onb, tangent, binormal, normal){
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] Float3 to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }
 };
-// clang-format on
 
 int main(int argc, char *argv[]) {
 
@@ -43,7 +37,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     Device device = context.create_device(argv[1]);
@@ -93,7 +87,7 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-            //    << synchronize()
+               //    << synchronize()
                << mesh.build();
     }
 
@@ -118,8 +112,8 @@ int main(int argc, char *argv[]) {
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
-                            12.92f * x,
-                            x <= 0.00031308f));
+                               12.92f * x,
+                               x <= 0.00031308f));
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
@@ -184,7 +178,7 @@ int main(int argc, char *argv[]) {
         Float ry = lcg(state);
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        $for(i, spp_per_dispatch) {
+        $for (i, spp_per_dispatch) {
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             Float3 beta = def(make_float3(1.0f));
             Float pdf_bsdf = def(0.0f);
@@ -194,10 +188,10 @@ int main(int argc, char *argv[]) {
             constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
             Float light_area = length(cross(light_u, light_v));
             Float3 light_normal = normalize(cross(light_u, light_v));
-            $for(depth, 10u) {
+            $for (depth, 10u) {
                 // trace
                 Var<TriangleHit> hit = accel.trace_closest(ray);
-                $if(hit->miss()) { $break; };
+                $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
@@ -205,11 +199,11 @@ int main(int argc, char *argv[]) {
                 Float3 p = hit->interpolate(p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
                 Float cos_wi = dot(-ray->direction(), n);
-                $if(cos_wi < 1e-4f) { $break; };
+                $if (cos_wi < 1e-4f) { $break; };
 
                 // hit light
-                $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                    $if(depth == 0u) {
+                $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                    $if (depth == 0u) {
                         radiance += light_emission;
                     }
                     $else {
@@ -233,7 +227,7 @@ int main(int argc, char *argv[]) {
                 Float cos_wi_light = dot(wi_light, n);
                 Float cos_light = -dot(light_normal, wi_light);
                 Float3 albedo = materials.read(hit.inst);
-                $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                     Float pdf_bsdf = cos_wi_light * inv_pi;
                     Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
@@ -252,16 +246,16 @@ int main(int argc, char *argv[]) {
 
                 // rr
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-                $if(l == 0.0f) { $break; };
+                $if (l == 0.0f) { $break; };
                 Float q = max(l, 0.05f);
                 Float r = lcg(state);
-                $if(r >= q) { $break; };
+                $if (r >= q) { $break; };
                 beta *= 1.0f / q;
             };
         };
         radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
-        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
+        $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
@@ -289,7 +283,7 @@ int main(int argc, char *argv[]) {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = hdr.xyz() / hdr.w * scale;
-        $if(!is_hdr) {
+        $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));

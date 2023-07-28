@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2022/2/13.
-//
-
 #pragma once
 
 #include <luisa/core/logging.h>
@@ -14,6 +10,7 @@
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/stmt.h>
+#include <luisa/dsl/fmt_impl.h>
 
 namespace luisa::compute {
 
@@ -42,16 +39,17 @@ private:
 
     template<typename Curr, typename... Other>
     void _log_to_buffer(Expr<uint> offset, uint index, const Curr &curr, const Other &...other) noexcept {
+
         if constexpr (is_dsl_v<Curr>) {
-            index++;
             using T = expr_value_t<Curr>;
-            if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
-                _buffer->write(offset + index, cast<uint>(curr));
-            } else if constexpr (std::is_same_v<T, float>) {
-                _buffer->write(offset + index, as<uint>(curr));
-            } else {
-                static_assert(always_false_v<T>, "unsupported type for printing in kernel.");
+            constexpr uint32_t N = (sizeof(T) + sizeof(uint) - 1) / sizeof(uint);
+            auto data = ArrayVar<uint, N>{};
+            data = dsl::pack(curr);
+
+            for (uint i = 0; i < N; i++) {
+                _buffer->write(offset + index + i, data[i]);
             }
+            index += N;
         }
         _log_to_buffer(offset, index, other...);
     }
@@ -126,12 +124,36 @@ public:
 
 template<typename... Args>
 void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...args) noexcept {
-    auto count = (1u /* desc_id */ + ... + static_cast<uint>(is_dsl_v<Args>));
+    std::array<uint, sizeof...(Args)> count_per_arg{};
+
+    auto do_count = [&]<size_t... i>(std::index_sequence<i...>) noexcept {
+        auto impl = [&]<size_t j>() noexcept {
+            if constexpr (is_dsl_v<std::tuple_element_t<j, std::tuple<Args...>>>) {
+                using T = expr_value_t<std::tuple_element_t<j, std::tuple<Args...>>>;
+                count_per_arg[j] = (sizeof(T) + sizeof(uint) - 1) / sizeof(uint);
+            } else {
+                count_per_arg[j] = 0;
+            }
+        };
+        (impl.template operator()<i>(), ...);
+    };
+    do_count(std::index_sequence_for<Args...>{});
+   
+    std::array<uint, sizeof...(Args)> count_by_arg{};
+    if constexpr (sizeof...(Args) > 0) {
+        count_by_arg[0] = 0;
+        for (int i = 1; i < sizeof...(Args); i++) {
+            count_by_arg[i] = count_by_arg[i - 1] + count_per_arg[i - 1];
+        }
+    }
+
+    auto count = 1u /* desc_id */;
+    for (auto c : count_per_arg) { count += c; }
     auto size = static_cast<uint>(_buffer.size() - 1u);
     auto offset = _buffer->atomic(size).fetch_add(count);
     auto item = static_cast<uint>(_items.size());
     dsl::if_(offset < size, [&] { _buffer->write(offset, item); });
-    dsl::if_(offset + count <= size, [&] { _log_to_buffer(offset, 0u, args...); });
+    dsl::if_(offset + count <= size, [&] { _log_to_buffer(offset, 1u, args...); });
     // create decoder...
     auto counter = 0u;
     auto convert = [&counter]<typename T>(const T &arg) noexcept {
@@ -144,19 +166,18 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
             return arg;
         }
     };
-    auto decode = [this, level, f = std::move(fmt),
+    auto decode = [this, level, count_per_arg, count_by_arg, f = std::move(fmt),
                    args = std::tuple{convert(args)...}](const uint *data,
                                                         bool abort_on_error) noexcept {
-        auto decode_arg = [&args, data]<size_t i>() noexcept {
+        auto decode_arg = [&args, data, &count_per_arg, &count_by_arg]<size_t i>() noexcept {
             using Arg = std::tuple_element_t<i, std::tuple<Args...>>;
             if constexpr (is_dsl_v<Arg>) {
-                auto raw = data[std::get<i>(args)];
+                auto index = count_by_arg[i];
+                auto arg_data = luisa::span{data + index + 1, count_per_arg[i]};
                 using T = expr_value_t<Arg>;
-                if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
-                    return static_cast<T>(raw);
-                } else {
-                    return luisa::bit_cast<T>(raw);
-                }
+                T raw{};
+                std::memcpy(&raw, arg_data.data(), sizeof(T));
+                return raw;
             } else {
                 return std::get<i>(args);
             }

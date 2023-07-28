@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2020/12/2.
-//
-
 #pragma once
 
 #include <luisa/dsl/ref.h>
@@ -84,8 +80,14 @@ struct Var : public detail::Ref<T> {
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{Expr{another}} {}
-    void operator=(Var &&rhs) & noexcept { detail::Ref<T>::operator=(std::move(rhs)); }
-    void operator=(const Var &rhs) & noexcept { detail::Ref<T>::operator=(rhs); }
+    const Var &operator=(Var &&rhs) & noexcept {
+        detail::Ref<T>::operator=(std::move(rhs));
+        return *this;
+    }
+    const Var &operator=(const Var &rhs) & noexcept {
+        detail::Ref<T>::operator=(rhs);
+        return *this;
+    }
 };
 
 template<typename T>
@@ -217,4 +219,3 @@ template<size_t N>
 using ArrayHalf4 = ArrayVar<half4, N>;
 
 }// namespace luisa::compute
-

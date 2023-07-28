@@ -6,6 +6,7 @@
 using namespace metal;
 
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
+#define lc_assert(...) // TODO: implement assert?
 
 template<typename T = void>
 [[noreturn, gnu::always_inline]] inline T lc_unreachable() {
@@ -543,9 +544,18 @@ template<typename T>
     return array.items[buffer_index].buffer_size / sizeof(T);
 }
 
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_size(LCBindlessArray array, uint buffer_index, uint stride) {
+    return array.items[buffer_index].buffer_size / stride;
+}
+
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(LCBindlessArray array, uint buffer_index, uint i) {
     return static_cast<device const T *>(array.items[buffer_index].buffer)[i];
+}
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto bindless_byte_address_buffer_read(LCBindlessArray array, uint buffer_index, uint offset) {
+    return reinterpret_cast<device const T *>(static_cast<device const char *>(array.items[buffer_index].buffer) + offset);
 }
 
 using namespace metal::raytracing;
@@ -1001,4 +1011,22 @@ void lc_indirect_dispatch_emplace(LCIndirectDispatchBuffer buffer, uint3 block_s
     if (index < buffer.capacity) {
         buffer.slots()[index] = {block_size, uint4(dispatch_size, kernel_id)};
     }
+}
+
+template<typename T>
+struct alignas(alignof(T) >= 4u ? alignof(T) : 4u) LCPackStorage {
+    T value;
+};
+
+template<typename T>
+[[nodiscard]] inline auto lc_pack(T x) {
+    auto s = LCPackStorage<T>{x};
+    using packed_array = array<uint, sizeof(T) / sizeof(uint)>;
+    return bitcast<packed_array>(s);
+}
+
+template<typename T, typename A>
+[[nodiscard]] inline auto lc_unpack(A array) {
+    auto s = bitcast<LCPackStorage<T>>(array);
+    return s.value;
 }

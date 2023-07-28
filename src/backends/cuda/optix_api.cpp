@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "optix_api.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
@@ -105,9 +104,9 @@ namespace luisa::compute::optix {
         if (glob(fname, GLOB_BRACE, nullptr, &g) == 0) {
             const char *chosen = nullptr;
             if (g.gl_pathc > 1) {
-                LUISA_INFO("find_optix_library(): Multiple versions of "
-                           "{} were found on your system!",
-                           fname);
+                LUISA_WARNING_WITH_LOCATION("find_optix_library(): Multiple versions of "
+                                            "{} were found on your system!",
+                                            fname);
                 std::sort(g.gl_pathv, g.gl_pathv + g.gl_pathc,
                           [](const char *a, const char *b) {
                               while (a != nullptr && b != nullptr) {
@@ -136,13 +135,13 @@ namespace luisa::compute::optix {
                         // Skip symbolic links at first
                         if (j == 0 && (lstat(g.gl_pathv[i], &buf) || S_ISLNK(buf.st_mode)))
                             continue;
-                        LUISA_INFO(" {}. \"{}\"", counter++, g.gl_pathv[i]);
+                        LUISA_VERBOSE(" {}. \"{}\"", counter++, g.gl_pathv[i]);
                         chosen = g.gl_pathv[i];
                     }
                     if (chosen)
                         break;
                 }
-                LUISA_INFO("Choosing the last one.");
+                LUISA_VERBOSE("Choosing the last one.");
             } else if (g.gl_pathc == 1) {
                 chosen = g.gl_pathv[0];
             }
@@ -176,4 +175,3 @@ namespace luisa::compute::optix {
 }
 
 }// namespace luisa::compute::optix
-

@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/22.
-//
-
 #pragma once
 
 #include <array>
@@ -53,12 +49,12 @@ struct TypeDesc {
 };
 
 // scalar
-#define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, desc, tag) \
+#define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, desc) \
     template<>                                                              \
     struct TypeDesc<S> {                                                    \
         static constexpr luisa::string_view description() noexcept {        \
             using namespace std::string_view_literals;                      \
-            return #desc##sv;                                                  \
+            return #desc##sv;                                               \
         }                                                                   \
     };                                                                      \
     template<>                                                              \
@@ -83,14 +79,16 @@ struct TypeDesc {
         }                                                                   \
     };
 
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(bool, bool, BOOL)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(float, float, FLOAT)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int, int, INT32)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, uint, UINT32)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int64_t, long, INT32)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint64_t, ulong, UINT32)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int16_t, short, INT32)
-LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint16_t, ushort, UINT32)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(bool, bool)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(short, short)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(ushort, ushort)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int, int)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, uint)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(slong, long)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(ulong, ulong)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(half, half)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(float, float)
+LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(double, double)
 
 #undef LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION
 
@@ -355,4 +353,3 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
             return name;                                             \
         }                                                            \
     };
-

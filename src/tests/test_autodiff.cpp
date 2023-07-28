@@ -1,7 +1,3 @@
-//
-// Created by Mike Smith on 2021/2/27.
-//
-
 #include <fstream>
 #include <luisa/luisa-compute.h>
 #include <luisa/ir/ast2ir.h>
@@ -16,7 +12,7 @@ int main(int argc, char *argv[]) {
 
     auto context = Context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     auto device = context.create_device(argv[1]);

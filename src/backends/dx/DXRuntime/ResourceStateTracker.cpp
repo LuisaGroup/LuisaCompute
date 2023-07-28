@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/TextureBase.h>

@@ -1,8 +1,3 @@
-#include "pch.h"
-//
-// Created by Mike on 8/1/2021.
-//
-
 #include <luisa/core/clock.h>
 #include "cuda_error.h"
 #include "cuda_host_buffer_pool.h"
@@ -18,8 +13,8 @@ CUDAHostBufferPool::CUDAHostBufferPool(size_t size, bool write_combined) noexcep
     void *memory = nullptr;
     LUISA_CHECK_CUDA(cuMemHostAlloc(&memory, _first_fit.size(), flags));
     _memory = static_cast<std::byte *>(memory);
-    LUISA_INFO("CUDAHostBufferPool (size = {}) initialized in {} ms.",
-               _first_fit.size(), clk.toc());
+    LUISA_VERBOSE("CUDAHostBufferPool (size = {}) initialized in {} ms.",
+                  _first_fit.size(), clk.toc());
 }
 
 CUDAHostBufferPool::~CUDAHostBufferPool() noexcept {
@@ -85,4 +80,3 @@ CUDAHostBufferPool::View *CUDAHostBufferPool::View::create(FirstFit::Node *node,
 }
 
 }// namespace luisa::compute::cuda
-
