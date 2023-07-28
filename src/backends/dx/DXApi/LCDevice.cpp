@@ -260,7 +260,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         vstd::string_view file_name;
         vstd::string str_cache;
         vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-        CacheType cacheType;
+        CacheType cacheType{};
         if (option.enable_cache) {
             if (option.name.empty()) {
                 str_cache << checkMD5.to_string(false) << ".dxil"sv;
@@ -454,7 +454,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     } else {
         vstd::string_view file_name;
         vstd::string str_cache;
-        CacheType cacheType;
+        CacheType cacheType{};
         if (option.enable_cache) {
             if (option.name.empty()) {
                 str_cache << checkMD5.to_string(false) << ".dxil"sv;

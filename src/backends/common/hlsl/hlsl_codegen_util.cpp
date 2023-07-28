@@ -1027,6 +1027,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;
+        case CallOp::PACK:
+        case CallOp::UNPACK:
+            LUISA_ERROR_WITH_LOCATION("Call-Op not implemented.");
+            break;
     }
     str << '(';
     PrintArgs();
