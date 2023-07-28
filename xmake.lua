@@ -92,7 +92,7 @@ option_end()
 -- enable GUI module
 option("enable_gui")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- custom bin dir

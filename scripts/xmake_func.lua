@@ -102,16 +102,19 @@ before_check(function(option)
 	end
 	-- checking rust
 	import("lib.detect.find_tool")
+	local rust_cargo = find_tool("cargo") ~= nil
+	if not rust_cargo then
+		utils.warning("Cargo not installed, IR module and CPU backend disabled.")
+	end
 	local enable_ir = option:dep("enable_ir")
 	if not enable_ir:enabled() then
 		option:dep("_lc_enable_rust"):set_value(false)
 	else
-		local rust_cargo = find_tool("cargo") ~= nil
 		option:dep("_lc_enable_rust"):set_value(rust_cargo)
 		if not rust_cargo then
 			enable_ir:enable(false)
 			if enable_ir:enabled() then
-				utils.error("Rust not installed, IR module force disabled.")
+				utils.error("Cargo not installed, IR module force disabled.")
 				enable_ir:enable(false, {
 					force = true
 				})
