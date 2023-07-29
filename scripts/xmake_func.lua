@@ -107,6 +107,7 @@ before_check(function(option)
 		utils.warning("Cargo not installed, IR module and CPU backend disabled.")
 	end
 	local enable_ir = option:dep("enable_ir")
+	local cpu_backend = option:dep("cpu_backend")
 	if not enable_ir:enabled() then
 		option:dep("_lc_enable_rust"):set_value(false)
 		cpu_backend:enable(false, {
