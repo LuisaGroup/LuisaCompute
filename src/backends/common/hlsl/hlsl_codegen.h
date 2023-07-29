@@ -125,6 +125,7 @@ public:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const ConstantExpr *expr) override;
+    void visit(const TypeIDExpr *expr) override { LUISA_NOT_IMPLEMENTED(); }
     void visit(const CpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
     void visit(const GpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
 

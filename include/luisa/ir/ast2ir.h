@@ -61,6 +61,7 @@ private:
     [[nodiscard]] ir::NodeRef _convert(const ConstantExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CallExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CastExpr *expr) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const TypeIDExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CpuCustomOpExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const GpuCustomOpExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert_expr(const Expression *expr, bool is_lvalue) noexcept;
