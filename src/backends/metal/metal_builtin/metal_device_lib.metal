@@ -1030,3 +1030,22 @@ template<typename T, typename A>
     auto s = bitcast<LCPackStorage<T>>(array);
     return s.value;
 }
+
+template<typename T>
+inline void lc_pack(T x, LCBuffer<uint> buffer, uint offset) {
+    constexpr uint packed_uints = sizeof(LCPackStorage<T>) / sizeof(uint);
+    array<uint, packed_uints> packed = lc_pack(x);
+    for (auto i = 0u; i < packed_uints; i++) {
+        buffer_write(buffer, offset + i, packed[i]);
+    }
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_unpack(LCBuffer<uint> buffer, uint offset) {
+    constexpr uint packed_uints = sizeof(LCPackStorage<T>) / sizeof(uint);
+    array<uint, packed_uints> packed;
+    for (auto i = 0u; i < packed_uints; i++) {
+        packed[i] = buffer_read(buffer, offset + i);
+    }
+    return lc_unpack<T>(packed);
+}
