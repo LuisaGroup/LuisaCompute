@@ -664,24 +664,26 @@ using ImageFloat = ImageVar<float>;
 using VolumeInt = VolumeVar<int>;
 using VolumeUInt = VolumeVar<uint>;
 using VolumeFloat = VolumeVar<float>;
-inline namespace dsl {
-#define LUISA_EXPR(value) \
-    detail::extract_expression(std::forward<decltype(value)>(value))
-template<typename T>
-    requires is_dsl_v<T>
-inline void pack_to(T &&x, const Expr<Buffer<uint>> &arr, Expr<uint> index) noexcept {
 
-    (void)detail::FunctionBuilder::current()->call(Type::of<void>(), CallOp::PACK, {LUISA_EXPR(x), arr.expression(), LUISA_EXPR(index)});
+inline namespace dsl {
+
+template<typename T>
+inline void pack_to(T &&x, Expr<Buffer<uint>> arr, Expr<uint> index) noexcept {
+    Expr xx{std::forward<T>(x)};
+    detail::FunctionBuilder::current()->call(
+        CallOp::PACK,
+        {xx.expression(), arr.expression(), index.expression()});
 }
+
 template<class T>
-    requires is_dsl_v<T>
-[[nodiscard]] inline auto unpack_from(const Expr<Buffer<uint>> &arr, Expr<uint> index) noexcept {
-    return def<T>(
+[[nodiscard]] inline auto unpack_from(Expr<Buffer<uint>> arr, Expr<uint> index) noexcept {
+    using E = expr_value_t<T>;
+    return def<E>(
         detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::UNPACK,
-            {arr.expression(), LUISA_EXPR(index)}));
+            Type::of<E>(), CallOp::UNPACK,
+            {arr.expression(), index.expression()}));
 }
-#undef LUISA_EXPR
 
 }// namespace dsl
+
 }// namespace luisa::compute
