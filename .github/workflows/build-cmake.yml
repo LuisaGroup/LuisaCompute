@@ -31,8 +31,10 @@ jobs:
           else
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
             sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${{ matrix.compiler.version }} main"
+            sudo apt-get -y remove "libc++1-*" "libc++abi1-*" "libunwind-*"
             sudo apt-get update
-            sudo apt-get -y install -f clang-${{ matrix.compiler.version }} lld-${{ matrix.compiler.version }} libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
+            sudo apt-get -y install clang-${{ matrix.compiler.version }} lld-${{ matrix.compiler.version }}
+            sudo apt-get -y install libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
           sudo apt-get update
           sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
