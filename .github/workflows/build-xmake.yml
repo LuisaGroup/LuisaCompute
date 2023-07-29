@@ -24,10 +24,9 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get -y install build-essential uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev libdirectfb-dev
           if [ "${{ matrix.toolchain.name }}" = "gcc" ]; then
+            sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+            sudo apt-get update
             sudo apt-get -y install gcc-${{ matrix.toolchain.version }} g++-${{ matrix.toolchain.version }}
           else
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
@@ -35,6 +34,8 @@ jobs:
             sudo apt-get update
             sudo apt-get -y install -f clang-${{ matrix.toolchain.version }} lld-${{ matrix.toolchain.version }} libc++-${{ matrix.toolchain.version }}-dev libc++abi-${{ matrix.toolchain.version }}-dev
           fi
+          sudo apt-get update
+          sudo apt-get -y install build-essential uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev libdirectfb-dev
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
         run: |
