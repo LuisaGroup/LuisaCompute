@@ -107,7 +107,7 @@ pub(super) fn compile(
     };
     let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
     if lib_path.exists() && !force_recompile {
-        log::info!("Loading cached LLVM IR {}", &target_lib);
+        log::debug!("Loading cached LLVM IR {}", &target_lib);
         return Ok(lib_path);
     }
     // log::info!("compiling kernel {}", source_file);
@@ -138,7 +138,7 @@ pub(super) fn compile(
         match child.wait_with_output().expect("clang++ failed") {
             output @ _ => match output.status.success() {
                 true => {
-                    log::info!(
+                    log::debug!(
                         "LLVM IR generated in {:.3}ms",
                         (std::time::Instant::now() - tic).as_secs_f64() * 1e3
                     );
@@ -187,7 +187,7 @@ impl ShaderImpl {
         let tic = std::time::Instant::now();
         let entry = llvm::compile_llvm_ir(&name, &String::from(path.to_str().unwrap()))?;
         let elapsed = (std::time::Instant::now() - tic).as_secs_f64() * 1e3;
-        log::info!("LLVM IR compiled in {:.3}ms", elapsed);
+        log::debug!("LLVM IR compiled in {:.3}ms", elapsed);
         Some(Self {
             // lib,
             entry,
