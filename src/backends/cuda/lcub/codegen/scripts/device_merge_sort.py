@@ -7,10 +7,10 @@ website = "https://nvlabs.github.io/cub/structcub_1_1_device_merge_sort.html"
 class_name = "DeviceMergeSort"
 
 dcub = dcub_template.template(website)
-dcub.func_sig_template = func_sig_template = '''static cudaError_t $FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_SIG_ARGS$, BinaryOperator compare_op = BinaryOperator::Max, cudaStream_t stream = nullptr, bool debug_synchronous = false);'''
-dcub.func_impl_template = '''cudaError_t $CLASS_NAME$::$FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_IMPL_ARGS$, BinaryOperator compare_op, cudaStream_t stream, bool debug_synchronous){
+dcub.func_sig_template = func_sig_template = '''static cudaError_t $FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_SIG_ARGS$, BinaryOperator compare_op = BinaryOperator::Max, cudaStream_t stream = nullptr);'''
+dcub.func_impl_template = '''cudaError_t $CLASS_NAME$::$FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_IMPL_ARGS$, BinaryOperator compare_op, cudaStream_t stream) {
     return op_mapper(compare_op, [&](auto op) {
-        return ::cub::$CLASS_NAME$::$FUNC_NAME$(d_temp_storage, temp_storage_bytes, $INNER_FUNC_INPUT_ARGS$, op, stream, debug_synchronous);
+        return ::cub::$CLASS_NAME$::$FUNC_NAME$(d_temp_storage, temp_storage_bytes, $INNER_FUNC_INPUT_ARGS$, op, stream);
     });
 }'''
 

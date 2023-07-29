@@ -39,11 +39,11 @@ build_list = [
     ]
 
 has_clang_format = not os.system("clang-format --version")
-if(not has_clang_format):
+if not has_clang_format:
     print("clang-format not found, skipping formatting")
 for build in build_list:
     os.system("python ./scripts/" + build + ".py")
-    if(has_clang_format):
+    if has_clang_format:
         os.system(f"clang-format -i ../{build}.h ../private/dcub/{build}.h")
     header += f'''#include "{build}.h"''' + "\n"
 
