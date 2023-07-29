@@ -30,7 +30,7 @@ jobs:
           if [ "${{ matrix.compiler.name }}" = "gcc" ]; then
             sudo apt-get -y install gcc-${{ matrix.compiler.version }} g++-${{ matrix.compiler.version }}
           else
-            sudo apt-get remove -y python-lldb-x.y
+            sudo apt-get purge -y python-lldb-x.y
             wget https://apt.llvm.org/llvm.sh
             chmod +x llvm.sh
             sudo ./llvm.sh ${{ matrix.compiler.version }}
