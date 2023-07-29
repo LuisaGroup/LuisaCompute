@@ -40,8 +40,11 @@ local function lc_add_app(appname, folder, name, options)
 	target_end()
 end 
 
--- single test suite for development
+-- temp test suites
 lc_add_app("test_feat", "test", "feat")
+
+-- for common features
+
 if get_config("enable_gui") then
 	add_defines("ENABLE_DISPLAY")
 	-- all test suites for release
