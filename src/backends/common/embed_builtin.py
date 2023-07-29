@@ -4,7 +4,7 @@ import os
 
 def embed_file(file_name, array_name, header, source):
     with open(file_name, "rb") as f:
-        data = [f"0x{ord(c):02x}" for c in f.read().decode("utf-8")]
+        data = [f"0x{ord(c):02x}" for c in f.read().decode("utf-8").replace("\r\n", "\n")]
     size = len(data)
     header.write(f'extern "C" const char {array_name}[{size}];\n')
     source.write(f'\nextern "C" const char {array_name}[{size}] = {{\n')
