@@ -6,6 +6,7 @@
 #include <luisa/core/mathematics.h>
 
 namespace luisa::compute {
+
 ASTEvaluator::Result ASTEvaluator::try_eval(Expression const *expr) {
     switch (expr->tag()) {
         case Expression::Tag::UNARY:

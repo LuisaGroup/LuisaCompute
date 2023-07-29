@@ -195,6 +195,7 @@ ir::NodeRef AST2IR::_convert_expr(const Expression *expr, bool is_lvalue) noexce
         case Expression::Tag::CONSTANT: return _convert(static_cast<const ConstantExpr *>(expr));
         case Expression::Tag::CALL: return _convert(static_cast<const CallExpr *>(expr));
         case Expression::Tag::CAST: return _convert(static_cast<const CastExpr *>(expr));
+        case Expression::Tag::TYPE_ID: return _convert(static_cast<const TypeIDExpr *>(expr));
         case Expression::Tag::CPUCUSTOM: return _convert(static_cast<const CpuCustomOpExpr *>(expr));
         case Expression::Tag::GPUCUSTOM: return _convert(static_cast<const GpuCustomOpExpr *>(expr));
     }
@@ -870,6 +871,10 @@ ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {
     return ir::luisa_compute_ir_build_call(
         _current_builder(), {.tag = ir::Func::Tag::Bitcast},
         {.ptr = &src, .len = 1u}, _convert_type(expr->type()));
+}
+
+ir::NodeRef AST2IR::_convert(const TypeIDExpr *expr) noexcept {
+    LUISA_NOT_IMPLEMENTED();
 }
 
 ir::NodeRef AST2IR::_convert(const CpuCustomOpExpr *expr) noexcept {

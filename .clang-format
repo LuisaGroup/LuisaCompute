@@ -119,3 +119,5 @@ IfMacros:
   - $switch
   - $case
   - $default
+StatementMacros:
+  - LUISA_MAP

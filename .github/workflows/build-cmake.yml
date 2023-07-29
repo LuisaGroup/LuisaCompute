@@ -15,6 +15,7 @@ jobs:
           - { name: clang, version: 14 }
           - { name: clang, version: 15 }
           - { name: clang, version: 16 }
+          - { name: clang, version: 17 }
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler.name }}-${{ matrix.compiler.version }}
     runs-on: ${{ matrix.os }}
@@ -24,17 +25,20 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
           if [ "${{ matrix.compiler.name }}" = "gcc" ]; then
+            sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+            sudo apt-get update
             sudo apt-get -y install gcc-${{ matrix.compiler.version }} g++-${{ matrix.compiler.version }}
           else
-            wget https://apt.llvm.org/llvm.sh
-            chmod +x llvm.sh
-            sudo ./llvm.sh ${{ matrix.compiler.version }}
+            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+            sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${{ matrix.compiler.version }} main"
+            sudo apt-get -y remove "libc++1-*" "libc++abi1-*" "libunwind-*"
+            sudo apt-get update
+            sudo apt-get -y install clang-${{ matrix.compiler.version }} lld-${{ matrix.compiler.version }}
             sudo apt-get -y install libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
+          sudo apt-get update
+          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
         run: |
@@ -42,10 +46,6 @@ jobs:
           sudo dpkg -i cuda-keyring_1.0-1_all.deb
           sudo apt-get update
           sudo apt-get -y install cuda
-      - name: "Setup Python"
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python }}
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:

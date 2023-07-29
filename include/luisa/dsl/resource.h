@@ -459,7 +459,7 @@ public:
         requires is_integral_expr_v<I>
     void write(I &&index, V &&value) const noexcept {
         Expr<T>{_buffer}.write(std::forward<I>(index),
-                                      std::forward<V>(value));
+                               std::forward<V>(value));
     }
     template<typename I>
         requires is_integral_expr_v<I>
@@ -665,5 +665,25 @@ using VolumeInt = VolumeVar<int>;
 using VolumeUInt = VolumeVar<uint>;
 using VolumeFloat = VolumeVar<float>;
 
-}// namespace luisa::compute
+inline namespace dsl {
 
+template<typename T>
+inline void pack_to(T &&x, Expr<Buffer<uint>> arr, Expr<uint> index) noexcept {
+    Expr xx{std::forward<T>(x)};
+    detail::FunctionBuilder::current()->call(
+        CallOp::PACK,
+        {xx.expression(), arr.expression(), index.expression()});
+}
+
+template<class T>
+[[nodiscard]] inline auto unpack_from(Expr<Buffer<uint>> arr, Expr<uint> index) noexcept {
+    using E = expr_value_t<T>;
+    return def<E>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<E>(), CallOp::UNPACK,
+            {arr.expression(), index.expression()}));
+}
+
+}// namespace dsl
+
+}// namespace luisa::compute
