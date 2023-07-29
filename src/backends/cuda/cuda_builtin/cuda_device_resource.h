@@ -2127,16 +2127,43 @@ __device__ inline void lc_synchronize_block() noexcept {
 #define LC_ACCUM_GRAD(x_grad, dx) lc_accumulate_grad(&(x_grad), (dx))
 #define LC_REQUIRES_GRAD(x) x##_grad = lc_zero<decltype(x##_grad)>()
 
+template<typename T>
+struct alignas(alignof(T) < 4u ? 4u : alignof(T)) LCPack {
+    T value;
+};
 
-template<typename T, size_t N = (sizeof(T) + 3) / 4>
-__device__ inline void lc_pack_to(const T& x, LCBuffer<lc_uint> array, lc_uint idx) {
-    auto data = reinterpret_cast<const int *>(&x);
-    for (int i =0;i<N;i++) {
-        array.ptr[idx + i] = data[i];
+template<typename T>
+__device__ inline void lc_pack_to(const T &x, LCBuffer<lc_uint> array, lc_uint idx) noexcept {
+    constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
+    if constexpr (alignof(T) <= 4u) {
+        LCPack<T> pack{.value = x};
+        auto data = reinterpret_cast<const lc_uint *>(&pack);
+#pragma unroll
+        for (auto i = 0u; i < N; i++) {
+            array.ptr[idx + i] = data[i];
+        }
+    } else {
+        auto data = reinterpret_cast<const lc_uint *>(&x);
+#pragma unroll
+        for (auto i = 0u; i < N; i++) {
+            array.ptr[idx + i] = data[i];
+        }
     }
 }
+
 template<typename T>
-__device__ inline T lc_unpack_from(LCBuffer<lc_uint> array, lc_uint idx) {
-    auto data = reinterpret_cast<const T *>(&array.ptr[idx]);
-    return *data;
+[[nodiscard]] __device__ inline T lc_unpack_from(LCBuffer<lc_uint> array, lc_uint idx) noexcept {
+    if constexpr (alignof(T) <= 4u) {
+        auto data = reinterpret_cast<const T *>(&array.ptr[idx]);
+        return *data;
+    } else {
+        constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
+        LCPack<T> x{};
+        auto data = reinterpret_cast<lc_uint *>(&x);
+#pragma unroll
+        for (auto i = 0u; i < N; i++) {
+            data[i] = array.ptr[idx + i];
+        }
+        return x.value;
+    }
 }
