@@ -31,7 +31,7 @@ jobs:
             sudo apt-get -y install gcc-${{ matrix.toolchain.version }} g++-${{ matrix.toolchain.version }}
           else
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-            add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${{ matrix.compiler.version }} main"
+            sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${{ matrix.compiler.version }} main"
             sudo apt-get update
             sudo apt-get -y install clang-${{ matrix.compiler.version }} lld-${{ matrix.compiler.version }} libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
