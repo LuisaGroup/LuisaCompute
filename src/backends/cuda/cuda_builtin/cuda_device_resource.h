@@ -2135,7 +2135,8 @@ struct alignas(alignof(T) < 4u ? 4u : alignof(T)) LCPack {
 template<typename T>
 __device__ inline void lc_pack_to(const T &x, LCBuffer<lc_uint> array, lc_uint idx) noexcept {
     constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
-    if constexpr (alignof(T) <= 4u) {
+    if constexpr (alignof(T) < 4u) {
+        // too small to be aligned to 4 bytes
         LCPack<T> pack{};
         pack.value = x;
         auto data = reinterpret_cast<const lc_uint *>(&pack);
@@ -2144,6 +2145,7 @@ __device__ inline void lc_pack_to(const T &x, LCBuffer<lc_uint> array, lc_uint i
             array.ptr[idx + i] = data[i];
         }
     } else {
+        // safe to reinterpret the pointer as lc_uint *
         auto data = reinterpret_cast<const lc_uint *>(&x);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
@@ -2155,9 +2157,11 @@ __device__ inline void lc_pack_to(const T &x, LCBuffer<lc_uint> array, lc_uint i
 template<typename T>
 [[nodiscard]] __device__ inline T lc_unpack_from(LCBuffer<lc_uint> array, lc_uint idx) noexcept {
     if constexpr (alignof(T) <= 4u) {
+        // safe to reinterpret the pointer as T *
         auto data = reinterpret_cast<const T *>(&array.ptr[idx]);
         return *data;
     } else {
+        // copy to a temporary aligned buffer to avoid unaligned access
         constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
         LCPack<T> x{};
         auto data = reinterpret_cast<lc_uint *>(&x);
