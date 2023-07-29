@@ -419,8 +419,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid index.");
     };
     switch (func.tag) {
-        case ir::Func::Tag::Pack: return builtin_func(1, CallOp::PACK);
-        case ir::Func::Tag::Unpack: return builtin_func(1, CallOp::UNPACK);
+        case ir::Func::Tag::Pack: return builtin_func(3, CallOp::PACK);
+        case ir::Func::Tag::Unpack: return builtin_func(2, CallOp::UNPACK);
         case ir::Func::Tag::ZeroInitializer: return builtin_func(0, CallOp::ZERO);
         case ir::Func::Tag::Assume: return builtin_func(1, CallOp::ASSUME);
         case ir::Func::Tag::Unreachable: return builtin_func(0, CallOp::UNREACHABLE);
