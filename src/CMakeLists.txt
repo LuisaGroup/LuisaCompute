@@ -62,6 +62,10 @@ target_link_libraries(compute INTERFACE
         luisa-compute-backends
         luisa-compute-ir)
 
+if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
+    target_link_libraries(compute INTERFACE luisa-compute-cuda-ext-lcub)
+endif ()
+
 add_library(luisa::compute ALIAS compute)
 
 function(luisa_compute_add_executable name)

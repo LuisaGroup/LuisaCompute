@@ -1,13 +1,20 @@
 #pragma once
+
+#ifdef max
 #undef max
+#endif
+
+#ifdef min
 #undef min
+#endif
+
+#include <cuda_runtime_api.h>
+
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/context.h>
 #include <luisa/core/logging.h>
-#include "../cuda_device.h"
-#include "../cuda_buffer.h"
 #include <luisa/backends/ext/cuda/lcub/dcub/dcub_utils.h>
 
 namespace luisa::compute::cuda::lcub {
@@ -15,9 +22,7 @@ namespace details {
 template<typename T>
 inline T *raw(luisa::compute::BufferView<T> buffer_view) noexcept {
     if (!buffer_view) return nullptr;
-    LUISA_ASSERT(buffer_view.device()->backend_name() == "cuda", "{}'s BufferView cannot be used in cuda extension.", buffer_view.device()->backend_name());
-    auto cuda_buffer_wrapper = reinterpret_cast<luisa::compute::cuda::CUDABuffer *>(buffer_view.handle());
-    return reinterpret_cast<T *>(cuda_buffer_wrapper->handle()) + buffer_view.offset();
+    return reinterpret_cast<T *>(buffer_view.native_handle()) + buffer_view.offset();
 }
 
 template<typename T>

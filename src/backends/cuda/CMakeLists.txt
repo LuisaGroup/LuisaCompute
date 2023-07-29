@@ -3,8 +3,6 @@ find_package(CUDAToolkit 11.7)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
 
-    
-
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
@@ -34,20 +32,7 @@ if (CUDAToolkit_FOUND)
             default_binary_io.cpp
             string_scratch.cpp)
 
-    
-
-    if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
-        add_subdirectory("lcub")
-        file(GLOB LCUB_SOURCES "lcub/*.cpp")
-        list(APPEND LUISA_COMPUTE_CUDA_SOURCES ${LCUB_SOURCES})
-    endif()
-
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
-
-    if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
-        target_link_libraries(luisa-compute-backend-cuda PRIVATE cuda-dcub)
-        target_compile_definitions(luisa-compute-backend-cuda PRIVATE "-DLC_BACKEND_EXPORT_DLL=1")
-    endif()
 
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
@@ -114,6 +99,11 @@ if (CUDAToolkit_FOUND)
             install(FILES $<TARGET_FILE:${target}> DESTINATION ${CMAKE_INSTALL_BINDIR})
         endforeach ()
     endif ()
+
+    # CUB LuisaCompute integration
+    if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
+        add_subdirectory(lcub)
+    endif()
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "CUDA not found. The CUDA backend will not be built.")
