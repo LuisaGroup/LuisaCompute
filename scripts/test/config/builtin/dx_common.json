@@ -1,8 +1,7 @@
 {
     "build_system": "xmake",
     "device_list": [
-        "dx",
-        "cuda"
+        "dx"
     ],
     "feat_list": [
         "common"
