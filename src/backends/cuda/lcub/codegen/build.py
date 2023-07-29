@@ -24,7 +24,7 @@ for file in os.listdir("./include"):
         shutil.copytree("./include/" + file, dst + file, dirs_exist_ok=True)
 
 # copy "cuda_lcub_command.cpp" to ../
-shutil.copy("./cuda_lcub_command.cpp", "../cuda_lcub_command.cpp")
+# shutil.copy("./cuda_lcub_command.cpp", "../cuda_lcub_command.cpp")
 
 build_list = [
     "device_scan", 

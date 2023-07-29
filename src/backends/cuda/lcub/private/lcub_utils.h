@@ -18,7 +18,9 @@
 #include <luisa/backends/ext/cuda/lcub/dcub/dcub_utils.h>
 
 namespace luisa::compute::cuda::lcub {
+
 namespace details {
+
 template<typename T>
 inline T *raw(luisa::compute::BufferView<T> buffer_view) noexcept {
     if (!buffer_view) return nullptr;
@@ -53,5 +55,7 @@ inline cudaError_t inner(luisa::compute::BufferView<int> d_temp_storage, F &&fun
     size_t temp_storage_bytes = lc_to_cuda_buffer_size(d_temp_storage.size());
     return func(temp_storage_bytes);
 }
+
 }
+
 }// namespace luisa::compute::cuda::cub::details
