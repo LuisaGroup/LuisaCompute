@@ -2136,7 +2136,8 @@ template<typename T>
 __device__ inline void lc_pack_to(const T &x, LCBuffer<lc_uint> array, lc_uint idx) noexcept {
     constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
     if constexpr (alignof(T) <= 4u) {
-        LCPack<T> pack{.value = x};
+        LCPack<T> pack{};
+        pack.value = x;
         auto data = reinterpret_cast<const lc_uint *>(&pack);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
