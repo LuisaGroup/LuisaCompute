@@ -5,9 +5,9 @@ class template:
 
 #include <luisa/backends/ext/cuda/lcub/dcub/dcub_common.h>
 
-namespace luisa::compute::cuda::dcub{
+namespace luisa::compute::cuda::dcub {
 
-class DCUB_API $CLASS_NAME${
+class DCUB_API $CLASS_NAME$ {
 // DOC:  $WEBPAGE$
 public:
 $FUNC_SIGS$
@@ -20,15 +20,15 @@ $FUNC_SIGS$
 #include "dcub_utils.cuh"
 #include <cub/device/$FILE_NAME$.cuh>
 
-namespace luisa::compute::cuda::dcub{
+namespace luisa::compute::cuda::dcub {
 // DOC:  $WEBPAGE$
 $FUNC_IMPLS$
 }
 '''.replace('$WEBPAGE$', web_page)
-        self.func_sig_template = '''static cudaError_t $FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_SIG_ARGS$, cudaStream_t stream = nullptr, bool debug_synchronous = false);'''
-        self.func_impl_template = '''cudaError_t $CLASS_NAME$::$FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_IMPL_ARGS$, cudaStream_t stream, bool debug_synchronous)
+        self.func_sig_template = '''static cudaError_t $FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_SIG_ARGS$, cudaStream_t stream = nullptr);'''
+        self.func_impl_template = '''cudaError_t $CLASS_NAME$::$FUNC_NAME$(void* d_temp_storage, size_t& temp_storage_bytes, $FUNC_IMPL_ARGS$, cudaStream_t stream)
 {
-    return ::cub::$CLASS_NAME$::$FUNC_NAME$(d_temp_storage, temp_storage_bytes, $INNER_FUNC_INPUT_ARGS$, stream, debug_synchronous);
+    return ::cub::$CLASS_NAME$::$FUNC_NAME$(d_temp_storage, temp_storage_bytes, $INNER_FUNC_INPUT_ARGS$, stream);
 }'''
 
 id_type = "int32_t"
