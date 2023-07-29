@@ -33,7 +33,7 @@ jobs:
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
             sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${{ matrix.toolchain.version }} main"
             sudo apt-get update
-            sudo apt-get -y install clang-${{ matrix.toolchain.version }} lld-${{ matrix.toolchain.version }} libc++-${{ matrix.toolchain.version }}-dev libc++abi-${{ matrix.toolchain.version }}-dev
+            sudo apt-get -y install -f clang-${{ matrix.toolchain.version }} lld-${{ matrix.toolchain.version }} libc++-${{ matrix.toolchain.version }}-dev libc++abi-${{ matrix.toolchain.version }}-dev
           fi
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
