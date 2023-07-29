@@ -2126,3 +2126,17 @@ __device__ inline void lc_synchronize_block() noexcept {
 #define LC_GRAD(x) (x##_grad)
 #define LC_ACCUM_GRAD(x_grad, dx) lc_accumulate_grad(&(x_grad), (dx))
 #define LC_REQUIRES_GRAD(x) x##_grad = lc_zero<decltype(x##_grad)>()
+
+
+template<typename T, size_t N = (sizeof(T) + 3) / 4>
+__device__ inline void lc_pack_to(const T& x, LCBuffer<lc_uint> array, lc_uint idx) {
+    auto data = reinterpret_cast<const int *>(&x);
+    for (int i =0;i<N;i++) {
+        array.ptr[idx + i] = data[i];
+    }
+}
+template<typename T>
+__device__ inline T lc_unpack_from(LCBuffer<lc_uint> array, lc_uint idx) {
+    auto data = reinterpret_cast<const T *>(&array.ptr[idx]);
+    return *data;
+}

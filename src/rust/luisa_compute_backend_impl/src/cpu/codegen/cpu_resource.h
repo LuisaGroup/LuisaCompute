@@ -141,7 +141,6 @@ inline T lc_bindless_buffer_read(const KernelFnArgs *k_args, const BindlessArray
     return lc_buffer_read<T>(k_args, buf, element);
 }
 
-
 inline size_t lc_bindless_buffer_size(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index, size_t stride) noexcept {
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     return buf.size / stride;
@@ -302,4 +301,17 @@ inline void lc_ray_query(RayQuery &rq, T on_triangle_hit, P on_procedural_hit) {
 }
 inline CommitedHit lc_ray_query_committed_hit(RayQuery &rq) {
     return rq.hit;
+}
+
+template<typename T, size_t N = (sizeof(T) + 3) / 4>
+__device__ inline void lc_pack_to(const T &x, BufferView array, lc_uint idx) {
+    auto data = reinterpret_cast<const int *>(&x);
+    for (int i = 0; i < N; i++) {
+        reinterpret_cast<lc_uint *>(array.data)[idx + i] = data[i];
+    }
+}
+template<typename T>
+__device__ inline T lc_unpack_from(BufferView array, lc_uint idx) {
+    auto data = reinterpret_cast<const T *>(&reinterpret_cast<lc_uint *>(array.data)[idx]);
+    return *data;
 }

@@ -1140,8 +1140,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::Pack => {
                 writeln!(
                     self.body,
-                    "const {} {} = lc_pack({});",
-                    node_ty_s, var, args_v[0]
+                    "lc_pack_to({}, {}, {});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1149,8 +1149,8 @@ impl<'a> FunctionEmitter<'a> {
             Func::Unpack => {
                 writeln!(
                     self.body,
-                    "const {} {} = lc_unpack({});",
-                    node_ty_s, var, args_v[0]
+                    "const {} {} = lc_unpack_from({}, {});",
+                    node_ty_s, var, args_v[0], args_v[1]
                 )
                 .unwrap();
                 true
