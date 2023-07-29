@@ -38,6 +38,7 @@ public:
         CONSTANT,
         CALL,
         CAST,
+        TYPE_ID,
         CPUCUSTOM,
         GPUCUSTOM
     };
@@ -79,6 +80,7 @@ class RefExpr;
 class ConstantExpr;
 class CallExpr;
 class CastExpr;
+class TypeIDExpr;
 class CpuCustomOpExpr;
 class GpuCustomOpExpr;
 
@@ -92,6 +94,7 @@ struct LC_AST_API ExprVisitor {
     virtual void visit(const ConstantExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
+    virtual void visit(const TypeIDExpr *) = 0;
     virtual void visit(const CpuCustomOpExpr *);
     virtual void visit(const GpuCustomOpExpr *);
     virtual ~ExprVisitor() noexcept = default;
@@ -430,6 +433,24 @@ public:
     LUISA_EXPRESSION_COMMON()
 };
 
+class TypeIDExpr final : public Expression {
+
+private:
+    // Note: `data_type` is the argument of the expression,
+    //   not the result type. The result type is always uint64.
+    const Type *_data_type;
+
+protected:
+    void _mark(Usage) const noexcept override {}
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit TypeIDExpr(const Type *type) noexcept
+        : Expression{Tag::TYPE_ID, Type::of<ulong>()}, _data_type{type} {}
+    [[nodiscard]] auto data_type() const noexcept { return _data_type; }
+    LUISA_EXPRESSION_COMMON()
+};
+
 class CpuCustomOpExpr final : public Expression {
 
 public:
@@ -521,6 +542,7 @@ void traverse_subexpressions(const Expression *expr,
             traverse_subexpressions(cast_expr->expression(), enter, exit);
             break;
         }
+        case Expression::Tag::TYPE_ID: break;
         case Expression::Tag::CPUCUSTOM: break;
         case Expression::Tag::GPUCUSTOM: break;
     }

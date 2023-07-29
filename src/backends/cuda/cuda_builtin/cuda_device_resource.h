@@ -1056,6 +1056,10 @@ template<typename T>
     return buffer[i];
 }
 
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_type(LCBindlessArray array, lc_uint index) noexcept {
+    return 0ull;// TODO
+}
+
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_uint offset) noexcept {
     lc_assume(__isGlobal(array.slots));
