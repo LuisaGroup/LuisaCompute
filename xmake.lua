@@ -39,7 +39,7 @@ set_default(true)
 set_showmenu(true)
 option_end()
 -- enable NVIDIA-CUDA Extension CUB
-option("cuda_ext_cub")
+option("cuda_ext_lcub")
 set_values(true, false)
 set_default(false) -- default false, because of long compile time
 set_showmenu(true)

@@ -81,8 +81,10 @@ test_proj("test_native_include", true)
 test_proj("test_sparse_texture", true)
 test_proj("test_dml")
 
-if get_config("cuda_ext_cub") then 
-	test_proj("test_cuda_lcub")
+if get_config("cuda_ext_lcub") then 
+	test_proj("test_cuda_lcub", false, function ()
+		add_deps("lc-backend-cuda-ext-lcub")
+	end)
 end
 
 local enable_fsr2
