@@ -9,8 +9,7 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
-#include <luisa/runtime/device.h>
-#include <luisa/runtime/context.h>
+
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
@@ -92,15 +91,5 @@ int test_callable(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("common") {
-    TEST_CASE("callable") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_callable(device) == 0);
-            }
-        }
-    }
+    LUISA_TEST_CASE_WITH_DEVICE("callable", luisa::test::test_callable(device) == 0);
 }

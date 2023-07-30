@@ -1,5 +1,5 @@
 /**
- * @file test/feat/test_buffer.cpp
+ * @file test/feat/common/test_buffer.cpp
  * @author sailing-innocent
  * @date 2023/07/26
  * @brief the buffer test suite
@@ -212,75 +212,10 @@ int test_float4x4(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("common") {
-    TEST_CASE("buffer::float3x3") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_float3x3(device) == 0);
-            }
-        }
-    }
-
-    TEST_CASE("buffer::float3x3_order") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_float3x3_order(device) == 0);
-            }
-        }
-    }
-
-    TEST_CASE("buffer::float4x4") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_float4x4(device) == 0);
-            }
-        }
-    }
-
-    TEST_CASE("buffer::float4") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_floatx<float4>(device, 4, 4) == 0);
-            }
-        }
-    }
-
-    TEST_CASE("buffer::float3") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_floatx<float4>(device, 3, 4) == 0);
-            }
-        }
-    }
-
-    TEST_CASE("buffer::float2") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_floatx<float2>(device, 2, 2) == 0);
-            }
-        }
-    }
+    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3x3", luisa::test::test_float3x3(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3x3_order", luisa::test::test_float3x3_order(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer::float4x4", luisa::test::test_float4x4(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer::float4", luisa::test::test_floatx<float4>(device, 4, 4) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3", luisa::test::test_floatx<float3>(device, 3, 4) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer::float2", luisa::test::test_floatx<float2>(device, 2, 2) == 0);
 }

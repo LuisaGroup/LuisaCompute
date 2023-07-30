@@ -24,14 +24,5 @@ int test_buffer_view(Device &device, int literal_size, int align_size = 4) {
 }// namespace luisa::test
 
 TEST_SUITE("common") {
-    TEST_CASE("bufferview::float2") {
-        Context context{luisa::test::argv()[0]};
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::test_buffer_view<float2>(device, 2, 2) == 0);
-            }
-        }
-    }// TEST_CASE("bufferview::float2")
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_view", luisa::test::test_buffer_view<float4>(device, 4, 4) == 0);
 }// TEST_SUITE("common")
