@@ -43,12 +43,13 @@ private:
         if constexpr (is_dsl_v<Curr>) {
             using T = expr_value_t<Curr>;
             constexpr uint32_t N = (sizeof(T) + sizeof(uint) - 1) / sizeof(uint);
-            auto data = ArrayVar<uint, N>{};
-            data = dsl::pack(curr);
+            // auto data = ArrayVar<uint, N>{};
+            // data = dsl::pack(curr);
 
-            for (uint i = 0; i < N; i++) {
-                _buffer->write(offset + index + i, data[i]);
-            }
+            // for (uint i = 0; i < N; i++) {
+            //     _buffer->write(offset + index + i, data[i]);
+            // }
+            dsl::pack_to(curr, _buffer, offset + index);
             index += N;
         }
         _log_to_buffer(offset, index, other...);

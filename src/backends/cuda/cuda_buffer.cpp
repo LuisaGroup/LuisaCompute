@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "cuda_error.h"
 #include "cuda_buffer.h"
 

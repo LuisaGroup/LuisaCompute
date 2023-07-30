@@ -15,3 +15,4 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/vstl/common.h>

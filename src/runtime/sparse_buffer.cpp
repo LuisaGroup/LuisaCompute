@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/runtime/sparse_buffer.h>
 #include <luisa/core/logging.h>
 

@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/runtime/sparse_heap.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/rhi/device_interface.h>

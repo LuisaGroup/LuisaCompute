@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <fstream>
 
 #include <luisa/runtime/rhi/command.h>

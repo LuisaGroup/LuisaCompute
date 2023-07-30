@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/device.h>
 #include <luisa/core/logging.h>

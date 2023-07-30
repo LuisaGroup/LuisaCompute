@@ -1,5 +1,3 @@
-#include "../pch.h"
-
 #include <Shader/BuiltinKernel.h>
 #include <luisa/core/stl/filesystem.h>
 #include "../common/hlsl/hlsl_codegen.h"

@@ -43,6 +43,9 @@ pub(super) fn clang_args() -> Vec<&'static str> {
             }
         }
         Err(_) => {
+            if cfg!(debug_assertions) {
+                args.push("-DLUISA_DEBUG");
+            }
             args.push("-O3");
         }
     }
@@ -87,11 +90,7 @@ pub(super) fn compile(
     }
 
     let target_lib = format!("{}.bc", target);
-    let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
-    if lib_path.exists() && !force_recompile {
-        log::info!("Loading cached LLVM IR {}", &target_lib);
-        return Ok(lib_path);
-    }
+
     let dump_src = match env::var("LUISA_DUMP_SOURCE") {
         Ok(s) => s == "1",
         Err(_) => false,
@@ -106,6 +105,11 @@ pub(super) fn compile(
     } else {
         "-".to_string()
     };
+    let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
+    if lib_path.exists() && !force_recompile {
+        log::debug!("Loading cached LLVM IR {}", &target_lib);
+        return Ok(lib_path);
+    }
     // log::info!("compiling kernel {}", source_file);
     {
         let mut args: Vec<&str> = clang_args();
@@ -134,7 +138,7 @@ pub(super) fn compile(
         match child.wait_with_output().expect("clang++ failed") {
             output @ _ => match output.status.success() {
                 true => {
-                    log::info!(
+                    log::debug!(
                         "LLVM IR generated in {:.3}ms",
                         (std::time::Instant::now() - tic).as_secs_f64() * 1e3
                     );
@@ -183,7 +187,7 @@ impl ShaderImpl {
         let tic = std::time::Instant::now();
         let entry = llvm::compile_llvm_ir(&name, &String::from(path.to_str().unwrap()))?;
         let elapsed = (std::time::Instant::now() - tic).as_secs_f64() * 1e3;
-        log::info!("LLVM IR compiled in {:.3}ms", elapsed);
+        log::debug!("LLVM IR compiled in {:.3}ms", elapsed);
         Some(Self {
             // lib,
             entry,

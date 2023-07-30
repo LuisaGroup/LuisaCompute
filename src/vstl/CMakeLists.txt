@@ -25,3 +25,4 @@ else ()
 endif ()
 
 luisa_compute_install(vstl SOURCES ${LUISA_COMPUTE_VSTL_SOURCES})
+target_precompile_headers(luisa-compute-vstl PRIVATE pch.h)

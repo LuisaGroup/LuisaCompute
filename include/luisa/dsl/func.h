@@ -280,9 +280,9 @@ struct Kernel3D<void(Args...)> : LUISA_KERNEL_BASE(3);
 #undef LUISA_KERNEL_BASE
 
 namespace detail {
+
 /// Callable invoke
 class CallableInvoke {
-    friend class ExternalCallableInvoke;
 
 public:
     static constexpr auto max_argument_count = 64u;
@@ -299,10 +299,14 @@ public:
     /// Add an argument.
     template<typename T>
     CallableInvoke &operator<<(Expr<T> arg) noexcept {
-        if (_arg_count == max_argument_count) [[unlikely]] {
-            _error_too_many_arguments();
+        if constexpr (requires { typename Expr<T>::is_binding_group; }) {
+            callable_encode_binding_group(*this, arg);
+        } else {
+            if (_arg_count == max_argument_count) [[unlikely]] {
+                _error_too_many_arguments();
+            }
+            _args[_arg_count++] = arg.expression();
         }
-        _args[_arg_count++] = arg.expression();
         return *this;
     }
     /// Add an argument.
@@ -310,7 +314,9 @@ public:
     decltype(auto) operator<<(Ref<T> arg) noexcept {
         return (*this << Expr{arg});
     }
-    [[nodiscard]] auto args() const noexcept { return luisa::span{_args.data(), _arg_count}; }
+    [[nodiscard]] auto args() const noexcept {
+        return luisa::span{_args.data(), _arg_count};
+    }
 };
 
 }// namespace detail

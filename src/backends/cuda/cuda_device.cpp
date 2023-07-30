@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <cstring>
 #include <fstream>
 #include <future>

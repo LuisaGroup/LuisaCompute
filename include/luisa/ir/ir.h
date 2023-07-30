@@ -602,6 +602,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Bitcast; }
     };
     explicit Func(Func::Bitcast _) noexcept { _inner.tag = Bitcast::tag(); }
+    class LC_IR_API Pack : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::Pack; }
+    };
+    explicit Func(Func::Pack _) noexcept { _inner.tag = Pack::tag(); }
+    class LC_IR_API Unpack : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::Unpack; }
+    };
+    explicit Func(Func::Unpack _) noexcept { _inner.tag = Unpack::tag(); }
     class LC_IR_API Add : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1311,10 +1323,11 @@ public:
     };
     explicit Func(Func::BindlessBufferRead _) noexcept { _inner.tag = BindlessBufferRead::tag(); }
     class LC_IR_API BindlessBufferSize : Marker, concepts::Noncopyable {
-        raw::Func::BindlessBufferSize_Body _inner;
+        uint8_t _pad;
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::BindlessBufferSize; }
     };
+    explicit Func(Func::BindlessBufferSize _) noexcept { _inner.tag = BindlessBufferSize::tag(); }
     class LC_IR_API BindlessBufferType : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1442,9 +1455,6 @@ public:
         if constexpr (std::is_same_v<T, Assert>) {
             return reinterpret_cast<const Assert *>(&_inner.assert);
         }
-        if constexpr (std::is_same_v<T, BindlessBufferSize>) {
-            return reinterpret_cast<const BindlessBufferSize *>(&_inner.bindless_buffer_size);
-        }
         if constexpr (std::is_same_v<T, Callable>) {
             return reinterpret_cast<const Callable *>(&_inner.callable);
         }
@@ -1509,6 +1519,16 @@ public:
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Bool; }
     };
+    class LC_IR_API Int16 : Marker, concepts::Noncopyable {
+        raw::Const::Int16_Body _inner;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Const::Tag::Int16; }
+    };
+    class LC_IR_API Uint16 : Marker, concepts::Noncopyable {
+        raw::Const::Uint16_Body _inner;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint16; }
+    };
     class LC_IR_API Int32 : Marker, concepts::Noncopyable {
         raw::Const::Int32_Body _inner;
     public:
@@ -1528,6 +1548,11 @@ public:
         raw::Const::Uint64_Body _inner;
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint64; }
+    };
+    class LC_IR_API Float16 : Marker, concepts::Noncopyable {
+        raw::Const::Float16_Body _inner;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Const::Tag::Float16; }
     };
     class LC_IR_API Float32 : Marker, concepts::Noncopyable {
         raw::Const::Float32_Body _inner;
@@ -1562,6 +1587,12 @@ public:
         if constexpr (std::is_same_v<T, Bool>) {
             return reinterpret_cast<const Bool *>(&_inner.bool_);
         }
+        if constexpr (std::is_same_v<T, Int16>) {
+            return reinterpret_cast<const Int16 *>(&_inner.int16);
+        }
+        if constexpr (std::is_same_v<T, Uint16>) {
+            return reinterpret_cast<const Uint16 *>(&_inner.uint16);
+        }
         if constexpr (std::is_same_v<T, Int32>) {
             return reinterpret_cast<const Int32 *>(&_inner.int32);
         }
@@ -1573,6 +1604,9 @@ public:
         }
         if constexpr (std::is_same_v<T, Uint64>) {
             return reinterpret_cast<const Uint64 *>(&_inner.uint64);
+        }
+        if constexpr (std::is_same_v<T, Float16>) {
+            return reinterpret_cast<const Float16 *>(&_inner.float16);
         }
         if constexpr (std::is_same_v<T, Float32>) {
             return reinterpret_cast<const Float32 *>(&_inner.float32);

@@ -1,5 +1,3 @@
-#include "../pch.h"
-
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/accel.h>
 

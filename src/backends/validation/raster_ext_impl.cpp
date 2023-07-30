@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "raster_ext_impl.h"
 #include "rw_resource.h"
 #include "device.h"

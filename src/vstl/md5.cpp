@@ -1,5 +1,3 @@
-
-
 #include <luisa/vstl/md5.h>
 namespace vstd {
 namespace detail {

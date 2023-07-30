@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>

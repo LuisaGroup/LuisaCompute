@@ -13,7 +13,7 @@ use crate::{cpu::llvm::LLVM_PATH, SwapChainForCpuContext};
 use crate::{cpu::shader::clang_args, panic_abort};
 use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
 use libc::c_void;
-use log::info;
+use log::debug;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_ir::{context::type_hash, ir, CArc};
@@ -243,7 +243,7 @@ impl Backend for RustBackend {
         // }
         let tic = std::time::Instant::now();
         let mut gened = codegen::cpp::CpuCodeGen::run(&kernel);
-        info!(
+        debug!(
             "Source generated in {:.3}ms",
             (std::time::Instant::now() - tic).as_secs_f64() * 1e3
         );

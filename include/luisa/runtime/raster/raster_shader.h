@@ -231,7 +231,7 @@ public:
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         size_t arg_size;
         if (_bindings.empty()) {
-            arg_size = sizeof...(Args);
+            arg_size = (0u + ... + detail::shader_argument_encode_count<Args>::value);
         } else {
             arg_size = _bindings.size();
         }
@@ -254,4 +254,3 @@ public:
 };
 
 }// namespace luisa::compute
-

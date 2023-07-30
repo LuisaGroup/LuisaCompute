@@ -6,6 +6,7 @@
 #include <type_traits>
 
 #define HALF_NO_THROW
+#define HALF_ARITHMETIC_TYPE float
 #include <half.hpp>
 
 namespace luisa {
@@ -31,8 +32,14 @@ template<typename T>
 using half = half_float::half;
 using namespace half_float::literal;
 
-static_assert(sizeof(half) == 2u && alignof(half),
-              "half should be 16-bit.");
+static_assert(sizeof(half) == 2u && alignof(half) == 2u,
+              "half should be 16-bit sized and aligned.");
+
+static_assert(std::is_same_v<decltype(1._h + 1._h), half>,
+              "half should support arithmetic operations.");
+
+static_assert(std::is_same_v<decltype(sin(1._h)), half>,
+              "half should support std::sin.");
 
 static_assert(std::is_arithmetic_v<half>,
               "half should be arithmetic.");

@@ -2,6 +2,7 @@ pub mod ffi;
 pub mod ir;
 pub use ffi::*;
 use serde::Serialize;
+use half::f16;
 use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
 pub mod context;
 mod display;
@@ -38,6 +39,11 @@ impl TypeOf for u32 {
 impl TypeOf for i32 {
     fn type_() -> CArc<Type> {
         context::register_type(Type::Primitive(Primitive::Int32))
+    }
+}
+impl TypeOf for f16 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Float16))
     }
 }
 impl TypeOf for f32 {

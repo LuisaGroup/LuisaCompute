@@ -125,8 +125,9 @@ public:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const ConstantExpr *expr) override;
-    void visit(const CpuCustomOpExpr *) override {}
-    void visit(const GpuCustomOpExpr *) override {}
+    void visit(const TypeIDExpr *expr) override { LUISA_NOT_IMPLEMENTED(); }
+    void visit(const CpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
+    void visit(const GpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
 
     void visit(const BreakStmt *) override;
     void visit(const ContinueStmt *) override;
@@ -157,8 +158,10 @@ public:
 protected:
     vstd::StringBuilder &str;
 };
+
 template<typename T>
 struct PrintValue;
+
 template<>
 struct PrintValue<float> {
     void operator()(float const &v, vstd::StringBuilder &str) {
@@ -172,17 +175,74 @@ struct PrintValue<float> {
         }
     }
 };
+
+template<>
+struct PrintValue<double> {
+    void operator()(double const &v, vstd::StringBuilder &str) {
+        if (luisa::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (luisa::isinf(v)) [[unlikely]] {
+            str.append(v < 0.0 ? "(-_INF_d)" : "(_INF_d)");
+        } else {
+            str.append(luisa::format("float64_t({})", v));
+        }
+    }
+};
+
+template<>
+struct PrintValue<half> {
+    void operator()(half const &v, vstd::StringBuilder &str) {
+        if (luisa::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (luisa::isinf(v)) [[unlikely]] {
+            str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
+        } else {
+            str.append(luisa::format("float16_t({})", static_cast<float>(v)));
+        }
+    }
+};
+
+template<>
+struct PrintValue<short> {
+    void operator()(short const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("int16_t({})", v));
+    }
+};
+
+template<>
+struct PrintValue<ushort> {
+    void operator()(ushort const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("uint16_t({}u)", v));
+    }
+};
+
 template<>
 struct PrintValue<int> {
     void operator()(int const &v, vstd::StringBuilder &str) {
-        vstd::to_string(v, str);
+        str.append(luisa::format("{}", v));
     }
 };
+
 template<>
 struct PrintValue<uint> {
     void operator()(uint const &v, vstd::StringBuilder &str) {
-        vstd::to_string(v, str);
-        str << 'u';
+        str.append(luisa::format("{}u", v));
+    }
+};
+
+template<>
+struct PrintValue<slong> {
+    void operator()(slong const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("int64_t({}ll)", v));
+    }
+};
+
+template<>
+struct PrintValue<ulong> {
+    void operator()(ulong const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("uint64_t({}ull)", v));
     }
 };
 
@@ -198,7 +258,7 @@ struct PrintValue<bool> {
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void PureRun(T const &v, vstd::StringBuilder &varName) {
+    void print_elem(T const &v, vstd::StringBuilder &varName) {
         for (uint64 i = 0; i < N; ++i) {
             PrintValue<float>{}(v[i], varName);
             varName += ',';
@@ -217,13 +277,27 @@ struct PrintValue<Vector<EleType, N>> {
                 varName << "int";
             } else if constexpr (std::is_same_v<EleType, bool>) {
                 varName << "bool";
+            } else if constexpr (std::is_same_v<EleType, half>) {
+                varName << "float16_t";
+            } else if constexpr (std::is_same_v<EleType, double>) {
+                varName << "float64_t";
+            } else if constexpr (std::is_same_v<EleType, short>) {
+                varName << "int16_t";
+            } else if constexpr (std::is_same_v<EleType, ushort>) {
+                varName << "uint16_t";
+            } else if constexpr (std::is_same_v<EleType, slong>) {
+                varName << "int64_t";
+            } else if constexpr (std::is_same_v<EleType, ulong>) {
+                varName << "uint64_t";
+            } else {
+                static_assert(luisa::always_false_v<T>, "Unsupported type.");
             }
             vstd::to_string(N, varName);
             varName << '(';
-            PureRun(v, varName);
+            print_elem(v, varName);
             varName << ')';
         } else {
-            PureRun(v, varName);
+            print_elem(v, varName);
         }
     }
 };
@@ -238,7 +312,7 @@ struct PrintValue<Matrix<N>> {
         varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;
         for (uint64 i = 0; i < N; ++i) {
-            vecPrinter.PureRun(v[i], varName);
+            vecPrinter.print_elem(v[i], varName);
             varName += ',';
         }
         auto &&last = varName.end() - 1;

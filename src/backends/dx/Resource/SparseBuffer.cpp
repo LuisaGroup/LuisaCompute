@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include "SparseBuffer.h"
 #include <Resource/GpuAllocator.h>
 #include <luisa/core/logging.h>

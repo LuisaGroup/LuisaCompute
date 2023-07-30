@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <cuda.h>
 
 #include <luisa/core/clock.h>

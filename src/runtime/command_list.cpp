@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/core/logging.h>
