@@ -1,3 +1,7 @@
+if get_config("cuda_ext_lcub") then 
+	includes("lcub")
+end
+
 target("lc-backend-cuda")
 _config_project({
 	project_kind = "shared",
@@ -13,8 +17,14 @@ if get_config("enable_ir") then
 	add_deps("lc-ir")
 end
 set_pcxxheader("pch.h")
-add_headerfiles("**.h", "../common/default_binary_io.h", "../common/string_scratch.h")
-add_files("**.cpp")
+add_headerfiles("*.h", "./cuda_builtin/*.h", "../common/default_binary_io.h", "../common/string_scratch.h")
+add_files("*.cpp")
+
+-- if has_config("cuda_ext_lcub") then
+-- 	add_files("lcub/*.cpp")
+-- 	add_deps("cuda-dcub")
+-- end
+
 on_load(function(target)
 	import("detect.sdks.find_cuda")
 	local cuda = find_cuda()
