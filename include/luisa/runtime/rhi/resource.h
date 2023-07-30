@@ -205,7 +205,7 @@ public:
     Resource &operator=(const Resource &) noexcept = delete;
     [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] auto handle() const noexcept { return _info.handle; }
-    [[nodiscard]] void *native_handle() const noexcept { return _info.native_handle; }
+    [[nodiscard]] auto native_handle() const noexcept { return _info.native_handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] explicit operator bool() const noexcept { return _info.valid(); }
     void set_name(luisa::string_view name) const noexcept;

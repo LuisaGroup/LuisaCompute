@@ -1,5 +1,6 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/command_list.h>
+#include <luisa/backends/ext/cuda/lcub/cuda_lcub_command.h>
 
 #include "cuda_error.h"
 #include "cuda_buffer.h"
@@ -254,6 +255,12 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
             auto ds_command = dynamic_cast<DStorageReadCommand *>(command);
             LUISA_ASSERT(ds_command != nullptr, "Invalid DStorageReadCommand.");
             visit(ds_command);
+            break;
+        }
+        case to_underlying(CustomCommandUUID::CUDA_LCUB_COMMAND): {
+            auto lcub_command = dynamic_cast<CudaLCubCommand *>(command);
+            LUISA_ASSERT(lcub_command != nullptr, "Invalid CudaLCuBCommand.");
+            lcub_command->func(_stream->handle());
             break;
         }
         default:

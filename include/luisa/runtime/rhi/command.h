@@ -621,6 +621,7 @@ public:
         : Command{Command::Tag::ECustomCommand} {}
     [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
     ~CustomCommand() noexcept override = default;
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };
 
 // For custom shader-dispatch or pass
@@ -661,8 +662,6 @@ public:
         Adapter adapter{f};
         this->traverse_arguments(adapter);
     }
-
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };
 
 }// namespace luisa::compute
