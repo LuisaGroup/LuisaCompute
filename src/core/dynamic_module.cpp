@@ -6,7 +6,8 @@
 namespace luisa {
 
 DynamicModule &DynamicModule::operator=(DynamicModule &&rhs) noexcept {
-    if (&rhs != this) [[likely]] {
+    if (this != &rhs) {
+        dispose();
         _handle = rhs._handle;
         rhs._handle = nullptr;
     }
@@ -16,11 +17,15 @@ DynamicModule &DynamicModule::operator=(DynamicModule &&rhs) noexcept {
 DynamicModule::DynamicModule(DynamicModule &&another) noexcept
     : _handle{another._handle} { another._handle = nullptr; }
 
-DynamicModule::~DynamicModule() noexcept { dynamic_module_destroy(_handle); }
+DynamicModule::~DynamicModule() noexcept { dispose(); }
+
 void DynamicModule::dispose() noexcept {
-    dynamic_module_destroy(_handle);
-    _handle = nullptr;
+    if (_handle) {
+        dynamic_module_destroy(_handle);
+        _handle = nullptr;
+    }
 }
+
 [[nodiscard]] static std::mutex &dynamic_module_search_path_mutex() noexcept {
     static std::mutex mutex;
     return mutex;

@@ -59,7 +59,7 @@ public:
             .try_emplace(backend_name, luisa::lazy_construct(std::move(create_new)))
             .first->second;
     }
-    ContextImpl(luisa::string_view program_path) noexcept {
+    explicit ContextImpl(luisa::string_view program_path) noexcept {
         std::filesystem::path program{program_path};
         {
             auto cp = std::filesystem::canonical(program);
@@ -108,8 +108,7 @@ public:
 }// namespace detail
 
 Context::Context(string_view program_path) noexcept
-    : _impl{luisa::make_shared<detail::ContextImpl>(program_path)} {
-}
+    : _impl{luisa::make_shared<detail::ContextImpl>(program_path)} {}
 
 Device Context::create_device(luisa::string_view backend_name_in, const DeviceConfig *settings, bool enable_validation) noexcept {
     auto impl = _impl.get();
@@ -118,7 +117,11 @@ Device Context::create_device(luisa::string_view backend_name_in, const DeviceCo
     auto &&m = impl->create_module(backend_name);
     auto interface = m.creator(Context{_impl}, settings);
     interface->_backend_name = std::move(backend_name);
-    auto handle = Device::Handle{interface, m.deleter};
+    auto handle = Device::Handle{
+        interface,
+        [impl = _impl, deleter = m.deleter](auto p) noexcept {
+            deleter(p);
+        }};
     if (enable_validation) {
         auto &validation_layer = impl->validation_layer;
         if (!validation_layer.module) {
@@ -128,7 +131,11 @@ Device Context::create_device(luisa::string_view backend_name_in, const DeviceCo
             validation_layer.creator = validation_layer.module.function<ValidationLayer::Creator>("create");
             validation_layer.deleter = validation_layer.module.function<Device::Deleter>("destroy");
         }
-        auto layer_handle = Device::Handle{validation_layer.creator(Context{_impl}, std::move(handle)), validation_layer.deleter};
+        auto layer_handle = Device::Handle{
+            validation_layer.creator(Context{_impl}, std::move(handle)),
+            [impl = _impl](auto layer) noexcept {
+                impl->validation_layer.deleter(layer);
+            }};
         return Device{std::move(layer_handle)};
     } else {
         return Device{std::move(handle)};
@@ -138,7 +145,7 @@ Device Context::create_device(luisa::string_view backend_name_in, const DeviceCo
 Context::Context(luisa::shared_ptr<detail::ContextImpl> impl) noexcept
     : _impl{std::move(impl)} {}
 
-Context::~Context() noexcept {}
+Context::~Context() noexcept = default;
 
 luisa::span<const luisa::string> Context::installed_backends() const noexcept {
     return _impl->installed_backends;
@@ -182,4 +189,3 @@ const luisa::filesystem::path &Context::create_runtime_subdir(luisa::string_view
 }
 
 }// namespace luisa::compute
-

@@ -20,11 +20,9 @@ private:
     explicit DynamicModule(void *handle) noexcept : _handle{handle} {}
 
 public:
-    [[nodiscard]] operator bool() const noexcept {
-        return _handle != nullptr;
-    }
+    [[nodiscard]] explicit operator bool() const noexcept { return _handle != nullptr; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    DynamicModule() noexcept {}
+    DynamicModule() noexcept = default;
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
     ~DynamicModule() noexcept;
