@@ -23,7 +23,7 @@ class ContextImpl;
 class LC_RUNTIME_API Context {
 
 private:
-    luisa::shared_ptr<luisa::compute::detail::ContextImpl> _impl;
+    luisa::shared_ptr<detail::ContextImpl> _impl;
 
 public:
     explicit Context(luisa::shared_ptr<luisa::compute::detail::ContextImpl> impl) noexcept;
@@ -37,7 +37,7 @@ public:
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
     [[nodiscard]] const auto &impl() const & noexcept { return _impl; }
-    [[nodiscard]] auto &&impl() && noexcept { return std::move(_impl); }
+    [[nodiscard]] auto impl() && noexcept { return std::move(_impl); }
     // runtime directory
     [[nodiscard]] const luisa::filesystem::path &runtime_directory() const noexcept;
     // create subdirectories under the runtime directory
@@ -58,4 +58,3 @@ public:
 };
 
 }// namespace luisa::compute
-
