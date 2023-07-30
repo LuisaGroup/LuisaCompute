@@ -1,5 +1,6 @@
 #include <luisa/tensor/tensor.h>
 #include <luisa/core/logging.h>
+
 namespace luisa::compute::tensor {
 class JitSession::Impl {
 };

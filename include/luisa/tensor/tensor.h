@@ -1,7 +1,9 @@
-#pragma
+#pragma once
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/dsl/syntax.h>
+#include "view.h"
+#include "las_interface.h"
 namespace luisa::compute::tensor {
 class LC_TENSOR_API JitSession {
     class Impl;
@@ -12,8 +14,7 @@ public:
     Stream &stream() noexcept;
 };
 
-
-// class DTensor {
+//class DTensor {
 //     Device &device;
 //     bool _requires_grad = false;
 //     bool _reserve_memory = false;
@@ -75,4 +76,46 @@ public:
 //     // TODO: implement
 // }
 
+enum class TensorType {
+    SCALAR = 0,
+    VECTOR = 1,
+    MATRIX = 2
+};
+
+class DTensor {// Simple, just for test
+    Device &_device;
+    TensorType type;
+public:
+    DTensor(Device &device) noexcept : _device{device} {}
+
+    void as_scalar() {
+        type = TensorType::SCALAR;
+        buffer = _device.create_buffer<float>(1);
+    }
+
+    void as_dense_vector(int size) {
+        type = TensorType::VECTOR;
+        buffer = _device.create_buffer<float>(size);
+    }
+
+    int lda = -1;
+    void as_dense_matrix(int row, int col) {
+        type = TensorType::MATRIX;
+        lda = row;
+        buffer = _device.create_buffer<float>(lda * col);
+    }
+    luisa::compute::Buffer<float> buffer;
+    uint64_t scalar_view() const noexcept{
+        return buffer.handle();
+    }
+    DenseMatrixView dense_matrix_view() const noexcept;
+    DenseVectorView dense_vector_view() const noexcept {
+        DenseVectorView ret;
+        ret.buffer_handle = buffer.handle();
+        ret.inc = 1;
+        ret.offset = 0;
+        ret.size = buffer.size();
+        return ret;
+    }
+};
 }// namespace luisa::compute::tensor

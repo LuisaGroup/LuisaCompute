@@ -8,6 +8,7 @@
 #include <luisa/runtime/rhi/tile_modification.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/runtime/depth_format.h>
+#include <luisa/tensor/las_interface.h>
 
 namespace luisa {
 class BinaryIO;
@@ -152,6 +153,10 @@ public:
         return SparseTextureCreationInfo::make_invalid();
     }
     virtual void destroy_sparse_texture(uint64_t handle) noexcept {}
+
+    // linear algebra subroutine
+    [[nodiscard]] virtual tensor::LASInterface *create_las_interface(uint64_t stream_handle) noexcept { return nullptr; }
+    virtual void destroy_las_interface(tensor::LASInterface *) noexcept {}
 };
 
 }// namespace luisa::compute

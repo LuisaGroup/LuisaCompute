@@ -160,6 +160,9 @@ public:
     string query(luisa::string_view property) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
     DeviceExtension *extension(luisa::string_view name) noexcept override;
+
+    [[nodiscard]] virtual luisa::compute::tensor::LASInterface *create_las_interface(uint64_t stream_handle) noexcept override;
+    virtual void destroy_las_interface(luisa::compute::tensor::LASInterface *) noexcept override;
 };
 
 }// namespace luisa::compute::cuda

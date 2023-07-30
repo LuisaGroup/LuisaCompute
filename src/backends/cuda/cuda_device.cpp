@@ -39,9 +39,10 @@
 
 #include "cuda_dstorage.h"
 #include "cuda_ext.h"
+#include "tensor/cuda_las.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
-static const bool LUISA_CUDA_DUMP_SOURCE = ([]{
+static const bool LUISA_CUDA_DUMP_SOURCE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
@@ -801,18 +802,31 @@ string CUDADevice::query(luisa::string_view property) noexcept {
 
 DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
 
-#define LUISA_COMPUTE_CREATE_CUDA_EXTENSION(ext, v)                         \
-    if (name == ext##Ext::name) {                                           \
-        std::scoped_lock lock{_ext_mutex};                                  \
-        if (v == nullptr) { v = luisa::make_unique<CUDA##ext##Ext>(this); } \
-        return v.get();                                                     \
-    }
+#define LUISA_COMPUTE_CREATE_CUDA_EXTENSION(ext, v)                     \
+  if (name == ext##Ext::name) {                                         \
+    std::scoped_lock lock{_ext_mutex};                                  \
+    if (v == nullptr) { v = luisa::make_unique<CUDA##ext##Ext>(this); } \
+    return v.get();                                                     \
+  }
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(Denoiser, _denoiser_ext)
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
 #undef LUISA_COMPUTE_CREATE_CUDA_EXTENSION
 
     LUISA_WARNING_WITH_LOCATION("Unknown device extension '{}'.", name);
     return nullptr;
+}
+
+luisa::compute::tensor::LASInterface *CUDADevice::create_las_interface(uint64_t stream_handle) noexcept {
+    auto las = with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
+        return new_with_allocator<tensor::CudaLAS>(stream);
+    });
+    return las;
+}
+
+void CUDADevice::destroy_las_interface(luisa::compute::tensor::LASInterface * las) noexcept {
+    with_handle([las] {
+        delete_with_allocator(las);
+    });
 }
 
 namespace detail {

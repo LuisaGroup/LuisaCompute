@@ -57,6 +57,7 @@ CUDAStream::~CUDAStream() noexcept {
     _callback_thread.join();
     // destroy the events and the stream
     _device->event_manager()->destroy(_callback_event);
+
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
 }
 

@@ -31,13 +31,23 @@ if (CUDAToolkit_FOUND)
             optix_api.cpp optix_api.h
             default_binary_io.cpp
             string_scratch.cpp)
+    
+    if(LUISA_COMPUTE_ENABLE_TENSOR)
+        set(TENSOR_SOURCE "tensor/cuda_las.cpp")
+        set(LUISA_COMPUTE_CUDA_SOURCES "${LUISA_COMPUTE_CUDA_SOURCES};${TENSOR_SOURCE}")
+    endif()
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
-            CUDA::cuda_driver
-            luisa-compute-vulkan-swapchain)
+        CUDA::cuda_driver
+        luisa-compute-vulkan-swapchain)
+    if(LUISA_COMPUTE_ENABLE_TENSOR)
+    target_link_libraries(luisa-compute-backend-cuda PRIVATE 
+        CUDA::cublas CUDA::cusparse)
+    endif()
     target_precompile_headers(luisa-compute-backend-cuda PRIVATE pch.h)
+
 
     find_library(CUDA_DEVICE_RUNTIME_LIBRARY cudadevrt ${CUDAToolkit_LIBRARY_DIR})
     add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD

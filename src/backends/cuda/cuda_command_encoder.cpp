@@ -259,7 +259,7 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
         }
         case to_underlying(CustomCommandUUID::CUDA_LCUB_COMMAND): {
             auto lcub_command = dynamic_cast<CudaLCubCommand *>(command);
-            LUISA_ASSERT(lcub_command != nullptr, "Invalid CudaLCuBCommand.");
+            LUISA_ASSERT(lcub_command != nullptr, "Invalid CudaLCubCommand.");
             lcub_command->func(_stream->handle());
             break;
         }
