@@ -1,5 +1,8 @@
 #pragma once
 
+[[nodiscard]] __device__ constexpr auto lc_infinity_float() noexcept { return __int_as_float(0x7f800000u); }
+[[nodiscard]] __device__ constexpr auto lc_infinity_double() noexcept { return __longlong_as_double(0x7ff0000000000000ull); }
+
 #if LC_NVRTC_VERSION < 110200
 #define LC_CONSTANT const
 #else
@@ -1037,6 +1040,11 @@ template<typename T = unsigned char>
     return array.slots[index].buffer_size / sizeof(T);
 }
 
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_size(LCBindlessArray array, lc_uint index, lc_uint stride) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return array.slots[index].buffer_size / stride;
+}
+
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
     lc_assume(__isGlobal(array.slots));
@@ -1046,6 +1054,21 @@ template<typename T>
     lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
 #endif
     return buffer[i];
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_type(LCBindlessArray array, lc_uint index) noexcept {
+    return 0ull;// TODO
+}
+
+template<typename T>
+[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_uint offset) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const char *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+#endif
+    return *reinterpret_cast<const T *>(buffer + offset);
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
@@ -2107,3 +2130,49 @@ __device__ inline void lc_synchronize_block() noexcept {
 #define LC_GRAD(x) (x##_grad)
 #define LC_ACCUM_GRAD(x_grad, dx) lc_accumulate_grad(&(x_grad), (dx))
 #define LC_REQUIRES_GRAD(x) x##_grad = lc_zero<decltype(x##_grad)>()
+
+template<typename T>
+struct alignas(alignof(T) < 4u ? 4u : alignof(T)) LCPack {
+    T value;
+};
+
+template<typename T>
+__device__ inline void lc_pack_to(const T &x, LCBuffer<lc_uint> array, lc_uint idx) noexcept {
+    constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
+    if constexpr (alignof(T) < 4u) {
+        // too small to be aligned to 4 bytes
+        LCPack<T> pack{};
+        pack.value = x;
+        auto data = reinterpret_cast<const lc_uint *>(&pack);
+#pragma unroll
+        for (auto i = 0u; i < N; i++) {
+            array.ptr[idx + i] = data[i];
+        }
+    } else {
+        // safe to reinterpret the pointer as lc_uint *
+        auto data = reinterpret_cast<const lc_uint *>(&x);
+#pragma unroll
+        for (auto i = 0u; i < N; i++) {
+            array.ptr[idx + i] = data[i];
+        }
+    }
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline T lc_unpack_from(LCBuffer<lc_uint> array, lc_uint idx) noexcept {
+    if constexpr (alignof(T) <= 4u) {
+        // safe to reinterpret the pointer as T *
+        auto data = reinterpret_cast<const T *>(&array.ptr[idx]);
+        return *data;
+    } else {
+        // copy to a temporary aligned buffer to avoid unaligned access
+        constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
+        LCPack<T> x{};
+        auto data = reinterpret_cast<lc_uint *>(&x);
+#pragma unroll
+        for (auto i = 0u; i < N; i++) {
+            data[i] = array.ptr[idx + i];
+        }
+        return x.value;
+    }
+}

@@ -1,3 +1,7 @@
+if get_config("cuda_ext_lcub") then 
+	includes("lcub")
+end
+
 target("lc-backend-cuda")
 _config_project({
 	project_kind = "shared",
@@ -6,15 +10,21 @@ _config_project({
 if get_config("_lc_vk_path") then
 	add_defines("LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
 	add_rules("lc_vulkan")
-	add_deps("lc-vk-swapchain")
+	add_deps("lc-vulkan-swapchain")
 end
 add_deps("lc-runtime")
 if get_config("enable_ir") then
 	add_deps("lc-ir")
 end
 set_pcxxheader("pch.h")
-add_headerfiles("**.h", "../common/default_binary_io.h", "../common/string_scratch.h")
-add_files("**.cpp")
+add_headerfiles("*.h", "./cuda_builtin/*.h", "../common/default_binary_io.h", "../common/string_scratch.h")
+add_files("*.cpp")
+
+-- if has_config("cuda_ext_lcub") then
+-- 	add_files("lcub/*.cpp")
+-- 	add_deps("cuda-dcub")
+-- end
+
 on_load(function(target)
 	import("detect.sdks.find_cuda")
 	local cuda = find_cuda()

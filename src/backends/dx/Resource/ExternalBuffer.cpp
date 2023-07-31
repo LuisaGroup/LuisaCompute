@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Resource/ExternalBuffer.h>
 namespace lc::dx {
 ExternalBuffer::ExternalBuffer(Device *device, ID3D12Resource *resource, D3D12_RESOURCE_STATES initState)

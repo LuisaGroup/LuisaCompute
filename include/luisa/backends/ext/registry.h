@@ -19,8 +19,10 @@ enum struct CustomCommandUUID : uint32_t {
     DENOISER_EXT_BEGIN = 0x0300u,
     DENOISER_DENOISE = DENOISER_EXT_BEGIN,
 
+    CUDA_CUSTOM_COMMAND_BEGIN = 0x0400u,
+    CUDA_LCUB_COMMAND = CUDA_CUSTOM_COMMAND_BEGIN,
+
     REGISTERED_END = 0xffffu,
 };
 
 }// namespace luisa::compute
-

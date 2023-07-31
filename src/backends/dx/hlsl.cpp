@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "../common/hlsl/hlsl_codegen_util.cpp"
 #include "../common/hlsl/hlsl_codegen.cpp"
 #include "../common/hlsl/codegen_stack_data.cpp"

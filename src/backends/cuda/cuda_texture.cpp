@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <mutex>
 
 #include "cuda_error.h"

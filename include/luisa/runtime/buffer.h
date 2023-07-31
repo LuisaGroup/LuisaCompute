@@ -127,7 +127,7 @@ public:
     }
     [[nodiscard]] auto view() const noexcept {
         _check_is_valid();
-        return BufferView<T>{this->device(), this->handle(), _element_stride, 0u, _size, _size};
+        return BufferView<T>{this->native_handle(), this->handle(), _element_stride, 0u, _size, _size};
     }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept {
         return view().subview(offset, count);
@@ -159,7 +159,7 @@ class BufferView {
     static_assert(is_valid_buffer_element_v<T>);
 
 private:
-    DeviceInterface *_device;
+    void *_native_handle;
     uint64_t _handle;
     size_t _offset_bytes;
     size_t _element_stride;
@@ -174,10 +174,10 @@ private:
     friend class BufferView;
 
 public:
-    BufferView(DeviceInterface *device, uint64_t handle,
+    BufferView(void *native_handle, uint64_t handle,
                size_t element_stride, size_t offset_bytes,
                size_t size, size_t total_size) noexcept
-        : _device(device), _handle{handle}, _offset_bytes{offset_bytes},
+        : _native_handle{native_handle}, _handle{handle}, _offset_bytes{offset_bytes},
           _element_stride{element_stride}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
             detail::error_buffer_invalid_alignment(_offset_bytes, alignof(T));
@@ -192,8 +192,8 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
 
     // properties
-    [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto native_handle() const noexcept { return _native_handle; }
     [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset() const noexcept { return _offset_bytes / _element_stride; }
@@ -207,7 +207,9 @@ public:
         if (size_elements + offset_elements > _size) [[unlikely]] {
             detail::error_buffer_subview_overflow(offset_elements, size_elements, _size);
         }
-        return BufferView{_device, _handle, _element_stride, _offset_bytes + offset_elements * _element_stride, size_elements, _total_size};
+        return BufferView{_native_handle, _handle, _element_stride,
+                          _offset_bytes + offset_elements * _element_stride,
+                          size_elements, _total_size};
     }
     // reinterpret cast buffer to another type U
     template<typename U>
@@ -217,7 +219,7 @@ public:
             detail::error_buffer_reinterpret_size_too_small(sizeof(U), this->size_bytes());
         }
         auto total_size_bytes = _total_size * _element_stride;
-        return BufferView<U>{_device, _handle, sizeof(U), _offset_bytes,
+        return BufferView<U>{_native_handle, _handle, sizeof(U), _offset_bytes,
                              this->size_bytes() / sizeof(U), total_size_bytes / sizeof(U)};
     }
     // commands

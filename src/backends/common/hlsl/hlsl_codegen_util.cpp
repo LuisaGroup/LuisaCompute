@@ -280,6 +280,9 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::FLOAT16:
             str << "float16_t"sv;
             return;
+        case Type::Tag::FLOAT64:
+            str << "float64_t"sv;
+            return;
         case Type::Tag::INT16:
             str << "int16_t"sv;
             return;
@@ -704,7 +707,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_USHORT4:
         case CallOp::MAKE_HALF2:
         case CallOp::MAKE_HALF3:
-        case CallOp::MAKE_HALF4: {
+        case CallOp::MAKE_HALF4:
+        case CallOp::MAKE_DOUBLE2:
+        case CallOp::MAKE_DOUBLE3:
+        case CallOp::MAKE_DOUBLE4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
             } else {
@@ -783,8 +789,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 i->accept(vis);
                 str << ',';
             }
-            vstd::to_string(expr->type()->size(), str);
-            str << ",bdls)"sv;
+            str << "bdls)"sv;
             return;
         }
         case CallOp::BINDLESS_BUFFER_READ: {
@@ -813,6 +818,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ",bdls)"sv;
             return;
         }
+        case CallOp::ASSERT:
         case CallOp::ASSUME:
         case CallOp::UNREACHABLE: {
             return;
@@ -1026,6 +1032,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
+            break;
+        case CallOp::PACK:
+        case CallOp::UNPACK:
+            LUISA_ERROR_WITH_LOCATION("Call-Op not implemented.");
             break;
     }
     str << '(';

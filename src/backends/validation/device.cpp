@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "device.h"
 #include "event.h"
 #include "stream.h"

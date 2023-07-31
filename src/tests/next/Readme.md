@@ -44,66 +44,90 @@ e.g. if you want to test the 'write_image' example on dx device, you can simply 
 
 Then you may found write_image_dx.png in your /bin folder
 
-<!-- TODO: Test -->
+<!-- Hot Updating -->
+ir is updating...
 - [ ] ast2ir_headless
 - [ ] ast2ir_ir2ast
 - [ ] ast2ir
-- [ ] atomic_queue
-- [ ] atomic
 - [ ] autodiff
-- [ ] binding_group
-- [ ] bindless_buffer
-- [ ] bindless
+- [ ] autodiff_full
+- [ ] path_tracing_ir
+### Test
+
+##### test_feat
+suite "common"
+- [x] context: info output the installed backends, make sure there is at least one backend available
+- [x] ast: the simplest test case, write 42 in position 1 in a buffer of length 10
+- [x] callable: a simple add callable test
+- [ ] thread_pool
+- [ ] type
+- [ ] runtime
 - [ ] command_reorder
 - [ ] copy
-- [ ] denoiser
 - [ ] dml
-- [ ] dsl_multithread
-- [ ] dsl_sugar
 - [ ] dstorage_decompression
 - [ ] dx_supersampling
-- [ ] game_of_life
-- [ ] indirect_rtx
 - [ ] indirect
 - [ ] kernel_ir
 - [ ] mipmap
-- [ ] mpm3d
-- [ ] mpm88
 - [ ] native_include
 - [ ] normal_encoding
-- [ ] path_tracing_camera
-- [ ] path_tracing_ir
-- [ ] path_tracing
-- [ ] photon_mapping
-- [ ] procedural_callable
-- [ ] procedural
-- [ ] raster
-- [ ] rtx
-- [ ] runtime
-- [ ] sampler
-- [ ] sdf_renderer_ir
-- [ ] select_device
-- [ ] shader_toy
 - [ ] shader_visuals_present
 - [ ] shared_memory
-- [ ] sparse_texture
+suite "dsl"
+- [ ] dsl
+- [ ] dsl_multithread
+- [ ] dsl_sugar
+suite "swapchain"
 - [ ] swapchain_qt
 - [ ] swapchain_static
 - [ ] swapchain_wx
 - [ ] swapchain
+suite "texture"
 - [ ] texture_compression
 - [ ] texture_io
 - [ ] texture_3d
-- [ ] thread_pool
-- [ ] type
+- [ ] sparse_texture
+suite "bindless"
+- [ ] binding_group
+- [ ] bindless_buffer
+- [ ] bindless
+suite "autodiff"
+- [ ] atomic_queue
+- [ ] atomic
 
-### Test
-- [x] context: info output the installed backends, make sure there is at least one backend available
-- [x] ast: the simplest test case, write 42 in position 1 in a buffer of length 10
-- [ ] callable: fail, i don't understand what it means to do 
-- [ ] dsl
+##### test_io
+
+
 ### Example
 
+##### target "example_feat"
+The minimum examples to show how to use a feature, which is useful in tutorials.
 - [x] helloworld: this is an example on how to write an image in parallel and output with stb-image
 - [x] printer: -> example/use_printer
+- [ ] raster
+- [ ] select_device
+- [ ] sampler
+- [ ] denoiser
+##### target "example_gallary"
+
+- [ ] shader_toy
+- [ ] game_of_life
+
+
+suite "fluid_sim"
+- [x] mpm3d -> example/gallary/fluid_sim/mpm3d.cpp
+- [ ] mpm88
+suite "procedure"
+- [ ] procedural_callable
+- [ ] procedural
+suite "renderer"
+- [ ] path_tracing_camera
+- [ ] path_tracing_cutout
+- [x] path_tracing -> example/gallary/render/path_tracer.cpp
+- [ ] rtx
+- [ ] indirect_rtx
+- [ ] photon_mapping
+- [ ] sdf_renderer_ir
 - [x] sdf_renderer
+

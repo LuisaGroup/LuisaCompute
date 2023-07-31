@@ -246,14 +246,15 @@ public:
     /// Type tags
     enum struct Tag : uint32_t {
         BOOL,
-        FLOAT32,
+        INT16,
+        UINT16,
         INT32,
         UINT32,
         INT64,
         UINT64,
         FLOAT16,
-        INT16,
-        UINT16,
+        FLOAT32,
+        FLOAT64,
 
         VECTOR,
         MATRIX,

@@ -5,7 +5,7 @@ import argparse
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Main Entry for Test Script")
-    parser.add_argument("--builtin", type=bool, default=False, help="use default configuration")
+    parser.add_argument("--custom", type=bool, default=False, help="use custom configuration")
     parser.add_argument("--config", type=str, default="default", help="configuration file")
     args = parser.parse_args()
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -21,9 +21,9 @@ if __name__ == "__main__":
 
     else:
         # set config file path
-        if args.builtin:
+        if not args.custom:
             print("use builtin configuration, config: {}".format(args.config))
-            config_file_path = os.path.join(current_dir, "config/builtin/{}_win.json".format(args.config))
+            config_file_path = os.path.join(current_dir, "config/builtin/{}.json".format(args.config))
         else:
             print("use custom configuration, config: {}".format(args.config))
             config_file_path = os.path.join(current_dir, "config/custom/{}.json".format(args.config))
@@ -48,11 +48,12 @@ if __name__ == "__main__":
             print("get build system: xmake")
             print("start to run test")
             for feat in feat_list:
+                print("test feature: {}".format(feat))
+                args = ["powershell", "xmake", "run", "test_all", "-ts={}".format(feat)]
                 for device in device_list:
-                    print("running test suite {} on {}".format(feat, device))
-                    subprocess.run(["powershell", "xmake", "run", "test_all", "-ts={}".format(feat), "-sc={}".format(device)], shell=True)
-                    print("test suite {} on {} finished".format(feat, device))
-            # TODO: switch device for [dx, cuda, vk, metal]
+                    args.append("--backend-{}".format(device))
+                print("run command: {}".format(args))
+                subprocess.run(args, shell=True)
             print("all test finished")
     else:
         print("get configuration failed")

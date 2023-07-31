@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <Shader/RasterShader.h>
 #include <Resource/DepthBuffer.h>
 #include <Shader/ShaderSerializer.h>

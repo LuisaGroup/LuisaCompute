@@ -13,10 +13,12 @@ public:
     using LinkNode = typename Map::Node;
     using NodePair = typename Map::ConstElement;
     using MoveNodePair = typename Map::Element;
-
+    static_assert(alignof(LinkNode) >= alignof(Map));
 private:
     struct PseudoPool {
         Arena arena;
+        LinkNode *elements;
+        size_t mSize;
         PseudoPool(Arena &&arena) : arena(std::forward<Arena>(arena)) {}
         PseudoPool(PseudoPool const &) = delete;
         PseudoPool(PseudoPool &&) = default;
@@ -26,7 +28,8 @@ private:
         template<typename... Args>
             requires(std::is_constructible_v<LinkNode, Args && ...>)
         LinkNode *create(Args &&...args) {
-            auto ptr = allocate(sizeof(LinkNode));
+            auto ptr = elements + mSize;
+            mSize++;
             return new (ptr) LinkNode(std::forward<Args>(args)...);
         }
         void destroy(LinkNode *ptr) {}
@@ -37,10 +40,10 @@ public:
         friend class ArenaHashMap;
 
     private:
-        LinkNode **ii;
+        LinkNode *ii;
 
     public:
-        Iterator(LinkNode **ii) : ii(ii) {}
+        Iterator(LinkNode *ii) : ii(ii) {}
         bool operator==(const Iterator &ite) const noexcept {
             return ii == ite.ii;
         }
@@ -51,20 +54,20 @@ public:
             ii++;
         }
         NodePair *operator->() const noexcept {
-            return reinterpret_cast<NodePair *>(&(*ii)->data);
+            return reinterpret_cast<NodePair *>(&ii->data);
         }
         NodePair &operator*() const noexcept {
-            return reinterpret_cast<NodePair &>((*ii)->data);
+            return reinterpret_cast<NodePair &>(ii->data);
         }
     };
     struct MoveIterator {
         friend class ArenaHashMap;
 
     private:
-        LinkNode **ii;
+        LinkNode *ii;
 
     public:
-        MoveIterator(LinkNode **ii) : ii(ii) {}
+        MoveIterator(LinkNode *ii) : ii(ii) {}
         bool operator==(const MoveIterator &ite) const noexcept {
             return ii == ite.ii;
         }
@@ -75,10 +78,10 @@ public:
             ii++;
         }
         MoveNodePair *operator->() const noexcept {
-            return &(*ii)->data;
+            return &ii->data;
         }
         MoveNodePair &&operator*() const noexcept {
-            return std::move((*ii)->data);
+            return std::move(ii->data);
         }
     };
 
@@ -122,26 +125,16 @@ public:
     }
 
 private:
-    LinkNode **nodeArray;
     PseudoPool pool;
-    size_t mSize;
+    Map *GetNodeVec() const {
+        return reinterpret_cast<Map *>(pool.elements + mCapacity);
+    }
     size_t mCapacity;
 
     inline static const Hash hsFunc;
-    LinkNode *GetNewLinkNode(size_t hashValue, LinkNode *newNode) {
+    void GetNewLinkNode(size_t hashValue, LinkNode *newNode) {
         newNode->hashValue = hashValue;
-        newNode->arrayIndex = mSize;
-        nodeArray[mSize] = newNode;
-        mSize++;
-        return newNode;
-    }
-    void DeleteLinkNode(size_t arrayIndex) {
-        if (arrayIndex != (mSize - 1)) {
-            auto ite = nodeArray + (mSize - 1);
-            (*ite)->arrayIndex = arrayIndex;
-            nodeArray[arrayIndex] = *ite;
-        }
-        mSize--;
+        newNode->arrayIndex = pool.mSize - 1;
     }
     static size_t GetPow2Size(size_t capacity) noexcept {
         size_t ssize = 1;
@@ -154,24 +147,24 @@ private:
     }
     void Resize(size_t newCapacity) noexcept {
         if (mCapacity >= newCapacity) return;
-        LinkNode **newNode = reinterpret_cast<LinkNode **>(pool.allocate(sizeof(LinkNode *) * newCapacity * 2));
-        memcpy(newNode, nodeArray, sizeof(LinkNode *) * mSize);
-        auto nodeVec = newNode + newCapacity;
-        memset(nodeVec, 0, sizeof(LinkNode *) * newCapacity);
-        for (auto node : ptr_range(nodeArray, nodeArray + mSize)) {
-            size_t hashValue = node->hashValue;
-            hashValue = GetHash(hashValue, newCapacity);
-            Map *targetTree = reinterpret_cast<Map *>(&nodeVec[hashValue]);
-            targetTree->weak_insert(pool, node);
-        }
-        nodeArray = newNode;
+        LinkNode *newElements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * newCapacity));
+        memcpy(newElements, pool.elements, sizeof(LinkNode) * pool.mSize);
+        pool.elements = newElements;
         mCapacity = newCapacity;
+        auto nodeVec = GetNodeVec();
+        memset(nodeVec, 0, sizeof(Map) * newCapacity);
+        for (auto &node : ptr_range(newElements, pool.mSize)) {
+            size_t hashValue = node.hashValue;
+            hashValue = GetHash(hashValue, newCapacity);
+            Map *targetTree = nodeVec + hashValue;
+            targetTree->weak_insert(pool, &node);
+        }
     }
     static Index EmptyIndex() noexcept {
         return Index(nullptr, nullptr);
     }
     void TryResize() {
-        size_t targetCapacity = (size_t)((mSize + 1));
+        size_t targetCapacity = (size_t)((pool.mSize + 1));
         if (targetCapacity < 16) targetCapacity = 16;
         if (targetCapacity > mCapacity) {
             Resize(GetPow2Size(targetCapacity));
@@ -180,32 +173,32 @@ private:
 
 public:
     decltype(auto) begin() const & {
-        return Iterator(nodeArray);
+        return Iterator(pool.elements);
     }
     decltype(auto) begin() && {
-        return MoveIterator(nodeArray);
+        return MoveIterator(pool.elements);
     }
     decltype(auto) end() const & {
-        return Iterator(nodeArray + mSize);
+        return Iterator(pool.elements + pool.mSize);
     }
     decltype(auto) end() && {
-        return MoveIterator(nodeArray + mSize);
+        return MoveIterator(pool.elements + pool.mSize);
     }
     //////////////////Construct & Destruct
     ArenaHashMap(size_t capacity, Arena &&arena) noexcept : pool(std::move(arena)) {
         if (capacity < 2) capacity = 2;
         capacity = GetPow2Size(capacity);
-        nodeArray = reinterpret_cast<LinkNode **>(this->pool.allocate(sizeof(LinkNode *) * capacity * 2));
-        memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode *));
+        pool.elements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * capacity));
         mCapacity = capacity;
-        mSize = 0;
+        auto nodeVec = GetNodeVec();
+        memset(nodeVec, 0, capacity * sizeof(Map));
+        pool.mSize = 0;
     }
     ArenaHashMap(ArenaHashMap &&map)
         : pool(std::move(map.pool)),
-          mSize(map.mSize),
-          mCapacity(map.mCapacity),
-          nodeArray(map.nodeArray) {
-        map.nodeArray = nullptr;
+          mCapacity(map.mCapacity) {
+        map.elements = nullptr;
+        map.nodeVec = nullptr;
     }
     ArenaHashMap(ArenaHashMap const &map) = delete;
 
@@ -222,28 +215,9 @@ public:
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
-        auto nodeVec = nodeArray + mCapacity;
-
-        Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
+        auto nodeVec = GetNodeVec();
+        Map *map = nodeVec + hashValue;
         auto insertResult = map->insert_or_assign(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        //Add create
-        if (insertResult.second) {
-            GetNewLinkNode(hashOriginValue, insertResult.first);
-        }
-        return Index(this, insertResult.first);
-    }
-
-    template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
-    Index emplace(Key &&key, ARGS &&...args) {
-        TryResize();
-
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, mCapacity);
-        auto nodeVec = nodeArray + mCapacity;
-
-        Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
-        auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
         //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
@@ -258,15 +232,19 @@ public:
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
-        auto nodeVec = nodeArray + mCapacity;
-
-        Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
+        Map *map = GetNodeVec() + hashValue;
         auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
         //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
         }
         return {Index(this, insertResult.first), insertResult.second};
+    }
+
+    template<typename Key, typename... ARGS>
+        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+    Index emplace(Key &&key, ARGS &&...args) {
+        return try_emplace(std::forward<Key>(key), std::forward<ARGS>(args)...).first;
     }
 
     void reserve(size_t capacity) noexcept {
@@ -277,14 +255,14 @@ public:
     Index find(Key &&key) const noexcept {
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
-        Map *map = reinterpret_cast<Map *>(nodeArray + mCapacity + hashValue);
+        Map *map = GetNodeVec() + hashValue;
         auto node = map->find(std::forward<Key>(key));
         if (node)
             return {this, node};
         return EmptyIndex();
     }
-    [[nodiscard]] size_t size() const noexcept { return mSize; }
-    [[nodiscard]] bool empty() const noexcept { return mSize == 0; }
+    [[nodiscard]] size_t size() const noexcept { return pool.mSize; }
+    [[nodiscard]] bool empty() const noexcept { return pool.mSize == 0; }
     [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
 };
 }// namespace vstd

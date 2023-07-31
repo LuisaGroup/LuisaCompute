@@ -33,6 +33,7 @@ if (CUDAToolkit_FOUND)
             string_scratch.cpp)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain)
@@ -98,6 +99,11 @@ if (CUDAToolkit_FOUND)
             install(FILES $<TARGET_FILE:${target}> DESTINATION ${CMAKE_INSTALL_BINDIR})
         endforeach ()
     endif ()
+
+    # CUB LuisaCompute integration
+    if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
+        add_subdirectory(lcub)
+    endif()
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "CUDA not found. The CUDA backend will not be built.")

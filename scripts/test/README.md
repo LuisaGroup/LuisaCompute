@@ -14,6 +14,12 @@ The scripting directory structure:
   - `config/custom`: the self-customized test cases
 - `config.json`: the self-generated default config, will be used for no appendix parameters, ignored by git
 
+### Use builtin Testing script
+
+we have made some built-in testing script placed in `config/builtin` directory, you can easily call them by its name: `python scripts/test/test_win.py --config=cuda_common`
+
+### Use Customized Testing Script
+
 A sample custom config
 
 ```json
@@ -31,7 +37,7 @@ A sample custom config
 
 place it into `config/custom` directory with some name like `dummy.json`, and run it with 
 
-`python scripts/test/test_win.py --config dummy`
+`python scripts/test/test_win.py --config=zzh --custom=true`
 
 Then the script will run for `feat` test suites on `dx` and `cuda` devices.
 

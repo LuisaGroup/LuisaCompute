@@ -24,24 +24,24 @@ struct NestedArguments {
     Image<float> image;
 };
 
-// clang-format off
 LUISA_BINDING_GROUP(Arguments, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
         image->write(coord, color);
     }
 };
+
 LUISA_BINDING_GROUP(ArgumentsView, image, resolution) {
     [[nodiscard]] auto write(const UInt2 &coord, const Float4 &color) noexcept {
         image->write(coord, color);
     }
 };
+
 LUISA_BINDING_GROUP(NestedArguments, args, image) {
     void blit(const UInt2 &coord) noexcept {
         auto color = args.image.read(coord).xyz();
         image->write(coord, make_float4(1.f - color, 1.f));
     }
 };
-// clang-format on
 
 int main(int argc, char *argv[]) {
 
@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
 

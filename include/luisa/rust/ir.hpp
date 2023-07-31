@@ -25,6 +25,7 @@ enum class Primitive {
     Uint32,
     Int64,
     Uint64,
+    Float16,
     Float32,
     Float64,
 };
@@ -57,6 +58,12 @@ struct CBoxedSlice {
     T *ptr;
     size_t len;
     void (*destructor)(T*, size_t);
+};
+
+struct Module {
+    ModuleKind kind;
+    Pooled<BasicBlock> entry;
+    CArc<ModulePools> pools;
 };
 
 struct VectorElementType {
@@ -146,12 +153,6 @@ struct Type {
         Array_Body array;
         Opaque_Body opaque;
     };
-};
-
-struct Module {
-    ModuleKind kind;
-    Pooled<BasicBlock> entry;
-    CArc<ModulePools> pools;
 };
 
 struct BufferBinding {
@@ -272,6 +273,8 @@ struct Func {
         Load,
         Cast,
         Bitcast,
+        Pack,
+        Unpack,
         Add,
         Sub,
         Mul,
@@ -357,23 +360,23 @@ struct Func {
         Transpose,
         Inverse,
         SynchronizeBlock,
-        /// (buffer/smem, index, desired) -> old: stores desired, returns old.
+        /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
         AtomicExchange,
-        /// (buffer/smem, index, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
+        /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
         AtomicCompareExchange,
-        /// (buffer/smem, index, val) -> old: stores (old + val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old + val), returns old.
         AtomicFetchAdd,
-        /// (buffer/smem, index, val) -> old: stores (old - val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old - val), returns old.
         AtomicFetchSub,
-        /// (buffer/smem, index, val) -> old: stores (old & val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old & val), returns old.
         AtomicFetchAnd,
-        /// (buffer/smem, index, val) -> old: stores (old | val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old | val), returns old.
         AtomicFetchOr,
-        /// (buffer/smem, index, val) -> old: stores (old ^ val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores (old ^ val), returns old.
         AtomicFetchXor,
-        /// (buffer/smem, index, val) -> old: stores min(old, val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores min(old, val), returns old.
         AtomicFetchMin,
-        /// (buffer/smem, index, val) -> old: stores max(old, val), returns old.
+        /// (buffer/smem, indices..., val) -> old: stores max(old, val), returns old.
         AtomicFetchMax,
         /// (buffer, index) -> value: reads the index-th element in buffer
         BufferRead,
@@ -423,7 +426,7 @@ struct Func {
         BindlessTexture3dSizeLevel,
         /// (bindless_array, index: uint, element: uint) -> T
         BindlessBufferRead,
-        /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
+        /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
         BindlessBufferType,
         Vec,
@@ -454,10 +457,6 @@ struct Func {
         CBoxedSlice<uint8_t> _0;
     };
 
-    struct BindlessBufferSize_Body {
-        CArc<Type> _0;
-    };
-
     struct Callable_Body {
         CallableModuleRef _0;
     };
@@ -470,7 +469,6 @@ struct Func {
     union {
         Unreachable_Body unreachable;
         Assert_Body assert;
-        BindlessBufferSize_Body bindless_buffer_size;
         Callable_Body callable;
         CpuCustomOp_Body cpu_custom_op;
     };
@@ -487,10 +485,13 @@ struct Const {
         Zero,
         One,
         Bool,
+        Int16,
+        Uint16,
         Int32,
         Uint32,
         Int64,
         Uint64,
+        Float16,
         Float32,
         Float64,
         Generic,
@@ -508,6 +509,14 @@ struct Const {
         bool _0;
     };
 
+    struct Int16_Body {
+        int16_t _0;
+    };
+
+    struct Uint16_Body {
+        uint16_t _0;
+    };
+
     struct Int32_Body {
         int32_t _0;
     };
@@ -522,6 +531,10 @@ struct Const {
 
     struct Uint64_Body {
         uint64_t _0;
+    };
+
+    struct Float16_Body {
+        c_half _0;
     };
 
     struct Float32_Body {
@@ -542,10 +555,13 @@ struct Const {
         Zero_Body zero;
         One_Body one;
         Bool_Body bool_;
+        Int16_Body int16;
+        Uint16_Body uint16;
         Int32_Body int32;
         Uint32_Body uint32;
         Int64_Body int64;
         Uint64_Body uint64;
+        Float16_Body float16;
         Float32_Body float32;
         Float64_Body float64;
         Generic_Body generic;
@@ -799,6 +815,8 @@ void luisa_compute_ir_transform_pipeline_destroy(TransformPipeline *pipeline);
 TransformPipeline *luisa_compute_ir_transform_pipeline_new();
 
 Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline, Module module);
+
+size_t luisa_compute_ir_type_size(const CArc<Type> *ty);
 
 } // extern "C"
 

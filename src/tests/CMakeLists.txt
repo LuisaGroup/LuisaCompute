@@ -31,6 +31,7 @@ luisa_compute_add_executable(test_helloworld test_helloworld.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)
 luisa_compute_add_executable(test_binding_group test_binding_group.cpp)
+luisa_compute_add_executable(test_binding_group_template test_binding_group_template.cpp)
 luisa_compute_add_executable(test_copy test_copy.cpp)
 luisa_compute_add_executable(test_dsl_multithread test_dsl_multithread.cpp)
 luisa_compute_add_executable(test_dsl_sugar test_dsl_sugar.cpp)
@@ -82,6 +83,10 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
     luisa_compute_add_executable(test_texture3d test_texture3d.cpp)
 endif ()
+
+if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
+    luisa_compute_add_executable(test_cuda_lcub test_cuda_lcub.cpp)
+endif()
 
 # GUI interaction with wxWidgets
 find_package(wxWidgets COMPONENTS core base)

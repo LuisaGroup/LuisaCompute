@@ -714,7 +714,6 @@ private:
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
         }
-        auto v = _dispatch_layer;
         for (auto &&i : _dispatch_write_handle) {
             set_write_layer(i.second, i.first, _dispatch_layer);
         }
@@ -730,16 +729,16 @@ private:
 public:
     explicit CommandReorderVisitor(FuncTable &&func_table) noexcept
         : _arena(65536, &malloc_visitor),
-          _res_map(256, ArenaRef{_arena}),
-          _no_range_resmap(256, ArenaRef{_arena}),
-          _bindless_map(256, ArenaRef{_arena}),
-          _write_res_map(256, ArenaRef{_arena}),
+          _res_map(64, ArenaRef{_arena}),
+          _no_range_resmap(64, ArenaRef{_arena}),
+          _bindless_map(64, ArenaRef{_arena}),
+          _write_res_map(64, ArenaRef{_arena}),
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     void clear() noexcept {
         auto re_construct_map = [&]<typename T>(T &t) {
             t.~T();
-            new (&t) T(256, ArenaRef{_arena});
+            new (&t) T(64, ArenaRef{_arena});
         };
         _bindless_max_layer = -1;
         _max_accel_read_level = -1;

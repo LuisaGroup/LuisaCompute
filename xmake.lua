@@ -38,16 +38,22 @@ set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
--- enable Metal backend
-option("metal_backend")
+-- enable NVIDIA-CUDA Extension CUB
+option("cuda_ext_lcub")
+set_values(true, false)
+set_default(false) -- default false, because of long compile time
+set_showmenu(true)
+option_end()
+-- enable CPU backend
+option("cpu_backend")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
--- enable cpu backend
-option("cpu_backend")
+-- enable Metal backend
+option("metal_backend")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- enable tests module
@@ -92,7 +98,7 @@ option_end()
 -- enable GUI module
 option("enable_gui")
 set_values(true, false)
-set_default(false)
+set_default(true)
 set_showmenu(true)
 option_end()
 -- custom bin dir

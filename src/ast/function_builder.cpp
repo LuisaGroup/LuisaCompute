@@ -1,4 +1,3 @@
-#include "pch.h"
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 
@@ -134,25 +133,14 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
 }
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
-    value = luisa::visit([type](auto x) noexcept -> LiteralExpr::Value {
-        if constexpr (luisa::is_scalar_v<decltype(x)>) {
-            switch (type->tag()) {
-                case Type::Tag::BOOL: return bool(x);
-                case Type::Tag::FLOAT16:
-                case Type::Tag::FLOAT32: return float(x);
-                case Type::Tag::INT16:
-                case Type::Tag::INT32:
-                case Type::Tag::INT64: return int(x);
-                case Type::Tag::UINT16:
-                case Type::Tag::UINT32:
-                case Type::Tag::UINT64: return uint(x);
-                default: LUISA_ERROR_WITH_LOCATION("Invalid type for LiteralExpr: {}", type->description());
-            }
-        } else {
-            return x;
-        }
-    },
-                         value);
+    luisa::visit(
+        [type](auto x) noexcept {
+            auto t = Type::of<decltype(x)>();
+            LUISA_ASSERT(*type == *t,
+                         "Type mismatch: declared as {}, got {}.",
+                         type->description(), t->description());
+        },
+        value);
     return _create_expression<LiteralExpr>(type, value);
 }
 
@@ -561,25 +549,27 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     if (in_iter != args.end()) [[unlikely]] {
         luisa::string expected_args{"("};
         for (auto a : f->_arguments) {
-            expected_args.append(a.type()->description()).append(", ");
+            expected_args.append("\n    ").append(a.type()->description()).append(",");
         }
         if (!f->_arguments.empty()) {
             expected_args.pop_back();
-            expected_args.pop_back();
+            expected_args.append("\n");
+
         }
         expected_args.append(")");
         luisa::string received_args{"("};
         for (auto a : args) {
-            received_args.append(a->type()->description()).append(", ");
+            received_args.append("\n    ").append(a->type()->description()).append(",");
         }
         if (!args.empty()) {
             received_args.pop_back();
-            received_args.pop_back();
+            received_args.append("\n");
         }
         received_args.append(")");
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid call arguments for custom callable #{:016x}. "
-            "Expected {}, but received {}.",
+            "Invalid call arguments for custom callable #{:016x}.\n"
+            "Expected: {},\n"
+            "Received: {}.",
             custom.hash(), expected_args, received_args);
     }
     auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));
@@ -674,4 +664,3 @@ void FunctionBuilder::sort_bindings() noexcept {
 }
 
 }// namespace luisa::compute::detail
-

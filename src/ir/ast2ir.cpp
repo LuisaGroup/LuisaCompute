@@ -195,6 +195,7 @@ ir::NodeRef AST2IR::_convert_expr(const Expression *expr, bool is_lvalue) noexce
         case Expression::Tag::CONSTANT: return _convert(static_cast<const ConstantExpr *>(expr));
         case Expression::Tag::CALL: return _convert(static_cast<const CallExpr *>(expr));
         case Expression::Tag::CAST: return _convert(static_cast<const CastExpr *>(expr));
+        case Expression::Tag::TYPE_ID: return _convert(static_cast<const TypeIDExpr *>(expr));
         case Expression::Tag::CPUCUSTOM: return _convert(static_cast<const CpuCustomOpExpr *>(expr));
         case Expression::Tag::GPUCUSTOM: return _convert(static_cast<const GpuCustomOpExpr *>(expr));
     }
@@ -236,42 +237,43 @@ ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
         .tag = ir::Type::Tag::Void}); }
     // basic types
     switch (type->tag()) {
-        case Type::Tag::BOOL: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Bool}});
-        case Type::Tag::FLOAT32: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Float32}});
-        case Type::Tag::INT32: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Int32}});
-        case Type::Tag::UINT32: return register_type(
-            ir::Type{.tag = ir::Type::Tag::Primitive,
-                     .primitive = {ir::Primitive::Uint32}});
+#define LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(AST_TAG, IR_TAG) \
+    case Type::Tag::AST_TAG: return register_type(           \
+        ir::Type{.tag = ir::Type::Tag::Primitive,            \
+                 .primitive = {ir::Primitive::IR_TAG}});
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(BOOL, Bool)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(INT16, Int16)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(UINT16, Uint16)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(INT32, Int32)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(UINT32, Uint32)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(INT64, Int64)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(UINT64, Uint64)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(FLOAT16, Float16)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(FLOAT32, Float32)
+        LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE(FLOAT64, Float64)
+#undef LUISA_AST2IR_CONVERT_PRIMITIVE_TYPE
+
         case Type::Tag::VECTOR: {
             auto dim = static_cast<uint>(type->dimension());
             switch (auto elem = type->element(); elem->tag()) {
-                case Type::Tag::BOOL:
-                    return register_type(
-                        ir::Type{.tag = ir::Type::Tag::Vector,
-                                 .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                         .scalar = {ir::Primitive::Bool}},
-                                             .length = dim}}});
-                case Type::Tag::FLOAT32: return register_type(
-                    ir::Type{.tag = ir::Type::Tag::Vector,
-                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                     .scalar = {ir::Primitive::Float32}},
-                                         .length = dim}}});
-                case Type::Tag::INT32: return register_type(
-                    ir::Type{.tag = ir::Type::Tag::Vector,
-                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                     .scalar = {ir::Primitive::Int32}},
-                                         .length = dim}}});
-                case Type::Tag::UINT32: return register_type(
-                    ir::Type{.tag = ir::Type::Tag::Vector,
-                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                     .scalar = {ir::Primitive::Uint32}},
-                                         .length = dim}}});
+#define LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(AST_TAG, IR_TAG)                       \
+    case Type::Tag::AST_TAG:                                                            \
+        return register_type(                                                           \
+            ir::Type{.tag = ir::Type::Tag::Vector,                                      \
+                     .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar, \
+                                             .scalar = {ir::Primitive::IR_TAG}},        \
+                                 .length = dim}}});
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(BOOL, Bool)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(INT16, Int16)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(UINT16, Uint16)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(INT32, Int32)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(UINT32, Uint32)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(INT64, Int64)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(UINT64, Uint64)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(FLOAT16, Float16)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(FLOAT32, Float32)
+                LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE(FLOAT64, Float64)
+#undef LUISA_AST2IR_CONVERT_VECTOR_ELEMENT_TYPE
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Invalid vector type: {}.", type->description());
@@ -364,6 +366,18 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                         return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
                     } else if constexpr (std::is_same_v<T, uint>) {
                         return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else if constexpr (std::is_same_v<T, short>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int16, .int16 = {x}};
+                    } else if constexpr (std::is_same_v<T, ushort>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint16, .uint16 = {x}};
+                    } else if constexpr (std::is_same_v<T, slong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int64, .int64 = {x}};
+                    } else if constexpr (std::is_same_v<T, ulong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint64, .uint64 = {x}};
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
+                    } else if constexpr (std::is_same_v<T, half>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {luisa::bit_cast<ir::c_half>(x)}};
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }
@@ -565,6 +579,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     // built-in
     auto tag = [expr] {
         switch (expr->op()) {
+            case CallOp::EXTERNAL: LUISA_NOT_IMPLEMENTED();
             case CallOp::ALL: return ir::Func::Tag::All;
             case CallOp::ANY: return ir::Func::Tag::Any;
             case CallOp::SELECT: return ir::Func::Tag::Select;
@@ -645,6 +660,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
                 return dim == 2u ? ir::Func::Tag::Texture2dWrite :
                                    ir::Func::Tag::Texture3dWrite;
             }
+            case CallOp::TEXTURE_SIZE: LUISA_NOT_IMPLEMENTED();
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE: return ir::Func::Tag::BindlessTexture2dSample;
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return ir::Func::Tag::BindlessTexture2dSampleLevel;
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return ir::Func::Tag::BindlessTexture2dSampleGrad;
@@ -665,21 +681,39 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::MAKE_BOOL2: return ir::Func::Tag::Vec2;
             case CallOp::MAKE_BOOL3: return ir::Func::Tag::Vec3;
             case CallOp::MAKE_BOOL4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_SHORT2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_SHORT3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_SHORT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_USHORT2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_USHORT3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_USHORT4: return ir::Func::Tag::Vec4;
             case CallOp::MAKE_INT2: return ir::Func::Tag::Vec2;
             case CallOp::MAKE_INT3: return ir::Func::Tag::Vec3;
             case CallOp::MAKE_INT4: return ir::Func::Tag::Vec4;
             case CallOp::MAKE_UINT2: return ir::Func::Tag::Vec2;
             case CallOp::MAKE_UINT3: return ir::Func::Tag::Vec3;
             case CallOp::MAKE_UINT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_LONG2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_LONG3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_LONG4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_ULONG2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_ULONG3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_ULONG4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_HALF2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_HALF3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_HALF4: return ir::Func::Tag::Vec4;
             case CallOp::MAKE_FLOAT2: return ir::Func::Tag::Vec2;
             case CallOp::MAKE_FLOAT3: return ir::Func::Tag::Vec3;
             case CallOp::MAKE_FLOAT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_DOUBLE2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_DOUBLE3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_DOUBLE4: return ir::Func::Tag::Vec4;
             case CallOp::MAKE_FLOAT2X2: return ir::Func::Tag::Mat2;
             case CallOp::MAKE_FLOAT3X3: return ir::Func::Tag::Mat3;
             case CallOp::MAKE_FLOAT4X4: return ir::Func::Tag::Mat4;
+            case CallOp::ASSERT: return ir::Func::Tag::Assert;
             case CallOp::ASSUME: return ir::Func::Tag::Assume;
             case CallOp::UNREACHABLE: return ir::Func::Tag::Unreachable;
-            case CallOp::ZERO: return ir::Func::Tag::ZeroInitializer;
             case CallOp::REDUCE_SUM: return ir::Func::Tag::ReduceSum;
             case CallOp::REDUCE_PRODUCT: return ir::Func::Tag::ReduceProd;
             case CallOp::REDUCE_MIN: return ir::Func::Tag::ReduceMin;
@@ -689,6 +723,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::BUFFER_SIZE: return ir::Func::Tag::BufferSize;
             case CallOp::BINDLESS_BUFFER_SIZE: return ir::Func::Tag::BindlessBufferSize;
             case CallOp::BINDLESS_BUFFER_TYPE: return ir::Func::Tag::BindlessBufferType;
+            case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: LUISA_NOT_IMPLEMENTED();
             case CallOp::REQUIRES_GRADIENT: return ir::Func::Tag::RequiresGradient;
             case CallOp::GRADIENT: return ir::Func::Tag::Gradient;
             case CallOp::BACKWARD: return ir::Func::Tag::Backward;
@@ -703,6 +738,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::RAY_TRACING_TRACE_ANY: return ir::Func::Tag::RayTracingTraceAny;
             case CallOp::RAY_TRACING_QUERY_ALL: return ir::Func::Tag::RayTracingQueryAll;
             case CallOp::RAY_TRACING_QUERY_ANY: return ir::Func::Tag::RayTracingQueryAny;
+            case CallOp::RAY_QUERY_WORLD_SPACE_RAY: return ir::Func::Tag::RayQueryWorldSpaceRay;
             case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: return ir::Func::Tag::RayQueryProceduralCandidateHit;
             case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: return ir::Func::Tag::RayQueryTriangleCandidateHit;
             case CallOp::RAY_QUERY_COMMITTED_HIT: return ir::Func::Tag::RayQueryCommittedHit;
@@ -714,19 +750,16 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
             case CallOp::SATURATE: return ir::Func::Tag::Saturate;
             case CallOp::REFLECT: return ir::Func::Tag::Reflect;
-            // The following callops haven't been implemented by IR yet
-            // case CallOp::CUSTOM:
-            // 16-bit types haven't been implemented by IR yet
-            // case CallOp::MAKE_INT16_2:
-            // case CallOp::MAKE_INT16_3:
-            // case CallOp::MAKE_INT16_4:
-            // case CallOp::MAKE_UINT16_2:
-            // case CallOp::MAKE_UINT16_3:
-            // case CallOp::MAKE_UINT16_4:
-            // case CallOp::MAKE_FLOAT16_2:
-            // case CallOp::MAKE_FLOAT16_3:
-            // case CallOp::MAKE_FLOAT16_4:
-            default: break;
+            case CallOp::PACK: return ir::Func::Tag::Pack;
+            case CallOp::UNPACK: return ir::Func::Tag::Unpack;
+            case CallOp::DDX: LUISA_NOT_IMPLEMENTED();
+            case CallOp::DDY: LUISA_NOT_IMPLEMENTED();
+            case CallOp::CUSTOM: [[fallthrough]];
+            case CallOp::ONE: [[fallthrough]];
+            case CallOp::INDIRECT_SET_DISPATCH_KERNEL: [[fallthrough]];
+            case CallOp::ZERO: LUISA_ERROR_WITH_LOCATION(
+                "Unexpected CallOp: {}.",
+                luisa::to_string(expr->op()));
         }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid CallOp: {}.",
@@ -838,6 +871,10 @@ ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {
     return ir::luisa_compute_ir_build_call(
         _current_builder(), {.tag = ir::Func::Tag::Bitcast},
         {.ptr = &src, .len = 1u}, _convert_type(expr->type()));
+}
+
+ir::NodeRef AST2IR::_convert(const TypeIDExpr *expr) noexcept {
+    LUISA_NOT_IMPLEMENTED();
 }
 
 ir::NodeRef AST2IR::_convert(const CpuCustomOpExpr *expr) noexcept {
@@ -1337,6 +1374,18 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
                         return ir::Const{.tag = ir::Const::Tag::Int32, .int32 = {x}};
                     } else if constexpr (std::is_same_v<T, uint>) {
                         return ir::Const{.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else if constexpr (std::is_same_v<T, short>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int16, .int16 = {x}};
+                    } else if constexpr (std::is_same_v<T, ushort>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint16, .uint16 = {x}};
+                    } else if constexpr (std::is_same_v<T, slong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Int64, .int64 = {x}};
+                    } else if constexpr (std::is_same_v<T, ulong>) {
+                        return ir::Const{.tag = ir::Const::Tag::Uint64, .uint64 = {x}};
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float64, .float64 = {x}};
+                    } else if constexpr (std::is_same_v<T, half>) {
+                        return ir::Const{.tag = ir::Const::Tag::Float16, .float16 = {luisa::bit_cast<ir::c_half>(x)}};
                     } else {
                         static_assert(always_false_v<T>, "Unsupported scalar type.");
                     }

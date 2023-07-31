@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <DXRuntime/GlobalSamplers.h>
 namespace lc::dx {
 struct SamplerHash {

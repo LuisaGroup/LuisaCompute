@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/context.h>
 

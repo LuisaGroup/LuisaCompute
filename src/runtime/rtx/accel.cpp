@@ -1,4 +1,3 @@
-#include "../pch.h"
 #include <luisa/ast/function_builder.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/rtx/accel.h>
