@@ -318,12 +318,30 @@ impl LLVMPaths {
     fn override_from_env(&mut self) {
         match var("LUISA_LLVM_PATH") {
             Ok(s) => {
+                if !Path::new(&s).exists() {
+                    panic_abort!(
+                        "LUISA_LLVM_PATH is set to {}, but the path does not exist",
+                        s
+                    );
+                }
+                if Path::new(&s).is_dir() {
+                    panic_abort!("LUISA_LLVM_PATH is set to {}, but the path is a directory. Should be path to library", s);
+                }
                 self.llvm = s;
             }
             Err(_) => {}
         }
         match var("LUISA_CLANG_PATH") {
             Ok(s) => {
+                if !Path::new(&s).exists() {
+                    panic_abort!(
+                        "LUISA_CLANG_PATH is set to {}, but the path does not exist",
+                        s
+                    );
+                }
+                if Path::new(&s).is_dir() {
+                    panic_abort!("LUISA_CLANG_PATH is set to {}, but the path is a directory. Should be path to executable", s);
+                }
                 self.clang = s;
             }
             Err(_) => {}
@@ -350,7 +368,7 @@ impl LLVMPaths {
                     match var("LUISA_CLANG_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++")
+                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++ executable")
                         }
                     }
                 }),
