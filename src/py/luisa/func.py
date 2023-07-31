@@ -316,10 +316,11 @@ class func:
 
     # looks up arg_type_tuple; compile if not existing
     # returns FuncInstanceInfo
-    def get_compiled(self, func_type: int, allow_ref: bool, argtypes: tuple, arg_info=None):
-        if (func_type,) + argtypes not in self.compiled_results:
+    def get_compiled(self, func_type: int, allow_ref: bool, argtypes: tuple, arg_info=None, custom_key=None):
+        arg_features = (func_type, custom_key) + argtypes
+        if arg_features not in self.compiled_results:
             try:
-                self.compiled_results[(func_type,) + argtypes] = self.compile(func_type, allow_ref, argtypes, arg_info)
+                self.compiled_results[arg_features] = self.compile(func_type, allow_ref, argtypes, arg_info)
             except Exception as e:
                 if hasattr(e, "already_printed"):
                     # hide the verbose traceback in AST builder
@@ -328,7 +329,7 @@ class func:
                     raise e1 from None
                 else:
                     raise
-        return self.compiled_results[(func_type,) + argtypes]
+        return self.compiled_results[arg_features]
 
     # dispatch shader to stream
     def __call__(self, *args, dispatch_size, stream=None, dispatch_buffer_offset:int=(2**64-1)):
