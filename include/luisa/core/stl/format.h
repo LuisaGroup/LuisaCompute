@@ -44,12 +44,23 @@ struct formatter<luisa::Vector<T, N>> {
     template<typename FormatContext>
     auto format(const luisa::Vector<T, N> &v, FormatContext &ctx) -> decltype(ctx.out()) {
         using namespace std::string_view_literals;
+        using luisa::uint;
+        using luisa::ushort;
+        using luisa::slong;
+        using luisa::ulong;
+        using luisa::half;
         constexpr auto type_name =
-            std::is_same_v<T, bool>  ? "bool"sv :
-            std::is_same_v<T, int>   ? "int"sv :
-            std::is_same_v<T, uint>  ? "uint"sv :
-            std::is_same_v<T, float> ? "float"sv :
-                                       "unknown"sv;
+            std::is_same_v<T, bool>   ? "bool"sv :
+            std::is_same_v<T, short>  ? "short"sv :
+            std::is_same_v<T, ushort> ? "ushort"sv :
+            std::is_same_v<T, int>    ? "int"sv :
+            std::is_same_v<T, uint>   ? "uint"sv :
+            std::is_same_v<T, slong>  ? "slong"sv :
+            std::is_same_v<T, ulong>  ? "ulong"sv :
+            std::is_same_v<T, half>   ? "half"sv :
+            std::is_same_v<T, float>  ? "float"sv :
+            std::is_same_v<T, double> ? "double"sv :
+                                        "unknown"sv;
         if constexpr (N == 2u) {
             return fmt::format_to(
                 ctx.out(),
