@@ -77,7 +77,7 @@ pub(super) fn compile(
     })?;
     let self_path: PathBuf = canonicalize_and_fix_windows_path(self_path)?
         .parent()
-        .unwrap()
+        .unwrap_or_else(|| panic_abort!("cannot get parent of current exe"))
         .into();
     let mut build_dir = self_path.clone();
     build_dir.push(".cache/");
@@ -144,6 +144,7 @@ pub(super) fn compile(
                     );
                 }
                 false => {
+                    eprintln!("clang++ failed to compile {}", source_file);
                     eprintln!(
                         "clang++ output: {}",
                         String::from_utf8(output.stdout).unwrap(),
