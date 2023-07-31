@@ -77,45 +77,179 @@ public:
 // }
 
 enum class TensorType {
+    NONE = -1,
     SCALAR = 0,
     VECTOR = 1,
     MATRIX = 2
 };
+class TensorMaker;
+template<typename T>
+class Tensor;
 
-class DTensor {// Simple, just for test
-    Device &_device;
-    TensorType type;
+enum class TensorBasicDataType {
+    NONE = 0,
+    INT32 = 1,
+    INT64 = 2,
+    FLOAT32 = 3,
+    FLOAT64 = 4
+};
+
+class LC_TENSOR_API DTensor {// Simple, just for test
 public:
-    DTensor(Device &device) noexcept : _device{device} {}
+    DTensor() noexcept {}
 
-    void as_scalar() {
-        type = TensorType::SCALAR;
-        buffer = _device.create_buffer<float>(1);
-    }
-
-    void as_dense_vector(int size) {
-        type = TensorType::VECTOR;
-        buffer = _device.create_buffer<float>(size);
+    TensorType type() const noexcept {
+        if (_shape.size() == 0) return TensorType::SCALAR;
+        if (_shape.size() == 1) return TensorType::VECTOR;
+        if (_shape.size() == 2) return TensorType::MATRIX;
     }
 
-    int lda = -1;
-    void as_dense_matrix(int row, int col) {
-        type = TensorType::MATRIX;
-        lda = row;
-        buffer = _device.create_buffer<float>(lda * col);
-    }
-    luisa::compute::Buffer<float> buffer;
-    uint64_t scalar_view() const noexcept{
-        return buffer.handle();
-    }
+    ScalarView scalar_view() const noexcept;
+    DenseVectorView dense_vector_view() const noexcept;
     DenseMatrixView dense_matrix_view() const noexcept;
-    DenseVectorView dense_vector_view() const noexcept {
-        DenseVectorView ret;
-        ret.buffer_handle = buffer.handle();
-        ret.inc = 1;
-        ret.offset = 0;
-        ret.size = buffer.size();
-        return ret;
+
+
+protected:
+    virtual void buffer_info(uint64_t &buffer_handle, uint64_t &buffer_offset, uint64_t &buffer_total_size) const noexcept = 0;
+
+private:
+    friend class TensorMaker;
+    template<typename T>
+    friend class Tensor;
+
+    // basic info:
+    TensorBasicDataType _basic_data_type = TensorBasicDataType::NONE;// float, double or int ?
+    luisa::vector<int> _shape;                                       // 0, [N], [M,N], [L,M,N] ...?
+
+    struct {// dense vector
+        int incx = 1;
+    } _dense_vector_view_data = {};
+
+    struct {// dense matrix
+        int _lda = -1;
+        int _kl = -1, _ku = -1;// for band matrix
+        MatrixOperation _operation = MatrixOperation::NONE;
+        DenseMatrixShape _shape = DenseMatrixShape::GENERAL;
+        DenseMatrixProperty _property = DenseMatrixProperty::NONE;
+        DenseMatrixFillMode _fill_mode = DenseMatrixFillMode::NONE;
+        DenseMatrixDiagType _diag_type = DenseMatrixDiagType::NON_UNIT;
+    } _dense_matrix_view_data = {};
+
+    static void _trans(MatrixOperation &op) {
+        op = op == MatrixOperation::TRANS ? MatrixOperation::NONE : MatrixOperation::TRANS;
+    }
+};
+
+template<typename Ty>
+constexpr TensorBasicDataType enum_data_type() {
+    using T = std::remove_all_extents_t<Ty>;
+    if constexpr (std::is_same_v<T, int>)
+        return TensorBasicDataType::INT32;
+    else if constexpr (std::is_same_v<T, int64_t>)
+        return TensorBasicDataType::INT64;
+    else if constexpr (std::is_same_v<T, float>)
+        return TensorBasicDataType::FLOAT32;
+    else if constexpr (std::is_same_v<T, double>)
+        return TensorBasicDataType::FLOAT64;
+    else {
+        LUISA_ERROR_WITH_LOCATION(
+            "Unsupported data type: {}",
+            typeid(T).name());
+        return TensorBasicDataType::NONE;
+    }
+}
+
+template<typename T>
+class Tensor : public DTensor {
+
+public:
+    Tensor(Device &device) noexcept : DTensor{}, _device{device} {
+        _basic_data_type = enum_data_type<T>();
+    }
+
+    BufferView<T> buffer_view() const noexcept {
+        if (_has_storage)
+            return _buffer.view();
+        else
+            return _buffer_view;
+    }
+
+    auto copy_from(const T *data) noexcept { return buffer_view().copy_from(data); }
+    auto copy_to(T *data) noexcept { return buffer_view().copy_to(data); }
+
+    void alloc_scalar() {
+        _has_storage = true;
+        _shape.clear();
+        _buffer = _device.create_buffer<T>(1);
+    }
+
+    void alloc_dense_vector(int n) {
+        _has_storage = true;
+        _shape = {n};
+        _dense_vector_view_data.incx = 1;
+        _buffer = _device.create_buffer<T>(n);
+    }
+
+    void alloc_dense_matrix(int row, int col) noexcept {
+        _has_storage = true;
+        _shape = {row, col};
+        // pow2 maybe better
+        auto lda = luisa::next_pow2(static_cast<uint32_t>(col));
+        _dense_matrix_view_data._lda = lda;
+        _dense_matrix_view_data._shape = DenseMatrixShape::GENERAL;
+        _dense_matrix_view_data._operation = MatrixOperation::NONE;
+        _dense_matrix_view_data._property = DenseMatrixProperty::NONE;
+        _dense_matrix_view_data._fill_mode = DenseMatrixFillMode::NONE;
+        _dense_matrix_view_data._diag_type = DenseMatrixDiagType::NON_UNIT;
+
+        _buffer = _device.create_buffer<T>(lda * row);
+    }
+
+
+protected:
+    void buffer_info(uint64_t &buffer_handle, uint64_t &buffer_offset, uint64_t &buffer_total_size) const noexcept override {
+        if (_has_storage) {
+            buffer_handle = _buffer.handle();
+            buffer_offset = 0;
+            buffer_total_size = _buffer.size();
+        } else {
+            buffer_handle = _buffer_view.handle();
+            buffer_offset = _buffer_view.offset();
+            buffer_total_size = _buffer_view.size();
+        }
+    }
+private:
+    bool _has_storage = false;
+    Device &_device;
+    Buffer<T> _buffer;
+    BufferView<T> _buffer_view;
+};
+
+class TensorMaker {// Simple, just for test
+    Device &_device;
+    luisa::vector<Buffer<float>> float_buffers;//just for test
+    luisa::vector<Buffer<int>> int_buffers;    //just for test
+public:
+    TensorMaker(Device &device) noexcept : _device{device} {}
+
+    template<typename T = float>
+    Tensor<T> scalar() noexcept {
+        Tensor<T> tensor{_device};
+        tensor.alloc_scalar();
+        return tensor;
+    }
+
+    Tensor<float> dense_vector(int size) noexcept {
+        Tensor<float> tensor{_device};
+        tensor.alloc_dense_vector(size);
+        return tensor;
+    }
+
+    // make general matrix
+    Tensor<float> dense_matrix(int row, int col) noexcept {
+        Tensor<float> tensor{_device};
+        tensor.alloc_dense_matrix(row, col);
+        return tensor;
     }
 };
 }// namespace luisa::compute::tensor

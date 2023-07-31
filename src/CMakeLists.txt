@@ -66,6 +66,10 @@ if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
     target_link_libraries(compute INTERFACE luisa-compute-cuda-ext-lcub)
 endif ()
 
+if (LUISA_COMPUTE_ENABLE_TENSOR)
+    target_link_libraries(compute INTERFACE luisa-compute-tensor)
+endif()
+
 add_library(luisa::compute ALIAS compute)
 
 function(luisa_compute_add_executable name)

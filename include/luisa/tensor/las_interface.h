@@ -1,5 +1,5 @@
 #pragma once
-#include "view/matrix_mul_options.h"
+#include "view.h"
 namespace luisa::compute::tensor {
 // linear algebric subroutine
 class DTensor;

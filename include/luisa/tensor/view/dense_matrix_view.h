@@ -31,13 +31,15 @@ enum class DenseMatrixDiagType {
 
 struct DenseMatrixView {
     uint64_t buffer_handle;
+    uint64_t buffer_offset;
     int row, column;
     int lda;// leading dimension of two-dimensional array used to store matrix A
+    int kl, ku;// for band matrix
 
     DenseMatrixShape shape;
     DenseMatrixProperty property;
     DenseMatrixFillMode fill_mode;
-    MatrixOperation matrix_op;
+    MatrixOperation operation;
     DenseMatrixDiagType diag_type;
 };
 }// namespace luisa::compute::tensor

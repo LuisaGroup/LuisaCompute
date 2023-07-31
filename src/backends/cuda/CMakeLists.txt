@@ -44,7 +44,7 @@ if (CUDAToolkit_FOUND)
         luisa-compute-vulkan-swapchain)
     if(LUISA_COMPUTE_ENABLE_TENSOR)
     target_link_libraries(luisa-compute-backend-cuda PRIVATE 
-        CUDA::cublas CUDA::cusparse)
+        CUDA::cublas CUDA::cusparse luisa-compute-tensor)
     endif()
     target_precompile_headers(luisa-compute-backend-cuda PRIVATE pch.h)
 

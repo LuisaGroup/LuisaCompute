@@ -28,21 +28,21 @@ struct IndirectDispatchArg {
     uint64_t offset;
 };
 
-#define LUISA_COMPUTE_RUNTIME_COMMANDS   \
-    BufferUploadCommand,                 \
-        BufferDownloadCommand,           \
-        BufferCopyCommand,               \
-        BufferToTextureCopyCommand,      \
-        ShaderDispatchCommand,           \
-        TextureUploadCommand,            \
-        TextureDownloadCommand,          \
-        TextureCopyCommand,              \
-        TextureToBufferCopyCommand,      \
-        AccelBuildCommand,               \
-        MeshBuildCommand,                \
-        ProceduralPrimitiveBuildCommand, \
-        BindlessArrayUpdateCommand,      \
-        CustomCommand
+#define LUISA_COMPUTE_RUNTIME_COMMANDS \
+  BufferUploadCommand,                 \
+      BufferDownloadCommand,           \
+      BufferCopyCommand,               \
+      BufferToTextureCopyCommand,      \
+      ShaderDispatchCommand,           \
+      TextureUploadCommand,            \
+      TextureDownloadCommand,          \
+      TextureCopyCommand,              \
+      TextureToBufferCopyCommand,      \
+      AccelBuildCommand,               \
+      MeshBuildCommand,                \
+      ProceduralPrimitiveBuildCommand, \
+      BindlessArrayUpdateCommand,      \
+      CustomCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
@@ -50,7 +50,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 
 struct CommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
-    virtual void visit(const CMD *) noexcept = 0;
+  virtual void visit(const CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
     virtual ~CommandVisitor() noexcept = default;
@@ -58,7 +58,7 @@ struct CommandVisitor {
 
 struct MutableCommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
-    virtual void visit(CMD *) noexcept = 0;
+  virtual void visit(CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
     virtual ~MutableCommandVisitor() noexcept = default;
@@ -67,13 +67,13 @@ struct MutableCommandVisitor {
 class Command;
 class CommandList;
 
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT()                                                \
-    void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
-    void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT()                                              \
+  void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
+  void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
 #define LUISA_MAKE_COMMAND_COMMON(Type) \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT()  \
-    StreamTag stream_tag() const noexcept override { return Type; }
+  LUISA_MAKE_COMMAND_COMMON_ACCEPT()    \
+  StreamTag stream_tag() const noexcept override { return Type; }
 
 class Command {
 

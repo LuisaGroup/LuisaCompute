@@ -1,4 +1,5 @@
 #pragma once
+#include "view/scalar_view.h"
 #include "view/matrix_operation.h"
 #include "view/matrix_mul_options.h"
 
