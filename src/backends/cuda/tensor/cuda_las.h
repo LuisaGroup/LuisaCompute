@@ -15,6 +15,7 @@ private:
     static cublasOperation_t enum_map(luisa::compute::tensor::MatrixOperation op) noexcept;
     static cublasFillMode_t enum_map(luisa::compute::tensor::DenseMatrixFillMode op) noexcept;
     static cublasDiagType_t enum_map(luisa::compute::tensor::DenseMatrixDiagType op) noexcept;
+    static cublasSideMode_t enum_map(luisa::compute::tensor::MatrixMulOptions op) noexcept;
 
 public:
     CudaLAS(CUDAStream *stream) noexcept;

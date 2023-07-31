@@ -83,14 +83,27 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
 
     switch (A_.shape) {
         case luisa::compute::tensor::DenseMatrixShape::GENERAL: {
-            cublasSgemv_v2(_cublas_handle,
-                           enum_map(A_.operation),
-                           A_.row, A_.column,
-                           raw<float>(alpha_),
-                           raw<float>(A_), A_.lda,
-                           raw<float>(x_), x_.inc,
-                           raw<float>(beta_),
-                           raw<float>(y_), y_.inc);
+            if (A_.property == luisa::compute::tensor::DenseMatrixProperty::NONE) {
+                cublasSgemv_v2(_cublas_handle,
+                               enum_map(A_.operation),
+                               A_.row, A_.column,
+                               raw<float>(alpha_),
+                               raw<float>(A_), A_.lda,
+                               raw<float>(x_), x_.inc,
+                               raw<float>(beta_),
+                               raw<float>(y_), y_.inc);
+            } else if (A_.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC) {
+                cublasSsymv_v2(_cublas_handle,
+                               enum_map(A_.fill_mode),
+                               A_.row,
+                               raw<float>(alpha_),
+                               raw<float>(A_), A_.lda,
+                               raw<float>(x_), x_.inc,
+                               raw<float>(beta_),
+                               raw<float>(y_), y_.inc);
+            } else {
+                LUISA_ERROR("unsupported matrix property: only NONE/SYMMETRIC are supported");
+            }
         } break;
         case luisa::compute::tensor::DenseMatrixShape::TRIANGULAR: {
             cublasStrmv_v2(_cublas_handle,
@@ -102,15 +115,29 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
                            raw<float>(x_), x_.inc);
         } break;
         case luisa::compute::tensor::DenseMatrixShape::BAND: {
-            cublasSgbmv_v2(_cublas_handle,
-                           enum_map(A_.operation),
-                           A_.row, A_.column,
-                           A_.kl, A_.ku,
-                           raw<float>(alpha_),
-                           raw<float>(A_), A_.lda,
-                           raw<float>(x_), x_.inc,
-                           raw<float>(beta_),
-                           raw<float>(y_), y_.inc);
+            if (A_.property == luisa::compute::tensor::DenseMatrixProperty::NONE) {
+                cublasSgbmv_v2(_cublas_handle,
+                               enum_map(A_.operation),
+                               A_.row, A_.column,
+                               A_.kl, A_.ku,
+                               raw<float>(alpha_),
+                               raw<float>(A_), A_.lda,
+                               raw<float>(x_), x_.inc,
+                               raw<float>(beta_),
+                               raw<float>(y_), y_.inc);
+            } else if (A_.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC) {
+                cublasSsbmv_v2(_cublas_handle,
+                               enum_map(A_.fill_mode),
+                               A_.row, A_.kl,
+                               raw<float>(alpha_),
+                               raw<float>(A_), A_.lda,
+                               raw<float>(x_), x_.inc,
+                               raw<float>(beta_),
+                               raw<float>(y_), y_.inc);
+            } else {
+                LUISA_ERROR("unsupported matrix property: only NONE/SYMMETRIC are supported");
+            };
+
         } break;
         case luisa::compute::tensor::DenseMatrixShape::TRIANGULAR_BAND: {
             cublasStbmv_v2(_cublas_handle,
@@ -131,6 +158,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
                            raw<float>(x_), x_.inc);
         } break;
         case luisa::compute::tensor::DenseMatrixShape::PACKED: {
+            LUISA_ASSERT(A_.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC, "only symmetric matrix can be packed.");
             cublasSspmv_v2(_cublas_handle,
                            enum_map(A_.fill_mode),
                            A_.row,
@@ -139,6 +167,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
                            raw<float>(x_), x_.inc,
                            raw<float>(beta_),
                            raw<float>(y_), y_.inc);
+
         } break;
         default:
             LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix shape");
@@ -150,6 +179,38 @@ void CudaLAS::sv(DTensor &x, const DTensor &A) noexcept {
 }
 
 void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto B_ = B.dense_matrix_view();
+    auto beta_ = beta.scalar_view();
+    auto C_ = C.dense_matrix_view();
+    using DenseMatrixShape = luisa::compute::tensor::DenseMatrixShape;
+
+    LUISA_ASSERT(C_.shape == DenseMatrixShape::GENERAL, "only general matrix is supported for C.");
+    if (A_.shape == DenseMatrixShape::GENERAL && B_.shape == DenseMatrixShape::GENERAL) {
+        cublasSgemm_v2(_cublas_handle,
+                       enum_map(A_.operation),
+                       enum_map(B_.operation),
+                       C_.row, C_.column, A_.column,
+                       raw<float>(alpha_),
+                       raw<float>(A_), A_.lda,
+                       raw<float>(B_), B_.lda,
+                       raw<float>(beta_),
+                       raw<float>(C_), C_.lda);
+    } else if (A_.shape == DenseMatrixShape::TRIANGULAR && B_.shape == DenseMatrixShape::GENERAL) {
+        cublasStrmm_v2(_cublas_handle,
+                       enum_map(options),
+                       enum_map(A_.fill_mode),
+                       enum_map(A_.operation),
+                       enum_map(A_.diag_type),
+                       C_.row, C_.column,
+                       raw<float>(alpha_),
+                       raw<float>(A_), A_.lda,
+                       raw<float>(B_), B_.lda,
+                       raw<float>(C_), C_.lda);
+    } else {
+        LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix shape");
+    }
 }
 void CudaLAS::sm(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
 }
@@ -161,8 +222,10 @@ cublasOperation_t CudaLAS::enum_map(luisa::compute::tensor::MatrixOperation op) 
     switch (op) {
         case luisa::compute::tensor::MatrixOperation::NONE:
             ret = CUBLAS_OP_N;
+            break;
         case luisa::compute::tensor::MatrixOperation::TRANS:
             ret = CUBLAS_OP_T;
+            break;
         default:
             LUISA_ERROR_WITH_LOCATION("error matrix operation mapping.");
             break;
@@ -174,8 +237,10 @@ cublasFillMode_t CudaLAS::enum_map(luisa::compute::tensor::DenseMatrixFillMode o
     switch (op) {
         case luisa::compute::tensor::DenseMatrixFillMode::UPPER:
             ret = CUBLAS_FILL_MODE_UPPER;
+            break;
         case luisa::compute::tensor::DenseMatrixFillMode::LOWER:
             ret = CUBLAS_FILL_MODE_LOWER;
+            break;
         default:
             LUISA_ERROR_WITH_LOCATION("error matrix fill mode mapping.");
             break;
@@ -191,6 +256,21 @@ cublasDiagType_t CudaLAS::enum_map(luisa::compute::tensor::DenseMatrixDiagType o
             ret = CUBLAS_DIAG_UNIT;
         default:
             LUISA_ERROR_WITH_LOCATION("error matrix diag type mapping.");
+            break;
+    }
+    return ret;
+}
+cublasSideMode_t CudaLAS::enum_map(luisa::compute::tensor::MatrixMulOptions op) noexcept {
+    cublasSideMode_t ret;
+    switch (op.side) {
+        case luisa::compute::tensor::MatrixASide::LEFT:
+            ret = CUBLAS_SIDE_LEFT;
+            break;
+        case luisa::compute::tensor::MatrixASide::RIGHT:
+            ret = CUBLAS_SIDE_RIGHT;
+            break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("error matrix side mode mapping.");
             break;
     }
     return ret;

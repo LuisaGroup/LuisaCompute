@@ -22,7 +22,7 @@
 #define LUISA_REVERSE_NEXT0(test, next, ...) next LUISA_REVERSE_OUT
 #define LUISA_REVERSE_NEXT1(test, next)    \
     LUISA_MACRO_DEFER(LUISA_REVERSE_NEXT0) \
-    (test_vector, next, 0)
+    (test, next, 0)
 #define LUISA_REVERSE_NEXT(test, next) LUISA_REVERSE_NEXT1(LUISA_REVERSE_GET_END test, next)
 
 #define LUISA_REVERSE0(x, peek, ...)                            \
@@ -46,7 +46,7 @@
 #define LUISA_MAP_NEXT0(test, next, ...) next LUISA_MAP_OUT
 #define LUISA_MAP_NEXT1(test, next)    \
     LUISA_MACRO_DEFER(LUISA_MAP_NEXT0) \
-    (test_vector, next, 0)
+    (test, next, 0)
 #define LUISA_MAP_NEXT(test, next) LUISA_MAP_NEXT1(LUISA_MAP_GET_END test, next)
 
 #define LUISA_MAP0(f, x, peek, ...) f(x) LUISA_MACRO_DEFER(LUISA_MAP_NEXT(peek, LUISA_MAP1))(f, peek, __VA_ARGS__)

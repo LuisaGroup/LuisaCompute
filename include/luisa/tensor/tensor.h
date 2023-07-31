@@ -3,7 +3,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/dsl/syntax.h>
 #include "view.h"
-#include "las_interface.h"
+
 namespace luisa::compute::tensor {
 class LC_TENSOR_API JitSession {
     class Impl;
@@ -135,7 +135,7 @@ private:
         DenseMatrixDiagType _diag_type = DenseMatrixDiagType::NON_UNIT;
     } _dense_matrix_view_data = {};
 
-    static void _trans(MatrixOperation &op) {
+    static void trans(MatrixOperation &op) {
         op = op == MatrixOperation::TRANS ? MatrixOperation::NONE : MatrixOperation::TRANS;
     }
 };
@@ -159,35 +159,41 @@ constexpr TensorBasicDataType enum_data_type() {
     }
 }
 
-template<typename T>
+template<typename Ty>
 class Tensor : public DTensor {
 
 public:
-    Tensor(Device &device) noexcept : DTensor{}, _device{device} {
-        _basic_data_type = enum_data_type<T>();
+    explicit Tensor(Device &device) noexcept : DTensor{}, _device{device} {
+        _basic_data_type = enum_data_type<Ty>();
     }
 
-    BufferView<T> buffer_view() const noexcept {
+    explicit Tensor(const DTensor &tensor, Device &device) noexcept : DTensor{tensor}, _device{device} {
+        _basic_data_type = enum_data_type<Ty>();
+        _has_storage = false;
+        _buffer = {};
+    }
+
+    BufferView<Ty> buffer_view() const noexcept {
         if (_has_storage)
             return _buffer.view();
         else
             return _buffer_view;
     }
 
-    auto copy_from(const T *data) noexcept { return buffer_view().copy_from(data); }
-    auto copy_to(T *data) noexcept { return buffer_view().copy_to(data); }
+    auto copy_from(const Ty *data) noexcept { return buffer_view().copy_from(data); }
+    auto copy_to(Ty *data) noexcept { return buffer_view().copy_to(data); }
 
     void alloc_scalar() {
         _has_storage = true;
         _shape.clear();
-        _buffer = _device.create_buffer<T>(1);
+        _buffer = _device.create_buffer<Ty>(1);
     }
 
     void alloc_dense_vector(int n) {
         _has_storage = true;
         _shape = {n};
         _dense_vector_view_data.incx = 1;
-        _buffer = _device.create_buffer<T>(n);
+        _buffer = _device.create_buffer<Ty>(n);
     }
 
     void alloc_dense_matrix(int row, int col) noexcept {
@@ -202,10 +208,15 @@ public:
         _dense_matrix_view_data._fill_mode = DenseMatrixFillMode::NONE;
         _dense_matrix_view_data._diag_type = DenseMatrixDiagType::NON_UNIT;
 
-        _buffer = _device.create_buffer<T>(lda * row);
+        _buffer = _device.create_buffer<Ty>(lda * row);
     }
 
-
+    Tensor T() const noexcept {
+        Tensor ret{*this, _device};
+        ret._buffer_view = buffer_view();
+        DTensor::trans(ret._dense_matrix_view_data._operation);
+        return ret;
+    }
 protected:
     void buffer_info(uint64_t &buffer_handle, uint64_t &buffer_offset, uint64_t &buffer_total_size) const noexcept override {
         if (_has_storage) {
@@ -221,8 +232,8 @@ protected:
 private:
     bool _has_storage = false;
     Device &_device;
-    Buffer<T> _buffer;
-    BufferView<T> _buffer_view;
+    Buffer<Ty> _buffer;
+    BufferView<Ty> _buffer_view;
 };
 
 class TensorMaker {// Simple, just for test

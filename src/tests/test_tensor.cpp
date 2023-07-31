@@ -10,8 +10,8 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-void test_dense_vector(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
-    LUISA_INFO("====================test dense vector====================");
+void test_blas_level_1(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
+    LUISA_INFO("====================test blas level 1====================");
     auto ID = 0;
     {// norm 2
 
@@ -72,13 +72,14 @@ void test_dense_vector(tensor::TensorMaker &maker, tensor::LASInterface *las, St
     }
 }
 
-void test_dense_matrix(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
-    LUISA_INFO("====================test dense matrix====================");
+void test_blas_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
+    LUISA_INFO("====================test blas level 2====================");
     auto ID = 0;
     {// mv y = alpha * A * x + beta * y
         luisa::vector<float> h_A = {
-            1.0f, 2.0f,
-            2.0f, 1.0f};
+            1.0f, 3.0f,// col 0
+            2.0f, 4.0f // col 1
+        };
 
         luisa::vector<float> h_x = {1.0f, 0.0f};
         luisa::vector<float> h_y = {0.0f, 0.0f};
@@ -95,13 +96,65 @@ void test_dense_matrix(tensor::TensorMaker &maker, tensor::LASInterface *las, St
         stream << x.copy_from(h_x.data());
         stream << alpha.copy_from(&h_alpha);
         stream << beta.copy_from(&h_beta);
-
         las->mv(y, alpha, A, x, beta);
-
         stream << y.copy_to(h_y.data());
         stream << synchronize();
 
-        LUISA_INFO("{}: A = [1,2;2,1] x = [1,0]  y = Ax = [{}, {}] ([1,2])", ID++, h_y[0], h_y[1]);
+        LUISA_INFO("{}: A = [1,2;3,4] x = [1,0]  y = A * x = [{},{}] ([1,3])", ID++, h_y[0], h_y[1]);
+
+        las->mv(y, alpha, A.T(), x, beta);
+        stream << y.copy_to(h_y.data());
+        stream << synchronize();
+        LUISA_INFO("{}: A = [1,2;3,4] x = [1,0]  y = A.T * x = [{},{}] ([1,2])", ID++, h_y[0], h_y[1]);
+    }
+}
+
+void test_blas_level_3(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
+    LUISA_INFO("====================test blas level 3====================");
+    auto ID = 0;
+    {// mm C = alpha * A * B + beta * C
+        luisa::vector<float> h_A = {
+            1.0f, 3.0f,// col 0
+            2.0f, 4.0f // col 1
+        };
+
+        luisa::vector<float> h_B = {
+            1.0f, 3.0f,// col 0
+            2.0f, 4.0f // col 1
+        };
+
+        luisa::vector<float> h_C = {
+            0.0f, 0.0f,// col 0
+            0.0f, 0.0f // col 1
+        };
+
+        float h_alpha = 1.0f;
+        float h_beta = 0.0f;
+
+        auto A = maker.dense_matrix(2, 2);
+        auto B = maker.dense_matrix(2, 2);
+        auto C = maker.dense_matrix(2, 2);
+        auto alpha = maker.scalar<float>();
+        auto beta = maker.scalar<float>();
+
+        stream << A.copy_from(h_A.data());
+        stream << B.copy_from(h_B.data());
+        stream << C.copy_from(h_C.data());
+        stream << alpha.copy_from(&h_alpha);
+        stream << beta.copy_from(&h_beta);
+        tensor::MatrixMulOptions options{
+            .side = tensor::MatrixASide::LEFT
+        };
+        las->mm(C, alpha, A, B, beta, options);
+        stream << C.copy_to(h_C.data());
+        stream << synchronize();
+
+        LUISA_INFO("{}: A = [1,2;3,4] B = [1,2;3,4]  C = A * B = [{},{}; {},{}] ([7,10; 15,22])", ID++, h_C[0], h_C[2], h_C[1], h_C[3]);
+
+        las->mm(C, alpha, A.T(), B, beta, options);
+        stream << C.copy_to(h_C.data());
+        stream << synchronize();
+        LUISA_INFO("{}: A = [1,2;3,4] B = [1,2;3,4]  C = A.T * B = [{},{}; {},{}] ([10,14; 14, 20])", ID++, h_C[0], h_C[2], h_C[1], h_C[3]);
     }
 }
 
@@ -116,8 +169,9 @@ int main(int argc, char *argv[]) {
 
     tensor::TensorMaker maker{device};
 
-    test_dense_vector(maker, las, stream);
-    test_dense_matrix(maker, las, stream);
+    test_blas_level_1(maker, las, stream);
+    test_blas_level_2(maker, las, stream);
+    test_blas_level_3(maker, las, stream);
 
     device.impl()->destroy_las_interface(las);
 }
