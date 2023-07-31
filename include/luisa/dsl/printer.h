@@ -10,7 +10,6 @@
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/stmt.h>
-#include <luisa/dsl/fmt_impl.h>
 
 namespace luisa::compute {
 
