@@ -134,8 +134,8 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
     luisa::visit(
-        [type](auto x) noexcept {
-            auto t = Type::of<decltype(x)>();
+        [type]<typename T>(const T &x) noexcept {
+            auto t = Type::of<T>();
             LUISA_ASSERT(*type == *t,
                          "Type mismatch: declared as {}, got {}.",
                          type->description(), t->description());
@@ -554,7 +554,6 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         if (!f->_arguments.empty()) {
             expected_args.pop_back();
             expected_args.append("\n");
-
         }
         expected_args.append(")");
         luisa::string received_args{"("};

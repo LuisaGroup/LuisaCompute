@@ -221,7 +221,7 @@ class ASTVisitor:
             return dtype, val, 'r'
         lctype = to_lctype(dtype)
         if lctype.is_basic():
-            return dtype, lcapi.builder().literal(lctype, val), 'r'
+            return dtype, lcapi.builder().literal(val), 'r'
         if lctype.is_buffer() or lctype.is_custom_buffer():
             return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0,
                                                          val.bytesize), 'l'  # offset defaults to 0
@@ -235,9 +235,9 @@ class ASTVisitor:
             # create array and assign each element
             expr = lcapi.builder().local(lctype)
             for idx, x in enumerate(val.values):
-                sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
+                sliceexpr = lcapi.builder().literal(idx)
                 lhs = lcapi.builder().access(lctype.element(), expr, sliceexpr)
-                rhs = lcapi.builder().literal(lctype.element(), x)
+                rhs = lcapi.builder().literal(x)
                 lcapi.builder().assign(lhs, rhs)
             return dtype, expr, 'r'
         if lctype.is_structure():
@@ -277,7 +277,7 @@ class ASTVisitor:
         if node.dtype is str:
             node.expr = node.value
         else:
-            node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
+            node.expr = lcapi.builder().literal(node.value)
         node.lr = 'r'
 
     @staticmethod
@@ -552,12 +552,12 @@ class ASTVisitor:
             build(x)
             assert x.dtype in {int, uint, short, ushort, long, ulong}
         if len(node.iter.args) == 1:
-            range_start = lcapi.builder().literal(to_lctype(int), 0)
+            range_start = lcapi.builder().literal(0)
             range_stop = node.iter.args[0].expr
-            range_step = lcapi.builder().literal(to_lctype(int), 1)
+            range_step = lcapi.builder().literal(1)
         if len(node.iter.args) == 2:
             range_start, range_stop = [x.expr for x in node.iter.args]
-            range_step = lcapi.builder().literal(to_lctype(int), 1)
+            range_step = lcapi.builder().literal(1)
         if len(node.iter.args) == 3:
             range_start, range_stop, range_step = [x.expr for x in node.iter.args]
         # loop variable
@@ -575,9 +575,9 @@ class ASTVisitor:
 
     @staticmethod
     def build_container_for(node):
-        range_start = lcapi.builder().literal(to_lctype(int), 0)
-        range_stop = lcapi.builder().literal(to_lctype(int), length_of(node.iter.dtype))
-        range_step = lcapi.builder().literal(to_lctype(int), 1)
+        range_start = lcapi.builder().literal(0)
+        range_stop = lcapi.builder().literal(length_of(node.iter.dtype))
+        range_step = lcapi.builder().literal(1)
         # loop variable
         idxexpr = lcapi.builder().local(to_lctype(int))
         lcapi.builder().assign(idxexpr, range_start)

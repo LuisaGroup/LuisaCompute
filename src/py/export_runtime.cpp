@@ -490,8 +490,14 @@ void export_runtime(py::module &m) {
         .def("accel", &FunctionBuilder::accel, pyref)
 
         .def(
-            "literal", [](FunctionBuilder &self, const Type *type, LiteralExpr::Value value) {
-                return self.literal(type, std::move(value));
+            "literal", [](FunctionBuilder &self, LiteralExpr::Value value) {
+                return self.literal(
+                    luisa::visit(
+                        [&]<typename T>(const T &x) noexcept {
+                            return Type::of<T>();
+                        },
+                        value),
+                    std::move(value));
             },
             pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
