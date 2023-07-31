@@ -116,6 +116,7 @@ class func:
     # or be called by another luisa function.
     # pyfunc: python function
     def __init__(self, pyfunc):
+        self.fence_idx = -1
         self.pyfunc = pyfunc
         self.__name__ = pyfunc.__name__
         self.compiled_results = {}  # maps (arg_type_tuple) to (function, shader_handle)
@@ -155,6 +156,7 @@ class func:
         # compile shader
         if name is None:
             name = self.__name__
+        globalvars.saved_shader_count += 1
         if async_build:
             get_global_device().impl().save_shader_async(f.builder, name)
         else:
@@ -311,13 +313,18 @@ class func:
         f.function = f.builder.function()
         # compile shader
         if call_from_host:
+            globalvars.saved_shader_count += 1
             f.shader_handle = get_global_device().impl().create_shader(f.function)
         return f
 
     # looks up arg_type_tuple; compile if not existing
     # returns FuncInstanceInfo
     def get_compiled(self, func_type: int, allow_ref: bool, argtypes: tuple, arg_info=None, custom_key=None):
-        arg_features = (func_type, custom_key) + argtypes
+        if custom_key != None and self.fence_idx < custom_key:
+            self.fence_idx = custom_key
+            self.compiled_results.clear()
+
+        arg_features = (func_type,) + argtypes
         if arg_features not in self.compiled_results:
             try:
                 self.compiled_results[arg_features] = self.compile(func_type, allow_ref, argtypes, arg_info)
