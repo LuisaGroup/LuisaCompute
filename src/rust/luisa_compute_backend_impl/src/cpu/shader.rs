@@ -128,14 +128,19 @@ pub(super) fn compile(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
-            .expect("clang++ failed to start");
+            .unwrap_or_else(|e| {
+                panic_abort!("clang++ failed to start: {}", e);
+            });
         if source_file == "-" {
             let mut stdin = child.stdin.take().expect("failed to open stdin");
             stdin
                 .write_all(source.as_bytes())
-                .expect("failed to write to stdin");
+                .unwrap_or_else(|e| panic_abort!("failed to write to stdin: {}", e));
         }
-        match child.wait_with_output().expect("clang++ failed") {
+        match child
+            .wait_with_output()
+            .unwrap_or_else(|e| panic_abort!("clang++ failed: {}", e))
+        {
             output @ _ => match output.status.success() {
                 true => {
                     log::debug!(
