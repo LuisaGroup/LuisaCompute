@@ -492,8 +492,7 @@ void export_runtime(py::module &m) {
         .def(
             "literal", [](FunctionBuilder &self, const Type *type, LiteralExpr::Value value) {
                 return luisa::visit(
-                    [&self, type](auto v) {
-                        using T = std::decay_t<decltype(v)>;
+                    [&self, type]<typename T>(T v) {
                         // we do not allow conversion between vector/matrix/bool types
                         if (type->is_vector() || type->is_matrix() ||
                             type == Type::of<bool>() || type == Type::of<T>()) {
