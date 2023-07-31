@@ -1,3 +1,6 @@
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "*-no-recursion"
+
 #include <luisa/ast/op.h>
 #include <luisa/ast/variable.h>
 #include <luisa/core/logging.h>
@@ -81,7 +84,7 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
             }
             case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
             case ir::Instruction::Tag::Shared: return _ctx->function_builder->shared(type);
-            case ir::Instruction::Tag::UserData: return _ctx->function_builder->literal(Type::from("float"), 0.0f);
+            case ir::Instruction::Tag::UserData: return _ctx->function_builder->literal(Type::of<float>(), 0.0f);
             case ir::Instruction::Tag::Const: return _convert_constant(node->instruction->const_._0);
             case ir::Instruction::Tag::Call: {
                 auto ret = _convert_instr_call(node);
@@ -764,68 +767,100 @@ void IR2AST::_convert_instr_loop(const ir::Node *node) noexcept {
     //         break;
     //     }
     // }
-    auto cond = _convert_node(node->instruction->loop.cond);
     auto loop_scope = _ctx->function_builder->loop_();
-    _ctx->function_builder->push_scope(loop_scope->body());
-    _convert_block(node->instruction->loop.body.get());
-    auto if_scope = _ctx->function_builder->if_(cond);
-    _ctx->function_builder->push_scope(if_scope->false_branch());
-    _ctx->function_builder->break_();
-    _ctx->function_builder->pop_scope(if_scope->false_branch());
-    _ctx->function_builder->pop_scope(loop_scope->body());
+    _ctx->function_builder->with(loop_scope->body(), [&] {
+        // body
+        auto old_generic_loop_break = std::exchange(_ctx->generic_loop_break, nullptr);
+        _convert_block(node->instruction->loop.body.get());
+        _ctx->generic_loop_break = old_generic_loop_break;
+        // if (!cond) break;
+        auto cond = _convert_node(node->instruction->loop.cond);
+        auto not_cond = _ctx->function_builder->unary(Type::of<bool>(), UnaryOp::NOT, cond);
+        auto if_scope = _ctx->function_builder->if_(not_cond);
+        _ctx->function_builder->with(if_scope->true_branch(), [&] {
+            _ctx->function_builder->break_();
+        });
+    });
 }
 
 void IR2AST::_convert_instr_generic_loop(const ir::Node *node) noexcept {
-    // bool first_entrance = true;
+    // template:
     // loop {
-    //     if (!first_entrance) {
-    //         update();
-    //     } else {
-    //         first_entrance = false;
-    //     }
+    //     loop_break = false;
     //     prepare();
     //     if (!cond()) break;
-    //     body();
+    //     loop {
+    //         body {
+    //             // break => { loop_break = true; break; }
+    //             // continue => { break; }
+    //         }
+    //         break;
+    //     }
+    //     if (loop_break) break;
+    //     update();
     // }
-    auto first_entrance = _ctx->function_builder->local(Type::from("bool"));
-    _ctx->function_builder->assign(first_entrance, _ctx->function_builder->literal(Type::from("bool"), true));
-    auto loop_scope = _ctx->function_builder->loop_();
-    _ctx->function_builder->push_scope(loop_scope->body());
-    auto update_if_scope = _ctx->function_builder->if_(first_entrance);
-    _ctx->function_builder->push_scope(update_if_scope->true_branch());
-    _ctx->function_builder->assign(first_entrance, _ctx->function_builder->literal(Type::from("bool"), false));
-    _ctx->function_builder->pop_scope(update_if_scope->true_branch());
-    _ctx->function_builder->push_scope(update_if_scope->false_branch());
-    _convert_block(node->instruction->generic_loop.update.get());
-    _ctx->function_builder->pop_scope(update_if_scope->false_branch());
-    _convert_block(node->instruction->generic_loop.prepare.get());
-    auto loop_cond = _convert_node(node->instruction->generic_loop.cond);
-    auto loop_cond_invert = _ctx->function_builder->unary(Type::from("bool"), UnaryOp::NOT, loop_cond);
-    auto cond_if_scope = _ctx->function_builder->if_(loop_cond_invert);
-    _ctx->function_builder->push_scope(cond_if_scope->true_branch());
-    _ctx->function_builder->break_();
-    _ctx->function_builder->pop_scope(cond_if_scope->true_branch());
-    _convert_block(node->instruction->generic_loop.body.get());
-    _ctx->function_builder->pop_scope(loop_scope->body());
+    auto generic_loop_break = _ctx->function_builder->local(Type::of<bool>());
+    auto loop = _ctx->function_builder->loop_();
+    _ctx->function_builder->with(loop->body(), [&] {
+        // bool loop_break = false;
+        auto false_ = _ctx->function_builder->literal(Type::of<bool>(), false);
+        _ctx->function_builder->assign(generic_loop_break, false_);
+        // prepare();
+        _convert_block(node->instruction->generic_loop.prepare.get());
+        // if (!cond()) break;
+        auto cond = _convert_node(node->instruction->generic_loop.cond);
+        auto not_cond = _ctx->function_builder->unary(Type::of<bool>(), UnaryOp::NOT, cond);
+        auto if_ = _ctx->function_builder->if_(not_cond);
+        _ctx->function_builder->with(if_->true_branch(), [&] {
+            _ctx->function_builder->break_();
+        });
+        // loop
+        auto loop_once = _ctx->function_builder->loop_();
+        _ctx->function_builder->with(loop_once->body(), [&] {
+            // body
+            auto old_generic_loop_break = std::exchange(_ctx->generic_loop_break, generic_loop_break);
+            _convert_block(node->instruction->generic_loop.body.get());
+            _ctx->generic_loop_break = old_generic_loop_break;
+            // break;
+            _ctx->function_builder->break_();
+        });
+        // if (loop_break) break;
+        auto if_break = _ctx->function_builder->if_(generic_loop_break);
+        _ctx->function_builder->with(if_break->true_branch(), [&] {
+            _ctx->function_builder->break_();
+        });
+        // update();
+        _convert_block(node->instruction->generic_loop.update.get());
+    });
 }
 
 void IR2AST::_convert_instr_break(const ir::Node *node) noexcept {
+    if (_ctx->generic_loop_break) {// inside generic loop
+        // break => { loop_break = true; break; }
+        auto true_ = _ctx->function_builder->literal(Type::of<bool>(), true);
+        _ctx->function_builder->assign(_ctx->generic_loop_break, true_);
+    }
     _ctx->function_builder->break_();
 }
 
 void IR2AST::_convert_instr_continue(const ir::Node *node) noexcept {
-    _ctx->function_builder->continue_();
+    if (_ctx->generic_loop_break) {// inside generic loop
+        // continue => { break; }
+        _ctx->function_builder->break_();
+    } else {
+        _ctx->function_builder->continue_();
+    }
 }
 
 void IR2AST::_convert_instr_if(const ir::Node *node) noexcept {
     auto cond = _convert_node(node->instruction->if_.cond);
     auto if_scope = _ctx->function_builder->if_(cond);
-    _ctx->function_builder->push_scope(if_scope->true_branch());
-    _convert_block(node->instruction->if_.true_branch.get());
-    _ctx->function_builder->pop_scope(if_scope->true_branch());
-    _ctx->function_builder->push_scope(if_scope->false_branch());
-    _convert_block(node->instruction->if_.false_branch.get());
-    _ctx->function_builder->pop_scope(if_scope->false_branch());
+    _ctx->function_builder->with(if_scope->true_branch(), [&] {
+        _convert_block(node->instruction->if_.true_branch.get());
+    });
+    _ctx->function_builder->with(if_scope->false_branch(), [&] {
+        _convert_block(node->instruction->if_.false_branch.get());
+    });
 }
 
 void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
@@ -835,7 +870,7 @@ void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
         auto data = node->instruction->switch_.cases.ptr;
         auto len = node->instruction->switch_.cases.len;
         for (auto i = 0; i < len; i++) {
-            auto value = _ctx->function_builder->literal(Type::from("int"), data[i].value);
+            auto value = _ctx->function_builder->literal(Type::of<int>(), data[i].value);
             auto case_scope = _ctx->function_builder->case_(value);
             _ctx->function_builder->with(case_scope->body(), [&] {
                 _convert_block(data[i].block.get());
@@ -865,7 +900,6 @@ void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
     _ctx->function_builder->comment_("Ray Query Begin");
     auto rq = static_cast<const RefExpr *>(_convert_node(node->instruction->ray_query.ray_query));
     auto rq_scope = _ctx->function_builder->ray_query_(rq);
-
     _ctx->function_builder->with(rq_scope->on_triangle_candidate(), [&] {
         _convert_block(node->instruction->ray_query.on_triangle_hit.get());
     });
@@ -948,15 +982,16 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
 
 const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept {
     switch (type) {
-        case ir::Primitive::Bool: return Type::from("bool");
-        case ir::Primitive::Float32: return Type::from("float");
-        case ir::Primitive::Int16: return Type::from("short");
-        case ir::Primitive::Uint16: return Type::from("ushort");
-        case ir::Primitive::Int32: return Type::from("int");
-        case ir::Primitive::Uint32: return Type::from("uint");
-        case ir::Primitive::Float64: return Type::from("double");
-        case ir::Primitive::Int64: return Type::from("long");
-        case ir::Primitive::Uint64: return Type::from("ulong");
+        case ir::Primitive::Bool: return Type::of<bool>();
+        case ir::Primitive::Float16: return Type::of<half>();
+        case ir::Primitive::Float32: return Type::of<float>();
+        case ir::Primitive::Int16: return Type::of<short>();
+        case ir::Primitive::Uint16: return Type::of<ushort>();
+        case ir::Primitive::Int32: return Type::of<int>();
+        case ir::Primitive::Uint32: return Type::of<uint>();
+        case ir::Primitive::Float64: return Type::of<double>();
+        case ir::Primitive::Int64: return Type::of<slong>();
+        case ir::Primitive::Uint64: return Type::of<ulong>();
         default: LUISA_ERROR_WITH_LOCATION("Invalid primitive type.");
     }
 }
@@ -993,7 +1028,7 @@ const Type *IR2AST::_convert_type(const ir::Type *type) noexcept {
             return Type::custom(opaque_type);
         }
         case ir::Type::Tag::UserData: {
-            return Type::from("float");
+            return Type::of<float>();
         }
         default: break;
     }
@@ -1276,6 +1311,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 
     IR2ASTContext ctx{
         .module = kernel->module,
+        .generic_loop_break = nullptr,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::KERNEL)};
 
     // do the conversion
@@ -1329,6 +1365,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                   (void *)(callable), callable->captures.len);
     IR2ASTContext ctx{
         .module = callable->module,
+        .generic_loop_break = nullptr,
         .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE)};
     _converted_callables.emplace(callable, ctx.function_builder);
 
@@ -1390,3 +1427,5 @@ const Type *IR2AST::get_type(const ir::Type *type) noexcept {
 }
 
 }// namespace luisa::compute
+
+#pragma clang diagnostic pop
