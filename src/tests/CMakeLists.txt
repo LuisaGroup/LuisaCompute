@@ -14,6 +14,10 @@ endfunction()
 
 luisa_compute_test_suite(feat)
 
+file(GLOB_RECURSE test_all_source next/test/**.cpp)
+luisa_compute_add_executable(test_all ${test_common_source} ${test_all_source})
+target_include_directories(test_all PRIVATE ./)
+
 luisa_compute_add_executable(test_main
     common/test_main.cpp
     common/config.h
