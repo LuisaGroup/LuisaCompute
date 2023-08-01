@@ -27,18 +27,18 @@ int test_create_device(luisa::string cwd, luisa::string device_name) {
 
 }// namespace luisa::test
 
-TEST_SUITE("common") {
+TEST_SUITE("runtime") {
     TEST_CASE("device::create_device") {
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
+        for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
+            luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {
                 REQUIRE(luisa::test::test_create_device(luisa::test::argv()[0], device_name) == 0);
             }
         }
     }
     TEST_CASE("device::wrapped_device") {
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
+        for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
+            luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {
                 REQUIRE(luisa::test::test_wrapped_device(luisa::test::argv()[0], device_name) == 0);
             }

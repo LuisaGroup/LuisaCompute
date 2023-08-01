@@ -256,16 +256,8 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 }
 }// namespace luisa::test
 
-TEST_SUITE("gallary") {
-    TEST_CASE("sdf_renderer") {
-        Context context{luisa::test::argv()[0]};
 
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
-            }
-        }
-    }
+TEST_SUITE("gallary") {
+    LUISA_TEST_CASE_WITH_DEVICE("sdf_renderer",
+        luisa::test::sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
 }

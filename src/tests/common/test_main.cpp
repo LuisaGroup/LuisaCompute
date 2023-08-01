@@ -18,8 +18,8 @@ int argc() noexcept { return static_cast<int>(args.size()); }
 const char *const *argv() noexcept { return args.data(); }
 
 static luisa::vector<const char *> _backends;
-int supported_backends_count() noexcept { return _backends.size(); }
-const char *const *supported_backends() noexcept {
+int backends_to_test_count() noexcept { return _backends.size(); }
+const char *const *backends_to_test() noexcept {
     return _backends.data();
 }
 
@@ -36,6 +36,7 @@ inline void args_filter(const char **argv_in) noexcept {
         }
     }
     if (default_backend) {
+        // default testing case
         _backends.emplace_back("dx");
         _backends.emplace_back("cuda");
     }

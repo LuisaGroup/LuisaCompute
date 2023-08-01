@@ -7,8 +7,8 @@ namespace luisa::test {
 
 [[nodiscard]] int argc() noexcept;
 [[nodiscard]] const char *const *argv() noexcept;
-[[nodiscard]] int supported_backends_count() noexcept;
-[[nodiscard]] const char *const *supported_backends() noexcept;
+[[nodiscard]] int backends_to_test_count() noexcept;
+[[nodiscard]] const char *const *backends_to_test() noexcept;
 
 }// namespace luisa::test
 
@@ -21,8 +21,8 @@ namespace luisa::test {
 #define LUISA_TEST_CASE_WITH_DEVICE(name, condition)                          \
     TEST_CASE(name) {                                                         \
         Context context{luisa::test::argv()[0]};                              \
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {  \
-            luisa::string device_name = luisa::test::supported_backends()[i]; \
+        for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {  \
+            luisa::string device_name = luisa::test::backends_to_test()[i]; \
             SUBCASE(device_name.c_str()) {                                    \
                 Device device = context.create_device(device_name.c_str());   \
                 REQUIRE(condition);                                           \

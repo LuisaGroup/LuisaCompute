@@ -5,6 +5,8 @@
         "cuda"
     ],
     "feat_list": [
-        "common"
+        "runtime",
+        "dsl",
+        "ast"
     ]
 }

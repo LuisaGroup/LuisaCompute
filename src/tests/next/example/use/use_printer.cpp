@@ -39,8 +39,8 @@ TEST_SUITE("example") {
     TEST_CASE("use_printer") {
         Context context{luisa::test::argv()[0]};
        
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
+        for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
+            luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {
                 Device device = context.create_device(device_name.c_str());
                 REQUIRE(luisa::test::use_printer(device) == 0);

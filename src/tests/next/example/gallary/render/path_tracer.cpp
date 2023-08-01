@@ -335,15 +335,6 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
 }// namespace luisa::test
 
 TEST_SUITE("gallary") {
-    TEST_CASE("path_tracer") {
-        Context context{luisa::test::argv()[0]};
-
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
-            SUBCASE(device_name.c_str()) {
-                Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::path_tracer(device, "path_tracer_" + device_name + ".png") == 0);
-            }
-        }
-    }
+    LUISA_TEST_CASE_WITH_DEVICE("path_tracer",
+        luisa::test::path_tracer(device, "path_tracer_" + device_name + ".png") == 0);
 }

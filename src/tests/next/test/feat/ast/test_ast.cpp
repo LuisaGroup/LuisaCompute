@@ -3,12 +3,13 @@
 //
 
 #include "common/config.h"
-#include <luisa/luisa-compute.h>
+
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;
-using luisa::compute::detail::FunctionBuilder;
-
 namespace luisa::test {
 int test_ast(Device &device) {
     Stream stream = device.create_stream();
@@ -37,6 +38,6 @@ int test_ast(Device &device) {
 }
 }// namespace luisa::test
 
-TEST_SUITE("common") {
-    LUISA_TEST_CASE_WITH_DEVICE("ast", luisa::test::test_ast(device) == 0);
+TEST_SUITE("ast") {
+    LUISA_TEST_CASE_WITH_DEVICE("ast_basic", luisa::test::test_ast(device) == 0);
 }

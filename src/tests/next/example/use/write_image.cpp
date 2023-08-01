@@ -43,8 +43,8 @@ TEST_SUITE("example") {
     TEST_CASE("write_image") {
         Context context{luisa::test::argv()[0]};
        
-        for (auto i = 0; i < luisa::test::supported_backends_count(); i++) {
-            luisa::string device_name = luisa::test::supported_backends()[i];
+        for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
+            luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {
                 Device device = context.create_device(device_name.c_str());
                 REQUIRE(luisa::test::write_image(device, "write_image_"+device_name+".png") == 0);
