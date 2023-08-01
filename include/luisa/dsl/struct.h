@@ -3,11 +3,9 @@
 #include <cstdint>
 #include <cstddef>
 
-#include <luisa/dsl/var.h>
-#include <luisa/dsl/atomic.h>
+#include <luisa/dsl/soa.h>
 #include <luisa/dsl/func.h>
 #include <luisa/runtime/shader.h>
-#include <spdlog/spdlog.h>
 #include <spdlog/fmt/bundled/format.h>
 
 template<typename T>
@@ -67,76 +65,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         }                                                                                                             \
     };
 
-namespace luisa::compute {
-
-template<typename T>
-struct SOA {};
-
-template<typename T>
-struct SOAView {};
-
-template<typename T>
-    requires luisa::is_scalar_v<T>
-struct SOA<T> {
-    Buffer<T> buffer;
-    [[nodiscard]] auto &operator->() const noexcept {
-        return buffer;
-    }
-};
-
-template<typename T>
-    requires luisa::is_scalar_v<T>
-struct SOAView<T> {
-    BufferView<T> buffer;
-    [[nodiscard]] auto &operator->() const noexcept {
-        return buffer;
-    }
-};
-
-template<typename T>
-struct SOA<Vector<T, 2>> {
-    SOA<T> x;
-    SOA<T> y;
-};
-
-template<typename T>
-struct SOAView<Vector<T, 2>> {
-    SOAView<T> x;
-    SOAView<T> y;
-};
-
-template<typename T>
-struct SOA<Vector<T, 3>> {
-    SOA<T> x;
-    SOA<T> y;
-    SOA<T> z;
-};
-
-template<typename T>
-struct SOAView<Vector<T, 3>> {
-    SOAView<T> x;
-    SOAView<T> y;
-    SOAView<T> z;
-};
-
-
-
-};// namespace luisa::compute
-
-#define LUISA_DERIVE_SOA_FIELD(m) SOA<member_type_##m> m;
-#define LUISA_DERIVE_SOA(S, ...)                              \
-    template<>                                                \
-    struct SOA<S> {                                           \
-        using this_type = S;                                  \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__) \
-        LUISA_MAP(LUISA_DERIVE_SOA_FIELD, __VA_ARGS__)        \
-    };
-
-#define LUISA_STRUCT(S, ...)                                                                  \
-    LUISA_DERIVE_FMT(S, S, __VA_ARGS__)                                                       \
-    LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                      \
-    template<>                                                                                \
-    struct luisa_compute_extension<S>;                                                        \
+#define LUISA_DERIVE_DSL_STRUCT(S, ...)                                                       \
     namespace luisa::compute {                                                                \
     namespace detail {                                                                        \
     template<>                                                                                \
@@ -232,8 +161,15 @@ struct SOAView<Vector<T, 3>> {
         }                                                                                     \
     };                                                                                        \
     }                                                                                         \
-    }                                                                                         \
-    template<>                                                                                \
+    }
+
+#define LUISA_STRUCT(S, ...)                \
+    LUISA_DERIVE_FMT(S, S, __VA_ARGS__)     \
+    LUISA_STRUCT_REFLECT(S, __VA_ARGS__)    \
+    template<>                              \
+    struct luisa_compute_extension<S>;      \
+    LUISA_DERIVE_DSL_STRUCT(S, __VA_ARGS__) \
+    template<>                              \
     struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
 
 #define LUISA_CUSTOM_STRUCT_EXT(S)                                                           \
