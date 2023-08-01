@@ -53,18 +53,83 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 
 #define LUISA_DERIVE_FMT_STRUCT_FIELD_FMT(x) #x "={} "
 #define LUISA_DERIVE_FMT_MAP_STRUCT_FIELD(x) input.x
-#define LUISA_DERIVE_FMT(Struct, DisplayName, ...)                                                                            \
-    template<>                                                                                                   \
-    struct fmt::formatter<Struct> {                                                                              \
-        constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {                               \
-            return ctx.end();                                                                                    \
-        }                                                                                                        \
-        template<typename FormatContext>                                                                         \
-        auto format(const Struct &input, FormatContext &ctx) -> decltype(ctx.out()) {                            \
-            return fmt::format_to(ctx.out(),                                                                     \
+#define LUISA_DERIVE_FMT(Struct, DisplayName, ...)                                                                    \
+    template<>                                                                                                        \
+    struct fmt::formatter<Struct> {                                                                                   \
+        constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {                                    \
+            return ctx.end();                                                                                         \
+        }                                                                                                             \
+        template<typename FormatContext>                                                                              \
+        auto format(const Struct &input, FormatContext &ctx) -> decltype(ctx.out()) {                                 \
+            return fmt::format_to(ctx.out(),                                                                          \
                                   #DisplayName " {{ " LUISA_MAP(LUISA_DERIVE_FMT_STRUCT_FIELD_FMT, __VA_ARGS__) "}}", \
-                                  LUISA_MAP_LIST(LUISA_DERIVE_FMT_MAP_STRUCT_FIELD, __VA_ARGS__));               \
-        }                                                                                                        \
+                                  LUISA_MAP_LIST(LUISA_DERIVE_FMT_MAP_STRUCT_FIELD, __VA_ARGS__));                    \
+        }                                                                                                             \
+    };
+
+namespace luisa::compute {
+
+template<typename T>
+struct SOA {};
+
+template<typename T>
+struct SOAView {};
+
+template<typename T>
+    requires luisa::is_scalar_v<T>
+struct SOA<T> {
+    Buffer<T> buffer;
+    [[nodiscard]] auto &operator->() const noexcept {
+        return buffer;
+    }
+};
+
+template<typename T>
+    requires luisa::is_scalar_v<T>
+struct SOAView<T> {
+    BufferView<T> buffer;
+    [[nodiscard]] auto &operator->() const noexcept {
+        return buffer;
+    }
+};
+
+template<typename T>
+struct SOA<Vector<T, 2>> {
+    SOA<T> x;
+    SOA<T> y;
+};
+
+template<typename T>
+struct SOAView<Vector<T, 2>> {
+    SOAView<T> x;
+    SOAView<T> y;
+};
+
+template<typename T>
+struct SOA<Vector<T, 3>> {
+    SOA<T> x;
+    SOA<T> y;
+    SOA<T> z;
+};
+
+template<typename T>
+struct SOAView<Vector<T, 3>> {
+    SOAView<T> x;
+    SOAView<T> y;
+    SOAView<T> z;
+};
+
+
+
+};// namespace luisa::compute
+
+#define LUISA_DERIVE_SOA_FIELD(m) SOA<member_type_##m> m;
+#define LUISA_DERIVE_SOA(S, ...)                              \
+    template<>                                                \
+    struct SOA<S> {                                           \
+        using this_type = S;                                  \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__) \
+        LUISA_MAP(LUISA_DERIVE_SOA_FIELD, __VA_ARGS__)        \
     };
 
 #define LUISA_STRUCT(S, ...)                                                                  \
