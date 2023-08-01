@@ -28,6 +28,7 @@ local function lc_add_app(appname, folder, name, options)
 	if name == "all" then
 		match_str = "**.cpp"
 	end
+	set_pcxxheader("pch.h")
 	add_files(path.join("next", folder, match_str))
 	add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
 	if get_config("enable_ir") then

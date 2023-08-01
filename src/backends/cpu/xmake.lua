@@ -86,6 +86,5 @@ after_build(function(target)
 		copy_dll("release")
 	end
 end)
-add_files("**.cpp")
-add_files("../common/rust_device_common.cpp")
+add_files("**.cpp", "../common/rust_device_common.cpp")
 target_end()
