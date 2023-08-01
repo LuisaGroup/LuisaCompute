@@ -42,17 +42,19 @@ local function lc_add_app(appname, folder, name, options)
 end 
 
 -- temp test suites
-lc_add_app("test_feat", "test", "feat")
-lc_add_app("test_ext", "test", "ext")
+lc_add_app("test_feat", "test", "feat") -- core feature test
+lc_add_app("test_ext", "test", "ext") -- extension test
 
 -- for common features
 
 if get_config("enable_gui") then
 	add_defines("ENABLE_DISPLAY")
 	-- all test suites for release
-	lc_add_app("test_all", "test", "all")
+	lc_add_app("test_all", "test", "all") -- all test
 	-- example app 
-	lc_add_app("gallary", "example", "gallary")
+	lc_add_app("gallary", "example", "gallary") -- gallary
+	lc_add_app("tutorial", "example", "use") -- basic use tutorial
+	lc_add_app("example_ext","example","ext") -- external extension examples
 end
 -- lc_add_app("test_io", "test", "io")
 ------------------------------------
