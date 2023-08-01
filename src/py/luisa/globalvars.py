@@ -2,6 +2,7 @@
 from .dylibs import lcapi
 current_context = None
 device = None
+saved_shader_count = 0
 class Vars:
     def __init__(self) -> None:
         self.context = None

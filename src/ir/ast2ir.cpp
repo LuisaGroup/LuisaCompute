@@ -16,7 +16,7 @@ inline auto AST2IR::_boxed_slice(size_t n) noexcept -> ir::CBoxedSlice<T> {
                 .len = 0u,
                 .destructor = [](T *, size_t) noexcept {}};
     }
-    return {.ptr = luisa::allocate_with_allocator<T>(n),// FIXME: use allocate
+    return {.ptr = luisa::allocate_with_allocator<T>(n),
             .len = n,
             .destructor = [](T *ptr, size_t) noexcept {
                 luisa::deallocate_with_allocator(ptr);

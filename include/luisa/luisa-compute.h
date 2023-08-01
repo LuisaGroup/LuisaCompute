@@ -84,7 +84,6 @@
 #include <luisa/ir/ir2ast.h>
 #endif
 
-#ifdef LUISA_ENABLE_OSL
 #include <luisa/osl/hint.h>
 #include <luisa/osl/instruction.h>
 #include <luisa/osl/literal.h>
@@ -92,7 +91,6 @@
 #include <luisa/osl/shader.h>
 #include <luisa/osl/symbol.h>
 #include <luisa/osl/type.h>
-#endif
 
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/buffer.h>
@@ -145,6 +143,11 @@
 #include <luisa/rust/api_types.hpp>
 #include <luisa/rust/ir.hpp>
 #include <luisa/rust/ir_common.h>
+#endif
+
+#ifdef LUISA_ENABLE_TENSOR
+#include <luisa/tensor/scope.h>
+#include <luisa/tensor/tensor.h>
 #endif
 
 #include <luisa/vstl/allocate_type.h>
