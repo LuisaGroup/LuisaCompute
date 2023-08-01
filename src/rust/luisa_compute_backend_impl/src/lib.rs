@@ -129,19 +129,19 @@ fn init() {
         .unwrap();
     // std::panic::set_hook(Box::new(move |panic_info| {});
     // let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-            Some(*s)
-        } else {
-            None
-        };
-        if let Some(msg) = msg {
-            if msg.starts_with("##lc_kernel##") {
-                return;
-            }
-        }
-        abort();
-    }));
+    // std::panic::set_hook(Box::new(move |panic_info| {
+    //     let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+    //         Some(*s)
+    //     } else {
+    //         None
+    //     };
+    //     if let Some(msg) = msg {
+    //         if msg.starts_with("##lc_kernel##") {
+    //             return;
+    //         }
+    //     }
+    //     abort();
+    // }));
 }
 
 extern "C" fn free_string(ptr: *mut c_char) {

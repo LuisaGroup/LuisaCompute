@@ -64,7 +64,7 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
@@ -208,9 +208,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -219,9 +219,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -231,7 +231,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -266,7 +266,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -276,7 +276,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -299,9 +299,9 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
 }
@@ -318,12 +318,30 @@ impl LLVMPaths {
     fn override_from_env(&mut self) {
         match var("LUISA_LLVM_PATH") {
             Ok(s) => {
+                if !Path::new(&s).exists() {
+                    panic_abort!(
+                        "LUISA_LLVM_PATH is set to {}, but the path does not exist",
+                        s
+                    );
+                }
+                if Path::new(&s).is_dir() {
+                    panic_abort!("LUISA_LLVM_PATH is set to {}, but the path is a directory. Should be path to library", s);
+                }
                 self.llvm = s;
             }
             Err(_) => {}
         }
         match var("LUISA_CLANG_PATH") {
             Ok(s) => {
+                if !Path::new(&s).exists() {
+                    panic_abort!(
+                        "LUISA_CLANG_PATH is set to {}, but the path does not exist",
+                        s
+                    );
+                }
+                if Path::new(&s).is_dir() {
+                    panic_abort!("LUISA_CLANG_PATH is set to {}, but the path is a directory. Should be path to executable", s);
+                }
                 self.clang = s;
             }
             Err(_) => {}
@@ -350,7 +368,7 @@ impl LLVMPaths {
                     match var("LUISA_CLANG_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++")
+                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++ executable")
                         }
                     }
                 }),
@@ -361,7 +379,12 @@ impl LLVMPaths {
                     match var("LUISA_LLVM_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic_abort!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of LLVM")
+                            let libllvm = if !cfg!(target_os = "windows") {
+                                "libLLVM.so"
+                            } else {
+                                "LLVM-C.dll"
+                            };
+                            panic_abort!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of {}", libllvm);
                         }
                     }
                 }),
@@ -439,14 +462,30 @@ impl LibLLVM {
             panic_abort!("only x86_64 and aarch64 are supported");
         }
         unsafe {
-            let lib = libloading::Library::new(&llvm_lib_path()).unwrap();
-            let LLVMContextCreate = lift(lib.get(b"LLVMContextCreate").unwrap());
-            let LLVMParseIRInContext = lift(lib.get(b"LLVMParseIRInContext").unwrap());
+            let path = llvm_lib_path();
+            let lib = libloading::Library::new(&path).unwrap_or_else(|e| {
+                panic_abort!("Failed to load LLVM: could not load {}, error: {}", path, e);
+            });
+            log::info!("Loading LLVM functions from {}", path);
+            macro_rules! load {
+                ($name:expr) => {
+                    lift(lib.get($name).unwrap_or_else(|e| {
+                        panic_abort!(
+                            "Failed to load LLVM function {}: could not load {}, error: {}",
+                            std::str::from_utf8($name).unwrap(),
+                            path,
+                            e
+                        );
+                    }))
+                };
+            }
+            let LLVMContextCreate = load!(b"LLVMContextCreate");
+            let LLVMParseIRInContext = load!(b"LLVMParseIRInContext");
             let LLVMCreateMemoryBufferWithMemoryRange =
-                lift(lib.get(b"LLVMCreateMemoryBufferWithMemoryRange").unwrap());
-            let LLVMParseBitcodeInContext2 = lift(lib.get(b"LLVMParseBitcodeInContext2").unwrap());
-            let LLVMDumpModule = lift(lib.get(b"LLVMDumpModule").unwrap());
-            let LLVMLinkInMCJIT = lift(lib.get(b"LLVMLinkInMCJIT").unwrap());
+                load!(b"LLVMCreateMemoryBufferWithMemoryRange");
+            let LLVMParseBitcodeInContext2 = load!(b"LLVMParseBitcodeInContext2");
+            let LLVMDumpModule = load!(b"LLVMDumpModule");
+            let LLVMLinkInMCJIT = load!(b"LLVMLinkInMCJIT");
 
             let LLVMInitializeNativeTarget = lift(
                 lib.get(if cfg!(target_arch = "x86_64") {
@@ -456,7 +495,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetInfo = lift(
@@ -467,7 +506,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMC = lift(
@@ -478,7 +517,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMCA = lift(
@@ -489,7 +528,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeAsmPrinter = lift(
@@ -500,50 +539,39 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
-            let LLVMContextDispose = lift(lib.get(b"LLVMContextDispose").unwrap());
-            let LLVMDisposeModule = lift(lib.get(b"LLVMDisposeModule").unwrap());
-            let LLVMDisposeMemoryBuffer = lift(lib.get(b"LLVMDisposeMemoryBuffer").unwrap());
-            let LLVMOrcCreateNewThreadSafeContext =
-                lift(lib.get(b"LLVMOrcCreateNewThreadSafeContext").unwrap());
-            let LLVMOrcThreadSafeContextGetContext =
-                lift(lib.get(b"LLVMOrcThreadSafeContextGetContext").unwrap());
-            let LLVMOrcCreateNewThreadSafeModule =
-                lift(lib.get(b"LLVMOrcCreateNewThreadSafeModule").unwrap());
-            let LLVMOrcDisposeThreadSafeModule =
-                lift(lib.get(b"LLVMOrcDisposeThreadSafeModule").unwrap());
-            let LLVMOrcDisposeThreadSafeContext =
-                lift(lib.get(b"LLVMOrcDisposeThreadSafeContext").unwrap());
-            let LLVMOrcCreateLLJIT = lift(lib.get(b"LLVMOrcCreateLLJIT").unwrap());
-            let LLVMOrcDisposeLLJIT = lift(lib.get(b"LLVMOrcDisposeLLJIT").unwrap());
-            let LLVMOrcLLJITGetMainJITDylib =
-                lift(lib.get(b"LLVMOrcLLJITGetMainJITDylib").unwrap());
+            let LLVMContextDispose = load!(b"LLVMContextDispose");
+            let LLVMDisposeModule = load!(b"LLVMDisposeModule");
+            let LLVMDisposeMemoryBuffer = load!(b"LLVMDisposeMemoryBuffer");
+            let LLVMOrcCreateNewThreadSafeContext = load!(b"LLVMOrcCreateNewThreadSafeContext");
+            let LLVMOrcThreadSafeContextGetContext = load!(b"LLVMOrcThreadSafeContextGetContext");
+            let LLVMOrcCreateNewThreadSafeModule = load!(b"LLVMOrcCreateNewThreadSafeModule");
+            let LLVMOrcDisposeThreadSafeModule = load!(b"LLVMOrcDisposeThreadSafeModule");
+            let LLVMOrcDisposeThreadSafeContext = load!(b"LLVMOrcDisposeThreadSafeContext");
+            let LLVMOrcCreateLLJIT = load!(b"LLVMOrcCreateLLJIT");
+            let LLVMOrcDisposeLLJIT = load!(b"LLVMOrcDisposeLLJIT");
+            let LLVMOrcLLJITGetMainJITDylib = load!(b"LLVMOrcLLJITGetMainJITDylib");
 
-            let LLVMOrcLLJITAddLLVMIRModule =
-                lift(lib.get(b"LLVMOrcLLJITAddLLVMIRModule").unwrap());
-            let LLVMOrcLLJITLookup = lift(lib.get(b"LLVMOrcLLJITLookup").unwrap());
-            let LLVMGetErrorMessage = lift(lib.get(b"LLVMGetErrorMessage").unwrap());
-            let LLVMDisposeErrorMessage = lift(lib.get(b"LLVMDisposeErrorMessage").unwrap());
-            let LLVMOrcCreateDumpObjects = lift(lib.get(b"LLVMOrcCreateDumpObjects").unwrap());
+            let LLVMOrcLLJITAddLLVMIRModule = load!(b"LLVMOrcLLJITAddLLVMIRModule");
+            let LLVMOrcLLJITLookup = load!(b"LLVMOrcLLJITLookup");
+            let LLVMGetErrorMessage = load!(b"LLVMGetErrorMessage");
+            let LLVMDisposeErrorMessage = load!(b"LLVMDisposeErrorMessage");
+            let LLVMOrcCreateDumpObjects = load!(b"LLVMOrcCreateDumpObjects");
             let LLVMOrcObjectTransformLayerSetTransform =
-                lift(lib.get(b"LLVMOrcObjectTransformLayerSetTransform").unwrap());
-            let LLVMOrcLLJITGetObjTransformLayer =
-                lift(lib.get(b"LLVMOrcLLJITGetObjTransformLayer").unwrap());
-            let LLVMOrcDumpObjects_CallOperator =
-                lift(lib.get(b"LLVMOrcDumpObjects_CallOperator").unwrap());
-            let LLVMGetTargetFromName = lift(lib.get(b"LLVMGetTargetFromName").unwrap());
-            let LLVMCreateTargetMachine = lift(lib.get(b"LLVMCreateTargetMachine").unwrap());
-            let LLVMCreatePassBuilderOptions =
-                lift(lib.get(b"LLVMCreatePassBuilderOptions").unwrap());
-            let LLVMDisposePassBuilderOptions =
-                lift(lib.get(b"LLVMDisposePassBuilderOptions").unwrap());
-            let LLVMRunPasses = lift(lib.get(b"LLVMRunPasses").unwrap());
-            let LLVMOrcAbsoluteSymbols = lift(lib.get(b"LLVMOrcAbsoluteSymbols").unwrap());
-            let LLVMOrcLLJITMangleAndIntern =
-                lift(lib.get(b"LLVMOrcLLJITMangleAndIntern").unwrap());
-            let LLVMOrcJITDylibDefine = lift(lib.get(b"LLVMOrcJITDylibDefine").unwrap());
+                load!(b"LLVMOrcObjectTransformLayerSetTransform");
+            let LLVMOrcLLJITGetObjTransformLayer = load!(b"LLVMOrcLLJITGetObjTransformLayer");
+            let LLVMOrcDumpObjects_CallOperator = load!(b"LLVMOrcDumpObjects_CallOperator");
+            let LLVMGetTargetFromName = load!(b"LLVMGetTargetFromName");
+            let LLVMCreateTargetMachine = load!(b"LLVMCreateTargetMachine");
+            let LLVMCreatePassBuilderOptions = load!(b"LLVMCreatePassBuilderOptions");
+            let LLVMDisposePassBuilderOptions = load!(b"LLVMDisposePassBuilderOptions");
+            let LLVMRunPasses = load!(b"LLVMRunPasses");
+            let LLVMOrcAbsoluteSymbols = load!(b"LLVMOrcAbsoluteSymbols");
+            let LLVMOrcLLJITMangleAndIntern = load!(b"LLVMOrcLLJITMangleAndIntern");
+            let LLVMOrcJITDylibDefine = load!(b"LLVMOrcJITDylibDefine");
+            log::info!("LLVM functions loaded from {}", path);
             LibLLVM {
                 lib,
                 LLVMOrcJITDylibDefine,
@@ -1010,7 +1038,6 @@ fn cpu_features() -> Vec<String> {
     // if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
     features.into_iter().map(|s| s.to_string()).collect()
 }
-
 
 fn target_triple() -> String {
     if cfg!(target_os = "windows") {

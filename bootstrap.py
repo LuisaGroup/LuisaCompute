@@ -393,29 +393,27 @@ def dump_cmake_options(config: dict):
 
 def dump_xmake_options(config: dict):
     xmake_var = config.get("xmake_exe")
-    if xmake_var == None:
+    if xmake_var is None:
         xmake_var = "xmake"
     cmd = f"{xmake_var} lua scripts/write_options.lua"
     if "toolchain" in config:
         cmd += " toolchain=" + config["toolchain"]
     features = config['features']
+    def add_feature(option: str, feature: str):
+        if feature in features:
+            return f" {option}=true"
+        else:
+            return f" {option}=false"
     if features:
-        if "dsl" in features:
-            cmd += " enable_dsl=true"
-        if "python" in features:
-            cmd += " python=true"
-        if "gui" in features:
-            cmd += " enable_gui=true"
-        if not ("dx" in features):
-            cmd += " dx_backend=false"
-        if not ("vulkan" in features):
-            cmd += " vk_backend=false"
-        if not ("cuda" in features):
-            cmd += " cuda_backend=false"
-        if not ("cpu" in features):
-            cmd += " cpu_backend=false"
-        if not ("metal" in features):
-            cmd += " metal_backend=false"
+        cmd += add_feature("enable_dsl", "dsl")
+        cmd += add_feature("python", "python")
+        cmd += add_feature("enable_gui", "gui")
+        cmd += add_feature("dx_backend", "dx")
+        cmd += add_feature("cuda_backend", "cuda")
+        cmd += add_feature("metal_backend", "metal")
+        # cmd += add_feature("remote_backend", "remote")
+        cmd += add_feature("cpu_backend", "cpu")
+        cmd += add_feature("enable_ir", "cpu")
     os.system(cmd)
 
 
@@ -932,7 +930,7 @@ def config_project(config, build_config):
             print_red('xmake not found. Please install xmake first.')
             print_red('xmake can be installed by running `python3 bootstrap.py -i xmake`.')
             return 1
-        args = [xmake_exe, 'f'] + args
+        args = [xmake_exe, 'f'] + args + ['-o', output]
         print(f'Configuring the project: {" ".join(args)}')
         return call(args)
     else:

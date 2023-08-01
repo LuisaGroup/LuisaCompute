@@ -32,65 +32,111 @@ template<typename Format, typename... Args>
     return luisa::format(FMT_STRING("{:016X}"), hash);
 }
 
+};// namespace luisa
+
+namespace fmt {
+
 template<typename T, size_t N>
-[[nodiscard]] inline auto to_string(Vector<T, N> v) noexcept {
-    using namespace std::string_view_literals;
-    constexpr auto type_name =
-        std::is_same_v<T, bool>  ? "bool"sv :
-        std::is_same_v<T, int>   ? "int"sv :
-        std::is_same_v<T, uint>  ? "uint"sv :
-        std::is_same_v<T, float> ? "float"sv :
-                                   "unknown"sv;
-    if constexpr (N == 2u) {
-        return luisa::format(
-            FMT_STRING("{}2({}, {})"),
-            type_name, v.x, v.y);
-    } else if constexpr (N == 3u) {
-        return luisa::format(
-            FMT_STRING("{}3({}, {}, {})"),
-            type_name, v.x, v.y, v.z);
-    } else if constexpr (N == 4u) {
-        return luisa::format(
-            FMT_STRING("{}4({}, {}, {}, {})"),
-            type_name, v.x, v.y, v.z, v.w);
-    } else {
-        static_assert(luisa::always_false_v<T>);
+struct formatter<luisa::Vector<T, N>> {
+    constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+        return ctx.end();
     }
+    template<typename FormatContext>
+    auto format(const luisa::Vector<T, N> &v, FormatContext &ctx) -> decltype(ctx.out()) {
+        using namespace std::string_view_literals;
+        using luisa::uint;
+        using luisa::ushort;
+        using luisa::slong;
+        using luisa::ulong;
+        using luisa::half;
+        constexpr auto type_name =
+            std::is_same_v<T, bool>   ? "bool"sv :
+            std::is_same_v<T, short>  ? "short"sv :
+            std::is_same_v<T, ushort> ? "ushort"sv :
+            std::is_same_v<T, int>    ? "int"sv :
+            std::is_same_v<T, uint>   ? "uint"sv :
+            std::is_same_v<T, slong>  ? "slong"sv :
+            std::is_same_v<T, ulong>  ? "ulong"sv :
+            std::is_same_v<T, half>   ? "half"sv :
+            std::is_same_v<T, float>  ? "float"sv :
+            std::is_same_v<T, double> ? "double"sv :
+                                        "unknown"sv;
+        if constexpr (N == 2u) {
+            return fmt::format_to(
+                ctx.out(),
+                FMT_STRING("{}2({}, {})"),
+                type_name, v.x, v.y);
+        } else if constexpr (N == 3u) {
+            return fmt::format_to(
+                ctx.out(),
+                FMT_STRING("{}3({}, {}, {})"),
+                type_name, v.x, v.y, v.z);
+        } else if constexpr (N == 4u) {
+            return fmt::format_to(
+                ctx.out(),
+                FMT_STRING("{}4({}, {}, {}, {})"),
+                type_name, v.x, v.y, v.z, v.w);
+        } else {
+            static_assert(luisa::always_false_v<T>);
+        }
+    }
+};
+
+template<size_t N>
+struct formatter<luisa::Matrix<N>> {
+    constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+        return ctx.end();
+    }
+    template<typename FormatContext>
+    auto format(const luisa::Matrix<N> &m, FormatContext &ctx) -> decltype(ctx.out()) {
+        if constexpr (N == 2u) {
+            return fmt::format_to(
+                ctx.out(),
+                FMT_STRING("float2x2("
+                           "cols[0] = ({}, {}), "
+                           "cols[1] = ({}, {}))"),
+                m[0].x, m[0].y,
+                m[1].x, m[1].y);
+        } else if constexpr (N == 3u) {
+            return fmt::format_to(
+                ctx.out(),
+                FMT_STRING("float3x3("
+                           "cols[0] = ({}, {}, {}), "
+                           "cols[1] = ({}, {}, {}), "
+                           "cols[2] = ({}, {}, {}))"),
+                m[0].x, m[0].y, m[0].z,
+                m[1].x, m[1].y, m[1].z,
+                m[2].x, m[2].y, m[2].z);
+        } else if constexpr (N == 4u) {
+            return fmt::format_to(
+                ctx.out(),
+                FMT_STRING("float4x4("
+                           "cols[0] = ({}, {}, {}, {}), "
+                           "cols[1] = ({}, {}, {}, {}), "
+                           "cols[2] = ({}, {}, {}, {}), "
+                           "cols[3] = ({}, {}, {}, {}))"),
+                m[0].x, m[0].y, m[0].z, m[0].w,
+                m[1].x, m[1].y, m[1].z, m[1].w,
+                m[2].x, m[2].y, m[2].z, m[2].w,
+                m[3].x, m[3].y, m[3].z, m[3].w);
+        } else {
+            static_assert(luisa::always_false_v<luisa::Matrix<N>>);
+        }
+    }
+};
+
+}// namespace fmt
+
+namespace luisa {
+
+template<typename T, size_t N>
+[[nodiscard]] auto to_string(Vector<T, N> v) noexcept {
+    return luisa::format(FMT_STRING("({})"), v);
 }
 
 template<size_t N>
-[[nodiscard]] inline auto to_string(Matrix<N> m) noexcept {
-    if constexpr (N == 2u) {
-        return luisa::format(
-            FMT_STRING("float2x2("
-                       "cols[0] = ({}, {}), "
-                       "cols[1] = ({}, {}))"),
-            m[0].x, m[0].y,
-            m[1].x, m[1].y);
-    } else if constexpr (N == 3u) {
-        return luisa::format(
-            FMT_STRING("float3x3("
-                       "cols[0] = ({}, {}, {}), "
-                       "cols[1] = ({}, {}, {}), "
-                       "cols[2] = ({}, {}, {}))"),
-            m[0].x, m[0].y, m[0].z,
-            m[1].x, m[1].y, m[1].z,
-            m[2].x, m[2].y, m[2].z);
-    } else if constexpr (N == 4u) {
-        return luisa::format(
-            FMT_STRING("float4x4("
-                       "cols[0] = ({}, {}, {}, {}), "
-                       "cols[1] = ({}, {}, {}, {}), "
-                       "cols[2] = ({}, {}, {}, {}), "
-                       "cols[3] = ({}, {}, {}, {}))"),
-            m[0].x, m[0].y, m[0].z, m[0].w,
-            m[1].x, m[1].y, m[1].z, m[1].w,
-            m[2].x, m[2].y, m[2].z, m[2].w,
-            m[3].x, m[3].y, m[3].z, m[3].w);
-    } else {
-        static_assert(luisa::always_false_v<Matrix<N>>);
-    }
+[[nodiscard]] auto to_string(Matrix<N> m) noexcept {
+    return luisa::format(FMT_STRING("({})"), m);
 }
 
 }// namespace luisa
-

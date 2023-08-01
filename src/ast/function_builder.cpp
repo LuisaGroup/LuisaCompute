@@ -134,7 +134,7 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
     luisa::visit(
-        [type]<typename T>(const T &x) noexcept {
+        [type]<typename T>(T x) noexcept {
             auto t = Type::of<T>();
             LUISA_ASSERT(*type == *t,
                          "Type mismatch: declared as {}, got {}.",

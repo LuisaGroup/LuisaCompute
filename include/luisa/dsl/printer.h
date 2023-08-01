@@ -10,7 +10,6 @@
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/stmt.h>
-#include <luisa/dsl/fmt_impl.h>
 
 namespace luisa::compute {
 
@@ -35,6 +34,9 @@ private:
     std::atomic_bool _reset_called{false};
 
 private:
+    static void _error_in_kernel() noexcept {
+        LUISA_ERROR_WITH_LOCATION("Error occurred in kernel. Aborting.");
+    }
     void _log_to_buffer(Expr<uint>, uint) noexcept {}
 
     template<typename Curr, typename... Other>
@@ -139,7 +141,7 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
         (impl.template operator()<i>(), ...);
     };
     do_count(std::index_sequence_for<Args...>{});
-   
+
     std::array<uint, sizeof...(Args)> count_by_arg{};
     if constexpr (sizeof...(Args) > 0) {
         count_by_arg[0] = 0;
@@ -167,9 +169,9 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
             return arg;
         }
     };
-    auto decode = [this, level, count_per_arg, count_by_arg, f = std::move(fmt),
-                   args = std::tuple{convert(args)...}](const uint *data,
-                                                        bool abort_on_error) noexcept {
+    auto decode = [this, level, count_per_arg, count_by_arg,
+                   f = std::move(fmt), args = std::tuple{convert(args)...}](
+                      const uint *data, bool abort_on_error) noexcept {
         auto decode_arg = [&args, data, &count_per_arg, &count_by_arg]<size_t i>() noexcept {
             using Arg = std::tuple_element_t<i, std::tuple<Args...>>;
             if constexpr (is_dsl_v<Arg>) {
@@ -186,7 +188,7 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
         auto do_print = [&]<size_t... i>(std::index_sequence<i...>) noexcept {
             _logger.log(level, f, decode_arg.template operator()<i>()...);
             if (abort_on_error && level == luisa::log_level::err) {
-                LUISA_ERROR_WITH_LOCATION("Error occurred in kernel. Aborting.");
+                _error_in_kernel();
             }
         };
         do_print(std::index_sequence_for<Args...>{});
