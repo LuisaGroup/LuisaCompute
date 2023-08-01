@@ -43,7 +43,15 @@ if __name__ == "__main__":
         device_list = config["device_list"]
         feat_list = config["feat_list"]
         if build_system == "cmake":
-            raise NotImplementedError
+            print("get build system: cmake")
+            print("start to run test")
+            for feat in feat_list:
+                print("test feature: {}".format(feat))
+                args = ["powershell", os.path.join(config["bin"], "test_all.exe"), "--build",  "-ts={}".format(feat)]
+                for device in device_list:
+                    args.append("--backend-{}".format(device))
+                print("run command: {}".format(args))
+                subprocess.run(args, shell=True)       
         elif build_system == "xmake":
             print("get build system: xmake")
             print("start to run test")
@@ -54,7 +62,7 @@ if __name__ == "__main__":
                     args.append("--backend-{}".format(device))
                 print("run command: {}".format(args))
                 subprocess.run(args, shell=True)
-            print("all test finished")
+        print("all test finished")
     else:
         print("get configuration failed")
         exit(1)

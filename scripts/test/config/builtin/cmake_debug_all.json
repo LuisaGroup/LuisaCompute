@@ -1,0 +1,13 @@
+{
+    "build_system": "cmake",
+    "bin": "build/bin/Debug",
+    "device_list": [
+        "dx",
+        "cuda"
+    ],
+    "feat_list": [
+        "runtime",
+        "dsl",
+        "ast"
+    ]
+}
