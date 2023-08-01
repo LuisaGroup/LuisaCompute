@@ -43,6 +43,7 @@ end
 
 -- temp test suites
 lc_add_app("test_feat", "test", "feat")
+lc_add_app("test_ext", "test", "ext")
 
 -- for common features
 
@@ -90,6 +91,7 @@ end
 test_proj("test_ast")
 test_proj("test_atomic")
 test_proj("test_bindless", true)
+test_proj("test_bindless_buffer", true)
 test_proj("test_callable")
 -- test_proj("test_dsl")
 test_proj("test_dsl_multithread")
