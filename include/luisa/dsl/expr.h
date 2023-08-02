@@ -236,6 +236,10 @@ struct ExprEnableStaticCast {
             expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto cast() const noexcept {
         auto src = def(*static_cast<const T *>(this));
+        if constexpr (std::is_same_v<expr_value_t<T>,
+                                     expr_value_t<Dest>>) {
+            return src;
+        }
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
             FunctionBuilder::current()->cast(
@@ -253,6 +257,10 @@ struct ExprEnableBitwiseCast {
             expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto as() const noexcept {
         auto src = def(*static_cast<const T *>(this));
+        if constexpr (std::is_same_v<expr_value_t<T>,
+                                     expr_value_t<Dest>>) {
+            return src;
+        }
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
             FunctionBuilder::current()->cast(
