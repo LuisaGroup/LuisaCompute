@@ -64,6 +64,7 @@
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/dsl/rtx/triangle.h>
 #include <luisa/dsl/shared.h>
+#include <luisa/dsl/soa.h>
 #include <luisa/dsl/stmt.h>
 #include <luisa/dsl/struct.h>
 #include <luisa/dsl/sugar.h>

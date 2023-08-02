@@ -330,6 +330,24 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         auto is_aot = !option.name.empty();
         auto uses_cache = is_aot || option.enable_cache;
 
+        if (option.enable_debug_info || detail::get_bool_env("LUISA_DUMP_SOURCE")) {
+            auto src_dump_name = luisa::format("{}.metal", name);
+            luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
+            luisa::filesystem::path src_dump_path;
+            if (is_aot) {
+                src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
+            } else if (option.enable_cache) {
+                src_dump_path = _device->io()->write_shader_cache(src_dump_name, src_dump);
+            }
+            // TODO: attach shader source to Metal shader archive for debugging.
+            //       Is it possible without using the command line?
+            if (!src_dump_path.empty()) {
+                LUISA_VERBOSE(
+                    "Dumped Metal shader source for '{}' to '{}'.",
+                    name, src_dump_path.string());
+            }
+        }
+
         // try disk cache
         if (uses_cache) {
             if (option.enable_debug_info) {
@@ -347,24 +365,6 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                     "Failed to load Metal shader archive for '{}'. "
                     "Falling back to compilation from source.",
                     name);
-            }
-        }
-
-        if (option.enable_debug_info || detail::get_bool_env("LUISA_DUMP_SOURCE")) {
-            auto src_dump_name = luisa::format("{}.metal", name);
-            luisa::span src_dump{reinterpret_cast<const std::byte *>(src.data()), src.size()};
-            luisa::filesystem::path src_dump_path;
-            if (is_aot) {
-                src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
-            } else if (option.enable_cache) {
-                src_dump_path = _device->io()->write_shader_cache(src_dump_name, src_dump);
-            }
-            // TODO: attach shader source to Metal shader archive for debugging.
-            //       Is it possible without using the command line?
-            if (!src_dump_path.empty()) {
-                LUISA_VERBOSE(
-                    "Dumped Metal shader source for '{}' to '{}'.",
-                    name, src_dump_path.string());
             }
         }
 

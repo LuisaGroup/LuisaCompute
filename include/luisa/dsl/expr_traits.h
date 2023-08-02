@@ -272,5 +272,29 @@ using is_basic_expr = is_basic<expr_value_t<T>>;
 template<typename T>
 constexpr auto is_basic_expr_v = is_basic_expr<T>::value;
 
-}// namespace luisa::compute
+template<typename T>
+class SOAView;
 
+template<typename T>
+class SOA;
+
+namespace detail {
+
+template<typename T>
+struct is_soa_expr_impl : std::false_type {};
+
+template<typename T>
+struct is_soa_expr_impl<SOAView<T>> : std::true_type {};
+
+template<typename T>
+struct is_soa_expr_impl<SOA<T>> : std::true_type {};
+
+}// namespace detail
+
+template<typename T>
+using is_soa_expr = detail::is_soa_expr_impl<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_soa_expr_v = is_soa_expr<T>::value;
+
+}// namespace luisa::compute

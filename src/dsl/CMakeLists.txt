@@ -17,6 +17,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             polymorphic.cpp
             printer.cpp
             resource.cpp
+            soa.cpp
             ${LUISA_COMPUTE_DSL_RTX_SOURCES}
             ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 
