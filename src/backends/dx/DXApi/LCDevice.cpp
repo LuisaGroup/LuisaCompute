@@ -122,7 +122,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
     return info;
 }
 void LCDevice::destroy_buffer(uint64 handle) noexcept {
-    delete reinterpret_cast<DefaultBuffer *>(handle);
+    delete reinterpret_cast<Buffer *>(handle);
 }
 ResourceCreationInfo LCDevice::create_texture(
     PixelFormat format,
@@ -161,7 +161,7 @@ ResourceCreationInfo LCDevice::create_texture(
 //    return Shader::PSOName(&nativeDevice, file_name);
 //}
 void LCDevice::destroy_texture(uint64 handle) noexcept {
-    delete reinterpret_cast<RenderTexture *>(handle);
+    delete reinterpret_cast<TextureBase *>(handle);
 }
 ResourceCreationInfo LCDevice::create_bindless_array(size_t size) noexcept {
     ResourceCreationInfo info;

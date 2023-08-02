@@ -46,6 +46,7 @@ public:
         ~LazyLoadShader();
     };
     vstd::unique_ptr<luisa::compute::DefaultBinaryIO> serVisitor;
+    vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
     DxPtr<IDXGIAdapter1> adapter;
@@ -54,7 +55,6 @@ public:
     vstd::unique_ptr<GpuAllocator> defaultAllocator;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
-    vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
     vstd::optional<HDR> hdr;
     LazyLoadShader setAccelKernel;
 
