@@ -1,0 +1,10 @@
+{
+    "build_system": "xmake",
+    "device_list": [
+        "dx",
+        "cuda"
+    ],
+    "feat_list": [
+        "common"
+    ]
+}

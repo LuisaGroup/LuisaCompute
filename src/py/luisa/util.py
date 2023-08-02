@@ -82,12 +82,6 @@ RandomSampler.add_method(_f, "next3f")
 
 
 @func
-def smoothstep(left, right, x):
-    t = saturate((x - left) / (right - left))
-    return t * t * fma(t, -2., 3.)
-
-
-@func
 def ite(a, b, c):
     return select(c, b, a)
 

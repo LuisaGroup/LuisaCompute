@@ -236,6 +236,10 @@ struct ExprEnableStaticCast {
             expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto cast() const noexcept {
         auto src = def(*static_cast<const T *>(this));
+        if constexpr (std::is_same_v<expr_value_t<T>,
+                                     expr_value_t<Dest>>) {
+            return src;
+        }
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
             FunctionBuilder::current()->cast(
@@ -253,12 +257,22 @@ struct ExprEnableBitwiseCast {
             expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto as() const noexcept {
         auto src = def(*static_cast<const T *>(this));
+        using TrueSrc = expr_value_t<T>;
         using TrueDest = expr_value_t<Dest>;
+        // cast between same types is a no-op
+        if constexpr (std::is_same_v<TrueSrc, TrueDest>) {
+            return src;
+        }
+        // cast between integral types can be reduced to a static cast
+        auto op = CastOp::BITWISE;
+        if constexpr (is_scalar_v<TrueSrc> && is_integral_v<TrueSrc> &&
+                      is_scalar_v<TrueDest> && is_integral_v<TrueDest>) {
+            op = CastOp::STATIC;
+        }
         return def<TrueDest>(
             FunctionBuilder::current()->cast(
                 Type::of<TrueDest>(),
-                CastOp::BITWISE,
-                src.expression()));
+                op, src.expression()));
     }
 };
 

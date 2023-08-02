@@ -18,8 +18,12 @@
 #include "metal_mesh.h"
 #include "metal_procedural_primitive.h"
 #include "metal_shader.h"
-#include "metal_dstorage.h"
 #include "metal_device.h"
+
+// extensions
+#include "metal_dstorage.h"
+#include "metal_pinned_memory.h"
+#include "metal_debug_capture.h"
 
 namespace luisa::compute::metal {
 
@@ -556,13 +560,25 @@ string MetalDevice::query(luisa::string_view property) noexcept {
 }
 
 DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
-    if (name == DStorageExt::name) {
-        std::scoped_lock lock{_ext_mutex};
-        if (!_dstorage_ext) { _dstorage_ext = luisa::make_unique<MetalDStorageExt>(this); }
-        return _dstorage_ext.get();
-    }
-    LUISA_WARNING_WITH_LOCATION("Device extension \"{}\" is not supported on Metal.", name);
-    return nullptr;
+    return with_autorelease_pool([=, this]() noexcept -> DeviceExtension * {
+        if (name == DStorageExt::name) {
+            std::scoped_lock lock{_ext_mutex};
+            if (!_dstorage_ext) { _dstorage_ext = luisa::make_unique<MetalDStorageExt>(this); }
+            return _dstorage_ext.get();
+        }
+        if (name == PinnedMemoryExt::name) {
+            std::scoped_lock lock{_ext_mutex};
+            if (!_pinned_memory_ext) { _pinned_memory_ext = luisa::make_unique<MetalPinnedMemoryExt>(this); }
+            return _pinned_memory_ext.get();
+        }
+        if (name == DebugCaptureExt::name) {
+            std::scoped_lock lock{_ext_mutex};
+            if (!_debug_capture_ext) { _debug_capture_ext = luisa::make_unique<MetalDebugCaptureExt>(this); }
+            return _debug_capture_ext.get();
+        }
+        LUISA_WARNING_WITH_LOCATION("Device extension \"{}\" is not supported on Metal.", name);
+        return nullptr;
+    });
 }
 
 void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,

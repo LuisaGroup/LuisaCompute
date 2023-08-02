@@ -1627,6 +1627,7 @@ void CodegenUtility::CodegenProperties(
         return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
     };
     auto args = kernel.arguments();
+    size_t uavArgCount = 0;
     for (auto &&i : vstd::ptr_range(args.data() + offset, args.size() - offset)) {
         auto print = [&] {
             GetTypeName(*i.type(), varData, kernel.variable_usage(i.uid()));
@@ -1641,7 +1642,10 @@ void CodegenUtility::CodegenProperties(
             GetVariableName(i, varData);
             varData << "Inst"sv;
         };
-        auto genArg = [&]<bool rtBuffer = false, bool writable = false>(RegisterType regisT, ShaderVariableType sT, char v) {
+        auto genArg = [&]<RegisterType regisT, bool rtBuffer = false, bool writable = false>(ShaderVariableType sT, char v) {
+            if constexpr (regisT == RegisterType::UAV) {
+                uavArgCount += 1;
+            }
             auto &&r = registerCount.get((uint8_t)regisT);
             Property prop = {
                 .type = sT,
@@ -1663,36 +1667,39 @@ void CodegenUtility::CodegenProperties(
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
                 if (Writable(i)) {
-                    genArg(RegisterType::UAV, ShaderVariableType::UAVTextureHeap, 'u');
+                    genArg.operator()<RegisterType::UAV>(ShaderVariableType::UAVTextureHeap, 'u');
                 } else {
-                    genArg(RegisterType::SRV, ShaderVariableType::SRVTextureHeap, 't');
+                    genArg.operator()<RegisterType::SRV>(ShaderVariableType::SRVTextureHeap, 't');
                 }
                 break;
             case Type::Tag::BUFFER: {
                 if (Writable(i)) {
-                    genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                    genArg.operator()<RegisterType::UAV>(ShaderVariableType::RWStructuredBuffer, 'u');
                 } else {
-                    genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                    genArg.operator()<RegisterType::SRV>(ShaderVariableType::StructuredBuffer, 't');
                 }
             } break;
             case Type::Tag::BINDLESS_ARRAY:
-                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                genArg.operator()<RegisterType::SRV>(ShaderVariableType::StructuredBuffer, 't');
                 break;
             case Type::Tag::ACCEL:
                 if (Writable(i)) {
-                    genArg.operator()<true, true>(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                    genArg.operator()<RegisterType::UAV, true, true>(ShaderVariableType::RWStructuredBuffer, 'u');
                 } else {
-                    genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                    genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                    genArg.operator()<RegisterType::SRV>(ShaderVariableType::StructuredBuffer, 't');
+                    genArg.operator()<RegisterType::SRV, true>(ShaderVariableType::StructuredBuffer, 't');
                 }
                 break;
             case Type::Tag::CUSTOM: {
                 if (i.type()->description() == "LC_IndirectDispatchBuffer"sv) {
-                    genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                    genArg.operator()<RegisterType::UAV>(ShaderVariableType::RWStructuredBuffer, 'u');
                 }
             } break;
             default: break;
         }
+    }
+    if (uavArgCount > 8) {
+        LUISA_ERROR("Writable resources' count must be less than 8.");
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {

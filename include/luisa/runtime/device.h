@@ -27,6 +27,9 @@ class SparseBufferHeap;
 class SparseTextureHeap;
 
 template<typename T>
+class SOA;
+
+template<typename T>
 class Buffer;
 
 template<typename T>
@@ -201,6 +204,11 @@ public:
         requires(!is_custom_struct_v<T>)//backend-specific type not allowed
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
         return _create<Buffer<T>>(size);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_soa(size_t size) noexcept {
+        return SOA<T>{*this, size};
     }
 
     template<typename T>

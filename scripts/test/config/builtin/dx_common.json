@@ -1,0 +1,9 @@
+{
+    "build_system": "xmake",
+    "device_list": [
+        "dx"
+    ],
+    "feat_list": [
+        "common"
+    ]
+}

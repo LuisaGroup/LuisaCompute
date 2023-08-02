@@ -136,7 +136,7 @@ def render_kernel(image, time):
     fragColor = ite(trg or dl, fragColor, fragColor +
                     dlglo * dlglo * .1 * float3(.4, .6, .9))
     fragColor = sqrt(fragColor)
-    color = smoothstep(0., 1.2, fragColor)
+    color = smoothstep(float3(0.), float3(1.2), fragColor)
     image.write(dispatch_id().xy, float4(pow(color, 2.2), 1.))
 
 

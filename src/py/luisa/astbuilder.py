@@ -235,7 +235,7 @@ class ASTVisitor:
             # create array and assign each element
             expr = lcapi.builder().local(lctype)
             for idx, x in enumerate(val.values):
-                sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
+                sliceexpr = lcapi.builder().literal(to_lctype(int),idx)
                 lhs = lcapi.builder().access(lctype.element(), expr, sliceexpr)
                 rhs = lcapi.builder().literal(lctype.element(), x)
                 lcapi.builder().assign(lhs, rhs)
@@ -552,12 +552,12 @@ class ASTVisitor:
             build(x)
             assert x.dtype in {int, uint, short, ushort, long, ulong}
         if len(node.iter.args) == 1:
-            range_start = lcapi.builder().literal(to_lctype(int), 0)
+            range_start = lcapi.builder().literal(to_lctype(int),0)
             range_stop = node.iter.args[0].expr
-            range_step = lcapi.builder().literal(to_lctype(int), 1)
+            range_step = lcapi.builder().literal(to_lctype(int),1)
         if len(node.iter.args) == 2:
             range_start, range_stop = [x.expr for x in node.iter.args]
-            range_step = lcapi.builder().literal(to_lctype(int), 1)
+            range_step = lcapi.builder().literal(to_lctype(int),1)
         if len(node.iter.args) == 3:
             range_start, range_stop, range_step = [x.expr for x in node.iter.args]
         # loop variable
@@ -575,9 +575,9 @@ class ASTVisitor:
 
     @staticmethod
     def build_container_for(node):
-        range_start = lcapi.builder().literal(to_lctype(int), 0)
-        range_stop = lcapi.builder().literal(to_lctype(int), length_of(node.iter.dtype))
-        range_step = lcapi.builder().literal(to_lctype(int), 1)
+        range_start = lcapi.builder().literal(to_lctype(int),0)
+        range_stop = lcapi.builder().literal(to_lctype(int),length_of(node.iter.dtype))
+        range_step = lcapi.builder().literal(to_lctype(int),1)
         # loop variable
         idxexpr = lcapi.builder().local(to_lctype(int))
         lcapi.builder().assign(idxexpr, range_start)

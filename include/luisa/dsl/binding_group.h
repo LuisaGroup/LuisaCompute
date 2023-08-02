@@ -78,13 +78,13 @@
     LUISA_MACRO_EVAL(TEMPLATE())                                                        \
     struct luisa_compute_extension<S> final : luisa::compute::Var<S>
 
-#define _LUISA_BIND_GROUP_EMPTY_TEMPLATE() template<>
-#define _LUISA_BIND_GROUP_EMPTY()
+#define LUISA_BIND_GROUP_IMPL_EMPTY_TEMPLATE() template<>
+#define LUISA_BIND_GROUP_IMPL_EMPTY()
 
-#define LUISA_BINDING_GROUP(S, ...)       \
-    LUISA_BINDING_GROUP_TEMPLATE_IMPL(    \
-        _LUISA_BIND_GROUP_EMPTY_TEMPLATE, \
-        _LUISA_BIND_GROUP_EMPTY,          \
+#define LUISA_BINDING_GROUP(S, ...)           \
+    LUISA_BINDING_GROUP_TEMPLATE_IMPL(        \
+        LUISA_BIND_GROUP_IMPL_EMPTY_TEMPLATE, \
+        LUISA_BIND_GROUP_IMPL_EMPTY,          \
         S, __VA_ARGS__)
 
 #define LUISA_BINDING_GROUP_TEMPLATE(TEMPLATE, S, ...) \
