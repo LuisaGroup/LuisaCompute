@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device(argv[1]);
 
     constexpr auto n = 1357u;
-    auto soa = SOA<A>{device, n};
+    auto soa = device.create_soa<A>(n);
 
     auto rand = [](auto &engine) noexcept {
         std::uniform_real_distribution<float> dist{0.0f, 1.0f};

@@ -125,6 +125,17 @@ struct formatter<luisa::Matrix<N>> {
     }
 };
 
+template<typename T, size_t N>
+struct formatter<std::array<T, N>> {
+    constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+        return ctx.end();
+    }
+    template<typename FormatContext>
+    auto format(const std::array<T, N> &a, FormatContext &ctx) -> decltype(ctx.out()) {
+        return fmt::format_to(ctx.out(), FMT_STRING("[{}]"), fmt::join(a, ", "));
+    }
+};
+
 }// namespace fmt
 
 namespace luisa {
@@ -137,6 +148,11 @@ template<typename T, size_t N>
 template<size_t N>
 [[nodiscard]] auto to_string(Matrix<N> m) noexcept {
     return luisa::format(FMT_STRING("({})"), m);
+}
+
+template<typename T, size_t N>
+[[nodiscard]] auto to_string(std::array<T, N> a) noexcept {
+    return luisa::format(FMT_STRING("({})"), a);
 }
 
 }// namespace luisa
