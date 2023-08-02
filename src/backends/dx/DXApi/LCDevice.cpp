@@ -530,7 +530,7 @@ ResourceCreationInfo DxRasterExt::create_depth_buffer(DepthFormat format, uint w
     return info;
 }
 void DxRasterExt::destroy_depth_buffer(uint64_t handle) noexcept {
-    delete reinterpret_cast<DepthBuffer *>(handle);
+    delete reinterpret_cast<TextureBase *>(handle);
 }
 DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     auto ite = exts.find(name);
