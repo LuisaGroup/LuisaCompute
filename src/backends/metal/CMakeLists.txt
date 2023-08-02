@@ -22,7 +22,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_compiler.cpp metal_compiler.h
             metal_codegen_ast.cpp metal_codegen_ast.h
             metal_texture.cpp metal_texture.h
-            metal_stream.cpp metal_stream.h
+            metal_stream.cpp metal_stream.mm metal_stream.h
             metal_event.cpp metal_event.h
             metal_bindless_array.cpp metal_bindless_array.h
             metal_swapchain.cpp metal_swapchain.h metal_swapchain.mm
