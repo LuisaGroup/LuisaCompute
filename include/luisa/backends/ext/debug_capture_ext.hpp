@@ -66,7 +66,7 @@ public:
     [[nodiscard]] auto create_scope(luisa::string_view label, const Option &option = {}) const noexcept {
         return DebugCaptureScope{this, create_device_capture_scope(label, option)};
     }
-    [[nodiscard]] auto create_scope(Stream &stream, luisa::string_view label, const Option &option = {}) const noexcept {
+    [[nodiscard]] auto create_scope(const Stream &stream, luisa::string_view label, const Option &option = {}) const noexcept {
         return DebugCaptureScope{this, create_stream_capture_scope(stream.handle(), label, option)};
     }
 };

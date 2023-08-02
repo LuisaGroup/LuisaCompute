@@ -32,7 +32,7 @@ public:
             _manager->startCapture(_descriptor, &error);
             if (error != nullptr) {
                 LUISA_WARNING_WITH_LOCATION(
-                    "Failed to start debug capture: {}.",
+                    "Failed to start debug capture: {}",
                     error->localizedDescription()->utf8String());
             }
         }
@@ -77,10 +77,15 @@ template<typename Object>
         desc->setOutputURL(NS::URL::fileURLWithPath(file_name));
         file_name->release();
     } else if (desc->destination() == MTL::CaptureDestinationGPUTraceDocument) {
+        auto name = label.empty() ? "metal.gputrace" : luisa::format("{}.gputrace", label);
         LUISA_WARNING_WITH_LOCATION(
             "Debug capture output file name is empty. "
-            "GPU trace document will be saved to 'metal.gputrace'.");
-        desc->setOutputURL(NS::URL::fileURLWithPath(MTLSTR("metal.gputrace")));
+            "GPU trace document will be saved to '{}'.",
+            name);
+        auto mtl_name = NS::String::alloc()->init(
+            name.data(), name.size(), NS::UTF8StringEncoding, false);
+        desc->setOutputURL(NS::URL::fileURLWithPath(mtl_name));
+        mtl_name->release();
     }
     auto manager = MTL::CaptureManager::alloc()->init();
     MTL::CaptureScope *scope = nullptr;
