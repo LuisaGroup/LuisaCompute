@@ -75,6 +75,7 @@ public:
         [[nodiscard]] auto device() const noexcept { return _device; }
         [[nodiscard]] auto context() const noexcept { return _context; }
         [[nodiscard]] auto driver_version() const noexcept { return _driver_version; }
+        void force_compute_capability(uint32_t cc) noexcept { _compute_capability = cc; }
         [[nodiscard]] auto compute_capability() const noexcept { return _compute_capability; }
         [[nodiscard]] optix::DeviceContext optix_context() const noexcept;
     };
