@@ -14,10 +14,9 @@ class DefaultBinaryIO final : public BinaryIO {
 
 public:
     friend class LockedBinaryFileStream;
-    friend class DStorageLockedFileStream;
     struct FileMutex {
         std::shared_mutex mtx;
-        std::atomic_size_t ref_count{1};
+        size_t ref_count{0};
     };
     using MutexMap = vstd::HashMap<luisa::string, FileMutex>;
     using MapIndex = MutexMap::Index;
