@@ -211,6 +211,9 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
                 size_t soa_offset, size_t soa_size,                                                 \
                 size_t elem_offset, size_t elem_size) noexcept                                      \
             : SOAView{0u, buffer, soa_offset, soa_size, elem_offset, elem_size} {}                  \
+                                                                                                    \
+    public:                                                                                         \
+        using detail::SOAViewBase<S>::operator->;                                                   \
     };                                                                                              \
     }
 
@@ -276,6 +279,8 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
             auto i = dsl::def(std::forward<I>(index));                                                     \
             LUISA_MAP(LUISA_SOA_EXPR_MAKE_MEMBER_WRITE, __VA_ARGS__)                                       \
         }                                                                                                  \
+                                                                                                           \
+        [[nodiscard]] auto operator->() const noexcept { return this; }                                    \
     };                                                                                                     \
     }
 

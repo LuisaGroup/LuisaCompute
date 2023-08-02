@@ -81,18 +81,20 @@ int main(int argc, char *argv[]) {
     auto buffer_download = device.create_buffer<A>(n);
 
     auto stream = device.create_stream();
-    auto shader_upload = device.compile<1u>([](SOAVar<A> soa, BufferVar<A> upload) noexcept {
+    auto shader_upload = device.compile<1u>([&](BufferVar<A> upload) noexcept {
         auto i = dispatch_x();
-        soa.write(i, upload.read(i));
+        // soa passed to kernel by capture
+        soa->write(i, upload.read(i));
     });
     auto shader_download = device.compile<1u>([](SOAVar<A> soa, BufferVar<A> download) noexcept {
         auto i = dispatch_x();
+        // soa passed to kernel by argument
         download.write(i, soa.read(i));
     });
 
     luisa::vector<A> host_download(n);
     stream << buffer_upload.copy_from(host_upload.data())
-           << shader_upload(soa, buffer_upload).dispatch(n)
+           << shader_upload(buffer_upload).dispatch(n)
            << shader_download(soa, buffer_download).dispatch(n)
            << buffer_download.copy_to(host_download.data())
            << synchronize();

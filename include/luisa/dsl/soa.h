@@ -483,6 +483,7 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const SOA<T> &soa) noexcept {
 
 LC_DSL_API void error_soa_subview_out_of_range() noexcept;
 LC_DSL_API void error_soa_view_exceeds_uint_max() noexcept;
+LC_DSL_API void error_soa_index_out_of_range() noexcept;
 
 template<typename T>
 class SOAViewBase {
@@ -577,6 +578,17 @@ public:
         : detail::SOAViewBase<Vector<T, 2>>{buffer, soa_offset, soa_size, elem_offset, elem_size},
           x{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 0u, soa_size, elem_offset, elem_size},
           y{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 1u, soa_size, elem_offset, elem_size} {}
+
+public:
+    [[nodiscard]] auto operator[](size_t i) const noexcept {
+        if (i == 0u) {
+            return this->x;
+        } else if (i == 1u) {
+            return this->y;
+        } else {
+            detail::error_soa_index_out_of_range();
+        }
+    }
 };
 
 template<typename T>
@@ -602,6 +614,19 @@ public:
           x{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 0u, soa_size, elem_offset, elem_size},
           y{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 1u, soa_size, elem_offset, elem_size},
           z{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 2u, soa_size, elem_offset, elem_size} {}
+
+public:
+    [[nodiscard]] auto operator[](size_t i) const noexcept {
+        if (i == 0u) {
+            return this->x;
+        } else if (i == 1u) {
+            return this->y;
+        } else if (i == 2u) {
+            return this->z;
+        } else {
+            detail::error_soa_index_out_of_range();
+        }
+    }
 };
 
 template<typename T>
@@ -629,6 +654,21 @@ public:
           y{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 1u, soa_size, elem_offset, elem_size},
           z{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 2u, soa_size, elem_offset, elem_size},
           w{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * 3u, soa_size, elem_offset, elem_size} {}
+
+public:
+    [[nodiscard]] auto operator[](size_t i) const noexcept {
+        if (i == 0u) {
+            return this->x;
+        } else if (i == 1u) {
+            return this->y;
+        } else if (i == 2u) {
+            return this->z;
+        } else if (i == 3u) {
+            return this->w;
+        } else {
+            detail::error_soa_index_out_of_range();
+        }
+    }
 };
 
 template<size_t N>
@@ -657,6 +697,8 @@ public:
                 soa_size, elem_offset, elem_size};
         }
     }
+
+public:
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _cols[i]; }
 };
 
@@ -685,6 +727,8 @@ public:
                 soa_size, elem_offset, elem_size};
         }
     }
+
+public:
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
 };
 
