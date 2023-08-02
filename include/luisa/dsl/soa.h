@@ -51,8 +51,7 @@ template<typename T>
 struct Expr<SOA<T>> : public detail::SOAExprBase {
 
 private:
-    static_assert(sizeof(T) >= sizeof(uint));
-    static constexpr auto element_stride = static_cast<uint>(sizeof(T) / sizeof(uint));
+    static constexpr auto element_stride = SOAView<T>::element_stride;
 
 public:
     Expr(Expr<Buffer<uint>> buffer,
@@ -71,7 +70,24 @@ public:
     [[nodiscard]] auto read(I &&index) const noexcept {
         if constexpr (element_stride == 1u) {
             auto i = soa_offset() + std::forward<I>(index) + element_offset();
-            return buffer().read(soa_offset() + i).template as<T>();
+            auto x = buffer().read(soa_offset() + i);
+            if constexpr (sizeof(T) == sizeof(uint)) {
+                return x.template as<T>();
+            } else if constexpr (sizeof(T) * 2u == sizeof(uint)) {// 16bit
+                if constexpr (is_scalar_v<T>) {
+                    auto u = x.template as<Vector<T, 2u>>();
+                    return u.x;
+                } else {
+                    static_assert(std::is_same_v<T, bool2>);
+                    return x.template as<bool4>().xy();
+                }
+            } else if constexpr (sizeof(T) * 4u == sizeof(uint)) {// 8bit
+                static_assert(is_scalar_v<T>);
+                auto u = x.template as<Vector<T, 4u>>();
+                return u.x;
+            } else {// unreachable
+                static_assert(sizeof(T) == sizeof(uint));
+            }
         } else if constexpr (element_stride == 2u) {
             auto i = soa_offset() + (std::forward<I>(index) + element_offset()) * 2u;
             auto u = dsl::make_uint2(buffer().read(i),
@@ -92,7 +108,26 @@ public:
     void write(I &&index, Expr<T> value) const noexcept {
         if constexpr (element_stride == 1u) {
             auto i = soa_offset() + std::forward<I>(index) + element_offset();
-            buffer().write(i, value.template as<uint>());
+            if constexpr (sizeof(T) == sizeof(uint)) {
+                buffer().write(i, value.template as<uint>());
+            } else if constexpr (sizeof(T) * 2u == sizeof(uint)) {// 16bit
+                if constexpr (is_scalar_v<T>) {
+                    auto u = def<Vector<T, 2u>>();
+                    u.x = value;
+                    buffer().write(i, u.template as<uint>());
+                } else {
+                    static_assert(std::is_same_v<T, bool2>);
+                    auto u = make_bool4(value, make_bool2());
+                    buffer().write(i, u.template as<uint>());
+                }
+            } else if constexpr (sizeof(T) * 4u == sizeof(uint)) {
+                static_assert(is_scalar_v<T>);
+                auto u = def<Vector<T, 4u>>();
+                u.x = value;
+                buffer().write(i, u.template as<uint>());
+            } else {// unreachable
+                static_assert(sizeof(T) == sizeof(uint));
+            }
         } else if constexpr (element_stride == 2u) {
             auto i = soa_offset() + (std::forward<I>(index) + element_offset()) * 2u;
             auto u = value.template as<Vector<uint, 2>>();
@@ -137,15 +172,17 @@ public:
 
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
-        auto x = this->x.read(std::forward<I>(index));
-        auto y = this->y.read(std::forward<I>(index));
+        auto i = def(std::forward<I>(index));
+        auto x = this->x.read(i);
+        auto y = this->y.read(i);
         return def<Vector<T, 2>>(x, y);
     }
 
     template<typename I>
     void write(I &&index, Expr<Vector<T, 2>> value) const noexcept {
-        x.write(std::forward<I>(index), value.x());
-        y.write(std::forward<I>(index), value.y());
+        auto i = def(std::forward<I>(index));
+        x.write(i, value.x);
+        y.write(i, value.y);
     }
 
     [[nodiscard]] auto operator->() const noexcept { return this; }
@@ -178,17 +215,19 @@ public:
 
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
-        auto x = this->x.read(std::forward<I>(index));
-        auto y = this->y.read(std::forward<I>(index));
-        auto z = this->z.read(std::forward<I>(index));
+        auto i = def(std::forward<I>(index));
+        auto x = this->x.read(i);
+        auto y = this->y.read(i);
+        auto z = this->z.read(i);
         return def<Vector<T, 3>>(x, y, z);
     }
 
     template<typename I>
     void write(I &&index, Expr<Vector<T, 3>> value) const noexcept {
-        x.write(std::forward<I>(index), value.x());
-        y.write(std::forward<I>(index), value.y());
-        z.write(std::forward<I>(index), value.z());
+        auto i = def(std::forward<I>(index));
+        x.write(i, value.x);
+        y.write(i, value.y);
+        z.write(i, value.z);
     }
 
     [[nodiscard]] auto operator->() const noexcept { return this; }
@@ -223,19 +262,21 @@ public:
 
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
-        auto x = this->x.read(std::forward<I>(index));
-        auto y = this->y.read(std::forward<I>(index));
-        auto z = this->z.read(std::forward<I>(index));
-        auto w = this->w.read(std::forward<I>(index));
+        auto i = def(std::forward<I>(index));
+        auto x = this->x.read(i);
+        auto y = this->y.read(i);
+        auto z = this->z.read(i);
+        auto w = this->w.read(i);
         return def<Vector<T, 4>>(x, y, z, w);
     }
 
     template<typename I>
     void write(I &&index, Expr<Vector<T, 4>> value) const noexcept {
-        x.write(std::forward<I>(index), value.x());
-        y.write(std::forward<I>(index), value.y());
-        z.write(std::forward<I>(index), value.z());
-        w.write(std::forward<I>(index), value.w());
+        auto i = def(std::forward<I>(index));
+        x.write(i, value.x);
+        y.write(i, value.y);
+        z.write(i, value.z);
+        w.write(i, value.w);
     }
 
     [[nodiscard]] auto operator->() const noexcept { return this; }
@@ -275,16 +316,18 @@ public:
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
         auto m = def<Matrix<N>>();
-        for (size_t i = 0u; i < N; i++) {
-            m[i] = this->_cols[i].read(std::forward<I>(index));
+        auto i = def(std::forward<I>(index));
+        for (auto c = 0u; c < N; c++) {
+            m[c] = this->_cols[c].read(i);
         }
         return m;
     }
 
     template<typename I>
     void write(I &&index, Expr<Matrix<N>> value) const noexcept {
-        for (size_t i = 0u; i < N; i++) {
-            this->_cols[i].write(std::forward<I>(index), value[i]);
+        auto i = def(std::forward<I>(index));
+        for (auto c = 0u; c < N; c++) {
+            this->_cols[c].write(i, value[c]);
         }
     }
 
@@ -328,16 +371,18 @@ public:
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
         auto a = def<Array>();
-        for (size_t i = 0u; i < N; i++) {
-            a[i] = this->_elems[i].read(std::forward<I>(index));
+        auto i = def(std::forward<I>(index));
+        for (auto c = 0u; c < N; c++) {
+            a[c] = this->_elems[c].read(i);
         }
         return a;
     }
 
     template<typename I>
     void write(I &&index, Expr<Array> value) const noexcept {
-        for (size_t i = 0u; i < N; i++) {
-            this->_elems[i].write(std::forward<I>(index), value[i]);
+        auto i = def(std::forward<I>(index));
+        for (auto c = 0u; c < N; c++) {
+            this->_elems[c].write(i, value[c]);
         }
     }
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
@@ -436,6 +481,9 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const SOA<T> &soa) noexcept {
     return *this << soa.view();
 }
 
+LC_DSL_API void error_soa_subview_out_of_range() noexcept;
+LC_DSL_API void error_soa_view_exceeds_uint_max() noexcept;
+
 template<typename T>
 class SOAViewBase {
 
@@ -468,8 +516,9 @@ public:
     [[nodiscard]] auto element_size() const noexcept { return _elem_size; }
     [[nodiscard]] auto operator->() const noexcept { return Expr<View>{*reinterpret_cast<const View *>(this)}; }
     [[nodiscard]] auto subview(size_t offset, size_t size) const noexcept {
-        LUISA_ASSERT(offset + size <= this->element_size(),
-                     "SOAView<T> subview out of range.");
+        if (!(offset + size <= this->element_size())) [[unlikely]] {
+            error_soa_subview_out_of_range();
+        }
         return View{this->buffer(),
                     this->soa_offset(),
                     this->soa_size(),
@@ -483,8 +532,9 @@ public:
 template<typename T>
 class SOAView : public detail::SOAViewBase<T> {
 
-    static_assert(sizeof(T) >= sizeof(uint));
-    static constexpr auto element_stride = static_cast<uint>(sizeof(T) / sizeof(uint));
+public:
+    static constexpr auto element_stride =
+        static_cast<uint>((sizeof(T) + sizeof(uint) - 1u) / sizeof(uint));
 
 public:
     [[nodiscard]] static auto compute_soa_size(auto n) noexcept {
@@ -500,8 +550,9 @@ public:
     {
         auto buffer_end = this->buffer().offset() + soa_offset +
                           (elem_offset + elem_size) * element_stride;
-        LUISA_ASSERT(buffer_end <= std::numeric_limits<uint>::max(),
-                     "SOAView<T> exceeds the maximum indexable size of 'uint'.");
+        if (!(buffer_end <= std::numeric_limits<uint>::max())) [[unlikely]] {
+            detail::error_soa_view_exceeds_uint_max();
+        }
     }
 };
 
@@ -589,7 +640,7 @@ private:
 
 public:
     [[nodiscard]] static auto compute_soa_size(auto n) noexcept {
-        return SOAView<Column>::compute_soa_size(n) * N;
+        return SOAView<Column>::compute_soa_size(n) * static_cast<uint>(N);
     }
 
 public:
@@ -617,7 +668,7 @@ private:
 
 public:
     [[nodiscard]] static auto compute_soa_size(auto n) noexcept {
-        return SOAView<T>::compute_soa_size(n) * N;
+        return SOAView<T>::compute_soa_size(n) * static_cast<uint>(N);
     }
 
 public:
@@ -651,13 +702,13 @@ private:
 
 private:
     SOA(Buffer<uint> buffer, size_t size) noexcept
-        : SOAView<T>{buffer, 0u, size, 0u, size},
+        : SOAView<T>{buffer.view(), 0u, size, 0u, size},
           _buffer{std::move(buffer)} {}
 
 public:
     SOA() noexcept = default;
     SOA(Device &device, size_t elem_count) noexcept
-        : SOA{device.create_buffer<uint>(SOAView<T>::compute_buffer_size(elem_count))} {}
+        : SOA{device.create_buffer<uint>(SOAView<T>::compute_soa_size(elem_count)), elem_count} {}
     [[nodiscard]] auto view() const noexcept { return SOAView<T>{*this}; }
 };
 
