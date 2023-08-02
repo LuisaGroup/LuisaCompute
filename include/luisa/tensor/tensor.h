@@ -1,8 +1,10 @@
 #pragma once
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
-#include "view.h"
+#include "dtensor.h"
+#include "storage.h"
 
 namespace luisa::compute::tensor {
 class LC_TENSOR_API JitSession {
@@ -75,71 +77,9 @@ public:
 // Tensor<R, Dim> map(const Tensor<Ts, Dim> &... ts) noexcept {
 //     // TODO: implement
 // }
+}// namespace luisa::compute::tensor
 
-enum class TensorType {
-    NONE = -1,
-    SCALAR = 0,
-    VECTOR = 1,
-    MATRIX = 2
-};
-class TensorMaker;
-template<typename T>
-class Tensor;
-
-enum class TensorBasicDataType {
-    NONE = 0,
-    INT32 = 1,
-    INT64 = 2,
-    FLOAT32 = 3,
-    FLOAT64 = 4
-};
-
-class LC_TENSOR_API DTensor {// Simple, just for test
-public:
-    DTensor() noexcept {}
-
-    TensorType type() const noexcept {
-        if (_shape.size() == 0) return TensorType::SCALAR;
-        if (_shape.size() == 1) return TensorType::VECTOR;
-        if (_shape.size() == 2) return TensorType::MATRIX;
-    }
-
-    ScalarView scalar_view() const noexcept;
-    DenseVectorView dense_vector_view() const noexcept;
-    DenseMatrixView dense_matrix_view() const noexcept;
-
-
-protected:
-    virtual void buffer_info(uint64_t &buffer_handle, uint64_t &buffer_offset, uint64_t &buffer_total_size) const noexcept = 0;
-
-private:
-    friend class TensorMaker;
-    template<typename T>
-    friend class Tensor;
-
-    // basic info:
-    TensorBasicDataType _basic_data_type = TensorBasicDataType::NONE;// float, double or int ?
-    luisa::vector<int> _shape;                                       // 0, [N], [M,N], [L,M,N] ...?
-
-    struct {// dense vector
-        int incx = 1;
-    } _dense_vector_view_data = {};
-
-    struct {// dense matrix
-        int _lda = -1;
-        int _kl = -1, _ku = -1;// for band matrix
-        MatrixOperation _operation = MatrixOperation::NONE;
-        DenseMatrixShape _shape = DenseMatrixShape::GENERAL;
-        DenseMatrixProperty _property = DenseMatrixProperty::NONE;
-        DenseMatrixFillMode _fill_mode = DenseMatrixFillMode::NONE;
-        DenseMatrixDiagType _diag_type = DenseMatrixDiagType::NON_UNIT;
-    } _dense_matrix_view_data = {};
-
-    static void trans(MatrixOperation &op) {
-        op = op == MatrixOperation::TRANS ? MatrixOperation::NONE : MatrixOperation::TRANS;
-    }
-};
-
+namespace luisa::compute::tensor {
 template<typename Ty>
 constexpr TensorBasicDataType enum_data_type() {
     using T = std::remove_all_extents_t<Ty>;
@@ -163,104 +103,225 @@ template<typename Ty>
 class Tensor : public DTensor {
 
 public:
-    explicit Tensor(Device &device) noexcept : DTensor{}, _device{device} {
-        _basic_data_type = enum_data_type<Ty>();
-    }
+    Tensor(Device &device, LASInterface *las) noexcept : DTensor{enum_data_type<Ty>()},
+                                                         _device{device},
+                                                         _las{las} {}
 
-    explicit Tensor(const DTensor &tensor, Device &device) noexcept : DTensor{tensor}, _device{device} {
-        _basic_data_type = enum_data_type<Ty>();
-        _has_storage = false;
-        _buffer = {};
-    }
+    // only copy descriptor not the underlying storage
+    Tensor(const Tensor &other) noexcept : DTensor{other},
+                                           _device{other._device},
+                                           _las{other._las},
+                                           _backend_tensor_res{other._backend_tensor_res},
+                                           _dense_storage{other._dense_storage},
+                                           _sparse_vector_storage{other._sparse_vector_storage},
+                                           _basic_sparse_matrix_storage{other._basic_sparse_matrix_storage},
+                                           _has_storage{false} {}
 
-    BufferView<Ty> buffer_view() const noexcept {
-        if (_has_storage)
-            return _buffer.view();
-        else
-            return _buffer_view;
-    }
+    virtual ~Tensor() noexcept {}
 
-    auto copy_from(const Ty *data) noexcept { return buffer_view().copy_from(data); }
-    auto copy_to(Ty *data) noexcept { return buffer_view().copy_to(data); }
+    bool has_storage() const noexcept { return _has_storage; }
+    DenseStorage<Ty> &dense_storage() noexcept { return *_dense_storage; }
+    const DenseStorage<Ty> &dense_storage() const noexcept { return *_dense_storage; }
+    SparseVectorStorage<Ty> &sparse_vector_storage() noexcept { return *_sparse_vector_storage; }
+    const SparseVectorStorage<Ty> &sparse_vector_storage() const noexcept { return *_sparse_vector_storage; }
+    BasicSparseMatrixStorage<Ty> &sparse_matrix_storage() noexcept { return *_basic_sparse_matrix_storage; }
+    const BasicSparseMatrixStorage<Ty> &sparse_matrix_storage() const noexcept { return *_basic_sparse_matrix_storage; }
 
-    void alloc_scalar() {
+    void alloc_scalar() noexcept {
         _has_storage = true;
         _shape.clear();
-        _buffer = _device.create_buffer<Ty>(1);
+
+        _dense_storage = make_shared<DenseStorage<Ty>>();
+        _dense_storage->buffer = _device.create_buffer<Ty>(1);
+
+        _scalar_desc = make_unique<ScalarDesc>();
+        _scalar_desc->is_host = false;// hard code
+
+        alloc_backend_tensor_res();
     }
 
-    void alloc_dense_vector(int n) {
+    void alloc_dense_vector(int n) noexcept {
         _has_storage = true;
         _shape = {n};
-        _dense_vector_view_data.incx = 1;
-        _buffer = _device.create_buffer<Ty>(n);
+
+        _dense_storage = make_shared<DenseStorage<Ty>>();
+        _dense_storage->buffer = _device.create_buffer<Ty>(n);
+
+        _dense_vector_desc = make_unique<DenseVectorDesc>();
+        _dense_vector_desc->inc = 1;// hard code
+        _dense_vector_desc->n = n;
+        _dense_vector_desc->offset = 0;// hard code
+
+        alloc_backend_tensor_res();
     }
 
     void alloc_dense_matrix(int row, int col) noexcept {
         _has_storage = true;
         _shape = {row, col};
-        // pow2 maybe better
-        auto lda = luisa::next_pow2(static_cast<uint32_t>(col));
-        _dense_matrix_view_data._lda = lda;
-        _dense_matrix_view_data._shape = DenseMatrixShape::GENERAL;
-        _dense_matrix_view_data._operation = MatrixOperation::NONE;
-        _dense_matrix_view_data._property = DenseMatrixProperty::NONE;
-        _dense_matrix_view_data._fill_mode = DenseMatrixFillMode::NONE;
-        _dense_matrix_view_data._diag_type = DenseMatrixDiagType::NON_UNIT;
 
-        _buffer = _device.create_buffer<Ty>(lda * row);
+        auto lda = col > 4 ? (col + 3) / 4 * 4 : col;
+
+        // storage
+        _dense_storage = make_shared<DenseStorage<Ty>>();
+        _dense_storage->buffer = _device.create_buffer<Ty>(lda * row);
+
+        // desc
+        _dense_matrix_desc = make_unique<DenseMatrixDesc>();
+        _dense_matrix_desc->offset = 0;
+        _dense_matrix_desc->row = row;
+        _dense_matrix_desc->col = col;
+        _dense_matrix_desc->lda = lda;
+        _dense_matrix_desc->shape = DenseMatrixShape::GENERAL;
+        _dense_matrix_desc->property = DenseMatrixProperty::NONE;
+        _dense_matrix_desc->fill_mode = DenseMatrixFillMode::NONE;
+        _dense_matrix_desc->diag_type = DenseMatrixDiagType::NON_UNIT;
+
+        // common desc
+        _matrix_operation = MatrixOperation::NONE;
+        alloc_backend_tensor_res();
+    }
+
+    void alloc_coo_matrix(int row, int col, int nnz) noexcept {
+        _has_storage = true;
+        _shape = {row, col};
+
+        auto coo = make_shared<COOMatrixStorage<Ty>>();
+        coo->value_data().buffer = _device.create_buffer<Ty>(nnz);
+        coo->row_ind().buffer = _device.create_buffer<int>(nnz);
+        coo->col_ind().buffer = _device.create_buffer<int>(nnz);
+        _basic_sparse_matrix_storage = coo;
+
+        _sparse_matrix_desc = make_unique<SparseMatrixDesc>();
+        _sparse_matrix_desc->format = SparseMatrixFormat::COO;
+        _sparse_matrix_desc->row = row;
+        _sparse_matrix_desc->col = col;
+        _sparse_matrix_desc->nnz = nnz;
+
+        _matrix_operation = MatrixOperation::NONE;
+        alloc_backend_tensor_res();
+    }
+
+    void alloc_sparse_vector(int n, int nnz) noexcept {
+        _has_storage = true;
+        _shape = {n};
+
+        _sparse_vector_storage = make_shared<SparseVectorStorage<Ty>>();
+        _sparse_vector_storage->values.buffer = _device.create_buffer<Ty>(nnz);
+        _sparse_vector_storage->indices.buffer = _device.create_buffer<int>(nnz);
+
+        _sparse_vector_desc = make_unique<SparseVectorDesc>();
+        _sparse_vector_desc->n = n;
+        _sparse_vector_desc->nnz = nnz;
+
+        alloc_backend_tensor_res();
     }
 
     Tensor T() const noexcept {
-        Tensor ret{*this, _device};
-        ret._buffer_view = buffer_view();
-        DTensor::trans(ret._dense_matrix_view_data._operation);
+        auto ret = Tensor{*this};
+        ret.do_transpose();
         return ret;
     }
-protected:
-    void buffer_info(uint64_t &buffer_handle, uint64_t &buffer_offset, uint64_t &buffer_total_size) const noexcept override {
-        if (_has_storage) {
-            buffer_handle = _buffer.handle();
-            buffer_offset = 0;
-            buffer_total_size = _buffer.size();
-        } else {
-            buffer_handle = _buffer_view.handle();
-            buffer_offset = _buffer_view.offset();
-            buffer_total_size = _buffer_view.size();
-        }
+
+    virtual BackendTensorRes *backend_tensor_res() const noexcept override {
+        return _backend_tensor_res.get();
     }
+
+protected:
+    virtual DenseStorageView dense_storage_view() const noexcept override;
+    virtual SparseVectorStorageView sparse_vector_storage_view() const noexcept override;
+    virtual BasicSparseMatrixStorageView basic_sparse_matrix_storage_view() const noexcept override;
 private:
-    bool _has_storage = false;
     Device &_device;
-    Buffer<Ty> _buffer;
-    BufferView<Ty> _buffer_view;
+    LASInterface *_las = nullptr;
+
+    bool _has_storage = false;
+
+    template<typename T>
+    using U = luisa::unique_ptr<T>;
+    template<typename T>
+    using S = luisa::shared_ptr<T>;
+
+    S<DenseStorage<Ty>> _dense_storage;
+    S<SparseVectorStorage<Ty>> _sparse_vector_storage;
+    S<BasicSparseMatrixStorage<Ty>> _basic_sparse_matrix_storage;// COO CSR CSC ...
+
+    S<BackendTensorRes> _backend_tensor_res;
+    void alloc_backend_tensor_res() noexcept {
+        _backend_tensor_res = _las->alloc_backend_tensor_res(*this);
+    }
 };
 
 class TensorMaker {// Simple, just for test
     Device &_device;
-    luisa::vector<Buffer<float>> float_buffers;//just for test
-    luisa::vector<Buffer<int>> int_buffers;    //just for test
+    LASInterface *_las = nullptr;
 public:
-    TensorMaker(Device &device) noexcept : _device{device} {}
+    TensorMaker(Device &device, LASInterface *las) noexcept : _device{device}, _las{las} {}
 
     template<typename T = float>
     Tensor<T> scalar() noexcept {
-        Tensor<T> tensor{_device};
+        Tensor<T> tensor{_device, _las};
         tensor.alloc_scalar();
         return tensor;
     }
 
     Tensor<float> dense_vector(int size) noexcept {
-        Tensor<float> tensor{_device};
+        Tensor<float> tensor{_device, _las};
         tensor.alloc_dense_vector(size);
         return tensor;
     }
 
     // make general matrix
     Tensor<float> dense_matrix(int row, int col) noexcept {
-        Tensor<float> tensor{_device};
+        Tensor<float> tensor{_device, _las};
         tensor.alloc_dense_matrix(row, col);
         return tensor;
     }
+
+    Tensor<float> coo_matrix(int row, int col, int nnz) noexcept {
+        Tensor<float> tensor{_device, _las};
+        tensor.alloc_coo_matrix(row, col, nnz);
+        return tensor;
+    }
+
+    Tensor<float> sparse_vector(int n, int nnz) {
+        Tensor<float> tensor{_device, _las};
+        tensor.alloc_sparse_vector(n, nnz);
+        return tensor;
+    }
+
+    DenseStorage<int> dense_storage(int size_in_byte) noexcept {
+        DenseStorage<int> dense_storage;
+        dense_storage.buffer = _device.create_buffer<int>((size_in_byte + sizeof(int) - 1) / sizeof(int));
+        return dense_storage;
+    }
 };
+
+void test() {
+    Device *d;
+    LASInterface *las;
+    Tensor<float> t{*d, las};
+    auto tt = t.T();
+}
+
+}// namespace luisa::compute::tensor
+
+// impl
+namespace luisa::compute::tensor {
+template<typename Ty>
+DenseStorageView Tensor<Ty>::dense_storage_view() const noexcept {
+    LUISA_ASSERT(_dense_storage, "mismatching tensor type");
+    return _dense_storage->view();
+}
+
+template<typename Ty>
+SparseVectorStorageView Tensor<Ty>::sparse_vector_storage_view() const noexcept {
+    LUISA_ASSERT(_sparse_vector_storage, "mismatching tensor type");
+    return _sparse_vector_storage->view();
+}
+
+template<typename Ty>
+BasicSparseMatrixStorageView Tensor<Ty>::basic_sparse_matrix_storage_view() const noexcept {
+    LUISA_ASSERT(_basic_sparse_matrix_storage, "mismatching tensor type");
+    return _basic_sparse_matrix_storage->view();
+}
 }// namespace luisa::compute::tensor

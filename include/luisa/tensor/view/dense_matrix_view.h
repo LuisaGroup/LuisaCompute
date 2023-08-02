@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "dense_storage_view.h"
 
 namespace luisa::compute::tensor {
 enum class DenseMatrixShape {
@@ -29,17 +30,22 @@ enum class DenseMatrixDiagType {
     UNIT = 1
 };
 
-struct DenseMatrixView {
-    uint64_t buffer_handle;
-    uint64_t buffer_offset;
-    int row, column;
-    int lda;// leading dimension of two-dimensional array used to store matrix A
+class DenseMatrixDesc {
+public:
+    int offset;// start offset
+    int row, col;
+    int lda;   // leading dimension of two-dimensional array used to store matrix A
     int kl, ku;// for band matrix
-
     DenseMatrixShape shape;
     DenseMatrixProperty property;
     DenseMatrixFillMode fill_mode;
-    MatrixOperation operation;
     DenseMatrixDiagType diag_type;
+};
+
+class DenseMatrixView {
+public:
+    DenseStorageView storage;
+    DenseMatrixDesc desc;
+    MatrixOperation operation;
 };
 }// namespace luisa::compute::tensor

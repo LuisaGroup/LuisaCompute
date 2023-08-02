@@ -1,29 +1,12 @@
 #include "cuda_las.h"
+#include <luisa/tensor/tensor.h>
 #include "../utils/cublas_check.h"
 #include "../utils/cusparse_check.h"
-#include "../cuda_device.h"
-#include "../cuda_buffer.h"
-#include <luisa/tensor/tensor.h>
+#include "cuda_tensor_res.h"
 
-namespace luisa::compute::cuda::tensor {
-using ScalarView = luisa::compute::tensor::ScalarView;
-using DenseVectorView = luisa::compute::tensor::DenseVectorView;
-using DenseMatrixView = luisa::compute::tensor::DenseMatrixView;
-template<typename T>
-auto raw(uint64_t buffer_handle) {
-    auto cuda_buffer = reinterpret_cast<CUDABuffer *>(buffer_handle);
-    return reinterpret_cast<T *>(cuda_buffer->handle());
-}
 
-template<typename T>
-auto raw(const ScalarView &s) { return raw<T>(s.buffer_handle) + s.buffer_offset; }
-
-template<typename T>
-auto raw(const DenseVectorView &v) { return raw<T>(v.buffer_handle) + v.buffer_offset; }
-
-template<typename T>
-auto raw(const DenseMatrixView &m) { return raw<T>(m.buffer_handle) + m.buffer_offset; }
-
+using namespace luisa::compute::cuda::tensor;
+// Ctor
 CudaLAS::CudaLAS(CUDAStream *stream) noexcept : _stream{stream} {
     LUISA_CHECK_CUBLAS(cublasCreate(&_cublas_handle));
     LUISA_CHECK_CUBLAS(cublasSetStream(_cublas_handle, _stream->handle()));
@@ -35,244 +18,27 @@ CudaLAS::CudaLAS(CUDAStream *stream) noexcept : _stream{stream} {
     LUISA_CHECK_CUSPARSE(cusparseSetPointerMode(_cusparse_handle, CUSPARSE_POINTER_MODE_DEVICE));
 }
 
+// Dtor
 CudaLAS::~CudaLAS() noexcept {
     LUISA_CHECK_CUBLAS(cublasDestroy(_cublas_handle));
     LUISA_CHECK_CUSPARSE(cusparseDestroy(_cusparse_handle));
 }
-void CudaLAS::Iamax(DTensor &result, const DTensor &vec_x) noexcept {
-    auto x = vec_x.dense_vector_view();
-    auto r = result.scalar_view();
-    LUISA_CHECK_CUBLAS(cublasIsamax_v2(_cublas_handle,
-                                       x.n,
-                                       raw<float>(x), x.inc,
-                                       raw<int>(r)));
-}
-void CudaLAS::Iamin(DTensor &result, const DTensor &vec_x) noexcept {
-    auto x = vec_x.dense_vector_view();
-    auto r = result.scalar_view();
-    LUISA_CHECK_CUBLAS(cublasIsamin_v2(_cublas_handle,
-                                       x.n,
-                                       raw<float>(x), x.inc,
-                                       raw<int>(r)));
-}
-void CudaLAS::dot(DTensor &result, const DTensor &vec_x, const DTensor &vec_y) noexcept {
-    auto x = vec_x.dense_vector_view();
-    auto y = vec_y.dense_vector_view();
-    auto r = result.scalar_view();
-    LUISA_CHECK_CUBLAS(cublasSdot_v2(_cublas_handle,
-                                     x.n,
-                                     raw<float>(x), x.inc,
-                                     raw<float>(y), y.inc,
-                                     raw<float>(r)));
-}
-void CudaLAS::nrm2(DTensor &result, const DTensor &vec_x) noexcept {
-    auto x = vec_x.dense_vector_view();
-    auto r = result.scalar_view();
-    LUISA_CHECK_CUBLAS(cublasSnrm2_v2(_cublas_handle,
-                                      x.n,
-                                      raw<float>(x), x.inc,
-                                      raw<float>(r)));
-}
 
-void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTensor &x, const DTensor &beta) noexcept {
-    auto alpha_ = alpha.scalar_view();
-    auto A_ = A.dense_matrix_view();
-    auto x_ = x.dense_vector_view();
-    auto beta_ = beta.scalar_view();
-    auto y_ = y.dense_vector_view();
 
-    switch (A_.shape) {
-        case luisa::compute::tensor::DenseMatrixShape::GENERAL: {
-            if (A_.property == luisa::compute::tensor::DenseMatrixProperty::NONE) {
-                cublasSgemv_v2(_cublas_handle,
-                               enum_map(A_.operation),
-                               A_.row, A_.column,
-                               raw<float>(alpha_),
-                               raw<float>(A_), A_.lda,
-                               raw<float>(x_), x_.inc,
-                               raw<float>(beta_),
-                               raw<float>(y_), y_.inc);
-            } else if (A_.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC) {
-                cublasSsymv_v2(_cublas_handle,
-                               enum_map(A_.fill_mode),
-                               A_.row,
-                               raw<float>(alpha_),
-                               raw<float>(A_), A_.lda,
-                               raw<float>(x_), x_.inc,
-                               raw<float>(beta_),
-                               raw<float>(y_), y_.inc);
-            } else {
-                LUISA_ERROR("unsupported matrix property: only NONE/SYMMETRIC are supported");
-            }
-        } break;
-        case luisa::compute::tensor::DenseMatrixShape::TRIANGULAR: {
-            cublasStrmv_v2(_cublas_handle,
-                           enum_map(A_.fill_mode),
-                           enum_map(A_.operation),
-                           enum_map(A_.diag_type),
-                           A_.row,
-                           raw<float>(A_), A_.lda,
-                           raw<float>(x_), x_.inc);
-        } break;
-        case luisa::compute::tensor::DenseMatrixShape::BAND: {
-            if (A_.property == luisa::compute::tensor::DenseMatrixProperty::NONE) {
-                cublasSgbmv_v2(_cublas_handle,
-                               enum_map(A_.operation),
-                               A_.row, A_.column,
-                               A_.kl, A_.ku,
-                               raw<float>(alpha_),
-                               raw<float>(A_), A_.lda,
-                               raw<float>(x_), x_.inc,
-                               raw<float>(beta_),
-                               raw<float>(y_), y_.inc);
-            } else if (A_.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC) {
-                cublasSsbmv_v2(_cublas_handle,
-                               enum_map(A_.fill_mode),
-                               A_.row, A_.kl,
-                               raw<float>(alpha_),
-                               raw<float>(A_), A_.lda,
-                               raw<float>(x_), x_.inc,
-                               raw<float>(beta_),
-                               raw<float>(y_), y_.inc);
-            } else {
-                LUISA_ERROR("unsupported matrix property: only NONE/SYMMETRIC are supported");
-            };
 
-        } break;
-        case luisa::compute::tensor::DenseMatrixShape::TRIANGULAR_BAND: {
-            cublasStbmv_v2(_cublas_handle,
-                           enum_map(A_.fill_mode),
-                           enum_map(A_.operation),
-                           enum_map(A_.diag_type),
-                           A_.row, A_.kl,
-                           raw<float>(A_), A_.lda,
-                           raw<float>(x_), x_.inc);
-        } break;
-        case luisa::compute::tensor::DenseMatrixShape::PACKED_TRIANGULAR: {
-            cublasStpmv_v2(_cublas_handle,
-                           enum_map(A_.fill_mode),
-                           enum_map(A_.operation),
-                           enum_map(A_.diag_type),
-                           A_.row,
-                           raw<float>(A_),
-                           raw<float>(x_), x_.inc);
-        } break;
-        case luisa::compute::tensor::DenseMatrixShape::PACKED: {
-            LUISA_ASSERT(A_.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC, "only symmetric matrix can be packed.");
-            cublasSspmv_v2(_cublas_handle,
-                           enum_map(A_.fill_mode),
-                           A_.row,
-                           raw<float>(alpha_),
-                           raw<float>(A_),
-                           raw<float>(x_), x_.inc,
-                           raw<float>(beta_),
-                           raw<float>(y_), y_.inc);
 
-        } break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix shape");
-            break;
+
+CudaLAS::S<CudaLAS::BackendTensorRes> CudaLAS::alloc_backend_tensor_res(const DTensor &tensor) noexcept {
+    if (tensor.is_sparse()) {
+        if (tensor.is_vector())// sparse vector
+            return luisa::make_unique<CusparseSpVecDescRes>(tensor);
+        else if (tensor.is_matrix())// sparse matrix
+            return luisa::make_unique<CusparseSpMatDescRes>(tensor);
+    } else if (tensor.is_dense()) {
+        if (tensor.is_vector())
+            return luisa::make_unique<CusparseDnVecDescRes>(tensor);
+        else if (tensor.is_matrix())
+            return luisa::make_unique<CusparseDnMatDescRes>(tensor);
     }
+    return nullptr;
 }
-
-void CudaLAS::sv(DTensor &x, const DTensor &A) noexcept {
-}
-
-void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
-    auto alpha_ = alpha.scalar_view();
-    auto A_ = A.dense_matrix_view();
-    auto B_ = B.dense_matrix_view();
-    auto beta_ = beta.scalar_view();
-    auto C_ = C.dense_matrix_view();
-    using DenseMatrixShape = luisa::compute::tensor::DenseMatrixShape;
-
-    LUISA_ASSERT(C_.shape == DenseMatrixShape::GENERAL, "only general matrix is supported for C.");
-    if (A_.shape == DenseMatrixShape::GENERAL && B_.shape == DenseMatrixShape::GENERAL) {
-        cublasSgemm_v2(_cublas_handle,
-                       enum_map(A_.operation),
-                       enum_map(B_.operation),
-                       C_.row, C_.column, A_.column,
-                       raw<float>(alpha_),
-                       raw<float>(A_), A_.lda,
-                       raw<float>(B_), B_.lda,
-                       raw<float>(beta_),
-                       raw<float>(C_), C_.lda);
-    } else if (A_.shape == DenseMatrixShape::TRIANGULAR && B_.shape == DenseMatrixShape::GENERAL) {
-        cublasStrmm_v2(_cublas_handle,
-                       enum_map(options),
-                       enum_map(A_.fill_mode),
-                       enum_map(A_.operation),
-                       enum_map(A_.diag_type),
-                       C_.row, C_.column,
-                       raw<float>(alpha_),
-                       raw<float>(A_), A_.lda,
-                       raw<float>(B_), B_.lda,
-                       raw<float>(C_), C_.lda);
-    } else {
-        LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix shape");
-    }
-}
-void CudaLAS::sm(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
-}
-}// namespace luisa::compute::cuda::tensor
-
-namespace luisa::compute::cuda::tensor {
-cublasOperation_t CudaLAS::enum_map(luisa::compute::tensor::MatrixOperation op) noexcept {
-    cublasOperation_t ret;
-    switch (op) {
-        case luisa::compute::tensor::MatrixOperation::NONE:
-            ret = CUBLAS_OP_N;
-            break;
-        case luisa::compute::tensor::MatrixOperation::TRANS:
-            ret = CUBLAS_OP_T;
-            break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("error matrix operation mapping.");
-            break;
-    }
-    return ret;
-}
-cublasFillMode_t CudaLAS::enum_map(luisa::compute::tensor::DenseMatrixFillMode op) noexcept {
-    cublasFillMode_t ret;
-    switch (op) {
-        case luisa::compute::tensor::DenseMatrixFillMode::UPPER:
-            ret = CUBLAS_FILL_MODE_UPPER;
-            break;
-        case luisa::compute::tensor::DenseMatrixFillMode::LOWER:
-            ret = CUBLAS_FILL_MODE_LOWER;
-            break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("error matrix fill mode mapping.");
-            break;
-    }
-    return ret;
-}
-cublasDiagType_t CudaLAS::enum_map(luisa::compute::tensor::DenseMatrixDiagType op) noexcept {
-    cublasDiagType_t ret;
-    switch (op) {
-        case luisa::compute::tensor::DenseMatrixDiagType::NON_UNIT:
-            ret = CUBLAS_DIAG_NON_UNIT;
-        case luisa::compute::tensor::DenseMatrixDiagType::UNIT:
-            ret = CUBLAS_DIAG_UNIT;
-        default:
-            LUISA_ERROR_WITH_LOCATION("error matrix diag type mapping.");
-            break;
-    }
-    return ret;
-}
-cublasSideMode_t CudaLAS::enum_map(luisa::compute::tensor::MatrixMulOptions op) noexcept {
-    cublasSideMode_t ret;
-    switch (op.side) {
-        case luisa::compute::tensor::MatrixASide::LEFT:
-            ret = CUBLAS_SIDE_LEFT;
-            break;
-        case luisa::compute::tensor::MatrixASide::RIGHT:
-            ret = CUBLAS_SIDE_RIGHT;
-            break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("error matrix side mode mapping.");
-            break;
-    }
-    return ret;
-}
-}// namespace luisa::compute::cuda::tensor

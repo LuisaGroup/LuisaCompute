@@ -1,6 +1,6 @@
 if (LUISA_COMPUTE_ENABLE_TENSOR)
     set(LUISA_COMPUTE_TENSOR_SOURCES
-            tensor.cpp)
+            tensor.cpp dtensor.cpp backend_tensor_res.cpp)
 
     add_library(luisa-compute-tensor SHARED ${LUISA_COMPUTE_TENSOR_SOURCES})
     target_link_libraries(luisa-compute-tensor PUBLIC luisa-compute-core luisa-compute-runtime)
