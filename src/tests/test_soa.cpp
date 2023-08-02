@@ -53,7 +53,9 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     auto device = context.create_device(argv[1]);
-    auto soa = SOA<A>{device, 1024u};
+
+    constexpr auto n = 1357u;
+    auto soa = SOA<A>{device, n};
 
     auto rand = [](auto &engine) noexcept {
         std::uniform_real_distribution<float> dist{0.0f, 1.0f};
@@ -69,14 +71,14 @@ int main(int argc, char *argv[]) {
         a.e = make_int4(engine(), engine(), engine(), engine());
         return a;
     };
-    luisa::vector<A> host_upload(1024u);
+    luisa::vector<A> host_upload(n);
     std::mt19937 engine{std::random_device{}()};
-    for (auto i = 0u; i < 1024u; i++) {
+    for (auto i = 0u; i < n; i++) {
         host_upload[i] = rand(engine);
     }
 
-    auto buffer_upload = device.create_buffer<A>(1024u);
-    auto buffer_download = device.create_buffer<A>(1024u);
+    auto buffer_upload = device.create_buffer<A>(n);
+    auto buffer_download = device.create_buffer<A>(n);
 
     auto stream = device.create_stream();
     auto shader_upload = device.compile<1u>([](SOAVar<A> soa, BufferVar<A> upload) noexcept {
@@ -88,15 +90,15 @@ int main(int argc, char *argv[]) {
         download.write(i, soa.read(i));
     });
 
-    luisa::vector<A> host_download(1024u);
+    luisa::vector<A> host_download(n);
     stream << buffer_upload.copy_from(host_upload.data())
-           << shader_upload(soa, buffer_upload).dispatch(1024u)
-           << shader_download(soa, buffer_download).dispatch(1024u)
+           << shader_upload(soa, buffer_upload).dispatch(n)
+           << shader_download(soa, buffer_download).dispatch(n)
            << buffer_download.copy_to(host_download.data())
            << synchronize();
 
     auto any_wrong = false;
-    for (auto i = 0u; i < 1024u; i++) {
+    for (auto i = 0u; i < n; i++) {
         if (host_upload[i] != host_download[i]) {
             LUISA_WARNING("SOA upload/download mismatch at index {}\n"
                           "  Expected: {}\n"
