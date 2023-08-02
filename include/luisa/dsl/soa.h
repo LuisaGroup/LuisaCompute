@@ -70,7 +70,7 @@ public:
     [[nodiscard]] auto read(I &&index) const noexcept {
         if constexpr (element_stride == 1u) {
             auto i = soa_offset() + std::forward<I>(index) + element_offset();
-            auto x = buffer().read(soa_offset() + i);
+            auto x = buffer().read(i);
             if constexpr (sizeof(T) == sizeof(uint)) {
                 return x.template as<T>();
             } else if constexpr (sizeof(T) * 2u == sizeof(uint)) {// 16bit
