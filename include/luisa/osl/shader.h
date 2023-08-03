@@ -44,7 +44,7 @@ private:
 
 public:
     Shader(luisa::string osl_spec,
-           uint version_major, uint version_minor,
+           uint32_t version_major, uint32_t version_minor,
            Tag tag, luisa::string identifier,
            luisa::vector<Hint> hints,
            luisa::vector<CodeMarker> code_markers,
