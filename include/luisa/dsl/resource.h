@@ -87,15 +87,6 @@ public:
              detail::extract_expression(std::forward<I>(index)),
              value.expression()});
     }
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto size() const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto expr = f->call(
-            Type::of<I>(), CallOp::BUFFER_SIZE,
-            {_expression});
-        return def<I>(expr);
-    }
 
     /// Self-pointer to unify the interfaces of the captured Buffer<T> and Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
@@ -137,15 +128,6 @@ public:
             {_expression,
              detail::extract_expression(std::forward<I>(byte_offset)),
              value.expression()});
-    }
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto size() const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto expr = f->call(
-            Type::of<uint>(), CallOp::BYTE_BUFFER_SIZE,
-            {_expression});
-        return def<uint>(expr);
     }
 };
 
