@@ -20,6 +20,8 @@ public:
     SparseCommandList &operator=(SparseCommandList &&) = default;
     SparseCommandList &operator<<(SparseUpdateTile &&tile) noexcept;
     [[nodiscard]] SparseCommandListCommit commit() noexcept;
+    [[nodiscard]] auto size() const noexcept { return _update_cmd.size(); }
+    [[nodiscard]] auto empty() const noexcept { return _update_cmd.empty(); }
 };
 struct LC_RUNTIME_API SparseCommandListCommit {
     SparseCommandList cmd_list;

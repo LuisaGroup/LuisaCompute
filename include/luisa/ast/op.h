@@ -172,6 +172,11 @@ enum struct CallOp : uint32_t {
     BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
     BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
     BUFFER_SIZE,  /// [(buffer) -> size]
+
+    BYTE_BUFFER_READ,  /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
+    BYTE_BUFFER_WRITE, /// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
+    BYTE_BUFFER_SIZE,  /// [(buffer) -> size_bytes]
+
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
     TEXTURE_SIZE, /// [(texture) -> Vector<uint, dim>]

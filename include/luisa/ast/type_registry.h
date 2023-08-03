@@ -27,6 +27,7 @@ class VolumeView;
 
 class BindlessArray;
 class Accel;
+class ByteBuffer;
 
 namespace detail {
 
@@ -125,6 +126,13 @@ struct TypeDesc<Buffer<T>> {
         static thread_local auto s = make_buffer_description(
             TypeDesc<T>::description());
         return s;
+    }
+};
+
+template<>
+struct TypeDesc<ByteBuffer> {
+    static luisa::string_view description() noexcept {
+        return "buffer<void>";
     }
 };
 

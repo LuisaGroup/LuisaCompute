@@ -251,7 +251,7 @@ def dtype_of(val):
         return val.arrayType
     if type(val).__name__ == "Struct":
         return val.structType
-    if type(val).__name__ == "Buffer":
+    if type(val).__name__ == "Buffer" or type(val).__name__ == "ByteBuffer":
         return val.bufferType
     if type(val).__name__ == "RayQuery":
         return val.queryType
@@ -271,7 +271,7 @@ def dtype_of(val):
         return type(val)
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
-    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", "IndirectBufferType", "RayQueryAllType",
+    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", 'ByteBufferType', "IndirectBufferType", "RayQueryAllType",
                               "RayQueryAnyType", "SharedArrayType"} or val in basic_dtypes:
         return type
     if type(val).__name__ == "function":
@@ -279,7 +279,7 @@ def dtype_of(val):
 
 
 def to_lctype(dtype):
-    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType", "Texture3DType", "CustomType",
+    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "ByteBufferType", "Texture2DType", "Texture3DType", "CustomType",
                                 "RayQueryAllType", "RayQueryAnyType", "SharedArrayType"}:
         return dtype.luisa_type
     if not hasattr(dtype, "__name__"):

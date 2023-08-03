@@ -44,8 +44,15 @@ public:
     }
 
 public:
-    void start() const noexcept;
-    void stop() const noexcept;
+    void mark_begin() const noexcept;
+    void mark_end() const noexcept;
+
+    template<typename F>
+    void with(F &&f) const noexcept {
+        mark_begin();
+        std::invoke(std::forward<F>(f));
+        mark_end();
+    }
 };
 
 class DebugCaptureExt : public DeviceExtension {
@@ -59,28 +66,32 @@ private:
     [[nodiscard]] virtual uint64_t create_device_capture_scope(luisa::string_view label, const Option &option) const noexcept = 0;
     [[nodiscard]] virtual uint64_t create_stream_capture_scope(uint64_t stream_handle, luisa::string_view label, const Option &option) const noexcept = 0;
     virtual void destroy_capture_scope(uint64_t handle) const noexcept = 0;
-    virtual void start_capture(uint64_t handle) const noexcept = 0;
-    virtual void stop_capture(uint64_t handle) const noexcept = 0;
+    virtual void start_debug_capture(uint64_t handle) const noexcept = 0;
+    virtual void stop_debug_capture() const noexcept = 0;
+    virtual void mark_scope_begin(uint64_t handle) const noexcept = 0;
+    virtual void mark_scope_end(uint64_t handle) const noexcept = 0;
 
 public:
     [[nodiscard]] auto create_scope(luisa::string_view label, const Option &option = {}) const noexcept {
         return DebugCaptureScope{this, create_device_capture_scope(label, option)};
     }
-    [[nodiscard]] auto create_scope(const Stream &stream, luisa::string_view label, const Option &option = {}) const noexcept {
+    [[nodiscard]] auto create_scope(luisa::string_view label, const Stream &stream, const Option &option = {}) const noexcept {
         return DebugCaptureScope{this, create_stream_capture_scope(stream.handle(), label, option)};
     }
+    void start_capture(const DebugCaptureScope &scope) const noexcept { start_debug_capture(scope._handle); }
+    void stop_capture() const noexcept { stop_debug_capture(); }
 };
 
 inline DebugCaptureScope::~DebugCaptureScope() noexcept {
     if (_ext) { _ext->destroy_capture_scope(_handle); }
 }
 
-inline void DebugCaptureScope::start() const noexcept {
-    _ext->start_capture(_handle);
+inline void DebugCaptureScope::mark_begin() const noexcept {
+    _ext->mark_scope_begin(_handle);
 }
 
-inline void DebugCaptureScope::stop() const noexcept {
-    _ext->stop_capture(_handle);
+inline void DebugCaptureScope::mark_end() const noexcept {
+    _ext->mark_scope_end(_handle);
 }
 
 }// namespace luisa::compute
