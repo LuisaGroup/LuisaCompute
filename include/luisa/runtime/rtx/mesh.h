@@ -91,7 +91,7 @@ Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, const AccelOpt
 
 template<typename VBuffer, typename TBuffer>
 Mesh Device::create_mesh(VBuffer &&vertices, size_t vertex_stride, TBuffer &&triangles, const AccelOption &option) noexcept {
-    return this->_create<Mesh>(std::forward<VBuffer>(vertices), std::forward<TBuffer>(triangles), vertex_stride, option);
+    return this->_create<Mesh>(std::forward<VBuffer>(vertices), vertex_stride, std::forward<TBuffer>(triangles), option);
 }
 
 }// namespace luisa::compute
