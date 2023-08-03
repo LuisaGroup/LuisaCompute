@@ -33,7 +33,6 @@ enum class DenseMatrixDiagType {
 class DenseMatrixDesc {
 public:
     int offset;// start offset
-    int row, col;
     int lda;   // leading dimension of two-dimensional array used to store matrix A
     int kl, ku;// for band matrix
     DenseMatrixShape shape;
@@ -44,6 +43,7 @@ public:
 
 class DenseMatrixView {
 public:
+    int row, col; // logical size
     DenseStorageView storage;
     DenseMatrixDesc desc;
     MatrixOperation operation;

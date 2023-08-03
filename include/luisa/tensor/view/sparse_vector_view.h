@@ -6,12 +6,12 @@
 namespace luisa::compute::tensor {
 class SparseVectorDesc {
 public:
-    int n;
     int nnz;
 };
 
 class SparseVectorView {
 public:
+    int n; // logical size
     SparseVectorStorageView storage;
     SparseVectorDesc desc;
 };

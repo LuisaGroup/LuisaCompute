@@ -149,7 +149,6 @@ public:
 
         _dense_vector_desc = make_unique<DenseVectorDesc>();
         _dense_vector_desc->inc = 1;// hard code
-        _dense_vector_desc->n = n;
         _dense_vector_desc->offset = 0;// hard code
 
         alloc_backend_tensor_res();
@@ -168,8 +167,6 @@ public:
         // desc
         _dense_matrix_desc = make_unique<DenseMatrixDesc>();
         _dense_matrix_desc->offset = 0;
-        _dense_matrix_desc->row = row;
-        _dense_matrix_desc->col = col;
         _dense_matrix_desc->lda = lda;
         _dense_matrix_desc->shape = DenseMatrixShape::GENERAL;
         _dense_matrix_desc->property = DenseMatrixProperty::NONE;
@@ -193,8 +190,6 @@ public:
 
         _sparse_matrix_desc = make_unique<SparseMatrixDesc>();
         _sparse_matrix_desc->format = SparseMatrixFormat::COO;
-        _sparse_matrix_desc->row = row;
-        _sparse_matrix_desc->col = col;
         _sparse_matrix_desc->nnz = nnz;
 
         _matrix_operation = MatrixOperation::NONE;
@@ -210,7 +205,6 @@ public:
         _sparse_vector_storage->indices.buffer = _device.create_buffer<int>(nnz);
 
         _sparse_vector_desc = make_unique<SparseVectorDesc>();
-        _sparse_vector_desc->n = n;
         _sparse_vector_desc->nnz = nnz;
 
         alloc_backend_tensor_res();
@@ -289,7 +283,7 @@ public:
         return tensor;
     }
 
-    DenseStorage<int> dense_storage(int size_in_byte) noexcept {
+    DenseStorage<int> external_buffer(int size_in_byte) noexcept {
         DenseStorage<int> dense_storage;
         dense_storage.buffer = _device.create_buffer<int>((size_in_byte + sizeof(int) - 1) / sizeof(int));
         return dense_storage;

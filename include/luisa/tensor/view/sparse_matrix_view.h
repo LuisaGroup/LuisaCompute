@@ -18,12 +18,12 @@ enum class SparseMatrixFormat {
 class SparseMatrixDesc {
 public:
     SparseMatrixFormat format;
-    int row, col;
     int nnz;
 };
 
 class SparseMatrixView {
 public:
+    int row, col; // logical size
     BasicSparseMatrixStorageView storage;
     SparseMatrixDesc desc;
     MatrixOperation operation;

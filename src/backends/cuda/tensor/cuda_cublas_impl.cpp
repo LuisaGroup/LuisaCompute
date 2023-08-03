@@ -17,7 +17,7 @@ void CudaLAS::Iamax(DTensor &result, const DTensor &vec_x) noexcept {
     auto x = vec_x.dense_vector_view();
     auto r = result.scalar_view();
     LUISA_CHECK_CUBLAS(cublasIsamax_v2(_cublas_handle,
-                                       x.desc.n,
+                                       x.n,
                                        raw<float>(x), x.desc.inc,
                                        raw<int>(r)));
 }
@@ -25,7 +25,7 @@ void CudaLAS::Iamin(DTensor &result, const DTensor &vec_x) noexcept {
     auto x = vec_x.dense_vector_view();
     auto r = result.scalar_view();
     LUISA_CHECK_CUBLAS(cublasIsamin_v2(_cublas_handle,
-                                       x.desc.n,
+                                       x.n,
                                        raw<float>(x), x.desc.inc,
                                        raw<int>(r)));
 }
@@ -34,7 +34,7 @@ void CudaLAS::dot(DTensor &result, const DTensor &vec_x, const DTensor &vec_y) n
     auto y = vec_y.dense_vector_view();
     auto r = result.scalar_view();
     LUISA_CHECK_CUBLAS(cublasSdot_v2(_cublas_handle,
-                                     x.desc.n,
+                                     x.n,
                                      raw<float>(x), x.desc.inc,
                                      raw<float>(y), y.desc.inc,
                                      raw<float>(r)));
@@ -43,7 +43,7 @@ void CudaLAS::nrm2(DTensor &result, const DTensor &vec_x) noexcept {
     auto x = vec_x.dense_vector_view();
     auto r = result.scalar_view();
     LUISA_CHECK_CUBLAS(cublasSnrm2_v2(_cublas_handle,
-                                      x.desc.n,
+                                      x.n,
                                       raw<float>(x), x.desc.inc,
                                       raw<float>(r)));
 }
@@ -60,7 +60,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
             if (A_.desc.property == luisa::compute::tensor::DenseMatrixProperty::NONE) {
                 cublasSgemv_v2(_cublas_handle,
                                cublas_enum_map(A_.operation),
-                               A_.desc.row, A_.desc.col,
+                               A_.row, A_.col,
                                raw<float>(alpha_),
                                raw<float>(A_), A_.desc.lda,
                                raw<float>(x_), x_.desc.inc,
@@ -69,7 +69,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
             } else if (A_.desc.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC) {
                 cublasSsymv_v2(_cublas_handle,
                                cublas_enum_map(A_.desc.fill_mode),
-                               A_.desc.row,
+                               A_.row,
                                raw<float>(alpha_),
                                raw<float>(A_), A_.desc.lda,
                                raw<float>(x_), x_.desc.inc,
@@ -84,7 +84,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
                            cublas_enum_map(A_.desc.fill_mode),
                            cublas_enum_map(A_.operation),
                            cublas_enum_map(A_.desc.diag_type),
-                           A_.desc.row,
+                           A_.row,
                            raw<float>(A_), A_.desc.lda,
                            raw<float>(x_), x_.desc.inc);
         } break;
@@ -92,7 +92,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
             if (A_.desc.property == luisa::compute::tensor::DenseMatrixProperty::NONE) {
                 cublasSgbmv_v2(_cublas_handle,
                                cublas_enum_map(A_.operation),
-                               A_.desc.row, A_.desc.col,
+                               A_.row, A_.col,
                                A_.desc.kl, A_.desc.ku,
                                raw<float>(alpha_),
                                raw<float>(A_), A_.desc.lda,
@@ -102,7 +102,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
             } else if (A_.desc.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC) {
                 cublasSsbmv_v2(_cublas_handle,
                                cublas_enum_map(A_.desc.fill_mode),
-                               A_.desc.row, A_.desc.kl,
+                               A_.row, A_.desc.kl,
                                raw<float>(alpha_),
                                raw<float>(A_), A_.desc.lda,
                                raw<float>(x_), x_.desc.inc,
@@ -118,7 +118,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
                            cublas_enum_map(A_.desc.fill_mode),
                            cublas_enum_map(A_.operation),
                            cublas_enum_map(A_.desc.diag_type),
-                           A_.desc.row, A_.desc.kl,
+                           A_.row, A_.desc.kl,
                            raw<float>(A_), A_.desc.lda,
                            raw<float>(x_), x_.desc.inc);
         } break;
@@ -127,7 +127,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
                            cublas_enum_map(A_.desc.fill_mode),
                            cublas_enum_map(A_.operation),
                            cublas_enum_map(A_.desc.diag_type),
-                           A_.desc.row,
+                           A_.row,
                            raw<float>(A_),
                            raw<float>(x_), x_.desc.inc);
         } break;
@@ -135,7 +135,7 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
             LUISA_ASSERT(A_.desc.property == luisa::compute::tensor::DenseMatrixProperty::SYMMETRIC, "only symmetric matrix can be packed.");
             cublasSspmv_v2(_cublas_handle,
                            cublas_enum_map(A_.desc.fill_mode),
-                           A_.desc.row,
+                           A_.row,
                            raw<float>(alpha_),
                            raw<float>(A_),
                            raw<float>(x_), x_.desc.inc,
@@ -165,7 +165,7 @@ void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTens
         cublasSgemm_v2(_cublas_handle,
                        cublas_enum_map(A_.operation),
                        cublas_enum_map(B_.operation),
-                       C_.desc.row, C_.desc.col, A_.desc.col,
+                       C_.row, C_.col, A_.col,
                        raw<float>(alpha_),
                        raw<float>(A_), A_.desc.lda,
                        raw<float>(B_), B_.desc.lda,
@@ -177,7 +177,7 @@ void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTens
                        cublas_enum_map(A_.desc.fill_mode),
                        cublas_enum_map(A_.operation),
                        cublas_enum_map(A_.desc.diag_type),
-                       C_.desc.row, C_.desc.col,
+                       C_.row, C_.col,
                        raw<float>(alpha_),
                        raw<float>(A_), A_.desc.lda,
                        raw<float>(B_), B_.desc.lda,

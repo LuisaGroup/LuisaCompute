@@ -14,7 +14,7 @@ public:
     CusparseDnVecDescRes(const luisa::compute::tensor::DTensor &tensor) noexcept {
         LUISA_ASSERT(tensor.basic_data_type() == luisa::compute::tensor::TensorBasicDataType::FLOAT32, "now only float32 is supported");
         auto view = tensor.dense_vector_view();
-        cusparseCreateDnVec(&_desc_handle, view.desc.n, raw<float>(view.storage), cuda_enum_map(tensor.basic_data_type()));
+        cusparseCreateDnVec(&_desc_handle, view.n, raw<float>(view.storage), cuda_enum_map(tensor.basic_data_type()));
     }
 
     virtual ~CusparseDnVecDescRes() noexcept {
@@ -32,7 +32,7 @@ public:
         auto view = tensor.dense_matrix_view();
         if (view.desc.shape == luisa::compute::tensor::DenseMatrixShape::GENERAL) {
             cusparseCreateDnMat(&_desc_handle,
-                                view.desc.row, view.desc.col, view.desc.lda, raw<float>(view.storage),
+                                view.row, view.col, view.desc.lda, raw<float>(view.storage),
                                 cuda_enum_map(tensor.basic_data_type()), CUSPARSE_ORDER_COL);
         }
     }
@@ -54,27 +54,30 @@ public:
         auto view = tensor.sparse_matrix_view();
         switch (view.desc.format) {
             case luisa::compute::tensor::SparseMatrixFormat::COO: {
-                LUISA_CHECK_CUSPARSE(cusparseCreateCoo(&_desc_handle,
-                                                       view.desc.row, view.desc.col, view.desc.nnz,
-                                                       raw<int>(view.storage.i_data), raw<int>(view.storage.j_data), raw<float>(view.storage.values),
-                                                       CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
-                                                       cuda_enum_map(tensor.basic_data_type()))// now only float32
+                LUISA_CHECK_CUSPARSE(
+                    cusparseCreateCoo(&_desc_handle,
+                                      view.row, view.col, view.desc.nnz,
+                                      raw<int>(view.storage.i_data), raw<int>(view.storage.j_data), raw<float>(view.storage.values),
+                                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
+                                      cuda_enum_map(tensor.basic_data_type()))// now only float32
                 );
             } break;
             case luisa::compute::tensor::SparseMatrixFormat::CSR: {
-                LUISA_CHECK_CUSPARSE(cusparseCreateCsr(&_desc_handle,
-                                                       view.desc.row, view.desc.col, view.desc.nnz,
-                                                       raw<int>(view.storage.i_data), raw<int>(view.storage.j_data), raw<float>(view.storage.values),
-                                                       CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
-                                                       cuda_enum_map(tensor.basic_data_type()))// now only float32
+                LUISA_CHECK_CUSPARSE(
+                    cusparseCreateCsr(&_desc_handle,
+                                      view.row, view.col, view.desc.nnz,
+                                      raw<int>(view.storage.i_data), raw<int>(view.storage.j_data), raw<float>(view.storage.values),
+                                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
+                                      cuda_enum_map(tensor.basic_data_type()))// now only float32
                 );
             } break;
             case luisa::compute::tensor::SparseMatrixFormat::CSC: {
-                LUISA_CHECK_CUSPARSE(cusparseCreateCsc(&_desc_handle,
-                                                       view.desc.row, view.desc.col, view.desc.nnz,
-                                                       raw<int>(view.storage.i_data), raw<int>(view.storage.j_data), raw<float>(view.storage.values),
-                                                       CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
-                                                       cuda_enum_map(tensor.basic_data_type()))// now only float32
+                LUISA_CHECK_CUSPARSE(
+                    cusparseCreateCsc(&_desc_handle,
+                                      view.row, view.col, view.desc.nnz,
+                                      raw<int>(view.storage.i_data), raw<int>(view.storage.j_data), raw<float>(view.storage.values),
+                                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
+                                      cuda_enum_map(tensor.basic_data_type()))// now only float32
                 );
             } break;
             default:
@@ -96,11 +99,12 @@ public:
     CusparseSpVecDescRes(const luisa::compute::tensor::DTensor &tensor) {
         LUISA_ASSERT(tensor.basic_data_type() == luisa::compute::tensor::TensorBasicDataType::FLOAT32, "now only float32 is supported");
         auto view = tensor.sparse_vector_view();
-        cusparseCreateSpVec(&_desc_handle,
-                            view.desc.n, view.desc.nnz,
-                            raw<int>(view.storage.indices), raw<float>(view.storage.values),
-                            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
-                            cuda_enum_map(tensor.basic_data_type())// now only float32
+        LUISA_CHECK_CUSPARSE(
+            cusparseCreateSpVec(&_desc_handle,
+                                view.n, view.desc.nnz,
+                                raw<int>(view.storage.indices), raw<float>(view.storage.values),
+                                CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO,
+                                cuda_enum_map(tensor.basic_data_type()))// now only float32
         );
     }
     virtual ~CusparseSpVecDescRes() noexcept {

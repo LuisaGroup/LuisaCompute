@@ -6,12 +6,12 @@ namespace luisa::compute::tensor {
 class DenseVectorDesc {
 public:
     int offset = 0;// start
-    int n = 0;     // size
     int inc = 1;   // stride
 };
 
 class DenseVectorView {
 public:
+    int n = 0; // logical size
     DenseStorageView storage;
     DenseVectorDesc desc;
 };

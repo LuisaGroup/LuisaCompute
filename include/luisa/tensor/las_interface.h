@@ -17,6 +17,9 @@ public:
     // Tensor<T> should keep the handle and release the handle at the end of its life cycle.
     virtual S<BackendTensorRes> alloc_backend_tensor_res(const DTensor &) noexcept { return nullptr; }
 
+    virtual uint64_t create_backend_tensor_res(const DTensor &) noexcept { return 0; }
+    virtual void destroy_backend_tensor_res(const DTensor &) noexcept {}
+
     // BLAS
     // level-1
     virtual void Iamax(DTensor &result, const DTensor &vec_x) noexcept = 0;

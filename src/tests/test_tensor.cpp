@@ -158,6 +158,7 @@ void test_blas_level_3(tensor::TensorMaker &maker, tensor::LASInterface *las, St
 }
 
 void test_sparse_level_1(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
+    LUISA_INFO("====================test sparse level 1====================");
     luisa::vector<float> h_values = {1.0f, 3.0f};
     luisa::vector<int> h_indices = {0, 2};
     auto x = maker.sparse_vector(3, h_values.size());
@@ -174,7 +175,7 @@ void test_sparse_level_1(tensor::TensorMaker &maker, tensor::LASInterface *las, 
     stream << y.dense_storage().copy_from(h_y.data());
 
     size_t buffer_size = las->spvv_buffer_size(r, y, x);
-    auto ext_buffer = maker.dense_storage(buffer_size);
+    auto ext_buffer = maker.external_buffer(buffer_size);
     las->spvv(r, y, x, ext_buffer);
 
     stream << r.dense_storage().copy_to(&h_r);
@@ -184,7 +185,7 @@ void test_sparse_level_1(tensor::TensorMaker &maker, tensor::LASInterface *las, 
 }
 
 void test_sparse_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
-
+    LUISA_INFO("====================test sparse level 2====================");
     // A
     luisa::vector<float> h_values = {1.0f, 2.0f, 3.0f};
     luisa::vector<int> h_row_indices = {0, 1, 2};
@@ -207,22 +208,19 @@ void test_sparse_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, 
     stream << A.sparse_matrix_storage().values.copy_from(h_values.data());
     stream << A.sparse_matrix_storage().i_data.copy_from(h_row_indices.data());
     stream << A.sparse_matrix_storage().j_data.copy_from(h_col_indices.data());
-    stream << synchronize();
 
     // copy x y
     stream << x.dense_storage().copy_from(h_x.data());
     stream << y.dense_storage().copy_from(h_y.data());
-    stream << synchronize();
+
 
     // copy alpha beta
     stream << alpha.dense_storage().copy_from(&h_alpha);
     stream << beta.dense_storage().copy_from(&h_beta);
-    stream << synchronize();
     // mv
     size_t buffer_size = las->spmv_buffer_size(y, alpha, A, x, beta);
-    auto ext_buffer = maker.dense_storage(buffer_size);
+    auto ext_buffer = maker.external_buffer(buffer_size);
     las->spmv(y, alpha, A, x, beta, ext_buffer);
-    stream << synchronize();
     stream << y.dense_storage().copy_to(h_y.data());
     stream << synchronize();
 
