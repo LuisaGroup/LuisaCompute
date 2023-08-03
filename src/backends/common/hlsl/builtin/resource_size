@@ -4,6 +4,12 @@ uint c,s;
 b.GetDimensions(c,s);
 return c;
 }
+template<typename T>
+uint _bytebfsize(T b){
+uint c;
+b.GetDimensions(c);
+return c;
+}
 uint2 _texsize(Texture2D<float4> t){
 uint2 s;
 uint mip;

@@ -79,7 +79,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
     }
-    if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE)) {
+    if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("resource_size", internalDataPath);
     }
     bool useBindless = false;
@@ -147,7 +147,8 @@ void CodegenUtility::RegistStructType(Type const *type) {
     if (type->is_structure() || type->is_array())
         opt->structTypes.try_emplace(type, opt->count++);
     else if (type->is_buffer()) {
-        RegistStructType(type->element());
+        if (type->element())
+            RegistStructType(type->element());
     }
 }
 
@@ -320,30 +321,36 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         }
             return;
         case Type::Tag::BUFFER: {
-
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
                 str << "RW"sv;
-            str << "StructuredBuffer<"sv;
             auto ele = type.element();
-            if (ele->is_matrix()) {
-                auto n = vstd::to_string(ele->dimension());
-                str << "_WrappedFloat"sv << n << 'x' << n;
-            } else {
-                vstd::StringBuilder typeName;
-                if (ele->is_vector() && ele->dimension() == 3) {
-                    GetTypeName(*ele->element(), typeName, usage);
-                    typeName << '4';
+            // StructuredBuffer
+            if (ele != nullptr) {
+                str << "StructuredBuffer<"sv;
+                if (ele->is_matrix()) {
+                    auto n = vstd::to_string(ele->dimension());
+                    str << "_WrappedFloat"sv << n << 'x' << n;
                 } else {
-                    GetTypeName(*ele, typeName, usage);
+                    vstd::StringBuilder typeName;
+                    if (ele->is_vector() && ele->dimension() == 3) {
+                        GetTypeName(*ele->element(), typeName, usage);
+                        typeName << '4';
+                    } else {
+                        GetTypeName(*ele, typeName, usage);
+                    }
+                    auto ite = opt->structReplaceName.find(typeName);
+                    if (ite != opt->structReplaceName.end()) {
+                        str << ite->second;
+                    } else {
+                        str << typeName;
+                    }
                 }
-                auto ite = opt->structReplaceName.find(typeName);
-                if (ite != opt->structReplaceName.end()) {
-                    str << ite->second;
-                } else {
-                    str << typeName;
-                }
+                str << '>';
             }
-            str << '>';
+            // ByteAddressBuffer
+            else {
+                str << "ByteAddressBuffer"sv;
+            }
         } break;
         case Type::Tag::TEXTURE: {
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
@@ -758,13 +765,99 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_bfwrite"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
-                str << "Vec3"sv;
+                str << "Vec3("sv;
+                PrintArgs();
+                str << ',';
+                GetTypeName(*elem->element(), str, Usage::NONE);
+                str << ')';
+                return;
             } else if (elem->is_matrix()) {
                 str << "Mat";
             }
         } break;
         case CallOp::BUFFER_SIZE: {
             str << "_bfsize"sv;
+        } break;
+        case CallOp::BYTE_BUFFER_READ: {
+            str << "_bytebfread"sv;
+            auto elem = expr->type();
+            if (IsNumVec3(*elem)) {
+                str << "Vec3("sv;
+                args[0]->accept(vis);
+                str << ',';
+                GetTypeName(*elem->element(), str, Usage::NONE);
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+
+            } else if (elem->is_matrix()) {
+                str << "Mat(";
+                args[0]->accept(vis);
+                str << ',';
+                switch (elem->dimension()) {
+                    case 2:
+                        str << "_WrappedFloat2x2"sv;
+                        break;
+                    case 3:
+                        str << "_WrappedFloat3x3"sv;
+                        break;
+                    case 4:
+                        str << "_WrappedFloat4x4"sv;
+                        break;
+                }
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+            } else {
+                str << '(';
+                args[0]->accept(vis);
+                str << ',';
+                GetTypeName(*elem, str, Usage::NONE);
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+            }
+            return;
+        }
+        case CallOp::BYTE_BUFFER_WRITE: {
+            str << "_bytebfwrite"sv;
+            auto elem = args[2]->type();
+            if (elem == Type::of<float3>()) {
+                str << "Vec3("sv;
+                args[0]->accept(vis);
+                str << ',';
+                GetTypeName(*elem->element(), str, Usage::NONE);
+                str << ',';
+                args[1]->accept(vis);
+                str << ',';
+                args[2]->accept(vis);
+                str << ')';
+                return;
+            } else if (elem->is_matrix()) {
+                str << "Mat(";
+                args[0]->accept(vis);
+                str << ',';
+                switch (elem->dimension()) {
+                    case 2:
+                        str << "_WrappedFloat2x2"sv;
+                        break;
+                    case 3:
+                        str << "_WrappedFloat3x3"sv;
+                        break;
+                    case 4:
+                        str << "_WrappedFloat4x4"sv;
+                        break;
+                }
+                str << ',';
+                args[1]->accept(vis);
+                str << ',';
+                args[2]->accept(vis);
+                str << ')';
+                return;
+            }
+        } break;
+        case CallOp::BYTE_BUFFER_SIZE: {
+            str << "_bytebfsize"sv;
         } break;
         case CallOp::TEXTURE_SIZE: {
             str << "_texsize"sv;

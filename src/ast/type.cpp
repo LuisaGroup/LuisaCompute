@@ -170,7 +170,9 @@ void TypeRegistry::traverse(TypeVisitor &visitor) const noexcept {
 }
 
 const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
-
+    if (desc == "void") [[unlikely]] {
+        return nullptr;
+    }
     auto hash = _compute_hash(desc);
     if (auto iter = _type_set.find(TypeDescAndHash{desc, hash});
         iter != _type_set.cend()) { return *iter; }
@@ -347,7 +349,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         match('<');
         auto m = info->members.emplace_back(_decode(split()));
         match('>');
-        if (m->is_buffer() || m->is_texture()) [[unlikely]] {
+        if (m && (m->is_buffer() || m->is_texture())) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Buffers are not allowed to "
                 "hold buffers or images.");
