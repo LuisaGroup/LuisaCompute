@@ -10,38 +10,35 @@ class MetalDebugCaptureScope : public concepts::Noncopyable {
 private:
     MTL::CaptureScope *_scope;
     MTL::CaptureDescriptor *_descriptor;
-    MTL::CaptureManager *_manager;
 
 public:
-    MetalDebugCaptureScope(MTL::CaptureManager *manager,
-                           MTL::CaptureDescriptor *descriptor,
+    MetalDebugCaptureScope(MTL::CaptureDescriptor *descriptor,
                            MTL::CaptureScope *scope) noexcept
-        : _scope{scope}, _descriptor{descriptor}, _manager{manager} {}
+        : _scope{scope}, _descriptor{descriptor} {}
 
     ~MetalDebugCaptureScope() noexcept {
         if (_scope) { _scope->endScope(); }
-        _manager->stopCapture();
         _scope->release();
         _descriptor->release();
-        _manager->release();
     }
 
-    void start() const noexcept {
-        if (!_manager->isCapturing()) {
-            NS::Error *error = nullptr;
-            _manager->startCapture(_descriptor, &error);
-            if (error != nullptr) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "Failed to start debug capture: {}",
-                    error->localizedDescription()->utf8String());
-            }
+    void begin_capture() const noexcept {
+        auto manager = MTL::CaptureManager::sharedCaptureManager();
+        NS::Error *error = nullptr;
+        manager->startCapture(_descriptor, &error);
+        if (error) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to start debug capture: {}.",
+                error->localizedDescription()->utf8String());
         }
-        if (_scope) { _scope->beginScope(); }
     }
 
-    void stop() const noexcept {
-        if (_scope) { _scope->endScope(); }
-        _manager->stopCapture();
+    void mark_begin() const noexcept {
+        _scope->beginScope();
+    }
+
+    void mark_end() const noexcept {
+        _scope->endScope();
     }
 };
 
@@ -87,20 +84,17 @@ template<typename Object>
         desc->setOutputURL(NS::URL::fileURLWithPath(mtl_name));
         mtl_name->release();
     }
-    auto manager = MTL::CaptureManager::alloc()->init();
-    MTL::CaptureScope *scope = nullptr;
+
+    auto scope = MTL::CaptureManager::sharedCaptureManager()->newCaptureScope(object);
     if (!label.empty()) {
-        scope = manager->newCaptureScope(object);
         auto mtl_label = NS::String::alloc()->init(
             const_cast<char *>(label.data()), label.size(),
             NS::UTF8StringEncoding, false);
         scope->setLabel(mtl_label);
         mtl_label->release();
-        desc->setCaptureObject(scope);
-    } else {
-        desc->setCaptureObject(object);
     }
-    return luisa::new_with_allocator<MetalDebugCaptureScope>(manager, desc, scope);
+    desc->setCaptureObject(scope);
+    return luisa::new_with_allocator<MetalDebugCaptureScope>(desc, scope);
 }
 
 }// namespace detail
@@ -130,17 +124,31 @@ void MetalDebugCaptureExt::destroy_capture_scope(uint64_t handle) const noexcept
     });
 }
 
-void MetalDebugCaptureExt::start_capture(uint64_t handle) const noexcept {
+void MetalDebugCaptureExt::start_debug_capture(uint64_t handle) const noexcept {
     with_autorelease_pool([&] {
         auto scope = reinterpret_cast<MetalDebugCaptureScope *>(handle);
-        scope->start();
+        scope->begin_capture();
     });
 }
 
-void MetalDebugCaptureExt::stop_capture(uint64_t handle) const noexcept {
+void MetalDebugCaptureExt::stop_debug_capture() const noexcept {
+    with_autorelease_pool([&] {
+        auto manager = MTL::CaptureManager::sharedCaptureManager();
+        manager->stopCapture();
+    });
+}
+
+void MetalDebugCaptureExt::mark_scope_begin(uint64_t handle) const noexcept {
     with_autorelease_pool([&] {
         auto scope = reinterpret_cast<MetalDebugCaptureScope *>(handle);
-        scope->stop();
+        scope->mark_begin();
+    });
+}
+
+void MetalDebugCaptureExt::mark_scope_end(uint64_t handle) const noexcept {
+    with_autorelease_pool([&] {
+        auto scope = reinterpret_cast<MetalDebugCaptureScope *>(handle);
+        scope->mark_end();
     });
 }
 
