@@ -146,6 +146,12 @@ public:
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;
+
+    template<typename VBuffer, typename TBuffer>
+    [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
+                                   size_t vertex_stride,
+                                   TBuffer &&triangles,
+                                   const AccelOption &option = {}) noexcept;
     // see definition in rtx/procedural_primitive.h
     template<typename AABBBuffer>
     [[nodiscard]] ProceduralPrimitive create_procedural_primitive(AABBBuffer &&aabb_buffer,
