@@ -12,6 +12,9 @@ struct PinnedMemoryOption {
 
 class PinnedMemoryExt : public DeviceExtension {
 
+public:
+    static constexpr luisa::string_view name = "PinnedMemoryExt";
+
 protected:
     [[nodiscard]] virtual BufferCreationInfo _pin_host_memory(
         const Type *elem_type, size_t elem_count,

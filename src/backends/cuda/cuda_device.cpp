@@ -103,8 +103,7 @@ CUDADevice::CUDADevice(Context &&ctx,
         _io = _default_io.get();
     }
     _compiler = luisa::make_unique<CUDACompiler>(this);
-
-    auto sm_option = luisa::format("-arch=sm_{}", handle().compute_capability());
+    auto sm_option = luisa::format("-arch=compute_{}", handle().compute_capability());
     std::array options{sm_option.c_str(),
                        "--std=c++17",
                        "--use_fast_math",
@@ -120,11 +119,21 @@ CUDADevice::CUDADevice(Context &&ctx,
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
 
     // prepare default shaders
-    with_handle([this, &builtin_kernel_ptx] {
-        LUISA_CHECK_CUDA(cuCtxResetPersistingL2Cache());
-        LUISA_CHECK_CUDA(cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_L1));
-        LUISA_CHECK_CUDA(cuModuleLoadData(
-            &_builtin_kernel_module, builtin_kernel_ptx.data()));
+    with_handle([&] {
+        auto error = cuModuleLoadData(&_builtin_kernel_module, builtin_kernel_ptx.data());
+        if (error != CUDA_SUCCESS) {
+            const char *error_string = nullptr;
+            cuGetErrorString(error, &error_string);
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to load built-in kernels: {}. "
+                "Re-trying with lower compute capability...",
+                error_string ? error_string : "Unknown error");
+            _handle.force_compute_capability(60u);
+            options.front() = "-arch=compute_60";
+            builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
+            error = cuModuleLoadData(&_builtin_kernel_module, builtin_kernel_ptx.data());
+        }
+        LUISA_CHECK_CUDA(error);
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_accel_update_function, _builtin_kernel_module,
             "update_accel"));

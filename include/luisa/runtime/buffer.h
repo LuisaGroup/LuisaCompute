@@ -201,7 +201,9 @@ public:
     [[nodiscard]] auto size_bytes() const noexcept { return _size * _element_stride; }
 
     [[nodiscard]] auto original() const noexcept {
-        return BufferView{_handle, _element_stride, 0u, _total_size, _total_size};
+        return BufferView{_native_handle, _handle,
+                          _element_stride, 0u,
+                          _total_size, _total_size};
     }
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         if (size_elements + offset_elements > _size) [[unlikely]] {

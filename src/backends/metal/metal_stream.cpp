@@ -127,6 +127,9 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
             LUISA_WARNING("CommandBuffer execution error: {}.",
                           error->localizedDescription()->utf8String());
         }
+        if (auto logs = cb->logs()) {
+            luisa_compute_metal_stream_print_function_logs(logs);
+        }
     });
 #endif
     command_buffer->commit();

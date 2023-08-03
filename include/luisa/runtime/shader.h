@@ -18,6 +18,12 @@ class Accel;
 class BindlessArray;
 class IndirectDispatchBuffer;
 
+template<typename>
+class SOA;
+
+template<typename T>
+class SOAView;
+
 namespace detail {
 
 template<typename... Args>
@@ -48,6 +54,11 @@ struct prototype_to_shader_invocation<Image<T>> {
 template<typename T>
 struct prototype_to_shader_invocation<Volume<T>> {
     using type = VolumeView<T>;
+};
+
+template<typename T>
+struct prototype_to_shader_invocation<SOA<T>> {
+    using type = SOAView<T>;
 };
 
 template<typename T>
@@ -102,6 +113,12 @@ public:
         volume._check_is_valid();
         return *this << volume.view();
     }
+
+    template<typename T>
+    ShaderInvokeBase &operator<<(const SOA<T> &soa) noexcept;
+
+    template<typename T>
+    ShaderInvokeBase &operator<<(SOAView<T> soa) noexcept;
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {

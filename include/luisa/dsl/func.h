@@ -301,6 +301,8 @@ public:
     CallableInvoke &operator<<(Expr<T> arg) noexcept {
         if constexpr (requires { typename Expr<T>::is_binding_group; }) {
             callable_encode_binding_group(*this, arg);
+        } else if constexpr (is_soa_expr_v<T>) {
+            callable_encode_soa(*this, arg);
         } else {
             if (_arg_count == max_argument_count) [[unlikely]] {
                 _error_too_many_arguments();

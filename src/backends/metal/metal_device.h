@@ -8,6 +8,8 @@ namespace luisa::compute::metal {
 
 class MetalCompiler;
 class MetalDStorageExt;
+class MetalDebugCaptureExt;
+class MetalPinnedMemoryExt;
 
 class MetalDevice : public DeviceInterface {
 
@@ -31,6 +33,8 @@ private:
 private:
     std::mutex _ext_mutex;
     luisa::unique_ptr<MetalDStorageExt> _dstorage_ext;
+    luisa::unique_ptr<MetalPinnedMemoryExt> _pinned_memory_ext;
+    luisa::unique_ptr<MetalDebugCaptureExt> _debug_capture_ext;
 
 public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
