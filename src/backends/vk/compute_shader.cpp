@@ -108,7 +108,7 @@ ComputeShader *ComputeShader::compile(
                     {});
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
-                        shader,
+                        shader->binds(),
                         md5,
                         vstd::MD5(vstd::MD5::MD5Data{0, 0}),
                         kernel.block_size(),

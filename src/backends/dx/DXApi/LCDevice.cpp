@@ -254,8 +254,6 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             option.name,
             option.enable_fast_math);
         info.invalidate();
-        info.block_size = kernel.block_size();
-
     } else {
         vstd::string_view file_name;
         vstd::string str_cache;
@@ -283,11 +281,11 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             file_name,
             cacheType,
             option.enable_fast_math);
-        info.block_size = kernel.block_size();
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
         return info;
     }
+    info.block_size = kernel.block_size();
     return info;
 }
 ShaderCreationInfo LCDevice::load_shader(

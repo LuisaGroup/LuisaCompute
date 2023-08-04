@@ -18,7 +18,7 @@ struct PSODataPackage {
 };
 }// namespace detail
 void ShaderSerializer::serialize_bytecode(
-    Shader const *shader,
+    vstd::span<const hlsl::Property> binds,
     vstd::MD5 shader_md5,
     vstd::MD5 type_md5,
     uint3 block_size,
@@ -28,7 +28,6 @@ void ShaderSerializer::serialize_bytecode(
     BinaryIO const *bin_io) {
     using namespace detail;
     vstd::vector<std::byte> results;
-    auto binds = shader->binds();
     ShaderSerHeader header{
         .md5 = shader_md5,
         .type_md5 = type_md5,

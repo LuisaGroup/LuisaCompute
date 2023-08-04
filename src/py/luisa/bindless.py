@@ -1,10 +1,10 @@
 from .dylibs import lcapi
-from .dylibs.lcapi import uint2, uint3, ulong
+from .dylibs.lcapi import uint2, uint3
 from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
 from . import Buffer, Image2D, Image3D
-from .types import BuiltinFuncBuilder, to_lctype, uint
+from .types import BuiltinFuncBuilder, to_lctype, uint, ulong
 from .builtin import check_exact_signature
 
 
