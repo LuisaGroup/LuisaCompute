@@ -39,6 +39,14 @@ public:
         uint height,
         // custom data see backends' header
         void *custom_data) noexcept = 0;
+    virtual uint64_t get_native_resource_device_address(
+        void *native_handle) noexcept = 0;
+    template<typename T>
+    [[nodiscard]] uint64_t get_device_address(const Buffer<T> &buffer) noexcept;
+    template<typename T>
+    [[nodiscard]] uint64_t get_device_address(const Image<T> &image) noexcept;
+    template<typename T>
+    [[nodiscard]] uint64_t get_device_address(const Volume<T> &volume) noexcept;
     template<typename T>
     [[nodiscard]] Buffer<T> create_native_buffer(void *native_ptr, size_t elem_count, void *custom_data) noexcept;
     [[nodiscard]] DepthBuffer create_native_depth_buffer(
@@ -46,7 +54,7 @@ public:
         DepthFormat format,
         uint width,
         uint height,
-        void *custom_data);
+        void *custom_data) noexcept;
     template<typename T>
     [[nodiscard]] Image<T> create_native_image(
         void *external_ptr,
