@@ -44,7 +44,7 @@ public:
 class DenseMatrixView {
 public:
     int row, col; // logical size
-    DenseStorageView storage;
+    luisa::vector<DenseStorageView> storage;
     DenseMatrixDesc desc;
     MatrixOperation operation;
 };

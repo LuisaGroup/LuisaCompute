@@ -26,7 +26,7 @@ DTensor::DTensor(DTensor &&other) noexcept {
 ScalarView DTensor::scalar_view() const noexcept {
     LUISA_ASSERT(_scalar_desc, "mismatching tensor type");
     return ScalarView{
-        .storage = dense_storage_view(),
+        .storage = dense_storage_view()[0],
         .desc = *_scalar_desc};
 }
 
@@ -64,5 +64,11 @@ SparseMatrixView DTensor::sparse_matrix_view() const noexcept {
         .storage = basic_sparse_matrix_storage_view(),
         .desc = *_sparse_matrix_desc,
         .operation = _matrix_operation};
+}
+
+BatchView DTensor::batch_view() const noexcept {
+    return BatchView{
+        .storage = batch_storage_view(),
+        .desc = *_batch_desc};
 }
 }// namespace luisa::compute::tensor

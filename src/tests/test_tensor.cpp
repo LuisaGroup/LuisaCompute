@@ -107,6 +107,49 @@ void test_blas_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, St
         stream << synchronize();
         LUISA_INFO("{}: A = [1,2;3,4] x = [1,0]  y = A.T * x = [{},{}] ([1,2])", ID++, h_y[0], h_y[1]);
     }
+
+    //// batched mv
+    //{
+    //    luisa::vector<float> h_A = {
+    //        1.0f, 3.0f,// col 0
+    //        2.0f, 4.0f // col 1
+    //    };
+
+    //    luisa::vector<float> h_x = {1.0f, 0.0f};
+    //    auto h_y = luisa::vector<luisa::vector<float>>{2};
+    //    std::for_each(h_y.begin(), h_y.end(), [](auto &item) { item.resize(2); });
+
+    //    float h_alpha = 1.0f;
+    //    float h_beta = 0.0f;
+
+    //    auto A = maker.dense_matrix_batched(2, 2, 2);
+    //    auto x = maker.dense_vector_batched(2, 2);
+    //    auto y = maker.dense_vector_batched(2, 2);
+    //    auto alpha = maker.scalar<float>();
+    //    auto beta = maker.scalar<float>();
+
+    //    // copy data to all batches
+    //    for (auto &item : A.dense_storages()) stream << item.copy_from(h_A.data());
+    //    for (auto &item : x.dense_storages()) stream << item.copy_from(h_x.data());
+    //    stream << alpha.dense_storage().copy_from(&h_alpha);
+    //    stream << beta.dense_storage().copy_from(&h_beta);
+    //    las->mv_batched(y, alpha, A, x, beta);
+    //    stream << synchronize();
+    //    // copy data from all batches
+
+    //    {
+    //        int i = 0;
+    //        std::for_each(h_y.begin(), h_y.end(),
+    //            [&](auto &v) { stream << y.dense_storages()[i++].copy_to(v.data()); });
+    //    }
+
+    //    stream << synchronize();
+
+    //    LUISA_INFO(
+    //        "{}: A = [1,2;3,4] [1,2;3,4]  x = [1,0] [1,0]\n"
+    //        "y = A * x = [{},{}] [{},{}] ([1,3] [1,3])",
+    //        ID++, h_y[0][0], h_y[0][1], h_y[1][0], h_y[1][1]);
+    //}
 }
 
 void test_blas_level_3(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
@@ -154,6 +197,63 @@ void test_blas_level_3(tensor::TensorMaker &maker, tensor::LASInterface *las, St
         stream << C.dense_storage().copy_to(h_C.data());
         stream << synchronize();
         LUISA_INFO("{}: A = [1,2;3,4] B = [1,2;3,4]  C = A.T * B = [{},{}; {},{}] ([10,14; 14, 20])", ID++, h_C[0], h_C[2], h_C[1], h_C[3]);
+    }
+
+    // batched mm
+    {
+        luisa::vector<float> h_A = {
+            1.0f, 3.0f,// col 0
+            2.0f, 4.0f // col 1
+        };
+
+        luisa::vector<float> h_B = {
+            1.0f, 3.0f,// col 0
+            2.0f, 4.0f // col 1
+        };
+
+        luisa::vector<luisa::vector<float>> h_C = {
+            // C0
+            {
+                0.0f, 0.0f,// col 0
+                0.0f, 0.0f,// col 1
+
+            },// C1
+            {
+                0.0f, 0.0f,// col 0
+                0.0f, 0.0f,// col 1
+            }};
+
+        float h_alpha = 1.0f;
+        float h_beta = 0.0f;
+
+        auto A = maker.dense_matrix_batched(2, 2, 2);
+        auto B = maker.dense_matrix_batched(2, 2, 2);
+        auto C = maker.dense_matrix_batched(2, 2, 2);
+        auto alpha = maker.scalar<float>();
+        auto beta = maker.scalar<float>();
+
+        // copy data to all batches
+        for (auto &item : A.dense_storages()) stream << item.copy_from(h_A.data());
+        for (auto &item : B.dense_storages()) stream << item.copy_from(h_B.data());
+
+        stream << alpha.dense_storage().copy_from(&h_alpha);
+        stream << beta.dense_storage().copy_from(&h_beta);
+        tensor::MatrixMulOptions options{
+            .side = tensor::MatrixASide::LEFT};
+        las->mm_batched(C, alpha, A, B, beta, options);
+        stream << synchronize();
+
+        // copy data from all batches
+        {
+            int i = 0;
+            std::for_each(h_C.begin(), h_C.end(), [&](luisa::vector<float> &v) { stream << C.dense_storages()[i++].copy_to(v.data()); });
+        }
+        stream << synchronize();
+
+        LUISA_INFO("{}: A = [1,2;3,4] B = [1,2;3,4]  C = A * B = [{},{}; {},{}] [{},{}; {},{}] ([7,10; 15,22])",
+                   ID++,
+                   h_C[0][0], h_C[0][2], h_C[0][1], h_C[0][3],
+                   h_C[1][0], h_C[1][2], h_C[1][1], h_C[1][3]);
     }
 }
 
@@ -213,7 +313,6 @@ void test_sparse_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, 
     stream << x.dense_storage().copy_from(h_x.data());
     stream << y.dense_storage().copy_from(h_y.data());
 
-
     // copy alpha beta
     stream << alpha.dense_storage().copy_from(&h_alpha);
     stream << beta.dense_storage().copy_from(&h_beta);
@@ -237,6 +336,7 @@ int main(int argc, char *argv[]) {
     auto las = device.impl()->create_las_interface(stream.handle());
 
     tensor::TensorMaker maker{device, las};
+    Buffer<uint64_t> buffer = device.create_buffer<uint64_t>(10);
 
     test_blas_level_1(maker, las, stream);
     test_blas_level_2(maker, las, stream);

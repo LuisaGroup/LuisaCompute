@@ -8,13 +8,33 @@
 #include "raw_ptr_cast.h"
 
 namespace luisa::compute::cuda::tensor {
+class BatchRes {
+    vector<uint64_t> _array_of_ptr;
+public:
+    BatchRes(const luisa::compute::tensor::DTensor &tensor, const vector<DenseStorageView>& storage) noexcept {
+        if (tensor.is_batched()) {
+            _array_of_ptr.resize(storage.size());
+            std::transform(storage.begin(), storage.end(), _array_of_ptr.begin(),
+                           [&](const DenseStorageView &d) {
+                               return reinterpret_cast<uint64_t>(raw_ptr(d));
+                           });
+
+            auto device_ptr = reinterpret_cast<uint64_t>(raw_ptr(tensor.batch_view().storage));
+
+            cuMemcpyHtoD(device_ptr, _array_of_ptr.data(), sizeof(uint64_t) * _array_of_ptr.size());
+        }
+    }
+};
+
 class CusparseDnVecDescRes : public luisa::compute::tensor::BackendTensorRes {
     cusparseDnVecDescr_t _desc_handle = nullptr;
+    BatchRes _batch_res;
 public:
-    CusparseDnVecDescRes(const luisa::compute::tensor::DTensor &tensor) noexcept {
+    CusparseDnVecDescRes(const luisa::compute::tensor::DTensor &tensor) noexcept
+        : _batch_res{tensor, tensor.dense_vector_view().storage} {
         LUISA_ASSERT(tensor.basic_data_type() == luisa::compute::tensor::TensorBasicDataType::FLOAT32, "now only float32 is supported");
         auto view = tensor.dense_vector_view();
-        cusparseCreateDnVec(&_desc_handle, view.n, raw<float>(view.storage), cuda_enum_map(tensor.basic_data_type()));
+        cusparseCreateDnVec(&_desc_handle, view.n, raw<float>(view), cuda_enum_map(tensor.basic_data_type()));
     }
 
     virtual ~CusparseDnVecDescRes() noexcept {
@@ -26,13 +46,15 @@ public:
 
 class CusparseDnMatDescRes : public luisa::compute::tensor::BackendTensorRes {
     cusparseDnMatDescr_t _desc_handle = nullptr;
+    BatchRes _batch_res;
 public:
-    CusparseDnMatDescRes(const luisa::compute::tensor::DTensor &tensor) noexcept {
+    CusparseDnMatDescRes(const luisa::compute::tensor::DTensor &tensor) noexcept
+        : _batch_res{tensor, tensor.dense_matrix_view().storage} {
         LUISA_ASSERT(tensor.basic_data_type() == luisa::compute::tensor::TensorBasicDataType::FLOAT32, "now only float32 is supported");
         auto view = tensor.dense_matrix_view();
         if (view.desc.shape == luisa::compute::tensor::DenseMatrixShape::GENERAL) {
             cusparseCreateDnMat(&_desc_handle,
-                                view.row, view.col, view.desc.lda, raw<float>(view.storage),
+                                view.row, view.col, view.desc.lda, raw<float>(view),
                                 cuda_enum_map(tensor.basic_data_type()), CUSPARSE_ORDER_COL);
         }
     }

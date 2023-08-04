@@ -150,6 +150,59 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
 }
 
 void CudaLAS::sv(DTensor &x, const DTensor &A) noexcept {
+    LUISA_ERROR("NO IMPL YET");
+}
+
+void CudaLAS::mv_batched(DTensor &y, const DTensor &alpha, const DTensor &A, const DTensor &x, const DTensor &beta) noexcept {
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto x_ = x.dense_vector_view();
+    auto x_array = x.batch_view();
+    auto beta_ = beta.scalar_view();
+    auto y_ = y.dense_vector_view();
+    auto y_array = y.batch_view();
+    using namespace luisa::compute::tensor;
+
+    LUISA_ASSERT(A.basic_data_type() == TensorBasicDataType::FLOAT32, "only float32 is supported.");
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::GENERAL, "only general matrix is supported.");
+    LUISA_ASSERT(A_.storage.size() == x_.storage.size() && A_.storage.size() == y_.storage.size(), "A, x, y must have the same batch size.");
+
+    LUISA_CHECK_CUBLAS(
+        cublasSgemvBatched(_cublas_handle,
+                           cublas_enum_map(A_.operation),
+                           A_.row, A_.col,
+                           raw<float>(alpha_),
+                           raw<float>(A_array), A_.desc.lda,
+                           raw<float>(x_array), x_.desc.inc,
+                           raw<float>(beta_),
+                           raw<float>(y_array), y_.desc.inc,
+                           A_array.desc._batch_count));
+}
+
+void CudaLAS::mv_strided_batched(DTensor &y, const DTensor &alpha, const DTensor &A, const DTensor &x, const DTensor &beta) noexcept {
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto x_ = x.dense_vector_view();
+    auto x_array = x.batch_view();
+    auto beta_ = beta.scalar_view();
+    auto y_ = y.dense_vector_view();
+    auto y_array = y.batch_view();
+    using namespace luisa::compute::tensor;
+
+    LUISA_ASSERT(A.basic_data_type() == TensorBasicDataType::FLOAT32, "only float32 is supported.");
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::GENERAL, "only general matrix is supported.");
+
+    cublasSgemvStridedBatched(_cublas_handle,
+                              cublas_enum_map(A_.operation),
+                              A_.row, A_.col,
+                              raw<float>(alpha_),
+                              raw<float>(A_), A_.desc.lda, A_array.desc._batch_stride,
+                              raw<float>(x_), x_.desc.inc, x_array.desc._batch_stride,
+                              raw<float>(beta_),
+                              raw<float>(y_), y_.desc.inc, y_array.desc._batch_stride,
+                              A_array.desc._batch_count);
 }
 
 void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
@@ -188,6 +241,69 @@ void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTens
 }
 
 void CudaLAS::sm(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
+    LUISA_ERROR("NO IMPL YET");
+}
+
+void CudaLAS::mm_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto B_ = B.dense_matrix_view();
+    auto B_array = B.batch_view();
+    auto beta_ = beta.scalar_view();
+    auto C_ = C.dense_matrix_view();
+    auto C_array = C.batch_view();
+    using namespace luisa::compute::tensor;
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::GENERAL &&
+                     B_.desc.shape == DenseMatrixShape::GENERAL &&
+                     C_.desc.shape == DenseMatrixShape::GENERAL,
+                 "only general matrix is supported for A, B, C.");
+    LUISA_ASSERT(A_.storage.size() == B_.storage.size() && A_.storage.size() == C_.storage.size(),
+                 "A, B, C must have the same batch size.");
+
+    LUISA_CHECK_CUBLAS(
+        cublasSgemmBatched(_cublas_handle,
+                           cublas_enum_map(A_.operation),
+                           cublas_enum_map(B_.operation),
+                           C_.row, C_.col, A_.col,
+                           raw<float>(alpha_),
+                           raw<float>(A_array), A_.desc.lda,
+                           raw<float>(B_array), B_.desc.lda,
+                           raw<float>(beta_),
+                           raw<float>(C_array), C_.desc.lda,
+                           A_.storage.size()));
+}
+
+void CudaLAS::mm_stride_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto B_ = B.dense_matrix_view();
+    auto B_array = B.batch_view();
+    auto beta_ = beta.scalar_view();
+    auto C_ = C.dense_matrix_view();
+    auto C_array = C.batch_view();
+    using namespace luisa::compute::tensor;
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::GENERAL &&
+                     B_.desc.shape == DenseMatrixShape::GENERAL &&
+                     C_.desc.shape == DenseMatrixShape::GENERAL,
+                 "only general matrix is supported for A, B, C.");
+    LUISA_ASSERT(A_.storage.size() == B_.storage.size() && A_.storage.size() == C_.storage.size(),
+                 "A, B, C must have the same batch size.");
+
+    LUISA_CHECK_CUBLAS(
+        cublasSgemmStridedBatched(_cublas_handle,
+                                  cublas_enum_map(A_.operation),
+                                  cublas_enum_map(B_.operation),
+                                  C_.row, C_.col, A_.col,
+                                  raw<float>(alpha_),
+                                  raw<float>(A_), A_.desc.lda, A_array.desc._batch_stride,
+                                  raw<float>(B_), B_.desc.lda, B_array.desc._batch_stride,
+                                  raw<float>(beta_),
+                                  raw<float>(C_), C_.desc.lda, C_array.desc._batch_stride,
+                                  A_array.desc._batch_count));
 }
 
 cublasOperation_t cublas_enum_map(luisa::compute::tensor::MatrixOperation op) noexcept {

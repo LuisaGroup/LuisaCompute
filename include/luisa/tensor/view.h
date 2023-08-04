@@ -11,3 +11,5 @@
 #include "view/dense_matrix_view.h"
 #include "view/sparse_vector_view.h"
 #include "view/sparse_matrix_view.h"
+
+#include "view/batch_view.h"

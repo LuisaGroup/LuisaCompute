@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "dense_storage_view.h"
+#include <luisa/core/stl/vector.h>
 
 namespace luisa::compute::tensor {
 class DenseVectorDesc {
@@ -12,7 +13,7 @@ public:
 class DenseVectorView {
 public:
     int n = 0; // logical size
-    DenseStorageView storage;
+    vector<DenseStorageView> storage;
     DenseVectorDesc desc;
 };
 }// namespace luisa::compute::tensor
