@@ -25,7 +25,6 @@ struct CodegenResult {
     Properties properties;
     bool useTex2DBindless;
     bool useTex3DBindless;
-    bool useBufferBindless;
     uint64 immutableHeaderSize = 0;
     vstd::MD5 typeMD5;
     CodegenResult() {}
@@ -34,9 +33,8 @@ struct CodegenResult {
         Properties &&properties,
         bool useTex2DBindless,
         bool useTex3DBindless,
-        bool useBufferBindless,
         uint64 immutableHeaderSize,
-        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
+        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };

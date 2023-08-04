@@ -38,7 +38,6 @@ void CodegenStackData::Clear() {
     tempCount = 0;
     useTex2DBindless = false;
     useTex3DBindless = false;
-    useBufferBindless = false;
 }
 /*
 static thread_local bool gIsCodegenSpirv = false;

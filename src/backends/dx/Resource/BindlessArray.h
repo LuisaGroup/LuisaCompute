@@ -14,7 +14,8 @@ public:
     using MapIndex = typename Map::Index;
     struct BindlessStruct {
         static constexpr auto n_pos = std::numeric_limits<uint>::max();
-        uint buffer = n_pos;
+        int64_t buffer = std::numeric_limits<int64_t>::max();
+        uint64_t buffer_size;
         uint tex2D = n_pos;
         uint tex3D = n_pos;
         void write_samp2d(uint tex, uint s) {
@@ -25,7 +26,6 @@ public:
         }
     };
     struct MapIndicies {
-        MapIndex buffer;
         MapIndex tex2D;
         MapIndex tex3D;
     };
