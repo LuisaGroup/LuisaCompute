@@ -1,5 +1,6 @@
 #include <luisa/runtime/byte_buffer.h>
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
 #include <luisa/core/logging.h>
 
 namespace luisa::compute {
@@ -29,5 +30,12 @@ ByteBuffer::~ByteBuffer() noexcept {
 }
 ByteBuffer Device::create_byte_buffer(size_t byte_size) noexcept {
     return ByteBuffer{impl(), byte_size};
+}
+namespace detail {
+ShaderInvokeBase &ShaderInvokeBase::operator<<(const ByteBuffer &buffer) noexcept {
+    buffer._check_is_valid();
+    _encoder.encode_buffer(buffer.handle(), 0u, buffer.size_bytes());
+    return *this;
+}
 }
 }// namespace luisa::compute

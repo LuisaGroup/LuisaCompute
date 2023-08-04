@@ -102,6 +102,8 @@ public:
         return *this << buffer.view();
     }
 
+    ShaderInvokeBase &operator<<(const ByteBuffer &buffer) noexcept;
+
     template<typename T>
     ShaderInvokeBase &operator<<(const Image<T> &image) noexcept {
         image._check_is_valid();

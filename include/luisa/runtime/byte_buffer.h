@@ -36,6 +36,13 @@ public:
         _check_is_valid();
         return luisa::make_unique<BufferUploadCommand>(handle(), 0u, _size_bytes, data);
     }
+    [[nodiscard]] auto copy_from(const void *data, size_t buffer_offset, size_t size_bytes) noexcept {
+        _check_is_valid();
+        if (size_bytes > _size_bytes) [[unlikely]] {
+            detail::error_buffer_copy_sizes_mismatch(size_bytes, _size_bytes);
+        }
+        return luisa::make_unique<BufferUploadCommand>(handle(), buffer_offset, size_bytes, data);
+    }
     template<typename T>
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         _check_is_valid();

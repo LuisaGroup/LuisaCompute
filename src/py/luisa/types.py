@@ -265,13 +265,15 @@ def dtype_of(val):
         return type(val)
     if type(val).__name__ == "IndirectDispatchBuffer":
         return type(val)
+    if type(val).__name__ == "ByteBufferType":
+        return type(val)
     if type(val).__name__ == "func":
         return CallableType
     if type(val).__name__ == "BuiltinFuncBuilder":
         return type(val)
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
-    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", 'ByteBufferType', "IndirectBufferType", "RayQueryAllType",
+    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", "IndirectBufferType", "RayQueryAllType",
                               "RayQueryAnyType", "SharedArrayType"} or val in basic_dtypes:
         return type
     if type(val).__name__ == "function":
@@ -279,7 +281,7 @@ def dtype_of(val):
 
 
 def to_lctype(dtype):
-    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "ByteBufferType", "Texture2DType", "Texture3DType", "CustomType",
+    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType", "Texture3DType", "CustomType",
                                 "RayQueryAllType", "RayQueryAnyType", "SharedArrayType"}:
         return dtype.luisa_type
     if not hasattr(dtype, "__name__"):
@@ -290,6 +292,8 @@ def to_lctype(dtype):
         return lcapi.Type.from_("accel")
     if dtype.__name__ == "IndirectDispatchBuffer":
         return lcapi.Type.custom("LC_IndirectDispatchBuffer")
+    if dtype.__name__ == "ByteBufferType":
+        return lcapi.Type.from_("buffer<void>")
     if dtype in basic_dtype_to_lctype_dict:
         return basic_dtype_to_lctype_dict[dtype]
     raise TypeError(f"{dtype} is not a valid data type")

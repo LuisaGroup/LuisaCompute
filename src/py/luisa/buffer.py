@@ -212,8 +212,6 @@ def from_bytes(dtype, packed):
 class ByteBufferType:
     def __init__(self):
         self.luisa_type = lcapi.Type.from_("buffer<void>")
-        self.read = self.get_read_method()
-        self.write = self.get_write_method()
 
     def __eq__(self, other):
         return type(other) is ByteBufferType
@@ -221,26 +219,17 @@ class ByteBufferType:
     def __hash__(self):
         return 415937298919836672
     
-    @staticmethod
-    @cache
-    def get_read_method():
-        @BuiltinFuncBuilder
-        def read(self, ele_type, idx):
-            check_exact_signature([type, uint], [ele_type, idx], "byte_read")
-            dtype = ele_type.expr
-            return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BYTE_BUFFER_READ, [self.expr, idx.expr])
+    @BuiltinFuncBuilder
+    def read(self, ele_type, idx):
+        check_exact_signature([type, uint], [ele_type, idx], "byte_read")
+        dtype = ele_type.expr
+        return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BYTE_BUFFER_READ, [self.expr, idx.expr])
 
-        return read
+    @BuiltinFuncBuilder
+    def write(self, idx, value):
+        check_exact_signature([uint], [idx], "byte_write")
+        return None, lcapi.builder().call(lcapi.CallOp.BYTE_BUFFER_WRITE, [self.expr, idx.expr, value.expr])
 
-    @staticmethod
-    @cache
-    def get_write_method():
-        @BuiltinFuncBuilder
-        def write(self, idx, value):
-            check_exact_signature([uint], [idx], "byte_write")
-            return None, lcapi.builder().call(lcapi.CallOp.BYTE_BUFFER_WRITE, [self.expr, idx.expr, value.expr])
-
-        return write
 
     
 class ByteBuffer:
