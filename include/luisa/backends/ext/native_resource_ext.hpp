@@ -4,7 +4,7 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/volume.h>
 #include <luisa/runtime/raster/depth_buffer.h>
-#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/byte_buffer.h>
 #include <luisa/backends/ext/raster_ext.hpp>
 #include <luisa/backends/ext/native_resource_ext_interface.h>
 
@@ -100,5 +100,7 @@ template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Volume<T> &volume) noexcept {
     return get_native_resource_device_address(volume.native_handle());
 }
-
+uint64_t NativeResourceExt::get_device_address(const ByteBuffer &buffer) noexcept {
+    return get_native_resource_device_address(buffer.native_handle());
+}
 }// namespace luisa::compute
