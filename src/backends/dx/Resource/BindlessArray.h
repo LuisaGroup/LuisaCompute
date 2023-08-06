@@ -26,6 +26,7 @@ public:
         }
     };
     struct MapIndicies {
+        MapIndex buffer;
         MapIndex tex2D;
         MapIndex tex3D;
     };
@@ -35,6 +36,7 @@ private:
     Map ptrMap;
     mutable std::mutex mtx;
     DefaultBuffer buffer;
+    void TryReturnIndex(MapIndex &index);
     void TryReturnIndex(MapIndex &index, uint &originValue);
     MapIndex AddIndex(size_t ptr);
     mutable vstd::vector<int> freeQueue;

@@ -30,6 +30,15 @@ BindlessArray::~BindlessArray() {
         device->globalHeap->ReturnIndex(i);
     }
 }
+void BindlessArray::TryReturnIndex(MapIndex &index) {
+    if (!index) return;
+    auto &&v = index.value();
+    v--;
+    if (v == 0) {
+        ptrMap.remove(index);
+    }
+    index = {};
+}
 void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
         freeQueue.push_back(originValue);
@@ -77,11 +86,14 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         using Ope = BindlessArrayUpdateCommand::Modification::Operation;
         switch (mod.buffer.op) {
             case Ope::REMOVE:
+                TryReturnIndex(indices.buffer);
                 break;
             case Ope::EMPLACE: {
                 BufferView v{reinterpret_cast<Buffer *>(mod.buffer.handle), mod.buffer.offset_bytes};
                 bindGrp.buffer = v.buffer->GetAddress() + v.offset - buffer_address;
                 bindGrp.buffer_size = v.byteSize;
+                TryReturnIndex(indices.buffer);
+                indices.buffer = AddIndex(mod.buffer.handle);
                 break;
             }
             default: break;
