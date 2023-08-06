@@ -1,6 +1,6 @@
 template<typename T>
 T _ReadBdlsTex2DNum(ByteAddressBuffer s,T idx){
-return s.Load(24*idx+12);
+return s.Load(12*idx+4);
 }
 template<typename T>
 float4 _SampleTex2DLevel(const ByteAddressBuffer arr,const T index,const float2 uv,const float level){

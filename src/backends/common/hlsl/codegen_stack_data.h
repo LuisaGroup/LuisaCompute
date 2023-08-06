@@ -31,6 +31,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint64 tempCount = 0;
     bool useTex2DBindless = false;
     bool useTex3DBindless = false;
+    bool useBufferBindless = false;
     uint64 structCount = 0;
     uint64 argOffset = 0;
     int64_t appdataId = -1;

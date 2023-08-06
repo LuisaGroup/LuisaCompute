@@ -17,27 +17,19 @@ BindlessArray::BindlessArray(
     binded.resize(arraySize);
 }
 BindlessArray::~BindlessArray() {
-    auto Return = [&](uint &i) {
+    auto Return = [&](auto &&i) {
         if (i != BindlessStruct::n_pos) {
             device->globalHeap->ReturnIndex(i);
         }
     };
     for (auto &&i : binded) {
+        Return(i.first.buffer);
         Return(i.first.tex2D);
         Return(i.first.tex3D);
     }
-    for (auto &&i : freeQueue) {
+    for(auto&& i : freeQueue){
         device->globalHeap->ReturnIndex(i);
     }
-}
-void BindlessArray::TryReturnIndex(MapIndex &index) {
-    if (!index) return;
-    auto &&v = index.value();
-    v--;
-    if (v == 0) {
-        ptrMap.remove(index);
-    }
-    index = {};
 }
 void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
@@ -79,20 +71,31 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
             bindGrp.write_samp3d(texIdx, smpIdx);
         }
     };
-    auto const buffer_address = buffer.GetAddress();
     for (auto &&mod : mods) {
         auto &bindGrp = binded[mod.slot].first;
         auto &indices = binded[mod.slot].second;
         using Ope = BindlessArrayUpdateCommand::Modification::Operation;
         switch (mod.buffer.op) {
             case Ope::REMOVE:
-                TryReturnIndex(indices.buffer);
+                TryReturnIndex(indices.buffer, bindGrp.buffer);
                 break;
             case Ope::EMPLACE: {
+                TryReturnIndex(indices.buffer, bindGrp.buffer);
                 BufferView v{reinterpret_cast<Buffer *>(mod.buffer.handle), mod.buffer.offset_bytes};
-                bindGrp.buffer = v.buffer->GetAddress() + v.offset - buffer_address;
-                bindGrp.buffer_size = v.byteSize;
-                TryReturnIndex(indices.buffer);
+                auto newIdx = device->globalHeap->AllocateIndex();
+                auto desc = v.buffer->GetColorSrvDesc(
+                    v.offset,
+                    v.byteSize);
+#ifndef NDEBUG
+                if (!desc) {
+                    LUISA_ERROR("illagel buffer");
+                }
+#endif
+                device->globalHeap->CreateSRV(
+                    v.buffer->GetResource(),
+                    *desc,
+                    newIdx);
+                bindGrp.buffer = newIdx;
                 indices.buffer = AddIndex(mod.buffer.handle);
                 break;
             }

@@ -83,6 +83,7 @@ ComputeShader *ComputeShader::CompileCompute(
             vstd::UndefEval<ComputeShader *>{},
             [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
                 uint bdlsBufferCount = 0;
+                if (str.useBufferBindless) bdlsBufferCount++;
                 if (str.useTex2DBindless) bdlsBufferCount++;
                 if (str.useTex3DBindless) bdlsBufferCount++;
                 auto kernelArgs = [&] {
@@ -175,6 +176,7 @@ void ComputeShader::SaveCompute(
         [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
             uint bdlsBufferCount = 0;
+            if (str.useBufferBindless) bdlsBufferCount++;
             if (str.useTex2DBindless) bdlsBufferCount++;
             if (str.useTex3DBindless) bdlsBufferCount++;
             auto serData = ShaderSerializer::Serialize(

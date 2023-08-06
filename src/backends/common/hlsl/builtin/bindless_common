@@ -8,11 +8,13 @@ return num>>28;
 }
 template<typename T>
 T _ReadBdlsBuffer(ByteAddressBuffer s,T idx){
-return s.Load<int64_t>(24*idx);
+return s.Load(12*idx);
 }
-#define _READ_BUFFER(arr,arrIdx,idx,size,type) arr.Load<type>(_ReadBdlsBuffer(arr,arrIdx)+size*idx)
-#define _READ_BUFFER_BYTES(arr,arrIdx,idx,type) arr.Load<type>(_ReadBdlsBuffer(arr,arrIdx)+idx)
-template<typename I,typename J>
-uint64_t _bdlsBfSize(ByteAddressBuffer arr,I arrIdx,J size){
-return arr.Load<uint64_t>(24*arrIdx+8)/size;
+#define _READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].Load<type>(size*idx)
+#define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].Load<type>(idx)
+template<typename T,typename I,typename J>
+uint _bdlsBfSize(ByteAddressBuffer arr,I arrIdx,J size,T bf){
+uint sz;
+bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].GetDimensions(sz);
+return sz/size;
 }
