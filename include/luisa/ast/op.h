@@ -289,6 +289,26 @@ enum struct CallOp : uint32_t {
     // partial derivative
     DDX,// (arg: float vector): float vector
     DDY,// (arg: float vector): float vector
+    
+    // Wave:
+    WAVE_LANE_COUNT, // (): uint
+    WAVE_LANE_INDEX, // (): uint
+    WAVE_IS_FIRST_ACTIVE_LANE, // (): bool
+    WAVE_ACTIVE_ALL_EQUAL, // (scalar/vector): boolN
+    WAVE_ACTIVE_BIT_AND, // (intN): intN
+    WAVE_ACTIVE_BIT_OR, // (intN): intN
+    WAVE_ACTIVE_BIT_XOR, // (intN): intN
+    WAVE_ACTIVE_COUNT_BITS, // (bool): uint
+    WAVE_ACTIVE_MAX, // (type: scalar/vector/matrix): type
+    WAVE_ACTIVE_MIN, // (type: scalar/vector/matrix): type
+    WAVE_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
+    WAVE_ACTIVE_SUM, // (type: scalar/vector/matrix): type
+    WAVE_ACTIVE_ALL, // (bool): bool
+    WAVE_ACTIVE_ANY, // (bool): bool
+    WAVE_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
+    WAVE_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
+    WAVE_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)
+
 
     // indirect
     INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void

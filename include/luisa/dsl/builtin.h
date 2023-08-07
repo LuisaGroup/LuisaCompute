@@ -1712,7 +1712,153 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
+[[nodiscard]] inline auto wave_lane_count() noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::WAVE_LANE_COUNT,
+            {}));
+}
+[[nodiscard]] inline auto wave_lane_index() noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::WAVE_LANE_INDEX,
+            {}));
+}
 
+[[nodiscard]] inline auto wave_is_first_active_lane() noexcept {
+    return def<bool>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bool>(), CallOp::WAVE_IS_FIRST_ACTIVE_LANE,
+            {}));
+}
+
+template<typename X>
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+[[nodiscard]] inline auto wave_active_all_equal(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_ALL_EQUAL,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires is_int_or_vector_expr_v<X>
+[[nodiscard]] inline auto wave_active_bit_and(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_BIT_AND,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires is_int_or_vector_expr_v<X>
+[[nodiscard]] inline auto wave_active_bit_or(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_BIT_OR,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires is_int_or_vector_expr_v<X>
+[[nodiscard]] inline auto wave_active_bit_Xor(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_BIT_XOR,
+            {LUISA_EXPR(value)}));
+}
+
+[[nodiscard]] inline auto wave_active_count_bits(Expr<bool> value) {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::WAVE_ACTIVE_COUNT_BITS,
+            {LUISA_EXPR(value)}));
+}
+
+[[nodiscard]] inline auto wave_active_all(Expr<bool> value) {
+    return def<bool>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bool>(), CallOp::WAVE_ACTIVE_ALL,
+            {LUISA_EXPR(value)}));
+}
+
+[[nodiscard]] inline auto wave_active_any(Expr<bool> value) {
+    return def<bool>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bool>(), CallOp::WAVE_ACTIVE_ANY,
+            {LUISA_EXPR(value)}));
+}
+
+[[nodiscard]] inline auto wave_active_bit_mask(Expr<bool> value) {
+    return def<uint4>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint4>(), CallOp::WAVE_ACTIVE_BIT_MASK,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+[[nodiscard]] inline auto wave_active_min(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_MIN,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+[[nodiscard]] inline auto wave_active_max(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_MAX,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+[[nodiscard]] inline auto wave_active_product(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_PRODUCT,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+[[nodiscard]] inline auto wave_active_sum(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_ACTIVE_SUM,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X, typename Y>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X> || is_matrix_expr_v<X>) && (is_integral_expr_v<Y>)
+[[nodiscard]] inline auto wave_read_lane_at(X &&value, Y &&index) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_READ_LANE_AT,
+            {LUISA_EXPR(value), LUISA_EXPR(index)}));
+}
+
+template<typename X, typename Y>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X> || is_matrix_expr_v<X>)
+[[nodiscard]] inline auto wave_read_first_lane(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_READ_FIRST_LANE,
+            {LUISA_EXPR(value)}));
+}
 
 #undef LUISA_EXPR
 
