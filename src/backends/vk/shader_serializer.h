@@ -2,6 +2,7 @@
 #include <luisa/vstl/md5.h>
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/functional.h>
+#include "../common/hlsl/shader_property.h"
 #include "device.h"
 #include "serde_type.h"
 namespace luisa {
@@ -14,7 +15,7 @@ class ComputeShader;
 class ShaderSerializer {
 public:
     static void serialize_bytecode(
-        Shader const *shader,
+        vstd::span<const hlsl::Property> binds,
         vstd::MD5 shader_md5,
         vstd::MD5 type_md5,
         uint3 block_size,

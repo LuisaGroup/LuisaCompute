@@ -50,7 +50,7 @@ public:
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept override;
+        uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
 
     // bindless array
@@ -82,9 +82,10 @@ public:
     // event
     ResourceCreationInfo create_event() noexcept override;
     void destroy_event(uint64_t handle) noexcept override;
-    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
-    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
-    void synchronize_event(uint64_t handle) noexcept override;
+    void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept override;
+    void wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept override;
+    bool is_event_completed(uint64_t handle, uint64_t fence_value) const noexcept override;
+    void synchronize_event(uint64_t handle, uint64_t fence_value) noexcept override;
 
     // accel
     ResourceCreationInfo create_mesh(
