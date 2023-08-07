@@ -45,7 +45,7 @@ public:
     virtual void sm(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept override;
     virtual void mm_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept override;
     virtual void mm_stride_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept override;
-
+    virtual void sm_batched(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept override;
 
     // SPARSE
     virtual void sparse_axpby(DTensor &dn_vec_y, const DTensor &alpha, const DTensor &sp_vec_x, const DTensor &beta) noexcept override;

@@ -179,7 +179,37 @@ void CudaLAS::mv(DTensor &y, const DTensor &alpha, const DTensor &A, const DTens
 }
 
 void CudaLAS::sv(DTensor &x, const DTensor &A) noexcept {
-    LUISA_ERROR("NO IMPL YET");
+    auto A_ = A.dense_matrix_view();
+    auto x_ = x.dense_vector_view();
+    using namespace luisa::compute::tensor;
+
+    switch (A_.desc.shape) {
+        case DenseMatrixShape::TRIANGULAR: {
+            LUISA_CHECK_CUBLAS(
+                trsv_ex(_cublas_handle,
+                        cuda_enum_map(A.basic_data_type()),
+                        cublas_enum_map(A_.desc.fill_mode),
+                        cublas_enum_map(A_.operation),
+                        cublas_enum_map(A_.desc.diag_type),
+                        A_.row,
+                        raw_ptr(A_), A_.desc.lda,
+                        raw_ptr(x_), x_.desc.inc));
+        } break;
+        case DenseMatrixShape::TRIANGULAR_BAND: {
+            LUISA_CHECK_CUBLAS(
+                tbsv_ex(_cublas_handle,
+                        cuda_enum_map(A.basic_data_type()),
+                        cublas_enum_map(A_.desc.fill_mode),
+                        cublas_enum_map(A_.operation),
+                        cublas_enum_map(A_.desc.diag_type),
+                        A_.row, A_.desc.kl,
+                        raw_ptr(A_), A_.desc.lda,
+                        raw_ptr(x_), x_.desc.inc));
+        } break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix shape for SolveVector(sv).");
+            break;
+    }
 }
 
 void CudaLAS::mv_batched(DTensor &y, const DTensor &alpha, const DTensor &A, const DTensor &x, const DTensor &beta) noexcept {
@@ -279,7 +309,24 @@ void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTens
 }
 
 void CudaLAS::sm(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
-    LUISA_ERROR("NO IMPL YET");
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto X_ = X.dense_matrix_view();
+    using DenseMatrixShape = luisa::compute::tensor::DenseMatrixShape;
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::TRIANGULAR, "only triangular matrix is supported for A.");
+
+    LUISA_CHECK_CUBLAS(
+        trsm_ex(_cublas_handle,
+                cuda_enum_map(A.basic_data_type()),
+                cublas_enum_map(options),
+                cublas_enum_map(A_.desc.fill_mode),
+                cublas_enum_map(A_.operation),
+                cublas_enum_map(A_.desc.diag_type),
+                X_.row, X_.col,
+                raw<void>(alpha_),
+                raw<void>(A_), A_.desc.lda,
+                raw<void>(X_), X_.desc.lda));
 }
 
 void CudaLAS::mm_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
@@ -305,10 +352,10 @@ void CudaLAS::mm_batched(DTensor &C, const DTensor &alpha, const DTensor &A, con
                             cublas_enum_map(A_.operation),
                             cublas_enum_map(B_.operation),
                             C_.row, C_.col, A_.col,
-                            raw<float>(alpha_),
+                            raw<void>(alpha_),
                             raw<void>(A_array), cuda_enum_map(A.basic_data_type()), A_.desc.lda,
                             raw<void>(B_array), cuda_enum_map(B.basic_data_type()), B_.desc.lda,
-                            raw<float>(beta_),
+                            raw<void>(beta_),
                             raw<void>(C_array), cuda_enum_map(C.basic_data_type()), C_.desc.lda,
                             A_.storage.size(),
                             cuda_enum_map(A.basic_data_type()),
@@ -339,16 +386,43 @@ void CudaLAS::mm_stride_batched(DTensor &C, const DTensor &alpha, const DTensor 
             cublas_enum_map(A_.operation),
             cublas_enum_map(B_.operation),
             C_.row, C_.col, A_.col,
-            raw<float>(alpha_),
-            raw<float>(A_), cuda_enum_map(A.basic_data_type()), A_.desc.lda, A_array.desc._batch_stride,
-            raw<float>(B_), cuda_enum_map(B.basic_data_type()), B_.desc.lda, B_array.desc._batch_stride,
-            raw<float>(beta_),
-            raw<float>(C_), cuda_enum_map(C.basic_data_type()), C_.desc.lda, C_array.desc._batch_stride,
+            raw<void>(alpha_),
+            raw<void>(A_), cuda_enum_map(A.basic_data_type()), A_.desc.lda, A_array.desc._batch_stride,
+            raw<void>(B_), cuda_enum_map(B.basic_data_type()), B_.desc.lda, B_array.desc._batch_stride,
+            raw<void>(beta_),
+            raw<void>(C_), cuda_enum_map(C.basic_data_type()), C_.desc.lda, C_array.desc._batch_stride,
             A_array.desc._batch_count,
             cuda_enum_map(A.basic_data_type()),
             cublasGemmAlgo_t::CUBLAS_GEMM_ALGO0_TENSOR_OP));
 
     //);
+}
+
+void CudaLAS::sm_batched(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto X_ = X.dense_matrix_view();
+    auto X_array = X.batch_view();
+    using namespace luisa::compute::tensor;
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::TRIANGULAR &&
+                     X_.desc.shape == DenseMatrixShape::GENERAL,
+                 "only triangular matrix is supported for A, and general matrix is supported for X.");
+    LUISA_ASSERT(A_.storage.size() == X_.storage.size(),
+                 "A, X must have the same batch size.");
+    LUISA_CHECK_CUBLAS(
+        trsm_batched_ex(_cublas_handle,
+                        cuda_enum_map(A.basic_data_type()),
+                        cublas_enum_map(options),
+                        cublas_enum_map(A_.desc.fill_mode),
+                        cublas_enum_map(A_.operation),
+                        cublas_enum_map(A_.desc.diag_type),
+                        X_.row, X_.col,
+                        raw<void>(alpha_),
+                        raw<void>(A_array), A_.desc.lda,
+                        raw<void>(X_array), X_.desc.lda,
+                        A_array.desc._batch_count));
 }
 
 cublasOperation_t cublas_enum_map(luisa::compute::tensor::MatrixOperation op) noexcept {
