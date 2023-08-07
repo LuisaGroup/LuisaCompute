@@ -1147,14 +1147,23 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::WAVE_ACTIVE_COUNT_BITS:
             str << "WaveActiveCountBits"sv;
             break;
+        case CallOp::WAVE_PREFIX_COUNT_BITS:
+            str << "WavePrefixCountBits"sv;
+            break;
         case CallOp::WAVE_ACTIVE_MAX:
             str << "WaveActiveMax"sv;
             break;
         case CallOp::WAVE_ACTIVE_MIN:
             str << "WaveActiveMin"sv;
             break;
+        case CallOp::WAVE_PREFIX_PRODUCT:
+            str << "WavePrefixProduct"sv;
+            break;
         case CallOp::WAVE_ACTIVE_PRODUCT:
             str << "WaveActiveProduct"sv;
+            break;
+        case CallOp::WAVE_PREFIX_SUM:
+            str << "WavePrefixProduct"sv;
             break;
         case CallOp::WAVE_ACTIVE_SUM:
             str << "WaveActiveSum"sv;

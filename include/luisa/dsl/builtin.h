@@ -1779,6 +1779,13 @@ template<typename X>
             {LUISA_EXPR(value)}));
 }
 
+[[nodiscard]] inline auto wave_prefix_count_bits(Expr<bool> value) {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::WAVE_PREFIX_COUNT_BITS,
+            {LUISA_EXPR(value)}));
+}
+
 [[nodiscard]] inline auto wave_active_all(Expr<bool> value) {
     return def<bool>(
         detail::FunctionBuilder::current()->call(
@@ -1837,6 +1844,26 @@ template<typename X>
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WAVE_ACTIVE_SUM,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+[[nodiscard]] inline auto wave_prefix_product(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_PREFIX_PRODUCT,
+            {LUISA_EXPR(value)}));
+}
+
+template<typename X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+[[nodiscard]] inline auto wave_prefix_sum(X &&value) {
+    using T = expr_value_t<std::remove_cvref_t<X>>;
+    return def<T>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::WAVE_PREFIX_SUM,
             {LUISA_EXPR(value)}));
 }
 

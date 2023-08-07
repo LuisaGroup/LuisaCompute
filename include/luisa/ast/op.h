@@ -306,6 +306,9 @@ enum struct CallOp : uint32_t {
     WAVE_ACTIVE_ALL, // (bool): bool
     WAVE_ACTIVE_ANY, // (bool): bool
     WAVE_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
+    WAVE_PREFIX_COUNT_BITS, // (bool): uint (count bits before this lane)
+    WAVE_PREFIX_SUM, // (bool): uint (count bits before this lane)
+    WAVE_PREFIX_PRODUCT, // (bool): uint (count bits before this lane)
     WAVE_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
     WAVE_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)
 
