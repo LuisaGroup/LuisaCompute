@@ -122,6 +122,7 @@ public:
     [[nodiscard]] auto backend_name() const noexcept { return _impl->backend_name(); }
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
+    [[nodiscard]] auto compute_warp_size() const noexcept {return _impl->compute_warp_size();}
     // Is device initialized
     [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_impl); }
     // backend native plugins & extensions interface
