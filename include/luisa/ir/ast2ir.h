@@ -39,10 +39,12 @@ private:
 
 private:
     template<typename T>
-    [[nodiscard]] auto _boxed_slice(size_t n) noexcept -> ir::CBoxedSlice<T>;
+    [[nodiscard]] auto _boxed_slice(size_t n) const noexcept -> ir::CBoxedSlice<T>;
 
     template<typename Fn>
     auto _with_builder(Fn &&fn) noexcept;
+
+    [[nodiscard]] ir::CBoxedSlice<ir::CallableModuleRef> _collect_callables(Function f) const noexcept;
 
 private:
     [[nodiscard]] ir::IrBuilder *_current_builder() noexcept;

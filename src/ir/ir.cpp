@@ -20,10 +20,12 @@ const NodeRef &Node::prev() const noexcept { return detail::from_inner_ref(_inne
 const CArc<Instruction> &Node::instruction() const noexcept { return detail::from_inner_ref(_inner.instruction); }
 
 // including extra code from data/NodeRef.cpp
-[[nodiscard]] const Instruction *NodeRef::operator->() const noexcept {
+[[nodiscard]] const Node *NodeRef::operator->() const noexcept {
+    return get();
+}
+[[nodiscard]] const Node *NodeRef::get() const noexcept {
     auto node = luisa_compute_ir_node_get(_inner);
-    auto inst = node->instruction.get();
-    return reinterpret_cast<const Instruction *>(inst);
+    return reinterpret_cast<const Node *>(node);
 }
 // end include
 
