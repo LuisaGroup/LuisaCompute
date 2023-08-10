@@ -11,6 +11,8 @@ See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rende
 
 Welcome to join the [discussion channel on Discord](https://discord.com/invite/ymYEBkUa7F)!
 
+对于中国大陆的用户，也欢迎加入我们的 QQ 群组：295618382。
+
 ## Table of Contents
 
 - [LuisaCompute](#luisacompute)
@@ -403,7 +405,7 @@ Kernel1D add_one_and_some = [&buffer, &add_one](Float some, BufferFloat out) {
 
 Kernels can be compiled into shaders by the device:
 ```cpp
-auto some_shader    = device.compile(some_kernel);
+auto some_shader = device.compile(some_kernel);
 ```
 
 > ⚠️ Note that the compilation blocks the calling thread. For large kernels this might take a considerably long time. You may accelerate the process by compiling multiple kernels concurrently, e.g., with thread pools.

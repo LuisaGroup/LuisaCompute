@@ -1,3 +1,9 @@
+#include <pybind11/pybind11.h>
+#include <pybind11/functional.h>
+#include <pybind11/stl.h>
+#include <luisa/ast/function.h>
+#include <luisa/core/logging.h>
+
 namespace py = pybind11;
 using namespace luisa::compute;
 
@@ -124,7 +130,8 @@ void export_op(py::module &m) {
 
         .value("BUFFER_READ", CallOp::BUFFER_READ)    /// [(buffer, index) -> value]: reads the index-th element in buffer
         .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-        .value("BUFFER_SIZE", CallOp::BUFFER_SIZE)    /// [(buffer, index) -> UINT]: writes value into the index-th element of buffer
+        .value("BYTE_BUFFER_READ", CallOp::BYTE_BUFFER_READ)
+        .value("BYTE_BUFFER_WRITE", CallOp::BYTE_BUFFER_WRITE)
         .value("TEXTURE_READ", CallOp::TEXTURE_READ)  /// [(texture, coord) -> value]
         .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)/// [(texture, coord, value) -> void]
         .value("TEXTURE_SIZE", CallOp::TEXTURE_SIZE)

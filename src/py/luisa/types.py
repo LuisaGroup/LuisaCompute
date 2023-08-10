@@ -251,7 +251,7 @@ def dtype_of(val):
         return val.arrayType
     if type(val).__name__ == "Struct":
         return val.structType
-    if type(val).__name__ == "Buffer":
+    if type(val).__name__ == "Buffer" or type(val).__name__ == "ByteBuffer":
         return val.bufferType
     if type(val).__name__ == "RayQuery":
         return val.queryType
@@ -264,6 +264,8 @@ def dtype_of(val):
     if type(val).__name__ == "Accel":
         return type(val)
     if type(val).__name__ == "IndirectDispatchBuffer":
+        return type(val)
+    if type(val).__name__ == "ByteBufferType":
         return type(val)
     if type(val).__name__ == "func":
         return CallableType
@@ -290,6 +292,8 @@ def to_lctype(dtype):
         return lcapi.Type.from_("accel")
     if dtype.__name__ == "IndirectDispatchBuffer":
         return lcapi.Type.custom("LC_IndirectDispatchBuffer")
+    if dtype.__name__ == "ByteBufferType":
+        return lcapi.Type.from_("buffer<void>")
     if dtype in basic_dtype_to_lctype_dict:
         return basic_dtype_to_lctype_dict[dtype]
     raise TypeError(f"{dtype} is not a valid data type")

@@ -54,8 +54,14 @@ row_major float4x4 m;
 #define _bfreadVec3(bf,idx) bf[idx].xyz
 #define _bfreadMat(bf,idx) bf[idx].m
 #define _bfwrite(bf,idx,value) bf[idx]=value
-#define _bfwriteVec3(bf,idx,value) bf[idx]=float4(value,0)
+#define _bfwriteVec3(bf,idx,value,type) bf[idx]=type##4(value,0)
 #define _bfwriteMat(bf,idx,value) bf[idx].m=value
+#define _bytebfread(bf,type,idx) bf.Load<type>(idx)
+#define _bytebfreadVec3(bf,type,idx) bf.Load<type##4>(idx).xyz
+#define _bytebfreadMat(bf,type,idx) bf.Load<type>(idx).m
+#define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
+#define _bytebfwriteVec3(bf,type,idx,value) bf.Store<type##4>(idx,type##4(value,0))
+#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.Store<type>(idx,_tempm);}
 #define _Smptx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
 template<typename T>
@@ -73,7 +79,6 @@ uint InstanceContributionToHitGroupIndex:24;
 uint Flags:8;
 uint2 accelStructPtr;
 };
-
 float2x2 _outer_product(float2 a,float2 b){return float2x2(a*b.x,a*b.y);}
 float3x4 _outer_product(float3 a,float3 b){return float3x4(float4(a*b.x,0),float4(a*b.y,0),float4(a*b.z,0));}
 float4x4 _outer_product(float4 a,float4 b){return float4x4(a*b.x,a*b.y,a*b.z,a*b.w);}

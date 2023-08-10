@@ -72,6 +72,10 @@ TexCompressExt::Result DxTexCompressExt::check_builtin_shader() noexcept {
 DxNativeResourceExt::DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device)
     : NativeResourceExt{lc_device}, dx_device{dx_device} {
 }
+uint64_t DxNativeResourceExt::get_native_resource_device_address(
+    void *native_handle) noexcept {
+    return reinterpret_cast<ID3D12Resource *>(native_handle)->GetGPUVirtualAddress();
+}
 BufferCreationInfo DxNativeResourceExt::register_external_buffer(
     void *external_ptr,
     const Type *element,
@@ -273,5 +277,5 @@ void DStorageExtImpl::set_config(bool hdd) noexcept {
     }
     init_factory_nolock();
 }
-}// namespace lc::dx
 
+}// namespace lc::dx

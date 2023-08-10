@@ -53,7 +53,7 @@ inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
     DepthFormat format,
     uint width,
     uint height,
-    void *custom_data) {
+    void *custom_data) noexcept {
     return ResourceGenerator::create_native_depth_buffer(
         register_external_depth_buffer(native_ptr, format, width, height, custom_data),
         _device, format, {width, height});
@@ -87,6 +87,18 @@ Volume<T> NativeResourceExt::create_native_volume(
     return ResourceGenerator::create_native_volume<T>(
         register_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
         _device, storage, uint3{width, height, volume}, mip);
+}
+template<typename T>
+uint64_t NativeResourceExt::get_device_address(const Buffer<T> &buffer) noexcept {
+    return get_native_resource_device_address(buffer.native_handle());
+}
+template<typename T>
+uint64_t NativeResourceExt::get_device_address(const Image<T> &image) noexcept {
+    return get_native_resource_device_address(image.native_handle());
+}
+template<typename T>
+uint64_t NativeResourceExt::get_device_address(const Volume<T> &volume) noexcept {
+    return get_native_resource_device_address(volume.native_handle());
 }
 
 }// namespace luisa::compute

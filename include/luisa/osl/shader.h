@@ -44,7 +44,7 @@ private:
 
 public:
     Shader(luisa::string osl_spec,
-           uint version_major, uint version_minor,
+           uint32_t version_major, uint32_t version_minor,
            Tag tag, luisa::string identifier,
            luisa::vector<Hint> hints,
            luisa::vector<CodeMarker> code_markers,
@@ -57,8 +57,8 @@ public:
     Shader &operator=(Shader &&) noexcept = delete;
     Shader &operator=(const Shader &) noexcept = delete;
     [[nodiscard]] auto osl_spec() const noexcept { return luisa::string_view{_osl_spec}; }
-    [[nodiscard]] auto osl_version_major() const noexcept { return static_cast<uint>(_osl_version_major); }
-    [[nodiscard]] auto osl_version_minor() const noexcept { return static_cast<uint>(_osl_version_minor); }
+    [[nodiscard]] auto osl_version_major() const noexcept { return static_cast<uint32_t>(_osl_version_major); }
+    [[nodiscard]] auto osl_version_minor() const noexcept { return static_cast<uint32_t>(_osl_version_minor); }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto identifier() const noexcept { return luisa::string_view{_identifier}; }
     [[nodiscard]] auto code_markers() const noexcept { return luisa::span{_code_markers}; }

@@ -20,7 +20,6 @@ class Buffer:
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
         self.write = self.bufferType.write
-        self.buffer_size = self.bufferType.buffer_size
         self.dtype = dtype
         self.size = size
         lc_type = to_lctype(self.dtype)
@@ -169,10 +168,6 @@ class BufferType:
             return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BUFFER_READ, [self.expr, idx.expr])
 
         return read
-    
-    @BuiltinFuncBuilder
-    def buffer_size(self):
-        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BUFFER_SIZE, [self.expr])
 
     @staticmethod
     @cache
@@ -214,6 +209,143 @@ def from_bytes(dtype, packed):
         return dtype([from_bytes(el, packed[i * elsize: (i + 1) * elsize]) for i in range(0, dtype.size)])
     assert False
 
+class ByteBufferType:
+    def __init__(self):
+        self.luisa_type = lcapi.Type.from_("buffer<void>")
+
+    def __eq__(self, other):
+        return type(other) is ByteBufferType
+
+    def __hash__(self):
+        return 415937298919836672
+    
+    @BuiltinFuncBuilder
+    def read(self, ele_type, idx):
+        check_exact_signature([type, uint], [ele_type, idx], "byte_read")
+        dtype = ele_type.expr
+        return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BYTE_BUFFER_READ, [self.expr, idx.expr])
+
+    @BuiltinFuncBuilder
+    def write(self, idx, value):
+        check_exact_signature([uint], [idx], "byte_write")
+        return None, lcapi.builder().call(lcapi.CallOp.BYTE_BUFFER_WRITE, [self.expr, idx.expr, value.expr])
+
+
+    
+class ByteBuffer:
+    def __init__(self, size):
+        if size == 0:
+            raise Exception("Buffer size must be non-zero")
+        self.bufferType = ByteBufferType()
+        self.read = self.bufferType.read
+        self.write = self.bufferType.write
+        self.size = size
+        self.bytesize = size
+        # instantiate buffer on device
+        assert ((size & 3) == 0)
+        info = get_global_device().impl().create_buffer(to_lctype(uint), size // 4)
+        self.handle = info.handle()
+        self.native_handle = info.native_handle()
+    def __del__(self):
+        if self.handle is not None:
+            device = get_global_device()
+            if device is not None:
+                device.impl().destroy_buffer(self.handle)
+    @staticmethod
+    def buffer(arr):
+        if type(arr).__name__ == "ndarray":
+            return ByteBuffer.from_array(arr)
+        elif type(arr) == list:
+            return ByteBuffer.from_list(arr)
+        else:
+            raise TypeError(f"buffer from unrecognized type: {type(arr)}")
+
+    @staticmethod
+    def empty(size):
+        return ByteBuffer(size)
+    
+    @staticmethod
+    def from_list(arr):
+        assert len(arr) > 0
+        buf = ByteBuffer(len(arr) * to_lctype(type(arr[0])).size)
+        buf.copy_from_list(arr)
+        return buf
+
+    @staticmethod
+    def from_array(arr):
+        assert len(arr) > 0
+        buf = ByteBuffer(len(arr) * to_lctype(type(arr[0])).size)
+        buf.copy_from_array(arr)
+        return buf
+
+    def copy_from_list(self, arr, sync=False, stream=None):
+        if stream is None:
+            stream = globalvars.vars.stream
+        packed_bytes = bytearray()
+        for x in arr:
+            lctype = to_lctype(type(x))
+            if lctype.is_basic():
+                packed_bytes += lcapi.to_bytes(x)
+            else:
+                packed_bytes += x.to_bytes()
+        assert len(packed_bytes) == self.bytesize
+        ulcmd = lcapi.BufferUploadCommand.create(
+            self.handle, 0, self.bytesize, packed_bytes)
+        stream.add(ulcmd)
+        stream.add_upload_buffer(packed_bytes)
+        if sync:
+            stream.synchronize()
+
+    def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array or list
+        if stream is None:
+            stream = globalvars.vars.stream
+        # numpy array of same data layout
+        assert arr.size * arr.itemsize == self.bytesize
+        ulcmd = lcapi.BufferUploadCommand.create(
+            self.handle, 0, self.bytesize, arr)
+        stream.add(ulcmd)
+        stream.add_upload_buffer(arr)
+        if sync:
+            stream.synchronize()
+
+    def copy_from(self, arr, sync=False, stream=None):  # arr: numpy array or list
+        if type(arr).__name__ == "ndarray":
+            self.copy_from_array(arr, sync, stream)
+        elif type(arr) == list:
+            self.copy_from_list(arr, sync, stream)
+        else:
+            raise TypeError(f"copy from unrecognized type: {type(arr)}")
+
+    # arr: numpy array; user is resposible for data layout
+    def copy_to(self, arr, sync=True, stream=None):
+        if stream is None:
+            stream = globalvars.vars.stream
+        assert arr.size * arr.itemsize == self.bytesize
+        dlcmd = lcapi.BufferDownloadCommand.create(
+            self.handle, 0, self.bytesize, arr)
+        stream.add(dlcmd)
+        # stream.add_readback_buffer(arr)
+        if sync:
+            stream.synchronize()
+
+    def numpy(self, stream=None):  # only supports scalar
+        import numpy as np
+        npf = {int: np.int32, float: np.float32, bool: bool}[self.dtype]
+        arr = np.empty(self.size, dtype=npf)
+        self.copy_to(arr, sync=True, stream=stream)
+        return arr
+
+    def to_list(self, stream=None):
+        packed_bytes = bytes(self.bytesize)
+        dlcmd = lcapi.BufferDownloadCommand.create(
+            self.handle, 0, self.bytesize, packed_bytes)
+        if stream is None:
+            stream = globalvars.vars.stream
+        stream.add(dlcmd)
+        # stream.add_readback_buffer(packed_bytes)
+        stream.synchronize()
+        elsize = to_lctype(self.dtype).size()
+        return [from_bytes(self.dtype, packed_bytes[elsize * i: elsize * (i + 1)]) for i in range(self.size)]
 
 class IndirectDispatchBuffer:
     def __init__(self, size: int):

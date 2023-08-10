@@ -25,6 +25,7 @@ class BindlessArray;
 class IndirectDispatchBuffer;
 class SparseBufferHeap;
 class SparseTextureHeap;
+class ByteBuffer;
 
 template<typename T>
 class SOA;
@@ -145,6 +146,12 @@ public:
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;
+
+    template<typename VBuffer, typename TBuffer>
+    [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
+                                   size_t vertex_stride,
+                                   TBuffer &&triangles,
+                                   const AccelOption &option = {}) noexcept;
     // see definition in rtx/procedural_primitive.h
     template<typename AABBBuffer>
     [[nodiscard]] ProceduralPrimitive create_procedural_primitive(AABBBuffer &&aabb_buffer,
@@ -196,9 +203,11 @@ public:
         return _create<SparseVolume<T>>(pixel, size, mip_levels, simultaneous_access);
     }
 
-    [[nodiscard]] SparseBufferHeap allocate_sparse_buffer_heap(size_t byte_size);
+    [[nodiscard]] SparseBufferHeap allocate_sparse_buffer_heap(size_t byte_size) noexcept;
 
-    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size);
+    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size) noexcept;
+
+    [[nodiscard]] ByteBuffer create_byte_buffer(size_t byte_size) noexcept;
 
     template<typename T>
         requires(!is_custom_struct_v<T>)//backend-specific type not allowed
