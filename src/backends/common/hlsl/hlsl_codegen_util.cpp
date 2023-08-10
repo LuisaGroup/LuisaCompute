@@ -366,7 +366,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: {
-            str << "ByteAddressBuffer"sv;
+            str << "StructuredBuffer<uint>"sv;
         } break;
         case Type::Tag::ACCEL: {
             str << "RaytracingAccelerationStructure"sv;
@@ -1123,6 +1123,66 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: str << "_mat_comp_mul"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_LANE_COUNT:
+            str << "WaveGetLaneCount"sv;
+            break;
+        case CallOp::WARP_LANE_INDEX:
+            str << "WaveGetLaneIndex"sv;
+            break;
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE:
+            str << "WaveIsFirstLane"sv;
+            break;
+        case CallOp::WARP_ACTIVE_ALL_EQUAL:
+            str << "WaveActiveAllEqual"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_AND:
+            str << "WaveActiveBitAnd"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_OR:
+            str << "WaveActiveBitOr"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_XOR:
+            str << "WaveActiveBitXor"sv;
+            break;
+        case CallOp::WARP_ACTIVE_COUNT_BITS:
+            str << "WaveActiveCountBits"sv;
+            break;
+        case CallOp::WARP_PREFIX_COUNT_BITS:
+            str << "WavePrefixCountBits"sv;
+            break;
+        case CallOp::WARP_ACTIVE_MAX:
+            str << "WaveActiveMax"sv;
+            break;
+        case CallOp::WARP_ACTIVE_MIN:
+            str << "WaveActiveMin"sv;
+            break;
+        case CallOp::WARP_PREFIX_PRODUCT:
+            str << "WavePrefixProduct"sv;
+            break;
+        case CallOp::WARP_ACTIVE_PRODUCT:
+            str << "WaveActiveProduct"sv;
+            break;
+        case CallOp::WARP_PREFIX_SUM:
+            str << "WavePrefixProduct"sv;
+            break;
+        case CallOp::WARP_ACTIVE_SUM:
+            str << "WaveActiveSum"sv;
+            break;
+        case CallOp::WARP_ACTIVE_ALL:
+            str << "WaveActiveAllTrue"sv;
+            break;
+        case CallOp::WARP_ACTIVE_ANY:
+            str << "WaveActiveAnyTrue"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_MASK:
+            str << "WaveActiveBallot"sv;
+            break;
+        case CallOp::WARP_READ_LANE_AT:
+            str << "WaveReadLaneAt"sv;
+            break;
+        case CallOp::WARP_READ_FIRST_LANE:
+            str << "WaveReadLaneFirst"sv;
+            break;
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;

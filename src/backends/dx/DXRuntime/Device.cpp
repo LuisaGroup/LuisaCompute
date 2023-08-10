@@ -186,4 +186,9 @@ VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
         }
     }
 }
+uint Device::waveSize() const {
+    D3D12_FEATURE_DATA_D3D12_OPTIONS1 waveOption;
+    ThrowIfFailed(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1, &waveOption, sizeof(waveOption)));
+    return waveOption.WaveLaneCountMin;
+}
 }// namespace lc::dx
