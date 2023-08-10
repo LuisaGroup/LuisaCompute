@@ -1653,7 +1653,7 @@ struct FromInnerRef<CBoxedSlice<raw::Const>> {
 };
 }//namespace detail
 
-class LC_IR_API NodeRef : concepts::Noncopyable {
+class LC_IR_API NodeRef {
     raw::NodeRef _inner{};
 
 public:
@@ -1667,6 +1667,9 @@ public:
         ret._inner = raw;
         return ret;
     }
+    [[nodiscard]] auto raw() const noexcept { return _inner; }
+    [[nodiscard]] auto operator==(const NodeRef &rhs) const noexcept { return raw() == rhs.raw(); }
+    [[nodiscard]] auto valid() const noexcept { return raw() != raw::INVALID_REF; }
     // end include
 };
 
@@ -2050,11 +2053,33 @@ public:
     [[nodiscard]] const NodeRef &last() const noexcept;
 
     // including extra code from data/BasicBlock.h
-    class Iterator {};
-    [[nodiscard]] Iterator begin() const noexcept;
-    [[nodiscard]] Iterator end() const noexcept;
-    [[nodiscard]] Iterator cbegin() const noexcept;
-    [[nodiscard]] Iterator cend() const noexcept;
+    class Iterator {
+    public:
+        struct Sentinel {};
+    private:
+        NodeRef _curr;
+        friend class BasicBlock;
+        explicit Iterator(NodeRef curr) noexcept
+            : _curr{curr} {}
+    public:
+        [[nodiscard]] auto operator*() const noexcept { return _curr; }
+        auto &operator++() noexcept {
+            auto node = _curr->next();
+            _curr = node;
+            return *this;
+        }
+        auto operator++(int) noexcept {
+            auto old = *this;
+            ++(*this);
+            return old;
+        }
+        [[nodiscard]] auto operator==(const Iterator &rhs) const noexcept { return _curr == rhs._curr; }
+        [[nodiscard]] auto operator==(Sentinel) const noexcept { return !_curr.valid(); }
+    };
+    [[nodiscard]] auto begin() const noexcept { return Iterator{this->first()}; }
+    [[nodiscard]] auto end() const noexcept { return Iterator::Sentinel{}; }
+    [[nodiscard]] auto cbegin() const noexcept { return this->begin(); }
+    [[nodiscard]] auto cend() const noexcept { return this->end(); }
     // end include
 };
 

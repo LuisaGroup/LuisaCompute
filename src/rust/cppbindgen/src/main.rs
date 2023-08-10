@@ -182,7 +182,7 @@ fn gen_struct_binding(
         return Ok(());
     }
     writeln!(fwd, "class {};", name)?;
-    writeln!(h, "class LC_IR_API {} : concepts::Noncopyable {{", name)?;
+    writeln!(h, "class LC_IR_API {}{} {{", name, if name.ends_with("Ref") { "" } else { " : concepts::Noncopyable" })?;
     writeln!(h, "    raw::{} _inner{{}};\n", name)?;
     writeln!(h, "public:")?;
     writeln!(h, "    friend class IrBuilder;")?;
