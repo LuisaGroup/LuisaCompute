@@ -90,15 +90,21 @@ AST2IR::_collect_callables(luisa::compute::Function f) const noexcept {
     return result;
 }
 
-luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function function) noexcept {
+luisa::shared_ptr<ir::CArc<ir::KernelModule>>
+AST2IR::_convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
                  "Invalid function tag.");
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
                      _variables.empty() && _builder_stack.empty() &&
                      !_function,
                  "Invalid state.");
+    for (auto &&c : function.custom_callables()) {
+        static_cast<void>(_convert_callable(c->function()));
+    }
     _function = function;
     _pools = ir::CppOwnedCArc<ir::ModulePools>(ir::luisa_compute_ir_new_module_pools());
+    _constants.clear();
+    _variables.clear();
     auto m = _with_builder([this](auto builder) noexcept {
         auto total_args = _function.builder()->arguments();
         auto bound_args = _function.builder()->bound_arguments();
@@ -184,15 +190,21 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::_convert_kernel(Function f
             }};
 }
 
-luisa::shared_ptr<ir::CArc<ir::CallableModule>> AST2IR::_convert_callable(Function function) noexcept {
+luisa::shared_ptr<ir::CArc<ir::CallableModule>>
+AST2IR::_convert_callable(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
                  "Invalid function tag.");
     if (auto iter = _converted_callables.find(function);
         iter != _converted_callables.end()) {
         return iter->second;
     }
+    for (auto &&c : function.custom_callables()) {
+        static_cast<void>(_convert_callable(c->function()));
+    }
     _function = function;
     _pools = ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()};
+    _constants.clear();
+    _variables.clear();
     auto m = _with_builder([this](auto builder) noexcept {
         auto args = _function.builder()->arguments();
         auto arguments = _boxed_slice<ir::NodeRef>(args.size());
@@ -572,7 +584,10 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     if (!expr->is_builtin()) {
         AST2IR cvt;
         auto callable = expr->custom();
-        auto cvted_callable = cvt._convert_callable(callable);
+        auto iter = _converted_callables.find(callable);
+        LUISA_ASSERT(iter != _converted_callables.end(),
+                     "Custom callable not found.");
+        auto cvted_callable = iter->second;
         luisa::vector<ir::NodeRef> args;
         args.reserve(expr->arguments().size());
         for (auto i = 0u; i < expr->arguments().size(); i++) {
