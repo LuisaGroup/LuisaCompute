@@ -2102,6 +2102,14 @@ pub extern "C" fn luisa_compute_ir_build_generic_loop(
     builder.generic_loop(prepare, cond, body, update)
 }
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_build_loop(
+    builder: &mut IrBuilder,
+    body: Pooled<BasicBlock>,
+    cond: NodeRef,
+) -> NodeRef {
+    builder.loop_(body, cond)
+}
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder: &mut IrBuilder,
     ty: CArc<Type>,

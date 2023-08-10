@@ -772,6 +772,8 @@ NodeRef luisa_compute_ir_build_local(IrBuilder *builder, NodeRef init);
 
 NodeRef luisa_compute_ir_build_local_zero_init(IrBuilder *builder, CArc<Type> ty);
 
+NodeRef luisa_compute_ir_build_loop(IrBuilder *builder, Pooled<BasicBlock> body, NodeRef cond);
+
 NodeRef luisa_compute_ir_build_phi(IrBuilder *builder, CSlice<PhiIncoming> incoming, CArc<Type> t);
 
 NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,

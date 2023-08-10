@@ -20,10 +20,12 @@ const NodeRef &Node::prev() const noexcept { return detail::from_inner_ref(_inne
 const CArc<Instruction> &Node::instruction() const noexcept { return detail::from_inner_ref(_inner.instruction); }
 
 // including extra code from data/NodeRef.cpp
-[[nodiscard]] const Instruction *NodeRef::operator->() const noexcept {
+[[nodiscard]] const Node *NodeRef::operator->() const noexcept {
+    return get();
+}
+[[nodiscard]] const Node *NodeRef::get() const noexcept {
     auto node = luisa_compute_ir_node_get(_inner);
-    auto inst = node->instruction.get();
-    return reinterpret_cast<const Instruction *>(inst);
+    return reinterpret_cast<const Node *>(node);
 }
 // end include
 
@@ -154,6 +156,12 @@ NodeRef IrBuilder::generic_loop(const Pooled<BasicBlock> &prepare, const NodeRef
                                                     cond._inner,
                                                     reinterpret_cast<const Pooled<raw::BasicBlock> &>(body),
                                                     reinterpret_cast<const Pooled<raw::BasicBlock> &>(update));
+    return NodeRef::from_raw(node);
+}
+NodeRef IrBuilder::loop(const Pooled<BasicBlock> &body, const NodeRef &cond) noexcept {
+    auto node = luisa_compute_ir_build_loop(&_inner,
+                                            reinterpret_cast<const Pooled<raw::BasicBlock> &>(body),
+                                            cond._inner);
     return NodeRef::from_raw(node);
 }
 Pooled<BasicBlock> IrBuilder::finish(IrBuilder &&builder) noexcept {

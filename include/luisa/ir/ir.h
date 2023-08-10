@@ -5,19 +5,19 @@
 namespace luisa::compute::ir_v2 {
 using raw::Primitive;
 class LC_IR_API VectorElementType : concepts::Noncopyable {
-    raw::VectorElementType _inner;
+    raw::VectorElementType _inner{};
     class Marker {};
 
 public:
     friend class IrBuilder;
     using Tag = raw::VectorElementType::Tag;
     class LC_IR_API Scalar : Marker, concepts::Noncopyable {
-        raw::VectorElementType::Scalar_Body _inner;
+        raw::VectorElementType::Scalar_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::VectorElementType::Tag::Scalar; }
     };
     class LC_IR_API Vector : Marker, concepts::Noncopyable {
-        raw::VectorElementType::Vector_Body _inner;
+        raw::VectorElementType::Vector_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::VectorElementType::Tag::Vector; }
     };
@@ -73,7 +73,7 @@ struct FromInnerRef<CBoxedSlice<raw::VectorElementType>> {
 }//namespace detail
 
 class LC_IR_API VectorType : concepts::Noncopyable {
-    raw::VectorType _inner;
+    raw::VectorType _inner{};
 
 public:
     friend class IrBuilder;
@@ -113,7 +113,7 @@ struct FromInnerRef<CBoxedSlice<raw::VectorType>> {
 }//namespace detail
 
 class LC_IR_API MatrixType : concepts::Noncopyable {
-    raw::MatrixType _inner;
+    raw::MatrixType _inner{};
 
 public:
     friend class IrBuilder;
@@ -153,7 +153,7 @@ struct FromInnerRef<CBoxedSlice<raw::MatrixType>> {
 }//namespace detail
 
 class LC_IR_API StructType : concepts::Noncopyable {
-    raw::StructType _inner;
+    raw::StructType _inner{};
 
 public:
     friend class IrBuilder;
@@ -194,7 +194,7 @@ struct FromInnerRef<CBoxedSlice<raw::StructType>> {
 }//namespace detail
 
 class LC_IR_API ArrayType : concepts::Noncopyable {
-    raw::ArrayType _inner;
+    raw::ArrayType _inner{};
 
 public:
     friend class IrBuilder;
@@ -234,7 +234,7 @@ struct FromInnerRef<CBoxedSlice<raw::ArrayType>> {
 }//namespace detail
 
 class LC_IR_API Type : concepts::Noncopyable {
-    raw::Type _inner;
+    raw::Type _inner{};
     class Marker {};
 
 public:
@@ -253,32 +253,32 @@ public:
     };
     explicit Type(Type::UserData _) noexcept { _inner.tag = UserData::tag(); }
     class LC_IR_API Primitive : Marker, concepts::Noncopyable {
-        raw::Type::Primitive_Body _inner;
+        raw::Type::Primitive_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Primitive; }
     };
     class LC_IR_API Vector : Marker, concepts::Noncopyable {
-        raw::Type::Vector_Body _inner;
+        raw::Type::Vector_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Vector; }
     };
     class LC_IR_API Matrix : Marker, concepts::Noncopyable {
-        raw::Type::Matrix_Body _inner;
+        raw::Type::Matrix_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Matrix; }
     };
     class LC_IR_API Struct : Marker, concepts::Noncopyable {
-        raw::Type::Struct_Body _inner;
+        raw::Type::Struct_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Struct; }
     };
     class LC_IR_API Array : Marker, concepts::Noncopyable {
-        raw::Type::Array_Body _inner;
+        raw::Type::Array_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Array; }
     };
     class LC_IR_API Opaque : Marker, concepts::Noncopyable {
-        raw::Type::Opaque_Body _inner;
+        raw::Type::Opaque_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Opaque; }
     };
@@ -346,7 +346,7 @@ struct FromInnerRef<CBoxedSlice<raw::Type>> {
 }//namespace detail
 
 class LC_IR_API Node : concepts::Noncopyable {
-    raw::Node _inner;
+    raw::Node _inner{};
 
 public:
     friend class IrBuilder;
@@ -388,7 +388,7 @@ struct FromInnerRef<CBoxedSlice<raw::Node>> {
 }//namespace detail
 
 class LC_IR_API Func : concepts::Noncopyable {
-    raw::Func _inner;
+    raw::Func _inner{};
     class Marker {};
 
 public:
@@ -407,12 +407,12 @@ public:
     };
     explicit Func(Func::Assume _) noexcept { _inner.tag = Assume::tag(); }
     class LC_IR_API Unreachable : Marker, concepts::Noncopyable {
-        raw::Func::Unreachable_Body _inner;
+        raw::Func::Unreachable_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Unreachable; }
     };
     class LC_IR_API Assert : Marker, concepts::Noncopyable {
-        raw::Func::Assert_Body _inner;
+        raw::Func::Assert_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Assert; }
     };
@@ -1419,12 +1419,12 @@ public:
     };
     explicit Func(Func::Mat4 _) noexcept { _inner.tag = Mat4::tag(); }
     class LC_IR_API Callable : Marker, concepts::Noncopyable {
-        raw::Func::Callable_Body _inner;
+        raw::Func::Callable_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Callable; }
     };
     class LC_IR_API CpuCustomOp : Marker, concepts::Noncopyable {
-        raw::Func::CpuCustomOp_Body _inner;
+        raw::Func::CpuCustomOp_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::CpuCustomOp; }
     };
@@ -1498,74 +1498,74 @@ struct FromInnerRef<CBoxedSlice<raw::Func>> {
 }//namespace detail
 
 class LC_IR_API Const : concepts::Noncopyable {
-    raw::Const _inner;
+    raw::Const _inner{};
     class Marker {};
 
 public:
     friend class IrBuilder;
     using Tag = raw::Const::Tag;
     class LC_IR_API Zero : Marker, concepts::Noncopyable {
-        raw::Const::Zero_Body _inner;
+        raw::Const::Zero_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Zero; }
     };
     class LC_IR_API One : Marker, concepts::Noncopyable {
-        raw::Const::One_Body _inner;
+        raw::Const::One_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::One; }
     };
     class LC_IR_API Bool : Marker, concepts::Noncopyable {
-        raw::Const::Bool_Body _inner;
+        raw::Const::Bool_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Bool; }
     };
     class LC_IR_API Int16 : Marker, concepts::Noncopyable {
-        raw::Const::Int16_Body _inner;
+        raw::Const::Int16_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Int16; }
     };
     class LC_IR_API Uint16 : Marker, concepts::Noncopyable {
-        raw::Const::Uint16_Body _inner;
+        raw::Const::Uint16_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint16; }
     };
     class LC_IR_API Int32 : Marker, concepts::Noncopyable {
-        raw::Const::Int32_Body _inner;
+        raw::Const::Int32_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Int32; }
     };
     class LC_IR_API Uint32 : Marker, concepts::Noncopyable {
-        raw::Const::Uint32_Body _inner;
+        raw::Const::Uint32_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint32; }
     };
     class LC_IR_API Int64 : Marker, concepts::Noncopyable {
-        raw::Const::Int64_Body _inner;
+        raw::Const::Int64_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Int64; }
     };
     class LC_IR_API Uint64 : Marker, concepts::Noncopyable {
-        raw::Const::Uint64_Body _inner;
+        raw::Const::Uint64_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint64; }
     };
     class LC_IR_API Float16 : Marker, concepts::Noncopyable {
-        raw::Const::Float16_Body _inner;
+        raw::Const::Float16_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Float16; }
     };
     class LC_IR_API Float32 : Marker, concepts::Noncopyable {
-        raw::Const::Float32_Body _inner;
+        raw::Const::Float32_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Float32; }
     };
     class LC_IR_API Float64 : Marker, concepts::Noncopyable {
-        raw::Const::Float64_Body _inner;
+        raw::Const::Float64_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Float64; }
     };
     class LC_IR_API Generic : Marker, concepts::Noncopyable {
-        raw::Const::Generic_Body _inner;
+        raw::Const::Generic_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Generic; }
     };
@@ -1653,19 +1653,23 @@ struct FromInnerRef<CBoxedSlice<raw::Const>> {
 };
 }//namespace detail
 
-class LC_IR_API NodeRef : concepts::Noncopyable {
-    raw::NodeRef _inner;
+class LC_IR_API NodeRef {
+    raw::NodeRef _inner{};
 
 public:
     friend class IrBuilder;
 
     // including extra code from data/NodeRef.h
-    [[nodiscard]] const Instruction *operator->() const noexcept;
+    [[nodiscard]] const Node *operator->() const noexcept;
+    [[nodiscard]] const Node *get() const noexcept;
     static NodeRef from_raw(raw::NodeRef raw) noexcept {
         auto ret = NodeRef{};
         ret._inner = raw;
         return ret;
     }
+    [[nodiscard]] auto raw() const noexcept { return _inner; }
+    [[nodiscard]] auto operator==(const NodeRef &rhs) const noexcept { return raw() == rhs.raw(); }
+    [[nodiscard]] auto valid() const noexcept { return raw() != raw::INVALID_REF; }
     // end include
 };
 
@@ -1701,7 +1705,7 @@ struct FromInnerRef<CBoxedSlice<raw::NodeRef>> {
 }//namespace detail
 
 class LC_IR_API PhiIncoming : concepts::Noncopyable {
-    raw::PhiIncoming _inner;
+    raw::PhiIncoming _inner{};
 
 public:
     friend class IrBuilder;
@@ -1741,7 +1745,7 @@ struct FromInnerRef<CBoxedSlice<raw::PhiIncoming>> {
 }//namespace detail
 
 class LC_IR_API SwitchCase : concepts::Noncopyable {
-    raw::SwitchCase _inner;
+    raw::SwitchCase _inner{};
 
 public:
     friend class IrBuilder;
@@ -1781,7 +1785,7 @@ struct FromInnerRef<CBoxedSlice<raw::SwitchCase>> {
 }//namespace detail
 
 class LC_IR_API Instruction : concepts::Noncopyable {
-    raw::Instruction _inner;
+    raw::Instruction _inner{};
     class Marker {};
 
 public:
@@ -1830,19 +1834,19 @@ public:
     };
     explicit Instruction(Instruction::Uniform _) noexcept { _inner.tag = Uniform::tag(); }
     class LC_IR_API Local : Marker, concepts::Noncopyable {
-        raw::Instruction::Local_Body _inner;
+        raw::Instruction::Local_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Local; }
         [[nodiscard]] const NodeRef &init() const noexcept;
     };
     class LC_IR_API Argument : Marker, concepts::Noncopyable {
-        raw::Instruction::Argument_Body _inner;
+        raw::Instruction::Argument_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Argument; }
         [[nodiscard]] const bool &by_value() const noexcept;
     };
     class LC_IR_API UserData : Marker, concepts::Noncopyable {
-        raw::Instruction::UserData_Body _inner;
+        raw::Instruction::UserData_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::UserData; }
     };
@@ -1853,41 +1857,41 @@ public:
     };
     explicit Instruction(Instruction::Invalid _) noexcept { _inner.tag = Invalid::tag(); }
     class LC_IR_API Const : Marker, concepts::Noncopyable {
-        raw::Instruction::Const_Body _inner;
+        raw::Instruction::Const_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Const; }
     };
     class LC_IR_API Update : Marker, concepts::Noncopyable {
-        raw::Instruction::Update_Body _inner;
+        raw::Instruction::Update_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Update; }
         [[nodiscard]] const NodeRef &var() const noexcept;
         [[nodiscard]] const NodeRef &value() const noexcept;
     };
     class LC_IR_API Call : Marker, concepts::Noncopyable {
-        raw::Instruction::Call_Body _inner;
+        raw::Instruction::Call_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Call; }
     };
     class LC_IR_API Phi : Marker, concepts::Noncopyable {
-        raw::Instruction::Phi_Body _inner;
+        raw::Instruction::Phi_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Phi; }
     };
     class LC_IR_API Return : Marker, concepts::Noncopyable {
-        raw::Instruction::Return_Body _inner;
+        raw::Instruction::Return_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Return; }
     };
     class LC_IR_API Loop : Marker, concepts::Noncopyable {
-        raw::Instruction::Loop_Body _inner;
+        raw::Instruction::Loop_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Loop; }
         [[nodiscard]] const Pooled<BasicBlock> &body() const noexcept;
         [[nodiscard]] const NodeRef &cond() const noexcept;
     };
     class LC_IR_API GenericLoop : Marker, concepts::Noncopyable {
-        raw::Instruction::GenericLoop_Body _inner;
+        raw::Instruction::GenericLoop_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::GenericLoop; }
         [[nodiscard]] const Pooled<BasicBlock> &prepare() const noexcept;
@@ -1908,7 +1912,7 @@ public:
     };
     explicit Instruction(Instruction::Continue _) noexcept { _inner.tag = Continue::tag(); }
     class LC_IR_API If : Marker, concepts::Noncopyable {
-        raw::Instruction::If_Body _inner;
+        raw::Instruction::If_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::If; }
         [[nodiscard]] const NodeRef &cond() const noexcept;
@@ -1916,7 +1920,7 @@ public:
         [[nodiscard]] const Pooled<BasicBlock> &false_branch() const noexcept;
     };
     class LC_IR_API Switch : Marker, concepts::Noncopyable {
-        raw::Instruction::Switch_Body _inner;
+        raw::Instruction::Switch_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Switch; }
         [[nodiscard]] const NodeRef &value() const noexcept;
@@ -1924,13 +1928,13 @@ public:
         [[nodiscard]] luisa::span<const SwitchCase> cases() const noexcept;
     };
     class LC_IR_API AdScope : Marker, concepts::Noncopyable {
-        raw::Instruction::AdScope_Body _inner;
+        raw::Instruction::AdScope_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::AdScope; }
         [[nodiscard]] const Pooled<BasicBlock> &body() const noexcept;
     };
     class LC_IR_API RayQuery : Marker, concepts::Noncopyable {
-        raw::Instruction::RayQuery_Body _inner;
+        raw::Instruction::RayQuery_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::RayQuery; }
         [[nodiscard]] const NodeRef &ray_query() const noexcept;
@@ -1938,12 +1942,12 @@ public:
         [[nodiscard]] const Pooled<BasicBlock> &on_procedural_hit() const noexcept;
     };
     class LC_IR_API AdDetach : Marker, concepts::Noncopyable {
-        raw::Instruction::AdDetach_Body _inner;
+        raw::Instruction::AdDetach_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::AdDetach; }
     };
     class LC_IR_API Comment : Marker, concepts::Noncopyable {
-        raw::Instruction::Comment_Body _inner;
+        raw::Instruction::Comment_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Comment; }
     };
@@ -2041,7 +2045,7 @@ struct FromInnerRef<CBoxedSlice<raw::Instruction>> {
 }//namespace detail
 
 class LC_IR_API BasicBlock : concepts::Noncopyable {
-    raw::BasicBlock _inner;
+    raw::BasicBlock _inner{};
 
 public:
     friend class IrBuilder;
@@ -2049,11 +2053,33 @@ public:
     [[nodiscard]] const NodeRef &last() const noexcept;
 
     // including extra code from data/BasicBlock.h
-    class Iterator {};
-    [[nodiscard]] Iterator begin() const noexcept;
-    [[nodiscard]] Iterator end() const noexcept;
-    [[nodiscard]] Iterator cbegin() const noexcept;
-    [[nodiscard]] Iterator cend() const noexcept;
+    class Iterator {
+    public:
+        struct Sentinel {};
+    private:
+        NodeRef _curr;
+        friend class BasicBlock;
+        explicit Iterator(NodeRef curr) noexcept
+            : _curr{curr} {}
+    public:
+        [[nodiscard]] auto operator*() const noexcept { return _curr; }
+        auto &operator++() noexcept {
+            auto node = _curr->next();
+            _curr = node;
+            return *this;
+        }
+        auto operator++(int) noexcept {
+            auto old = *this;
+            ++(*this);
+            return old;
+        }
+        [[nodiscard]] auto operator==(const Iterator &rhs) const noexcept { return _curr == rhs._curr; }
+        [[nodiscard]] auto operator==(Sentinel) const noexcept { return !_curr.valid(); }
+    };
+    [[nodiscard]] auto begin() const noexcept { return Iterator{this->first()}; }
+    [[nodiscard]] auto end() const noexcept { return Iterator::Sentinel{}; }
+    [[nodiscard]] auto cbegin() const noexcept { return this->begin(); }
+    [[nodiscard]] auto cend() const noexcept { return this->end(); }
     // end include
 };
 
@@ -2090,7 +2116,7 @@ struct FromInnerRef<CBoxedSlice<raw::BasicBlock>> {
 
 using raw::ModuleKind;
 class LC_IR_API Module : concepts::Noncopyable {
-    raw::Module _inner;
+    raw::Module _inner{};
 
 public:
     friend class IrBuilder;
@@ -2131,7 +2157,7 @@ struct FromInnerRef<CBoxedSlice<raw::Module>> {
 }//namespace detail
 
 class LC_IR_API CallableModule : concepts::Noncopyable {
-    raw::CallableModule _inner;
+    raw::CallableModule _inner{};
 
 public:
     friend class IrBuilder;
@@ -2176,7 +2202,7 @@ struct FromInnerRef<CBoxedSlice<raw::CallableModule>> {
 }//namespace detail
 
 class LC_IR_API BufferBinding : concepts::Noncopyable {
-    raw::BufferBinding _inner;
+    raw::BufferBinding _inner{};
 
 public:
     friend class IrBuilder;
@@ -2217,7 +2243,7 @@ struct FromInnerRef<CBoxedSlice<raw::BufferBinding>> {
 }//namespace detail
 
 class LC_IR_API TextureBinding : concepts::Noncopyable {
-    raw::TextureBinding _inner;
+    raw::TextureBinding _inner{};
 
 public:
     friend class IrBuilder;
@@ -2257,7 +2283,7 @@ struct FromInnerRef<CBoxedSlice<raw::TextureBinding>> {
 }//namespace detail
 
 class LC_IR_API BindlessArrayBinding : concepts::Noncopyable {
-    raw::BindlessArrayBinding _inner;
+    raw::BindlessArrayBinding _inner{};
 
 public:
     friend class IrBuilder;
@@ -2296,7 +2322,7 @@ struct FromInnerRef<CBoxedSlice<raw::BindlessArrayBinding>> {
 }//namespace detail
 
 class LC_IR_API AccelBinding : concepts::Noncopyable {
-    raw::AccelBinding _inner;
+    raw::AccelBinding _inner{};
 
 public:
     friend class IrBuilder;
@@ -2335,29 +2361,29 @@ struct FromInnerRef<CBoxedSlice<raw::AccelBinding>> {
 }//namespace detail
 
 class LC_IR_API Binding : concepts::Noncopyable {
-    raw::Binding _inner;
+    raw::Binding _inner{};
     class Marker {};
 
 public:
     friend class IrBuilder;
     using Tag = raw::Binding::Tag;
     class LC_IR_API Buffer : Marker, concepts::Noncopyable {
-        raw::Binding::Buffer_Body _inner;
+        raw::Binding::Buffer_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::Buffer; }
     };
     class LC_IR_API Texture : Marker, concepts::Noncopyable {
-        raw::Binding::Texture_Body _inner;
+        raw::Binding::Texture_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::Texture; }
     };
     class LC_IR_API BindlessArray : Marker, concepts::Noncopyable {
-        raw::Binding::BindlessArray_Body _inner;
+        raw::Binding::BindlessArray_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::BindlessArray; }
     };
     class LC_IR_API Accel : Marker, concepts::Noncopyable {
-        raw::Binding::Accel_Body _inner;
+        raw::Binding::Accel_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::Accel; }
     };
@@ -2419,7 +2445,7 @@ struct FromInnerRef<CBoxedSlice<raw::Binding>> {
 }//namespace detail
 
 class LC_IR_API Capture : concepts::Noncopyable {
-    raw::Capture _inner;
+    raw::Capture _inner{};
 
 public:
     friend class IrBuilder;
@@ -2459,7 +2485,7 @@ struct FromInnerRef<CBoxedSlice<raw::Capture>> {
 }//namespace detail
 
 class LC_IR_API KernelModule : concepts::Noncopyable {
-    raw::KernelModule _inner;
+    raw::KernelModule _inner{};
 
 public:
     friend class IrBuilder;
@@ -2505,7 +2531,7 @@ struct FromInnerRef<CBoxedSlice<raw::KernelModule>> {
 }//namespace detail
 
 class LC_IR_API BlockModule : concepts::Noncopyable {
-    raw::BlockModule _inner;
+    raw::BlockModule _inner{};
 
 public:
     friend class IrBuilder;
@@ -2544,7 +2570,7 @@ struct FromInnerRef<CBoxedSlice<raw::BlockModule>> {
 }//namespace detail
 
 class LC_IR_API IrBuilder : concepts::Noncopyable {
-    raw::IrBuilder _inner;
+    raw::IrBuilder _inner{};
 
 public:
     friend class IrBuilder;
