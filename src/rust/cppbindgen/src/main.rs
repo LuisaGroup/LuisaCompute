@@ -183,7 +183,7 @@ fn gen_struct_binding(
     }
     writeln!(fwd, "class {};", name)?;
     writeln!(h, "class LC_IR_API {} : concepts::Noncopyable {{", name)?;
-    writeln!(h, "    raw::{} _inner;\n", name)?;
+    writeln!(h, "    raw::{} _inner{{}};\n", name)?;
     writeln!(h, "public:")?;
     writeln!(h, "    friend class IrBuilder;")?;
     let is_tuple = item.fields.iter().all(|f| match &f.ident {
@@ -296,7 +296,7 @@ fn gen_enum_binding(
     }
     writeln!(fwd, "class {};", name)?;
     writeln!(h, "class LC_IR_API {0} : concepts::Noncopyable {{", name)?;
-    writeln!(h, "    raw::{} _inner;", name)?;
+    writeln!(h, "    raw::{} _inner{{}};", name)?;
     writeln!(h, "    class Marker {{}};\n")?;
     writeln!(h, "public:")?;
     writeln!(h, "    friend class IrBuilder;")?;
@@ -311,7 +311,7 @@ fn gen_enum_binding(
                 "    class LC_IR_API {} : Marker, concepts::Noncopyable {{",
                 variant_name
             )?;
-            writeln!(h, "        raw::{}::{}_Body _inner;", name, variant_name)?;
+            writeln!(h, "        raw::{}::{}_Body _inner{{}};", name, variant_name)?;
             writeln!(h, "    public:")?;
             writeln!(
                 h,
