@@ -9,6 +9,9 @@
 
 namespace luisa::compute {
 
+AST2IR::AST2IR() noexcept
+    : _pools{ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()}} {}
+
 template<typename T>
 inline auto AST2IR::_boxed_slice(size_t n) const noexcept -> ir::CBoxedSlice<T> {
     if (n == 0u) {
@@ -102,7 +105,6 @@ AST2IR::_convert_kernel(Function function) noexcept {
         static_cast<void>(_convert_callable(c->function()));
     }
     _function = function;
-    _pools = ir::CppOwnedCArc<ir::ModulePools>(ir::luisa_compute_ir_new_module_pools());
     _constants.clear();
     _variables.clear();
     auto m = _with_builder([this](auto builder) noexcept {
@@ -202,11 +204,10 @@ AST2IR::_convert_callable(Function function) noexcept {
         static_cast<void>(_convert_callable(c->function()));
     }
     _function = function;
-    _pools = ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()};
     _constants.clear();
     _variables.clear();
     auto m = _with_builder([this](auto builder) noexcept {
-        auto args = _function.builder()->arguments();
+        auto args = _function.arguments();
         auto arguments = _boxed_slice<ir::NodeRef>(args.size());
         for (auto i = 0u; i < args.size(); i++) {
             arguments.ptr[i] = _convert_argument(args[i]);

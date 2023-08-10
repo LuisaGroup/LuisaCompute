@@ -47,6 +47,9 @@ private:
     [[nodiscard]] ir::CBoxedSlice<ir::CallableModuleRef> _collect_callables(Function f) const noexcept;
 
 private:
+    AST2IR() noexcept;
+
+private:
     [[nodiscard]] ir::IrBuilder *_current_builder() noexcept;
     [[nodiscard]] ir::CArc<ir::Type> _convert_type(const Type *type) noexcept;
     [[nodiscard]] ir::NodeRef _convert_argument(Variable v) noexcept;
