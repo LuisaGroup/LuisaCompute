@@ -83,6 +83,7 @@
 #include <luisa/ir/fwd.h>
 #include <luisa/ir/ir.h>
 #include <luisa/ir/ir2ast.h>
+#include <luisa/ir/transforms/ref2ret.h>
 #endif
 
 #include <luisa/osl/hint.h>
@@ -96,6 +97,7 @@
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/buffer_arena.h>
+#include <luisa/runtime/byte_buffer.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/depth_format.h>

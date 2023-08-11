@@ -1061,7 +1061,7 @@ template<typename T>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_uint offset) noexcept {
+[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const char *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
