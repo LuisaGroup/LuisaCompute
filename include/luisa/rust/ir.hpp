@@ -783,6 +783,8 @@ NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
 
 void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef value);
 
+void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
+
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_binary(const Module *module);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_human_readable(const Module *module);
@@ -804,6 +806,14 @@ CArcSharedBlock<ModulePools> *luisa_compute_ir_new_module_pools();
 NodeRef luisa_compute_ir_new_node(CArc<ModulePools> pools, Node node);
 
 const Node *luisa_compute_ir_node_get(NodeRef node_ref);
+
+void luisa_compute_ir_node_insert_after_self(NodeRef node_ref, NodeRef new_node);
+
+void luisa_compute_ir_node_insert_before_self(NodeRef node_ref, NodeRef new_node);
+
+void luisa_compute_ir_node_remove(NodeRef node_ref);
+
+void luisa_compute_ir_node_replace_with(NodeRef node_ref, const Node *new_node);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_node_usage(const KernelModule *kernel);
 

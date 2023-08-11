@@ -1342,6 +1342,12 @@ impl NodeRef {
     pub fn set(&self, node: Node) {
         *self.get_mut() = node;
     }
+    pub fn replace_with(&self, node: &Node) {
+        let instr = node.instruction.clone();
+        let type_ = node.type_.clone();
+        self.get_mut().instruction = instr;
+        self.get_mut().type_ = type_;
+    }
     pub fn update<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
         f(self.get_mut())
     }
@@ -2029,6 +2035,27 @@ pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
 }
 
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_replace_with(node_ref: NodeRef, new_node: *const Node) {
+    let new_node = unsafe { &*new_node };
+    node_ref.replace_with(new_node);
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_insert_before_self(node_ref: NodeRef, new_node: NodeRef) {
+    node_ref.insert_before_self(new_node);
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_insert_after_self(node_ref: NodeRef, new_node: NodeRef) {
+    node_ref.insert_after_self(new_node);
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_remove(node_ref: NodeRef) {
+    node_ref.remove();
+}
+
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_append_node(builder: &mut IrBuilder, node_ref: NodeRef) {
     builder.append(node_ref)
 }
@@ -2125,6 +2152,14 @@ pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<Mo
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_builder(pools: CArc<ModulePools>) -> IrBuilder {
     unsafe { IrBuilder::new(pools.clone()) }
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_builder_set_insert_point(
+    builder: &mut IrBuilder,
+    node_ref: NodeRef,
+) {
+    builder.set_insert_point(node_ref);
 }
 
 #[no_mangle]
