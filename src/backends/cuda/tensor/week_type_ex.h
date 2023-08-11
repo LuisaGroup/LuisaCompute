@@ -502,6 +502,54 @@ inline cublasStatus_t trmm_ex(cublasHandle_t handle,
     return ret;
 }
 
+inline cublasStatus_t symm_ex(cublasHandle_t handle,
+                              cudaDataType_t type,
+                              cublasSideMode_t side,
+                              cublasFillMode_t uplo,
+                              int m,
+                              int n,
+                              const void *alpha, /* host or device pointer */
+                              const void *A,
+                              int lda,
+                              const void *B,
+                              int ldb,
+                              const void *beta, /* host or device pointer */
+                              void *C,
+                              int ldc) noexcept {
+    cublasStatus_t ret;
+    switch (type) {
+        case CUDA_R_32F: {
+            ret = cublasSsymm_v2(
+                handle, side, uplo,
+                m, n,
+                (const float *)alpha,
+                (const float *)A, lda,
+                (const float *)B, ldb,
+                (const float *)beta,
+                (float *)C, ldc);
+        } break;
+        case CUDA_R_64F: {
+            ret = cublasDsymm_v2(
+                handle, side, uplo,
+                m, n,
+                (const double *)alpha,
+                (const double *)A, lda,
+                (const double *)B, ldb,
+                (const double *)beta,
+                (double *)C, ldc);
+        } break;
+        //case CUDA_C_64F: {
+
+        //} break;
+        //case CUDA_C_32F: {
+
+        //} break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("unspported data type.");
+    }
+    return ret;
+}
+
 inline cublasStatus_t trsv_ex(cublasHandle_t handle,
                               cudaDataType_t type,
                               cublasFillMode_t uplo,

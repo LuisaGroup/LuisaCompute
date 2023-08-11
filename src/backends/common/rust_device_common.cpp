@@ -1,5 +1,6 @@
 #include <luisa/rust/ir.hpp>
 #include <luisa/rust/api_types.hpp>
+#include "../backends/cpu/tensor/cpu_las.h"
 
 namespace luisa::compute::backend {
 using namespace luisa::compute::api;
@@ -41,6 +42,7 @@ public:
 
         void on_completion() noexcept {
             for (auto &&callback : _list.callbacks()) { callback(); }
+            _list.clear(); // avoid assert failure in ~CommandList
             for (auto p : _temp) {
                 luisa::deallocate_with_allocator(
                     static_cast<std::byte *>(p));
@@ -620,6 +622,23 @@ public:
 
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle,
                   luisa::string_view name) noexcept override {
+    }
+
+    [[nodiscard]] virtual luisa::compute::tensor::LASInterface *create_las_interface(uint64_t stream_handle) noexcept override {
+#if LUISA_ENABLE_TENSOR
+        return new_with_allocator<cpu::tensor::CpuLAS>(*this, stream_handle);
+#else
+        LUISA_ERROR_WITH_LOCATION("LUISA_ENABLE_TENSOR=1 is not defined.");
+        return nullptr;
+#endif
+    }
+
+    virtual void destroy_las_interface(luisa::compute::tensor::LASInterface *las) noexcept override {
+#if LUISA_ENABLE_TENSOR
+        delete_with_allocator(las);
+#else
+        LUISA_ERROR_WITH_LOCATION("LUISA_ENABLE_TENSOR=1 is not defined.");
+#endif
     }
 };
 

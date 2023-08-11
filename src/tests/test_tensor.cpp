@@ -53,22 +53,22 @@ void test_blas_level_1(tensor::TensorMaker &maker, tensor::LASInterface *las, St
 
         // host
         luisa::vector<float> h_x = {2.0f, 4.0f, 6.0f};
-        int h_r;
+        int h_r = 3;
 
         // device
         auto r = maker.scalar<int>();
         auto x = maker.dense_vector(h_x.size());
-
-        stream << x.dense_storage().copy_from(h_x.data());
-        las->Iamax(r, x);
+        auto nhandle = (uint64_t)r.dense_storage().buffer.native_handle();
+        stream << x.dense_storage().copy_from(h_x.data()) << r.dense_storage().copy_from(&h_r);
+        las->iamax(r, x);
         stream << r.dense_storage().copy_to(&h_r);
         stream << synchronize();
-        LUISA_INFO("{}: Iamax([2,4,6])={} (3)", ID++, h_r);
+        LUISA_INFO("{}: iamax([2,4,6])={} (3)", ID++, h_r);
 
-        las->Iamin(r, x);
+        las->iamin(r, x);
         stream << r.dense_storage().copy_to(&h_r);
         stream << synchronize();
-        LUISA_INFO("{}: Iamin([2,4,6])={} (1)", ID++, h_r);
+        LUISA_INFO("{}: iamin([2,4,6])={} (1)", ID++, h_r);
     }
 }
 
@@ -108,48 +108,48 @@ void test_blas_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, St
         LUISA_INFO("{}: A = [1,2;3,4] x = [1,0]  y = A.T * x = [{},{}] ([1,2])", ID++, h_y[0], h_y[1]);
     }
 
-    //// batched mv
-    //{
-    //    luisa::vector<float> h_A = {
-    //        1.0f, 3.0f,// col 0
-    //        2.0f, 4.0f // col 1
-    //    };
+    // batched mv
+    {
+        luisa::vector<float> h_A = {
+            1.0f, 3.0f,// col 0
+            2.0f, 4.0f // col 1
+        };
 
-    //    luisa::vector<float> h_x = {1.0f, 0.0f};
-    //    auto h_y = luisa::vector<luisa::vector<float>>{2};
-    //    std::for_each(h_y.begin(), h_y.end(), [](auto &item) { item.resize(2); });
+        luisa::vector<float> h_x = {1.0f, 0.0f};
+        auto h_y = luisa::vector<luisa::vector<float>>{2};
+        std::for_each(h_y.begin(), h_y.end(), [](auto &item) { item.resize(2); });
 
-    //    float h_alpha = 1.0f;
-    //    float h_beta = 0.0f;
+        float h_alpha = 1.0f;
+        float h_beta = 0.0f;
 
-    //    auto A = maker.dense_matrix_batched(2, 2, 2);
-    //    auto x = maker.dense_vector_batched(2, 2);
-    //    auto y = maker.dense_vector_batched(2, 2);
-    //    auto alpha = maker.scalar<float>();
-    //    auto beta = maker.scalar<float>();
+        auto A = maker.dense_matrix_batched(2, 2, 2);
+        auto x = maker.dense_vector_batched(2, 2);
+        auto y = maker.dense_vector_batched(2, 2);
+        auto alpha = maker.scalar<float>();
+        auto beta = maker.scalar<float>();
 
-    //    // copy data to all batches
-    //    for (auto &item : A.dense_storages()) stream << item.copy_from(h_A.data());
-    //    for (auto &item : x.dense_storages()) stream << item.copy_from(h_x.data());
-    //    stream << alpha.dense_storage().copy_from(&h_alpha);
-    //    stream << beta.dense_storage().copy_from(&h_beta);
-    //    las->mv_batched(y, alpha, A, x, beta);
-    //    stream << synchronize();
-    //    // copy data from all batches
+        // copy data to all batches
+        for (auto &item : A.dense_storages()) stream << item.copy_from(h_A.data());
+        for (auto &item : x.dense_storages()) stream << item.copy_from(h_x.data());
+        stream << alpha.dense_storage().copy_from(&h_alpha);
+        stream << beta.dense_storage().copy_from(&h_beta);
+        las->mv_batched(y, alpha, A, x, beta);
+        stream << synchronize();
+        // copy data from all batches
 
-    //    {
-    //        int i = 0;
-    //        std::for_each(h_y.begin(), h_y.end(),
-    //            [&](auto &v) { stream << y.dense_storages()[i++].copy_to(v.data()); });
-    //    }
+        {
+            int i = 0;
+            std::for_each(h_y.begin(), h_y.end(),
+                [&](auto &v) { stream << y.dense_storages()[i++].copy_to(v.data()); });
+        }
 
-    //    stream << synchronize();
+        stream << synchronize();
 
-    //    LUISA_INFO(
-    //        "{}: A = [1,2;3,4] [1,2;3,4]  x = [1,0] [1,0]\n"
-    //        "y = A * x = [{},{}] [{},{}] ([1,3] [1,3])",
-    //        ID++, h_y[0][0], h_y[0][1], h_y[1][0], h_y[1][1]);
-    //}
+        LUISA_INFO(
+            "{}: A = [1,2;3,4] [1,2;3,4]  x = [1,0] [1,0]\n"
+            "y = A * x = [{},{}] [{},{}] ([1,3] [1,3])",
+            ID++, h_y[0][0], h_y[0][1], h_y[1][0], h_y[1][1]);
+    }
 }
 
 void test_blas_level_3(tensor::TensorMaker &maker, tensor::LASInterface *las, Stream &stream) {
@@ -330,7 +330,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
     // now only cuda
-    Device device = context.create_device("cuda");
+    Device device = context.create_device("cpu");
     Stream stream = device.create_stream();
 
     auto las = device.impl()->create_las_interface(stream.handle());

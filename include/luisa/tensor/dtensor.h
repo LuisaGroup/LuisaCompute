@@ -36,7 +36,7 @@ public:
     }
 
     bool is_batched() const noexcept { return _batch_desc != nullptr; }
-    bool is_stride_batched() const noexcept { return is_batched() && _batch_desc->_batch_stride > 0; }
+    bool is_stride_batched() const noexcept { return is_batched() && _batch_desc->batch_stride > 0; }
     bool is_sparse() const noexcept { return _sparse_vector_desc || _sparse_matrix_desc; }
     bool is_dense() const noexcept { return _scalar_desc || _dense_vector_desc || _dense_matrix_desc; }
     bool is_scalar() const noexcept { return _shape.size() == 0; }

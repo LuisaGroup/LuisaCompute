@@ -22,8 +22,8 @@ public:
 
     // BLAS
     // level-1
-    virtual void Iamax(DTensor &result, const DTensor &vec_x) noexcept = 0;
-    virtual void Iamin(DTensor &result, const DTensor &vec_x) noexcept = 0;
+    virtual void iamax(DTensor &result, const DTensor &vec_x) noexcept = 0;
+    virtual void iamin(DTensor &result, const DTensor &vec_x) noexcept = 0;
     virtual void dot(DTensor &result, const DTensor &vec_x, const DTensor &vec_y) noexcept = 0;
     virtual void nrm2(DTensor &result, const DTensor &vec_x) noexcept = 0;
 

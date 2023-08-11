@@ -11,6 +11,7 @@ public:
     auto view() const noexcept {
         return DenseStorageView{
             .buffer_handle = buffer.handle(),
+            .buffer_native_handle = buffer.native_handle(),
             .buffer_stride = buffer.stride(),
             .buffer_offset = 0u,
             .buffer_total_size = buffer.size(),

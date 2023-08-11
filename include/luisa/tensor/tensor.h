@@ -162,8 +162,8 @@ public:
 
         if (batch > 1) {
             _batch_desc = make_unique<BatchDesc>();
-            _batch_desc->_batch_count = batch;
-            _batch_desc->_batch_stride = 0;
+            _batch_desc->batch_count = batch;
+            _batch_desc->batch_stride = 0;
 
             _batch_storage = make_shared<BatchStorage>();
             _batch_storage->buffer = _device.create_buffer<uint64_t>(batch);
@@ -191,8 +191,8 @@ public:
         _dense_vector_desc->offset = 0;// hard code
 
         _batch_desc = make_unique<BatchDesc>();
-        _batch_desc->_batch_count = batch;
-        _batch_desc->_batch_stride = stride;
+        _batch_desc->batch_count = batch;
+        _batch_desc->batch_stride = stride;
 
         _batch_storage = make_shared<BatchStorage>();
 
@@ -228,8 +228,8 @@ public:
             _batch_storage->buffer = _device.create_buffer<uint64_t>(batch);
 
             _batch_desc = make_unique<BatchDesc>();
-            _batch_desc->_batch_count = batch;
-            _batch_desc->_batch_stride = 0;
+            _batch_desc->batch_count = batch;
+            _batch_desc->batch_stride = 0;
         }
         _matrix_operation = MatrixOperation::NONE;
         alloc_backend_tensor_res();
@@ -260,8 +260,8 @@ public:
         _dense_matrix_desc->diag_type = DenseMatrixDiagType::NON_UNIT;
 
         _batch_desc = make_unique<BatchDesc>();
-        _batch_desc->_batch_count = batch;
-        _batch_desc->_batch_stride = batch_stride;
+        _batch_desc->batch_count = batch;
+        _batch_desc->batch_stride = batch_stride;
 
         _batch_storage = make_shared<BatchStorage>();
 
@@ -387,14 +387,6 @@ public:
         return dense_storage;
     }
 };
-
-void test() {
-    Device *d;
-    LASInterface *las;
-    Tensor<float> t{*d, las};
-    auto tt = t.T();
-}
-
 }// namespace luisa::compute::tensor
 
 // impl

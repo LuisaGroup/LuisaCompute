@@ -1,11 +1,9 @@
 #pragma once
 #include <luisa/tensor/las_interface.h>
-#include "../cuda_stream.h"
-#include <cublas_v2.h>
-#include <cusparse.h>
+#include "../../common/rust_device_common.h"
 
-namespace luisa::compute::cuda::tensor {
-class CudaLAS : public luisa::compute::tensor::LASInterface {
+namespace luisa::compute::cpu::tensor {
+class CpuLAS : public luisa::compute::tensor::LASInterface {
     template<typename T>
     using S = luisa::shared_ptr<T>;
 
@@ -13,14 +11,12 @@ class CudaLAS : public luisa::compute::tensor::LASInterface {
     using DTensor = luisa::compute::tensor::DTensor;
     using MatrixMulOptions = luisa::compute::tensor::MatrixMulOptions;
     using DenseStorageView = luisa::compute::tensor::DenseStorageView;
-
-    CUDAStream *_stream{nullptr};
-    cublasHandle_t _cublas_handle{nullptr};
-    cusparseHandle_t _cusparse_handle{nullptr};
-
+    
+    uint64_t _stream_handle = 0ul;
+    DeviceInterface &_device;
 public:
-    CudaLAS(CUDAStream *stream) noexcept;
-    virtual ~CudaLAS() noexcept;
+    CpuLAS(DeviceInterface &device, uint64_t stream_handle) noexcept;
+    virtual ~CpuLAS() noexcept;
     virtual S<BackendTensorRes> alloc_backend_tensor_res(const DTensor &) noexcept override;
 
     // BLAS
@@ -58,5 +54,13 @@ public:
     // level-2
     virtual size_t spmv_buffer_size(DTensor &dn_vec_y, const DTensor &alpha, const DTensor &sp_mat_A, const DTensor &dn_vec_x, const DTensor &beta) noexcept override;
     virtual void spmv(DTensor &dn_vec_y, const DTensor &alpha, const DTensor &sp_mat_A, const DTensor &dn_vec_x, const DTensor &beta, DenseStorageView ext_buffer) noexcept override;
+
+private:
+    template<typename F>
+    void invoke(F&& func) noexcept {
+        CommandList cmdlist;
+        cmdlist.add_callback(std::forward<F>(func));
+        _device.dispatch(_stream_handle, std::move(cmdlist));
+    }
 };
 }// namespace luisa::compute::cuda::tensor

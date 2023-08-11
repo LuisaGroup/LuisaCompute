@@ -33,9 +33,8 @@ if (CUDAToolkit_FOUND)
             string_scratch.cpp)
     
     if(LUISA_COMPUTE_ENABLE_TENSOR)
-        file(GLOB TENSOR_SOURCE "tensor/*cpp")
-        # set(TENSOR_SOURCE "tensor/cuda_las.cpp")
-        set(LUISA_COMPUTE_CUDA_SOURCES "${LUISA_COMPUTE_CUDA_SOURCES};${TENSOR_SOURCE}")
+        file(GLOB_RECURSE TENSOR_SOURCES "tensor/*.cpp" "tensor/*.h")
+        set(LUISA_COMPUTE_CUDA_SOURCES "${LUISA_COMPUTE_CUDA_SOURCES};${TENSOR_SOURCES}")
     endif()
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})

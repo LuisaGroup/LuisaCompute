@@ -817,16 +817,24 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
 }
 
 luisa::compute::tensor::LASInterface *CUDADevice::create_las_interface(uint64_t stream_handle) noexcept {
+#if LUISA_ENABLE_TENSOR
     auto las = with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
         return new_with_allocator<tensor::CudaLAS>(stream);
     });
     return las;
+#else
+    LUISA_ERROR_WITH_LOCATION("LUISA_ENABLE_TENSOR=1 is not defined.");
+#endif
 }
 
-void CUDADevice::destroy_las_interface(luisa::compute::tensor::LASInterface * las) noexcept {
+void CUDADevice::destroy_las_interface(luisa::compute::tensor::LASInterface *las) noexcept {
+#if LUISA_ENABLE_TENSOR
     with_handle([las] {
         delete_with_allocator(las);
     });
+#else
+    LUISA_ERROR_WITH_LOCATION("LUISA_ENABLE_TENSOR=1 is not defined.");
+#endif
 }
 
 namespace detail {

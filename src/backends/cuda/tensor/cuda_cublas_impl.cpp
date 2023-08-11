@@ -15,7 +15,7 @@ static cublasDiagType_t cublas_enum_map(luisa::compute::tensor::DenseMatrixDiagT
 static cublasSideMode_t cublas_enum_map(luisa::compute::tensor::MatrixMulOptions op) noexcept;
 
 // Cublas Impl
-void CudaLAS::Iamax(DTensor &result, const DTensor &vec_x) noexcept {
+void CudaLAS::iamax(DTensor &result, const DTensor &vec_x) noexcept {
     auto x = vec_x.dense_vector_view();
     auto r = result.scalar_view();
     LUISA_CHECK_CUBLAS(
@@ -25,7 +25,7 @@ void CudaLAS::Iamax(DTensor &result, const DTensor &vec_x) noexcept {
                       x.desc.inc, raw<int>(r)));
 }
 
-void CudaLAS::Iamin(DTensor &result, const DTensor &vec_x) noexcept {
+void CudaLAS::iamin(DTensor &result, const DTensor &vec_x) noexcept {
     auto x = vec_x.dense_vector_view();
     auto r = result.scalar_view();
     LUISA_CHECK_CUBLAS(
@@ -236,7 +236,7 @@ void CudaLAS::mv_batched(DTensor &y, const DTensor &alpha, const DTensor &A, con
                         raw<void>(x_array), x_.desc.inc,
                         raw<void>(beta_),
                         raw<void>(y_array), y_.desc.inc,
-                        A_array.desc._batch_count));
+                        A_array.desc.batch_count));
 }
 
 void CudaLAS::mv_strided_batched(DTensor &y, const DTensor &alpha, const DTensor &A, const DTensor &x, const DTensor &beta) noexcept {
@@ -258,12 +258,12 @@ void CudaLAS::mv_strided_batched(DTensor &y, const DTensor &alpha, const DTensor
                                 cuda_enum_map(A.basic_data_type()),
                                 cublas_enum_map(A_.operation),
                                 A_.row, A_.col,
-                                raw_ptr(alpha_),
-                                raw_ptr(A_), A_.desc.lda, A_array.desc._batch_stride,
-                                raw_ptr(x_), x_.desc.inc, x_array.desc._batch_stride,
-                                raw_ptr(beta_),
-                                raw_ptr(y_), y_.desc.inc, y_array.desc._batch_stride,
-                                A_array.desc._batch_count));
+                                raw<void>(alpha_),
+                                raw<void>(A_), A_.desc.lda, A_array.desc.batch_stride,
+                                raw<void>(x_), x_.desc.inc, x_array.desc.batch_stride,
+                                raw<void>(beta_),
+                                raw<void>(y_), y_.desc.inc, y_array.desc.batch_stride,
+                                A_array.desc.batch_count));
 }
 
 void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
@@ -272,38 +272,54 @@ void CudaLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTens
     auto B_ = B.dense_matrix_view();
     auto beta_ = beta.scalar_view();
     auto C_ = C.dense_matrix_view();
-    using DenseMatrixShape = luisa::compute::tensor::DenseMatrixShape;
+    using namespace luisa::compute::tensor;
 
     LUISA_ASSERT(C_.desc.shape == DenseMatrixShape::GENERAL, "only general matrix is supported for C.");
     if (A_.desc.shape == DenseMatrixShape::GENERAL && B_.desc.shape == DenseMatrixShape::GENERAL) {
-        LUISA_CHECK_CUBLAS(
-            cublasGemmEx(
-                _cublas_handle,
-                cublas_enum_map(A_.operation),
-                cublas_enum_map(B_.operation),
-                C_.row, C_.col, A_.col,
-                raw<void>(alpha_),
-                raw<void>(A_), cuda_enum_map(A.basic_data_type()), A_.desc.lda,
-                raw<void>(B_), cuda_enum_map(B.basic_data_type()), B_.desc.lda,
-                raw<void>(beta_),
-                raw<void>(C_), cuda_enum_map(C.basic_data_type()), C_.desc.lda,
-                cuda_enum_map(A.basic_data_type()),
-                cublasGemmAlgo_t::CUBLAS_GEMM_ALGO0_TENSOR_OP));
-
-    } else if (A_.desc.shape == DenseMatrixShape::TRIANGULAR && B_.desc.shape == DenseMatrixShape::GENERAL) {
-        LUISA_CHECK_CUBLAS(
-            trmm_ex(_cublas_handle,
+        if (A_.desc.property == DenseMatrixProperty::NONE) {
+            LUISA_CHECK_CUBLAS(
+                cublasGemmEx(
+                    _cublas_handle,
+                    cublas_enum_map(A_.operation),
+                    cublas_enum_map(B_.operation),
+                    C_.row, C_.col, A_.col,
+                    raw<void>(alpha_),
+                    raw<void>(A_), cuda_enum_map(A.basic_data_type()), A_.desc.lda,
+                    raw<void>(B_), cuda_enum_map(B.basic_data_type()), B_.desc.lda,
+                    raw<void>(beta_),
+                    raw<void>(C_), cuda_enum_map(C.basic_data_type()), C_.desc.lda,
+                    cuda_enum_map(A.basic_data_type()),
+                    cublasGemmAlgo_t::CUBLAS_GEMM_ALGO0_TENSOR_OP));
+        } else {
+            LUISA_CHECK_CUBLAS(
+                symm_ex(
+                    _cublas_handle,
                     cuda_enum_map(A.basic_data_type()),
                     cublas_enum_map(options),
                     cublas_enum_map(A_.desc.fill_mode),
-                    cublas_enum_map(A_.operation),
-                    cublas_enum_map(A_.desc.diag_type),
                     C_.row, C_.col,
                     raw<void>(alpha_),
                     raw<void>(A_), A_.desc.lda,
                     raw<void>(B_), B_.desc.lda,
+                    raw<void>(beta_),
                     raw<void>(C_), C_.desc.lda));
-    } else {
+        }
+    } 
+    //else if (A_.desc.shape == DenseMatrixShape::TRIANGULAR && B_.desc.shape == DenseMatrixShape::GENERAL) {
+    //    LUISA_CHECK_CUBLAS(
+    //        trmm_ex(_cublas_handle,
+    //                cuda_enum_map(A.basic_data_type()),
+    //                cublas_enum_map(options),
+    //                cublas_enum_map(A_.desc.fill_mode),
+    //                cublas_enum_map(A_.operation),
+    //                cublas_enum_map(A_.desc.diag_type),
+    //                C_.row, C_.col,
+    //                raw<void>(alpha_),
+    //                raw<void>(A_), A_.desc.lda,
+    //                raw<void>(B_), B_.desc.lda,
+    //                raw<void>(C_), C_.desc.lda));
+    //} 
+    else {
         LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix shape");
     }
 }
@@ -387,11 +403,11 @@ void CudaLAS::mm_stride_batched(DTensor &C, const DTensor &alpha, const DTensor 
             cublas_enum_map(B_.operation),
             C_.row, C_.col, A_.col,
             raw<void>(alpha_),
-            raw<void>(A_), cuda_enum_map(A.basic_data_type()), A_.desc.lda, A_array.desc._batch_stride,
-            raw<void>(B_), cuda_enum_map(B.basic_data_type()), B_.desc.lda, B_array.desc._batch_stride,
+            raw<void>(A_), cuda_enum_map(A.basic_data_type()), A_.desc.lda, A_array.desc.batch_stride,
+            raw<void>(B_), cuda_enum_map(B.basic_data_type()), B_.desc.lda, B_array.desc.batch_stride,
             raw<void>(beta_),
-            raw<void>(C_), cuda_enum_map(C.basic_data_type()), C_.desc.lda, C_array.desc._batch_stride,
-            A_array.desc._batch_count,
+            raw<void>(C_), cuda_enum_map(C.basic_data_type()), C_.desc.lda, C_array.desc.batch_stride,
+            A_array.desc.batch_count,
             cuda_enum_map(A.basic_data_type()),
             cublasGemmAlgo_t::CUBLAS_GEMM_ALGO0_TENSOR_OP));
 
@@ -422,7 +438,7 @@ void CudaLAS::sm_batched(DTensor &X, const DTensor &alpha, const DTensor &A, Mat
                         raw<void>(alpha_),
                         raw<void>(A_array), A_.desc.lda,
                         raw<void>(X_array), X_.desc.lda,
-                        A_array.desc._batch_count));
+                        A_array.desc.batch_count));
 }
 
 cublasOperation_t cublas_enum_map(luisa::compute::tensor::MatrixOperation op) noexcept {

@@ -1,8 +1,7 @@
 #pragma once
 #include <luisa/tensor/view.h>
-#include "../cuda_buffer.h"
 
-namespace luisa::compute::cuda::tensor {
+namespace luisa::compute::cpu::tensor {
 using DenseStorageView = luisa::compute::tensor::DenseStorageView;
 using ScalarView = luisa::compute::tensor::ScalarView;
 using DenseVectorView = luisa::compute::tensor::DenseVectorView;
@@ -10,12 +9,13 @@ using DenseMatrixView = luisa::compute::tensor::DenseMatrixView;
 using BatchView = luisa::compute::tensor::BatchView;
 
 std::byte *raw_ptr(const DenseStorageView &s) noexcept {
-    auto cuda_buffer = reinterpret_cast<CUDABuffer *>(s.buffer_handle);
-    auto ptr = reinterpret_cast<std::byte *>(cuda_buffer->handle());
+    auto ptr = reinterpret_cast<std::byte *>(s.buffer_native_handle);
     return ptr + s.buffer_offset * s.buffer_stride;
 }
 
-std::byte *raw_ptr(const ScalarView &s) noexcept { return raw_ptr(s.storage) + s.desc.offset * s.storage.buffer_stride; }
+std::byte *raw_ptr(const ScalarView &s) noexcept {
+    return raw_ptr(s.storage) + s.desc.offset * s.storage.buffer_stride;
+}
 
 std::byte *raw_ptr(const DenseVectorView &s) noexcept {
     auto &ss = s.storage[0];
