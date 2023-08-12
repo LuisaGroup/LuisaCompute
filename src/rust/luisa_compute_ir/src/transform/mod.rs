@@ -66,6 +66,10 @@ pub extern "C" fn luisa_compute_ir_transform_pipeline_add_transform(
             let transform = autodiff::Autodiff;
             unsafe { (*pipeline).add_transform(Box::new(transform)) };
         }
+        "ref2ret" => {
+            let transform = ref2ret::Ref2Ret;
+            unsafe { (*pipeline).add_transform(Box::new(transform)) };
+        }
         _ => panic!("unknown transform {}", name),
     }
 }

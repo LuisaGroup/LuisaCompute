@@ -201,7 +201,7 @@ impl Ref2RetImpl {
                                 let type_ = ret_struct.fields.get(*i).unwrap().clone();
                                 let index = builder.const_(Const::Uint32(*i as u32));
                                 let value = builder.call(
-                                    Func::ExtractElement, &[packed.clone(), index], type_.clone());
+                                    Func::ExtractElement, &[packed.clone(), index], type_);
                                 builder.update(args[*i].clone(), value);
                             }
                             // update the original return value if any
@@ -230,13 +230,13 @@ impl Ref2RetImpl {
 
     fn transform_return(&mut self, node: NodeRef) {
         if let Some(ctx) = &self.current {
-            // insert a new return node that packs all ref args
-            let mut builder = IrBuilder::new(ctx.pools.clone());
-            builder.set_insert_point(node.get().prev);
-            let mut args = ctx.ref_args.clone();
-            // if the node returns a valid value, add it to the return args
             match node.get().instruction.as_ref() {
                 Instruction::Return(value) => {
+                    // insert a new return node that packs all ref args
+                    let mut builder = IrBuilder::new(ctx.pools.clone());
+                    builder.set_insert_point(node.get().prev);
+                    let mut args = ctx.ref_args.clone();
+                    // if the node returns a valid value, add it to the return args
                     if value.valid() {
                         args.push(value.clone());
                     }
@@ -245,11 +245,11 @@ impl Ref2RetImpl {
                         args.as_slice(),
                         ctx.ret_type.clone());
                     builder.return_(value);
+                    // remove the original return node
+                    node.remove();
                 }
                 _ => unreachable!(),
             }
-            // remove the original return node
-            node.remove();
         }
     }
 }
