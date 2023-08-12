@@ -2025,6 +2025,10 @@ pub extern "C" fn luisa_compute_ir_type_size(ty: &CArc<Type>) -> usize {
     ty.size()
 }
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_type_alignment(ty: &CArc<Type>) -> usize {
+    ty.alignment()
+}
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
     new_node(&pools, node)
 }
@@ -2175,8 +2179,8 @@ pub extern "C" fn luisa_compute_ir_new_instruction(
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_callable_module(m: CallableModule) -> CallableModuleRef {
-    CallableModuleRef(CArc::new(m))
+pub extern "C" fn luisa_compute_ir_new_callable_module(m: CallableModule) -> *mut CArcSharedBlock<CallableModule> {
+    CArc::into_raw(CArc::new(m))
 }
 
 #[no_mangle]
@@ -2191,6 +2195,21 @@ pub extern "C" fn luisa_compute_ir_new_block_module(
     m: BlockModule,
 ) -> *mut CArcSharedBlock<BlockModule> {
     CArc::into_raw(CArc::new(m))
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_copy_callable_module(m: &CallableModule) -> *mut CArcSharedBlock<CallableModule> {
+    todo!()
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_copy_kernel_module(m: &KernelModule) -> *mut CArcSharedBlock<KernelModule> {
+    todo!()
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_copy_block_module(m: &BlockModule) -> *mut CArcSharedBlock<BlockModule> {
+    todo!()
 }
 
 #[no_mangle]

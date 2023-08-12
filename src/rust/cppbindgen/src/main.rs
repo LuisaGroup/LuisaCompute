@@ -35,13 +35,13 @@ fn gen_span(class: &str, out_name: &str, fname: &str, ty_s: &str) -> (String, St
         "luisa::span<const {}> {}::{}() const noexcept {{",
         ty_s, class, out_name
     )
-    .unwrap();
+        .unwrap();
     writeln!(
         def,
         "    return {{reinterpret_cast<const {1} *>(_inner.{0}.ptr), _inner.{0}.len}};",
         fname, ty_s
     )
-    .unwrap();
+        .unwrap();
     writeln!(def, "}}").unwrap();
     let decl = format!(
         "    [[nodiscard]] luisa::span<const {}> {}() const noexcept;",
@@ -186,6 +186,10 @@ fn gen_struct_binding(
     writeln!(h, "    raw::{} _inner{{}};\n", name)?;
     writeln!(h, "public:")?;
     writeln!(h, "    friend class IrBuilder;")?;
+    if !name.ends_with("Ref") {
+        writeln!(h, "    [[nodiscard]] auto raw() noexcept {{ return &_inner; }}")?;
+        writeln!(h, "    [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}")?;
+    }
     let is_tuple = item.fields.iter().all(|f| match &f.ident {
         Some(_) => false,
         None => true,
@@ -318,6 +322,7 @@ fn gen_enum_binding(
                 "        static constexpr Tag tag() noexcept {{ return raw::{}::Tag::{}; }}",
                 name, variant_name
             )?;
+            writeln!(h, "        [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}")?;
             match &variant.fields {
                 syn::Fields::Named(ref fields) => {
                     for field in &fields.named {
@@ -356,6 +361,9 @@ fn gen_enum_binding(
             )?;
         }
     }
+    writeln!(h, "public:")?;
+    writeln!(h, "    [[nodiscard]] auto tag() const noexcept {{ return _inner.tag; }}")?;
+    writeln!(h, "    [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}")?;
     writeln!(
         h,
         "    template<class T>\n    [[nodiscard]] bool isa() const noexcept {{"
@@ -410,6 +418,7 @@ fn gen_cpp_binding(file: syn::File, fwd: &mut File, h: &mut File, cpp: &mut File
         }
     }
 }
+
 fn run_clang_format(path: &str) {
     use std::process::Command;
     Command::new("clang-format")
@@ -418,6 +427,7 @@ fn run_clang_format(path: &str) {
         .output()
         .unwrap();
 }
+
 fn main() -> std::io::Result<()> {
     let source = include_str!("../../luisa_compute_ir/src/ir.rs");
     let file = syn::parse_file(source).unwrap();

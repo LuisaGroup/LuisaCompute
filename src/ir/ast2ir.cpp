@@ -14,16 +14,7 @@ AST2IR::AST2IR() noexcept
 
 template<typename T>
 inline auto AST2IR::_boxed_slice(size_t n) const noexcept -> ir::CBoxedSlice<T> {
-    if (n == 0u) {
-        return {.ptr = nullptr,
-                .len = 0u,
-                .destructor = [](T *, size_t) noexcept {}};
-    }
-    return {.ptr = luisa::allocate_with_allocator<T>(n),
-            .len = n,
-            .destructor = [](T *ptr, size_t) noexcept {
-                luisa::deallocate_with_allocator(ptr);
-            }};
+    return ir::create_boxed_slice<T>(n);
 }
 
 template<typename Fn>
@@ -224,7 +215,7 @@ AST2IR::_convert_callable(Function function) noexcept {
     });
     // TODO: who owns this?
     auto callable = luisa::shared_ptr<ir::CArc<ir::CallableModule>>{
-        luisa::new_with_allocator<ir::CArc<ir::CallableModule>>(m._0),
+        luisa::new_with_allocator<ir::CArc<ir::CallableModule>>(m),
         [](ir::CArc<ir::CallableModule> *p) noexcept {
             p->release();
             luisa::delete_with_allocator(p);
@@ -351,15 +342,18 @@ ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
                                       .alignment = type->alignment(),
                                       .size = type->size()}}});
             _struct_types.emplace(type->hash(), t);
+            ir::destroy_boxed_slice(members);
             return t;
         }
         case Type::Tag::CUSTOM: {
             auto type_desc = type->description();
             auto name = _boxed_slice<uint8_t>(type_desc.size());
             std::memcpy(name.ptr, type_desc.data(), type_desc.size());
-            return register_type(
+            auto t = register_type(
                 ir::Type{.tag = ir::Type::Tag::Opaque,
                          .opaque = {name}});
+            ir::destroy_boxed_slice(name);
+            return t;
         }
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:

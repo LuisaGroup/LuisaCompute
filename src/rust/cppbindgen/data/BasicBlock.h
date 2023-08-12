@@ -3,9 +3,10 @@
         struct Sentinel {};
     private:
         NodeRef _curr;
+        NodeRef _end;
         friend class BasicBlock;
-        explicit Iterator(NodeRef curr) noexcept
-            : _curr{curr} {}
+        Iterator(NodeRef curr, NodeRef end) noexcept
+            : _curr{curr}, _end{end} {}
     public:
         [[nodiscard]] auto operator*() const noexcept { return _curr; }
         auto &operator++() noexcept {
@@ -19,9 +20,8 @@
             return old;
         }
         [[nodiscard]] auto operator==(const Iterator &rhs) const noexcept { return _curr == rhs._curr; }
-        [[nodiscard]] auto operator==(Sentinel) const noexcept { return !_curr.valid(); }
     };
-    [[nodiscard]] auto begin() const noexcept { return Iterator{this->first()}; }
-    [[nodiscard]] auto end() const noexcept { return Iterator::Sentinel{}; }
+    [[nodiscard]] auto begin() const noexcept { return Iterator{this->first()->next(), this->last()}; }
+    [[nodiscard]] auto end() const noexcept { return Iterator{this->last(), this->last()}; }
     [[nodiscard]] auto cbegin() const noexcept { return this->begin(); }
     [[nodiscard]] auto cend() const noexcept { return this->end(); }

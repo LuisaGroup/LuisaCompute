@@ -582,6 +582,17 @@ struct BlockModule {
     Module module;
 };
 
+struct KernelModule {
+    Module module;
+    CBoxedSlice<Capture> captures;
+    CBoxedSlice<NodeRef> args;
+    CBoxedSlice<NodeRef> shared;
+    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
+    CBoxedSlice<CallableModuleRef> callables;
+    uint32_t block_size[3];
+    CArc<ModulePools> pools;
+};
+
 struct UserData {
     uint64_t tag;
     const uint8_t *data;
@@ -715,17 +726,6 @@ struct Instruction {
     };
 };
 
-struct KernelModule {
-    Module module;
-    CBoxedSlice<Capture> captures;
-    CBoxedSlice<NodeRef> args;
-    CBoxedSlice<NodeRef> shared;
-    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    CBoxedSlice<CallableModuleRef> callables;
-    uint32_t block_size[3];
-    CArc<ModulePools> pools;
-};
-
 struct Node {
     CArc<Type> type_;
     NodeRef next;
@@ -785,6 +785,12 @@ void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef valu
 
 void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
 
+CArcSharedBlock<BlockModule> *luisa_compute_ir_copy_block_module(const BlockModule *m);
+
+CArcSharedBlock<CallableModule> *luisa_compute_ir_copy_callable_module(const CallableModule *m);
+
+CArcSharedBlock<KernelModule> *luisa_compute_ir_copy_kernel_module(const KernelModule *m);
+
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_binary(const Module *module);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_human_readable(const Module *module);
@@ -795,7 +801,7 @@ CArcSharedBlock<BlockModule> *luisa_compute_ir_new_block_module(BlockModule m);
 
 IrBuilder luisa_compute_ir_new_builder(CArc<ModulePools> pools);
 
-CallableModuleRef luisa_compute_ir_new_callable_module(CallableModule m);
+CArcSharedBlock<CallableModule> *luisa_compute_ir_new_callable_module(CallableModule m);
 
 CArcSharedBlock<Instruction> *luisa_compute_ir_new_instruction(Instruction inst);
 
@@ -827,6 +833,8 @@ void luisa_compute_ir_transform_pipeline_destroy(TransformPipeline *pipeline);
 TransformPipeline *luisa_compute_ir_transform_pipeline_new();
 
 Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline, Module module);
+
+size_t luisa_compute_ir_type_alignment(const CArc<Type> *ty);
 
 size_t luisa_compute_ir_type_size(const CArc<Type> *ty);
 
