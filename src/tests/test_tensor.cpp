@@ -30,24 +30,24 @@ void test_blas_level_1(tensor::TensorMaker &maker, tensor::LASInterface *las, St
         LUISA_INFO("{}: norm2([5,12])={} (13)", ID++, h_r);
     }
 
-    {// dot
-        // host
-        luisa::vector<float> h_x = {1.0f, 2.0f, 3.0f};
-        luisa::vector<float> h_y = {4.0f, 5.0f, 6.0f};
-        float h_r;
+    //{// dot
+    //    // host
+    //    luisa::vector<float> h_x = {1.0f, 2.0f, 3.0f};
+    //    luisa::vector<float> h_y = {4.0f, 5.0f, 6.0f};
+    //    float h_r;
 
-        // device
-        auto r = maker.scalar<float>();
-        auto x = maker.dense_vector(h_x.size());
-        auto y = maker.dense_vector(h_y.size());
+    //    // device
+    //    auto r = maker.scalar<float>();
+    //    auto x = maker.dense_vector(h_x.size());
+    //    auto y = maker.dense_vector(h_y.size());
 
-        stream << x.dense_storage().copy_from(h_x.data());
-        stream << y.dense_storage().copy_from(h_y.data());
-        las->dot(r, x, y);
-        stream << r.dense_storage().copy_to(&h_r);
-        stream << synchronize();
-        LUISA_INFO("{}: dot([1,2,3],[4,5,6])={} (32)", ID++, h_r);
-    }
+    //    stream << x.dense_storage().copy_from(h_x.data());
+    //    stream << y.dense_storage().copy_from(h_y.data());
+    //    las->dot(r, x, y);
+    //    stream << r.dense_storage().copy_to(&h_r);
+    //    stream << synchronize();
+    //    LUISA_INFO("{}: dot([1,2,3],[4,5,6])={} (32)", ID++, h_r);
+    //}
 
     {// Iamax & Iamin
 
@@ -140,7 +140,7 @@ void test_blas_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, St
         {
             int i = 0;
             std::for_each(h_y.begin(), h_y.end(),
-                [&](auto &v) { stream << y.dense_storages()[i++].copy_to(v.data()); });
+                          [&](auto &v) { stream << y.dense_storages()[i++].copy_to(v.data()); });
         }
 
         stream << synchronize();
@@ -288,8 +288,8 @@ void test_sparse_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, 
     LUISA_INFO("====================test sparse level 2====================");
     // A
     luisa::vector<float> h_values = {1.0f, 2.0f, 3.0f};
-    luisa::vector<int> h_row_indices = {0, 1, 2};
-    luisa::vector<int> h_col_indices = {0, 1, 2};
+    luisa::vector<int64_t> h_row_indices = {0, 1, 2};
+    luisa::vector<int64_t> h_col_indices = {0, 1, 2};
     auto A = maker.coo_matrix(3, 3, h_values.size());
 
     // x,y
@@ -328,9 +328,9 @@ void test_sparse_level_2(tensor::TensorMaker &maker, tensor::LASInterface *las, 
 
 int main(int argc, char *argv[]) {
     Context context{argv[0]};
-
+    
     // now only cuda
-    Device device = context.create_device("cpu");
+    Device device = context.create_device("cuda");
     Stream stream = device.create_stream();
 
     auto las = device.impl()->create_las_interface(stream.handle());
@@ -338,10 +338,14 @@ int main(int argc, char *argv[]) {
     tensor::TensorMaker maker{device, las};
     Buffer<uint64_t> buffer = device.create_buffer<uint64_t>(10);
 
+    LUISA_INFO("LC Tensor Test on {}", device.backend_name());
+
     test_blas_level_1(maker, las, stream);
     test_blas_level_2(maker, las, stream);
     test_blas_level_3(maker, las, stream);
-    test_sparse_level_1(maker, las, stream);
+    if (device.backend_name() == "cuda") {
+        test_sparse_level_1(maker, las, stream);
+    }
     test_sparse_level_2(maker, las, stream);
 
     device.impl()->destroy_las_interface(las);

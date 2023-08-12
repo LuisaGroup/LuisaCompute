@@ -9,13 +9,16 @@ class DenseStorage {
 public:
     Buffer<T> buffer;
     auto view() const noexcept {
-        return DenseStorageView{
-            .buffer_handle = buffer.handle(),
-            .buffer_native_handle = buffer.native_handle(),
-            .buffer_stride = buffer.stride(),
-            .buffer_offset = 0u,
-            .buffer_total_size = buffer.size(),
-        };
+        if (!buffer)
+            return DenseStorageView{};
+        else
+            return DenseStorageView{
+                .buffer_handle = buffer.handle(),
+                .buffer_native_handle = buffer.native_handle(),
+                .buffer_stride = buffer.stride(),
+                .buffer_offset = 0u,
+                .buffer_total_size = buffer.size(),
+            };
     }
     operator DenseStorageView() const noexcept {
         return view();

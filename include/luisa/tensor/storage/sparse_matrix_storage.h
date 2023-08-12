@@ -8,8 +8,8 @@ template<typename T>
 class BasicSparseMatrixStorage {
 public:
     DenseStorage<T> values;
-    DenseStorage<int> i_data;
-    DenseStorage<int> j_data;
+    DenseStorage<int64_t> i_data;
+    DenseStorage<int64_t> j_data;
     auto view() const noexcept {
         return BasicSparseMatrixStorageView{
             .values = values.view(),

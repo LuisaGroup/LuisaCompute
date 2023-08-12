@@ -13,7 +13,8 @@ CpuLAS::~CpuLAS() noexcept {}
 
 CpuLAS::S<BackendTensorRes> CpuLAS::alloc_backend_tensor_res(const DTensor & d) noexcept 
 {
-    if (d.is_batched()) return make_shared<CblasRes>(d);
+    if (d.is_batched()) return make_shared<CblasDenseRes>(d);
+    if (d.is_sparse() && d.is_matrix()) return make_shared<CblasSparseMatrixRes>(d);
     else return nullptr; 
 }
 }// namespace luisa::compute::cpu::tensor

@@ -4,7 +4,7 @@
 #include "enum_map.h"
 #include "raw_ptr_cast.h"
 #include "cpu_tensor_res.h"
-#include "week_type_ex.h"
+#include "weak_type_ex.h"
 
 namespace luisa::compute::cpu::tensor {
 using namespace luisa::compute::tensor;
@@ -305,7 +305,7 @@ void CpuLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTenso
                     raw<void>(beta_),
                     raw<void>(C_), C_.desc.lda);
             });
-        } else {
+        } else if (A_.desc.property == DenseMatrixProperty::SYMMETRIC) {
             invoke([=] {
                 symm_ex(
                     type,
@@ -319,6 +319,8 @@ void CpuLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTenso
                     raw<void>(beta_),
                     raw<void>(C_), C_.desc.lda);
             });
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Unsupported dense matrix property");
         }
     }
     //else if (A_.desc.shape == DenseMatrixShape::TRIANGULAR && B_.desc.shape == DenseMatrixShape::GENERAL) {
@@ -342,19 +344,118 @@ void CpuLAS::mm(DTensor &C, const DTensor &alpha, const DTensor &A, const DTenso
 }
 
 void CpuLAS::sm(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
-    LUISA_ERROR_WITH_LOCATION("NOT IMPL YET");
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto X_ = X.dense_matrix_view();
+    auto type = A.basic_data_type();
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::TRIANGULAR, "only triangular matrix is supported for A.");
+
+    invoke([=] {
+        trsm_ex(
+            type,
+            cblas_layout(),
+            cblas_enum_map(options),
+            cblas_enum_map(A_.desc.fill_mode),
+            cblas_enum_map(A_.operation),
+            cblas_enum_map(A_.desc.diag_type),
+            X_.row, X_.col,
+            raw<void>(alpha_),
+            raw<void>(A_), A_.desc.lda,
+            raw<void>(X_), X_.desc.lda);
+    });
 }
 
 void CpuLAS::mm_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
-    LUISA_ERROR_WITH_LOCATION("NOT IMPL YET");
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto B_ = B.dense_matrix_view();
+    auto B_array = B.batch_view();
+    auto beta_ = beta.scalar_view();
+    auto C_ = C.dense_matrix_view();
+    auto C_array = C.batch_view();
+    auto type = A.basic_data_type();
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::GENERAL &&
+                     B_.desc.shape == DenseMatrixShape::GENERAL &&
+                     C_.desc.shape == DenseMatrixShape::GENERAL,
+                 "only general matrix is supported for A, B, C.");
+    LUISA_ASSERT(A_.storage.size() == B_.storage.size() && A_.storage.size() == C_.storage.size(),
+                 "A, B, C must have the same batch size.");
+
+    invoke([=] {
+        gemm_batch_ex(type,
+                      cblas_layout(),
+                      cblas_enum_map(A_.operation),
+                      cblas_enum_map(B_.operation),
+                      C_.row, C_.col, A_.col,
+                      raw<void>(alpha_),
+                      raw<const void>(A_array), A_.desc.lda,
+                      raw<const void>(B_array), B_.desc.lda,
+                      raw<void>(beta_),
+                      raw<void>(C_array), C_.desc.lda,
+                      A_array.desc.batch_count);
+    });
 }
 
 void CpuLAS::mm_stride_batched(DTensor &C, const DTensor &alpha, const DTensor &A, const DTensor &B, const DTensor &beta, MatrixMulOptions options) noexcept {
-    LUISA_ERROR_WITH_LOCATION("NOT IMPL YET");
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto B_ = B.dense_matrix_view();
+    auto B_array = B.batch_view();
+    auto beta_ = beta.scalar_view();
+    auto C_ = C.dense_matrix_view();
+    auto C_array = C.batch_view();
+    auto type = A.basic_data_type();
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::GENERAL &&
+                     B_.desc.shape == DenseMatrixShape::GENERAL &&
+                     C_.desc.shape == DenseMatrixShape::GENERAL,
+                 "only general matrix is supported for A, B, C.");
+    LUISA_ASSERT(A_.storage.size() == B_.storage.size() && A_.storage.size() == C_.storage.size(),
+                 "A, B, C must have the same batch size.");
+
+    invoke([=] {
+        gemm_batch_strided_ex(type,
+                              cblas_layout(),
+                              cblas_enum_map(A_.operation),
+                              cblas_enum_map(B_.operation),
+                              C_.row, C_.col, A_.col,
+                              raw<void>(alpha_),
+                              raw<const void>(A_), A_.desc.lda, A_array.desc.batch_stride,
+                              raw<const void>(A_), B_.desc.lda, B_array.desc.batch_stride,
+                              raw<void>(beta_),
+                              raw<void>(C_array), C_.desc.lda, C_array.desc.batch_stride,
+                              A_array.desc.batch_count);
+    });
 }
 
 void CpuLAS::sm_batched(DTensor &X, const DTensor &alpha, const DTensor &A, MatrixMulOptions options) noexcept {
-    LUISA_ERROR_WITH_LOCATION("NOT IMPL YET");
+    auto alpha_ = alpha.scalar_view();
+    auto A_ = A.dense_matrix_view();
+    auto A_array = A.batch_view();
+    auto X_ = X.dense_matrix_view();
+    auto X_array = X.batch_view();
+    auto type = A.basic_data_type();
+
+    LUISA_ASSERT(A_.desc.shape == DenseMatrixShape::TRIANGULAR &&
+                     X_.desc.shape == DenseMatrixShape::GENERAL,
+                 "only triangular matrix is supported for A, and general matrix is supported for X.");
+    LUISA_ASSERT(A_.storage.size() == X_.storage.size(),
+                 "A, X must have the same batch size.");
+    trsm_batch_ex(type,
+                  cblas_layout(),
+                  cblas_enum_map(options),
+                  cblas_enum_map(A_.desc.fill_mode),
+                  cblas_enum_map(A_.operation),
+                  cblas_enum_map(A_.desc.diag_type),
+                  X_.row, X_.col,
+                  raw<void>(alpha_),
+                  raw<const void>(A_array), A_.desc.lda,
+                  raw<void>(X_array), X_.desc.lda,
+                  A_array.desc.batch_count);
 }
 
 CBLAS_TRANSPOSE cblas_enum_map(MatrixOperation op) noexcept {

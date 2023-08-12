@@ -14,10 +14,10 @@ namespace luisa::compute::cuda::tensor {
 using namespace luisa::compute::tensor;
 static cusparseOperation_t cusparse_enum_map(luisa::compute::tensor::MatrixOperation op) noexcept;
 
-static cusparseDnVecDescr_t dn_vec_desc(const DTensor &tensor) { return dynamic_cast<CusparseDnVecDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
-static cusparseSpVecDescr_t sp_vec_desc(const DTensor &tensor) { return dynamic_cast<CusparseSpVecDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
-static cusparseDnMatDescr_t dn_mat_desc(const DTensor &tensor) { return dynamic_cast<CusparseDnMatDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
-static cusparseSpMatDescr_t sp_mat_desc(const DTensor &tensor) { return dynamic_cast<CusparseSpMatDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
+static cusparseDnVecDescr_t dn_vec_desc(const DTensor &tensor) noexcept { return dynamic_cast<CusparseDnVecDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
+static cusparseSpVecDescr_t sp_vec_desc(const DTensor &tensor) noexcept { return dynamic_cast<CusparseSpVecDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
+static cusparseDnMatDescr_t dn_mat_desc(const DTensor &tensor) noexcept { return dynamic_cast<CusparseDnMatDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
+static cusparseSpMatDescr_t sp_mat_desc(const DTensor &tensor) noexcept { return dynamic_cast<CusparseSpMatDescRes *>(tensor.backend_tensor_res())->desc_handle(); }
 
 // Cusparse Impl
 void CudaLAS::sparse_axpby(DTensor &dn_vec_y, const DTensor &alpha, const DTensor &sp_vec_x, const DTensor &beta) noexcept {

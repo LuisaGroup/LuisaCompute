@@ -18,6 +18,7 @@ target_link_libraries(luisa-compute-backend-cpu PRIVATE
         luisa_compute_backend_impl)
 
 if(LUISA_COMPUTE_ENABLE_TENSOR)
+        # target_compile_definitions(luisa-compute-backend-cpu PRIVATE)
         target_compile_options(luisa-compute-backend-cpu PRIVATE $<TARGET_PROPERTY:MKL::MKL,INTERFACE_COMPILE_OPTIONS>)
         target_include_directories(luisa-compute-backend-cpu PRIVATE $<TARGET_PROPERTY:MKL::MKL,INTERFACE_INCLUDE_DIRECTORIES>)
         target_link_libraries(luisa-compute-backend-cpu PRIVATE 

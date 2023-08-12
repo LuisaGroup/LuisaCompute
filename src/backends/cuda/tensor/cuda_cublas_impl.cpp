@@ -6,7 +6,7 @@
 #include "enum_map.h"
 #include "raw_ptr_cast.h"
 #include "cuda_tensor_res.h"
-#include "week_type_ex.h"
+#include "weak_type_ex.h"
 
 namespace luisa::compute::cuda::tensor {
 static cublasOperation_t cublas_enum_map(luisa::compute::tensor::MatrixOperation op) noexcept;

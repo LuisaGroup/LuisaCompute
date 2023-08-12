@@ -276,8 +276,8 @@ public:
 
         auto coo = make_shared<COOMatrixStorage<Ty>>();
         coo->value_data().buffer = _device.create_buffer<Ty>(nnz);
-        coo->row_ind().buffer = _device.create_buffer<int>(nnz);
-        coo->col_ind().buffer = _device.create_buffer<int>(nnz);
+        coo->row_ind().buffer = _device.create_buffer<int64_t>(nnz);
+        coo->col_ind().buffer = _device.create_buffer<int64_t>(nnz);
         _basic_sparse_matrix_storage = coo;
 
         _sparse_matrix_desc = make_unique<SparseMatrixDesc>();
@@ -383,7 +383,10 @@ public:
 
     DenseStorage<int> external_buffer(int size_in_byte) noexcept {
         DenseStorage<int> dense_storage;
-        dense_storage.buffer = _device.create_buffer<int>((size_in_byte + sizeof(int) - 1) / sizeof(int));
+        if (size_in_byte > 0) {
+            dense_storage.buffer 
+                = _device.create_buffer<int>((size_in_byte + sizeof(int) - 1) / sizeof(int));
+        }
         return dense_storage;
     }
 };
