@@ -393,6 +393,12 @@ impl Type {
             dimension,
         }))
     }
+    pub fn is_void(&self) -> bool {
+        match self {
+            Type::Void => true,
+            _ => false,
+        }
+    }
     pub fn is_opaque(&self, name: &str) -> bool {
         match self {
             Type::Opaque(name_) => name_.to_string().as_str() == name,
@@ -1775,7 +1781,7 @@ impl IrBuilder {
         let node = node.get();
         let new_node = new_node(
             &self.pools,
-            Node::new(node.instruction.clone(), node.type_.clone()),
+            Node::new(CArc::new(node.instruction.as_ref().clone()), node.type_.clone()),
         );
         self.append(new_node);
         new_node

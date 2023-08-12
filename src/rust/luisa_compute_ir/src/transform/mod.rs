@@ -4,6 +4,8 @@ pub mod ssa;
 // pub mod validate;
 pub mod vectorize;
 pub mod eval;
+pub mod ref2ret;
+
 use crate::ir;
 
 pub trait Transform {
