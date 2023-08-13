@@ -582,17 +582,6 @@ struct BlockModule {
     Module module;
 };
 
-struct KernelModule {
-    Module module;
-    CBoxedSlice<Capture> captures;
-    CBoxedSlice<NodeRef> args;
-    CBoxedSlice<NodeRef> shared;
-    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    CBoxedSlice<CallableModuleRef> callables;
-    uint32_t block_size[3];
-    CArc<ModulePools> pools;
-};
-
 struct UserData {
     uint64_t tag;
     const uint8_t *data;
@@ -726,6 +715,17 @@ struct Instruction {
     };
 };
 
+struct KernelModule {
+    Module module;
+    CBoxedSlice<Capture> captures;
+    CBoxedSlice<NodeRef> args;
+    CBoxedSlice<NodeRef> shared;
+    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
+    CBoxedSlice<CallableModuleRef> callables;
+    uint32_t block_size[3];
+    CArc<ModulePools> pools;
+};
+
 struct Node {
     CArc<Type> type_;
     NodeRef next;
@@ -784,12 +784,6 @@ NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
 void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef value);
 
 void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
-
-CArcSharedBlock<BlockModule> *luisa_compute_ir_copy_block_module(const BlockModule *m);
-
-CArcSharedBlock<CallableModule> *luisa_compute_ir_copy_callable_module(const CallableModule *m);
-
-CArcSharedBlock<KernelModule> *luisa_compute_ir_copy_kernel_module(const KernelModule *m);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_binary(const Module *module);
 

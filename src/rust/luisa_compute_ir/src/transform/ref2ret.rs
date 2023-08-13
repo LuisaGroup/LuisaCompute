@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::mem::replace;
-use std::ptr::null;
-use crate::{CArc, CBox, CBoxedSlice, Pooled};
+use crate::{CArc, CBoxedSlice, Pooled};
 use crate::context::register_type;
-use crate::ir::{BasicBlock, CallableModule, CallableModuleRef, Const, Func, Instruction, INVALID_REF, IrBuilder, KernelModule, Module, ModulePools, new_node, Node, NodeRef, StructType, Type};
+use crate::ir::{BasicBlock, CallableModule, CallableModuleRef, Const, duplicate_callable, Func, Instruction, IrBuilder, Module, ModulePools, Node, NodeRef, StructType, Type};
 use crate::transform::Transform;
 
 pub struct Ref2Ret;
@@ -100,17 +99,18 @@ impl Ref2RetImpl {
             return;
         }
         if Self::is_transform_needed(module.as_ref()) {
-            let copy = module.clone();// FIXME: clone the module
+            let copy = duplicate_callable(&module);
             let ctx = Self::prepare_context(copy.get_mut().unwrap());
-            let old_ctx = replace(&mut self.current, Some(ctx));
+            let old_ctx = self.current.replace(ctx);
             self.transform_block(&copy.module.entry);
-            let ctx = replace(&mut self.current, old_ctx).unwrap();
+            let ctx = self.current.take().unwrap();
+            self.current = old_ctx;
             self.processed.insert(module.as_ptr(), Ref2RetMetadata {
                 module: copy,
                 ref_arg_indices: Some(ctx.ref_arg_indices),
             });
         } else {
-            let old_ctx = replace(&mut self.current, None);
+            let old_ctx = self.current.take();
             self.transform_block(&module.module.entry);
             self.current = old_ctx;
             self.processed.insert(module.as_ptr(), Ref2RetMetadata {
@@ -166,7 +166,9 @@ impl Ref2RetImpl {
                     self.transform_block(on_triangle_hit);
                     self.transform_block(on_procedural_hit);
                 }
-                Instruction::AdDetach(_) => {}
+                Instruction::AdDetach(body) => {
+                    self.transform_block(body)
+                }
                 Instruction::Comment(_) => {}
             }
         }
@@ -199,9 +201,7 @@ impl Ref2RetImpl {
                             };
                             for i in ref_args.iter() {
                                 let type_ = ret_struct.fields.get(*i).unwrap().clone();
-                                let index = builder.const_(Const::Uint32(*i as u32));
-                                let value = builder.call(
-                                    Func::ExtractElement, &[packed.clone(), index], type_);
+                                let value = builder.extract(packed.clone(), *i, type_);
                                 builder.update(args[*i].clone(), value);
                             }
                             // update the original return value if any
