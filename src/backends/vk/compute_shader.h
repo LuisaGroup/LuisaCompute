@@ -6,20 +6,21 @@
 #include <luisa/ast/function.h>
 #include "serde_type.h"
 
-namespace luisa{
-    class BinaryIO;
-}
+namespace luisa {
+class BinaryIO;
+}// namespace luisa
 namespace lc::hlsl {
 struct CodegenResult;
-}
+}// namespace lc::hlsl
 namespace lc::vk {
-    using namespace luisa;
+using namespace luisa;
 using namespace luisa::compute;
 class ComputeShader : public Shader {
     VkPipelineCache _pipe_cache{};
     VkPipeline _pipeline;
 
 public:
+    auto pipeline() const { return _pipeline; }
     bool serialize_pso(vstd::vector<std::byte> &result) const override;
     ComputeShader(
         Device *device,

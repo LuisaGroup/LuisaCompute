@@ -228,6 +228,8 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     auto library = NS::TransferPtr(_device->handle()->newLibrary(url, &error));
 
     auto should_dump_metallib =
+        MTL::CaptureManager::sharedCaptureManager()->isCapturing() ||
+        detail::get_bool_env("METAL_CAPTURE_ENABLED") ||
         detail::get_bool_env("MTL_DEBUG_LAYER") ||
         detail::get_bool_env("MTL_SHADER_VALIDATION") ||
         detail::get_bool_env("LUISA_DUMP_METAL_LIBRARY");

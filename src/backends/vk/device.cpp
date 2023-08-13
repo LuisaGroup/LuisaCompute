@@ -9,10 +9,12 @@
 #include "../common/hlsl/binding_to_arg.h"
 #include <luisa/runtime/context.h>
 #include "../common/hlsl/shader_compiler.h"
+#include "shader_serializer.h"
 
 namespace lc::vk {
 static std::mutex gDxcMutex;
 static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
+static constexpr uint k_shader_model = 65u;
 static int32 gDxcRefCount = 0;
 
 using namespace std::string_literals;
@@ -373,7 +375,7 @@ void Device::destroy_buffer(uint64_t handle) noexcept {}
 ResourceCreationInfo Device::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels) noexcept { return ResourceCreationInfo::make_invalid(); }
+    uint mipmap_levels, bool simultaneous_access) noexcept { return ResourceCreationInfo::make_invalid(); }
 void Device::destroy_texture(uint64_t handle) noexcept {}
 
 // bindless array
@@ -398,34 +400,71 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
 // kernel
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
-    // Clock clk;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, _binary_io, true);
-    vstd::string_view file_name;
-    vstd::string str_cache;
-    vstd::MD5 code_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-    SerdeType serde_type;
-    if (option.name.empty()) {
-        str_cache << code_md5.to_string(false) << ".spv"sv;
-        file_name = str_cache;
-        serde_type = SerdeType::Cache;
-    } else {
-        file_name = option.name;
-        serde_type = SerdeType::ByteCode;
+    uint mask = 0;
+    if (option.enable_fast_math) {
+        mask |= 1;
     }
-    auto res = ComputeShader::compile(
-        _binary_io,
-        this,
-        kernel,
-        [&]() { return std::move(code); },
-        code_md5,
-        hlsl::binding_to_arg(kernel.bound_arguments()),
-        kernel.block_size(),
-        file_name,
-        serde_type,
-        65,
-        option.enable_fast_math);
-    info.handle = reinterpret_cast<uint64>(res);
-    // TODO: shader load
+    if (option.enable_debug_info) {
+        mask |= 2;
+    }
+    // Clock clk;
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, _binary_io, option.native_include, mask, true);
+    vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+    if (option.compile_only) {
+        assert(!option.name.empty());
+        auto comp_result = Device::Compiler()->compile_compute(
+            code.result.view(),
+            true,
+            k_shader_model,
+            option.enable_fast_math,
+            true);
+        comp_result.multi_visit(
+            [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
+                ShaderSerializer::serialize_bytecode(
+                    code.properties,
+                    check_md5,
+                    code.typeMD5,
+                    kernel.block_size(),
+                    option.name,
+                    {reinterpret_cast<const uint *>(buffer->data()), buffer->size() / sizeof(uint)},
+                    SerdeType::ByteCode,
+                    _binary_io);
+            },
+            [](auto &&err) {
+                LUISA_ERROR("Compile Error: {}", err);
+                return nullptr;
+            });
+
+    } else {
+        vstd::string_view file_name;
+        vstd::string str_cache;
+        SerdeType serde_type;
+        if (option.enable_cache) {
+            if (option.name.empty()) {
+                str_cache << check_md5.to_string(false) << ".dxil"sv;
+                file_name = str_cache;
+                serde_type = SerdeType::Cache;
+            } else {
+                file_name = option.name;
+                serde_type = SerdeType::ByteCode;
+            }
+        }
+        auto shader = ComputeShader::compile(
+            _binary_io,
+            this,
+            kernel,
+            [&]() { return std::move(code); },
+            check_md5,
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            kernel.block_size(),
+            file_name,
+            serde_type,
+            k_shader_model,
+            option.enable_fast_math);
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader->pipeline();
+    }
+    info.block_size = kernel.block_size();
     return info;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
@@ -438,10 +477,11 @@ void Device::destroy_shader(uint64_t handle) noexcept {
 // event
 ResourceCreationInfo Device::create_event() noexcept { return ResourceCreationInfo::make_invalid(); }
 void Device::destroy_event(uint64_t handle) noexcept {}
-void Device::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {}
-void Device::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {}
-void Device::synchronize_event(uint64_t handle) noexcept {}
+void Device::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {}
+void Device::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {}
+void Device::synchronize_event(uint64_t handle, uint64_t fence_value) noexcept {}
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {}
+bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noexcept {return false;}
 VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
     {
         std::lock_guard lck{detail::instance_mtx};
@@ -489,4 +529,3 @@ VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<Device *>(device);
 }
 }// namespace lc::vk
-

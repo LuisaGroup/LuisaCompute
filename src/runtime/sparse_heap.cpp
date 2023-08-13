@@ -15,10 +15,10 @@ SparseTextureHeap::SparseTextureHeap(DeviceInterface *device, size_t byte_size) 
 SparseTextureHeap::~SparseTextureHeap() noexcept {
     if (*this) { device()->deallocate_sparse_texture_heap(handle()); };
 }
-SparseBufferHeap Device::allocate_sparse_buffer_heap(size_t byte_size) {
+SparseBufferHeap Device::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
     return SparseBufferHeap{_impl.get(), byte_size};
 }
-SparseTextureHeap Device::allocate_sparse_texture_heap(size_t byte_size) {
+SparseTextureHeap Device::allocate_sparse_texture_heap(size_t byte_size) noexcept {
     return SparseTextureHeap{_impl.get(), byte_size};
 }
 }// namespace luisa::compute

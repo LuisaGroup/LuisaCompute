@@ -102,6 +102,7 @@ scalar_dtypes = {int, float, bool, uint, ushort, half, short, long, ulong}
 vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4, short2, half2,
                  ushort2, short3, half3, ushort3, short4, half4, ushort4, long2, ulong2, long3, ulong3, long4, ulong4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
+integer_scalar_vector_dtypes = {int, int2, int3, int4, uint, uint2, uint3, uint4, short, short2, short3, short4, ushort, ushort2, ushort3, ushort4,long, long2, long3, long4, ulong, ulong2, ulong3, ulong4}
 
 scalar_and_vector_dtypes = {*scalar_dtypes, *vector_dtypes}
 vector_and_matrix_dtypes = {*vector_dtypes, *matrix_dtypes}
@@ -251,7 +252,7 @@ def dtype_of(val):
         return val.arrayType
     if type(val).__name__ == "Struct":
         return val.structType
-    if type(val).__name__ == "Buffer":
+    if type(val).__name__ == "Buffer" or type(val).__name__ == "ByteBuffer":
         return val.bufferType
     if type(val).__name__ == "RayQuery":
         return val.queryType
@@ -264,6 +265,8 @@ def dtype_of(val):
     if type(val).__name__ == "Accel":
         return type(val)
     if type(val).__name__ == "IndirectDispatchBuffer":
+        return type(val)
+    if type(val).__name__ == "ByteBufferType":
         return type(val)
     if type(val).__name__ == "func":
         return CallableType
@@ -290,6 +293,8 @@ def to_lctype(dtype):
         return lcapi.Type.from_("accel")
     if dtype.__name__ == "IndirectDispatchBuffer":
         return lcapi.Type.custom("LC_IndirectDispatchBuffer")
+    if dtype.__name__ == "ByteBufferType":
+        return lcapi.Type.from_("buffer<void>")
     if dtype in basic_dtype_to_lctype_dict:
         return basic_dtype_to_lctype_dict[dtype]
     raise TypeError(f"{dtype} is not a valid data type")

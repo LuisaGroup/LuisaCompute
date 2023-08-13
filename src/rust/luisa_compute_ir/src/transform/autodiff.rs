@@ -1762,7 +1762,7 @@ impl Backward {
             if grad.is_local() {
                 grad = builder.call(Func::Load, &[grad], grad.type_().clone());
             }
-            builder.call(Func::GradientMarker, &[n, grad], n.type_().clone());
+            builder.call(Func::GradientMarker, &[n, grad], Type::void());
         }
         builder.finish()
     }

@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from .mathtypes import *
 from .types import uint, uint3, float2, float3, float4, short, ushort, half, half2, half3, half4, long, ulong, to_lctype, is_bit16_types, is_bit64_types, BuiltinFuncBuilder, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, \
-    vector, length_of, element_of, nameof, implicit_covertable, basic_dtypes
+    vector, length_of, element_of, nameof, implicit_covertable, basic_dtypes, integer_scalar_vector_dtypes
 import functools
 from . import globalvars
 from types import SimpleNamespace
@@ -773,3 +773,57 @@ def callable_call(func, *args):
     else:
         dtype = f.return_type
         return dtype, lcapi.builder().call(to_lctype(dtype), f.function, exprs)
+
+@BuiltinFuncBuilder
+def warp_lane_count():
+    op = lcapi.CallOp.WARP_LANE_COUNT
+    return uint, lcapi.builder().call(to_lctype(uint), op, [])
+
+@BuiltinFuncBuilder
+def warp_lane_index():
+    op = lcapi.CallOp.WARP_LANE_INDEX
+    return uint, lcapi.builder().call(to_lctype(uint), op, [])
+
+@BuiltinFuncBuilder
+def warp_is_first_active_lane():
+    op = lcapi.CallOp.WARP_IS_FIRST_ACTIVE_LANE
+    return bool, lcapi.builder().call(to_lctype(bool), op, [])
+
+@BuiltinFuncBuilder
+def warp_active_all_equal(value):
+    assert value.dtype in scalar_and_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_ALL_EQUAL
+    type = to_bool(value.dtype)
+    return type, lcapi.builder().call(to_lctype(type), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_bit_and(value):
+    assert value.dtype in integer_scalar_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_BIT_AND
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_bit_or(value):
+    assert value.dtype in integer_scalar_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_BIT_OR
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_bit_or(value):
+    assert value.dtype in integer_scalar_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_BIT_XOR
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+# TODO:
+# WARP_ACTIVE_COUNT_BITS, // (bool): uint
+# WARP_ACTIVE_MAX, // (type: scalar/vector/matrix): type
+# WARP_ACTIVE_MIN, // (type: scalar/vector/matrix): type
+# WARP_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
+# WARP_ACTIVE_SUM, // (type: scalar/vector/matrix): type
+# WARP_ACTIVE_ALL, // (bool): bool
+# WARP_ACTIVE_ANY, // (bool): bool
+# WARP_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
+# WARP_PREFIX_COUNT_BITS, // (bool): uint (count bits before this lane)
+# WARP_PREFIX_SUM, // (bool): uint (count bits before this lane)
+# WARP_PREFIX_PRODUCT, // (bool): uint (count bits before this lane)
+# WARP_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
+# WARP_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)

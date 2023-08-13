@@ -198,6 +198,7 @@ class func:
                     return name, r
                 else:
                     return None, r
+            byte_buffer_declared = False
             buffer_declared = False
             volume_declared = False
             image_declared = False
@@ -231,6 +232,14 @@ class func:
                         if not buffer_declared:
                             front += "#include <luisa/runtime/buffer.h>\n"
                             buffer_declared = True
+                    type_defines.append("luisa::compute::" + name)
+                elif arg.__name__ == "ByteBufferType":
+                    if name == None:
+                        name = f"ByteBuffer"
+                        type_map[arg] = name
+                        if not byte_buffer_declared:
+                            front += "#include <luisa/runtime/byte_buffer.h>\n"
+                            byte_buffer_declared = True
                     type_defines.append("luisa::compute::" + name)
                 elif arg.__name__ == "BindlessArray":
                     name = type_map.get(arg)

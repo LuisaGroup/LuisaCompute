@@ -393,6 +393,12 @@ impl Type {
             dimension,
         }))
     }
+    pub fn is_void(&self) -> bool {
+        match self {
+            Type::Void => true,
+            _ => false,
+        }
+    }
     pub fn is_opaque(&self, name: &str) -> bool {
         match self {
             Type::Opaque(name_) => name_.to_string().as_str() == name,
@@ -1342,6 +1348,12 @@ impl NodeRef {
     pub fn set(&self, node: Node) {
         *self.get_mut() = node;
     }
+    pub fn replace_with(&self, node: &Node) {
+        let instr = node.instruction.clone();
+        let type_ = node.type_.clone();
+        self.get_mut().instruction = instr;
+        self.get_mut().type_ = type_;
+    }
     pub fn update<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
         f(self.get_mut())
     }
@@ -1769,7 +1781,7 @@ impl IrBuilder {
         let node = node.get();
         let new_node = new_node(
             &self.pools,
-            Node::new(node.instruction.clone(), node.type_.clone()),
+            Node::new(CArc::new(node.instruction.as_ref().clone()), node.type_.clone()),
         );
         self.append(new_node);
         new_node
@@ -2019,6 +2031,10 @@ pub extern "C" fn luisa_compute_ir_type_size(ty: &CArc<Type>) -> usize {
     ty.size()
 }
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_type_alignment(ty: &CArc<Type>) -> usize {
+    ty.alignment()
+}
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
     new_node(&pools, node)
 }
@@ -2026,6 +2042,27 @@ pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
     node_ref.get()
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_replace_with(node_ref: NodeRef, new_node: *const Node) {
+    let new_node = unsafe { &*new_node };
+    node_ref.replace_with(new_node);
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_insert_before_self(node_ref: NodeRef, new_node: NodeRef) {
+    node_ref.insert_before_self(new_node);
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_insert_after_self(node_ref: NodeRef, new_node: NodeRef) {
+    node_ref.insert_after_self(new_node);
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_remove(node_ref: NodeRef) {
+    node_ref.remove();
 }
 
 #[no_mangle]
@@ -2102,6 +2139,14 @@ pub extern "C" fn luisa_compute_ir_build_generic_loop(
     builder.generic_loop(prepare, cond, body, update)
 }
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_build_loop(
+    builder: &mut IrBuilder,
+    body: Pooled<BasicBlock>,
+    cond: NodeRef,
+) -> NodeRef {
+    builder.loop_(body, cond)
+}
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder: &mut IrBuilder,
     ty: CArc<Type>,
@@ -2120,6 +2165,14 @@ pub extern "C" fn luisa_compute_ir_new_builder(pools: CArc<ModulePools>) -> IrBu
 }
 
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_builder_set_insert_point(
+    builder: &mut IrBuilder,
+    node_ref: NodeRef,
+) {
+    builder.set_insert_point(node_ref);
+}
+
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Pooled<BasicBlock> {
     builder.finish()
 }
@@ -2132,8 +2185,8 @@ pub extern "C" fn luisa_compute_ir_new_instruction(
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_callable_module(m: CallableModule) -> CallableModuleRef {
-    CallableModuleRef(CArc::new(m))
+pub extern "C" fn luisa_compute_ir_new_callable_module(m: CallableModule) -> *mut CArcSharedBlock<CallableModule> {
+    CArc::into_raw(CArc::new(m))
 }
 
 #[no_mangle]
@@ -2148,6 +2201,21 @@ pub extern "C" fn luisa_compute_ir_new_block_module(
     m: BlockModule,
 ) -> *mut CArcSharedBlock<BlockModule> {
     CArc::into_raw(CArc::new(m))
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_copy_callable_module(m: &CallableModule) -> *mut CArcSharedBlock<CallableModule> {
+    todo!()
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_copy_kernel_module(m: &KernelModule) -> *mut CArcSharedBlock<KernelModule> {
+    todo!()
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_copy_block_module(m: &BlockModule) -> *mut CArcSharedBlock<BlockModule> {
+    todo!()
 }
 
 #[no_mangle]

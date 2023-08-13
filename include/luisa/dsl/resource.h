@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/runtime/buffer.h>
+#include <luisa/runtime/byte_buffer.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/volume.h>
 #include <luisa/runtime/bindless_array.h>
@@ -89,6 +90,45 @@ public:
 
     /// Self-pointer to unify the interfaces of the captured Buffer<T> and Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
+};
+
+template<>
+struct Expr<ByteBuffer> {
+private:
+    const RefExpr *_expression{nullptr};
+public:
+    /// Construct from RefExpr
+    explicit Expr(const RefExpr *expr) noexcept
+        : _expression{expr} {}
+
+    /// Construct from BufferView. Will call buffer_binding() to bind buffer
+    Expr(const ByteBuffer &buffer) noexcept
+        : _expression{detail::FunctionBuilder::current()->buffer_binding(
+              Type::of<ByteBuffer>(), buffer.handle(),
+              0u, buffer.size_bytes())} {}
+
+    /// Return RefExpr
+    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
+
+    template<typename T, typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&byte_offset) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto expr = f->call(
+            Type::of<T>(), CallOp::BYTE_BUFFER_READ,
+            {_expression,
+             detail::extract_expression(std::forward<I>(byte_offset))});
+        return def<T>(expr);
+    }
+    template<typename I, typename V>
+        requires is_integral_expr_v<I>
+    void write(I &&byte_offset, Expr<V> value) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BYTE_BUFFER_WRITE,
+            {_expression,
+             detail::extract_expression(std::forward<I>(byte_offset)),
+             value.expression()});
+    }
 };
 
 /// Same as Expr<Buffer<T>>
@@ -468,6 +508,28 @@ public:
     }
 };
 
+class ByteBufferExprProxy {
+
+private:
+    ByteBuffer _buffer;
+
+public:
+    LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(ByteBufferExprProxy)
+
+public:
+    template<typename T, typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&index) const noexcept {
+        return Expr<ByteBuffer>{_buffer}.read<T, I>(std::forward<I>(index));
+    }
+    template<typename I, typename V>
+        requires is_integral_expr_v<I>
+    void write(I &&index, V &&value) const noexcept {
+        Expr<ByteBuffer>{_buffer}.write(std::forward<I>(index),
+                               std::forward<V>(value));
+    }
+};
+
 template<typename T>
 class ImageExprProxy {
 
@@ -552,6 +614,14 @@ template<typename T>
 struct Var<Buffer<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
         : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+};
+
+template<>
+struct Var<ByteBuffer> : public Expr<ByteBuffer> {
+    explicit Var(detail::ArgumentCreation) noexcept
+        : Expr<ByteBuffer>{detail::FunctionBuilder::current()->buffer(Type::of<ByteBuffer>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };

@@ -220,6 +220,14 @@ impl<T> CArc<T> {
     pub fn as_ptr(&self) -> *const T {
         unsafe { (*self.inner).ptr }
     }
+    pub fn get_mut(&self) -> Option<&mut T> {
+        if self.is_null() {
+            return None;
+        }
+        unsafe {
+            Some(&mut *(*self.inner).ptr)
+        }
+    }
 }
 impl<T> std::ops::Deref for CArc<T> {
     type Target = T;

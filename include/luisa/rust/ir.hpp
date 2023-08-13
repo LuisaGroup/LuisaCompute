@@ -582,6 +582,17 @@ struct BlockModule {
     Module module;
 };
 
+struct KernelModule {
+    Module module;
+    CBoxedSlice<Capture> captures;
+    CBoxedSlice<NodeRef> args;
+    CBoxedSlice<NodeRef> shared;
+    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
+    CBoxedSlice<CallableModuleRef> callables;
+    uint32_t block_size[3];
+    CArc<ModulePools> pools;
+};
+
 struct UserData {
     uint64_t tag;
     const uint8_t *data;
@@ -715,17 +726,6 @@ struct Instruction {
     };
 };
 
-struct KernelModule {
-    Module module;
-    CBoxedSlice<Capture> captures;
-    CBoxedSlice<NodeRef> args;
-    CBoxedSlice<NodeRef> shared;
-    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    CBoxedSlice<CallableModuleRef> callables;
-    uint32_t block_size[3];
-    CArc<ModulePools> pools;
-};
-
 struct Node {
     CArc<Type> type_;
     NodeRef next;
@@ -772,6 +772,8 @@ NodeRef luisa_compute_ir_build_local(IrBuilder *builder, NodeRef init);
 
 NodeRef luisa_compute_ir_build_local_zero_init(IrBuilder *builder, CArc<Type> ty);
 
+NodeRef luisa_compute_ir_build_loop(IrBuilder *builder, Pooled<BasicBlock> body, NodeRef cond);
+
 NodeRef luisa_compute_ir_build_phi(IrBuilder *builder, CSlice<PhiIncoming> incoming, CArc<Type> t);
 
 NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
@@ -780,6 +782,14 @@ NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
                                       Pooled<BasicBlock> default_);
 
 void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef value);
+
+void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
+
+CArcSharedBlock<BlockModule> *luisa_compute_ir_copy_block_module(const BlockModule *m);
+
+CArcSharedBlock<CallableModule> *luisa_compute_ir_copy_callable_module(const CallableModule *m);
+
+CArcSharedBlock<KernelModule> *luisa_compute_ir_copy_kernel_module(const KernelModule *m);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_binary(const Module *module);
 
@@ -791,7 +801,7 @@ CArcSharedBlock<BlockModule> *luisa_compute_ir_new_block_module(BlockModule m);
 
 IrBuilder luisa_compute_ir_new_builder(CArc<ModulePools> pools);
 
-CallableModuleRef luisa_compute_ir_new_callable_module(CallableModule m);
+CArcSharedBlock<CallableModule> *luisa_compute_ir_new_callable_module(CallableModule m);
 
 CArcSharedBlock<Instruction> *luisa_compute_ir_new_instruction(Instruction inst);
 
@@ -802,6 +812,14 @@ CArcSharedBlock<ModulePools> *luisa_compute_ir_new_module_pools();
 NodeRef luisa_compute_ir_new_node(CArc<ModulePools> pools, Node node);
 
 const Node *luisa_compute_ir_node_get(NodeRef node_ref);
+
+void luisa_compute_ir_node_insert_after_self(NodeRef node_ref, NodeRef new_node);
+
+void luisa_compute_ir_node_insert_before_self(NodeRef node_ref, NodeRef new_node);
+
+void luisa_compute_ir_node_remove(NodeRef node_ref);
+
+void luisa_compute_ir_node_replace_with(NodeRef node_ref, const Node *new_node);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_node_usage(const KernelModule *kernel);
 
@@ -815,6 +833,8 @@ void luisa_compute_ir_transform_pipeline_destroy(TransformPipeline *pipeline);
 TransformPipeline *luisa_compute_ir_transform_pipeline_new();
 
 Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline, Module module);
+
+size_t luisa_compute_ir_type_alignment(const CArc<Type> *ty);
 
 size_t luisa_compute_ir_type_size(const CArc<Type> *ty);
 
