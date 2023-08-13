@@ -60,6 +60,7 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
     if (lhs->is_matrix() && rhs->is_scalar() && op == BinaryOp::DIV) {
         return {.lhs = lhs, .rhs = rhs, .result = lhs};
     }
+    // FIXME: this is incorrect
     if (lhs->is_scalar() && rhs->is_scalar()) {
         auto lhs_and_rhs = [&] {
             switch (lhs->tag()) {

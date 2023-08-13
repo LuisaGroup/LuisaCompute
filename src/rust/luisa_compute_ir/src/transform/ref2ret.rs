@@ -151,11 +151,6 @@ impl Ref2RetImpl {
                 ref_arg_indices: None,
             });
         };
-        // FIXME: update used callables
-        // update used callables
-        // let transformed_callables: Vec<_> = copy.callables.iter().map(
-        //     |callable| CallableModuleRef(self.processed.get(&callable.0.as_ptr()).unwrap().module.clone())).collect();
-        // copy.get_mut().unwrap().callables = CBoxedSlice::new(transformed_callables);
     }
 
     fn transform_block(&mut self, bb: &Pooled<BasicBlock>) {
@@ -296,6 +291,6 @@ impl Transform for Ref2Ret {
     fn transform(&self, module: Module) -> Module {
         let mut transform = Ref2RetImpl::new();
         transform.transform_block(&module.entry);
-        module// FIXME: this transform should modify the KernelModule::callables field
+        module
     }
 }

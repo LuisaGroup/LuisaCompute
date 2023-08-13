@@ -1466,7 +1466,6 @@ pub struct CallableModule {
     pub ret_type: CArc<Type>,
     pub args: CBoxedSlice<NodeRef>,
     pub captures: CBoxedSlice<Capture>,
-    pub callables: CBoxedSlice<CallableModuleRef>,
     pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
@@ -1556,7 +1555,6 @@ pub struct KernelModule {
     pub args: CBoxedSlice<NodeRef>,
     pub shared: CBoxedSlice<NodeRef>,
     pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
-    pub callables: CBoxedSlice<CallableModuleRef>,
     pub block_size: [u32; 3],
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
@@ -1691,17 +1689,11 @@ impl ModuleDuplicator {
             let dup_args = this.duplicate_args(&callable.pools, &callable.args);
             let dup_captures = this.duplicate_captures(&callable.pools, &callable.captures);
             let dup_module = this.duplicate_module(&callable.module);
-            let dup_callables: Vec<_> = callable.callables.iter().map(|c| {
-                let c = this.callables.get(&c.0.as_ptr()).unwrap();
-                CallableModuleRef(c.clone())
-            }).collect();
-            let dup_callables = CBoxedSlice::new(dup_callables);
             CallableModule {
                 module: dup_module,
                 ret_type: callable.ret_type.clone(),
                 args: dup_args,
                 captures: dup_captures,
-                callables: dup_callables,
                 cpu_custom_ops: callable.cpu_custom_ops.clone(),
                 pools: callable.pools.clone(),
             }
@@ -1889,18 +1881,12 @@ impl ModuleDuplicator {
             let dup_captures = this.duplicate_captures(&kernel.pools, &kernel.captures);
             let dup_shared = this.duplicate_shared(&kernel.pools, &kernel.shared);
             let dup_module = this.duplicate_module(&kernel.module);
-            let dup_callables: Vec<_> = kernel.callables.iter().map(|c| {
-                let c = this.callables.get(&c.0.as_ptr()).unwrap();
-                CallableModuleRef(c.clone())
-            }).collect();
-            let dup_callables = CBoxedSlice::new(dup_callables);
             KernelModule {
                 module: dup_module,
                 captures: dup_captures,
                 args: dup_args,
                 shared: dup_shared,
                 cpu_custom_ops: kernel.cpu_custom_ops.clone(),
-                callables: dup_callables,
                 block_size: kernel.block_size,
                 pools: kernel.pools.clone(),
             }

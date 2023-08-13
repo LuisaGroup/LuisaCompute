@@ -51,39 +51,6 @@ ir::Module AST2IR::_convert_body() noexcept {
                       .pools = _pools.clone()};
 }
 
-ir::CBoxedSlice<ir::CallableModuleRef>
-AST2IR::_collect_callables(luisa::compute::Function f) const noexcept {
-    auto reserved_size = static_cast<size_t>(0u);
-    reserved_size += f.custom_callables().size();
-    for (auto &&c : f.custom_callables()) {
-        reserved_size += c->custom_callables().size();
-    }
-    if (reserved_size == 0u) { return _boxed_slice<ir::CallableModuleRef>(0u); }
-    luisa::vector<ir::CallableModuleRef> callables;
-    callables.reserve(reserved_size);
-    auto converted = [this](auto c) noexcept {
-        auto iter = _converted_callables.find(c);
-        LUISA_ASSERT(iter != _converted_callables.end(),
-                     "Callable not found.");
-        return *iter->second;
-    };
-    for (auto &c : f.custom_callables()) {
-        auto cc = converted(c->function());
-        callables.emplace_back(ir::CallableModuleRef{cc});
-        for (auto i = 0u; i < cc->callables.len; i++) {
-            callables.emplace_back(cc->callables.ptr[i]);
-        }
-    }
-    auto cmp = [](auto a, auto b) noexcept {
-        return a._0.get() < b._0.get();
-    };
-    std::sort(callables.begin(), callables.end(), cmp);
-    callables.erase(std::unique(callables.begin(), callables.end(), cmp), callables.end());
-    auto result = _boxed_slice<ir::CallableModuleRef>(callables.size());
-    std::memcpy(result.ptr, callables.data(), callables.size() * sizeof(ir::CallableModuleRef));
-    return result;
-}
-
 luisa::shared_ptr<ir::CArc<ir::KernelModule>>
 AST2IR::_convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
@@ -167,7 +134,6 @@ AST2IR::_convert_kernel(Function function) noexcept {
         m.args = non_captures;
         m.shared = shared;
         m.cpu_custom_ops = _boxed_slice<ir::CArc<ir::CpuCustomOp>>(0);
-        m.callables = _collect_callables(_function);
         m.block_size[0] = _function.block_size().x;
         m.block_size[1] = _function.block_size().y;
         m.block_size[2] = _function.block_size().z;
@@ -208,7 +174,6 @@ AST2IR::_convert_callable(Function function) noexcept {
         m.ret_type = _convert_type(_function.return_type());
         m.args = arguments;
         m.captures = _boxed_slice<ir::Capture>(0);
-        m.callables = _collect_callables(_function);
         m.cpu_custom_ops = _boxed_slice<ir::CArc<ir::CpuCustomOp>>(0);
         m.pools = _pools.clone();
         return ir::luisa_compute_ir_new_callable_module(m);

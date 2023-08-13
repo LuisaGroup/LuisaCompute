@@ -225,7 +225,6 @@ struct CallableModule {
     CArc<Type> ret_type;
     CBoxedSlice<NodeRef> args;
     CBoxedSlice<Capture> captures;
-    CBoxedSlice<CallableModuleRef> callables;
     CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
     CArc<ModulePools> pools;
 };
@@ -721,7 +720,6 @@ struct KernelModule {
     CBoxedSlice<NodeRef> args;
     CBoxedSlice<NodeRef> shared;
     CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    CBoxedSlice<CallableModuleRef> callables;
     uint32_t block_size[3];
     CArc<ModulePools> pools;
 };
