@@ -425,16 +425,49 @@ ir::NodeRef AST2IR::_convert(const UnaryExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
+
     auto lhs_type = expr->lhs()->type();
     auto rhs_type = expr->rhs()->type();
-    auto is_matrix_scalar = (lhs_type->is_scalar() && rhs_type->is_matrix()) ||
-                            (lhs_type->is_matrix() && rhs_type->is_scalar());
+    auto prom = promote_types(expr->op(), lhs_type, rhs_type);
+    auto lhs = _cast(prom.lhs, lhs_type, _convert_expr(expr->lhs(), false));
+    auto rhs = _cast(prom.rhs, rhs_type, _convert_expr(expr->rhs(), false));
+
+    // scalar op matrix | matrix op scalar
+    auto scalar_to_matrix = [this, prom, is_div = expr->op() == BinaryOp::DIV](ir::NodeRef node) noexcept {
+        if (is_div) {
+            auto one = ir::luisa_compute_ir_build_const(
+                _current_builder(),
+                {.tag = ir::Const::Tag::One,
+                 .one = {_convert_type(Type::of<float>()).clone()}});
+            auto rcp_args = std::array{one, node};
+            node = ir::luisa_compute_ir_build_call(
+                _current_builder(),
+                {.tag = ir::Func::Tag::Div},
+                {.ptr = rcp_args.data(), .len = rcp_args.size()},
+                _convert_type(Type::of<float>()).clone());
+        }
+        return ir::luisa_compute_ir_build_call(
+            _current_builder(),
+            {.tag = ir::Func::Tag::Mat},
+            {.ptr = &node, .len = 1u},
+            _convert_type(prom.result).clone());
+    };
+    auto is_matrix_scalar = false;
+    if (lhs_type->is_scalar() && rhs_type->is_matrix()) {
+        LUISA_ASSERT(expr->op() != BinaryOp::DIV,
+                     "Scalar cannot be divided by matrix.");
+        is_matrix_scalar = true;
+        lhs = scalar_to_matrix(lhs);
+    } else if (lhs_type->is_matrix() && rhs_type->is_scalar()) {
+        is_matrix_scalar = true;
+        rhs = scalar_to_matrix(rhs);
+    }
     auto tag = [expr, is_matrix_scalar] {
         switch (expr->op()) {
             case BinaryOp::ADD: return ir::Func::Tag::Add;
             case BinaryOp::SUB: return ir::Func::Tag::Sub;
             case BinaryOp::MUL: return is_matrix_scalar ? ir::Func::Tag::MatCompMul : ir::Func::Tag::Mul;
-            case BinaryOp::DIV: return ir::Func::Tag::Div;
+            case BinaryOp::DIV: return is_matrix_scalar ? ir::Func::Tag::MatCompMul : ir::Func::Tag::Div;
             case BinaryOp::MOD: return ir::Func::Tag::Rem;
             case BinaryOp::BIT_AND: return ir::Func::Tag::BitAnd;
             case BinaryOp::BIT_OR: return ir::Func::Tag::BitOr;
@@ -454,11 +487,6 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
             "Unsupported binary operator: 0x{:02x}.",
             luisa::to_underlying(expr->op()));
     }();
-    auto lhs = _convert_expr(expr->lhs(), false);
-    auto rhs = _convert_expr(expr->rhs(), false);
-    auto prom = promote_types(expr->op(), lhs_type, rhs_type);
-    lhs = _cast(prom.lhs, lhs_type, lhs);
-    rhs = _cast(prom.rhs, rhs_type, rhs);
     LUISA_ASSERT(*expr->type() == *prom.result,
                  "Type mismatch: {} vs {}.",
                  expr->type()->description(),
@@ -1346,16 +1374,16 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
             _convert_type(type_dst).clone());
     }
     // scalar to matrix
-    if (type_dst->is_matrix() && type_src->is_scalar()) {
-        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT32,
-                     "Only float matrices are supported.");
-        auto elem = _cast(Type::of<float>(), type_src, node_src);
-        return ir::luisa_compute_ir_build_call(
-            builder,
-            {.tag = ir::Func::Tag::Mat},
-            {.ptr = &elem, .len = 1u},
-            _convert_type(type_dst).clone());
-    }
+    //    if (type_dst->is_matrix() && type_src->is_scalar()) {
+    //        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT32,
+    //                     "Only float matrices are supported.");
+    //        auto elem = _cast(Type::of<float>(), type_src, node_src);
+    //        return ir::luisa_compute_ir_build_call(
+    //            builder,
+    //            {.tag = ir::Func::Tag::Mat},
+    //            {.ptr = &elem, .len = 1u},
+    //            _convert_type(type_dst).clone());
+    //    }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type cast: {} -> {}.",
         type_src->description(), type_dst->description());
