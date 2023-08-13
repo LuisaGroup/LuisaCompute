@@ -237,13 +237,23 @@ impl VectorType {
             }
         };
         let len = match self.element {
-            VectorElementType::Scalar(s) => match s {
-                Primitive::Bool => self.length,
-                _ => aligned_len,
-            },
+            VectorElementType::Scalar(s) => aligned_len,
             VectorElementType::Vector(_) => self.length,
         };
         el_sz * len as usize
+    }
+    pub fn alignment(&self) -> usize {
+        match self.element {
+            VectorElementType::Scalar(prim) => {
+                let elem_align = prim.size();
+                let aligned_dim = if self.length == 3 { 4 } else {
+                    assert!(self.length >= 2 && self.length <= 4);
+                    self.length
+                };
+                std::cmp::min(elem_align * aligned_dim as usize, 16)
+            }
+            VectorElementType::Vector(_) => todo!(),
+        }
     }
     pub fn element(&self) -> Primitive {
         match self.element {
@@ -342,8 +352,8 @@ impl Type {
             Type::Void | Type::UserData => 0,
             Type::Primitive(t) => t.size(),
             Type::Struct(t) => t.alignment,
-            Type::Vector(t) => t.element.size(), // TODO
-            Type::Matrix(t) => t.element.size(),
+            Type::Vector(t) => t.alignment(),
+            Type::Matrix(t) => t.column().alignment(),
             Type::Array(t) => t.element.alignment(),
             Self::Opaque(_) => unreachable!(),
         }
@@ -1643,79 +1653,6 @@ impl Module {
         collector.nodes
     }
 }
-// struct ModuleCloner {
-//     node_map: HashMap<NodeRef, NodeRef>,
-// }
-
-// impl ModuleCloner {
-//     fn new() -> Self {
-//         Self {
-//             node_map: HashMap::new(),
-//         }
-//     }
-//     fn clone_node(&mut self, node: NodeRef, builder: &mut IrBuilder) -> NodeRef {
-//         if let Some(&node) = self.node_map.get(&node) {
-//             return node;
-//         }
-//         let new_node = match node.get().instruction.as_ref() {
-//             Instruction::Buffer => node,
-//             Instruction::Bindless => node,
-//             Instruction::Texture2D => node,
-//             Instruction::Texture3D => node,
-//             Instruction::Accel => node,
-//             Instruction::Shared => node,
-//             Instruction::Uniform => node,
-//             Instruction::Local { .. } => todo!(),
-//             Instruction::Argument { .. } => todo!(),
-//             Instruction::UserData(_) => node,
-//             Instruction::Invalid => node,
-//             Instruction::Const(_) => todo!(),
-//             Instruction::Update { var, value } => todo!(),
-//             Instruction::Call(_, _) => todo!(),
-//             Instruction::Phi(_) => todo!(),
-//             Instruction::Loop { body, cond } => todo!(),
-//             Instruction::GenericLoop { .. } => todo!(),
-//             Instruction::Break => builder.break_(),
-//             Instruction::Continue => builder.continue_(),
-//             Instruction::Return(_) => todo!(),
-//             Instruction::If { .. } => todo!(),
-//             Instruction::Switch { .. } => todo!(),
-//             Instruction::AdScope { .. } => todo!(),
-//             Instruction::AdDetach(_) => todo!(),
-//             Instruction::Comment(_) => builder.clone_node(node),
-//             crate::ir::Instruction::Debug { .. } => builder.clone_node(node),
-//         };
-//         self.node_map.insert(node, new_node);
-//         new_node
-//     }
-//     fn clone_block(
-//         &mut self,
-//         block: Pooled<BasicBlock>,
-//         mut builder: IrBuilder,
-//     ) -> Pooled<BasicBlock> {
-//         let mut cur = block.first.get().next;
-//         while cur != block.last {
-//             let _ = self.clone_node(cur, &mut builder);
-//             cur = cur.get().next;
-//         }
-//         builder.finish()
-//     }
-//     fn clone_module(&mut self, module: &Module) -> Module {
-//         Module {
-//             kind: module.kind,
-//             entry: self.clone_block(module.entry, IrBuilder::new()),
-//         }
-//     }
-// }
-
-// impl Clone for Module {
-//     fn clone(&self) -> Self {
-//         Self {
-//             kind: self.kind,
-//             entry: self.entry,
-//         }
-//     }
-// }
 
 struct ModuleDuplicatorCtx {
     nodes: HashMap<NodeRef, NodeRef>,
@@ -1785,7 +1722,7 @@ impl ModuleDuplicator {
             Instruction::Accel => instr.clone(),
             Instruction::Shared => instr.clone(),
             Instruction::Uniform => instr.clone(),
-            Instruction::Argument { .. } => instr.clone(),
+            Instruction::Argument { .. } => CArc::new(instr.as_ref().clone()),
             _ => unreachable!("invalid argument type")
         };
         let dup_node = Node::new(dup_instr, node.type_.clone());
@@ -1925,11 +1862,14 @@ impl ModuleDuplicator {
     }
 
     fn find_duplicated_block(&self, bb: &Pooled<BasicBlock>) -> Pooled<BasicBlock> {
-        self.current.as_ref().unwrap().blocks.get(&bb.as_ptr()).unwrap().clone()
+        let ctx = self.current.as_ref().unwrap();
+        ctx.blocks.get(&bb.as_ptr()).unwrap().clone()
     }
 
     fn find_duplicated_node(&self, node: NodeRef) -> NodeRef {
-        self.current.as_ref().unwrap().nodes.get(&node).unwrap().clone()
+        if !node.valid() { return INVALID_REF; }
+        let ctx = self.current.as_ref().unwrap();
+        ctx.nodes.get(&node).unwrap().clone()
     }
 
     fn duplicate_block(&mut self, pools: &CArc<ModulePools>, bb: &Pooled<BasicBlock>) -> Pooled<BasicBlock> {
@@ -2124,6 +2064,10 @@ impl IrBuilder {
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
         match var.get().instruction.as_ref() {
             Instruction::Local { .. } => {}
+            Instruction::Argument { by_value } => {
+                assert!(!*by_value, "updating argument passed by value");
+            }
+            Instruction::Shared { .. } => {}
             Instruction::Call(func, _) => match func {
                 Func::GetElementPtr => {}
                 _ => panic!("not local or getelementptr"),
