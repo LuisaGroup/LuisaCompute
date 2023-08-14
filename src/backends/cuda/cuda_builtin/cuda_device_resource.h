@@ -1046,7 +1046,7 @@ template<typename T = unsigned char>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -2175,4 +2175,32 @@ template<typename T>
         }
         return x.value;
     }
+}
+
+using lc_byte = unsigned char;
+
+template<typename T>
+[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<lc_byte> buffer, lc_ulong offset) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
+    auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_assert(address % alignof(T) == 0u && "unaligned access");
+#endif
+    return *reinterpret_cast<T *>(address);
+}
+
+template<typename T>
+__device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong offset, T value) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
+    auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_assert(address % alignof(T) == 0u && "unaligned access");
+#endif
+    *reinterpret_cast<T *>(address) = value;
+}
+
+[[nodiscard]] __device__ inline auto lc_byte_buffer_size(LCBuffer<lc_byte> buffer) noexcept {
+    return lc_buffer_size(buffer);
 }

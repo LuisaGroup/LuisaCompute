@@ -857,6 +857,9 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
+        case CallOp::BYTE_BUFFER_READ: _scratch << "lc_byte_buffer_read"; break;
+        case CallOp::BYTE_BUFFER_WRITE: _scratch << "lc_byte_buffer_write"; break;
+        case CallOp::BYTE_BUFFER_SIZE: _scratch << "lc_byte_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "lc_texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "lc_texture_write"; break;
         case CallOp::TEXTURE_SIZE: _scratch << "lc_texture_size"; break;
@@ -959,12 +962,32 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
-        case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::RASTER_DISCARD: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
-        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_LANE_COUNT: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_LANE_INDEX: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_BIT_OR: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_BIT_XOR: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_COUNT_BITS: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_MAX: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_MIN: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_SUM: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_ALL: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_ANY: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_ACTIVE_BIT_MASK: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_READ_FIRST_LANE: LUISA_NOT_IMPLEMENTED(); break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
@@ -1587,7 +1610,11 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             } else {
                 _scratch << "const LCBuffer<";
                 if (readonly || force_const) { _scratch << "const "; }
-                _emit_type_name(v.type()->element());
+                if (auto elem = v.type()->element()) {
+                    _emit_type_name(elem);
+                } else {// void type marks a buffer of bytes
+                    _scratch << "lc_byte";
+                }
                 _scratch << "> ";
             }
             _emit_variable_name(v);

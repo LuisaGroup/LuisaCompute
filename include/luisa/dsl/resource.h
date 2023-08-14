@@ -526,7 +526,7 @@ public:
         requires is_integral_expr_v<I>
     void write(I &&index, V &&value) const noexcept {
         Expr<ByteBuffer>{_buffer}.write(std::forward<I>(index),
-                               std::forward<V>(value));
+                                        std::forward<V>(value));
     }
 };
 
@@ -613,7 +613,8 @@ public:
 template<typename T>
 struct Var<Buffer<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
+        : Expr<Buffer<T>> { detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>()) }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -621,7 +622,8 @@ struct Var<Buffer<T>> : public Expr<Buffer<T>> {
 template<>
 struct Var<ByteBuffer> : public Expr<ByteBuffer> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<ByteBuffer>{detail::FunctionBuilder::current()->buffer(Type::of<ByteBuffer>())} {}
+        : Expr<ByteBuffer> { detail::FunctionBuilder::current()->buffer(Type::of<ByteBuffer>()) }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -629,7 +631,8 @@ struct Var<ByteBuffer> : public Expr<ByteBuffer> {
 template<typename T>
 struct Var<BufferView<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
+        : Expr<Buffer<T>> { detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>()) }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -637,7 +640,8 @@ struct Var<BufferView<T>> : public Expr<Buffer<T>> {
 template<typename T>
 struct Var<Image<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {
+        : Expr<Image<T>> { detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()) }
+    {
     }
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -646,7 +650,8 @@ struct Var<Image<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<ImageView<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {}
+        : Expr<Image<T>> { detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()) }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -654,7 +659,8 @@ struct Var<ImageView<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<Volume<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
+        : Expr<Volume<T>> { detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()) }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -662,7 +668,8 @@ struct Var<Volume<T>> : public Expr<Volume<T>> {
 template<typename T>
 struct Var<VolumeView<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
+        : Expr<Volume<T>> { detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()) }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -670,7 +677,8 @@ struct Var<VolumeView<T>> : public Expr<Volume<T>> {
 template<>
 struct Var<BindlessArray> : public Expr<BindlessArray> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<BindlessArray>{detail::FunctionBuilder::current()->bindless_array()} {}
+        : Expr<BindlessArray> { detail::FunctionBuilder::current()->bindless_array() }
+    {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
