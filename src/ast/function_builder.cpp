@@ -251,20 +251,20 @@ const Expression *FunctionBuilder::swizzle(const Type *type, const Expression *s
                     } else if (swizzle_size == 2u) {
                         auto i = (swizzle_code >> 0u) & 0b11u;
                         auto j = (swizzle_code >> 4u) & 0b11u;
-                        return literal(Type::of<TVec>(),
+                        return literal(Type::of<Vector<TElem, 2u>>(),
                                        Vector<TElem, 2u>{v[i], v[j]});
                     } else if (swizzle_size == 3u) {
                         auto i = (swizzle_code >> 0u) & 0b11u;
                         auto j = (swizzle_code >> 4u) & 0b11u;
                         auto k = (swizzle_code >> 8u) & 0b11u;
-                        return literal(Type::of<TVec>(),
+                        return literal(Type::of<Vector<TElem, 3u>>(),
                                        Vector<TElem, 3u>{v[i], v[j], v[k]});
                     } else if (swizzle_size == 4u) {
                         auto i = (swizzle_code >> 0u) & 0b11u;
                         auto j = (swizzle_code >> 4u) & 0b11u;
                         auto k = (swizzle_code >> 8u) & 0b11u;
                         auto l = (swizzle_code >> 12u) & 0b11u;
-                        return literal(Type::of<TVec>(),
+                        return literal(Type::of<Vector<TElem, 4u>>(),
                                        Vector<TElem, 4u>{v[i], v[j], v[k], v[l]});
                     }
                     LUISA_ERROR_WITH_LOCATION("Invalid swizzle size.");

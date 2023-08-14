@@ -754,6 +754,9 @@ void LCDevice::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
 }
+uint LCDevice::compute_warp_size() const noexcept {
+    return nativeDevice.waveSize();
+}
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);
 }

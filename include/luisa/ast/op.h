@@ -172,6 +172,11 @@ enum struct CallOp : uint32_t {
     BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
     BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
     BUFFER_SIZE,  /// [(buffer) -> size]
+
+    BYTE_BUFFER_READ,  /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
+    BYTE_BUFFER_WRITE, /// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
+    BYTE_BUFFER_SIZE,  /// [(buffer) -> size_bytes]
+
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
     TEXTURE_SIZE, /// [(texture) -> Vector<uint, dim>]
@@ -284,6 +289,29 @@ enum struct CallOp : uint32_t {
     // partial derivative
     DDX,// (arg: float vector): float vector
     DDY,// (arg: float vector): float vector
+    
+    // Wave:
+    WARP_LANE_COUNT, // (): uint
+    WARP_LANE_INDEX, // (): uint
+    WARP_IS_FIRST_ACTIVE_LANE, // (): bool
+    WARP_ACTIVE_ALL_EQUAL, // (scalar/vector): boolN
+    WARP_ACTIVE_BIT_AND, // (intN): intN
+    WARP_ACTIVE_BIT_OR, // (intN): intN
+    WARP_ACTIVE_BIT_XOR, // (intN): intN
+    WARP_ACTIVE_COUNT_BITS, // (bool): uint
+    WARP_ACTIVE_MAX, // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_MIN, // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_SUM, // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_ALL, // (bool): bool
+    WARP_ACTIVE_ANY, // (bool): bool
+    WARP_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
+    WARP_PREFIX_COUNT_BITS, // (bool): uint (count bits before this lane)
+    WARP_PREFIX_SUM, // (bool): uint (count bits before this lane)
+    WARP_PREFIX_PRODUCT, // (bool): uint (count bits before this lane)
+    WARP_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
+    WARP_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)
+
 
     // indirect
     INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void
