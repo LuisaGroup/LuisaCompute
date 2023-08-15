@@ -92,7 +92,6 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     static constexpr std::array ray_query_payload_semantics{
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
-        optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
     };
 
     std::array<optix::PayloadType, 2u> payload_types{};

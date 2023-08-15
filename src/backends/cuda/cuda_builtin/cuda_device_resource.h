@@ -1519,8 +1519,8 @@ enum LCRayFlags : lc_uint {
 template<lc_uint flags, lc_uint payload_type, lc_uint reg_count = 0u>
 inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
                             lc_uint r0 = lc_undef(),
-                            lc_uint r1 = lc_undef(),
-                            lc_uint r2 = lc_undef()) noexcept {
+                            lc_uint r1 = lc_undef()) noexcept {
+    static_assert(reg_count <= 2u, "Register count must be less than 2.");
     auto ox = ray.m0[0];
     auto oy = ray.m0[1];
     auto oz = ray.m0[2];
@@ -1551,7 +1551,7 @@ inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.f), "r"(mask & 0xffu), "r"(flags), "r"(0u), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u));
@@ -1679,11 +1679,10 @@ inline void lc_ray_query_trace(LCRayQuery<terminate_on_first> &q, lc_uint impl_t
                                    LC_RAY_FLAG_DISABLE_CLOSESTHIT :
                                LC_RAY_FLAG_DISABLE_CLOSESTHIT;
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
-    auto r0 = impl_tag;
-    auto r1 = static_cast<lc_uint>(p_ctx >> 32u);
-    auto r2 = static_cast<lc_uint>(p_ctx);
+    auto r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
+    auto r1 = static_cast<lc_uint>(p_ctx);
     // traverse
-    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_QUERY, 3u>(q.accel, q.ray, q.mask, r0, r1, r2);
+    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_QUERY, 2u>(q.accel, q.ray, q.mask, r0, r1);
     q.hit = lc_ray_query_decode_hit();
 }
 
@@ -1872,9 +1871,10 @@ LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(31);
 extern "C" __global__ void __intersection__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
     lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
-    auto query_id = lc_get_payload<0u>();
-    auto p_ctx_hi = lc_get_payload<1u>();
-    auto p_ctx_lo = lc_get_payload<2u>();
+    auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
+    auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
+    auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);
+    auto p_ctx_lo = lc_get_payload<1u>();
     auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
     LCIntersectionResult r{};
     switch (query_id) {
@@ -1993,9 +1993,10 @@ extern "C" __global__ void __anyhit__ray_query() {
     auto should_terminate = false;
     if (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
         hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) {// triangle
-        auto query_id = lc_get_payload<0u>();
-        auto p_ctx_hi = lc_get_payload<1u>();
-        auto p_ctx_lo = lc_get_payload<2u>();
+        auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
+        auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
+        auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);
+        auto p_ctx_lo = lc_get_payload<1u>();
         auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
         LCIntersectionResult r{};
         switch (query_id) {
