@@ -86,6 +86,9 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
         entry, _argument_buffer_size);
 
     // create module
+    static constexpr std::array ray_trace_payload_semantics{
+        optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_CH_READ,
+    };
     static constexpr std::array ray_query_payload_semantics{
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
@@ -93,8 +96,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     };
 
     std::array<optix::PayloadType, 2u> payload_types{};
-    payload_types[0].numPayloadValues = 0u;
-    payload_types[0].payloadSemantics = nullptr;
+    payload_types[0].numPayloadValues = ray_trace_payload_semantics.size();
+    payload_types[0].payloadSemantics = ray_trace_payload_semantics.data();
     payload_types[1].numPayloadValues = ray_query_payload_semantics.size();
     payload_types[1].payloadSemantics = ray_query_payload_semantics.data();
 
@@ -132,6 +135,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
 
     // raygen
     optix::ProgramGroupOptions program_group_options_rg{};
+    program_group_options_rg.payloadType = &payload_types[metadata.requires_ray_query ? 1 : 0];
     optix::ProgramGroupDesc program_group_desc_rg{};
     program_group_desc_rg.kind = optix::PROGRAM_GROUP_KIND_RAYGEN;
     program_group_desc_rg.raygen.module = _module;
