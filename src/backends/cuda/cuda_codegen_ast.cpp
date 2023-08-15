@@ -967,7 +967,11 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::DDY:
+            LUISA_NOT_IMPLEMENTED();
+            break;
+
+            // warp intrinsics
         case CallOp::WARP_LANE_COUNT: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_LANE_INDEX: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED(); break;
@@ -987,7 +991,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_READ_FIRST_LANE: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_READ_FIRST_LANE:
+            LUISA_NOT_IMPLEMENTED();
+            break;
+
+            // SER
+        case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
