@@ -813,8 +813,23 @@ def warp_active_bit_or(value):
     assert value.dtype in integer_scalar_vector_dtypes
     op = lcapi.CallOp.WARP_ACTIVE_BIT_XOR
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_count_bits(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_COUNT_BITS
+    return bool, lcapi.builder().call(to_lctype(bool), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_active_max(value):
+    assert value.dtype in integer_scalar_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_MAX
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_active_max(value):
+    assert value.dtype in integer_scalar_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_MIN
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
 # TODO:
-# WARP_ACTIVE_COUNT_BITS, // (bool): uint
 # WARP_ACTIVE_MAX, // (type: scalar/vector/matrix): type
 # WARP_ACTIVE_MIN, // (type: scalar/vector/matrix): type
 # WARP_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
