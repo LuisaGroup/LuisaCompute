@@ -1,4 +1,4 @@
-#include <luisa/luisa-compute.h>
+#include <luisa/luisa-compute.h>// FIXME: do not include the universal header in public headers
 
 /*
 	From NanoVDB.h
@@ -121,7 +121,7 @@ namespace luisa
 			{
 			}
 
-			void get_bounds(Int3 lower, Int3 upper)
+			void get_bounds(Int3 &lower, Int3 &upper)
 			{
 				auto b0 = buffer->read<luisa::int2>(736);
 				auto b1 = buffer->read<luisa::int2>(736 + 8);
