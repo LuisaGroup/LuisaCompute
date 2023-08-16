@@ -29,6 +29,37 @@ def linear_to_srgb(x: float3):
 
 
 @func
+def map_color(srgb):
+    sRGBtoAP1 = transpose(float3x3(
+        0.613097, 0.339523, 0.047379,
+        0.070194, 0.916354, 0.013452,
+        0.020616, 0.109570, 0.869815))
+    return sRGBtoAP1 * srgb
+
+
+@func
+def aces_fitted(acescg):
+    RRT_SAT = transpose(float3x3(
+        0.970889, 0.026963, 0.002148,
+        0.010889, 0.986963, 0.002148,
+        0.010889, 0.026963, 0.962148))
+    color = RRT_SAT * acescg
+    a = (color + 0.0822192) * color
+    b = (color * 0.983521 + 0.5001330) * color + 0.274064
+    color = a / b
+    ACESOutputMat = transpose(float3x3(
+        1.60475, -0.53108, -0.07367,
+        -0.10208,  1.10813, -0.00605,
+        -0.00327, -0.07276,  1.07602
+    ))
+    color = ACESOutputMat * color
+    color = saturate(color)
+    color = select(color * 12.92, pow(color, float3(1.0/2.4))
+                   * 1.055 - 0.055, color > float3(0.0031308))
+    return color
+
+
+@func
 def make_onb(normal: float3):
     binormal = normalize(select(
         float3(0.0, -normal.z, normal.y),
@@ -63,6 +94,9 @@ def balanced_heuristic(pdf_a, pdf_b):
     return pdf_a / max(pdf_a + pdf_b, 1e-4)
 
 
+enable_aces = True
+
+
 @func
 def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer, material_buffer, mesh_cnt, frame_index):
     set_block_size(8, 8, 1)
@@ -76,7 +110,9 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
     light_position = float3(-0.24, 1.98, 0.16)
     light_u = float3(-0.24, 1.98, -0.22) - light_position
     light_v = float3(0.23, 1.98, 0.16) - light_position
-    light_emission = float3(17.0, 12.0, 4.0)
+    light_emission = float3(12.0, 12.0, 12.0)
+    if enable_aces:
+        light_emission = map_color(light_emission)
     light_area = length(cross(light_u, light_v))
     light_normal = normalize(cross(light_u, light_v))
     rx = sampler.next()
@@ -96,7 +132,7 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         #     else:
         #         # no procedural in corner box
         #         continue
-        #hit = query.committed_hit()
+        # hit = query.committed_hit()
         if hit.miss():
             break
         i0 = heap.buffer_read(int, hit.inst, hit.prim * 3 + 0)
@@ -113,7 +149,9 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         material = Material()
         material.albedo = material_buffer.read(hit.inst * 2 + 0)
         material.emission = material_buffer.read(hit.inst * 2 + 1)
-
+        if enable_aces:
+            material.albedo = map_color(material.albedo)
+            material.emission = map_color(material.emission)
         # hit light
         if hit.inst == int(mesh_cnt - 1):
             if depth == 0:
@@ -170,6 +208,8 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         if any(isnan(radiance)):
             radiance = float3(0.0)
     seed_image.write(coord, sampler.state)
+    if enable_aces:
+        radiance = aces_fitted(radiance)
     image.write(coord, float4(
         clamp(radiance, 0.0, 30.0), 1.0))
 
@@ -212,14 +252,14 @@ vertex_arr = [[*item, 0.0] for item in cornell_box.vertices]
 vertex_arr = np.array(vertex_arr, dtype=np.float32)
 vertex_buffer.copy_from(vertex_arr)
 material_arr = [
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.14, 0.45, 0.091, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.63, 0.065, 0.05, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.0, 0.0, 0.0, 0.0], [17.0, 12.0, 4.0, 0.0],
+    [1, 1, 1, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 1, 1, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 1, 1, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0, 1, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 0, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 0, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0, 1, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0], [10.0, 10.0, 10.0, 0.0],
 ]
 material_buffer = Buffer(len(material_arr), float3)
 material_arr = np.array(material_arr, dtype=np.float32)
