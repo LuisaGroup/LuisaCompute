@@ -57,7 +57,7 @@ private:
                           std::is_same_v<TCurr, float> ||
                           std::is_same_v<TCurr, bool>) {
                 static_assert(N == 1u);
-                if constexpr (std::is_same_v<TCurr, bool) {
+                if constexpr (std::is_same_v<TCurr, bool>) {
                     _buffer->write(offset + index, dsl::cast<uint>(bool));
                 } else {
                     _buffer->write(offset + index, dsl::as<uint>(curr));
