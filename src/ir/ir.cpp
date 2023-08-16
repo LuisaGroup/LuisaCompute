@@ -23,9 +23,26 @@ const CArc<Instruction> &Node::instruction() const noexcept { return detail::fro
 [[nodiscard]] const Node *NodeRef::operator->() const noexcept {
     return get();
 }
+
 [[nodiscard]] const Node *NodeRef::get() const noexcept {
-    auto node = luisa_compute_ir_node_get(_inner);
+    auto node = raw::luisa_compute_ir_node_get(_inner);
     return reinterpret_cast<const Node *>(node);
+}
+
+void NodeRef::insert_before_self(NodeRef node) noexcept {
+    raw::luisa_compute_ir_node_insert_before_self(_inner, node.raw());
+}
+
+void NodeRef::insert_after_self(NodeRef node) noexcept {
+    raw::luisa_compute_ir_node_insert_after_self(_inner, node.raw());
+}
+
+void NodeRef::replace_with(NodeRef node) noexcept {
+    raw::luisa_compute_ir_node_replace_with(_inner, reinterpret_cast<const raw::Node *>(node.get()));
+}
+
+void NodeRef::remove() noexcept {
+    raw::luisa_compute_ir_node_remove(_inner);
 }
 // end include
 
@@ -71,10 +88,6 @@ luisa::span<const Capture> CallableModule::captures() const noexcept {
     return {reinterpret_cast<const Capture *>(_inner.captures.ptr), _inner.captures.len};
 }
 
-luisa::span<const CallableModuleRef> CallableModule::callables() const noexcept {
-    return {reinterpret_cast<const CallableModuleRef *>(_inner.callables.ptr), _inner.callables.len};
-}
-
 luisa::span<const CArc<CpuCustomOp>> CallableModule::cpu_custom_ops() const noexcept {
     return {reinterpret_cast<const CArc<CpuCustomOp> *>(_inner.cpu_custom_ops.ptr), _inner.cpu_custom_ops.len};
 }
@@ -104,10 +117,6 @@ luisa::span<const NodeRef> KernelModule::shared() const noexcept {
 
 luisa::span<const CArc<CpuCustomOp>> KernelModule::cpu_custom_ops() const noexcept {
     return {reinterpret_cast<const CArc<CpuCustomOp> *>(_inner.cpu_custom_ops.ptr), _inner.cpu_custom_ops.len};
-}
-
-luisa::span<const CallableModuleRef> KernelModule::callables() const noexcept {
-    return {reinterpret_cast<const CallableModuleRef *>(_inner.callables.ptr), _inner.callables.len};
 }
 
 const std::array<uint32_t, 3> &KernelModule::block_size() const noexcept { return detail::from_inner_ref(_inner.block_size); }
@@ -167,6 +176,10 @@ NodeRef IrBuilder::loop(const Pooled<BasicBlock> &body, const NodeRef &cond) noe
 Pooled<BasicBlock> IrBuilder::finish(IrBuilder &&builder) noexcept {
     auto block = luisa_compute_ir_build_finish(builder._inner);
     return luisa::bit_cast<Pooled<BasicBlock>>(block);
+}
+
+void IrBuilder::set_insert_point(const NodeRef &node) noexcept {
+    raw::luisa_compute_ir_builder_set_insert_point(&_inner, node._inner);
 }
 // end include
 

@@ -318,9 +318,11 @@ enum struct CallOp : uint32_t {
     INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_EMPLACE_DISPATCH_KERNEL,// (Buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id)
 
+    // SER
+    SHADER_EXECUTION_REORDER, // (uint hint, uint hint_bits): void
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::SHADER_EXECUTION_REORDER) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
     auto op_value = luisa::to_underlying(op);

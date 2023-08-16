@@ -16,6 +16,7 @@ set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
 set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp
         buffer.cpp
+        byte_buffer.cpp
         command_list.cpp
         context.cpp
         device.cpp

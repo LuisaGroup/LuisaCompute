@@ -1046,7 +1046,7 @@ template<typename T = unsigned char>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -1061,7 +1061,7 @@ template<typename T>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_uint offset) noexcept {
+[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const char *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -1248,7 +1248,7 @@ struct LCCommittedHit {
 };
 static_assert(sizeof(LCCommittedHit) == 24u, "LCCommittedHit size mismatch");
 static_assert(alignof(LCCommittedHit) == 8u, "LCCommittedHit align mismatch");
-enum LCInstanceFlags : unsigned int {
+enum LCInstanceFlags : lc_uint {
     LC_INSTANCE_FLAG_NONE = 0u,
     LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
     LC_INSTANCE_FLAG_FLIP_TRIANGLE_FACING = 1u << 1u,
@@ -1360,7 +1360,7 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
 
 #ifdef LUISA_ENABLE_OPTIX
 
-enum LCPayloadTypeID : unsigned int {
+enum LCPayloadTypeID : lc_uint {
     LC_PAYLOAD_TYPE_DEFAULT = 0u,
     LC_PAYLOAD_TYPE_ID_0 = 1u << 0u,
     LC_PAYLOAD_TYPE_ID_1 = 1u << 1u,
@@ -1372,15 +1372,13 @@ enum LCPayloadTypeID : unsigned int {
     LC_PAYLOAD_TYPE_ID_7 = 1u << 7u,
 };
 
-#define LC_PAYLOAD_TYPE_TRACE_CLOSEST (LC_PAYLOAD_TYPE_ID_0)
-#define LC_PAYLOAD_TYPE_TRACE_ANY (LC_PAYLOAD_TYPE_ID_1)
-#define LC_PAYLOAD_TYPE_RAY_QUERY (LC_PAYLOAD_TYPE_ID_2)
+#define LC_PAYLOAD_TYPE_RAY_TRACE (LC_PAYLOAD_TYPE_ID_0)
+#define LC_PAYLOAD_TYPE_RAY_QUERY (LC_PAYLOAD_TYPE_ID_1)
 
 inline void lc_set_payload_types(LCPayloadTypeID type) noexcept {
     asm volatile("call _optix_set_payload_types, (%0);"
                  :
-                 : "r"(type)
-                 :);
+                 : "r"(type));
 }
 
 template<lc_uint i>
@@ -1433,33 +1431,6 @@ template<lc_uint i>
     return f0;
 }
 
-#ifdef LUISA_ENABLE_OPTIX_TRACE_CLOSEST
-extern "C" __global__ void __closesthit__trace_closest() {
-    lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_CLOSEST);
-    auto inst = lc_get_instance_index();
-    auto prim = lc_get_primitive_index();
-    auto bary = lc_get_bary_coords();
-    auto t_hit = lc_get_hit_distance();
-    lc_set_payload<0u>(inst);
-    lc_set_payload<1u>(prim);
-    lc_set_payload<2u>(__float_as_uint(bary.x));
-    lc_set_payload<3u>(__float_as_uint(bary.y));
-    lc_set_payload<4u>(__float_as_uint(t_hit));
-}
-
-extern "C" __global__ void __miss__trace_closest() {
-    lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_CLOSEST);
-    lc_set_payload<0u>(~0u);
-}
-#endif
-
-#ifdef LUISA_ENABLE_OPTIX_TRACE_ANY
-extern "C" __global__ void __miss__trace_any() {
-    lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_ANY);
-    lc_set_payload<0u>(~0u);
-}
-#endif
-
 [[nodiscard]] inline auto lc_undef() noexcept {
     auto u0 = 0u;
     asm("call (%0), _optix_undef_value, ();"
@@ -1468,52 +1439,72 @@ extern "C" __global__ void __miss__trace_any() {
     return u0;
 }
 
-template<lc_uint ch_index, lc_uint miss_index, lc_uint reg_count, lc_uint flags>
-[[nodiscard]] inline auto lc_trace_impl(
-    lc_uint payload_type, LCAccel accel, LCRay ray, lc_uint mask,
-    lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3, lc_uint &r4) noexcept {
-    auto ox = ray.m0[0];
-    auto oy = ray.m0[1];
-    auto oz = ray.m0[2];
-    auto dx = ray.m2[0];
-    auto dy = ray.m2[1];
-    auto dz = ray.m2[2];
-    auto t_min = ray.m1;
-    auto t_max = ray.m3;
-    auto u = lc_undef();
-    [[maybe_unused]] unsigned int
-        p0 = 0u,
-        p1 = 0u, p2 = 0u, p3 = 0u, p4 = 0u,
-        p5, p6, p7, p8, p9, p10, p11, p12, p13,
-        p14, p15, p16, p17, p18, p19, p20, p21, p22,
-        p23, p24, p25, p26, p27, p28, p29, p30, p31;
+inline void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcept {
     asm volatile(
-        "call"
-        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,"
-        "%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%29,%30,%31),"
-        "_optix_trace_typed_32,"
-        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,"
-        "%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63,"
-        "%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
-        : "=r"(p0), "=r"(p1), "=r"(p2), "=r"(p3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
-          "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
-          "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
-          "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
-        : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ch_index), "r"(0u),
-          "r"(miss_index), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4), "r"(u), "r"(u),
-          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
-          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
-          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u)
-        :);
-    r0 = p0;
-    r1 = p1;
-    r2 = p2;
-    r3 = p3;
-    r4 = p4;
+        "call (), _optix_hitobject_reorder, (%0,%1);"
+        :
+        : "r"(hint), "r"(hint_bits));
 }
 
-enum LCRayFlags : unsigned int {
+__device__ inline lc_float2 lc_hit_object_triangle_bary() noexcept {
+    lc_uint u_bits, v_bits;
+    asm volatile(
+        "call (%0), _optix_hitobject_get_attribute, (%1);"
+        : "=r"(u_bits)
+        : "r"(0));
+    asm volatile(
+        "call (%0), _optix_hitobject_get_attribute, (%1);"
+        : "=r"(v_bits)
+        : "r"(1));
+    return lc_make_float2(__int_as_float(u_bits), __int_as_float(v_bits));
+}
+
+__device__ inline bool lc_hit_object_is_hit() noexcept {
+    lc_uint result;
+    asm volatile(
+        "call (%0), _optix_hitobject_is_hit, ();"
+        : "=r"(result)
+        :);
+    return result;
+}
+
+__device__ inline lc_uint lc_hit_object_instance_index() noexcept {
+    lc_uint result;
+    asm volatile(
+        "call (%0), _optix_hitobject_get_instance_idx, ();"
+        : "=r"(result)
+        :);
+    return result;
+}
+
+__device__ inline lc_uint lc_hit_object_primitive_index() noexcept {
+    lc_uint result;
+    asm volatile(
+        "call (%0), _optix_hitobject_get_primitive_idx, ();"
+        : "=r"(result)
+        :);
+    return result;
+}
+
+__device__ inline lc_float lc_hit_object_ray_t_max() noexcept {
+    float result;
+    asm volatile(
+        "call (%0), _optix_hitobject_get_ray_tmax, ();"
+        : "=f"(result)
+        :);
+    return result;
+}
+
+__device__ inline lc_uint lc_hit_object_hit_kind() noexcept {
+    lc_uint result;
+    asm volatile(
+        "call (%0), _optix_hitobject_get_hitkind, ();"
+        : "=r"(result)
+        :);
+    return result;
+}
+
+enum LCRayFlags : lc_uint {
     LC_RAY_FLAG_NONE = 0u,
     LC_RAY_FLAG_DISABLE_ANYHIT = 1u << 0u,
     LC_RAY_FLAG_ENFORCE_ANYHIT = 1u << 1u,
@@ -1525,28 +1516,72 @@ enum LCRayFlags : unsigned int {
     LC_RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7u,
 };
 
+template<lc_uint flags, lc_uint payload_type, lc_uint reg_count = 0u>
+inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
+                            lc_uint r0 = lc_undef(),
+                            lc_uint r1 = lc_undef()) noexcept {
+    static_assert(reg_count <= 2u, "Register count must be less than 2.");
+    auto ox = ray.m0[0];
+    auto oy = ray.m0[1];
+    auto oz = ray.m0[2];
+    auto dx = ray.m2[0];
+    auto dy = ray.m2[1];
+    auto dz = ray.m2[2];
+    auto t_min = ray.m1;
+    auto t_max = ray.m3;
+    [[maybe_unused]] lc_uint
+        p0,
+        p1, p2, p3, p4, p5, p6, p7,
+        p8, p9, p10, p11, p12, p13, p14, p15,
+        p16, p17, p18, p19, p20, p21, p22, p23,
+        p24, p25, p26, p27, p28, p29, p30, p31;
+    auto u = lc_undef();
+    // traverse without calling the closest or any hit programs
+    asm volatile(
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,"
+        "%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%29,%30,%31),"
+        "_optix_hitobject_traverse,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,"
+        "%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63,"
+        "%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"(p0), "=r"(p1), "=r"(p2), "=r"(p3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
+          "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
+          "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
+          "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
+        : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
+          "f"(t_max), "f"(0.f), "r"(mask & 0xffu), "r"(flags), "r"(0u), "r"(0u),
+          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u));
+}
+
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT;
-    auto r0 = lc_undef();
-    auto r1 = lc_undef();
-    auto r2 = lc_undef();
-    auto r3 = lc_undef();
-    auto r4 = lc_undef();
-    lc_trace_impl<0u, 0u, 5u, flags>(LC_PAYLOAD_TYPE_TRACE_CLOSEST, accel, ray, mask, r0, r1, r2, r3, r4);
-    return LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+    // traverse
+    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_TRACE>(accel, ray, mask);
+    // decode the hit
+    return lc_hit_object_is_hit() ?
+               [] {
+                   auto inst = lc_hit_object_instance_index();
+                   auto prim = lc_hit_object_primitive_index();
+                   auto bary = lc_hit_object_triangle_bary();
+                   auto t = lc_hit_object_ray_t_max();
+                   return LCTriangleHit{inst, prim, bary, t};
+               }() :
+               LCTriangleHit{~0u, ~0u, lc_make_float2(), 0.f};
 }
 
 [[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
                            LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
                            LC_RAY_FLAG_DISABLE_CLOSESTHIT;
-    auto r0 = lc_undef();
-    auto r1 = lc_undef();
-    auto r2 = lc_undef();
-    auto r3 = lc_undef();
-    auto r4 = lc_undef();
-    lc_trace_impl<0u, 2u, 1u, flags>(LC_PAYLOAD_TYPE_TRACE_ANY, accel, ray, mask, r0, r1, r2, r3, r4);
-    return r0 != ~0u;
+    // traverse
+    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_TRACE>(accel, ray, mask);
+    // decode if hit
+    return lc_hit_object_is_hit();
 }
 
 [[nodiscard]] inline auto lc_dispatch_id() noexcept {
@@ -1621,29 +1656,34 @@ struct LCRayQuery {
 using LCRayQueryAll = LCRayQuery<false>;
 using LCRayQueryAny = LCRayQuery<true>;
 
-[[nodiscard]] inline auto lc_ray_query_decode_hit(lc_uint u0, lc_uint u1, lc_uint u2, lc_uint u3, lc_uint u4) noexcept {
-    LCCommittedHit hit;
-    hit.m0 = u0 & ~LC_HIT_TYPE_PREFIX_MASK;
-    hit.m1 = u1;
-    hit.m2 = lc_make_float2(__uint_as_float(u2), __uint_as_float(u3));
-    hit.m3 = ((u0 >> 28u) + 1u) & 0x3u;
-    hit.m4 = __uint_as_float(u4);
+[[nodiscard]] inline auto lc_ray_query_decode_hit() noexcept {
+    LCCommittedHit hit{~0u, ~0u, lc_make_float2(), static_cast<lc_uint>(LCHitType::MISS), 0.f};
+    if (lc_hit_object_is_hit()) {// found closest hit
+        hit.m0 = lc_hit_object_instance_index();
+        hit.m1 = lc_hit_object_primitive_index();
+        hit.m2 = lc_hit_object_triangle_bary();
+        auto hit_kind = lc_hit_object_hit_kind();
+        hit.m3 = (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                  hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) ?
+                     static_cast<lc_uint>(LCHitType::TRIANGLE) :
+                     static_cast<lc_uint>(LCHitType::PROCEDURAL);
+        hit.m4 = lc_hit_object_ray_t_max();
+    }
     return hit;
 }
 
 template<bool terminate_on_first>
-[[nodiscard]] inline auto lc_ray_query_trace(LCRayQuery<terminate_on_first> &q, lc_uint impl_tag, void *ctx) noexcept {
+inline void lc_ray_query_trace(LCRayQuery<terminate_on_first> &q, lc_uint impl_tag, void *ctx) noexcept {
     constexpr auto flags = terminate_on_first ?
-                               LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT :
-                               LC_RAY_FLAG_NONE;
+                               LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                                   LC_RAY_FLAG_DISABLE_CLOSESTHIT :
+                               LC_RAY_FLAG_DISABLE_CLOSESTHIT;
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
-    auto r0 = impl_tag;
-    auto r1 = static_cast<lc_uint>(p_ctx >> 32u);
-    auto r2 = static_cast<lc_uint>(p_ctx);
-    auto r3 = lc_undef();
-    auto r4 = lc_undef();
-    lc_trace_impl<1u, 1u, 5u, flags>(LC_PAYLOAD_TYPE_RAY_QUERY, q.accel, q.ray, q.mask, r0, r1, r2, r3, r4);
-    q.hit = lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
+    auto r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
+    auto r1 = static_cast<lc_uint>(p_ctx);
+    // traverse
+    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_QUERY, 2u>(q.accel, q.ray, q.mask, r0, r1);
+    q.hit = lc_ray_query_decode_hit();
 }
 
 [[nodiscard]] inline auto lc_accel_query_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
@@ -1831,9 +1871,10 @@ LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(31);
 extern "C" __global__ void __intersection__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
     lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
-    auto query_id = lc_get_payload<0u>();
-    auto p_ctx_hi = lc_get_payload<1u>();
-    auto p_ctx_lo = lc_get_payload<2u>();
+    auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
+    auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
+    auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);
+    auto p_ctx_lo = lc_get_payload<1u>();
     auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
     LCIntersectionResult r{};
     switch (query_id) {
@@ -1945,26 +1986,6 @@ extern "C" __global__ void __intersection__ray_query() {
 #endif
 }
 
-extern "C" __global__ void __closesthit__ray_query() {
-#if LUISA_RAY_QUERY_IMPL_COUNT > 0
-    lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
-    auto hit_kind = lc_get_hit_kind();
-    auto prefix = (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                   hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) ?
-                      LC_HIT_TYPE_PREFIX_TRIANGLE :
-                      LC_HIT_TYPE_PREFIX_PROCEDURAL;
-    auto inst = lc_get_instance_index();
-    auto prim = lc_get_primitive_index();
-    auto bary = lc_get_bary_coords();
-    auto t_hit = lc_get_hit_distance();
-    lc_set_payload<0u>(prefix | inst);
-    lc_set_payload<1u>(prim);
-    lc_set_payload<2u>(__float_as_uint(bary.x));
-    lc_set_payload<3u>(__float_as_uint(bary.y));
-    lc_set_payload<4u>(__float_as_uint(t_hit));
-#endif
-}
-
 extern "C" __global__ void __anyhit__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
     lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
@@ -1972,9 +1993,10 @@ extern "C" __global__ void __anyhit__ray_query() {
     auto should_terminate = false;
     if (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
         hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) {// triangle
-        auto query_id = lc_get_payload<0u>();
-        auto p_ctx_hi = lc_get_payload<1u>();
-        auto p_ctx_lo = lc_get_payload<2u>();
+        auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
+        auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
+        auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);
+        auto p_ctx_lo = lc_get_payload<1u>();
         auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
         LCIntersectionResult r{};
         switch (query_id) {
@@ -2088,19 +2110,16 @@ extern "C" __global__ void __anyhit__ray_query() {
 #endif
 }
 
-extern "C" __global__ void __miss__ray_query() {
-#if LUISA_RAY_QUERY_IMPL_COUNT > 0
-    lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
-    lc_set_payload<0u>(~0u);
-#endif
-}
-
 #endif
 
 #else
 
 #define lc_dispatch_size() lc_make_uint3(params.ls_kid)
 #define lc_kernel_id() static_cast<lc_uint>(params.ls_kid.w)
+
+inline void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcept {
+    // do nothing since SER is not supported in plain CUDA
+}
 
 [[nodiscard]] __device__ inline auto lc_thread_id() noexcept {
     return lc_make_uint3(lc_uint(threadIdx.x),
@@ -2175,4 +2194,32 @@ template<typename T>
         }
         return x.value;
     }
+}
+
+using lc_byte = unsigned char;
+
+template<typename T>
+[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<lc_byte> buffer, lc_ulong offset) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
+    auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_assert(address % alignof(T) == 0u && "unaligned access");
+#endif
+    return *reinterpret_cast<T *>(address);
+}
+
+template<typename T>
+__device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong offset, T value) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
+    auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_assert(address % alignof(T) == 0u && "unaligned access");
+#endif
+    *reinterpret_cast<T *>(address) = value;
+}
+
+[[nodiscard]] __device__ inline auto lc_byte_buffer_size(LCBuffer<lc_byte> buffer) noexcept {
+    return lc_buffer_size(buffer);
 }

@@ -188,6 +188,9 @@ impl<T> Pooled<T> {
     pub fn into_raw(self) -> *mut T {
         self.ptr
     }
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr
+    }
 }
 impl<T> AsRef<T> for Pooled<T> {
     fn as_ref(&self) -> &T {

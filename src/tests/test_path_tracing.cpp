@@ -289,7 +289,7 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
-    ShaderOption o{.enable_debug_info = true};
+    ShaderOption o{.enable_debug_info = false};
     o.name = "clear";
     Shader2D<Image<float>> clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";

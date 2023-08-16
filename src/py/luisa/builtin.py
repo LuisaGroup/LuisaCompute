@@ -809,21 +809,80 @@ def warp_active_bit_or(value):
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
 
 @BuiltinFuncBuilder
-def warp_active_bit_or(value):
+def warp_active_bit_xor(value):
     assert value.dtype in integer_scalar_vector_dtypes
     op = lcapi.CallOp.WARP_ACTIVE_BIT_XOR
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
-# TODO:
-# WARP_ACTIVE_COUNT_BITS, // (bool): uint
-# WARP_ACTIVE_MAX, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_MIN, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_SUM, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_ALL, // (bool): bool
-# WARP_ACTIVE_ANY, // (bool): bool
-# WARP_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
-# WARP_PREFIX_COUNT_BITS, // (bool): uint (count bits before this lane)
-# WARP_PREFIX_SUM, // (bool): uint (count bits before this lane)
-# WARP_PREFIX_PRODUCT, // (bool): uint (count bits before this lane)
-# WARP_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
-# WARP_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)
+
+@BuiltinFuncBuilder
+def warp_active_count_bits(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_COUNT_BITS
+    return uint, lcapi.builder().call(to_lctype(uint), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_active_max(value):
+    assert value.dtype in scalar_and_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_MAX
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_active_min(value):
+    assert value.dtype in scalar_and_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_MIN
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_product(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_PRODUCT
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_sum(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_SUM
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_all(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_ALL
+    return bool, lcapi.builder().call(to_lctype(bool), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_any(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_ANY
+    return bool, lcapi.builder().call(to_lctype(bool), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_bitmask(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_BIT_MASK
+    return uint4, lcapi.builder().call(to_lctype(uint4), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_prefix_count_bits(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_PREFIX_COUNT_BITS
+    return uint, lcapi.builder().call(to_lctype(uint), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_prefix_product(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_PREFIX_PRODUCT
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_prefix_sum(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_PREFIX_SUM
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_read_lane_at(value, index):
+    assert value.dtype in basic_dtypes and index.dtype in {int, uint, short, ushort, long, ulong}
+    op = lcapi.CallOp.WARP_READ_LANE_AT
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr, index.expr])
+
+@BuiltinFuncBuilder
+def warp_read_first_lane(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_READ_FIRST_LANE
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])

@@ -1895,6 +1895,17 @@ template<typename X>
             {LUISA_EXPR(value)}));
 }
 
+// shader execution reordering
+inline void reorder_shader_execution(Expr<uint> hint, Expr<uint> hint_bits) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::SHADER_EXECUTION_REORDER,
+        {LUISA_EXPR(hint), LUISA_EXPR(hint_bits)});
+}
+
+inline void reorder_shader_execution() noexcept {
+    reorder_shader_execution(0u, 0u);
+}
+
 #undef LUISA_EXPR
 
 }// namespace dsl
