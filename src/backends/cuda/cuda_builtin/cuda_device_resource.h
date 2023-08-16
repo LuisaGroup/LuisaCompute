@@ -1446,6 +1446,10 @@ inline void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcep
         : "r"(hint), "r"(hint_bits));
 }
 
+__device__ inline void lc_hit_object_reset() noexcept {
+    asm volatile("call (), _optix_hitobject_make_nop, ();");
+}
+
 __device__ inline lc_float2 lc_hit_object_triangle_bary() noexcept {
     lc_uint u_bits, v_bits;
     asm volatile(
@@ -1571,6 +1575,7 @@ inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
         return LCTriangleHit{inst, prim, bary, t};
     }();
     hit.m0 = lc_hit_object_is_hit() ? hit.m0 : ~0u;
+    lc_hit_object_reset();
     return hit;
 }
 
@@ -1581,7 +1586,9 @@ inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
     // traverse
     lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_TRACE>(accel, ray, mask);
     // decode if hit
-    return lc_hit_object_is_hit();
+    auto is_hit = lc_hit_object_is_hit();
+    lc_hit_object_reset();
+    return is_hit;
 }
 
 [[nodiscard]] inline auto lc_dispatch_id() noexcept {
@@ -1670,6 +1677,7 @@ using LCRayQueryAny = LCRayQuery<true>;
         return LCCommittedHit{inst, prim, bary, kind, dist};
     }();
     auto is_hit = lc_hit_object_is_hit();
+    lc_hit_object_reset();
     hit.m0 = is_hit ? hit.m0 : ~0u;
     hit.m3 = is_hit ? hit.m3 : static_cast<lc_uint>(LCHitType::MISS);
     return hit;
