@@ -1563,15 +1563,15 @@ inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
     // traverse
     lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_TRACE>(accel, ray, mask);
     // decode the hit
-    return lc_hit_object_is_hit() ?
-               [] {
-                   auto inst = lc_hit_object_instance_index();
-                   auto prim = lc_hit_object_primitive_index();
-                   auto bary = lc_hit_object_triangle_bary();
-                   auto t = lc_hit_object_ray_t_max();
-                   return LCTriangleHit{inst, prim, bary, t};
-               }() :
-               LCTriangleHit{~0u, ~0u, lc_make_float2(), 0.f};
+    auto hit = [] {
+        auto inst = lc_hit_object_instance_index();
+        auto prim = lc_hit_object_primitive_index();
+        auto bary = lc_hit_object_triangle_bary();
+        auto t = lc_hit_object_ray_t_max();
+        return LCTriangleHit{inst, prim, bary, t};
+    }();
+    hit.m0 = lc_hit_object_is_hit() ? hit.m0 : ~0u;
+    return hit;
 }
 
 [[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
@@ -1657,18 +1657,21 @@ using LCRayQueryAll = LCRayQuery<false>;
 using LCRayQueryAny = LCRayQuery<true>;
 
 [[nodiscard]] inline auto lc_ray_query_decode_hit() noexcept {
-    LCCommittedHit hit{~0u, ~0u, lc_make_float2(), static_cast<lc_uint>(LCHitType::MISS), 0.f};
-    if (lc_hit_object_is_hit()) {// found closest hit
-        hit.m0 = lc_hit_object_instance_index();
-        hit.m1 = lc_hit_object_primitive_index();
-        hit.m2 = lc_hit_object_triangle_bary();
+    auto hit = [] {// found closest hit
+        auto inst = lc_hit_object_instance_index();
+        auto prim = lc_hit_object_primitive_index();
+        auto bary = lc_hit_object_triangle_bary();
         auto hit_kind = lc_hit_object_hit_kind();
-        hit.m3 = (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                  hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) ?
-                     static_cast<lc_uint>(LCHitType::TRIANGLE) :
-                     static_cast<lc_uint>(LCHitType::PROCEDURAL);
-        hit.m4 = lc_hit_object_ray_t_max();
-    }
+        auto kind = (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                     hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) ?
+                        static_cast<lc_uint>(LCHitType::TRIANGLE) :
+                        static_cast<lc_uint>(LCHitType::PROCEDURAL);
+        auto dist = lc_hit_object_ray_t_max();
+        return LCCommittedHit{inst, prim, bary, kind, dist};
+    }();
+    auto is_hit = lc_hit_object_is_hit();
+    hit.m0 = is_hit ? hit.m0 : ~0u;
+    hit.m3 = is_hit ? hit.m3 : static_cast<lc_uint>(LCHitType::MISS);
     return hit;
 }
 
