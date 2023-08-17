@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 
-#include <luisa/dsl/core/format.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/dsl/soa.h>
 #include <luisa/dsl/func.h>
 #include <luisa/runtime/shader.h>
