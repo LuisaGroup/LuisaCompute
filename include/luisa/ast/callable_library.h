@@ -26,9 +26,10 @@ private:
 public:
     template<typename T>
     Callable<T> get_callable(luisa::string_view name) const noexcept;
+    [[nodiscard]] luisa::vector<luisa::string_view> names() const noexcept;
     CallableLibrary() noexcept;
     void add_callable(luisa::string_view name, luisa::shared_ptr<const detail::FunctionBuilder> callable) noexcept;
-    static CallableLibrary load(luisa::span<const std::byte> binary) noexcept;
+    void load(luisa::span<const std::byte> binary) noexcept;
     [[nodiscard]] luisa::vector<std::byte> serialize() const noexcept;
     CallableLibrary(CallableLibrary const &) = delete;
     CallableLibrary(CallableLibrary &&) noexcept;

@@ -68,6 +68,7 @@ void CallableLibrary::ser_value(Variable const &t, luisa::vector<std::byte> &vec
     ser_value(t._type, vec);
     ser_value(t._uid, vec);
     ser_value(t._tag, vec);
+
 }
 template<>
 Variable CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pack) noexcept {
@@ -270,7 +271,7 @@ void CallableLibrary::ser_value(Expression const &t, luisa::vector<std::byte> &v
             ser_value(*static_cast<LiteralExpr const *>(&t), vec);
             break;
         case Expression::Tag::REF:
-            if (vec.size() == 618) {
+            if(vec.size() == 618){
                 auto ref = static_cast<RefExpr const *>(&t);
             }
             ser_value(*static_cast<RefExpr const *>(&t), vec);
@@ -475,6 +476,7 @@ template<>
 void CallableLibrary::ser_value(AssignStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(*t._lhs, vec);
     ser_value(*t._rhs, vec);
+
 }
 template<>
 void CallableLibrary::deser_ptr(AssignStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
@@ -658,7 +660,7 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
         i = deser_value<Variable>(ptr, pack);
     }
     builder._bound_arguments.push_back_uninitialized(builder._arguments.size());
-    for (auto &&i : builder._bound_arguments) {
+    for(auto&& i : builder._bound_arguments){
         i = luisa::monostate{};
     }
     builder._used_custom_callables.resize(deser_value<size_t>(ptr, pack));
@@ -689,7 +691,11 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     using namespace detail;
     using namespace std::string_view_literals;
     LUISA_ASSERT(builder.tag() == Function::Tag::CALLABLE, "Only callable can be serialized.");
-    LUISA_ASSERT(builder.unbound_arguments().empty(), "Callable cannot contain bound-argument.");
+    for (auto &&i : builder._bound_arguments) {
+        if (i.index() != 0) [[unlikely]] {
+            LUISA_ERROR("Callable cannot contain bound-argument.");
+        }
+    }
     LUISA_ASSERT(builder._used_external_functions.empty(), "Callable cannot contain external-function.");
     // return type
     if (builder._return_type)
@@ -741,15 +747,15 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     ser_value(static_cast<Statement const &>(builder._body), vec);
 }
 CallableLibrary::CallableLibrary() noexcept = default;
-CallableLibrary CallableLibrary::load(luisa::span<const std::byte> binary) noexcept {
-    CallableLibrary lib;
+void CallableLibrary::load(luisa::span<const std::byte> binary) noexcept {
+    _callables.clear();
     DeserPackage pack;
     auto ptr = binary.data();
     auto callable_size = deser_value<size_t>(ptr, pack);
     auto inline_callable_size = deser_value<size_t>(ptr, pack);
     luisa::unordered_map<size_t, luisa::shared_ptr<const detail::FunctionBuilder>> inline_callables;
-    lib._callables.clear();
-    lib._callables.reserve(callable_size);
+    _callables.clear();
+    _callables.reserve(callable_size);
     inline_callables.reserve(inline_callable_size);
     pack.callable_map.reserve(callable_size + inline_callable_size);
     for (size_t i = 0; i < callable_size + inline_callable_size; ++i) {
@@ -766,7 +772,7 @@ CallableLibrary CallableLibrary::load(luisa::span<const std::byte> binary) noexc
         auto name = deser_value<luisa::string>(ptr, pack);
         pack.builder = iter->second.get();
         deserialize_func_builder(*iter->second.get(), ptr, pack);
-        lib._callables.try_emplace(std::move(name), iter->second);
+        _callables.try_emplace(std::move(name), iter->second);
     }
     for (size_t i = 0; i < inline_callable_size; ++i) {
         auto hash = deser_value<uint64_t>(ptr, pack);
@@ -775,7 +781,6 @@ CallableLibrary CallableLibrary::load(luisa::span<const std::byte> binary) noexc
         pack.builder = iter->second.get();
         deserialize_func_builder(*iter->second.get(), ptr, pack);
     }
-    return lib;
 }
 luisa::vector<std::byte> CallableLibrary::serialize() const noexcept {
     luisa::unordered_map<size_t, luisa::shared_ptr<const detail::FunctionBuilder>> inline_callables;
@@ -817,4 +822,12 @@ CallableLibrary::~CallableLibrary() noexcept {
     _callables.clear();
 }
 CallableLibrary::CallableLibrary(CallableLibrary &&) noexcept = default;
+luisa::vector<luisa::string_view> CallableLibrary::names() const noexcept{
+    luisa::vector<luisa::string_view> vec;
+    vec.reserve(_callables.size());
+    for(auto&& i : _callables){
+        vec.emplace_back(i.first);
+    }
+    return vec;
+}
 }// namespace luisa::compute

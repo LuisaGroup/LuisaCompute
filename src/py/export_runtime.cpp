@@ -4,6 +4,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/raster/raster_shader.h>
 #include <luisa/ast/ast_evaluator.h>
+#include <luisa/core/binary_file_stream.h>
 #include <luisa/vstl/common.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
@@ -16,7 +17,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/dispatch_buffer.h>
-
+#include <luisa/ast/callable_library.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -438,6 +439,28 @@ void export_runtime(py::module &m) {
     py::class_<IntEval>(m, "IntEval")
         .def("value", [](IntEval &self) { return self.value; })
         .def("exist", [](IntEval &self) { return self.exist; });
+    py::class_<CallableLibrary>(m, "CallableLibrary")
+        .def(py::init<>())
+        .def("add_callable", &CallableLibrary::add_callable)
+        .def("serialize", [](CallableLibrary &self, luisa::string_view path) {
+            auto vec = self.serialize();
+            luisa::string path_str{path};
+            auto f = fopen(path_str.c_str(), "wb");
+            if (f) {
+                fwrite(vec.data(), vec.size(), 1, f);
+                LUISA_INFO("Save serialized callable with size: {} bytes.", vec.size());
+                fclose(f);
+            }
+        })
+        .def("load", [](CallableLibrary &self, luisa::string_view path) {
+            BinaryFileStream file_stream{luisa::string{path}};
+            if (file_stream.valid()) {
+                luisa::vector<std::byte> vec;
+                vec.push_back_uninitialized(file_stream.length());
+                file_stream.read(vec);
+                self.load(vec);
+            }
+        });
     py::class_<FunctionBuilder, luisa::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
