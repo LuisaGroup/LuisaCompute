@@ -3,10 +3,10 @@
 #include <cstdint>
 #include <cstddef>
 
+#include <luisa/dsl/core/format.h>
 #include <luisa/dsl/soa.h>
 #include <luisa/dsl/func.h>
 #include <luisa/runtime/shader.h>
-#include <spdlog/fmt/bundled/format.h>
 
 template<typename T>
 struct luisa_compute_extension {};
