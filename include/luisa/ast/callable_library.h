@@ -5,6 +5,8 @@
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/function_builder.h>
 namespace luisa::compute {
+template<typename T>
+class Callable;
 class LC_AST_API CallableLibrary {
 private:
     struct DeserPackage {
@@ -22,6 +24,8 @@ private:
     template<typename T>
     static void deser_ptr(T obj, std::byte const *&ptr, DeserPackage &pack) noexcept;
 public:
+    template<typename T>
+    Callable<T> get_callable(luisa::string_view name) const noexcept;
     CallableLibrary() noexcept;
     void add_callable(luisa::string_view name, luisa::shared_ptr<const detail::FunctionBuilder> callable) noexcept;
     static CallableLibrary load(luisa::span<const std::byte> binary) noexcept;
