@@ -25,6 +25,7 @@ class FunctionBuilder;
  * 
  */
 class LC_AST_API Expression : public concepts::Noncopyable {
+    friend class CallableLibrary;
 
 public:
     /// Expression type
@@ -105,6 +106,7 @@ struct LC_AST_API ExprVisitor {
 
 /// Unary expression
 class LC_AST_API UnaryExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     const Expression *_operand;
@@ -133,6 +135,7 @@ public:
 
 /// Binary expression
 class LC_AST_API BinaryExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     const Expression *_lhs;
@@ -168,6 +171,7 @@ public:
 
 /// Access expression
 class LC_AST_API AccessExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     const Expression *_range;
@@ -198,6 +202,7 @@ public:
 
 /// Member expression
 class LC_AST_API MemberExpr final : public Expression {
+    friend class CallableLibrary;
 
 public:
     static constexpr auto swizzle_mask = 0xff000000u;
@@ -274,6 +279,7 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 }// namespace detail
 
 class LC_AST_API LiteralExpr final : public Expression {
+    friend class CallableLibrary;
 
 public:
     using Value = detail::make_literal_value_t<basic_types>;
@@ -300,6 +306,7 @@ public:
 
 /// Reference expression
 class LC_AST_API RefExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     Variable _variable;
@@ -322,6 +329,7 @@ public:
 
 /// Constant expression
 class LC_AST_API ConstantExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     ConstantData _data;
@@ -345,6 +353,7 @@ public:
 
 /// Call expression
 class LC_AST_API CallExpr final : public Expression {
+    friend class CallableLibrary;
 
 public:
     using ArgumentList = luisa::vector<const Expression *>;
@@ -409,6 +418,7 @@ enum struct CastOp {
 
 /// Cast expression
 class LC_AST_API CastExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     const Expression *_source;
@@ -434,6 +444,7 @@ public:
 };
 
 class TypeIDExpr final : public Expression {
+    friend class CallableLibrary;
 
 private:
     // Note: `data_type` is the argument of the expression,
@@ -527,8 +538,8 @@ void traverse_subexpressions(const Expression *expr,
             traverse_subexpressions(access_expr->index(), enter, exit);
             break;
         }
-        case Expression::Tag::LITERAL: break;
-        case Expression::Tag::REF: break;
+        case Expression::Tag::LITERAL:
+        case Expression::Tag::REF:
         case Expression::Tag::CONSTANT: break;
         case Expression::Tag::CALL: {
             auto call_expr = static_cast<const CallExpr *>(expr);
@@ -542,8 +553,8 @@ void traverse_subexpressions(const Expression *expr,
             traverse_subexpressions(cast_expr->expression(), enter, exit);
             break;
         }
-        case Expression::Tag::TYPE_ID: break;
-        case Expression::Tag::CPUCUSTOM: break;
+        case Expression::Tag::TYPE_ID:
+        case Expression::Tag::CPUCUSTOM:
         case Expression::Tag::GPUCUSTOM: break;
     }
     exit(expr);

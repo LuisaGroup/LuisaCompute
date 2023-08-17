@@ -15,7 +15,7 @@ private:
 
 public:
     explicit Expr(const RefExpr *expr) noexcept;
-    Expr(const Accel &accel) noexcept;
+    explicit Expr(const Accel &accel) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
