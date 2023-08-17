@@ -1,4 +1,5 @@
 #include <random>
+#include <numeric>
 #include <luisa/luisa-compute.h>
 
 using namespace luisa;
