@@ -54,6 +54,7 @@ protected:
     mutable Usage _usage{Usage::NONE};
     virtual void _mark(Usage usage) const noexcept = 0;
     [[nodiscard]] virtual uint64_t _compute_hash() const noexcept = 0;
+    Expression() noexcept = default;
 
 public:
     /**
@@ -111,6 +112,7 @@ class LC_AST_API UnaryExpr final : public Expression {
 private:
     const Expression *_operand;
     UnaryOp _op;
+    UnaryExpr() noexcept = default;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -141,7 +143,7 @@ private:
     const Expression *_lhs;
     const Expression *_rhs;
     BinaryOp _op;
-
+    BinaryExpr() noexcept = default;
 protected:
     void _mark(Usage) const noexcept override {}
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -176,7 +178,7 @@ class LC_AST_API AccessExpr final : public Expression {
 private:
     const Expression *_range;
     const Expression *_index;
-
+    AccessExpr() noexcept = default;
 protected:
     void _mark(Usage usage) const noexcept override { _range->mark(usage); }
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -212,6 +214,7 @@ private:
     const Expression *_self;
     uint32_t _swizzle_size;
     uint32_t _swizzle_code;
+    MemberExpr() noexcept = default;
 
 protected:
     void _mark(Usage usage) const noexcept override { _self->mark(usage); }
@@ -286,6 +289,7 @@ public:
 
 private:
     Value _value;
+    LiteralExpr() noexcept = default;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -310,6 +314,7 @@ class LC_AST_API RefExpr final : public Expression {
 
 private:
     Variable _variable;
+    RefExpr() noexcept = default;
 
 protected:
     void _mark(Usage usage) const noexcept override;
@@ -333,6 +338,7 @@ class LC_AST_API ConstantExpr final : public Expression {
 
 private:
     ConstantData _data;
+    ConstantExpr() noexcept = default;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -370,6 +376,7 @@ private:
     ArgumentList _arguments;
     CallOp _op;
     Callee _func;
+    CallExpr() noexcept = default;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -423,6 +430,7 @@ class LC_AST_API CastExpr final : public Expression {
 private:
     const Expression *_source;
     CastOp _op;
+    CastExpr() noexcept = default;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -450,6 +458,7 @@ private:
     // Note: `data_type` is the argument of the expression,
     //   not the result type. The result type is always uint64.
     const Type *_data_type;
+    TypeIDExpr() noexcept = default;
 
 protected:
     void _mark(Usage) const noexcept override {}
@@ -489,13 +498,13 @@ public:
 class GpuCustomOpExpr final : public Expression {
 
 public:
-    GpuCustomOpExpr(const Type *type, std::string source, const Expression *arg) noexcept
+    GpuCustomOpExpr(const Type *type, luisa::string source, const Expression *arg) noexcept
         : Expression{Tag::GPUCUSTOM, type}, _source{std::move(source)}, _arg(arg) {}
     [[nodiscard]] auto source() const noexcept { return _source; }
     LUISA_EXPRESSION_COMMON()
 
 private:
-    std::string _source;
+    luisa::string _source;
     const Expression *_arg;
 
 protected:

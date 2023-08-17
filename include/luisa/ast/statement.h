@@ -14,7 +14,7 @@ struct StmtVisitor;
  */
 class LC_AST_API Statement : public concepts::Noncopyable {
     friend class CallableLibrary;
-    
+
 public:
     /// Statement types
     enum struct Tag : uint32_t {
@@ -39,6 +39,8 @@ private:
     mutable uint64_t _hash{0u};
     mutable bool _hash_computed{false};
     Tag _tag;
+protected:
+    Statement() noexcept = default;
 
 private:
     [[nodiscard]] virtual uint64_t _compute_hash() const noexcept = 0;
@@ -119,6 +121,7 @@ class ReturnStmt : public Statement {
 
 private:
     const Expression *_expr;
+    ReturnStmt() noexcept = default;
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -165,6 +168,7 @@ private:
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    AssignStmt() noexcept = default;
 
 public:
     /**
@@ -192,6 +196,7 @@ private:
     const Expression *_condition;
     ScopeStmt _true_branch;
     ScopeStmt _false_branch;
+    IfStmt() noexcept = default;
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -241,6 +246,7 @@ private:
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    ExprStmt() noexcept = default;
 
 public:
     /**
@@ -263,6 +269,7 @@ class SwitchStmt : public Statement {
 private:
     const Expression *_expr;
     ScopeStmt _body;
+    SwitchStmt() noexcept = default;
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -290,6 +297,7 @@ class SwitchCaseStmt : public Statement {
 private:
     const Expression *_expr;
     ScopeStmt _body;
+    SwitchCaseStmt() noexcept = default;
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -339,6 +347,7 @@ private:
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    ForStmt() noexcept = default;
 
 public:
     /**
@@ -371,6 +380,7 @@ class CommentStmt : public Statement {
 
 private:
     luisa::string _comment;
+    CommentStmt() noexcept = default;
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -446,6 +456,7 @@ private:
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    RayQueryStmt() noexcept = default;
 
 public:
     explicit RayQueryStmt(const RefExpr *query) noexcept
@@ -588,4 +599,3 @@ void traverse_expressions(
 }
 
 }// namespace luisa::compute
-

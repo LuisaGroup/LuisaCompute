@@ -47,6 +47,7 @@ private:
     ConstantData(const Type *type, const std::byte *data, uint64_t hash) noexcept;
 
 public:
+    ConstantData() noexcept = default;
     [[nodiscard]] static ConstantData create(const Type *type, const void *data, size_t size) noexcept;
     [[nodiscard]] auto raw() const noexcept { return _raw; }
     [[nodiscard]] auto type() const noexcept { return _type; }
