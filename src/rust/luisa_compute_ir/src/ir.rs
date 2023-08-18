@@ -2065,6 +2065,12 @@ impl IrBuilder {
         self.append(node);
         node
     }
+    pub fn update_unchecked(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
+        let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
+        let node = new_node(&self.pools, node);
+        self.append(node);
+        node
+    }
     pub fn phi(&mut self, incoming: &[PhiIncoming], t: CArc<Type>) -> NodeRef {
         if t == Type::userdata() {
             let userdata0 = incoming[0].value.get_user_data();
