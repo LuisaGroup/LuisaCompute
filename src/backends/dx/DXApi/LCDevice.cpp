@@ -131,19 +131,7 @@ ResourceCreationInfo LCDevice::create_texture(
     uint height,
     uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
-    bool allowUAV = true;
-    switch (format) {
-        case PixelFormat::BC1UNorm:
-        case PixelFormat::BC2UNorm:
-        case PixelFormat::BC3UNorm:
-        case PixelFormat::BC4UNorm:
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-            allowUAV = false;
-            break;
-        default: break;
-    }
+    bool allowUAV = !is_block_compressed(format);
     ResourceCreationInfo info;
     auto res = new RenderTexture(
         &nativeDevice,
@@ -620,19 +608,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
-    bool allowUAV = true;
-    switch (format) {
-        case PixelFormat::BC1UNorm:
-        case PixelFormat::BC2UNorm:
-        case PixelFormat::BC3UNorm:
-        case PixelFormat::BC4UNorm:
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-            allowUAV = false;
-            break;
-        default: break;
-    }
+    bool allowUAV = !is_block_compressed(format);
     SparseTextureCreationInfo info;
     auto res = new SparseTexture(
         &nativeDevice,
