@@ -6,6 +6,7 @@
 namespace luisa {
 
 namespace compute {
+class CallableLibrary;
 namespace detail {
 class FunctionBuilder;
 class SSABuilder;
@@ -48,6 +49,7 @@ private:
 private:
     friend class detail::FunctionBuilder;
     friend class detail::SSABuilder;
+    friend class CallableLibrary;
     Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _uid{uid}, _tag{tag}{}
 

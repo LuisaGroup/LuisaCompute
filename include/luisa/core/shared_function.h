@@ -43,7 +43,7 @@ public:
         }
     }
     template<typename F>
-        requires((!std::is_same_v<std::remove_cvref_t<F>, SharedFunction>) && (std::is_invocable_r_v<Ret, F, Args &&...>))
+        requires((!std::is_same_v<std::remove_cvref_t<F>, SharedFunction>) && (std::is_invocable_r_v<Ret, F, Args && ...>))
     SharedFunction(F &&f) noexcept {
         struct SharedFunctionDerive : public SharedFunctionBase {
             eastl::aligned_storage_t<sizeof(F), alignof(F)> storage;
@@ -119,6 +119,8 @@ public:
         x._base = nullptr;
     }
     SharedFunction &operator=(SharedFunction const &x) noexcept {
+        if (&x == this) [[unlikely]]
+            return *this;
         _dispose();
         new (std::launder(this)) SharedFunction(x);
         return *this;
@@ -131,4 +133,3 @@ public:
 };
 
 }// namespace luisa
-

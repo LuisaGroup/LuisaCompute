@@ -8,6 +8,16 @@ from types import SimpleNamespace
 import ast
 from .struct import StructType
 
+def _check_vector_types(*args):
+    len = 1
+    for i in args:
+        len_i = length_of(i.dtype)
+        if len_i == 1:
+            continue
+        if len == 1:
+            len = len_i
+        assert(len == len_i)
+    return len
 
 def wrap_with_tmp_var(node):
     tmp = lcapi.builder().local(to_lctype(node.dtype))
@@ -573,8 +583,7 @@ _func_map["cross"] = _cross
 
 
 def _lerp(name, *args):
-    t_len = length_of(args[2].dtype)
-    assert len(args) == 3 and (args[0].dtype == args[1].dtype) and (length_of(args[0].dtype) == t_len or t_len == 1)
+    assert len(args) == 3 and (element_of(args[0].dtype) == element_of(args[1].dtype))
     return make_vector_call(element_of(args[0].dtype), getattr(lcapi.CallOp, name.upper()), args)
 
 
@@ -586,10 +595,12 @@ def _select(name, *args):
     bool_vec_len = length_of(args[2].dtype)
     assert len(args) == 3 and \
            args[2].dtype in {bool, bool2, bool3, bool4} and \
-           args[0].dtype == args[1].dtype and \
            args[0].dtype in scalar_and_vector_dtypes and \
-           (length_of(args[0].dtype) == bool_vec_len or bool_vec_len == 1)
-    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
+           element_of(args[0].dtype) == element_of(args[1].dtype)
+    vec_len = _check_vector_types(*args)
+    dtype = vector(element_of(args[0].dtype), vec_len)
+        #    ( == bool_vec_len or bool_vec_len == 1)
+    return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
 
 
 _func_map["select"] = _select
