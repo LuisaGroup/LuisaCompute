@@ -749,6 +749,7 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
 CallableLibrary::CallableLibrary() noexcept = default;
 void CallableLibrary::load(luisa::span<const std::byte> binary) noexcept {
     _callables.clear();
+    if(binary.empty()) return;
     DeserPackage pack;
     auto ptr = binary.data();
     auto callable_size = deser_value<size_t>(ptr, pack);

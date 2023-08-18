@@ -12,6 +12,3 @@ class CallableLibrary:
     
     def save(self, path):
         self.callable_lib.serialize(path)
-
-    def load(self, path):
-        self.callable_lib.load(path)
