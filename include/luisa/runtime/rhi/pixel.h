@@ -235,8 +235,8 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
 
         case PixelStorage::BC4: return 1u;
         case PixelStorage::BC5: return 2u;
-        case PixelStorage::BC6: return 3u;
         case PixelStorage::BC1:
+        case PixelStorage::BC6: return 3u;
         case PixelStorage::BC2:
         case PixelStorage::BC3:
         case PixelStorage::BC7: return 4u;
