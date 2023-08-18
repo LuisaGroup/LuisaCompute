@@ -44,8 +44,6 @@ private:
     template<typename Fn>
     auto _with_builder(Fn &&fn) noexcept;
 
-    [[nodiscard]] ir::CBoxedSlice<ir::CallableModuleRef> _collect_callables(Function f) const noexcept;
-
 private:
     AST2IR() noexcept;
 

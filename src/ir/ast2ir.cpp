@@ -51,39 +51,6 @@ ir::Module AST2IR::_convert_body() noexcept {
                       .pools = _pools.clone()};
 }
 
-ir::CBoxedSlice<ir::CallableModuleRef>
-AST2IR::_collect_callables(luisa::compute::Function f) const noexcept {
-    auto reserved_size = static_cast<size_t>(0u);
-    reserved_size += f.custom_callables().size();
-    for (auto &&c : f.custom_callables()) {
-        reserved_size += c->custom_callables().size();
-    }
-    if (reserved_size == 0u) { return _boxed_slice<ir::CallableModuleRef>(0u); }
-    luisa::vector<ir::CallableModuleRef> callables;
-    callables.reserve(reserved_size);
-    auto converted = [this](auto c) noexcept {
-        auto iter = _converted_callables.find(c);
-        LUISA_ASSERT(iter != _converted_callables.end(),
-                     "Callable not found.");
-        return *iter->second;
-    };
-    for (auto &c : f.custom_callables()) {
-        auto cc = converted(c->function());
-        callables.emplace_back(ir::CallableModuleRef{cc});
-        for (auto i = 0u; i < cc->callables.len; i++) {
-            callables.emplace_back(cc->callables.ptr[i]);
-        }
-    }
-    auto cmp = [](auto a, auto b) noexcept {
-        return a._0.get() < b._0.get();
-    };
-    std::sort(callables.begin(), callables.end(), cmp);
-    callables.erase(std::unique(callables.begin(), callables.end(), cmp), callables.end());
-    auto result = _boxed_slice<ir::CallableModuleRef>(callables.size());
-    std::memcpy(result.ptr, callables.data(), callables.size() * sizeof(ir::CallableModuleRef));
-    return result;
-}
-
 luisa::shared_ptr<ir::CArc<ir::KernelModule>>
 AST2IR::_convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
@@ -167,7 +134,6 @@ AST2IR::_convert_kernel(Function function) noexcept {
         m.args = non_captures;
         m.shared = shared;
         m.cpu_custom_ops = _boxed_slice<ir::CArc<ir::CpuCustomOp>>(0);
-        m.callables = _collect_callables(_function);
         m.block_size[0] = _function.block_size().x;
         m.block_size[1] = _function.block_size().y;
         m.block_size[2] = _function.block_size().z;
@@ -208,7 +174,6 @@ AST2IR::_convert_callable(Function function) noexcept {
         m.ret_type = _convert_type(_function.return_type());
         m.args = arguments;
         m.captures = _boxed_slice<ir::Capture>(0);
-        m.callables = _collect_callables(_function);
         m.cpu_custom_ops = _boxed_slice<ir::CArc<ir::CpuCustomOp>>(0);
         m.pools = _pools.clone();
         return ir::luisa_compute_ir_new_callable_module(m);
@@ -460,16 +425,49 @@ ir::NodeRef AST2IR::_convert(const UnaryExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
+
     auto lhs_type = expr->lhs()->type();
     auto rhs_type = expr->rhs()->type();
-    auto is_matrix_scalar = (lhs_type->is_scalar() && rhs_type->is_matrix()) ||
-                            (lhs_type->is_matrix() && rhs_type->is_scalar());
+    auto prom = promote_types(expr->op(), lhs_type, rhs_type);
+    auto lhs = _cast(prom.lhs, lhs_type, _convert_expr(expr->lhs(), false));
+    auto rhs = _cast(prom.rhs, rhs_type, _convert_expr(expr->rhs(), false));
+
+    // scalar op matrix | matrix op scalar
+    auto scalar_to_matrix = [this, prom, is_div = expr->op() == BinaryOp::DIV](ir::NodeRef node) noexcept {
+        if (is_div) {
+            auto one = ir::luisa_compute_ir_build_const(
+                _current_builder(),
+                {.tag = ir::Const::Tag::One,
+                 .one = {_convert_type(Type::of<float>()).clone()}});
+            auto rcp_args = std::array{one, node};
+            node = ir::luisa_compute_ir_build_call(
+                _current_builder(),
+                {.tag = ir::Func::Tag::Div},
+                {.ptr = rcp_args.data(), .len = rcp_args.size()},
+                _convert_type(Type::of<float>()).clone());
+        }
+        return ir::luisa_compute_ir_build_call(
+            _current_builder(),
+            {.tag = ir::Func::Tag::Mat},
+            {.ptr = &node, .len = 1u},
+            _convert_type(prom.result).clone());
+    };
+    auto is_matrix_scalar = false;
+    if (lhs_type->is_scalar() && rhs_type->is_matrix()) {
+        LUISA_ASSERT(expr->op() != BinaryOp::DIV,
+                     "Scalar cannot be divided by matrix.");
+        is_matrix_scalar = true;
+        lhs = scalar_to_matrix(lhs);
+    } else if (lhs_type->is_matrix() && rhs_type->is_scalar()) {
+        is_matrix_scalar = true;
+        rhs = scalar_to_matrix(rhs);
+    }
     auto tag = [expr, is_matrix_scalar] {
         switch (expr->op()) {
             case BinaryOp::ADD: return ir::Func::Tag::Add;
             case BinaryOp::SUB: return ir::Func::Tag::Sub;
             case BinaryOp::MUL: return is_matrix_scalar ? ir::Func::Tag::MatCompMul : ir::Func::Tag::Mul;
-            case BinaryOp::DIV: return ir::Func::Tag::Div;
+            case BinaryOp::DIV: return is_matrix_scalar ? ir::Func::Tag::MatCompMul : ir::Func::Tag::Div;
             case BinaryOp::MOD: return ir::Func::Tag::Rem;
             case BinaryOp::BIT_AND: return ir::Func::Tag::BitAnd;
             case BinaryOp::BIT_OR: return ir::Func::Tag::BitOr;
@@ -489,11 +487,6 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
             "Unsupported binary operator: 0x{:02x}.",
             luisa::to_underlying(expr->op()));
     }();
-    auto lhs = _convert_expr(expr->lhs(), false);
-    auto rhs = _convert_expr(expr->rhs(), false);
-    auto prom = promote_types(expr->op(), lhs_type, rhs_type);
-    lhs = _cast(prom.lhs, lhs_type, lhs);
-    rhs = _cast(prom.rhs, rhs_type, rhs);
     LUISA_ASSERT(*expr->type() == *prom.result,
                  "Type mismatch: {} vs {}.",
                  expr->type()->description(),
@@ -1381,16 +1374,16 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
             _convert_type(type_dst).clone());
     }
     // scalar to matrix
-    if (type_dst->is_matrix() && type_src->is_scalar()) {
-        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT32,
-                     "Only float matrices are supported.");
-        auto elem = _cast(Type::of<float>(), type_src, node_src);
-        return ir::luisa_compute_ir_build_call(
-            builder,
-            {.tag = ir::Func::Tag::Mat},
-            {.ptr = &elem, .len = 1u},
-            _convert_type(type_dst).clone());
-    }
+    //    if (type_dst->is_matrix() && type_src->is_scalar()) {
+    //        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT32,
+    //                     "Only float matrices are supported.");
+    //        auto elem = _cast(Type::of<float>(), type_src, node_src);
+    //        return ir::luisa_compute_ir_build_call(
+    //            builder,
+    //            {.tag = ir::Func::Tag::Mat},
+    //            {.ptr = &elem, .len = 1u},
+    //            _convert_type(type_dst).clone());
+    //    }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type cast: {} -> {}.",
         type_src->description(), type_dst->description());

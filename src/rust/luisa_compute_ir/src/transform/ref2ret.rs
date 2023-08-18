@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::mem::replace;
-use std::ptr::null;
-use crate::{CArc, CBox, CBoxedSlice, Pooled};
+use crate::{CArc, CBoxedSlice, Pooled};
 use crate::context::register_type;
-use crate::ir::{BasicBlock, CallableModule, CallableModuleRef, Const, Func, Instruction, INVALID_REF, IrBuilder, KernelModule, Module, ModulePools, new_node, Node, NodeRef, StructType, Type};
+use crate::ir::{BasicBlock, CallableModule, CallableModuleRef, Const, duplicate_callable, Func, Instruction, INVALID_REF, IrBuilder, Module, ModulePools, new_node, Node, NodeRef, StructType, Type};
 use crate::transform::Transform;
 
 pub struct Ref2Ret;
@@ -51,20 +50,43 @@ impl Ref2RetImpl {
         let mut ret_types = Vec::new();
         let mut ref_args = Vec::new();
         let mut ref_arg_indices = Vec::new();
+        let mut new_args = Vec::new();
         // collect reference arguments
         for (i, node) in module.args.iter().enumerate() {
             match node.get().instruction.get_mut().unwrap() {
                 Instruction::Argument { by_value, .. } => {
                     if !*by_value {
-                        *by_value = true;
+                        let new_arg = Node::new(CArc::new(Instruction::Argument { by_value: true }),
+                                                node.get().type_.clone());
+                        let new_arg = new_node(&module.pools, new_arg);
+                        new_args.push(new_arg);
                         ref_args.push(node.clone());
                         ref_arg_indices.push(i);
                         ret_types.push(node.get().type_.clone());
+                    } else {
+                        new_args.push(node.clone());
                     }
                 }
-                _ => {}
+                _ => new_args.push(node.clone()),
             }
         }
+        // lower the reference arguments to local variables
+        {
+            let mut builder = IrBuilder::new(module.pools.clone());
+            builder.set_insert_point(module.module.entry.first);
+            for i in ref_arg_indices.iter() {
+                let old_arg = module.args[*i];
+                let new_arg = new_args[*i];
+                let new_var = Node::new(
+                    CArc::new(Instruction::Local { init: new_arg }),
+                    old_arg.get().type_.clone(),
+                );
+                old_arg.replace_with(&new_var);
+                builder.append(old_arg);
+            }
+            module.args = CBoxedSlice::new(new_args);
+        }
+
         // add the original return type if any
         if !module.ret_type.is_void() {
             ret_types.push(module.ret_type.clone());
@@ -86,7 +108,6 @@ impl Ref2RetImpl {
         }));
         // update the return type of the module
         module.ret_type = ret_struct.clone();
-
         Ref2RetCtx {
             pools: module.pools.clone(),
             ret_type: ret_struct,
@@ -99,25 +120,37 @@ impl Ref2RetImpl {
         if self.processed.contains_key(&module.as_ptr()) {
             return;
         }
-        if Self::is_transform_needed(module.as_ref()) {
-            let copy = module.clone();// FIXME: clone the module
+        let copy = duplicate_callable(&module);
+        if Self::is_transform_needed(copy.as_ref()) {
+            if copy.ret_type.is_void() {
+                let has_return = match copy.module.entry.last.get().prev.get().instruction.as_ref() {
+                    Instruction::Return(_) => true,
+                    _ => false,
+                };
+                if !has_return {
+                    let mut builder = IrBuilder::new(copy.pools.clone());
+                    builder.set_insert_point(copy.module.entry.last.get().prev.clone());
+                    builder.return_(INVALID_REF);
+                }
+            }
             let ctx = Self::prepare_context(copy.get_mut().unwrap());
-            let old_ctx = replace(&mut self.current, Some(ctx));
+            let old_ctx = self.current.replace(ctx);
             self.transform_block(&copy.module.entry);
-            let ctx = replace(&mut self.current, old_ctx).unwrap();
+            let ctx = self.current.take().unwrap();
+            self.current = old_ctx;
             self.processed.insert(module.as_ptr(), Ref2RetMetadata {
-                module: copy,
+                module: copy.clone(),
                 ref_arg_indices: Some(ctx.ref_arg_indices),
             });
         } else {
-            let old_ctx = replace(&mut self.current, None);
-            self.transform_block(&module.module.entry);
+            let old_ctx = self.current.take();
+            self.transform_block(&copy.module.entry);
             self.current = old_ctx;
             self.processed.insert(module.as_ptr(), Ref2RetMetadata {
-                module,
+                module: copy.clone(),
                 ref_arg_indices: None,
             });
-        }
+        };
     }
 
     fn transform_block(&mut self, bb: &Pooled<BasicBlock>) {
@@ -166,7 +199,9 @@ impl Ref2RetImpl {
                     self.transform_block(on_triangle_hit);
                     self.transform_block(on_procedural_hit);
                 }
-                Instruction::AdDetach(_) => {}
+                Instruction::AdDetach(body) => {
+                    self.transform_block(body)
+                }
                 Instruction::Comment(_) => {}
             }
         }
@@ -197,20 +232,18 @@ impl Ref2RetImpl {
                                 Type::Struct(s) => s,
                                 _ => unreachable!(),
                             };
-                            for i in ref_args.iter() {
-                                let type_ = ret_struct.fields.get(*i).unwrap().clone();
-                                let index = builder.const_(Const::Uint32(*i as u32));
-                                let value = builder.call(
-                                    Func::ExtractElement, &[packed.clone(), index], type_);
-                                builder.update(args[*i].clone(), value);
+                            for (ret_idx, arg_idx) in ref_args.iter().enumerate() {
+                                let type_ = ret_struct.fields.get(ret_idx).unwrap().clone();
+                                let value = builder.extract(packed.clone(), ret_idx, type_);
+                                builder.update(args[*arg_idx].clone(), value);
                             }
                             // update the original return value if any
                             if node.type_().is_void() {
-                                assert_eq!(ret_struct.size, ref_args.len());
+                                assert_eq!(ret_struct.fields.len(), ref_args.len());
                                 node.remove();// remove the original call node if no return
                             } else {
                                 // extract the old return value
-                                assert_eq!(ret_struct.size, ref_args.len() + 1);
+                                assert_eq!(ret_struct.fields.len(), ref_args.len() + 1);
                                 let index = builder.const_(Const::Uint32(ref_args.len() as u32));
                                 let type_ = ret_struct.fields.last().unwrap().clone();
                                 let args = CBoxedSlice::new(vec![packed.clone(), index]);

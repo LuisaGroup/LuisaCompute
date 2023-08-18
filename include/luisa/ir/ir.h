@@ -2245,7 +2245,6 @@ public:
     [[nodiscard]] const CArc<Type> &ret_type() const noexcept;
     [[nodiscard]] luisa::span<const NodeRef> args() const noexcept;
     [[nodiscard]] luisa::span<const Capture> captures() const noexcept;
-    [[nodiscard]] luisa::span<const CallableModuleRef> callables() const noexcept;
     [[nodiscard]] luisa::span<const CArc<CpuCustomOp>> cpu_custom_ops() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
 };
@@ -2593,7 +2592,6 @@ public:
     [[nodiscard]] luisa::span<const NodeRef> args() const noexcept;
     [[nodiscard]] luisa::span<const NodeRef> shared() const noexcept;
     [[nodiscard]] luisa::span<const CArc<CpuCustomOp>> cpu_custom_ops() const noexcept;
-    [[nodiscard]] luisa::span<const CallableModuleRef> callables() const noexcept;
     [[nodiscard]] const std::array<uint32_t, 3> &block_size() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
 };
