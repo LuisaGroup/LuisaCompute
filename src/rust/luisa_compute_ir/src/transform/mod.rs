@@ -1,5 +1,5 @@
 pub mod autodiff;
-pub mod lower_control_flow;
+pub mod canonicalize_control_flow;
 pub mod ssa;
 // pub mod validate;
 pub mod vectorize;
@@ -56,10 +56,10 @@ pub extern "C" fn luisa_compute_ir_transform_pipeline_add_transform(
             let transform = ssa::ToSSA;
             unsafe { (*pipeline).add_transform(Box::new(transform)) };
         }
-        // "lower_control_flow"=>{
-        //     let transform = lower_control_flow::LowerControlFlow::new();
-        //     unsafe { (*pipeline).add_transform(Box::new(transform)) };
-        // }
+        "canonicalize_control_flow"=>{
+            let transform = canonicalize_control_flow::CanonicalizeControlFlow;
+            unsafe { (*pipeline).add_transform(Box::new(transform)) };
+        }
         // "vectorize"=>{
         //     let transform = vectorize::Vectorize::new();
         //     unsafe { (*pipeline).add_transform(Box::new(transform)) };

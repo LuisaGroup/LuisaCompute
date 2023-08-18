@@ -164,11 +164,19 @@ impl Reg2MemImpl {
             let node = node_ref.get();
             match node.instruction.as_ref() {
                 Instruction::Local { init } => {
-                    // backup the current insert point
-                    let decl_point = builder.insert_point.clone();
-                    // construct an assignment
-                    builder.set_insert_point(node_ref.clone());
-                    builder.update_unchecked(node_ref.clone(), init.clone());
+                    let is_zero_init = match init.get().instruction.as_ref() {
+                        Instruction::Const(Const::Zero(_)) => true,
+                        _ => false,
+                    };
+                    if !is_zero_init {
+                        // backup the current insert point
+                        let decl_point = builder.insert_point.clone();
+                        // construct an assignment
+                        builder.set_insert_point(node_ref.clone());
+                        builder.update_unchecked(node_ref.clone(), init.clone());
+                        // restore the insert point
+                        builder.set_insert_point(decl_point);
+                    }
                     // replace with a zero-initialized local variable
                     let zero = new_node(
                         &pools,
@@ -180,9 +188,10 @@ impl Reg2MemImpl {
                         node.type_.clone());
                     node_ref.replace_with(&local);
                     // move to the beginning of the function
-                    node_ref.remove();
-                    builder.set_insert_point(decl_point);
-                    builder.append(node_ref.clone());
+                    if builder.insert_point != node_ref.clone() {
+                        node_ref.remove();
+                        builder.append(node_ref.clone());
+                    }
                 }
                 _ => unreachable!(),
             }
@@ -192,12 +201,15 @@ impl Reg2MemImpl {
             let node = node_ref.get();
             match node.instruction.as_ref() {
                 Instruction::Phi(incomings) => {
-                    // insert the store instructions to the end of each incoming block
+                    // backup the current insert point
                     let decl_point = builder.insert_point.clone();
+                    // insert the store instructions to the end of each incoming block
                     for incoming in incomings.iter() {
                         builder.set_insert_point(incoming.block.get().last.get().prev);
                         builder.update_unchecked(node_ref.clone(), incoming.value.clone());
                     }
+                    // restore the insert point
+                    builder.set_insert_point(decl_point);
                     // convert the phi-node to a local variable
                     let zero = new_node(
                         &pools,
@@ -209,9 +221,10 @@ impl Reg2MemImpl {
                         node.type_.clone());
                     node_ref.replace_with(&local);
                     // move to the beginning of the function
-                    node_ref.remove();
-                    builder.set_insert_point(decl_point);
-                    builder.append(node_ref.clone());
+                    if builder.insert_point != node_ref.clone() {
+                        node_ref.remove();
+                        builder.append(node_ref.clone());
+                    }
                 }
                 _ => unreachable!(),
             }
