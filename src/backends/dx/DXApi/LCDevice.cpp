@@ -133,6 +133,9 @@ ResourceCreationInfo LCDevice::create_texture(
     uint mipmap_levels, bool simultaneous_access) noexcept {
     bool allowUAV = true;
     switch (format) {
+        case PixelFormat::BC1UNorm:
+        case PixelFormat::BC2UNorm:
+        case PixelFormat::BC3UNorm:
         case PixelFormat::BC4UNorm:
         case PixelFormat::BC5UNorm:
         case PixelFormat::BC6HUF16:
@@ -619,6 +622,9 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
     uint mipmap_levels, bool simultaneous_access) noexcept {
     bool allowUAV = true;
     switch (format) {
+        case PixelFormat::BC1UNorm:
+        case PixelFormat::BC2UNorm:
+        case PixelFormat::BC3UNorm:
         case PixelFormat::BC4UNorm:
         case PixelFormat::BC5UNorm:
         case PixelFormat::BC6HUF16:
