@@ -299,7 +299,11 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
         case Type::Tag::BUFFER:
             _scratch << "LCBuffer<";
             if (usage == Usage::NONE || usage == Usage::READ) { _scratch << "const "; }
-            _emit_type_name(type->element());
+            if (auto elem = type->element()) {
+                _emit_type_name(type->element());
+            } else {
+                _scratch << "lc_byte";
+            }
             _scratch << ">";
             break;
         case Type::Tag::TEXTURE: {
@@ -355,7 +359,7 @@ void MetalCodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ds"; break;
         case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
-        default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        default: LUISA_NOT_IMPLEMENTED();
     }
 }
 
@@ -915,6 +919,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "buffer_size"; break;
+        case CallOp::BYTE_BUFFER_READ: _scratch << "byte_buffer_read"; break;
+        case CallOp::BYTE_BUFFER_WRITE: _scratch << "byte_buffer_write"; break;
+        case CallOp::BYTE_BUFFER_SIZE: _scratch << "byte_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SIZE: _scratch << "texture_size"; break;
@@ -1021,19 +1028,40 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
         case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
         case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
-        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BACKWARD: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DETACH: {
             _scratch << "static_cast<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::RASTER_DISCARD: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_dispatch_clear"; break;
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_emplace"; break;
-        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
+
+        case CallOp::WARP_LANE_COUNT: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_LANE_INDEX: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_BIT_OR: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_BIT_XOR: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_COUNT_BITS: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_MAX: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_MIN: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_PRODUCT: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_SUM: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_ALL: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_ANY: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_ACTIVE_BIT_MASK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_READ_FIRST_LANE: LUISA_NOT_IMPLEMENTED();
 
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }

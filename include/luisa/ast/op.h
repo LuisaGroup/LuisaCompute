@@ -89,7 +89,7 @@ enum struct CallOp : uint32_t {
     LERP,    // (vecN, vecN, vecN)
 
     SMOOTHSTEP,// (vecN, vecN, vecN)
-    STEP,       // (x, y): (x >= y) ? 1 : 0
+    STEP,      // (x, y): (x >= y) ? 1 : 0
 
     ABS,// (vecN)
     MIN,// (vecN)
@@ -169,13 +169,13 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
-    BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    BUFFER_SIZE,  /// [(buffer) -> size]
+    BUFFER_READ, /// [(buffer, index) -> value]: reads the index-th element in buffer
+    BUFFER_WRITE,/// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    BUFFER_SIZE, /// [(buffer) -> size]
 
-    BYTE_BUFFER_READ,  /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
-    BYTE_BUFFER_WRITE, /// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
-    BYTE_BUFFER_SIZE,  /// [(buffer) -> size_bytes]
+    BYTE_BUFFER_READ, /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
+    BYTE_BUFFER_WRITE,/// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
+    BYTE_BUFFER_SIZE, /// [(buffer) -> size_bytes]
 
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
@@ -252,8 +252,8 @@ enum struct CallOp : uint32_t {
     ONE,
 
     // Pack/unpack to array<uint, ceil(sizeof(T)/4))
-    PACK,   // (T) -> array<uint, ceil(sizeof(T)/4))
-    UNPACK, // (array<uint, ceil(sizeof(T)/4)) -> T
+    PACK,  // (T) -> array<uint, ceil(sizeof(T)/4))
+    UNPACK,// (array<uint, ceil(sizeof(T)/4)) -> T
 
     // autodiff ops
     REQUIRES_GRADIENT,  // (expr) -> void
@@ -289,37 +289,36 @@ enum struct CallOp : uint32_t {
     // partial derivative
     DDX,// (arg: float vector): float vector
     DDY,// (arg: float vector): float vector
-    
-    // Wave:
-    WARP_LANE_COUNT, // (): uint
-    WARP_LANE_INDEX, // (): uint
-    WARP_IS_FIRST_ACTIVE_LANE, // (): bool
-    WARP_ACTIVE_ALL_EQUAL, // (scalar/vector): boolN
-    WARP_ACTIVE_BIT_AND, // (intN): intN
-    WARP_ACTIVE_BIT_OR, // (intN): intN
-    WARP_ACTIVE_BIT_XOR, // (intN): intN
-    WARP_ACTIVE_COUNT_BITS, // (bool): uint
-    WARP_ACTIVE_MAX, // (type: scalar/vector/matrix): type
-    WARP_ACTIVE_MIN, // (type: scalar/vector/matrix): type
-    WARP_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
-    WARP_ACTIVE_SUM, // (type: scalar/vector/matrix): type
-    WARP_ACTIVE_ALL, // (bool): bool
-    WARP_ACTIVE_ANY, // (bool): bool
-    WARP_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
-    WARP_PREFIX_COUNT_BITS, // (bool): uint (count bits before this lane)
-    WARP_PREFIX_SUM, // (bool): uint (count bits before this lane)
-    WARP_PREFIX_PRODUCT, // (bool): uint (count bits before this lane)
-    WARP_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
-    WARP_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)
 
+    // Wave:
+    WARP_LANE_COUNT,          // (): uint
+    WARP_LANE_INDEX,          // (): uint
+    WARP_IS_FIRST_ACTIVE_LANE,// (): bool
+    WARP_ACTIVE_ALL_EQUAL,    // (scalar/vector): boolN
+    WARP_ACTIVE_BIT_AND,      // (intN): intN
+    WARP_ACTIVE_BIT_OR,       // (intN): intN
+    WARP_ACTIVE_BIT_XOR,      // (intN): intN
+    WARP_ACTIVE_COUNT_BITS,   // (bool): uint
+    WARP_ACTIVE_MAX,          // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_MIN,          // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_PRODUCT,      // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_SUM,          // (type: scalar/vector/matrix): type
+    WARP_ACTIVE_ALL,          // (bool): bool
+    WARP_ACTIVE_ANY,          // (bool): bool
+    WARP_ACTIVE_BIT_MASK,     // (bool): uint4 (uint4 contained 128-bit)
+    WARP_PREFIX_COUNT_BITS,   // (bool): uint (count bits before this lane)
+    WARP_PREFIX_SUM,          // (bool): uint (sum lanes before this lane)
+    WARP_PREFIX_PRODUCT,      // (bool): uint (multiply lanes before this lane)
+    WARP_READ_LANE_AT,        // (type, index: uint): type (read this variable's value at this lane)
+    WARP_READ_FIRST_LANE,     // (type, index: uint): type (read this variable's value at the first lane)
 
     // indirect
     INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void
-    INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+    INDIRECT_SET_DISPATCH_KERNEL,    // (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_EMPLACE_DISPATCH_KERNEL,// (Buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id)
 
     // SER
-    SHADER_EXECUTION_REORDER, // (uint hint, uint hint_bits): void
+    SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
 };
 
 static constexpr size_t call_op_count = to_underlying(CallOp::SHADER_EXECUTION_REORDER) + 1u;

@@ -63,6 +63,8 @@ template<typename... T>
         float4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
+using lc_byte = uchar;
+
 template<typename T>
 struct LCBuffer {
     device T *data;
@@ -90,6 +92,20 @@ inline void buffer_write(LCBuffer<T> buffer, I index, T value) {
 
 template<typename T>
 inline auto buffer_size(LCBuffer<T> buffer) {
+    return buffer.size / sizeof(T);
+}
+
+template<typename T>
+[[nodiscard]] auto byte_buffer_read(LCBuffer<const lc_byte> buffer, ulong index) {
+    return *reinterpret_cast<device const T *>(buffer.data + index);
+}
+
+template<typename T>
+inline void byte_buffer_write(LCBuffer<lc_byte> buffer, ulong index, T value) {
+    *reinterpret_cast<device T *>(buffer.data + index) = value;
+}
+
+inline ulong byte_buffer_size(LCBuffer<const lc_byte> buffer) {
     return buffer.size;
 }
 
