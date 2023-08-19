@@ -1,13 +1,18 @@
 #pragma once
+
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/function_builder.h>
+
 namespace luisa::compute {
+
 template<typename T>
 class Callable;
+
 class LC_AST_API CallableLibrary {
+
 private:
     struct DeserPackage {
         detail::FunctionBuilder *builder;
@@ -23,6 +28,7 @@ private:
     static T deser_value(std::byte const *&ptr, DeserPackage &pack) noexcept;
     template<typename T>
     static void deser_ptr(T obj, std::byte const *&ptr, DeserPackage &pack) noexcept;
+
 public:
     template<typename T>
     Callable<T> get_callable(luisa::string_view name) const noexcept;
@@ -35,4 +41,5 @@ public:
     CallableLibrary(CallableLibrary &&) noexcept;
     ~CallableLibrary() noexcept;
 };
-};// namespace luisa::compute
+
+}// namespace luisa::compute

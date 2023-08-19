@@ -31,7 +31,8 @@ namespace luisa::compute::detail {
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
-    friend class CallableLibrary;
+
+    friend class luisa::compute::CallableLibrary;
     friend class lc::validation::Device;
 
 public:
