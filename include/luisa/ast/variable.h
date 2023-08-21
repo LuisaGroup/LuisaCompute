@@ -53,7 +53,7 @@ private:
     friend class detail::SSABuilder;
     friend class CallableLibrary;
     Variable(const Type *type, Tag tag, uint32_t uid) noexcept
-        : _type{type}, _uid{uid}, _tag{tag}{}
+        : _type{type}, _uid{uid}, _tag{tag} {}
 
 public:
     Variable() noexcept = default;
@@ -77,6 +77,8 @@ public:
                _tag == Tag::DISPATCH_ID ||
                _tag == Tag::DISPATCH_SIZE ||
                _tag == Tag::KERNEL_ID ||
+               _tag == Tag::WARP_LANE_COUNT ||
+               _tag == Tag::WARP_LANE_ID ||
                _tag == Tag::OBJECT_ID;
     }
 };
