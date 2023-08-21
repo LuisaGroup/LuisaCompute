@@ -206,7 +206,7 @@ public:
 
     [[nodiscard]] SparseBufferHeap allocate_sparse_buffer_heap(size_t byte_size) noexcept;
 
-    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size) noexcept;
+    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept;
 
     [[nodiscard]] ByteBuffer create_byte_buffer(size_t byte_size) noexcept;
 

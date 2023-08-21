@@ -144,7 +144,7 @@ public:
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture
-    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept { return ResourceCreationInfo::make_invalid(); }
+    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept { return ResourceCreationInfo::make_invalid(); }
     virtual void deallocate_sparse_texture_heap(uint64_t handle) noexcept {}
     [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,

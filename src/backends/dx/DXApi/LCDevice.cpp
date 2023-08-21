@@ -721,9 +721,9 @@ void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
 }
-ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) noexcept {
+ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, true);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, !is_compressed_type);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);
