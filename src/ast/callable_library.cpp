@@ -712,7 +712,7 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     using namespace std::string_view_literals;
     LUISA_ASSERT(builder.tag() == Function::Tag::CALLABLE, "Only callable can be serialized.");
     for (auto &&i : builder._bound_arguments) {
-        LUISA_ASSERT(!luisa::holds_alternative<luisa::monostate>(i),
+        LUISA_ASSERT(luisa::holds_alternative<luisa::monostate>(i),
                      "Callable cannot contain bound-argument.");
     }
     LUISA_ASSERT(builder._used_external_functions.empty(), "Callable cannot contain external-function.");
