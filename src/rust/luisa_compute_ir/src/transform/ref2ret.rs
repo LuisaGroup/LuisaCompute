@@ -1,6 +1,14 @@
+/*
+ * This file implements the Ref2Ret transform, which transforms reference arguments to return values.
+ * This is done in the following steps:
+ *   1. Add a return node to the entry block if it does not have one.
+ *   2. Transform the return type into a struct that contains the reference arguments (and the original return value if present).
+ *   3. Transform the reference arguments into local variables for each callable function.
+ *   4. Transform the call nodes to pass the reference arguments by value and copy the return value to the reference arguments.
+ */
+
 use std::cmp::max;
 use std::collections::HashMap;
-use std::mem::replace;
 use crate::{CArc, CBoxedSlice, Pooled};
 use crate::context::register_type;
 use crate::ir::{BasicBlock, CallableModule, CallableModuleRef, Const, duplicate_callable, Func, Instruction, INVALID_REF, IrBuilder, Module, ModulePools, new_node, Node, NodeRef, StructType, Type};
