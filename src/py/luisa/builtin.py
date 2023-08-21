@@ -199,7 +199,7 @@ builtin_func_names = {
     'set_block_size',
     'sync_block',
     'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
-    'kernel_id', 'object_id',
+    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id'
     'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
     'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
     'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
@@ -400,7 +400,7 @@ def _custom_xx_id(name, *args):
     return dtype, expr
 
 
-for _func in 'kernel_id', 'object_id':
+for _func in 'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id':
     _func_map[_func] = _custom_xx_id
 
 
@@ -784,16 +784,6 @@ def callable_call(func, *args):
     else:
         dtype = f.return_type
         return dtype, lcapi.builder().call(to_lctype(dtype), f.function, exprs)
-
-@BuiltinFuncBuilder
-def warp_lane_count():
-    op = lcapi.CallOp.WARP_LANE_COUNT
-    return uint, lcapi.builder().call(to_lctype(uint), op, [])
-
-@BuiltinFuncBuilder
-def warp_lane_index():
-    op = lcapi.CallOp.WARP_LANE_INDEX
-    return uint, lcapi.builder().call(to_lctype(uint), op, [])
 
 @BuiltinFuncBuilder
 def warp_is_first_active_lane():

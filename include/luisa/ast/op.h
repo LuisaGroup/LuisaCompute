@@ -291,8 +291,6 @@ enum struct CallOp : uint32_t {
     DDY,// (arg: float vector): float vector
     
     // Wave:
-    WARP_LANE_COUNT, // (): uint
-    WARP_LANE_INDEX, // (): uint
     WARP_IS_FIRST_ACTIVE_LANE, // (): bool
     WARP_ACTIVE_ALL_EQUAL, // (scalar/vector): boolN
     WARP_ACTIVE_BIT_AND, // (intN): intN

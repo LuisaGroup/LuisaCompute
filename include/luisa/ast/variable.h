@@ -38,6 +38,8 @@ public:
         DISPATCH_ID,
         DISPATCH_SIZE,
         KERNEL_ID,
+        WARP_LANE_COUNT,
+        WARP_LANE_ID,
         OBJECT_ID
     };
 

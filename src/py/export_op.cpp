@@ -228,9 +228,7 @@ void export_op(py::module &m) {
         .value("REDUCE_MAX", CallOp::REDUCE_MAX)
         .value("OUTER_PRODUCT", CallOp::OUTER_PRODUCT)
         .value("MATRIX_COMPONENT_WISE_MULTIPLICATION", CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION)
-        
-        .value("WARP_LANE_COUNT", CallOp::WARP_LANE_COUNT)
-        .value("WARP_LANE_INDEX", CallOp::WARP_LANE_INDEX)
+    
         .value("WARP_IS_FIRST_ACTIVE_LANE", CallOp::WARP_IS_FIRST_ACTIVE_LANE)
         .value("WARP_ACTIVE_ALL_EQUAL", CallOp::WARP_ACTIVE_ALL_EQUAL)
         .value("WARP_ACTIVE_BIT_AND", CallOp::WARP_ACTIVE_BIT_AND)

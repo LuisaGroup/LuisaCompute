@@ -181,6 +181,12 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             LUISA_ASSERT(opt->isRaster, "object id only allowed in raster shader");
             str << "obj_id"sv;
             break;
+        case Variable::Tag::WARP_LANE_COUNT:
+            str << "WaveGetLaneCount()"sv;
+            break;
+        case Variable::Tag::WARP_LANE_ID:
+            str << "WaveGetLaneIndex()"sv;
+            break;
         case Variable::Tag::LOCAL:
             switch (opt->funcType) {
                 case CodegenStackData::FuncType::Kernel:
@@ -1123,12 +1129,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: str << "_mat_comp_mul"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_LANE_COUNT:
-            str << "WaveGetLaneCount"sv;
-            break;
-        case CallOp::WARP_LANE_INDEX:
-            str << "WaveGetLaneIndex"sv;
-            break;
         case CallOp::WARP_IS_FIRST_ACTIVE_LANE:
             str << "WaveIsFirstLane"sv;
             break;

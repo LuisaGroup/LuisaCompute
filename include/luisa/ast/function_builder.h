@@ -251,6 +251,10 @@ public:
     [[nodiscard]] const RefExpr *kernel_id() noexcept;
     /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *object_id() noexcept;
+    /// Return warp lane count
+    [[nodiscard]] const RefExpr *warp_lane_count() noexcept;
+    /// Return warp lane count
+    [[nodiscard]] const RefExpr *warp_lane_id() noexcept;
 
     // variables
     /// Add local variable of type

@@ -971,9 +971,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             LUISA_NOT_IMPLEMENTED();
             break;
 
-            // warp intrinsics
-        case CallOp::WARP_LANE_COUNT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_LANE_INDEX: LUISA_NOT_IMPLEMENTED(); break;
+        // warp intrinsics
         case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED(); break;

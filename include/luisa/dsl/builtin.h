@@ -103,6 +103,12 @@ inline void unreachable() noexcept {
 [[nodiscard]] inline auto kernel_id() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->kernel_id());
 }
+[[nodiscard]] inline auto warp_lane_count() noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->warp_lane_count());
+}
+[[nodiscard]] inline auto warp_lane_id() noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->warp_lane_id());
+}
 /// Get dispatch_id.x
 [[nodiscard]] inline auto dispatch_x() noexcept {
     return dispatch_id().x;
@@ -1710,19 +1716,6 @@ template<typename T>
 inline void sync_block() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::SYNCHRONIZE_BLOCK, {});
-}
-
-[[nodiscard]] inline auto warp_lane_count() noexcept {
-    return def<uint>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<uint>(), CallOp::WARP_LANE_COUNT,
-            {}));
-}
-[[nodiscard]] inline auto warp_lane_index() noexcept {
-    return def<uint>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<uint>(), CallOp::WARP_LANE_INDEX,
-            {}));
 }
 
 [[nodiscard]] inline auto warp_is_first_active_lane() noexcept {
