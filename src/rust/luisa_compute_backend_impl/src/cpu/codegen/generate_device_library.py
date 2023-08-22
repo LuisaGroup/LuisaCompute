@@ -529,7 +529,7 @@ struct lc_float{i}x{i} {{
 
         # ctz
         print(
-            f"[[nodiscard]] inline auto lc_ctz_impl(lc_uint x) noexcept {{ return 32u - __clz(x); }}",
+            f"[[nodiscard]] inline auto lc_ctz_impl(lc_uint x) noexcept {{ return __ctz(x); }}",
             file=file)
         generate_vector_call("ctz", "lc_ctz_impl", "u", ["x"])
 

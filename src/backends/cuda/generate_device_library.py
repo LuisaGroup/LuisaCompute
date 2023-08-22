@@ -441,7 +441,7 @@ __device__ inline constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float
 
         # ctz
         print(
-            f"[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_uint x) noexcept {{ return 32u - __clz(x); }}",
+            f"[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_uint x) noexcept {{ return (__ffs(x) - 1u) % 32u; }}",
             file=file)
         generate_vector_call("ctz", "lc_ctz_impl", "u", ["x"])
 
@@ -683,6 +683,14 @@ template<>
 template<>
 [[nodiscard]] __device__ inline constexpr auto lc_one<lc_ulong>() noexcept{
     return lc_ulong(1);
+}
+template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_short>() noexcept{
+    return lc_short(1);
+}
+template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ushort>() noexcept{
+    return lc_ushort(1);
 }
 template<>
 [[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {

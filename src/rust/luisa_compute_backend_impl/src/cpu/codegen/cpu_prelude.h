@@ -5,14 +5,26 @@ inline float exp10f(float x) { return powf(10.0f, x); }
 inline int __clz (unsigned int x) {
     return __builtin_clz(x);
 }
+inline int __ctz (unsigned int x) {
+    return __builtin_ctz(x);
+}
+inline int __clz (unsigned long long x) {
+    return __builtin_clzll(x);
+}
+inline int __ctz (unsigned long long x) {
+    return __builtin_ctzll(x);
+}
+inline int __ffs(unsigned int x) {
+    return __builtin_ffs(x);
+}
+inline int __ffs(unsigned long long x) {
+    return __builtin_ffsll(x);
+}
 inline int __popc(unsigned int x) {
     return __builtin_popcount(x);
 }
 inline int __brev(unsigned int x) {
     return __builtin_bswap32(x);
-}
-inline int __clz (unsigned long long x) {
-    return __builtin_clzll(x);
 }
 inline int __popc(unsigned long long x) {
     return __builtin_popcountll(x);
