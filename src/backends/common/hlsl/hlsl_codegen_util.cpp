@@ -1177,10 +1177,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::WARP_ACTIVE_BIT_MASK:
             str << "WaveActiveBallot"sv;
             break;
-        case CallOp::WARP_READ_LANE_AT:
+        case CallOp::WARP_READ_LANE:
             str << "WaveReadLaneAt"sv;
             break;
-        case CallOp::WARP_READ_FIRST_LANE:
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE:
             str << "WaveReadLaneFirst"sv;
             break;
         case CallOp::BACKWARD:

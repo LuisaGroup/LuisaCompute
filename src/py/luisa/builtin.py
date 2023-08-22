@@ -877,13 +877,13 @@ def warp_prefix_sum(value):
     op = lcapi.CallOp.WARP_PREFIX_SUM
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
 @BuiltinFuncBuilder
-def warp_read_lane_at(value, index):
+def warp_read_lane(value, index):
     assert value.dtype in basic_dtypes and index.dtype in {int, uint, short, ushort, long, ulong}
-    op = lcapi.CallOp.WARP_READ_LANE_AT
+    op = lcapi.CallOp.WARP_READ_LANE
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr, index.expr])
 
 @BuiltinFuncBuilder
 def warp_read_first_lane(value):
     assert value.dtype in basic_dtypes
-    op = lcapi.CallOp.WARP_READ_FIRST_LANE
+    op = lcapi.CallOp.WARP_READ_FIRST_ACTIVE_LANE
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])

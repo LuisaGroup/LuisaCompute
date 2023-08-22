@@ -1060,8 +1060,8 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_READ_FIRST_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_READ_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
 
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
