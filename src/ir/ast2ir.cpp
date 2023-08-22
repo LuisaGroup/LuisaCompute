@@ -794,15 +794,16 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::DDY: LUISA_NOT_IMPLEMENTED();
             case CallOp::CUSTOM: [[fallthrough]];
             case CallOp::ONE: [[fallthrough]];
-            case CallOp::SHADER_EXECUTION_REORDER:return ir::Func::Tag::ShaderExecutionReorder;
+            case CallOp::SHADER_EXECUTION_REORDER: return ir::Func::Tag::ShaderExecutionReorder;
             case CallOp::INDIRECT_SET_DISPATCH_KERNEL: [[fallthrough]];
             case CallOp::ZERO: LUISA_ERROR_WITH_LOCATION(
                 "Unexpected CallOp: {}.",
                 luisa::to_string(expr->op()));
         }
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid CallOp: {}. {}",
-            luisa::to_string(expr->op()),(int)expr->op());
+            "Invalid CallOp: {} (underlying = {}).",
+            luisa::to_string(expr->op()),
+            luisa::to_underlying(expr->op()));
     }();
     //    LUISA_VERBOSE("CallOp is {}, arg num is {}", luisa::to_underlying(expr->op()), expr->arguments().size());
     luisa::vector<ir::NodeRef> args;

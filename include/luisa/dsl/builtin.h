@@ -1820,7 +1820,8 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>) &&
+            (!is_bool_or_vector_expr_v<X>)
 [[nodiscard]] inline auto warp_active_min(X &&value) {
     using T = expr_value_t<X>;
     return def<T>(
@@ -1830,7 +1831,8 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>) &&
+            (!is_bool_or_vector_expr_v<X>)
 [[nodiscard]] inline auto warp_active_max(X &&value) {
     using T = expr_value_t<X>;
     return def<T>(
@@ -1840,7 +1842,8 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>) &&
+            (!is_bool_or_vector_expr_v<X>)
 [[nodiscard]] inline auto warp_active_product(X &&value) {
     using T = expr_value_t<X>;
     return def<T>(
@@ -1850,7 +1853,8 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>) &&
+            (!is_bool_or_vector_expr_v<X>)
 [[nodiscard]] inline auto warp_active_sum(X &&value) {
     using T = expr_value_t<X>;
     return def<T>(
@@ -1860,7 +1864,8 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>) &&
+            (!is_bool_or_vector_expr_v<X>)
 [[nodiscard]] inline auto warp_prefix_product(X &&value) {
     using T = expr_value_t<X>;
     return def<T>(
@@ -1870,7 +1875,8 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>) &&
+            (!is_bool_or_vector_expr_v<X>)
 [[nodiscard]] inline auto warp_prefix_sum(X &&value) {
     using T = expr_value_t<X>;
     return def<T>(

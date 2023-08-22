@@ -67,8 +67,7 @@ public:
 
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
-    [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
-    [[nodiscard]] virtual uint compute_warp_size() const noexcept { return 0; }
+    [[nodiscard]] virtual uint compute_warp_size() const noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
