@@ -1851,7 +1851,10 @@ void CodegenUtility::CodegenProperties(
             default: break;
         }
     }
-    if (uavArgCount > 64) {
+    if (uavArgCount > 64) [[unlikely]] {
+        LUISA_WARNING("Writable resources' count greater than 8 may cause crash.");
+    }
+    else if (uavArgCount > 64) [[unlikely]] {
         LUISA_ERROR("Writable resources' count must be less than 64.");
     }
 }

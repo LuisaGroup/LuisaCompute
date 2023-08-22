@@ -199,7 +199,7 @@ builtin_func_names = {
     'set_block_size',
     'sync_block',
     'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
-    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id'
+    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id',
     'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
     'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
     'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
