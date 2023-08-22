@@ -2478,9 +2478,12 @@ template<typename T>
 template<typename T, typename F>
 [[nodiscard]] __device__ inline auto lc_warp_active_reduce_impl(T x, F f) noexcept {
     auto mask = LC_WARP_ACTIVE_MASK;
-    for (auto i = 16u; i > 0u; i /= 2u) {
-        x = f(x, __shfl_xor_sync(mask, x, i, 32u));
-    }
+    auto lane = lc_warp_lane_id();
+    if (auto y = __shfl_xor_sync(mask, x, 0x10u); mask & (1u << (lane ^ 0x10u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x08u); mask & (1u << (lane ^ 0x08u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x04u); mask & (1u << (lane ^ 0x04u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x02u); mask & (1u << (lane ^ 0x02u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x01u); mask & (1u << (lane ^ 0x01u))) { x = f(x, y); }
     return x;
 }
 template<typename T>
