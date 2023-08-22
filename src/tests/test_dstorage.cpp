@@ -24,9 +24,11 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1]);
     auto dstorage_ext = device.extension<DStorageExt>();
-
-    Stream dstorage_memory_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource});
-    Stream dstorage_file_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource});
+    static constexpr uint32_t width = 4096;
+    static constexpr uint32_t height = 4096;
+    static constexpr size_t maximum_staging_buffer = width * height * 4u;
+    Stream dstorage_memory_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource, maximum_staging_buffer});
+    Stream dstorage_file_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource, maximum_staging_buffer});
     Stream compute_stream = device.create_stream();
     TimelineEvent event = device.create_timeline_event();
     LUISA_INFO("Start test memory and buffer read.");
@@ -73,8 +75,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Buffer result: {}", buffer_data.data());
     }
     LUISA_INFO("Start test texture read.");
-    static constexpr uint32_t width = 512;
-    static constexpr uint32_t height = 512;
+
     luisa::vector<uint8_t> pixels(width * height * 4);
     for (size_t x = 0; x < width; ++x)
         for (size_t y = 0; y < height; ++y) {
