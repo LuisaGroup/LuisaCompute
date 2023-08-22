@@ -1851,8 +1851,8 @@ void CodegenUtility::CodegenProperties(
             default: break;
         }
     }
-    if (uavArgCount > 8) {
-        LUISA_ERROR("Writable resources' count must be less than 8.");
+    if (uavArgCount > 64) {
+        LUISA_ERROR("Writable resources' count must be less than 64.");
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
