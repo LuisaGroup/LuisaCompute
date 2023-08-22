@@ -2438,7 +2438,6 @@ template<typename T>
     return lc_warp_read_lane(x, lc_warp_first_active_lane());
 }
 
-// TODO: warp reduce active: min/max/sum/product
 [[nodiscard]] __device__ inline auto lc_warp_active_min(lc_uint x) noexcept {
     return __reduce_min_sync(LC_WARP_ACTIVE_MASK, x);
 }
@@ -2586,7 +2585,6 @@ LC_WARP_ACTIVE_REDUCE(float)
 #undef LC_WARP_ACTIVE_REDUCE_VECTOR4
 #undef LC_WARP_ACTIVE_REDUCE
 
-// TODO: prefix reduction
 [[nodiscard]] __device__ inline auto lc_warp_prev_active_lane() noexcept {
     auto mask = 0u;
     asm("mov.u32 %0, %lanemask_lt;"
