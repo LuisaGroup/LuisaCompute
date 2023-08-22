@@ -444,6 +444,7 @@ struct Func {
         Mat4,
         Callable,
         CpuCustomOp,
+        ShaderExecutionReorder,
         Unknown0,
         Unknown1,
     };

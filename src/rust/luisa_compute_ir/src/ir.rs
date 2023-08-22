@@ -796,6 +796,8 @@ pub enum Func {
     // ArgT -> ArgT
     CpuCustomOp(CArc<CpuCustomOp>),
 
+    ShaderExecutionReorder, // (uint hint, uint hint_bits): void
+
     Unknown0,
     Unknown1,
 }
