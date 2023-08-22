@@ -245,6 +245,6 @@ void export_op(py::module &m) {
         .value("WARP_PREFIX_COUNT_BITS", CallOp::WARP_PREFIX_COUNT_BITS)
         .value("WARP_PREFIX_SUM", CallOp::WARP_PREFIX_SUM)
         .value("WARP_PREFIX_PRODUCT", CallOp::WARP_PREFIX_PRODUCT)
-        .value("WARP_READ_LANE_AT", CallOp::WARP_READ_LANE_AT)
-        .value("WARP_READ_FIRST_LANE", CallOp::WARP_READ_FIRST_LANE);
+        .value("WARP_READ_LANE", CallOp::WARP_READ_LANE)
+        .value("WARP_READ_FIRST_ACTIVE_LANE", CallOp::WARP_READ_FIRST_ACTIVE_LANE);
 }

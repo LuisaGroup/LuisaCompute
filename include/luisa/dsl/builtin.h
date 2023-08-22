@@ -1718,6 +1718,7 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
+// warp intrinsics
 [[nodiscard]] inline auto warp_is_first_active_lane() noexcept {
     return def<bool>(
         detail::FunctionBuilder::current()->call(
@@ -1725,10 +1726,17 @@ inline void sync_block() noexcept {
             {}));
 }
 
+[[nodiscard]] inline auto warp_first_active_lane() noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::WARP_FIRST_ACTIVE_LANE,
+            {}));
+}
+
 template<typename X>
     requires is_scalar_expr_v<X> || is_vector_expr_v<X>
-[[nodiscard]] inline auto warp_active_all_equal(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+[[nodiscard]] inline auto warp_active_all_equal(X &&value) noexcept {
+    using T = expr_value_t<X>;
     if constexpr (vector_dimension_v<T> == 1) {
         return def<bool>(
             detail::FunctionBuilder::current()->call(
@@ -1744,9 +1752,10 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_int_or_vector_expr_v<X>
-[[nodiscard]] inline auto warp_active_bit_and(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    requires is_int_or_vector_expr_v<X> ||
+             is_uint_or_vector_expr_v<X>
+[[nodiscard]] inline auto warp_active_bit_and(X &&value) noexcept {
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_BIT_AND,
@@ -1754,9 +1763,10 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_int_or_vector_expr_v<X>
-[[nodiscard]] inline auto warp_active_bit_or(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    requires is_int_or_vector_expr_v<X> ||
+             is_uint_or_vector_expr_v<X>
+[[nodiscard]] inline auto warp_active_bit_or(X &&value) noexcept {
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_BIT_OR,
@@ -1764,44 +1774,45 @@ template<typename X>
 }
 
 template<typename X>
-    requires is_int_or_vector_expr_v<X>
-[[nodiscard]] inline auto warp_active_bit_Xor(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    requires is_int_or_vector_expr_v<X> ||
+             is_uint_or_vector_expr_v<X>
+[[nodiscard]] inline auto warp_active_bit_xor(X &&value) noexcept {
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_BIT_XOR,
             {LUISA_EXPR(value)}));
 }
 
-[[nodiscard]] inline auto warp_active_count_bits(Expr<bool> value) {
+[[nodiscard]] inline auto warp_active_count_bits(Expr<bool> value) noexcept {
     return def<uint>(
         detail::FunctionBuilder::current()->call(
             Type::of<uint>(), CallOp::WARP_ACTIVE_COUNT_BITS,
             {LUISA_EXPR(value)}));
 }
 
-[[nodiscard]] inline auto warp_prefix_count_bits(Expr<bool> value) {
+[[nodiscard]] inline auto warp_prefix_count_bits(Expr<bool> value) noexcept {
     return def<uint>(
         detail::FunctionBuilder::current()->call(
             Type::of<uint>(), CallOp::WARP_PREFIX_COUNT_BITS,
             {LUISA_EXPR(value)}));
 }
 
-[[nodiscard]] inline auto warp_active_all(Expr<bool> value) {
+[[nodiscard]] inline auto warp_active_all(Expr<bool> value) noexcept {
     return def<bool>(
         detail::FunctionBuilder::current()->call(
             Type::of<bool>(), CallOp::WARP_ACTIVE_ALL,
             {LUISA_EXPR(value)}));
 }
 
-[[nodiscard]] inline auto warp_active_any(Expr<bool> value) {
+[[nodiscard]] inline auto warp_active_any(Expr<bool> value) noexcept {
     return def<bool>(
         detail::FunctionBuilder::current()->call(
             Type::of<bool>(), CallOp::WARP_ACTIVE_ANY,
             {LUISA_EXPR(value)}));
 }
 
-[[nodiscard]] inline auto warp_active_bit_mask(Expr<bool> value) {
+[[nodiscard]] inline auto warp_active_bit_mask(Expr<bool> value) noexcept {
     return def<uint4>(
         detail::FunctionBuilder::current()->call(
             Type::of<uint4>(), CallOp::WARP_ACTIVE_BIT_MASK,
@@ -1809,9 +1820,9 @@ template<typename X>
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
 [[nodiscard]] inline auto warp_active_min(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_MIN,
@@ -1819,9 +1830,9 @@ template<typename X>
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
 [[nodiscard]] inline auto warp_active_max(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_MAX,
@@ -1829,9 +1840,9 @@ template<typename X>
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
 [[nodiscard]] inline auto warp_active_product(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_PRODUCT,
@@ -1839,9 +1850,9 @@ template<typename X>
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
 [[nodiscard]] inline auto warp_active_sum(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_ACTIVE_SUM,
@@ -1849,9 +1860,9 @@ template<typename X>
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
 [[nodiscard]] inline auto warp_prefix_product(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_PREFIX_PRODUCT,
@@ -1859,9 +1870,9 @@ template<typename X>
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X>)
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X>
 [[nodiscard]] inline auto warp_prefix_sum(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::WARP_PREFIX_SUM,
@@ -1869,22 +1880,23 @@ template<typename X>
 }
 
 template<typename X, typename Y>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X> || is_matrix_expr_v<X>) && (is_integral_expr_v<Y>)
-[[nodiscard]] inline auto warp_read_lane_at(X &&value, Y &&index) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    requires(is_scalar_expr_v<X> || is_vector_expr_v<X> || is_matrix_expr_v<X>) &&
+            is_integral_expr_v<Y>
+[[nodiscard]] inline auto warp_read_lane(X &&value, Y &&index) {
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::WARP_READ_LANE_AT,
+            Type::of<T>(), CallOp::WARP_READ_LANE,
             {LUISA_EXPR(value), LUISA_EXPR(index)}));
 }
 
 template<typename X>
-    requires(is_scalar_expr_v<X> || is_vector_expr_v<X> || is_matrix_expr_v<X>)
-[[nodiscard]] inline auto warp_read_first_lane(X &&value) {
-    using T = expr_value_t<std::remove_cvref_t<X>>;
+    requires is_scalar_expr_v<X> || is_vector_expr_v<X> || is_matrix_expr_v<X>
+[[nodiscard]] inline auto warp_read_first_active_lane(X &&value) {
+    using T = expr_value_t<X>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::WARP_READ_FIRST_LANE,
+            Type::of<T>(), CallOp::WARP_READ_FIRST_ACTIVE_LANE,
             {LUISA_EXPR(value)}));
 }
 

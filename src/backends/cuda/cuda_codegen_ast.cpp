@@ -967,33 +967,26 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::DDY:
-            LUISA_NOT_IMPLEMENTED();
-            break;
-
-        // warp intrinsics
-        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_OR: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_XOR: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_COUNT_BITS: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_MAX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_MIN: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_SUM: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_ALL: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_ANY: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_MASK: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_READ_FIRST_LANE:
-            LUISA_NOT_IMPLEMENTED();
-            break;
-
-            // SER
+        case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane"; break;
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: _scratch << "lc_warp_is_first_active_lane"; break;
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: _scratch << "lc_warp_active_all_equal"; break;
+        case CallOp::WARP_ACTIVE_BIT_AND: _scratch << "lc_warp_active_bit_and"; break;
+        case CallOp::WARP_ACTIVE_BIT_OR: _scratch << "lc_warp_active_bit_or"; break;
+        case CallOp::WARP_ACTIVE_BIT_XOR: _scratch << "lc_warp_active_bit_xor"; break;
+        case CallOp::WARP_ACTIVE_COUNT_BITS: _scratch << "lc_warp_active_count_bits"; break;
+        case CallOp::WARP_ACTIVE_MAX: _scratch << "lc_warp_active_max"; break;
+        case CallOp::WARP_ACTIVE_MIN: _scratch << "lc_warp_active_min"; break;
+        case CallOp::WARP_ACTIVE_PRODUCT: _scratch << "lc_warp_active_product"; break;
+        case CallOp::WARP_ACTIVE_SUM: _scratch << "lc_warp_active_sum"; break;
+        case CallOp::WARP_ACTIVE_ALL: _scratch << "lc_warp_active_all"; break;
+        case CallOp::WARP_ACTIVE_ANY: _scratch << "lc_warp_active_any"; break;
+        case CallOp::WARP_ACTIVE_BIT_MASK: _scratch << "lc_warp_active_bit_mask"; break;
+        case CallOp::WARP_PREFIX_COUNT_BITS: _scratch << "lc_warp_prefix_count_bits"; break;
+        case CallOp::WARP_PREFIX_SUM: _scratch << "lc_warp_prefix_sum"; break;
+        case CallOp::WARP_PREFIX_PRODUCT: _scratch << "lc_warp_prefix_product"; break;
+        case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane"; break;
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane"; break;
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";
@@ -1379,7 +1372,11 @@ void CUDACodegenAST::_emit_builtin_variables() noexcept {
         // block id
         << "\n  const auto bid = lc_block_id();"
         // kernel id
-        << "\n  const auto kid = lc_kernel_id();";
+        << "\n  const auto kid = lc_kernel_id();"
+        // warp size
+        << "\n  const auto ws = lc_warp_size();"
+        // warp lane id
+        << "\n  const auto lid = lc_warp_lane_id();";
 }
 
 void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
@@ -1396,6 +1393,8 @@ void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
         case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
+        case Variable::Tag::WARP_LANE_COUNT: _scratch << "ws"; break;
+        case Variable::Tag::WARP_LANE_ID: _scratch << "lid"; break;
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 }
