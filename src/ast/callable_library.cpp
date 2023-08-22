@@ -544,9 +544,7 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
             ser_value(*static_cast<AutoDiffStmt const *>(&t), vec);
             break;
         default:
-            LUISA_ERROR_WITH_LOCATION(
-                "CallableLibrary::ser_value(): unsupported statement type '{}'",
-                luisa::to_string(t._tag));
+            break;
     }
 }
 template<>
