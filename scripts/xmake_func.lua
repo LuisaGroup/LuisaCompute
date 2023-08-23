@@ -235,7 +235,11 @@ on_load(function(target)
 		})
 	end
 	if _get_or("use_simd", false) then
-		target:add("vectorexts", "all")
+		if is_arch("arm64") then
+			target:add("vectorexts", "neon")
+		else
+			target:add("vectorexts", "avx", "avx2")
+		end
 	end
 	if _get_or("no_rtti", false) then
 		target:add("cxflags", "/GR-", {
