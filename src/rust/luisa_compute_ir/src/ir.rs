@@ -2004,6 +2004,17 @@ impl IrBuilder {
         self.append(new_node);
         new_node
     }
+    pub fn load(&mut self, var: NodeRef) -> NodeRef {
+        assert!(var.is_lvalue());
+        let node = Node::new(
+            CArc::new(Instruction::Call(
+                Func::Load,
+                CBoxedSlice::new(vec![var]))),
+            var.type_().clone());
+        let node = new_node(&self.pools, node);
+        self.append(node.clone());
+        node
+    }
     pub fn const_(&mut self, const_: Const) -> NodeRef {
         let t = const_.type_();
         let node = Node::new(CArc::new(Instruction::Const(const_)), t);

@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use crate::ir::{BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModulePools, new_node, Node, NodeRef};
-use crate::{CArc, NestedHashMap, Pool, Pooled};
+use crate::{CArc, CBoxedSlice, NestedHashMap, Pool, Pooled};
 use crate::transform::Transform;
 
 struct Reg2MemCtx {
@@ -201,30 +201,23 @@ impl Reg2MemImpl {
             let node = node_ref.get();
             match node.instruction.as_ref() {
                 Instruction::Phi(incomings) => {
+                    // create a local variable
+                    let local = builder.local_zero_init(node.type_.clone());
                     // backup the current insert point
                     let decl_point = builder.insert_point.clone();
                     // insert the store instructions to the end of each incoming block
                     for incoming in incomings.iter() {
                         builder.set_insert_point(incoming.block.get().last.get().prev);
-                        builder.update_unchecked(node_ref.clone(), incoming.value.clone());
+                        builder.update(local.clone(), incoming.value.clone());
                     }
                     // restore the insert point
                     builder.set_insert_point(decl_point);
-                    // convert the phi-node to a local variable
-                    let zero = new_node(
-                        &pools,
-                        Node::new(
-                            CArc::new(Instruction::Const(Const::Zero(node.type_.clone()))),
-                            node.type_.clone()));
-                    let local = Node::new(
-                        CArc::new(Instruction::Local { init: zero }),
-                        node.type_.clone());
-                    node_ref.replace_with(&local);
-                    // move to the beginning of the function
-                    if builder.insert_point != node_ref.clone() {
-                        node_ref.remove();
-                        builder.append(node_ref.clone());
-                    }
+                    // replace the phi node with a load instruction
+                    let load = Node::new(CArc::new(
+                        Instruction::Call(Func::Load,
+                                          CBoxedSlice::new(vec![local]))),
+                                         node.type_.clone());
+                    node_ref.replace_with(&load);
                 }
                 _ => unreachable!(),
             }
