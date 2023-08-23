@@ -182,10 +182,18 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             str << "obj_id"sv;
             break;
         case Variable::Tag::WARP_LANE_COUNT:
-            str << "WaveGetLaneCount()"sv;
+            if (opt->funcType == CodegenStackData::FuncType::Callable) {
+                str << "_wrpct"sv;
+            } else {
+                str << "WaveGetLaneCount()"sv;
+            }
             break;
         case Variable::Tag::WARP_LANE_ID:
-            str << "WaveGetLaneIndex()"sv;
+            if (opt->funcType == CodegenStackData::FuncType::Callable) {
+                str << "_wrpid"sv;
+            } else {
+                str << "WaveGetLaneIndex()"sv;
+            }
             break;
         case Variable::Tag::LOCAL:
             switch (opt->funcType) {
@@ -1853,8 +1861,7 @@ void CodegenUtility::CodegenProperties(
     }
     if (uavArgCount > 64) [[unlikely]] {
         LUISA_WARNING("Writable resources' count greater than 8 may cause crash.");
-    }
-    else if (uavArgCount > 64) [[unlikely]] {
+    } else if (uavArgCount > 64) [[unlikely]] {
         LUISA_ERROR("Writable resources' count must be less than 64.");
     }
 }
