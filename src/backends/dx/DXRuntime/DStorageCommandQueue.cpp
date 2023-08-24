@@ -6,7 +6,6 @@
 #include <Resource/Buffer.h>
 #include <luisa/backends/ext/dstorage_cmd.h>
 namespace lc::dx {
-static constexpr size_t staging_buffer = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
 void DStorageCommandQueue::ExecuteThread() {
     while (enabled) {
         uint64_t fence;
@@ -90,12 +89,6 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                 if (request.Options.SourceType != sourceType) {
                     LUISA_ERROR("Source type not match.");
                 }
-                auto set_compress = [&](size_t size) {
-                    if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
-                        request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                        request.UncompressedSize = size;
-                    }
-                };
                 luisa::visit(
                     [&]<typename T>(T const &t) {
                         if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::BufferRequest>) {
@@ -103,7 +96,12 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                             request.Destination.Buffer.Resource = reinterpret_cast<Buffer *>(t.handle)->GetResource();
                             request.Destination.Buffer.Offset = t.offset_bytes + sub_offset;
                             request.Destination.Buffer.Size = sub_size;
-                            set_compress(t.size_bytes);
+                            if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
+                                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
+                                request.UncompressedSize = t.size_bytes;
+                                LUISA_ASSERT(t.size_bytes <= staging_buffer_size, "Compressed buffer's size({} bytes) can-not be large than {} bytes", t.size_bytes, staging_buffer_size);
+                            }
+
                         } else if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::TextureRequest>) {
                             request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION;
                             auto tex = reinterpret_cast<TextureBase *>(t.handle);
@@ -121,19 +119,17 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                             uint local_size[3] = {t.size[0], t.size[1], t.size[2]};
                             if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
                                 request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                                LUISA_ASSERT(src_size <= sub_size, "Compressed texture can-not be large than {} bytes", sub_size);
-                                request.UncompressedSize = tex_size;
+                                LUISA_ASSERT(tex_size <= staging_buffer_size, "Compressed buffer's size({} bytes) can-not be large than {} bytes", tex_size, staging_buffer_size);
                             } else {
                                 // Use slice copy
                                 if (tex_size > sub_size) {
                                     auto plane_size = pixel_size * t.size[0] * t.size[1];
                                     // per x_row copy
                                     if (plane_size > sub_size) {
-                                        if(yz_tex_offsets[0] == t.size[1]){
+                                        if (yz_tex_offsets[0] == t.size[1]) {
                                             yz_tex_offsets[0] = 0;
                                             yz_tex_offsets[1] += 1;
                                         }
-                                        auto vv = sub_size;
                                         uint max_allowed_height = sub_size / row_size;
                                         max_allowed_height = std::min<uint>(max_allowed_height, t.size[1] - yz_tex_offsets[0]);
                                         local_size[2] = 1;
@@ -171,7 +167,10 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                             request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
                             request.Destination.Memory.Buffer = t.data;
                             request.Destination.Memory.Size = t.size_bytes;
-                            set_compress(t.size_bytes);
+                            if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
+                                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
+                                request.UncompressedSize = t.size_bytes;
+                            }
                         }
                     },
                     cmd->request());
@@ -189,10 +188,11 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                         request.Source.File.Offset = t.offset_bytes;
                         if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(cmd->request())) {
                             request.Source.File.Size = t.size_bytes;
+                            set_request_dst(0, t.size_bytes);
                             queue->EnqueueRequest(&request);
                         } else {
                             auto lefted_size = static_cast<int64_t>(t.size_bytes);
-                            auto slice_size = std::min(t.size_bytes, staging_buffer);
+                            auto slice_size = std::min(t.size_bytes, staging_buffer_size);
                             while (lefted_size > 0) {
                                 auto real_size = set_request_dst(sub_offset, slice_size);
                                 request.Source.File.Size = real_size;
@@ -204,18 +204,19 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                         }
                     } else {
                         request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
-                        auto ptr = reinterpret_cast<std::byte const*>(t.handle + t.offset_bytes);
+                        auto ptr = reinterpret_cast<std::byte const *>(t.handle + t.offset_bytes);
                         request.Source.Memory.Source = ptr;
                         request.Source.Memory.Size = t.size_bytes;
                         if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(cmd->request())) {
                             request.Source.Memory.Size = t.size_bytes;
+                            set_request_dst(0, t.size_bytes);
                             queue->EnqueueRequest(&request);
                         } else {
                             auto lefted_size = static_cast<int64_t>(t.size_bytes);
-                            auto slice_size = std::min(t.size_bytes, staging_buffer);
+                            auto slice_size = std::min(t.size_bytes, staging_buffer_size);
                             while (lefted_size > 0) {
                                 auto real_size = set_request_dst(sub_offset, slice_size);
-                                request.Source.File.Size = real_size;
+                                request.Source.Memory.Size = real_size;
                                 queue->EnqueueRequest(&request);
                                 ptr += real_size;
                                 request.Source.Memory.Source = ptr;

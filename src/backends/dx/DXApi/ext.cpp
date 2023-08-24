@@ -147,6 +147,7 @@ void DStorageExtImpl::init_factory_nolock() {
     }
     DStorageGetFactory = dstorage_module.function<std::remove_pointer_t<decltype(DStorageGetFactory)>>("DStorageGetFactory");
     DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf()));
+    factory->SetStagingBufferSize(staging_buffer_size);
 }
 void DStorageExtImpl::init_factory() {
     {
