@@ -347,3 +347,72 @@ __device__ inline T lc_unpack_from(BufferView array, lc_uint idx) {
         return x.value;
     }
 }
+inline bool warp_is_first_active_lane() {
+    return true;
+}
+template<class T>
+inline bool warp_active_all_equal(T && v) {
+    return true;
+}
+template<class T>
+inline T warp_active_bit_and(T && v) {
+    return v;
+}
+template<class T>
+inline T warp_active_bit_or(T && v) {
+    return v;
+}
+template<class T>
+inline T warp_active_bit_xor(T && v) {
+    return v;
+}
+inline lc_uint warp_active_count_bits() {
+    return 1;
+}
+template<class T>
+inline T warp_active_max(T v) {
+    return v;
+}
+template<class T>
+inline T warp_active_min(T v) {
+    return v;
+}
+template<class T>
+inline T warp_active_product(T v) {
+    return v;
+}
+template<class T>
+inline T warp_active_sum(T v) {
+    return v;
+}
+
+inline lc_uint warp_all(bool v) {
+    return v;
+}
+
+inline lc_uint warp_any(bool v) {
+    return v;
+}
+
+inline lc_uint4 warp_active_bit_mask() {
+    return lc_make_uint4(1u, 0, 0, 0);
+}
+inline lc_uint warp_prefix_count_bits() {
+    return 0;
+}
+template<class T>
+inline T warp_prefix_sum(T &&) {
+    return lc_zero<T>();
+}
+template<class T>
+inline T warp_prefix_product(T &&) {
+    return lc_one<T>();
+}
+template<class T>
+inline T warp_read_lane_at(T && v, lc_uint index) {
+    return v;
+}
+template<class T>
+inline T read_first_lane(T && v) {
+    return v;
+}

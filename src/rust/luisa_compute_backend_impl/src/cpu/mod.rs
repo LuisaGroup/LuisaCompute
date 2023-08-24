@@ -40,6 +40,12 @@ impl RustBackend {
     }
 }
 impl Backend for RustBackend {
+    fn compute_warp_size(&self) -> u32 {
+        1
+    }
+    fn native_handle(&self) -> *mut c_void {
+        self as *const _ as *mut c_void
+    }
     fn create_buffer(
         &self,
         ty: &CArc<ir::Type>,

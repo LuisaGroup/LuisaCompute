@@ -519,6 +519,7 @@ pub enum Func {
 
     ThreadId,
     BlockId,
+    WarpSize,
     DispatchId,
     DispatchSize,
 
@@ -684,6 +685,25 @@ pub enum Func {
     Determinant,
     Transpose,
     Inverse,
+
+    WarpIsFirstActiveLane,
+    WarpActiveAllEqual,
+    WarpActiveBitAnd,
+    WarpActiveBitOr,
+    WarpActiveBitXor,
+    WarpActiveCountBits,
+    WarpActiveMax,
+    WarpActiveMin,
+    WarpActiveProduct,
+    WarpActiveSum,
+    WarpActiveALl,
+    WarpActiveAny,
+    WarpActiveBitMask,
+    WarpPrefixCountBits,
+    WarpPrefixSum,
+    WarpPrefixProduct,
+    WarpReadLaneAt,
+    WarpReadFirstLane,
 
     SynchronizeBlock,
 
