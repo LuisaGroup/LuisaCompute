@@ -76,7 +76,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (ops.test(CallOp::INVERSE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
     }
-    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL)) {
+    if (ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_COUNT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
     }
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
@@ -1054,13 +1054,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: {
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "_ClearDispInd"sv;
-            break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "_EmplaceDispInd"sv;
+            str << "_SetDispCount"sv;
         } break;
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: {
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");

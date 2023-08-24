@@ -312,9 +312,8 @@ enum struct CallOp : uint32_t {
     WARP_READ_FIRST_ACTIVE_LANE,// (type: scalar/vector/matrix, index: uint): type (read this variable's value at the first lane)
 
     // indirect
-    INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void
     INDIRECT_SET_DISPATCH_KERNEL,    // (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
-    INDIRECT_EMPLACE_DISPATCH_KERNEL,// (Buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+    INDIRECT_SET_DISPATCH_COUNT,    // (Buffer, uint count)
 
     // SER
     SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void

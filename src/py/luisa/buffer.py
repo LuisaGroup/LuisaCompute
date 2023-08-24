@@ -356,12 +356,9 @@ class IndirectDispatchBuffer:
         # instantiate buffer on device
         self.handle = buffer.handle()
     @BuiltinFuncBuilder
-    def clear(self):
-        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_CLEAR_DISPATCH_BUFFER, [self.expr])
-    @BuiltinFuncBuilder
-    def dispatch_kernel(self, block_size, size, kernel_id):
-        check_exact_signature([uint3, uint3, uint], [block_size, size, kernel_id], "dispatch_kernel")
-        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_EMPLACE_DISPATCH_KERNEL, [self.expr, block_size.expr, size.expr, kernel_id.expr])
+    def set_dispatch_count(self, count):
+        check_exact_signature([uint], [count], "set_dispatch_count")
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_SET_DISPATCH_COUNT, [self.expr, count.expr])
     @BuiltinFuncBuilder
     def set_kernel(self, offset, block_size, size, kernel_id):
         check_exact_signature([uint, uint3, uint3, uint], [offset, block_size, size, kernel_id], "set_kernel")

@@ -59,9 +59,8 @@ void CallExpr::_mark() const noexcept {
             case CallOp::ATOMIC_FETCH_XOR:
             case CallOp::ATOMIC_FETCH_MIN:
             case CallOp::ATOMIC_FETCH_MAX:
-            case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
             case CallOp::INDIRECT_SET_DISPATCH_KERNEL:
-            case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL:
+            case CallOp::INDIRECT_SET_DISPATCH_COUNT:
                 _arguments[0]->mark(Usage::WRITE);
                 for (auto i = 1u; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);
