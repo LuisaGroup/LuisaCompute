@@ -277,9 +277,6 @@ void CallableLibrary::ser_value(Expression const &t, luisa::vector<std::byte> &v
             ser_value(*static_cast<LiteralExpr const *>(&t), vec);
             break;
         case Expression::Tag::REF:
-            if (vec.size() == 618) {
-                auto ref = static_cast<RefExpr const *>(&t);
-            }
             ser_value(*static_cast<RefExpr const *>(&t), vec);
             break;
         case Expression::Tag::CONSTANT:
@@ -544,9 +541,7 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
             ser_value(*static_cast<AutoDiffStmt const *>(&t), vec);
             break;
         default:
-            LUISA_ERROR_WITH_LOCATION(
-                "CallableLibrary::ser_value(): unsupported statement type '{}'",
-                luisa::to_string(t._tag));
+            break;
     }
 }
 template<>

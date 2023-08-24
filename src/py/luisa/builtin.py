@@ -199,7 +199,7 @@ builtin_func_names = {
     'set_block_size',
     'sync_block',
     'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
-    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id'
+    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id',
     'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
     'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
     'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
@@ -877,13 +877,13 @@ def warp_prefix_sum(value):
     op = lcapi.CallOp.WARP_PREFIX_SUM
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
 @BuiltinFuncBuilder
-def warp_read_lane_at(value, index):
+def warp_read_lane(value, index):
     assert value.dtype in basic_dtypes and index.dtype in {int, uint, short, ushort, long, ulong}
-    op = lcapi.CallOp.WARP_READ_LANE_AT
+    op = lcapi.CallOp.WARP_READ_LANE
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr, index.expr])
 
 @BuiltinFuncBuilder
 def warp_read_first_lane(value):
     assert value.dtype in basic_dtypes
-    op = lcapi.CallOp.WARP_READ_FIRST_LANE
+    op = lcapi.CallOp.WARP_READ_FIRST_ACTIVE_LANE
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])

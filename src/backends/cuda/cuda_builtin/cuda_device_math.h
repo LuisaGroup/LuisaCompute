@@ -4332,7 +4332,7 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_reverse(lc_ulong3 x) noexcept { return lc_make_ulong3(__brev(x.x), __brev(x.y), __brev(x.z)); }
 [[nodiscard]] __device__ inline auto lc_reverse(lc_ulong4 x) noexcept { return lc_make_ulong4(__brev(x.x), __brev(x.y), __brev(x.z), __brev(x.w)); }
 
-[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_uint x) noexcept { return 32u - __clz(x); }
+[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_uint x) noexcept { return (__ffs(x) - 1u) % 32u; }
 [[nodiscard]] __device__ inline auto lc_ctz(lc_uint x) noexcept { return lc_ctz_impl(x); }
 [[nodiscard]] __device__ inline auto lc_ctz(lc_uint2 x) noexcept { return lc_make_uint2(lc_ctz_impl(x.x), lc_ctz_impl(x.y)); }
 [[nodiscard]] __device__ inline auto lc_ctz(lc_uint3 x) noexcept { return lc_make_uint3(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z)); }
@@ -4516,32 +4516,40 @@ template<typename D, typename S>
     return reinterpret_cast<const D &>(s);
 }
 template<class T>
-[[nodiscard]] __device__ inline constexpr auto lc_zero() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_zero() noexcept {
     return T{};
 }
 template<class T>
-[[nodiscard]] __device__ inline constexpr auto lc_one() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one() noexcept {
     return T::one();
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<lc_int>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_int>() noexcept {
     return lc_int(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<lc_float>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_float>() noexcept {
     return lc_float(1.0f);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<lc_uint>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_uint>() noexcept {
     return lc_uint(1u);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<lc_long>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_long>() noexcept {
     return lc_long(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ulong>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ulong>() noexcept {
     return lc_ulong(1);
+}
+template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_short>() noexcept {
+    return lc_short(1);
+}
+template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ushort>() noexcept {
+    return lc_ushort(1);
 }
 template<>
 [[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {

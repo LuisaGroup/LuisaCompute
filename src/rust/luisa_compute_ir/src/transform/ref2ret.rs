@@ -233,15 +233,22 @@ impl Ref2RetImpl {
                             // get the packed return values
                             let transformed_callable = &metadata.module;
                             let transformed_ret_type = &transformed_callable.ret_type;
-                            let packed = builder.call(
-                                Func::Callable(CallableModuleRef(transformed_callable.clone())),// the transformed callable
-                                args.to_vec().as_slice(),
-                                transformed_ret_type.clone());
-                            // unpack the return values
+                            let mut transformed_args = args.to_vec();
                             let ret_struct = match transformed_ret_type.as_ref() {
                                 Type::Struct(s) => s,
                                 _ => unreachable!(),
                             };
+                            // reference arguments are passed by value now, so we need to load them
+                            for arg_idx in ref_args.iter() {
+                                let loaded = builder.load(args[*arg_idx].clone());
+                                transformed_args[*arg_idx] = loaded;
+                            }
+                            // call the transformed callable and get the packed return values
+                            let packed = builder.call(
+                                Func::Callable(CallableModuleRef(transformed_callable.clone())),// the transformed callable
+                                args.to_vec().as_slice(),
+                                transformed_ret_type.clone());
+                            // unpack the return values and update the reference arguments
                             for (ret_idx, arg_idx) in ref_args.iter().enumerate() {
                                 let type_ = ret_struct.fields.get(ret_idx).unwrap().clone();
                                 let value = builder.extract(packed.clone(), ret_idx, type_);
@@ -278,7 +285,10 @@ impl Ref2RetImpl {
                     // insert a new return node that packs all ref args
                     let mut builder = IrBuilder::new(ctx.pools.clone());
                     builder.set_insert_point(node.get().prev);
-                    let mut args = ctx.ref_args.clone();
+                    // the reference arguments are now stored in local variables,
+                    // so we need to load them
+                    let mut args: Vec<_> = ctx.ref_args.iter().map(
+                        |arg| builder.load(arg.clone())).collect();
                     // if the node returns a valid value, add it to the return args
                     if value.valid() {
                         args.push(value.clone());

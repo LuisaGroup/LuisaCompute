@@ -115,6 +115,7 @@ public:
         return f();
     }
     void *native_handle() const noexcept override { return _handle.context(); }
+    [[nodiscard]] uint compute_warp_size() const noexcept override { return 32u; }
 
 public:
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
@@ -126,7 +127,6 @@ public:
     [[nodiscard]] auto event_manager() const noexcept { return _event_manager.get(); }
 
 public:
-    bool is_c_api() const noexcept override { return false; }
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

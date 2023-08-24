@@ -307,7 +307,6 @@ struct alignas(alignof(T) < 4u ? 4u : alignof(T)) LCPack {
     T value;
 };
 
-
 template<typename T>
 __device__ inline void lc_pack_to(const T &x, BufferView array, lc_uint idx) {
     constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
@@ -318,22 +317,22 @@ __device__ inline void lc_pack_to(const T &x, BufferView array, lc_uint idx) {
         auto data = reinterpret_cast<const lc_uint *>(&pack);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
-            reinterpret_cast<lc_uint*>(array.data)[idx + i] = data[i];
+            reinterpret_cast<lc_uint *>(array.data)[idx + i] = data[i];
         }
     } else {
         // safe to reinterpret the pointer as lc_uint *
         auto data = reinterpret_cast<const lc_uint *>(&x);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
-            reinterpret_cast<lc_uint*>(array.data)[idx + i] = data[i];
+            reinterpret_cast<lc_uint *>(array.data)[idx + i] = data[i];
         }
     }
 }
 template<typename T>
 __device__ inline T lc_unpack_from(BufferView array, lc_uint idx) {
-     if constexpr (alignof(T) <= 4u) {
+    if constexpr (alignof(T) <= 4u) {
         // safe to reinterpret the pointer as T *
-        auto data = reinterpret_cast<const T *>(&reinterpret_cast<const lc_uint*>(array.data)[idx]);
+        auto data = reinterpret_cast<const T *>(&reinterpret_cast<const lc_uint *>(array.data)[idx]);
         return *data;
     } else {
         // copy to a temporary aligned buffer to avoid unaligned access
@@ -342,7 +341,7 @@ __device__ inline T lc_unpack_from(BufferView array, lc_uint idx) {
         auto data = reinterpret_cast<lc_uint *>(&x);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
-            data[i] = reinterpret_cast<const lc_uint*>(array.data)[idx + i];
+            data[i] = reinterpret_cast<const lc_uint *>(array.data)[idx + i];
         }
         return x.value;
     }
@@ -416,3 +415,4 @@ template<class T>
 inline T read_first_lane(T && v) {
     return v;
 }
+inline void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcept {}

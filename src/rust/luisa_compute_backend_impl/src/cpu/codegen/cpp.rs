@@ -871,6 +871,10 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
                 true
             }
+            Func::ShaderExecutionReorder=> {
+                writeln!(&mut self.body, "lc_shader_execution_reorder({});", args_v.join(", ")).unwrap();
+                true
+            }
             Func::Unreachable(msg) => {
                 let msg = CString::from_vec_with_nul(msg.to_vec())
                     .unwrap()

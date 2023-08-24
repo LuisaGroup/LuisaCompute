@@ -359,7 +359,9 @@ void MetalCodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ds"; break;
         case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
-        default: LUISA_NOT_IMPLEMENTED();
+        case Variable::Tag::WARP_LANE_COUNT: _scratch << "ws"; break;
+        case Variable::Tag::WARP_LANE_ID: _scratch << "lid"; break;
+        case Variable::Tag::OBJECT_ID: LUISA_NOT_IMPLEMENTED();
     }
 }
 
@@ -1042,8 +1044,6 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
 
-        case CallOp::WARP_LANE_COUNT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_LANE_INDEX: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED();
@@ -1060,8 +1060,8 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_READ_FIRST_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_READ_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
 
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
