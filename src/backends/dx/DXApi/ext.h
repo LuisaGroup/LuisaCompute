@@ -185,7 +185,6 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
     void set_config(bool hdd) noexcept;
 
 public:
-    void set_staging(size_t dst_size);
     auto Factory() const { return factory.Get(); }
     DeviceInterface *device() const noexcept override;
     DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;

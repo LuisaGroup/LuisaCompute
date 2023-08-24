@@ -167,17 +167,9 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDev
       mdevice{device} {
     staging_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
 }
-void DStorageExtImpl::set_staging(size_t dst_size) {
-    if (dst_size <= staging_size) return;
-    std::lock_guard lck{mtx};
-    if (dst_size <= staging_size) return;
-    staging_size = dst_size;
-    factory->SetStagingBufferSize(dst_size);
-}
 ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
     set_config(option.supports_hdd);
     ResourceCreationInfo r;
-    set_staging(option.staging_buffer_size);
     auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice, option.source};
     r.handle = reinterpret_cast<uint64_t>(ptr);
     r.native_handle = nullptr;
