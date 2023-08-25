@@ -516,7 +516,7 @@ void StringStateVisitor::VisitFunction(
             sharedVariables->emplace(v.hash(), v);
             shared_size += v.type()->size();
         }
-        LUISA_ASSERT(shared_size <= 65536, "Shared memory size must be less than 64kb.");
+        LUISA_ASSERT(shared_size <= 32768, "Shared memory size must be less than 64kb.");
     }
     func.body()->accept(*this);
 }

@@ -616,6 +616,14 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
             LUISA_ERROR("Function block size must be in range [1, 1024], Current block size is: {}.",
                         kernel_size);
         }
+        if (any(size == uint3(0))) [[unlikely]] {
+            LUISA_ERROR("Function block size must be larger than 0, Current block size is: [{}, {}, {}].",
+                        size.x, size.y, size.z);
+        }
+        if(size.z > 64)[[unlikely]]{
+            LUISA_ERROR("Function block z-axis's size must be less or equal than 64, Current block size is: {}.",
+                        size.z);
+        }
         _block_size = size;
     } else {
         LUISA_WARNING_WITH_LOCATION(
