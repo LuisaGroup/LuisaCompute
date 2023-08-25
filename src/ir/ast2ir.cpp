@@ -784,8 +784,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: return ir::Func::Tag::RayQueryCommitProcedural;
             case CallOp::RAY_QUERY_TERMINATE: return ir::Func::Tag::RayQueryTerminate;
             case CallOp::RASTER_DISCARD: return ir::Func::Tag::RasterDiscard;
-            case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: return ir::Func::Tag::IndirectClearDispatchBuffer;
-            case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
+            // case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: return ir::Func::Tag::IndirectClearDispatchBuffer;
+            // case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
             case CallOp::SATURATE: return ir::Func::Tag::Saturate;
             case CallOp::REFLECT: return ir::Func::Tag::Reflect;
             case CallOp::PACK: return ir::Func::Tag::Pack;

@@ -466,8 +466,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::RayQueryTerminate: return builtin_func(1, CallOp::RAY_QUERY_TERMINATE);
         case ir::Func::Tag::RayQueryWorldSpaceRay: return builtin_func(1, CallOp::RAY_QUERY_WORLD_SPACE_RAY);
         case ir::Func::Tag::RasterDiscard: return builtin_func(0, CallOp::RASTER_DISCARD);
-        case ir::Func::Tag::IndirectClearDispatchBuffer: return builtin_func(1, CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER);
-        case ir::Func::Tag::IndirectEmplaceDispatchKernel: return builtin_func(4, CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL);
+        // case ir::Func::Tag::IndirectClearDispatchBuffer: return builtin_func(1, CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER);
+        // case ir::Func::Tag::IndirectEmplaceDispatchKernel: return builtin_func(4, CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL);
         case ir::Func::Tag::Load: {
             LUISA_ASSERT(args.size() == 1u, "`Load` takes 1 argument.");
             return _convert_node(args[0]);

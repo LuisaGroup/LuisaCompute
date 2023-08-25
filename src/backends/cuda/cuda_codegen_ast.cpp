@@ -963,9 +963,9 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::RASTER_DISCARD: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
-        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
+        // case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
+        // case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
+        // case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane"; break;
