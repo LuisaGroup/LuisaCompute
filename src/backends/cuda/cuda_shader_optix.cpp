@@ -200,12 +200,12 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
 }
 
 void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
-
     luisa::vector<std::byte> indirect_dispatches_host;
     const IndirectParameters *indirect_dispatches_device = nullptr;
     if (command->is_indirect()) {
         // read back dispatch buffer
-        auto buffer = reinterpret_cast<CUDAIndirectDispatchBuffer *>(command->indirect_dispatch().handle);
+        auto indirect = command->indirect_dispatch();
+        auto buffer = reinterpret_cast<CUDAIndirectDispatchBuffer *>(indirect.handle);
         indirect_dispatches_host.resize(buffer->size_bytes());
         encoder.with_download_pool_no_fallback(buffer->size_bytes(), [&](auto temp) noexcept {
             auto stream = encoder.stream()->handle();
@@ -289,7 +289,10 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &device_argument_buffer, argument_buffer->address(), 0u));
             if (!indirect_dispatches_host.empty()) {
-                _do_launch_indirect(cuda_stream, device_argument_buffer, indirect_dispatches_device,
+                auto indirect = command->indirect_dispatch();
+                _do_launch_indirect(cuda_stream, device_argument_buffer,
+                                    indirect.offset, indirect.max_dispatch_size,
+                                    indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else {
                 _do_launch(cuda_stream, device_argument_buffer, s);
@@ -302,7 +305,10 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                 device_argument_buffer, argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
             if (!indirect_dispatches_host.empty()) {
-                _do_launch_indirect(cuda_stream, device_argument_buffer, indirect_dispatches_device,
+                auto indirect = command->indirect_dispatch();
+                _do_launch_indirect(cuda_stream, device_argument_buffer,
+                                    indirect.offset, indirect.max_dispatch_size,
+                                    indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else {
                 _do_launch(cuda_stream, device_argument_buffer, s);
@@ -332,15 +338,17 @@ void CUDAShaderOptiX::_do_launch(CUstream stream, CUdeviceptr argument_buffer, u
 }
 
 void CUDAShaderOptiX::_do_launch_indirect(CUstream stream, CUdeviceptr argument_buffer,
+                                          size_t dispatch_offset, size_t dispatch_count,
                                           const CUDAShaderOptiX::IndirectParameters *indirect_buffer_device,
                                           const CUDAShaderOptiX::IndirectParameters *indirect_params_readback) const noexcept {
     auto sbt = _make_sbt();
     auto p = argument_buffer + _argument_buffer_size - sizeof(uint4);
     LUISA_CHECK_CUDA(cuStreamSynchronize(stream));
-    for (auto i = 0u; i < indirect_params_readback->header.size; i++) {
-        auto dispatch = indirect_params_readback->dispatches[i].dispatch_size_and_kernel_id;
+    auto n = std::min<size_t>(indirect_params_readback->header.size, dispatch_count);
+    for (auto i = 0u; i < n; i++) {
+        auto dispatch = indirect_params_readback->dispatches[i + dispatch_offset].dispatch_size_and_kernel_id;
         auto dispatch_size = dispatch.xyz();
-        auto d = reinterpret_cast<CUdeviceptr>(&indirect_buffer_device->dispatches[i]);
+        auto d = reinterpret_cast<CUdeviceptr>(&indirect_buffer_device->dispatches[i + dispatch_offset]);
         LUISA_CHECK_CUDA(cuMemcpyAsync(p, d, sizeof(uint4), stream));
         LUISA_CHECK_OPTIX(optix::api().launch(
             _pipeline, stream, argument_buffer, _argument_buffer_size,

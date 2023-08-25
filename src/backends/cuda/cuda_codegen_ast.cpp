@@ -781,11 +781,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
         case CallOp::PACK: _scratch << "lc_pack_to"; break;
-        case CallOp::UNPACK:
+        case CallOp::UNPACK: {
             _scratch << "lc_unpack_from<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
+        }
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::EXTERNAL: _scratch << expr->external()->name(); break;
         case CallOp::ALL: _scratch << "lc_all"; break;
@@ -955,7 +956,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
         case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
         case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
-        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("autodiff::backward() should have been lowered."); break;
         case CallOp::DETACH: {
             _scratch << "static_cast<";
             _emit_type_name(expr->type());
@@ -963,9 +964,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::RASTER_DISCARD: LUISA_NOT_IMPLEMENTED(); break;
-        // case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
-        // case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
-        // case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: _scratch << "lc_indirect_set_dispatch_kernel"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: _scratch << "lc_indirect_set_dispatch_count"; break;
         case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane"; break;
@@ -1340,9 +1340,10 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
             _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
                      << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
-                     << "  if (i < indirect.header()->size) {\n"
+                     << "  auto n = min(indirect.header()->size, indirect.capacity - indirect.offset);\n"
+                     << "  if (i < n) {\n"
                      << "    auto args = params;\n"
-                     << "    auto d = indirect.dispatches()[i];\n"
+                     << "    auto d = indirect.dispatches()[i + indirect.offset];\n"
                      << "    args.ls_kid = d.dispatch_size_and_kernel_id;\n"
                      << "    auto block_size = lc_block_size();\n"
                      << "#ifdef LUISA_DEBUG\n"

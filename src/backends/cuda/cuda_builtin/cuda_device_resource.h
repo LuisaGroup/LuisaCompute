@@ -94,7 +94,8 @@ struct alignas(16) LCIndirectDispatch {
 
 struct alignas(16) LCIndirectBuffer {
     void *__restrict__ data;
-    size_t capacity;
+    lc_uint offset;
+    lc_uint capacity;
 
     [[nodiscard]] auto header() const noexcept {
         return reinterpret_cast<LCIndirectHeader *>(data);
@@ -105,17 +106,19 @@ struct alignas(16) LCIndirectBuffer {
     }
 };
 
-void lc_indirect_buffer_clear(const LCIndirectBuffer buffer) noexcept {
-    buffer.header()->size = 0u;
+void lc_indirect_set_dispatch_count(const LCIndirectBuffer buffer, lc_uint count) noexcept {
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(buffer.offset + count, buffer.capacity);
+#endif
+    buffer.header()->size = count;
 }
 
-void lc_indirect_buffer_emplace(LCIndirectBuffer buffer, lc_uint3 block_size, lc_uint3 dispatch_size, lc_uint kernel_id) noexcept {
-    auto index = atomicAdd(&(buffer.header()->size), 1u);
+void lc_indirect_set_dispatch_kernel(const LCIndirectBuffer buffer, lc_uint index, lc_uint3 block_size, lc_uint3 dispatch_size, lc_uint kernel_id) noexcept {
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(index, buffer.capacity);
+    lc_check_in_bounds(index, buffer.header()->size);
+    lc_check_in_bounds(index + buffer.offset, buffer.capacity);
 #endif
-    buffer.dispatches()[index] = LCIndirectDispatch{
-        block_size, lc_make_uint4(dispatch_size, kernel_id)};
+    buffer.dispatches()[index + buffer.offset] = LCIndirectDispatch{block_size, lc_make_uint4(dispatch_size, kernel_id)};
 }
 
 template<typename T>

@@ -30,6 +30,7 @@ private:
     [[nodiscard]] optix::ShaderBindingTable _make_sbt() const noexcept;
     void _do_launch(CUstream stream, CUdeviceptr argument_buffer, uint3 dispatch_size) const noexcept;
     void _do_launch_indirect(CUstream stream, CUdeviceptr argument_buffer,
+                             size_t dispatch_offset, size_t dispatch_count,
                              const IndirectParameters *indirect_buffer_device,
                              const IndirectParameters *indirect_params_readback) const noexcept;
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;

@@ -43,7 +43,8 @@ class CUDAIndirectDispatchBuffer : public CUDABufferBase {
 public:
     struct Binding {
         CUdeviceptr buffer;
-        size_t capacity;
+        uint offset;
+        uint capacity;
     };
 
     struct alignas(16) Header {
@@ -62,7 +63,7 @@ public:
     explicit CUDAIndirectDispatchBuffer(size_t capacity) noexcept;
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] bool is_indirect() const noexcept override { return true; }
-    [[nodiscard]] Binding binding() const noexcept;
+    [[nodiscard]] Binding binding(size_t offset, size_t size) const noexcept;
 };
 
 }// namespace luisa::compute::cuda
