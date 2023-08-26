@@ -399,7 +399,8 @@ void MetalCodegenAST::_emit_function() noexcept {
         _scratch << "void kernel_main_impl(\n"
                  << "    constant Arguments &args,\n"
                  << "    uint3 tid, uint3 bid, uint3 did,\n"
-                 << "    uint3 bs, uint3 ds, uint kid";
+                 << "    uint3 bs, uint ws, uint lid,\n"
+                 << "    uint3 ds, uint kid";
         for (auto s : _function.shared_variables()) {
             _scratch << ", threadgroup ";
             _emit_type_name(s.type());
@@ -531,10 +532,12 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
-                 << "    uint3 bs [[threads_per_threadgroup]]) {\n"
+                 << "    uint3 bs [[threads_per_threadgroup]],\n"
+                 << "    uint ws [[threads_per_simdgroup]],\n"
+                 << "    uint lid [[thread_index_in_simdgroup]]) {\n"
                  << "  auto ds = args.dispatch_size;\n";
         emit_shared_variable_decls();
-        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u";
+        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ws, lid, ds, 0u";
         for (auto s : _function.shared_variables()) {
             _scratch << ", ";
             _emit_variable_name(s);
@@ -549,9 +552,11 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
-                 << "    uint3 bs [[threads_per_threadgroup]]) {\n";
+                 << "    uint3 bs [[threads_per_threadgroup]],\n"
+                 << "    uint ws [[threads_per_simdgroup]],\n"
+                 << "    uint lid [[thread_index_in_simdgroup]]) {\n";
         emit_shared_variable_decls();
-        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w";
+        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ws, lid, ds_kid.xyz, ds_kid.w";
         for (auto s : _function.shared_variables()) {
             _scratch << ", ";
             _emit_variable_name(s);
@@ -1042,25 +1047,25 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_set_kernel"; break;
         case CallOp::DDX: _scratch << "dfdx"; break;
         case CallOp::DDY: _scratch << "dfdy"; break;
-        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_BIT_OR: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_BIT_XOR: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_COUNT_BITS: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_MAX: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_MIN: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_PRODUCT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_SUM: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_ALL: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_ANY: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_ACTIVE_BIT_MASK: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_READ_LANE: LUISA_NOT_IMPLEMENTED();
-        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: _scratch << "lc_warp_is_first_active_lane";
+        case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane";
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: _scratch << "lc_warp_active_all_equal";
+        case CallOp::WARP_ACTIVE_BIT_AND: _scratch << "lc_warp_active_bit_and";
+        case CallOp::WARP_ACTIVE_BIT_OR: _scratch << "lc_warp_active_bit_or";
+        case CallOp::WARP_ACTIVE_BIT_XOR: _scratch << "lc_warp_active_bit_xor";
+        case CallOp::WARP_ACTIVE_COUNT_BITS: _scratch << "lc_warp_active_count_bits";
+        case CallOp::WARP_ACTIVE_MAX: _scratch << "lc_warp_active_max";
+        case CallOp::WARP_ACTIVE_MIN: _scratch << "lc_warp_active_min";
+        case CallOp::WARP_ACTIVE_PRODUCT: _scratch << "lc_warp_active_product";
+        case CallOp::WARP_ACTIVE_SUM: _scratch << "lc_warp_active_sum";
+        case CallOp::WARP_ACTIVE_ALL: _scratch << "lc_warp_active_all";
+        case CallOp::WARP_ACTIVE_ANY: _scratch << "lc_warp_active_any";
+        case CallOp::WARP_ACTIVE_BIT_MASK: _scratch << "lc_warp_active_bit_mask";
+        case CallOp::WARP_PREFIX_COUNT_BITS: _scratch << "lc_warp_prefix_count_bits";
+        case CallOp::WARP_PREFIX_SUM: _scratch << "lc_warp_prefix_sum";
+        case CallOp::WARP_PREFIX_PRODUCT: _scratch << "lc_warp_prefix_product";
+        case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane";
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane";
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";

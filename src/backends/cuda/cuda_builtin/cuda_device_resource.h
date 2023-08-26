@@ -2264,7 +2264,9 @@ __device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong o
 #define LC_WARP_ALL_EQ_SCALAR(T)                                                  \
     [[nodiscard]] __device__ inline auto lc_warp_active_all_equal(T x) noexcept { \
         auto mask = LC_WARP_ACTIVE_MASK;                                          \
-        return __match_any_sync(mask, x) == mask;                                 \
+        auto pred = 0;                                                            \
+        __match_all_sync(mask, x, &pred);                                         \
+        return pred != 0;                                                         \
     }
 
 #define LC_WARP_ALL_EQ_VECTOR2(T)                                                    \
