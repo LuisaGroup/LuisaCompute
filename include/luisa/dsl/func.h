@@ -246,7 +246,8 @@ public                                                           \
     Kernel<N, Args...> {                                         \
         using Kernel<N, Args...>::Kernel;                        \
         Kernel##N##D(Kernel<N, Args...> k) noexcept              \
-            : Kernel<N, Args...>{std::move(k._builder)} {}       \
+            : Kernel<N, Args...> { std::move(k._builder) }       \
+        {}                                                       \
         Kernel##N##D &operator=(Kernel<N, Args...> k) noexcept { \
             this->_builder = std::move(k._builder);              \
             return *this;                                        \
@@ -335,7 +336,7 @@ struct is_callable<Callable<T>> : std::true_type {};
 /// Callable class with a function type as template parameter.
 template<typename Ret, typename... Args>
 class Callable<Ret(Args...)> {
-
+    friend class CallableLibrary;
     static_assert(
         std::negation_v<std::disjunction<
             is_buffer_or_view<Ret>,
@@ -347,7 +348,7 @@ class Callable<Ret(Args...)> {
 
 private:
     luisa::shared_ptr<const detail::FunctionBuilder> _builder;
-
+    explicit Callable(luisa::shared_ptr<const detail::FunctionBuilder> builder) noexcept : _builder{std::move(builder)} {}
 public:
     /**
      * @brief Construct a Callable object.

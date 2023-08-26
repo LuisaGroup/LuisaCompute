@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::collections::HashMap;
 use std::mem::replace;
 use crate::{CArc, CBoxedSlice, Pooled};
@@ -100,6 +101,7 @@ impl Ref2RetImpl {
             ret_align = ret_align.max(align);
             ret_size = (ret_size + align - 1) / align * align + size;
         }
+        ret_align = max(ret_align, 4);
         ret_size = (ret_size + ret_align - 1) / ret_align * ret_align;
         let ret_struct = register_type(Type::Struct(StructType {
             fields: CBoxedSlice::from(ret_types.as_slice()),

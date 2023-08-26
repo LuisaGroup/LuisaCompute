@@ -1,7 +1,5 @@
 #pragma once
 
-#include <numeric>
-
 #include <luisa/core/basic_types.h>
 #include <luisa/ast/op.h>
 #include <luisa/ast/variable.h>

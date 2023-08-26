@@ -457,14 +457,12 @@ void StringStateVisitor::visit(const ForStmt *state) {
 }
 void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     str << "{\n"sv;
-    auto qstr = vstd::string("q"sv).append(vstd::to_string(rayQuery));
-    util->GetTypeName(*stmt->query()->type(), str, Usage::READ_WRITE, true);
-    str << ' ' << qstr << '=';
-    rayQuery++;
+    str << "while("sv;
     stmt->query()->accept(*this);
-    str << ";\n"sv;
-    str << "while("sv << qstr << ".Proceed()){\n"sv
-        << "if("sv << qstr << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){\n"sv;
+    str << ".Proceed()){\n"sv
+        << "if("sv;
+    stmt->query()->accept(*this);
+    str<< ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){\n"sv;
     stmt->on_triangle_candidate()->accept(*this);
     str << "}else{\n"sv;
     stmt->on_procedural_candidate()->accept(*this);
@@ -510,12 +508,15 @@ void StringStateVisitor::VisitFunction(
     }
 #endif
     if (sharedVariables) {
+        size_t shared_size{};
         for (auto &&v : func.shared_variables()) {
             // FIXME: redundant creation of string
             vstd::StringBuilder typeName;
             util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
             sharedVariables->emplace(v.hash(), v);
+            shared_size += v.type()->size();
         }
+        LUISA_ASSERT(shared_size <= 65536, "Shared memory size must be less than 64kb.");
     }
     func.body()->accept(*this);
 }

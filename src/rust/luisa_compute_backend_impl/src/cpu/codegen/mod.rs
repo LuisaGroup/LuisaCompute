@@ -1,8 +1,8 @@
 use base64ct::Encoding;
+use half::f16;
 use luisa_compute_ir::CBoxedSlice;
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
-use half::f16;
 
 use crate::ir::{Primitive, Type, VectorElementType};
 use luisa_compute_ir::ir;
@@ -63,10 +63,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                 )
             }
             Primitive::Float16 => {
-                format!(
-                    "half({})",
-                    f16::from_le_bytes([data[0], data[1]]).to_f32()
-                )
+                format!("half({})", f16::from_le_bytes([data[0], data[1]]).to_f32())
             }
             Primitive::Float32 => {
                 format!(
@@ -226,12 +223,17 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                 _ => unimplemented!(),
             };
             let dim = mt.dimension;
+            let width = match dim {
+                2 => 2,
+                3 | 4 => 4,
+                _ => unreachable!(),
+            };
             match e {
                 Primitive::Float32 => {
                     format!(
                         "lc_float{0}x{0}({1})",
                         dim,
-                        data.chunks(4 * dim as usize)
+                        data.chunks(4 * width as usize)
                             .take(dim as usize)
                             .map(|data| format!(
                                 "lc_float{}({})",

@@ -1017,6 +1017,10 @@ void lc_indirect_dispatch_emplace(LCIndirectDispatchBuffer buffer, uint3 block_s
     }
 }
 
+void lc_shader_execution_reorder(uint hint, uint hint_bits) {
+    // do nothing currently
+}
+
 template<typename T>
 struct alignas(alignof(T) >= 4u ? alignof(T) : 4u) LCPackStorage {
     T value;

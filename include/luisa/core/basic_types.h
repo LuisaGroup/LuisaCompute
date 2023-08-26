@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <utility>
 
 #include <luisa/core/stl/hash_fwd.h>
 #include <luisa/core/basic_traits.h>

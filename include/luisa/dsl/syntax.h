@@ -13,6 +13,7 @@
 #include <luisa/dsl/struct.h>
 #include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/resource.h>
+#include <luisa/dsl/callable_library.h>
 
 #include <luisa/dsl/rtx/aabb.h>
 #include <luisa/dsl/rtx/accel.h>

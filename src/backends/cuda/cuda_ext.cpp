@@ -55,7 +55,7 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
     auto createOptixImage2D = [&](Buffer<float> const &input) {
         optix::Image2D res;
 
-        res.data = reinterpret_cast<CUDABuffer *>(input.native_handle())->handle();
+        res.data = reinterpret_cast<CUDABuffer *>(input.handle())->handle();
         res.width = resolution.x;
         res.height = resolution.y;
         res.rowStrideInBytes = input.size_bytes() / resolution.y;
@@ -95,9 +95,9 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
             _guideLayer.flow = createOptixImage2D(*data.flow);
         }
         if (!_mode.upscale) {
-            LUISA_CHECK_CUDA(cuMemcpyAsync(layer.previousOutput.data, reinterpret_cast<CUDABuffer *>(data.beauty->native_handle())->handle(),
+            LUISA_CHECK_CUDA(cuMemcpyAsync(layer.previousOutput.data, reinterpret_cast<CUDABuffer *>(data.beauty->handle())->handle(),
                                            data.beauty->size_bytes(), cuda_stream));
-            LUISA_CHECK_CUDA(cuMemcpyAsync(layer.output.data, reinterpret_cast<CUDABuffer *>(data.beauty->native_handle())->handle(),
+            LUISA_CHECK_CUDA(cuMemcpyAsync(layer.output.data, reinterpret_cast<CUDABuffer *>(data.beauty->handle())->handle(),
                                            data.beauty->size_bytes(), cuda_stream));
         }
         /*
@@ -129,9 +129,9 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
             // First frame initializaton.
             layer.previousOutput = create_as(*data.aovs[i], out_scale);
             if (!_mode.upscale) {
-                LUISA_CHECK_CUDA(cuMemcpyAsync(layer.previousOutput.data, reinterpret_cast<CUDABuffer *>(data.aovs[i]->native_handle())->handle(),
+                LUISA_CHECK_CUDA(cuMemcpyAsync(layer.previousOutput.data, reinterpret_cast<CUDABuffer *>(data.aovs[i]->handle())->handle(),
                                                data.beauty->size_bytes(), cuda_stream));
-                LUISA_CHECK_CUDA(cuMemcpyAsync(layer.output.data, reinterpret_cast<CUDABuffer *>(data.aovs[i]->native_handle())->handle(),
+                LUISA_CHECK_CUDA(cuMemcpyAsync(layer.output.data, reinterpret_cast<CUDABuffer *>(data.aovs[i]->handle())->handle(),
                                                data.beauty->size_bytes(), cuda_stream));
             }
         }
@@ -146,28 +146,28 @@ void CUDADenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
     // auto optix_ctx = _device->handle().optix_context();
     optix::DenoiserParams _params = {};
-    _params.denoiseAlpha = _mode.alphamode ? optix::DENOISER_ALPHA_MODE_ALPHA_AS_AOV : optix::DENOISER_ALPHA_MODE_COPY;
+//    _params.denoiseAlpha = _mode.alphamode ? optix::DENOISER_ALPHA_MODE_ALPHA_AS_AOV : optix::DENOISER_ALPHA_MODE_COPY;
     _params.hdrIntensity = _intensity;
     _params.hdrAverageColor = _avg_color;
     _params.blendFactor = 0.0f;
     //_params.temporalModeUsePreviousLayers = 0;
     LUISA_ASSERT(data.beauty != nullptr && *data.beauty, "input image(beauty) is invalid!");
-    _layers[0].input.data = reinterpret_cast<CUDABuffer *>(data.beauty->native_handle())->handle();
+    _layers[0].input.data = reinterpret_cast<CUDABuffer *>(data.beauty->handle())->handle();
 
     if (_mode.temporal)
-        _guideLayer.flow.data = reinterpret_cast<CUDABuffer *>(data.flow->native_handle())->handle();
+        _guideLayer.flow.data = reinterpret_cast<CUDABuffer *>(data.flow->handle())->handle();
 
     if (data.albedo)
-        _guideLayer.albedo.data = reinterpret_cast<CUDABuffer *>(data.albedo->native_handle())->handle();
+        _guideLayer.albedo.data = reinterpret_cast<CUDABuffer *>(data.albedo->handle())->handle();
 
     if (data.normal)
-        _guideLayer.normal.data = reinterpret_cast<CUDABuffer *>(data.normal->native_handle())->handle();
+        _guideLayer.normal.data = reinterpret_cast<CUDABuffer *>(data.normal->handle())->handle();
 
     //if (data.flowtrust)
-    //    _guideLayer.flowtrustiness.data = reinterpret_cast<CUDABuffer *>(data.flowtrust->native_handle())->handle();
+    //    _guideLayer.flowtrustiness.data = reinterpret_cast<CUDABuffer *>(data.flowtrust->handle())->handle();
 
     for (size_t i = 0; i < data.aov_size; i++)
-        _layers[i + 1].input.data = reinterpret_cast<CUDABuffer *>(data.aovs[i]->native_handle())->handle();
+        _layers[i + 1].input.data = reinterpret_cast<CUDABuffer *>(data.aovs[i]->handle())->handle();
 
     if (_mode.temporal) {
         optix::Image2D temp;
@@ -219,7 +219,7 @@ void CUDADenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
 
 void CUDADenoiserExt::_get_result(Stream &stream, Buffer<float> &output, int index) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
-    LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUDABuffer *>(output.native_handle())->handle(), _layers[index + 1].output.data, output.size_bytes(), cuda_stream));
+    LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUDABuffer *>(output.handle())->handle(), _layers[index + 1].output.data, output.size_bytes(), cuda_stream));
 }
 
 void CUDADenoiserExt::_destroy(Stream &stream) noexcept {
