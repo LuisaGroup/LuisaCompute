@@ -7,3 +7,4 @@ members = [
     "luisa_compute_backend_impl",
     "cppbindgen"
 ]
+resolver = "2"
