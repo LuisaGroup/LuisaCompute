@@ -687,6 +687,7 @@ pub enum Func {
     Inverse,
 
     WarpIsFirstActiveLane,
+    WarpFirstActiveLane,
     WarpActiveAllEqual,
     WarpActiveBitAnd,
     WarpActiveBitOr,
@@ -696,7 +697,7 @@ pub enum Func {
     WarpActiveMin,
     WarpActiveProduct,
     WarpActiveSum,
-    WarpActiveALl,
+    WarpActiveAll,
     WarpActiveAny,
     WarpActiveBitMask,
     WarpPrefixCountBits,
