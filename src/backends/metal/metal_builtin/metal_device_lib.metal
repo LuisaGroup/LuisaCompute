@@ -1004,7 +1004,6 @@ template<typename U, typename T>
 
 // indirect dispatch
 struct alignas(16) LCIndirectHeader {
-    uint offset;
     uint count;
 };
 
@@ -1015,19 +1014,19 @@ struct alignas(16) LCIndirectSlot {
 
 struct LCIndirectDispatchBuffer {
     device void *__restrict__ buffer;
-    size_t capacity;
+    uint offset;
+    uint capacity;
 
     [[nodiscard]] auto header() const { return static_cast<device LCIndirectHeader *>(buffer); }
     [[nodiscard]] auto slots() const { return reinterpret_cast<device LCIndirectSlot *>(header() + 1u); }
 };
 
-void lc_indirect_dispatch_clear(LCIndirectDispatchBuffer buffer) {
-    *buffer.header() = {0u, 0u};
+void lc_indirect_dispatch_set_count(LCIndirectDispatchBuffer buffer, uint count) {
+    buffer.header()->count = count;
 }
 
-void lc_indirect_dispatch_emplace(LCIndirectDispatchBuffer buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id) {
-    auto count = reinterpret_cast<device atomic_uint *>(&(buffer.header()->count));
-    auto index = atomic_fetch_add_explicit(count, 1u, memory_order_relaxed);
+void lc_indirect_dispatch_set_kernel(LCIndirectDispatchBuffer buffer, uint index, uint3 block_size, uint3 dispatch_size, uint kernel_id) {
+    index += buffer.offset;
     if (index < buffer.capacity) {
         buffer.slots()[index] = {block_size, uint4(dispatch_size, kernel_id)};
     }

@@ -1350,10 +1350,12 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
                      << "    lc_assert(lc_all(block_size == d.block_size));\n"
                      << "#endif\n"
                      << "    auto dispatch_size = lc_make_uint3(d.dispatch_size_and_kernel_id);\n"
-                     << "    auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
-                     << "    auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
-                     << "    auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
-                     << "    kernel_main<<<nb, bs>>>(args);\n"
+                     << "    if (lc_all(dispatch_size > 0u)) {\n"
+                     << "      auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
+                     << "      auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
+                     << "      auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
+                     << "      kernel_main<<<nb, bs>>>(args);\n"
+                     << "    }\n"
                      << "  }\n"
                      << "}\n\n";
         }

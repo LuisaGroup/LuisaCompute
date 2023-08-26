@@ -1030,21 +1030,20 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
         case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
         case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
-        case CallOp::BACKWARD: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("autodiff::backward() should have been lowered."); break;
         case CallOp::DETACH: {
             _scratch << "static_cast<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::RASTER_DISCARD: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_dispatch_clear"; break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_emplace"; break;
-        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
-
+        case CallOp::RASTER_DISCARD: _scratch << "discard_fragment"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: _scratch << "lc_indirect_dispatch_set_count"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_set_kernel"; break;
+        case CallOp::DDX: _scratch << "dfdx"; break;
+        case CallOp::DDY: _scratch << "dfdy"; break;
         case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_ACTIVE_BIT_OR: LUISA_NOT_IMPLEMENTED();
@@ -1062,7 +1061,6 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_READ_LANE: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_READ_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
-
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";

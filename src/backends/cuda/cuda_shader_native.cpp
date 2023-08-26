@@ -158,7 +158,7 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
         auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
         void *arguments[] = {argument_buffer.data(), &indirect_binding};
         static constexpr auto block_size = 64u;
-        auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+        auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _indirect_function,
             static_cast<uint>(block_count), 1u, 1u,
