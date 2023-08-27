@@ -19,7 +19,7 @@ void export_commands(py::module &m) {
             },
             pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
-        .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle, uint64_t offset) { self.set_dispatch_size(IndirectDispatchArg{handle, offset}); })
+        .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle, uint32_t offset, uint32_t size) { self.set_dispatch_size(IndirectDispatchArg{handle, offset, size}); })
         .def("encode_buffer", &ComputeDispatchCmdEncoder::encode_buffer)
         .def("encode_texture", &ComputeDispatchCmdEncoder::encode_texture)
         .def("encode_uniform", [](ComputeDispatchCmdEncoder &self, char *buf, size_t size) { self.encode_uniform(buf, size); })

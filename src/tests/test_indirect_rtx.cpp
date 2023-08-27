@@ -104,8 +104,8 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel1D indirect_dispatch_kernel = [&](Var<IndirectDispatchBuffer> idb) noexcept {
-        idb.clear();
-        idb.dispatch_kernel(raytracing_kernel_block_size, make_uint3(width, height, 1u));
+        idb.set_dispatch_count(1u);
+        idb.set_kernel(0u, raytracing_kernel_block_size, make_uint3(width, height, 1u));
     };
     auto indirect_buffer = device.create_indirect_dispatch_buffer(1u);
     auto indirect_dispatch = device.compile(indirect_dispatch_kernel);

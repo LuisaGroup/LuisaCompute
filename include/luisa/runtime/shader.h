@@ -142,8 +142,10 @@ protected:
         _encoder.set_dispatch_size(dispatch_size);
         return std::move(_encoder);
     }
-    [[nodiscard]] auto _parallelize(const IndirectDispatchBuffer &indirect_buffer, uint64_t offset = std::numeric_limits<uint64_t>::max()) && noexcept {
-        _encoder.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle(), offset});
+    [[nodiscard]] auto _parallelize(const IndirectDispatchBuffer &indirect_buffer,
+                                    uint32_t offset = 0,
+                                    uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
+        _encoder.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle(), offset, max_dispatch_size});
         return std::move(_encoder);
     }
 };
@@ -160,8 +162,10 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint size_x) && noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
-    [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer, uint64_t offset = std::numeric_limits<uint64_t>::max()) && noexcept {
-        return std::move(std::move(*this)._parallelize(indirect_buffer, offset)).build();
+    [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
+                                uint32_t offset = 0,
+                                uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
+        return std::move(std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size)).build();
     }
 };
 
@@ -175,8 +179,10 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint2 size) && noexcept {
         return std::move(*this).dispatch(size.x, size.y);
     }
-    [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer, uint64_t offset = std::numeric_limits<uint64_t>::max()) && noexcept {
-        return std::move(std::move(*this)._parallelize(indirect_buffer, offset)).build();
+    [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
+                                uint32_t offset = 0,
+                                uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
+        return std::move(std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size)).build();
     }
 };
 
@@ -187,8 +193,10 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) && noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
-    [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer, uint64_t offset = std::numeric_limits<uint64_t>::max()) && noexcept {
-        return std::move(std::move(*this)._parallelize(indirect_buffer, offset)).build();
+    [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
+                                uint32_t offset = 0,
+                                uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
+        return std::move(std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size)).build();
     }
     [[nodiscard]] auto dispatch(uint3 size) && noexcept {
         return std::move(*this).dispatch(size.x, size.y, size.z);

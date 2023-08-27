@@ -1,6 +1,6 @@
 pub mod convert;
 use crate::ir::{Binding, KernelModule, Primitive};
-use crate::CBoxedSlice;
+
 use serde::{Deserialize, Serialize};
 use half::f16;
 

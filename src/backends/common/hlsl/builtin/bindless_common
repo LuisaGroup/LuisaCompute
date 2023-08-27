@@ -7,13 +7,13 @@ T _ReadBdlsSmp(T num){
 return num>>28;
 }
 template<typename T>
-T _ReadBdlsBuffer(ByteAddressBuffer s,T idx){
-return s.Load(12*idx);
+T _ReadBdlsBuffer(StructuredBuffer<uint> s,T idx){
+return s[idx*3];
 }
 #define _READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].Load<type>(size*idx)
 #define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].Load<type>(idx)
 template<typename T,typename I,typename J>
-uint _bdlsBfSize(ByteAddressBuffer arr,I arrIdx,J size,T bf){
+uint _bdlsBfSize(StructuredBuffer<uint> arr,I arrIdx,J size,T bf){
 uint sz;
 bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].GetDimensions(sz);
 return sz/size;

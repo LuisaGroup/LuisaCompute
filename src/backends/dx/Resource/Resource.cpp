@@ -52,6 +52,15 @@ bool Resource::IsBCtex(GFXFormat format) {
         case GFXFormat_BC4_Typeless:
         case GFXFormat_BC4_UNorm:
         case GFXFormat_BC4_SNorm:
+        case GFXFormat_BC1_Typeless:
+        case GFXFormat_BC1_UNorm:
+        case GFXFormat_BC1_UNorm_SRGB:
+        case GFXFormat_BC2_Typeless:
+        case GFXFormat_BC2_UNorm:
+        case GFXFormat_BC2_UNorm_SRGB:
+        case GFXFormat_BC3_Typeless:
+        case GFXFormat_BC3_UNorm:
+        case GFXFormat_BC3_UNorm_SRGB:
             return true;
         default:
             return false;
@@ -127,10 +136,19 @@ uint64 Resource::GetTexturePixelSize(GFXFormat format) {
         case GFXFormat_BC5_Typeless:
         case GFXFormat_BC5_UNorm:
         case GFXFormat_BC5_SNorm:
+        case GFXFormat_BC2_Typeless:
+        case GFXFormat_BC2_UNorm:
+        case GFXFormat_BC2_UNorm_SRGB:
+        case GFXFormat_BC3_Typeless:
+        case GFXFormat_BC3_UNorm:
+        case GFXFormat_BC3_UNorm_SRGB:
             return 16;
         case GFXFormat_BC4_Typeless:
         case GFXFormat_BC4_UNorm:
         case GFXFormat_BC4_SNorm:
+        case GFXFormat_BC1_Typeless:
+        case GFXFormat_BC1_UNorm:
+        case GFXFormat_BC1_UNorm_SRGB:
             return 8;
         default: return 0;
     }

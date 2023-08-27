@@ -3,6 +3,7 @@
 #include <luisa/core/stl/functional.h>
 #include <luisa/ast/statement.h>
 #include <luisa/dsl/rtx/hit.h>
+#include <luisa/dsl/rtx/ray.h>
 
 namespace luisa::compute {
 

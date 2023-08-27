@@ -9,6 +9,7 @@
     NodeRef loop(const Pooled<BasicBlock> &body, const NodeRef &cond) noexcept;
     NodeRef generic_loop(const Pooled<BasicBlock> &prepare, const NodeRef &cond, const Pooled<BasicBlock> &body, const Pooled<BasicBlock> &update) noexcept;
     static Pooled<BasicBlock> finish(IrBuilder &&builder) noexcept;
+    void set_insert_point(const NodeRef &node) noexcept;
 
     template<class F>
     static Pooled<BasicBlock> with(const CppOwnedCArc<ModulePools> &pools, F &&f) {

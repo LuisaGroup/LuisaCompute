@@ -33,6 +33,7 @@ private:
     vstd::unordered_map<vstd::string, ExtPtr> exts;
 
 public:
+    uint compute_warp_size() const noexcept override { return _native->compute_warp_size(); }
     static void check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_id = 0);
     static void add_custom_stream(uint64_t handle, StreamOption &&opt);
     void *native_handle() const noexcept override;
@@ -115,7 +116,7 @@ public:
         luisa::vector<SparseUpdateTile> &&update_cmds) noexcept override;
     ResourceCreationInfo allocate_sparse_buffer_heap(size_t byte_size) noexcept override;
     void deallocate_sparse_buffer_heap(uint64_t handle) noexcept override;
-    ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept override;
+    ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept override;
     void deallocate_sparse_texture_heap(uint64_t handle) noexcept override;
 };
 

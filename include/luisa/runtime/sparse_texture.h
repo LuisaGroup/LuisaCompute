@@ -6,12 +6,13 @@
 #include <luisa/runtime/rhi/tile_modification.h>
 
 namespace luisa::compute {
-
+class SparseTextureHeap;
 namespace detail {
 LC_RUNTIME_API void check_sparse_tex2d_map(uint2 size, uint2 tile_size, uint2 start_tile, uint2 tile_count);
 LC_RUNTIME_API void check_sparse_tex2d_unmap(uint2 size, uint2 tile_size, uint2 start_tile);
 LC_RUNTIME_API void check_sparse_tex3d_map(uint3 size, uint3 tile_size, uint3 start_tile, uint3 tile_count);
 LC_RUNTIME_API void check_sparse_tex3d_unmap(uint3 size, uint3 tile_size, uint3 start_tile);
+LC_RUNTIME_API void check_tex_heap_match(PixelStorage storage, SparseTextureHeap const& heap);
 }// namespace detail
 
 template<typename T>

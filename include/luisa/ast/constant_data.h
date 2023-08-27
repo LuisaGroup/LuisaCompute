@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/ast/type.h>
 #include <luisa/core/stl/variant.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/memory.h>
@@ -7,7 +8,7 @@
 #include <luisa/core/concepts.h>
 
 namespace luisa::compute {
-
+class CallableLibrary;
 class LC_AST_API ConstantDecoder {
 
 protected:
@@ -36,7 +37,7 @@ public:
 };
 
 class LC_AST_API ConstantData {
-
+    friend class CallableLibrary;
 private:
     const Type *_type;
     const std::byte *_raw;
@@ -46,6 +47,7 @@ private:
     ConstantData(const Type *type, const std::byte *data, uint64_t hash) noexcept;
 
 public:
+    ConstantData() noexcept = default;
     [[nodiscard]] static ConstantData create(const Type *type, const void *data, size_t size) noexcept;
     [[nodiscard]] auto raw() const noexcept { return _raw; }
     [[nodiscard]] auto type() const noexcept { return _type; }

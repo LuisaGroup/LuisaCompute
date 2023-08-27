@@ -128,8 +128,8 @@ void export_op(py::module &m) {
         .value("ATOMIC_FETCH_MIN", CallOp::ATOMIC_FETCH_MIN)              /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
         .value("ATOMIC_FETCH_MAX", CallOp::ATOMIC_FETCH_MAX)              /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-        .value("BUFFER_READ", CallOp::BUFFER_READ)    /// [(buffer, index) -> value]: reads the index-th element in buffer
-        .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+        .value("BUFFER_READ", CallOp::BUFFER_READ)  /// [(buffer, index) -> value]: reads the index-th element in buffer
+        .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)/// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
         .value("BYTE_BUFFER_READ", CallOp::BYTE_BUFFER_READ)
         .value("BYTE_BUFFER_WRITE", CallOp::BYTE_BUFFER_WRITE)
         .value("TEXTURE_READ", CallOp::TEXTURE_READ)  /// [(texture, coord) -> value]
@@ -194,9 +194,8 @@ void export_op(py::module &m) {
         .value("ASSUME", CallOp::ASSUME)
         .value("UNREACHABLE", CallOp::UNREACHABLE)
         .value("RASTER_DISCARD", CallOp::RASTER_DISCARD)
-        .value("INDIRECT_CLEAR_DISPATCH_BUFFER", CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER)
-        .value("INDIRECT_EMPLACE_DISPATCH_KERNEL", CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL)
         .value("INDIRECT_SET_DISPATCH_KERNEL", CallOp::INDIRECT_SET_DISPATCH_KERNEL)
+        .value("INDIRECT_SET_DISPATCH_COUNT", CallOp::INDIRECT_SET_DISPATCH_COUNT)
         .value("RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT)
         .value("RAY_QUERY_WORLD_SPACE_RAY", CallOp::RAY_QUERY_WORLD_SPACE_RAY)
         .value("RAY_QUERY_TRIANGLE_CANDIDATE_HIT", CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT)
@@ -227,5 +226,24 @@ void export_op(py::module &m) {
         .value("REDUCE_MIN", CallOp::REDUCE_MIN)
         .value("REDUCE_MAX", CallOp::REDUCE_MAX)
         .value("OUTER_PRODUCT", CallOp::OUTER_PRODUCT)
-        .value("MATRIX_COMPONENT_WISE_MULTIPLICATION", CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION);
+        .value("MATRIX_COMPONENT_WISE_MULTIPLICATION", CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION)
+    
+        .value("WARP_IS_FIRST_ACTIVE_LANE", CallOp::WARP_IS_FIRST_ACTIVE_LANE)
+        .value("WARP_ACTIVE_ALL_EQUAL", CallOp::WARP_ACTIVE_ALL_EQUAL)
+        .value("WARP_ACTIVE_BIT_AND", CallOp::WARP_ACTIVE_BIT_AND)
+        .value("WARP_ACTIVE_BIT_OR", CallOp::WARP_ACTIVE_BIT_OR)
+        .value("WARP_ACTIVE_BIT_XOR", CallOp::WARP_ACTIVE_BIT_XOR)
+        .value("WARP_ACTIVE_COUNT_BITS", CallOp::WARP_ACTIVE_COUNT_BITS)
+        .value("WARP_ACTIVE_MAX", CallOp::WARP_ACTIVE_MAX)
+        .value("WARP_ACTIVE_MIN", CallOp::WARP_ACTIVE_MIN)
+        .value("WARP_ACTIVE_PRODUCT", CallOp::WARP_ACTIVE_PRODUCT)
+        .value("WARP_ACTIVE_SUM", CallOp::WARP_ACTIVE_SUM)
+        .value("WARP_ACTIVE_ALL", CallOp::WARP_ACTIVE_ALL)
+        .value("WARP_ACTIVE_ANY", CallOp::WARP_ACTIVE_ANY)
+        .value("WARP_ACTIVE_BIT_MASK", CallOp::WARP_ACTIVE_BIT_MASK)
+        .value("WARP_PREFIX_COUNT_BITS", CallOp::WARP_PREFIX_COUNT_BITS)
+        .value("WARP_PREFIX_SUM", CallOp::WARP_PREFIX_SUM)
+        .value("WARP_PREFIX_PRODUCT", CallOp::WARP_PREFIX_PRODUCT)
+        .value("WARP_READ_LANE", CallOp::WARP_READ_LANE)
+        .value("WARP_READ_FIRST_ACTIVE_LANE", CallOp::WARP_READ_FIRST_ACTIVE_LANE);
 }

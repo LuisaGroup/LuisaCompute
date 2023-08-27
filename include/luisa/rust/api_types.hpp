@@ -526,6 +526,8 @@ struct DeviceInterface {
                                           uint32_t,
                                           uint32_t,
                                           bool);
+    void *(*native_handle)(Device);
+    uint32_t (*compute_warp_size)(Device);
     void (*destroy_texture)(Device, Texture);
     CreatedResourceInfo (*create_bindless_array)(Device, size_t);
     void (*destroy_bindless_array)(Device, BindlessArray);
