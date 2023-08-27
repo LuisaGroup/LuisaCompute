@@ -1311,6 +1311,16 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _emit_variable_name(arg);
             _scratch << ";";
         }
+        for (auto i = 0u; i < f.bound_arguments().size(); i++) {
+            auto binding = f.bound_arguments()[i];
+            if (auto b = luisa::get_if<Function::TextureBinding>(&binding)) {
+                auto surface = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                // inform the compiler of the underlying storage
+                _scratch << "\n  lc_assume(";
+                _emit_variable_name(f.arguments()[i]);
+                _scratch << ".surface.storage == " << surface.storage << ");";
+            }
+        }
     } else {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
