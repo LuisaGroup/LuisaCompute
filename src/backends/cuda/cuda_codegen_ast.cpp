@@ -423,6 +423,18 @@ private:
                 _codegen->_scratch << " = params.";
                 _codegen->_emit_variable_name(*r.cbegin());
                 _codegen->_scratch << ";\n";
+                // inform the compiler of the underlying storage if the resource is captured
+                for (auto i = 0u; i < f.bound_arguments().size(); i++) {
+                    auto binding = f.bound_arguments()[i];
+                    if (auto b = luisa::get_if<Function::TextureBinding>(&binding);
+                        b != nullptr && f.arguments()[i] == v) {
+                        auto surf = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                        _codegen->_emit_indent();
+                        _codegen->_scratch << "lc_assume(";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << ".surface.storage == " << surf.storage << ");\n";
+                    }
+                }
             }
             // captured variables through stack
             if (!captured_elements.empty() ||
