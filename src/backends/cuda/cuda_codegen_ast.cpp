@@ -7,7 +7,8 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/dsl/rtx/ray_query.h>
-#include "../common/string_scratch.h"
+
+#include "cuda_texture.h"
 #include "cuda_codegen_ast.h"
 
 namespace luisa::compute::cuda {
