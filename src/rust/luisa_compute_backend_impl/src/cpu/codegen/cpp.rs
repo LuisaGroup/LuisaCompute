@@ -895,10 +895,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::Unreachable(msg) => {
-                let msg = CString::from_vec_with_nul(msg.to_vec())
-                    .unwrap()
-                    .into_string()
-                    .unwrap();
+                let msg = msg.to_string();
                 let id = self.globals.message.len();
                 self.globals.message.push(msg);
                 if !is_type_equal(node_ty, &Type::void()) {
