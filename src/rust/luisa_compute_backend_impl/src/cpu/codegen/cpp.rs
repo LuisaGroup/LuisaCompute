@@ -612,7 +612,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::WarpActiveMin => Some("lc_warp_active_min"),
             Func::WarpActiveProduct => Some("lc_warp_active_product"),
             Func::WarpActiveSum => Some("lc_warp_active_sum"),
-            Func::WarpActiveALl => Some("lc_warp_active_all"),
+            Func::WarpActiveAll => Some("lc_warp_active_all"),
             Func::WarpActiveAny => Some("lc_warp_active_any"),
             Func::WarpActiveBitMask => Some("lc_warp_active_bit_mask"),
             Func::WarpPrefixSum => Some("lc_warp_prefix_sum"),
