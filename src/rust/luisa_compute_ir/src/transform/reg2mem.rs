@@ -17,7 +17,6 @@ struct Reg2MemCtx {
     entry: Pooled<BasicBlock>,
     locals: Vec<NodeRef>,
     phis: Vec<NodeRef>,
-    phi_to_local: HashMap<NodeRef, NodeRef>,
 }
 
 struct Reg2MemImpl {
@@ -231,7 +230,6 @@ impl Reg2MemImpl {
                 entry: module.entry.clone(),
                 locals: Vec::new(),
                 phis: Vec::new(),
-                phi_to_local: HashMap::new(),
             };
             self.ctx.replace(ctx);
             self.collect_phi_and_local_nodes(&module.entry);
