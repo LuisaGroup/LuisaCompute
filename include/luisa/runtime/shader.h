@@ -11,6 +11,7 @@
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/runtime/graph/graph_builder.h>
 
 namespace luisa::compute {
 
@@ -68,7 +69,7 @@ class LC_RUNTIME_API ShaderInvokeBase {
 
 private:
     ComputeDispatchCmdEncoder _encoder;
-
+    //const Resource *_shader_res;
 public:
     explicit ShaderInvokeBase(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept
         : _encoder{handle, arg_count, uniform_size} {}
@@ -136,7 +137,6 @@ public:
 
     // see definition in runtime/dispatch_buffer.cpp
     ShaderInvokeBase &operator<<(const IndirectDispatchBuffer &array) noexcept;
-
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) && noexcept {
         _encoder.set_dispatch_size(dispatch_size);
@@ -263,6 +263,13 @@ public:
         auto arg_count = (0u + ... + detail::shader_argument_encode_count<Args>::value);
         invoke_type invoke{handle(), arg_count, _uniform_size};
         return static_cast<invoke_type &&>((invoke << ... << args));
+    }
+    [[nodiscard]] auto operator()(
+        graph::detail::view_to_graph_shader_invocation_t<detail::prototype_to_shader_invocation_t<Args>>... args) const noexcept {
+        
+        using namespace graph;
+        eastl::array ids = {args.arg_id() ...};
+        return GraphShaderInvoke<dimension>(graph::GraphBuilder::add_kernel_node(ids, this));
     }
     [[nodiscard]] uint3 block_size() const noexcept {
         _check_is_valid();

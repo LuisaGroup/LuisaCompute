@@ -41,7 +41,7 @@
 #include "cuda_ext.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
-static const bool LUISA_CUDA_DUMP_SOURCE = ([]{
+static const bool LUISA_CUDA_DUMP_SOURCE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
