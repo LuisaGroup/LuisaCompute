@@ -1,7 +1,6 @@
 use std::{
     alloc::Layout,
-    sync::atomic::{AtomicBool, AtomicU64},
-    time::Duration,
+    sync::atomic::{AtomicU64},
 };
 
 use luisa_compute_api_types::{BindlessArrayUpdateModification, BindlessArrayUpdateOperation};

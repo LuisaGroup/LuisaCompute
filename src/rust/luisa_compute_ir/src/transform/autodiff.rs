@@ -2,7 +2,6 @@ use indexmap::{IndexMap, IndexSet};
 
 use std::ops::Deref;
 use std::{
-    borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
 };

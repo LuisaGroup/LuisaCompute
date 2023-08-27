@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use crate::ir::{BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModulePools, new_node, Node, NodeRef};
-use crate::{CArc, CBoxedSlice, NestedHashMap, Pool, Pooled};
+use crate::{CArc, CBoxedSlice, Pooled};
 use crate::transform::Transform;
 
 struct Reg2MemCtx {
@@ -50,7 +50,7 @@ impl Reg2MemImpl {
                 Instruction::Invalid => {}
                 Instruction::Const(_) => {}
                 Instruction::Update { .. } => {}
-                Instruction::Call(func, args) => {
+                Instruction::Call(func, _) => {
                     match func {
                         Func::Callable(callable) => {
                             self.transform_module(&callable.0.module);
@@ -60,21 +60,21 @@ impl Reg2MemImpl {
                 }
                 Instruction::Phi(_) => {}
                 Instruction::Return(_) => {}
-                Instruction::Loop { body, cond } => {
+                Instruction::Loop { body, cond: _ } => {
                     self.transform_recursive(body);
                 }
-                Instruction::GenericLoop { prepare, body, update, cond } => {
+                Instruction::GenericLoop { prepare, body, update, cond: _ } => {
                     self.transform_recursive(prepare);
                     self.transform_recursive(body);
                     self.transform_recursive(update);
                 }
                 Instruction::Break => {}
                 Instruction::Continue => {}
-                Instruction::If { cond, true_branch, false_branch } => {
+                Instruction::If { cond: _, true_branch, false_branch } => {
                     self.transform_recursive(true_branch);
                     self.transform_recursive(false_branch);
                 }
-                Instruction::Switch { value, cases, default } => {
+                Instruction::Switch { value: _, cases, default } => {
                     for case in cases.iter() {
                         self.transform_recursive(&case.block);
                     }
@@ -83,7 +83,7 @@ impl Reg2MemImpl {
                 Instruction::AdScope { body } => {
                     self.transform_recursive(body);
                 }
-                Instruction::RayQuery { ray_query, on_triangle_hit, on_procedural_hit } => {
+                Instruction::RayQuery { ray_query: _, on_triangle_hit, on_procedural_hit } => {
                     self.transform_recursive(on_triangle_hit);
                     self.transform_recursive(on_procedural_hit);
                 }
@@ -118,21 +118,21 @@ impl Reg2MemImpl {
                     self.ctx.as_mut().unwrap().phis.push(node.clone());
                 }
                 Instruction::Return(_) => {}
-                Instruction::Loop { body, cond } => {
+                Instruction::Loop { body, cond: _ } => {
                     self.collect_phi_and_local_nodes(body);
                 }
-                Instruction::GenericLoop { prepare, body, update, cond } => {
+                Instruction::GenericLoop { prepare, body, update, cond: _ } => {
                     self.collect_phi_and_local_nodes(prepare);
                     self.collect_phi_and_local_nodes(body);
                     self.collect_phi_and_local_nodes(update);
                 }
                 Instruction::Break => {}
                 Instruction::Continue => {}
-                Instruction::If { cond, true_branch, false_branch } => {
+                Instruction::If { cond: _, true_branch, false_branch } => {
                     self.collect_phi_and_local_nodes(true_branch);
                     self.collect_phi_and_local_nodes(false_branch);
                 }
-                Instruction::Switch { value, cases, default } => {
+                Instruction::Switch { value: _, cases, default } => {
                     for case in cases.iter() {
                         self.collect_phi_and_local_nodes(&case.block);
                     }
@@ -141,7 +141,7 @@ impl Reg2MemImpl {
                 Instruction::AdScope { body } => {
                     self.collect_phi_and_local_nodes(body);
                 }
-                Instruction::RayQuery { ray_query, on_triangle_hit, on_procedural_hit } => {
+                Instruction::RayQuery { ray_query: _, on_triangle_hit, on_procedural_hit } => {
                     self.collect_phi_and_local_nodes(on_triangle_hit);
                     self.collect_phi_and_local_nodes(on_procedural_hit);
                 }
@@ -235,6 +235,7 @@ impl Reg2MemImpl {
             };
             self.ctx.replace(ctx);
             self.collect_phi_and_local_nodes(&module.entry);
+            self.hoist_locals();
             self.ctx = None;
             // recursively transform the callees
             self.transform_recursive(&module.entry);

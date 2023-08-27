@@ -1,18 +1,18 @@
-use std::ffi::{CStr, CString};
-use std::fmt::{Debug, Display};
+use std::ffi::{CStr};
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use crate::proxy::ProxyBackend;
-use api::{CreatedSwapchainInfo, PixelFormat};
+use api::{PixelFormat};
 use libc::{c_char, c_void};
-use libloading::Library;
+
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
     ir::{self, KernelModule},
-    CArc, CArcSharedBlock,
+    CArc,
 };
 
 pub mod proxy;

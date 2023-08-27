@@ -3,7 +3,6 @@ use crate::{
     ir::{Instruction, Module, NodeRef, SwitchCase, Type},
 };
 use std::collections::HashMap;
-use std::ffi::CString;
 
 pub struct DisplayIR {
     output: String,

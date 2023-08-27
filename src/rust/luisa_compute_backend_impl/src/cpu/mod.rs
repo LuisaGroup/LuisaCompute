@@ -1,6 +1,6 @@
 // A Rust implementation of LuisaCompute backend.
 #![allow(non_snake_case)]
-use std::{cell::RefCell, sync::Arc};
+use std::{sync::Arc};
 
 use self::{
     accel::{AccelImpl, GeometryImpl},
@@ -11,7 +11,7 @@ use self::{
 use super::Backend;
 use crate::{cpu::llvm::LLVM_PATH, SwapChainForCpuContext};
 use crate::{cpu::shader::clang_args, panic_abort};
-use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
+use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo};
 use libc::c_void;
 use log::debug;
 use luisa_compute_api_types as api;

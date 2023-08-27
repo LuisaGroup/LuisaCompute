@@ -4,7 +4,7 @@ mod cpu;
 mod remote;
 
 use libloading::Library;
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{Level, LevelFilter, Metadata, Record};
 use luisa_compute_api_types as api;
 use luisa_compute_api_types::DeviceInterface;
 use luisa_compute_backend::create_device_interface;
@@ -14,7 +14,7 @@ use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::panic::Location;
 use std::path::{Path, PathBuf};
-use std::process::{abort, exit};
+use std::process::{exit};
 use std::sync::Arc;
 
 pub struct SwapChainForCpuContext {
@@ -182,7 +182,7 @@ extern "C" fn destroy_context(ctx: api::Context) {
 unsafe extern "C" fn create_device(
     ctx: api::Context,
     device: *const c_char,
-    config: *const c_char,
+    _config: *const c_char,// TODO: respect config
 ) -> DeviceInterface {
     let device = CStr::from_ptr(device).to_str().unwrap();
     // let config = CStr::from_ptr(config).to_str().unwrap();

@@ -10,7 +10,7 @@ use luisa_compute_ir::{
     context::is_type_equal,
     ir::{self, *},
     transform::autodiff::grad_type_of,
-    CArc, CBoxedSlice, Pooled,
+    CArc, Pooled,
 };
 
 use super::sha256_short;
