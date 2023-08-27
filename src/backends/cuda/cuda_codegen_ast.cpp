@@ -424,6 +424,7 @@ private:
                 _codegen->_emit_variable_name(*r.cbegin());
                 _codegen->_scratch << ";\n";
                 // inform the compiler of the underlying storage if the resource is captured
+                // Note: this is O(n^2) but we should not have that many resources
                 for (auto i = 0u; i < f.bound_arguments().size(); i++) {
                     auto binding = f.bound_arguments()[i];
                     if (auto b = luisa::get_if<Function::TextureBinding>(&binding);
