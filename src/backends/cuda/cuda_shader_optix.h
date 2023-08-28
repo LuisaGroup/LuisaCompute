@@ -21,11 +21,7 @@ private:
     size_t _argument_buffer_size{};
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
-    optix::ProgramGroup _program_group_ch_closest{};
-    optix::ProgramGroup _program_group_ch_query{};
-    optix::ProgramGroup _program_group_miss_closest{};
-    optix::ProgramGroup _program_group_miss_any{};
-    optix::ProgramGroup _program_group_miss_query{};
+    optix::ProgramGroup _program_group_ray_query{};
     optix::Pipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     CUdeviceptr _sbt_buffer{};
@@ -34,6 +30,7 @@ private:
     [[nodiscard]] optix::ShaderBindingTable _make_sbt() const noexcept;
     void _do_launch(CUstream stream, CUdeviceptr argument_buffer, uint3 dispatch_size) const noexcept;
     void _do_launch_indirect(CUstream stream, CUdeviceptr argument_buffer,
+                             size_t dispatch_offset, size_t dispatch_count,
                              const IndirectParameters *indirect_buffer_device,
                              const IndirectParameters *indirect_params_readback) const noexcept;
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;

@@ -411,6 +411,10 @@ public:
         return (void *)device.device._0;
     }
 
+    uint compute_warp_size() const noexcept override {
+        LUISA_NOT_IMPLEMENTED();
+    }
+
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override {
         auto type = AST2IR::build_type(element);
         return create_buffer(&type, elem_count);

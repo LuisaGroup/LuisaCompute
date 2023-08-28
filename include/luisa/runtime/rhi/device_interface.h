@@ -39,7 +39,7 @@ public:
 struct DeviceConfig {
     mutable luisa::unique_ptr<DeviceConfigExt> extension;
     const BinaryIO *binary_io{nullptr};
-    size_t device_index{0ull};
+    size_t device_index{std::numeric_limits<size_t>::max()};
     bool inqueue_buffer_limit{true};
     bool headless{false};
 };
@@ -67,8 +67,7 @@ public:
 
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
-    [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
-    [[nodiscard]] virtual uint compute_warp_size() const noexcept { return 0; }
+    [[nodiscard]] virtual uint compute_warp_size() const noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
@@ -144,7 +143,7 @@ public:
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture
-    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept { return ResourceCreationInfo::make_invalid(); }
+    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept { return ResourceCreationInfo::make_invalid(); }
     virtual void deallocate_sparse_texture_heap(uint64_t handle) noexcept {}
     [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,

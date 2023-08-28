@@ -32,7 +32,9 @@ enum struct PixelStorage : uint32_t {
     FLOAT1,
     FLOAT2,
     FLOAT4,
-
+    BC1,
+    BC2,
+    BC3,
     BC4,
     BC5,
     BC6,
@@ -83,6 +85,9 @@ enum struct PixelFormat : uint32_t {
     RG32F,
     RGBA32F,
 
+    BC1UNorm,
+    BC2UNorm,
+    BC3UNorm,
     BC4UNorm,
     BC5UNorm,
     BC6HUF16,
@@ -95,13 +100,13 @@ constexpr auto pixel_storage_count = to_underlying(PixelStorage::BC7) + 1u;
 constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
 
 [[nodiscard]] constexpr auto is_block_compressed(PixelStorage s) noexcept {
-    return s == PixelStorage::BC4 || s == PixelStorage::BC5 ||
-           s == PixelStorage::BC6 || s == PixelStorage::BC7;
+    return luisa::to_underlying(s) >= luisa::to_underlying(PixelStorage::BC1) &&
+           luisa::to_underlying(s) <= luisa::to_underlying(PixelStorage::BC7);
 }
 
 [[nodiscard]] constexpr auto is_block_compressed(PixelFormat f) noexcept {
-    return f == PixelFormat::BC4UNorm || f == PixelFormat::BC5UNorm ||
-           f == PixelFormat::BC6HUF16 || f == PixelFormat::BC7UNorm;
+    return luisa::to_underlying(f) >= luisa::to_underlying(PixelFormat::BC1UNorm) &&
+           luisa::to_underlying(f) <= luisa::to_underlying(PixelFormat::BC7UNorm);
 }
 
 [[nodiscard]] constexpr auto pixel_format_to_storage(PixelFormat format) noexcept {
@@ -159,6 +164,12 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
             return PixelStorage::BC5;
         case PixelFormat::BC4UNorm:
             return PixelStorage::BC4;
+        case PixelFormat::BC3UNorm:
+            return PixelStorage::BC3;
+        case PixelFormat::BC2UNorm:
+            return PixelStorage::BC2;
+        case PixelFormat::BC1UNorm:
+            return PixelStorage::BC1;
         default:
             break;
     }
@@ -171,9 +182,12 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
         auto block_height = (size.y + 3u) / 4u;
         auto block_count = block_width * block_height * std::max(size.z, 1u);
         switch (storage) {
+            case PixelStorage::BC1:
             case PixelStorage::BC4: return block_count * 8u;
-            case PixelStorage::BC5: return block_count * 16u;
-            case PixelStorage::BC6: return block_count * 16u;
+            case PixelStorage::BC2:
+            case PixelStorage::BC3:
+            case PixelStorage::BC5:
+            case PixelStorage::BC6:
             case PixelStorage::BC7: return block_count * 16u;
             default: break;
         }
@@ -218,9 +232,13 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
         case PixelStorage::FLOAT1: return 1u;
         case PixelStorage::FLOAT2: return 2u;
         case PixelStorage::FLOAT4: return 4u;
+
         case PixelStorage::BC4: return 1u;
         case PixelStorage::BC5: return 2u;
+        case PixelStorage::BC1:
         case PixelStorage::BC6: return 3u;
+        case PixelStorage::BC2:
+        case PixelStorage::BC3:
         case PixelStorage::BC7: return 4u;
         default: break;
     }
@@ -243,6 +261,9 @@ template<typename T>
             case PixelStorage::FLOAT1: return PixelFormat::R32F;
             case PixelStorage::FLOAT2: return PixelFormat::RG32F;
             case PixelStorage::FLOAT4: return PixelFormat::RGBA32F;
+            case PixelStorage::BC1: return PixelFormat ::BC1UNorm;
+            case PixelStorage::BC2: return PixelFormat ::BC2UNorm;
+            case PixelStorage::BC3: return PixelFormat ::BC3UNorm;
             case PixelStorage::BC4: return PixelFormat ::BC4UNorm;
             case PixelStorage::BC5: return PixelFormat ::BC5UNorm;
             case PixelStorage::BC6: return PixelFormat ::BC6HUF16;

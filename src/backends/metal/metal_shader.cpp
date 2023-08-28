@@ -76,7 +76,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             case Argument::Tag::BUFFER: {
                 if (reinterpret_cast<const MetalBufferBase *>(arg.buffer.handle)->is_indirect()) {
                     auto buffer = reinterpret_cast<const MetalIndirectDispatchBuffer *>(arg.buffer.handle);
-                    auto binding = buffer->binding();
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
                     copy(&binding, sizeof(binding));
                 } else {
                     auto buffer = reinterpret_cast<const MetalBuffer *>(arg.buffer.handle);
@@ -152,8 +152,9 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 
     if (command->is_indirect()) {
 
-        auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(
-            command->indirect_dispatch().handle);
+        auto indirect = command->indirect_dispatch();
+        auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(indirect.handle);
+        auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
 
         for (auto arg : _bound_arguments) { encode(arg); }
         for (auto arg : command->arguments()) { encode(arg); }
@@ -168,12 +169,14 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             struct ICB {
                 uint64_t dispatch_buffer;
-                size_t command_buffer_capacity;
+                uint command_buffer_offset;
+                uint command_buffer_capacity;
                 MTL::ResourceID command_buffer;
                 MTL::ResourceID pipeline_state;
             };
-            ICB icb{.dispatch_buffer = indirect_buffer->dispatch_buffer()->gpuAddress(),
-                    .command_buffer_capacity = indirect_buffer->capacity(),
+            ICB icb{.dispatch_buffer = indirect_binding.address,
+                    .command_buffer_offset = indirect_binding.offset,
+                    .command_buffer_capacity = indirect_binding.capacity,
                     .command_buffer = indirect_buffer->command_buffer()->gpuResourceID(),
                     .pipeline_state = _handle.indirect_entry->gpuResourceID()};
             command_encoder->setComputePipelineState(_prepare_indirect);
@@ -182,7 +185,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             command_encoder->useResource(indirect_buffer->command_buffer(), MTL::ResourceUsageWrite);
             command_encoder->setBytes(argument_buffer.data(), argument_size, 1u);
             constexpr auto block_size = MetalDevice::prepare_indirect_dispatches_block_size;
-            auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+            auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
             command_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u}, MTL::Size{block_size, 1u, 1u});
             command_encoder->endEncoding();
 
@@ -200,7 +203,8 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             if (_name) { compute_encoder->setLabel(_name); }
         }
         compute_encoder->executeCommandsInBuffer(indirect_buffer->command_buffer(),
-                                                 indirect_buffer->dispatch_buffer(), 0u);
+                                                 NS::Range::Make(indirect_binding.offset,
+                                                                 indirect_binding.capacity - indirect_binding.offset));
         for (auto arg : _bound_arguments) { mark_usage(compute_encoder, arg); }
         for (auto arg : command->arguments()) { mark_usage(compute_encoder, arg); }
         compute_encoder->endEncoding();

@@ -1,8 +1,9 @@
 use luisa_compute_api_types::PixelStorage;
-use parking_lot::RwLock;
+
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 const BLOCK_SIZE: usize = 4;
+
 pub struct TextureImpl {
     pub(crate) data: *mut u8,
     pub(crate) data_size: usize,
@@ -14,8 +15,11 @@ pub struct TextureImpl {
     pub(crate) storage: PixelStorage,
     layout: std::alloc::Layout,
 }
+
 unsafe impl Send for TextureImpl {}
+
 unsafe impl Sync for TextureImpl {}
+
 impl Drop for TextureImpl {
     fn drop(&mut self) {
         unsafe {
@@ -23,9 +27,10 @@ impl Drop for TextureImpl {
         }
     }
 }
+
 impl TextureImpl {
     pub(super) fn new(dimension: u8, size: [u32; 3], storage: PixelStorage,
-                      levels: u8, allow_simultaneous_access: bool) -> Self {
+                      levels: u8, _allow_simultaneous_access: bool) -> Self {
         let pixel_size = storage.size();
         let pixel_stride_shift = match pixel_size {
             1 => 0,
@@ -115,6 +120,7 @@ impl TextureImpl {
         }
     }
 }
+
 #[derive(Debug)]
 pub(crate) struct TextureView {
     pub(crate) data: *mut u8,
@@ -122,8 +128,11 @@ pub(crate) struct TextureView {
     pub(crate) pixel_stride_shift: usize,
     pub(crate) data_size: usize,
 }
+
 unsafe impl Send for TextureView {}
+
 unsafe impl Sync for TextureView {}
+
 impl TextureView {
     pub(crate) fn unpadded_data_size(&self) -> usize {
         self.size[0] as usize
@@ -175,13 +184,11 @@ impl TextureView {
                     let (x, y) = (i % self.size[0], i / self.size[0]);
                     let data = data_ptr as *mut u8;
                     let dst = self.get_pixel_2d(x, y);
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            dst,
-                            data.add(i as usize * (1 << self.pixel_stride_shift)),
-                            1 << self.pixel_stride_shift,
-                        );
-                    }
+                    std::ptr::copy_nonoverlapping(
+                        dst,
+                        data.add(i as usize * (1 << self.pixel_stride_shift)),
+                        1 << self.pixel_stride_shift,
+                    );
                 });
             data.set_len(self.unpadded_data_size());
             data

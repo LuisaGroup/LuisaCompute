@@ -48,3 +48,7 @@ Pooled<BasicBlock> IrBuilder::finish(IrBuilder &&builder) noexcept {
     auto block = luisa_compute_ir_build_finish(builder._inner);
     return luisa::bit_cast<Pooled<BasicBlock>>(block);
 }
+
+void IrBuilder::set_insert_point(const NodeRef &node) noexcept {
+    raw::luisa_compute_ir_builder_set_insert_point(&_inner, node._inner);
+}

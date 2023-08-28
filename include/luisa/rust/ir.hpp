@@ -225,7 +225,6 @@ struct CallableModule {
     CArc<Type> ret_type;
     CBoxedSlice<NodeRef> args;
     CBoxedSlice<Capture> captures;
-    CBoxedSlice<CallableModuleRef> callables;
     CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
     CArc<ModulePools> pools;
 };
@@ -242,6 +241,8 @@ struct Func {
         Assert,
         ThreadId,
         BlockId,
+        WarpSize,
+        WarpLaneId,
         DispatchId,
         DispatchSize,
         RequiresGradient,
@@ -266,8 +267,8 @@ struct Func {
         RayQueryCommitProcedural,
         RayQueryTerminate,
         RasterDiscard,
-        IndirectClearDispatchBuffer,
-        IndirectEmplaceDispatchKernel,
+        IndirectDispatchSetCount,
+        IndirectDispatchSetKernel,
         /// When referencing a Local in Call, it is always interpreted as a load
         /// However, there are cases you want to do this explicitly
         Load,
@@ -359,6 +360,25 @@ struct Func {
         Determinant,
         Transpose,
         Inverse,
+        WarpIsFirstActiveLane,
+        WarpFirstActiveLane,
+        WarpActiveAllEqual,
+        WarpActiveBitAnd,
+        WarpActiveBitOr,
+        WarpActiveBitXor,
+        WarpActiveCountBits,
+        WarpActiveMax,
+        WarpActiveMin,
+        WarpActiveProduct,
+        WarpActiveSum,
+        WarpActiveAll,
+        WarpActiveAny,
+        WarpActiveBitMask,
+        WarpPrefixCountBits,
+        WarpPrefixSum,
+        WarpPrefixProduct,
+        WarpReadLaneAt,
+        WarpReadFirstLane,
         SynchronizeBlock,
         /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
         AtomicExchange,
@@ -445,6 +465,7 @@ struct Func {
         Mat4,
         Callable,
         CpuCustomOp,
+        ShaderExecutionReorder,
         Unknown0,
         Unknown1,
     };
@@ -721,7 +742,6 @@ struct KernelModule {
     CBoxedSlice<NodeRef> args;
     CBoxedSlice<NodeRef> shared;
     CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    CBoxedSlice<CallableModuleRef> callables;
     uint32_t block_size[3];
     CArc<ModulePools> pools;
 };
@@ -795,7 +815,7 @@ CArcSharedBlock<BlockModule> *luisa_compute_ir_new_block_module(BlockModule m);
 
 IrBuilder luisa_compute_ir_new_builder(CArc<ModulePools> pools);
 
-CallableModuleRef luisa_compute_ir_new_callable_module(CallableModule m);
+CArcSharedBlock<CallableModule> *luisa_compute_ir_new_callable_module(CallableModule m);
 
 CArcSharedBlock<Instruction> *luisa_compute_ir_new_instruction(Instruction inst);
 
@@ -827,6 +847,8 @@ void luisa_compute_ir_transform_pipeline_destroy(TransformPipeline *pipeline);
 TransformPipeline *luisa_compute_ir_transform_pipeline_new();
 
 Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline, Module module);
+
+size_t luisa_compute_ir_type_alignment(const CArc<Type> *ty);
 
 size_t luisa_compute_ir_type_size(const CArc<Type> *ty);
 

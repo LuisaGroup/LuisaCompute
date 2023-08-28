@@ -3,10 +3,13 @@
 #include <luisa/runtime/buffer.h>
 
 namespace luisa::compute {
+
 namespace detail {
 class ByteBufferExprProxy;
-};// namespace detail
+}// namespace detail
+
 class LC_RUNTIME_API ByteBuffer final : public Resource {
+
 private:
     size_t _size_bytes{};
 
@@ -70,9 +73,11 @@ public:
         return reinterpret_cast<const detail::ByteBufferExprProxy *>(this);
     }
 };
+
 namespace detail {
 LC_RUNTIME_API void error_buffer_size_not_aligned(size_t align) noexcept;
 template<>
 struct is_buffer_impl<ByteBuffer> : std::true_type {};
 }// namespace detail
+
 }// namespace luisa::compute

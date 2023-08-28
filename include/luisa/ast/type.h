@@ -127,6 +127,16 @@ struct canonical_layout<float> {
 };
 
 template<>
+struct canonical_layout<half> {
+    using type = std::tuple<half>;
+};
+
+template<>
+struct canonical_layout<double> {
+    using type = std::tuple<double>;
+};
+
+template<>
 struct canonical_layout<bool> {
     using type = std::tuple<bool>;
 };
@@ -139,6 +149,26 @@ struct canonical_layout<int> {
 template<>
 struct canonical_layout<uint> {
     using type = std::tuple<uint>;
+};
+
+template<>
+struct canonical_layout<short> {
+    using type = std::tuple<short>;
+};
+
+template<>
+struct canonical_layout<ushort> {
+    using type = std::tuple<ushort>;
+};
+
+template<>
+struct canonical_layout<slong> {
+    using type = std::tuple<slong>;
+};
+
+template<>
+struct canonical_layout<ulong> {
+    using type = std::tuple<ulong>;
 };
 
 template<typename T>

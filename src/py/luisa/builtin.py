@@ -8,6 +8,16 @@ from types import SimpleNamespace
 import ast
 from .struct import StructType
 
+def _check_vector_types(*args):
+    len = 1
+    for i in args:
+        len_i = length_of(i.dtype)
+        if len_i == 1:
+            continue
+        if len == 1:
+            len = len_i
+        assert(len == len_i)
+    return len
 
 def wrap_with_tmp_var(node):
     tmp = lcapi.builder().local(to_lctype(node.dtype))
@@ -189,7 +199,7 @@ builtin_func_names = {
     'set_block_size',
     'sync_block',
     'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
-    'kernel_id', 'object_id',
+    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id',
     'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
     'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
     'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
@@ -390,7 +400,7 @@ def _custom_xx_id(name, *args):
     return dtype, expr
 
 
-for _func in 'kernel_id', 'object_id':
+for _func in 'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id':
     _func_map[_func] = _custom_xx_id
 
 
@@ -573,8 +583,7 @@ _func_map["cross"] = _cross
 
 
 def _lerp(name, *args):
-    t_len = length_of(args[2].dtype)
-    assert len(args) == 3 and (args[0].dtype == args[1].dtype) and (length_of(args[0].dtype) == t_len or t_len == 1)
+    assert len(args) == 3 and (element_of(args[0].dtype) == element_of(args[1].dtype))
     return make_vector_call(element_of(args[0].dtype), getattr(lcapi.CallOp, name.upper()), args)
 
 
@@ -586,10 +595,12 @@ def _select(name, *args):
     bool_vec_len = length_of(args[2].dtype)
     assert len(args) == 3 and \
            args[2].dtype in {bool, bool2, bool3, bool4} and \
-           args[0].dtype == args[1].dtype and \
            args[0].dtype in scalar_and_vector_dtypes and \
-           (length_of(args[0].dtype) == bool_vec_len or bool_vec_len == 1)
-    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
+           element_of(args[0].dtype) == element_of(args[1].dtype)
+    vec_len = _check_vector_types(*args)
+    dtype = vector(element_of(args[0].dtype), vec_len)
+        #    ( == bool_vec_len or bool_vec_len == 1)
+    return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
 
 
 _func_map["select"] = _select
@@ -775,16 +786,6 @@ def callable_call(func, *args):
         return dtype, lcapi.builder().call(to_lctype(dtype), f.function, exprs)
 
 @BuiltinFuncBuilder
-def warp_lane_count():
-    op = lcapi.CallOp.WARP_LANE_COUNT
-    return uint, lcapi.builder().call(to_lctype(uint), op, [])
-
-@BuiltinFuncBuilder
-def warp_lane_index():
-    op = lcapi.CallOp.WARP_LANE_INDEX
-    return uint, lcapi.builder().call(to_lctype(uint), op, [])
-
-@BuiltinFuncBuilder
 def warp_is_first_active_lane():
     op = lcapi.CallOp.WARP_IS_FIRST_ACTIVE_LANE
     return bool, lcapi.builder().call(to_lctype(bool), op, [])
@@ -809,21 +810,80 @@ def warp_active_bit_or(value):
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
 
 @BuiltinFuncBuilder
-def warp_active_bit_or(value):
+def warp_active_bit_xor(value):
     assert value.dtype in integer_scalar_vector_dtypes
     op = lcapi.CallOp.WARP_ACTIVE_BIT_XOR
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
-# TODO:
-# WARP_ACTIVE_COUNT_BITS, // (bool): uint
-# WARP_ACTIVE_MAX, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_MIN, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_PRODUCT, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_SUM, // (type: scalar/vector/matrix): type
-# WARP_ACTIVE_ALL, // (bool): bool
-# WARP_ACTIVE_ANY, // (bool): bool
-# WARP_ACTIVE_BIT_MASK, // (bool): uint4 (uint4 contained 128-bit)
-# WARP_PREFIX_COUNT_BITS, // (bool): uint (count bits before this lane)
-# WARP_PREFIX_SUM, // (bool): uint (count bits before this lane)
-# WARP_PREFIX_PRODUCT, // (bool): uint (count bits before this lane)
-# WARP_READ_LANE_AT, // (type, index: uint): type (read this variable's value at this lane)
-# WARP_READ_FIRST_LANE, // (type, index: uint): type (read this variable's value at first lane)
+
+@BuiltinFuncBuilder
+def warp_active_count_bits(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_COUNT_BITS
+    return uint, lcapi.builder().call(to_lctype(uint), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_active_max(value):
+    assert value.dtype in scalar_and_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_MAX
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_active_min(value):
+    assert value.dtype in scalar_and_vector_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_MIN
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_product(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_PRODUCT
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_sum(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_ACTIVE_SUM
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_all(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_ALL
+    return bool, lcapi.builder().call(to_lctype(bool), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_any(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_ANY
+    return bool, lcapi.builder().call(to_lctype(bool), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_active_bitmask(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_ACTIVE_BIT_MASK
+    return uint4, lcapi.builder().call(to_lctype(uint4), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_prefix_count_bits(value):
+    assert value.dtype == bool
+    op = lcapi.CallOp.WARP_PREFIX_COUNT_BITS
+    return uint, lcapi.builder().call(to_lctype(uint), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_prefix_product(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_PREFIX_PRODUCT
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+
+@BuiltinFuncBuilder
+def warp_prefix_sum(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_PREFIX_SUM
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
+@BuiltinFuncBuilder
+def warp_read_lane(value, index):
+    assert value.dtype in basic_dtypes and index.dtype in {int, uint, short, ushort, long, ulong}
+    op = lcapi.CallOp.WARP_READ_LANE
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr, index.expr])
+
+@BuiltinFuncBuilder
+def warp_read_first_lane(value):
+    assert value.dtype in basic_dtypes
+    op = lcapi.CallOp.WARP_READ_FIRST_ACTIVE_LANE
+    return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])

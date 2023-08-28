@@ -19,7 +19,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 libm = "0.2.6"
 base64ct = { version = "1.5.0", features = ["alloc"] }
-indexmap = "1.9.2"
+indexmap = "2.0.0"
 luisa_compute_api_types = { path = "../luisa_compute_api_types" }
 luisa_compute_cpu_kernel_defs = { path = "../luisa_compute_cpu_kernel_defs" }
 luisa_compute_ir = { path = "../luisa_compute_ir" }
@@ -27,7 +27,6 @@ bumpalo = "3.12.1"
 half = { version = "2.3.1", features = ["std", "serde", "num-traits", "zerocopy"] }
 
 [features]
-
 default = ["cpu"]
 cpu = ["embree_sys"]
 remote = []
@@ -36,10 +35,3 @@ remote = []
 [lib]
 crate-type = ["cdylib"]
 name = "luisa_compute_backend_impl"
-
-[profile.release]
-panic = 'abort'
-
-[profile.dev]
-panic = 'abort'
-incremental = true

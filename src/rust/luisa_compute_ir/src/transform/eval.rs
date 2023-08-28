@@ -59,7 +59,7 @@ impl Value {
             Self::Array(fields) => fields[i].clone(),
         }
     }
-    fn insert(&self, i: usize, v: Value, builder: &mut IrBuilder) -> Value {
+    fn insert(&self, i: usize, v: Value, _builder: &mut IrBuilder) -> Value {
         match self {
             Self::Unit | Self::Primitive(_) => panic!("cannot insert into {:?}", self),
             Self::Vector(vs) => {
@@ -290,7 +290,7 @@ impl EvaluatorImpl {
     }
     fn _eval_node(&mut self, node: NodeRef, builder: &mut IrBuilder) -> Value {
         let inst = node.get().instruction.as_ref();
-        let ty = node.type_();
+        let _ty = node.type_();
         match inst {
             Instruction::Const(_) => self.destruct(node, builder),
             Instruction::Call(f, args) => {

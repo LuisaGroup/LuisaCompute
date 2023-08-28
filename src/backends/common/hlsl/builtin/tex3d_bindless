@@ -1,5 +1,5 @@
 template<typename T>
-uint _ReadBdlsTex2DNum(StructuredBuffer<uint> s,T idx){
+uint _ReadBdlsTex3DNum(StructuredBuffer<uint> s,T idx){
 return s[idx*3+2];
 }
 template<typename T>

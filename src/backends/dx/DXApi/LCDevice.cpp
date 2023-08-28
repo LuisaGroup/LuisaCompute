@@ -131,16 +131,7 @@ ResourceCreationInfo LCDevice::create_texture(
     uint height,
     uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
-    bool allowUAV = true;
-    switch (format) {
-        case PixelFormat::BC4UNorm:
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-            allowUAV = false;
-            break;
-        default: break;
-    }
+    bool allowUAV = !is_block_compressed(format);
     ResourceCreationInfo info;
     auto res = new RenderTexture(
         &nativeDevice,
@@ -617,16 +608,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
-    bool allowUAV = true;
-    switch (format) {
-        case PixelFormat::BC4UNorm:
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-            allowUAV = false;
-            break;
-        default: break;
-    }
+    bool allowUAV = !is_block_compressed(format);
     SparseTextureCreationInfo info;
     auto res = new SparseTexture(
         &nativeDevice,
@@ -739,9 +721,9 @@ void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
 }
-ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) noexcept {
+ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, true);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, !is_compressed_type);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);

@@ -10,7 +10,7 @@ use luisa_compute_ir::{
     context::is_type_equal,
     ir::{self, *},
     transform::autodiff::grad_type_of,
-    CArc, CBoxedSlice, Pooled,
+    CArc, Pooled,
 };
 
 use super::sha256_short;
@@ -600,6 +600,25 @@ impl<'a> FunctionEmitter<'a> {
             Func::Lerp => Some("lc_lerp"),
             Func::Step => Some("lc_step"),
             Func::SmoothStep => Some("lc_smoothstep"),
+            Func::SynchronizeBlock => Some("lc_synchronize_block"),
+            Func::WarpIsFirstActiveLane => Some("lc_warp_is_first_active_lane"),
+            Func::WarpFirstActiveLane => Some("lc_warp_first_active_lane"),
+            Func::WarpActiveAllEqual => Some("lc_warp_active_all_equal"),
+            Func::WarpActiveBitAnd => Some("lc_warp_active_bit_and"),
+            Func::WarpActiveBitOr => Some("lc_warp_active_bit_or"),
+            Func::WarpActiveBitXor => Some("lc_warp_active_bit_xor"),
+            Func::WarpActiveCountBits => Some("lc_warp_active_count_bits"),
+            Func::WarpActiveMax => Some("lc_warp_active_max"),
+            Func::WarpActiveMin => Some("lc_warp_active_min"),
+            Func::WarpActiveProduct => Some("lc_warp_active_product"),
+            Func::WarpActiveSum => Some("lc_warp_active_sum"),
+            Func::WarpActiveAll => Some("lc_warp_active_all"),
+            Func::WarpActiveAny => Some("lc_warp_active_any"),
+            Func::WarpActiveBitMask => Some("lc_warp_active_bit_mask"),
+            Func::WarpPrefixSum => Some("lc_warp_prefix_sum"),
+            Func::WarpPrefixProduct => Some("lc_warp_prefix_product"),
+            Func::WarpReadLaneAt => Some("lc_warp_read_lane_at"),
+            Func::WarpReadFirstLane => Some("lc_warp_read_first_lane"),
             _ => None,
         };
         if let Some(func) = func {
@@ -871,11 +890,12 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
                 true
             }
+            Func::ShaderExecutionReorder=> {
+                writeln!(&mut self.body, "lc_shader_execution_reorder({});", args_v.join(", ")).unwrap();
+                true
+            }
             Func::Unreachable(msg) => {
-                let msg = CString::from_vec_with_nul(msg.to_vec())
-                    .unwrap()
-                    .into_string()
-                    .unwrap();
+                let msg = msg.to_string();
                 let id = self.globals.message.len();
                 self.globals.message.push(msg);
                 if !is_type_equal(node_ty, &Type::void()) {

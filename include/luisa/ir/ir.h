@@ -15,12 +15,17 @@ public:
         raw::VectorElementType::Scalar_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::VectorElementType::Tag::Scalar; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Vector : Marker, concepts::Noncopyable {
         raw::VectorElementType::Vector_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::VectorElementType::Tag::Vector; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+public:
+    [[nodiscard]] auto tag() const noexcept { return _inner.tag; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     template<class T>
     [[nodiscard]] bool isa() const noexcept {
         static_assert(std::is_base_of_v<Marker, T>);
@@ -77,6 +82,8 @@ class LC_IR_API VectorType : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const VectorElementType &element() const noexcept;
     [[nodiscard]] const uint32_t &length() const noexcept;
 };
@@ -117,6 +124,8 @@ class LC_IR_API MatrixType : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const VectorElementType &element() const noexcept;
     [[nodiscard]] const uint32_t &dimension() const noexcept;
 };
@@ -157,6 +166,8 @@ class LC_IR_API StructType : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] luisa::span<const CArc<Type>> fields() const noexcept;
     [[nodiscard]] const size_t &alignment() const noexcept;
     [[nodiscard]] const size_t &size() const noexcept;
@@ -198,6 +209,8 @@ class LC_IR_API ArrayType : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const CArc<Type> &element() const noexcept;
     [[nodiscard]] const size_t &length() const noexcept;
 };
@@ -256,32 +269,41 @@ public:
         raw::Type::Primitive_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Primitive; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Vector : Marker, concepts::Noncopyable {
         raw::Type::Vector_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Vector; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Matrix : Marker, concepts::Noncopyable {
         raw::Type::Matrix_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Matrix; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Struct : Marker, concepts::Noncopyable {
         raw::Type::Struct_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Struct; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Array : Marker, concepts::Noncopyable {
         raw::Type::Array_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Array; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Opaque : Marker, concepts::Noncopyable {
         raw::Type::Opaque_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Type::Tag::Opaque; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+public:
+    [[nodiscard]] auto tag() const noexcept { return _inner.tag; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     template<class T>
     [[nodiscard]] bool isa() const noexcept {
         static_assert(std::is_base_of_v<Marker, T>);
@@ -350,6 +372,8 @@ class LC_IR_API Node : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const CArc<Type> &type_() const noexcept;
     [[nodiscard]] const NodeRef &next() const noexcept;
     [[nodiscard]] const NodeRef &prev() const noexcept;
@@ -410,11 +434,13 @@ public:
         raw::Func::Unreachable_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Unreachable; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Assert : Marker, concepts::Noncopyable {
         raw::Func::Assert_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Assert; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API ThreadId : Marker, concepts::Noncopyable {
         uint8_t _pad;
@@ -428,6 +454,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::BlockId; }
     };
     explicit Func(Func::BlockId _) noexcept { _inner.tag = BlockId::tag(); }
+    class LC_IR_API WarpSize : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpSize; }
+    };
+    explicit Func(Func::WarpSize _) noexcept { _inner.tag = WarpSize::tag(); }
+    class LC_IR_API WarpLaneId : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpLaneId; }
+    };
+    explicit Func(Func::WarpLaneId _) noexcept { _inner.tag = WarpLaneId::tag(); }
     class LC_IR_API DispatchId : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -572,18 +610,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::RasterDiscard; }
     };
     explicit Func(Func::RasterDiscard _) noexcept { _inner.tag = RasterDiscard::tag(); }
-    class LC_IR_API IndirectClearDispatchBuffer : Marker, concepts::Noncopyable {
+    class LC_IR_API IndirectDispatchSetCount : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
-        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectClearDispatchBuffer; }
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectDispatchSetCount; }
     };
-    explicit Func(Func::IndirectClearDispatchBuffer _) noexcept { _inner.tag = IndirectClearDispatchBuffer::tag(); }
-    class LC_IR_API IndirectEmplaceDispatchKernel : Marker, concepts::Noncopyable {
+    explicit Func(Func::IndirectDispatchSetCount _) noexcept { _inner.tag = IndirectDispatchSetCount::tag(); }
+    class LC_IR_API IndirectDispatchSetKernel : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
-        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectEmplaceDispatchKernel; }
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectDispatchSetKernel; }
     };
-    explicit Func(Func::IndirectEmplaceDispatchKernel _) noexcept { _inner.tag = IndirectEmplaceDispatchKernel::tag(); }
+    explicit Func(Func::IndirectDispatchSetKernel _) noexcept { _inner.tag = IndirectDispatchSetKernel::tag(); }
     class LC_IR_API Load : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1118,6 +1156,120 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Inverse; }
     };
     explicit Func(Func::Inverse _) noexcept { _inner.tag = Inverse::tag(); }
+    class LC_IR_API WarpIsFirstActiveLane : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpIsFirstActiveLane; }
+    };
+    explicit Func(Func::WarpIsFirstActiveLane _) noexcept { _inner.tag = WarpIsFirstActiveLane::tag(); }
+    class LC_IR_API WarpFirstActiveLane : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpFirstActiveLane; }
+    };
+    explicit Func(Func::WarpFirstActiveLane _) noexcept { _inner.tag = WarpFirstActiveLane::tag(); }
+    class LC_IR_API WarpActiveAllEqual : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveAllEqual; }
+    };
+    explicit Func(Func::WarpActiveAllEqual _) noexcept { _inner.tag = WarpActiveAllEqual::tag(); }
+    class LC_IR_API WarpActiveBitAnd : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitAnd; }
+    };
+    explicit Func(Func::WarpActiveBitAnd _) noexcept { _inner.tag = WarpActiveBitAnd::tag(); }
+    class LC_IR_API WarpActiveBitOr : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitOr; }
+    };
+    explicit Func(Func::WarpActiveBitOr _) noexcept { _inner.tag = WarpActiveBitOr::tag(); }
+    class LC_IR_API WarpActiveBitXor : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitXor; }
+    };
+    explicit Func(Func::WarpActiveBitXor _) noexcept { _inner.tag = WarpActiveBitXor::tag(); }
+    class LC_IR_API WarpActiveCountBits : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveCountBits; }
+    };
+    explicit Func(Func::WarpActiveCountBits _) noexcept { _inner.tag = WarpActiveCountBits::tag(); }
+    class LC_IR_API WarpActiveMax : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveMax; }
+    };
+    explicit Func(Func::WarpActiveMax _) noexcept { _inner.tag = WarpActiveMax::tag(); }
+    class LC_IR_API WarpActiveMin : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveMin; }
+    };
+    explicit Func(Func::WarpActiveMin _) noexcept { _inner.tag = WarpActiveMin::tag(); }
+    class LC_IR_API WarpActiveProduct : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveProduct; }
+    };
+    explicit Func(Func::WarpActiveProduct _) noexcept { _inner.tag = WarpActiveProduct::tag(); }
+    class LC_IR_API WarpActiveSum : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveSum; }
+    };
+    explicit Func(Func::WarpActiveSum _) noexcept { _inner.tag = WarpActiveSum::tag(); }
+    class LC_IR_API WarpActiveAll : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveAll; }
+    };
+    explicit Func(Func::WarpActiveAll _) noexcept { _inner.tag = WarpActiveAll::tag(); }
+    class LC_IR_API WarpActiveAny : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveAny; }
+    };
+    explicit Func(Func::WarpActiveAny _) noexcept { _inner.tag = WarpActiveAny::tag(); }
+    class LC_IR_API WarpActiveBitMask : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitMask; }
+    };
+    explicit Func(Func::WarpActiveBitMask _) noexcept { _inner.tag = WarpActiveBitMask::tag(); }
+    class LC_IR_API WarpPrefixCountBits : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpPrefixCountBits; }
+    };
+    explicit Func(Func::WarpPrefixCountBits _) noexcept { _inner.tag = WarpPrefixCountBits::tag(); }
+    class LC_IR_API WarpPrefixSum : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpPrefixSum; }
+    };
+    explicit Func(Func::WarpPrefixSum _) noexcept { _inner.tag = WarpPrefixSum::tag(); }
+    class LC_IR_API WarpPrefixProduct : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpPrefixProduct; }
+    };
+    explicit Func(Func::WarpPrefixProduct _) noexcept { _inner.tag = WarpPrefixProduct::tag(); }
+    class LC_IR_API WarpReadLaneAt : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpReadLaneAt; }
+    };
+    explicit Func(Func::WarpReadLaneAt _) noexcept { _inner.tag = WarpReadLaneAt::tag(); }
+    class LC_IR_API WarpReadFirstLane : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpReadFirstLane; }
+    };
+    explicit Func(Func::WarpReadFirstLane _) noexcept { _inner.tag = WarpReadFirstLane::tag(); }
     class LC_IR_API SynchronizeBlock : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1422,12 +1574,20 @@ public:
         raw::Func::Callable_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Callable; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API CpuCustomOp : Marker, concepts::Noncopyable {
         raw::Func::CpuCustomOp_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::CpuCustomOp; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+    class LC_IR_API ShaderExecutionReorder : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::ShaderExecutionReorder; }
+    };
+    explicit Func(Func::ShaderExecutionReorder _) noexcept { _inner.tag = ShaderExecutionReorder::tag(); }
     class LC_IR_API Unknown0 : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1440,6 +1600,9 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Unknown1; }
     };
     explicit Func(Func::Unknown1 _) noexcept { _inner.tag = Unknown1::tag(); }
+public:
+    [[nodiscard]] auto tag() const noexcept { return _inner.tag; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     template<class T>
     [[nodiscard]] bool isa() const noexcept {
         static_assert(std::is_base_of_v<Marker, T>);
@@ -1508,67 +1671,83 @@ public:
         raw::Const::Zero_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Zero; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API One : Marker, concepts::Noncopyable {
         raw::Const::One_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::One; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Bool : Marker, concepts::Noncopyable {
         raw::Const::Bool_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Bool; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Int16 : Marker, concepts::Noncopyable {
         raw::Const::Int16_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Int16; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Uint16 : Marker, concepts::Noncopyable {
         raw::Const::Uint16_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint16; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Int32 : Marker, concepts::Noncopyable {
         raw::Const::Int32_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Int32; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Uint32 : Marker, concepts::Noncopyable {
         raw::Const::Uint32_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint32; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Int64 : Marker, concepts::Noncopyable {
         raw::Const::Int64_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Int64; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Uint64 : Marker, concepts::Noncopyable {
         raw::Const::Uint64_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint64; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Float16 : Marker, concepts::Noncopyable {
         raw::Const::Float16_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Float16; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Float32 : Marker, concepts::Noncopyable {
         raw::Const::Float32_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Float32; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Float64 : Marker, concepts::Noncopyable {
         raw::Const::Float64_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Float64; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Generic : Marker, concepts::Noncopyable {
         raw::Const::Generic_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Generic; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+public:
+    [[nodiscard]] auto tag() const noexcept { return _inner.tag; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     template<class T>
     [[nodiscard]] bool isa() const noexcept {
         static_assert(std::is_base_of_v<Marker, T>);
@@ -1713,6 +1892,8 @@ class LC_IR_API PhiIncoming : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const NodeRef &value() const noexcept;
     [[nodiscard]] const Pooled<BasicBlock> &block() const noexcept;
 };
@@ -1753,6 +1934,8 @@ class LC_IR_API SwitchCase : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const int32_t &value() const noexcept;
     [[nodiscard]] const Pooled<BasicBlock> &block() const noexcept;
 };
@@ -1841,18 +2024,21 @@ public:
         raw::Instruction::Local_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Local; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const NodeRef &init() const noexcept;
     };
     class LC_IR_API Argument : Marker, concepts::Noncopyable {
         raw::Instruction::Argument_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Argument; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const bool &by_value() const noexcept;
     };
     class LC_IR_API UserData : Marker, concepts::Noncopyable {
         raw::Instruction::UserData_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::UserData; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Invalid : Marker, concepts::Noncopyable {
         uint8_t _pad;
@@ -1864,11 +2050,13 @@ public:
         raw::Instruction::Const_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Const; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Update : Marker, concepts::Noncopyable {
         raw::Instruction::Update_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Update; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const NodeRef &var() const noexcept;
         [[nodiscard]] const NodeRef &value() const noexcept;
     };
@@ -1876,21 +2064,25 @@ public:
         raw::Instruction::Call_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Call; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Phi : Marker, concepts::Noncopyable {
         raw::Instruction::Phi_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Phi; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Return : Marker, concepts::Noncopyable {
         raw::Instruction::Return_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Return; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Loop : Marker, concepts::Noncopyable {
         raw::Instruction::Loop_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Loop; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const Pooled<BasicBlock> &body() const noexcept;
         [[nodiscard]] const NodeRef &cond() const noexcept;
     };
@@ -1898,6 +2090,7 @@ public:
         raw::Instruction::GenericLoop_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::GenericLoop; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const Pooled<BasicBlock> &prepare() const noexcept;
         [[nodiscard]] const NodeRef &cond() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &body() const noexcept;
@@ -1919,6 +2112,7 @@ public:
         raw::Instruction::If_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::If; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const NodeRef &cond() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &true_branch() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &false_branch() const noexcept;
@@ -1927,6 +2121,7 @@ public:
         raw::Instruction::Switch_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Switch; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const NodeRef &value() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &default_() const noexcept;
         [[nodiscard]] luisa::span<const SwitchCase> cases() const noexcept;
@@ -1935,12 +2130,14 @@ public:
         raw::Instruction::AdScope_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::AdScope; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const Pooled<BasicBlock> &body() const noexcept;
     };
     class LC_IR_API RayQuery : Marker, concepts::Noncopyable {
         raw::Instruction::RayQuery_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::RayQuery; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const NodeRef &ray_query() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &on_triangle_hit() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &on_procedural_hit() const noexcept;
@@ -1949,12 +2146,17 @@ public:
         raw::Instruction::AdDetach_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::AdDetach; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Comment : Marker, concepts::Noncopyable {
         raw::Instruction::Comment_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Comment; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+public:
+    [[nodiscard]] auto tag() const noexcept { return _inner.tag; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     template<class T>
     [[nodiscard]] bool isa() const noexcept {
         static_assert(std::is_base_of_v<Marker, T>);
@@ -2053,6 +2255,8 @@ class LC_IR_API BasicBlock : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const NodeRef &first() const noexcept;
     [[nodiscard]] const NodeRef &last() const noexcept;
 
@@ -2062,9 +2266,10 @@ public:
         struct Sentinel {};
     private:
         NodeRef _curr;
+        NodeRef _end;
         friend class BasicBlock;
-        explicit Iterator(NodeRef curr) noexcept
-            : _curr{curr} {}
+        Iterator(NodeRef curr, NodeRef end) noexcept
+            : _curr{curr}, _end{end} {}
     public:
         [[nodiscard]] auto operator*() const noexcept { return _curr; }
         auto &operator++() noexcept {
@@ -2078,10 +2283,9 @@ public:
             return old;
         }
         [[nodiscard]] auto operator==(const Iterator &rhs) const noexcept { return _curr == rhs._curr; }
-        [[nodiscard]] auto operator==(Sentinel) const noexcept { return !_curr.valid(); }
     };
-    [[nodiscard]] auto begin() const noexcept { return Iterator{this->first()}; }
-    [[nodiscard]] auto end() const noexcept { return Iterator::Sentinel{}; }
+    [[nodiscard]] auto begin() const noexcept { return Iterator{this->first()->next(), this->last()}; }
+    [[nodiscard]] auto end() const noexcept { return Iterator{this->last(), this->last()}; }
     [[nodiscard]] auto cbegin() const noexcept { return this->begin(); }
     [[nodiscard]] auto cend() const noexcept { return this->end(); }
     // end include
@@ -2124,6 +2328,8 @@ class LC_IR_API Module : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const ModuleKind &kind() const noexcept;
     [[nodiscard]] const Pooled<BasicBlock> &entry() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
@@ -2165,11 +2371,12 @@ class LC_IR_API CallableModule : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const Module &module() const noexcept;
     [[nodiscard]] const CArc<Type> &ret_type() const noexcept;
     [[nodiscard]] luisa::span<const NodeRef> args() const noexcept;
     [[nodiscard]] luisa::span<const Capture> captures() const noexcept;
-    [[nodiscard]] luisa::span<const CallableModuleRef> callables() const noexcept;
     [[nodiscard]] luisa::span<const CArc<CpuCustomOp>> cpu_custom_ops() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
 };
@@ -2210,6 +2417,8 @@ class LC_IR_API BufferBinding : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const uint64_t &handle() const noexcept;
     [[nodiscard]] const uint64_t &offset() const noexcept;
     [[nodiscard]] const size_t &size() const noexcept;
@@ -2251,6 +2460,8 @@ class LC_IR_API TextureBinding : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const uint64_t &handle() const noexcept;
     [[nodiscard]] const uint32_t &level() const noexcept;
 };
@@ -2291,6 +2502,8 @@ class LC_IR_API BindlessArrayBinding : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const uint64_t &handle() const noexcept;
 };
 
@@ -2330,6 +2543,8 @@ class LC_IR_API AccelBinding : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const uint64_t &handle() const noexcept;
 };
 
@@ -2375,22 +2590,29 @@ public:
         raw::Binding::Buffer_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::Buffer; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Texture : Marker, concepts::Noncopyable {
         raw::Binding::Texture_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::Texture; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API BindlessArray : Marker, concepts::Noncopyable {
         raw::Binding::BindlessArray_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::BindlessArray; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
     class LC_IR_API Accel : Marker, concepts::Noncopyable {
         raw::Binding::Accel_Body _inner{};
     public:
         static constexpr Tag tag() noexcept { return raw::Binding::Tag::Accel; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+public:
+    [[nodiscard]] auto tag() const noexcept { return _inner.tag; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     template<class T>
     [[nodiscard]] bool isa() const noexcept {
         static_assert(std::is_base_of_v<Marker, T>);
@@ -2453,6 +2675,8 @@ class LC_IR_API Capture : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const NodeRef &node() const noexcept;
     [[nodiscard]] const Binding &binding() const noexcept;
 };
@@ -2493,12 +2717,13 @@ class LC_IR_API KernelModule : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const Module &module() const noexcept;
     [[nodiscard]] luisa::span<const Capture> captures() const noexcept;
     [[nodiscard]] luisa::span<const NodeRef> args() const noexcept;
     [[nodiscard]] luisa::span<const NodeRef> shared() const noexcept;
     [[nodiscard]] luisa::span<const CArc<CpuCustomOp>> cpu_custom_ops() const noexcept;
-    [[nodiscard]] luisa::span<const CallableModuleRef> callables() const noexcept;
     [[nodiscard]] const std::array<uint32_t, 3> &block_size() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
 };
@@ -2539,6 +2764,8 @@ class LC_IR_API BlockModule : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const Module &module() const noexcept;
 };
 
@@ -2578,6 +2805,8 @@ class LC_IR_API IrBuilder : concepts::Noncopyable {
 
 public:
     friend class IrBuilder;
+    [[nodiscard]] auto raw() noexcept { return &_inner; }
+    [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const Pooled<BasicBlock> &bb() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
     [[nodiscard]] const NodeRef &insert_point() const noexcept;
@@ -2594,6 +2823,7 @@ public:
     NodeRef loop(const Pooled<BasicBlock> &body, const NodeRef &cond) noexcept;
     NodeRef generic_loop(const Pooled<BasicBlock> &prepare, const NodeRef &cond, const Pooled<BasicBlock> &body, const Pooled<BasicBlock> &update) noexcept;
     static Pooled<BasicBlock> finish(IrBuilder &&builder) noexcept;
+    void set_insert_point(const NodeRef &node) noexcept;
 
     template<class F>
     static Pooled<BasicBlock> with(const CppOwnedCArc<ModulePools> &pools, F &&f) {

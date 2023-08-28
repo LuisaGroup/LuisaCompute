@@ -17,11 +17,7 @@ public:
     explicit Expr(const RefExpr *expr) noexcept : _expression{expr} {}
     Expr(const IndirectDispatchBuffer &buffer) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
-    void clear() const noexcept;
-    void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
-    void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
-        dispatch_kernel(block_size, dispatch_size, 0u);
-    }
+    void set_dispatch_count(Expr<uint> count) const noexcept;
     void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
     void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
         set_kernel(offset, block_size, dispatch_size, 0u);
@@ -56,13 +52,7 @@ public:
     LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(IndirectDispatchBufferExprProxy)
 
 public:
-    void clear() const noexcept;
-    // return kernel_id
-    void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
-
-    void dispatch_kernel(Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
-        dispatch_kernel(block_size, dispatch_size, 0u);
-    }
+    void set_dispatch_count(Expr<uint> count) const noexcept;
     void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size, Expr<uint> kernel_id) const noexcept;
     void set_kernel(Expr<uint> offset, Expr<uint3> block_size, Expr<uint3> dispatch_size) const noexcept {
         set_kernel(offset, block_size, dispatch_size, 0u);

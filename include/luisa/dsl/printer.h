@@ -51,7 +51,18 @@ private:
             // for (uint i = 0; i < N; i++) {
             //     _buffer->write(offset + index + i, data[i]);
             // }
-            dsl::pack_to(curr, _buffer, offset + index);
+            using TCurr = expr_value_t<Curr>;
+            if constexpr (std::is_same_v<TCurr, int> ||
+                          std::is_same_v<TCurr, uint> ||
+                          std::is_same_v<TCurr, float>) {
+                static_assert(N == 1u);
+                _buffer->write(offset + index, dsl::as<uint>(curr));
+            } else if constexpr (std::is_same_v<TCurr, bool>) {
+                static_assert(N == 1u);
+                _buffer->write(offset + index, dsl::cast<uint>(curr));
+            } else {
+                dsl::pack_to(curr, _buffer, offset + index);
+            }
             index += N;
         }
         _log_to_buffer(offset, index, other...);

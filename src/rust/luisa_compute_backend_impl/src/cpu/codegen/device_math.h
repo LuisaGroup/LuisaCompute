@@ -4573,7 +4573,7 @@ template<typename T>
 [[nodiscard]] inline auto lc_reverse(lc_ulong3 x) noexcept { return lc_make_ulong3(__brev(x.x), __brev(x.y), __brev(x.z)); }
 [[nodiscard]] inline auto lc_reverse(lc_ulong4 x) noexcept { return lc_make_ulong4(__brev(x.x), __brev(x.y), __brev(x.z), __brev(x.w)); }
 
-[[nodiscard]] inline auto lc_ctz_impl(lc_uint x) noexcept { return 32u - __clz(x); }
+[[nodiscard]] inline auto lc_ctz_impl(lc_uint x) noexcept { return __ctz(x); }
 [[nodiscard]] inline auto lc_ctz(lc_uint x) noexcept { return lc_ctz_impl(x); }
 [[nodiscard]] inline auto lc_ctz(lc_uint2 x) noexcept { return lc_make_uint2(lc_ctz_impl(x.x), lc_ctz_impl(x.y)); }
 [[nodiscard]] inline auto lc_ctz(lc_uint3 x) noexcept { return lc_make_uint3(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z)); }

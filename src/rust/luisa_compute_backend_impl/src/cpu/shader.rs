@@ -4,9 +4,8 @@ use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 use std::{
     env::{self, current_exe},
-    fs::{canonicalize, File},
+    fs::{canonicalize},
     io::Write,
-    mem::transmute,
     path::PathBuf,
     process::{Command, Stdio},
 };

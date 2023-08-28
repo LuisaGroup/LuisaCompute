@@ -106,7 +106,7 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             case Tag::BUFFER: {
                 if (reinterpret_cast<const CUDABufferBase *>(arg.buffer.handle)->is_indirect()) {
                     auto buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(arg.buffer.handle);
-                    auto binding = buffer->binding();
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
                     auto ptr = allocate_argument(sizeof(binding));
                     std::memcpy(ptr, &binding, sizeof(binding));
                 } else {
@@ -153,12 +153,12 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
     if (command->is_indirect()) {
         LUISA_ASSERT(_indirect_function != nullptr,
                      "Indirect dispatch is not supported by this shader.");
-        auto indirect_buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(
-                                   command->indirect_dispatch().handle);
-        auto indirect_buffer_handle = indirect_buffer->handle();
-        void *arguments[] = {argument_buffer.data(), &indirect_buffer_handle};
+        auto indirect = command->indirect_dispatch();
+        auto indirect_buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(indirect.handle);
+        auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
+        void *arguments[] = {argument_buffer.data(), &indirect_binding};
         static constexpr auto block_size = 64u;
-        auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+        auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _indirect_function,
             static_cast<uint>(block_count), 1u, 1u,

@@ -1,6 +1,5 @@
 #define _LC_IndirectKernelDispatch uint
 #define _LC_IndirectDispatchBuffer RWStructuredBuffer<uint>
-void _ClearDispInd(RWStructuredBuffer<uint> buffer){buffer[0]=0;}
 void _SetDispInd(RWStructuredBuffer<uint> buffer,uint idx,uint3 blk,uint3 size,uint kid){
 uint3 dispSize=(size+blk-1)/blk;
 idx=idx*7+1;
@@ -12,8 +11,6 @@ buffer[idx+4]=dispSize.x;
 buffer[idx+5]=dispSize.y;
 buffer[idx+6]=dispSize.z;
 }
-void _EmplaceDispInd(RWStructuredBuffer<uint> buffer,uint3 blk,uint3 size,uint kid){
-uint idx;
-InterlockedAdd(buffer[0],1,idx);
-_SetDispInd(buffer,idx,blk,size,kid);
+void _SetDispCount(RWStructuredBuffer<uint> buffer,uint cnt){
+buffer[0]=cnt;
 }

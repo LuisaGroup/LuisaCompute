@@ -2,6 +2,7 @@ from luisa import *
 from luisa.builtin import *
 from luisa.types import *
 from luisa.util import *
+import aces
 
 import time
 import cornell_box
@@ -18,15 +19,6 @@ def to_world(self, v: float3):
 
 
 Onb.add_method(to_world, "to_world")
-
-
-@func
-def linear_to_srgb(x: float3):
-    return clamp(select(1.055 * x ** (1.0 / 2.4) - 0.055,
-                        12.92 * x,
-                        x <= 0.00031308),
-                 0.0, 1.0)
-
 
 @func
 def make_onb(normal: float3):
@@ -63,6 +55,9 @@ def balanced_heuristic(pdf_a, pdf_b):
     return pdf_a / max(pdf_a + pdf_b, 1e-4)
 
 
+enable_aces = True
+
+
 @func
 def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer, material_buffer, mesh_cnt, frame_index):
     set_block_size(8, 8, 1)
@@ -77,6 +72,8 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
     light_u = float3(-0.24, 1.98, -0.22) - light_position
     light_v = float3(0.23, 1.98, 0.16) - light_position
     light_emission = float3(17.0, 12.0, 4.0)
+    if enable_aces:
+        light_emission = aces.srgb_to_acescg(light_emission)
     light_area = length(cross(light_u, light_v))
     light_normal = normalize(cross(light_u, light_v))
     rx = sampler.next()
@@ -96,7 +93,7 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         #     else:
         #         # no procedural in corner box
         #         continue
-        #hit = query.committed_hit()
+        # hit = query.committed_hit()
         if hit.miss():
             break
         i0 = heap.buffer_read(int, hit.inst, hit.prim * 3 + 0)
@@ -113,7 +110,9 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         material = Material()
         material.albedo = material_buffer.read(hit.inst * 2 + 0)
         material.emission = material_buffer.read(hit.inst * 2 + 1)
-
+        if enable_aces:
+            material.albedo = aces.srgb_to_acescg(material.albedo)
+            material.emission = aces.srgb_to_acescg(material.emission)
         # hit light
         if hit.inst == int(mesh_cnt - 1):
             if depth == 0:
@@ -170,6 +169,8 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         if any(isnan(radiance)):
             radiance = float3(0.0)
     seed_image.write(coord, sampler.state)
+    if enable_aces:
+        radiance = aces.acescg_to_srgb(radiance)
     image.write(coord, float4(
         clamp(radiance, 0.0, 30.0), 1.0))
 
@@ -202,7 +203,7 @@ def clear_kernel(image):
 def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
     coord = dispatch_id().xy
     hdr = hdr_image.read(coord)
-    ldr = linear_to_srgb(hdr.xyz * scale)
+    ldr = aces.linear_to_srgb(hdr.xyz * scale)
     ldr_image.write(coord, float4(ldr, 1.0))
 
 
@@ -212,14 +213,14 @@ vertex_arr = [[*item, 0.0] for item in cornell_box.vertices]
 vertex_arr = np.array(vertex_arr, dtype=np.float32)
 vertex_buffer.copy_from(vertex_arr)
 material_arr = [
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.14, 0.45, 0.091, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.63, 0.065, 0.05, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
-    [0.0, 0.0, 0.0, 0.0], [17.0, 12.0, 4.0, 0.0],
+    [1, 1, 1, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 1, 1, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 1, 1, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0, 1, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 0, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [1, 0, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0, 1, 0, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0], [10.0, 10.0, 10.0, 0.0],
 ]
 material_buffer = Buffer(len(material_arr), float3)
 material_arr = np.array(material_arr, dtype=np.float32)

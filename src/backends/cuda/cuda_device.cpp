@@ -492,11 +492,11 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
             auto metadata = luisa::format("// METADATA: {}\n\n", serialize_cuda_shader_metadata(expected_metadata));
             luisa::span metadata_data{reinterpret_cast<const std::byte *>(metadata.data()), metadata.size()};
             if (uses_user_path) {
-                _io->write_shader_bytecode(name, ptx_data);
-                _io->write_shader_bytecode(metadata_name, metadata_data);
+                static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
+                static_cast<void>(_io->write_shader_bytecode(metadata_name, metadata_data));
             } else if (option.enable_cache) {
-                _io->write_shader_cache(name, ptx_data);
-                _io->write_shader_cache(metadata_name, metadata_data);
+                static_cast<void>(_io->write_shader_cache(name, ptx_data));
+                static_cast<void>(_io->write_shader_cache(metadata_name, metadata_data));
             }
         }
     }
