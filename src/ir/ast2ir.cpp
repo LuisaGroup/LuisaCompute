@@ -784,8 +784,6 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: return ir::Func::Tag::RayQueryCommitProcedural;
             case CallOp::RAY_QUERY_TERMINATE: return ir::Func::Tag::RayQueryTerminate;
             case CallOp::RASTER_DISCARD: return ir::Func::Tag::RasterDiscard;
-            // case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: return ir::Func::Tag::IndirectClearDispatchBuffer;
-            // case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
             case CallOp::SATURATE: return ir::Func::Tag::Saturate;
             case CallOp::REFLECT: return ir::Func::Tag::Reflect;
             case CallOp::PACK: return ir::Func::Tag::Pack;
@@ -820,8 +818,8 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::WARP_PREFIX_PRODUCT: return ir::Func::Tag::WarpPrefixProduct;
             case CallOp::WARP_READ_LANE: return ir::Func::Tag::WarpReadLaneAt;
             case CallOp::WARP_READ_FIRST_ACTIVE_LANE: return ir::Func::Tag::WarpReadFirstLane;
-            case CallOp::INDIRECT_SET_DISPATCH_COUNT: LUISA_NOT_IMPLEMENTED();
-            case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED();
+            case CallOp::INDIRECT_SET_DISPATCH_COUNT: return ir::Func::Tag::IndirectDispatchSetCount;
+            case CallOp::INDIRECT_SET_DISPATCH_KERNEL: return ir::Func::Tag::IndirectDispatchSetKernel;
         }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid CallOp: {} (underlying = {}).",
@@ -1331,10 +1329,20 @@ ir::NodeRef AST2IR::_convert_builtin_variable(Variable v) noexcept {
                 return ir::Func::Tag::DispatchId;
             case Variable::Tag::DISPATCH_SIZE:
                 return ir::Func::Tag::DispatchSize;
-            default: break;
+            case Variable::Tag::KERNEL_ID:
+                LUISA_NOT_IMPLEMENTED();
+            case Variable::Tag::WARP_LANE_COUNT:
+                return ir::Func::Tag::WarpSize;
+            case Variable::Tag::WARP_LANE_ID:
+                return ir::Func::Tag::WarpLaneId;
+            case Variable::Tag::OBJECT_ID:
+                LUISA_NOT_IMPLEMENTED();
+            default:
+                break;
         }
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid builtin variable tag.");
+            "Invalid builtin variable tag: {}",
+            luisa::to_string(tag));
     }();
     auto b = _current_builder();
     auto type = _convert_type(v.type()).clone();

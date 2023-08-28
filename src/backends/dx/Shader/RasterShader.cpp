@@ -417,7 +417,7 @@ void RasterShader::SaveRaster(
     if (str.useTex2DBindless) bdlsBufferCount++;
     if (str.useTex3DBindless) bdlsBufferCount++;
     auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
-    fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+    static_cast<void>(fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()}));
 }
 RasterShader *RasterShader::LoadRaster(
     BinaryIO const *fileIo,

@@ -6,7 +6,7 @@
 #include <luisa/vstl/md5.h>
 namespace lc::dx {
 namespace ComputeShaderDetail {
-static const bool PRINT_CODE = ([]{
+static const bool PRINT_CODE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
@@ -187,7 +187,7 @@ void ComputeShader::SaveCompute(
                 str.typeMD5,
                 bdlsBufferCount,
                 blockSize);
-            fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+            static_cast<void>(fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()}));
         },
         [](auto &&err) {
             LUISA_ERROR("DXC compute-shader compile error: {}", err);

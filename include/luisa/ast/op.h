@@ -309,7 +309,7 @@ enum struct CallOp : uint32_t {
     WARP_PREFIX_SUM,            // (type: scalar/vector): type (sum lanes before this lane)
     WARP_PREFIX_PRODUCT,        // (type: scalar/vector): type (multiply lanes before this lane)
     WARP_READ_LANE,             // (type: scalar/vector/matrix, index: uint): type (read this variable's value at this lane)
-    WARP_READ_FIRST_ACTIVE_LANE,// (type: scalar/vector/matrix, index: uint): type (read this variable's value at the first lane)
+    WARP_READ_FIRST_ACTIVE_LANE,// (type: scalar/vector/matrix): type (read this variable's value at the first lane)
 
     // indirect
     INDIRECT_SET_DISPATCH_KERNEL,    // (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)

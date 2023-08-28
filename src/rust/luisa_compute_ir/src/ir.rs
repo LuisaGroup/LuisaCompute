@@ -517,6 +517,7 @@ pub enum Func {
     ThreadId,
     BlockId,
     WarpSize,
+    WarpLaneId,
     DispatchId,
     DispatchSize,
 
@@ -561,8 +562,8 @@ pub enum Func {
 
     RasterDiscard,
 
-    IndirectClearDispatchBuffer,
-    IndirectEmplaceDispatchKernel,
+    IndirectDispatchSetCount,
+    IndirectDispatchSetKernel,
 
     /// When referencing a Local in Call, it is always interpreted as a load
     /// However, there are cases you want to do this explicitly

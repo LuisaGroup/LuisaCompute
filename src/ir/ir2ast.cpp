@@ -444,6 +444,14 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             LUISA_ASSERT(args.empty(), "`DispatchSize` takes no arguments.");
             return _ctx->function_builder->dispatch_size();
         }
+        case ir::Func::Tag::WarpSize: {
+            LUISA_ASSERT(args.empty(), "`WarpSize` takes no arguments.");
+            return _ctx->function_builder->warp_lane_count();
+        }
+        case ir::Func::Tag::WarpLaneId: {
+            LUISA_ASSERT(args.empty(), "`WarpLaneId` takes no arguments.");
+            return _ctx->function_builder->warp_lane_id();
+        }
         case ir::Func::Tag::RequiresGradient: return builtin_func(1, CallOp::REQUIRES_GRADIENT);
         case ir::Func::Tag::Gradient: return builtin_func(1, CallOp::GRADIENT);
         case ir::Func::Tag::GradientMarker: return builtin_func(2, CallOp::GRADIENT_MARKER);
@@ -745,6 +753,29 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Unknown0: [[fallthrough]];
         case ir::Func::Tag::Unknown1: LUISA_NOT_IMPLEMENTED();
         case ir::Func::Tag::ShaderExecutionReorder: return builtin_func(2, CallOp::SHADER_EXECUTION_REORDER);
+
+        case ir::Func::Tag::WarpIsFirstActiveLane: return builtin_func(0, CallOp::WARP_IS_FIRST_ACTIVE_LANE);
+        case ir::Func::Tag::WarpFirstActiveLane: return builtin_func(0, CallOp::WARP_FIRST_ACTIVE_LANE);
+        case ir::Func::Tag::WarpActiveAllEqual: return builtin_func(1, CallOp::WARP_ACTIVE_ALL_EQUAL);
+        case ir::Func::Tag::WarpActiveBitAnd: return builtin_func(1, CallOp::WARP_ACTIVE_BIT_AND);
+        case ir::Func::Tag::WarpActiveBitOr: return builtin_func(1, CallOp::WARP_ACTIVE_BIT_OR);
+        case ir::Func::Tag::WarpActiveBitXor: return builtin_func(1, CallOp::WARP_ACTIVE_BIT_XOR);
+        case ir::Func::Tag::WarpActiveCountBits: return builtin_func(1, CallOp::WARP_ACTIVE_COUNT_BITS);
+        case ir::Func::Tag::WarpActiveMax: return builtin_func(1, CallOp::WARP_ACTIVE_MAX);
+        case ir::Func::Tag::WarpActiveMin: return builtin_func(1, CallOp::WARP_ACTIVE_MIN);
+        case ir::Func::Tag::WarpActiveProduct: return builtin_func(1, CallOp::WARP_ACTIVE_PRODUCT);
+        case ir::Func::Tag::WarpActiveSum: return builtin_func(1, CallOp::WARP_ACTIVE_SUM);
+        case ir::Func::Tag::WarpActiveAll: return builtin_func(1, CallOp::WARP_ACTIVE_ALL);
+        case ir::Func::Tag::WarpActiveAny: return builtin_func(1, CallOp::WARP_ACTIVE_ANY);
+        case ir::Func::Tag::WarpActiveBitMask: return builtin_func(1, CallOp::WARP_ACTIVE_BIT_MASK);
+        case ir::Func::Tag::WarpPrefixCountBits: return builtin_func(1, CallOp::WARP_PREFIX_COUNT_BITS);
+        case ir::Func::Tag::WarpPrefixSum: return builtin_func(1, CallOp::WARP_PREFIX_SUM);
+        case ir::Func::Tag::WarpPrefixProduct: return builtin_func(1, CallOp::WARP_PREFIX_PRODUCT);
+        case ir::Func::Tag::WarpReadLaneAt: return builtin_func(2, CallOp::WARP_READ_LANE);
+        case ir::Func::Tag::WarpReadFirstLane: return builtin_func(1, CallOp::WARP_READ_FIRST_ACTIVE_LANE);
+
+        case ir::Func::Tag::IndirectDispatchSetCount: return builtin_func(2, CallOp::INDIRECT_SET_DISPATCH_COUNT);
+        case ir::Func::Tag::IndirectDispatchSetKernel: return builtin_func(5, CallOp::INDIRECT_SET_DISPATCH_KERNEL);
     }
     return nullptr;
 }
