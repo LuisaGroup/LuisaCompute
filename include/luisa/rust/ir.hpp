@@ -804,6 +804,8 @@ void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef valu
 
 void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
 
+void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
+
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_binary(const Module *module);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_human_readable(const Module *module);

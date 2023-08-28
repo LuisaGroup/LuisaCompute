@@ -2454,6 +2454,14 @@ pub extern "C" fn luisa_compute_ir_builder_set_insert_point(
 }
 
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_builder_set_insert_point(
+    builder: &mut IrBuilder,
+    node_ref: NodeRef,
+) {
+    builder.set_insert_point(node_ref);
+}
+
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Pooled<BasicBlock> {
     builder.finish()
 }
