@@ -2442,7 +2442,7 @@ pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<Mo
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_builder(pools: CArc<ModulePools>) -> IrBuilder {
-    unsafe { IrBuilder::new(pools.clone()) }
+    IrBuilder::new(pools.clone())
 }
 
 #[no_mangle]
