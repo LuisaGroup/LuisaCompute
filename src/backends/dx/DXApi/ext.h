@@ -161,13 +161,17 @@ public:
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
-    Device &_device;
+    LCDevice& _device;
 
 public:
+    DxCudaInteropImpl(LCDevice& device) : _device{ device } {}
+protected:
     uint64_t cuda_buffer(uint64_t dx_buffer) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
-    DxCudaInteropImpl(Device &device) : _device{device} {}
+    virtual BufferCreationInfo GetBufferInfo(unsigned sizeInBytes) override;
+    virtual DeviceInterface* GetDevice() override;
+
 };
 
 class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
