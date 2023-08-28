@@ -56,7 +56,7 @@ uint64 GpuAllocator::AllocateBufferHeap(
     ALLOCATION_DESC desc;
     desc.HeapType = heapType;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
-    desc.ExtraHeapFlags = D3D12_HEAP_FLAGS::D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAGS::D3D12_HEAP_FLAG_SHARED;
+    desc.ExtraHeapFlags = D3D12_HEAP_FLAGS::D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
     desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
