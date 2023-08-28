@@ -4,6 +4,7 @@
 
 #include <luisa/core/stl/iterator.h>
 #include <luisa/core/basic_types.h>
+#include <luisa/core/magic_enum.h>
 
 namespace luisa::compute {
 
@@ -77,7 +78,9 @@ struct TypePromotion {
  */
 enum struct CallOp : uint32_t {
 
-    CUSTOM,
+    CALL_OP_BEGIN = 0u,
+
+    CUSTOM = CALL_OP_BEGIN,
     EXTERNAL,
 
     ALL,// (boolN)
@@ -312,14 +315,16 @@ enum struct CallOp : uint32_t {
     WARP_READ_FIRST_ACTIVE_LANE,// (type: scalar/vector/matrix): type (read this variable's value at the first lane)
 
     // indirect
-    INDIRECT_SET_DISPATCH_KERNEL,    // (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
-    INDIRECT_SET_DISPATCH_COUNT,    // (Buffer, uint count)
+    INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+    INDIRECT_SET_DISPATCH_COUNT, // (Buffer, uint count)
 
     // SER
     SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
+
+    CALL_OP_END = SHADER_EXECUTION_REORDER
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::SHADER_EXECUTION_REORDER) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::CALL_OP_END) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
     auto op_value = luisa::to_underlying(op);
@@ -414,3 +419,5 @@ public:
 };
 
 }// namespace luisa::compute
+
+LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CALL_OP_BEGIN, CALL_OP_END)
