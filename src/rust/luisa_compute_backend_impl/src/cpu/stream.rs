@@ -1,22 +1,18 @@
 use api::{Argument, Sampler};
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
-    context::type_hash,
     ir::{Binding, Capture},
 };
-use parking_lot::{Condvar, Mutex, RwLock};
+use parking_lot::{Condvar, Mutex};
 use rayon;
 use std::{
     collections::VecDeque,
     sync::{atomic::AtomicUsize, Arc},
     thread::{self, JoinHandle},
 };
+
 use std::{
-    collections::{HashMap, HashSet},
-    process::abort,
-};
-use std::{
-    panic::{RefUnwindSafe, UnwindSafe},
+    panic::{RefUnwindSafe},
     sync::atomic::AtomicBool,
 };
 
@@ -26,7 +22,7 @@ use super::{
     shader::ShaderImpl,
     texture::TextureImpl,
 };
-use crate::panic_abort;
+
 use bumpalo::Bump;
 use luisa_compute_cpu_kernel_defs as defs;
 

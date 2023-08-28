@@ -7,7 +7,8 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/dsl/rtx/ray_query.h>
-#include "../common/string_scratch.h"
+
+#include "cuda_texture.h"
 #include "cuda_codegen_ast.h"
 
 namespace luisa::compute::cuda {
@@ -423,6 +424,19 @@ private:
                 _codegen->_scratch << " = params.";
                 _codegen->_emit_variable_name(*r.cbegin());
                 _codegen->_scratch << ";\n";
+                // inform the compiler of the underlying storage if the resource is captured
+                // Note: this is O(n^2) but we should not have that many resources
+                for (auto i = 0u; i < f.bound_arguments().size(); i++) {
+                    auto binding = f.bound_arguments()[i];
+                    if (auto b = luisa::get_if<Function::TextureBinding>(&binding);
+                        b != nullptr && f.arguments()[i] == v) {
+                        auto surf = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                        _codegen->_emit_indent();
+                        _codegen->_scratch << "lc_assume(";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << ".surface.storage == " << surf.storage << ");\n";
+                    }
+                }
             }
             // captured variables through stack
             if (!captured_elements.empty() ||
@@ -1310,6 +1324,16 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << " = params.";
             _emit_variable_name(arg);
             _scratch << ";";
+        }
+        for (auto i = 0u; i < f.bound_arguments().size(); i++) {
+            auto binding = f.bound_arguments()[i];
+            if (auto b = luisa::get_if<Function::TextureBinding>(&binding)) {
+                auto surface = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                // inform the compiler of the underlying storage
+                _scratch << "\n  lc_assume(";
+                _emit_variable_name(f.arguments()[i]);
+                _scratch << ".surface.storage == " << surface.storage << ");";
+            }
         }
     } else {
         auto any_arg = false;

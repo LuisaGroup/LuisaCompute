@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ir::{BasicBlock, KernelModule, Module, NodeRef, SwitchCase, Usage, UsageMark};
+use crate::ir::{BasicBlock, Module, NodeRef, SwitchCase, Usage, UsageMark};
 
 struct UsageDetector {
     map: HashMap<NodeRef, Usage>,
@@ -29,7 +29,7 @@ impl UsageDetector {
 
     fn detect_node(&mut self, node_ref: NodeRef) {
         let node = node_ref.get();
-        let type_ = node.type_.clone();
+        let _type_ = node.type_.clone();
         match node.instruction.as_ref() {
             crate::ir::Instruction::Buffer => {
                 self.map.insert(node_ref, Usage::NONE);

@@ -454,6 +454,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::BlockId; }
     };
     explicit Func(Func::BlockId _) noexcept { _inner.tag = BlockId::tag(); }
+    class LC_IR_API WarpSize : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpSize; }
+    };
+    explicit Func(Func::WarpSize _) noexcept { _inner.tag = WarpSize::tag(); }
+    class LC_IR_API WarpLaneId : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpLaneId; }
+    };
+    explicit Func(Func::WarpLaneId _) noexcept { _inner.tag = WarpLaneId::tag(); }
     class LC_IR_API DispatchId : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -598,18 +610,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::RasterDiscard; }
     };
     explicit Func(Func::RasterDiscard _) noexcept { _inner.tag = RasterDiscard::tag(); }
-    class LC_IR_API IndirectClearDispatchBuffer : Marker, concepts::Noncopyable {
+    class LC_IR_API IndirectDispatchSetCount : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
-        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectClearDispatchBuffer; }
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectDispatchSetCount; }
     };
-    explicit Func(Func::IndirectClearDispatchBuffer _) noexcept { _inner.tag = IndirectClearDispatchBuffer::tag(); }
-    class LC_IR_API IndirectEmplaceDispatchKernel : Marker, concepts::Noncopyable {
+    explicit Func(Func::IndirectDispatchSetCount _) noexcept { _inner.tag = IndirectDispatchSetCount::tag(); }
+    class LC_IR_API IndirectDispatchSetKernel : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
-        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectEmplaceDispatchKernel; }
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::IndirectDispatchSetKernel; }
     };
-    explicit Func(Func::IndirectEmplaceDispatchKernel _) noexcept { _inner.tag = IndirectEmplaceDispatchKernel::tag(); }
+    explicit Func(Func::IndirectDispatchSetKernel _) noexcept { _inner.tag = IndirectDispatchSetKernel::tag(); }
     class LC_IR_API Load : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1144,6 +1156,120 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Inverse; }
     };
     explicit Func(Func::Inverse _) noexcept { _inner.tag = Inverse::tag(); }
+    class LC_IR_API WarpIsFirstActiveLane : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpIsFirstActiveLane; }
+    };
+    explicit Func(Func::WarpIsFirstActiveLane _) noexcept { _inner.tag = WarpIsFirstActiveLane::tag(); }
+    class LC_IR_API WarpFirstActiveLane : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpFirstActiveLane; }
+    };
+    explicit Func(Func::WarpFirstActiveLane _) noexcept { _inner.tag = WarpFirstActiveLane::tag(); }
+    class LC_IR_API WarpActiveAllEqual : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveAllEqual; }
+    };
+    explicit Func(Func::WarpActiveAllEqual _) noexcept { _inner.tag = WarpActiveAllEqual::tag(); }
+    class LC_IR_API WarpActiveBitAnd : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitAnd; }
+    };
+    explicit Func(Func::WarpActiveBitAnd _) noexcept { _inner.tag = WarpActiveBitAnd::tag(); }
+    class LC_IR_API WarpActiveBitOr : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitOr; }
+    };
+    explicit Func(Func::WarpActiveBitOr _) noexcept { _inner.tag = WarpActiveBitOr::tag(); }
+    class LC_IR_API WarpActiveBitXor : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitXor; }
+    };
+    explicit Func(Func::WarpActiveBitXor _) noexcept { _inner.tag = WarpActiveBitXor::tag(); }
+    class LC_IR_API WarpActiveCountBits : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveCountBits; }
+    };
+    explicit Func(Func::WarpActiveCountBits _) noexcept { _inner.tag = WarpActiveCountBits::tag(); }
+    class LC_IR_API WarpActiveMax : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveMax; }
+    };
+    explicit Func(Func::WarpActiveMax _) noexcept { _inner.tag = WarpActiveMax::tag(); }
+    class LC_IR_API WarpActiveMin : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveMin; }
+    };
+    explicit Func(Func::WarpActiveMin _) noexcept { _inner.tag = WarpActiveMin::tag(); }
+    class LC_IR_API WarpActiveProduct : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveProduct; }
+    };
+    explicit Func(Func::WarpActiveProduct _) noexcept { _inner.tag = WarpActiveProduct::tag(); }
+    class LC_IR_API WarpActiveSum : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveSum; }
+    };
+    explicit Func(Func::WarpActiveSum _) noexcept { _inner.tag = WarpActiveSum::tag(); }
+    class LC_IR_API WarpActiveAll : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveAll; }
+    };
+    explicit Func(Func::WarpActiveAll _) noexcept { _inner.tag = WarpActiveAll::tag(); }
+    class LC_IR_API WarpActiveAny : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveAny; }
+    };
+    explicit Func(Func::WarpActiveAny _) noexcept { _inner.tag = WarpActiveAny::tag(); }
+    class LC_IR_API WarpActiveBitMask : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpActiveBitMask; }
+    };
+    explicit Func(Func::WarpActiveBitMask _) noexcept { _inner.tag = WarpActiveBitMask::tag(); }
+    class LC_IR_API WarpPrefixCountBits : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpPrefixCountBits; }
+    };
+    explicit Func(Func::WarpPrefixCountBits _) noexcept { _inner.tag = WarpPrefixCountBits::tag(); }
+    class LC_IR_API WarpPrefixSum : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpPrefixSum; }
+    };
+    explicit Func(Func::WarpPrefixSum _) noexcept { _inner.tag = WarpPrefixSum::tag(); }
+    class LC_IR_API WarpPrefixProduct : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpPrefixProduct; }
+    };
+    explicit Func(Func::WarpPrefixProduct _) noexcept { _inner.tag = WarpPrefixProduct::tag(); }
+    class LC_IR_API WarpReadLaneAt : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpReadLaneAt; }
+    };
+    explicit Func(Func::WarpReadLaneAt _) noexcept { _inner.tag = WarpReadLaneAt::tag(); }
+    class LC_IR_API WarpReadFirstLane : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::WarpReadFirstLane; }
+    };
+    explicit Func(Func::WarpReadFirstLane _) noexcept { _inner.tag = WarpReadFirstLane::tag(); }
     class LC_IR_API SynchronizeBlock : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1456,6 +1582,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::CpuCustomOp; }
         [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+    class LC_IR_API ShaderExecutionReorder : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::ShaderExecutionReorder; }
+    };
+    explicit Func(Func::ShaderExecutionReorder _) noexcept { _inner.tag = ShaderExecutionReorder::tag(); }
     class LC_IR_API Unknown0 : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:

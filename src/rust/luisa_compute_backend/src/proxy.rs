@@ -1,12 +1,11 @@
 #![allow(unused_unsafe)]
 
-use std::ffi::CStr;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use crate::{Backend, BackendProvider, Context, Interface};
+use crate::{Backend, BackendProvider, Interface};
 use api::StreamTag;
 use libc::c_void;
 use luisa_compute_api_types as api;

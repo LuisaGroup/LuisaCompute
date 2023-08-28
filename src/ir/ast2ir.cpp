@@ -784,8 +784,6 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: return ir::Func::Tag::RayQueryCommitProcedural;
             case CallOp::RAY_QUERY_TERMINATE: return ir::Func::Tag::RayQueryTerminate;
             case CallOp::RASTER_DISCARD: return ir::Func::Tag::RasterDiscard;
-            // case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: return ir::Func::Tag::IndirectClearDispatchBuffer;
-            // case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
             case CallOp::SATURATE: return ir::Func::Tag::Saturate;
             case CallOp::REFLECT: return ir::Func::Tag::Reflect;
             case CallOp::PACK: return ir::Func::Tag::Pack;
@@ -795,10 +793,33 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::CUSTOM: [[fallthrough]];
             case CallOp::ONE: [[fallthrough]];
             case CallOp::SHADER_EXECUTION_REORDER: return ir::Func::Tag::ShaderExecutionReorder;
-            case CallOp::INDIRECT_SET_DISPATCH_KERNEL: [[fallthrough]];
             case CallOp::ZERO: LUISA_ERROR_WITH_LOCATION(
                 "Unexpected CallOp: {}.",
                 luisa::to_string(expr->op()));
+            case CallOp::BYTE_BUFFER_READ: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BYTE_BUFFER_WRITE: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BYTE_BUFFER_SIZE: LUISA_NOT_IMPLEMENTED();
+            case CallOp::WARP_IS_FIRST_ACTIVE_LANE: return ir::Func::Tag::WarpIsFirstActiveLane;
+            case CallOp::WARP_FIRST_ACTIVE_LANE: return ir::Func::Tag::WarpFirstActiveLane;
+            case CallOp::WARP_ACTIVE_ALL_EQUAL: return ir::Func::Tag::WarpActiveAllEqual;
+            case CallOp::WARP_ACTIVE_BIT_AND: return ir::Func::Tag::WarpActiveBitAnd;
+            case CallOp::WARP_ACTIVE_BIT_OR: return ir::Func::Tag::WarpActiveBitOr;
+            case CallOp::WARP_ACTIVE_BIT_XOR: return ir::Func::Tag::WarpActiveBitXor;
+            case CallOp::WARP_ACTIVE_COUNT_BITS: return ir::Func::Tag::WarpActiveCountBits;
+            case CallOp::WARP_ACTIVE_MAX: return ir::Func::Tag::WarpActiveMax;
+            case CallOp::WARP_ACTIVE_MIN: return ir::Func::Tag::WarpActiveMin;
+            case CallOp::WARP_ACTIVE_PRODUCT: return ir::Func::Tag::WarpActiveProduct;
+            case CallOp::WARP_ACTIVE_SUM: return ir::Func::Tag::WarpActiveSum;
+            case CallOp::WARP_ACTIVE_ALL: return ir::Func::Tag::WarpActiveAll;
+            case CallOp::WARP_ACTIVE_ANY: return ir::Func::Tag::WarpActiveAny;
+            case CallOp::WARP_ACTIVE_BIT_MASK: return ir::Func::Tag::WarpActiveBitMask;
+            case CallOp::WARP_PREFIX_COUNT_BITS: return ir::Func::Tag::WarpPrefixCountBits;
+            case CallOp::WARP_PREFIX_SUM: return ir::Func::Tag::WarpPrefixSum;
+            case CallOp::WARP_PREFIX_PRODUCT: return ir::Func::Tag::WarpPrefixProduct;
+            case CallOp::WARP_READ_LANE: return ir::Func::Tag::WarpReadLaneAt;
+            case CallOp::WARP_READ_FIRST_ACTIVE_LANE: return ir::Func::Tag::WarpReadFirstLane;
+            case CallOp::INDIRECT_SET_DISPATCH_COUNT: return ir::Func::Tag::IndirectDispatchSetCount;
+            case CallOp::INDIRECT_SET_DISPATCH_KERNEL: return ir::Func::Tag::IndirectDispatchSetKernel;
         }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid CallOp: {} (underlying = {}).",
@@ -856,31 +877,6 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             args.resize(expr->type()->dimension());
         }
     }
-    //    else if (is_matrix_maker(expr->op())) {
-    //        LUISA_ASSERT(expr->arguments().size() == expr->type()->dimension(),
-    //                     "Invalid {} matrix maker from {} vector(s).",
-    //                     expr->type()->description(),
-    //                     expr->arguments().size());
-    //        args.reserve(expr->type()->dimension() * expr->type()->dimension());
-    //        for (auto v : expr->arguments()) {
-    //            LUISA_ASSERT(v->type()->is_vector() &&
-    //                             *v->type()->element() == *expr->type()->element() &&
-    //                             v->type()->dimension() == expr->type()->dimension(),
-    //                         "Invalid {} matrix maker from {}.",
-    //                         expr->type()->description(),
-    //                         v->type()->description());
-    //            auto vv = _convert_expr(v);
-    //            auto b = _current_builder();
-    //            for (auto i = 0u; i < v->type()->dimension(); i++) {
-    //                std::array extract_args{vv, _literal(Type::of<uint>(), i)};
-    //                auto elem = ir::luisa_compute_ir_build_call(
-    //                    b, {.tag = ir::Func::Tag::ExtractElement},
-    //                    {.ptr = extract_args.data(), .len = extract_args.size()},
-    //                    _convert_type(v->type()->element()));
-    //                args.emplace_back(elem);
-    //            }
-    //        }
-    //    }
     else if (expr->op() == CallOp::GRADIENT_MARKER) {
         //        LUISA_VERBOSE("using gradient marker arg emplace");
         args.reserve(2);
@@ -1333,10 +1329,20 @@ ir::NodeRef AST2IR::_convert_builtin_variable(Variable v) noexcept {
                 return ir::Func::Tag::DispatchId;
             case Variable::Tag::DISPATCH_SIZE:
                 return ir::Func::Tag::DispatchSize;
-            default: break;
+            case Variable::Tag::KERNEL_ID:
+                LUISA_NOT_IMPLEMENTED();
+            case Variable::Tag::WARP_LANE_COUNT:
+                return ir::Func::Tag::WarpSize;
+            case Variable::Tag::WARP_LANE_ID:
+                return ir::Func::Tag::WarpLaneId;
+            case Variable::Tag::OBJECT_ID:
+                LUISA_NOT_IMPLEMENTED();
+            default:
+                break;
         }
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid builtin variable tag.");
+            "Invalid builtin variable tag: {}",
+            luisa::to_string(tag));
     }();
     auto b = _current_builder();
     auto type = _convert_type(v.type()).clone();
@@ -1375,17 +1381,6 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
             {.ptr = &elem, .len = 1u},
             _convert_type(type_dst).clone());
     }
-    // scalar to matrix
-    //    if (type_dst->is_matrix() && type_src->is_scalar()) {
-    //        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT32,
-    //                     "Only float matrices are supported.");
-    //        auto elem = _cast(Type::of<float>(), type_src, node_src);
-    //        return ir::luisa_compute_ir_build_call(
-    //            builder,
-    //            {.tag = ir::Func::Tag::Mat},
-    //            {.ptr = &elem, .len = 1u},
-    //            _convert_type(type_dst).clone());
-    //    }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type cast: {} -> {}.",
         type_src->description(), type_dst->description());

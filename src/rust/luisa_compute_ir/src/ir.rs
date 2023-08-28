@@ -6,12 +6,9 @@ use crate::usage_detect::detect_usage;
 use crate::*;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter, write};
+use std::fmt::{Debug, Formatter};
 use std::hash::Hasher;
 use std::ops::Deref;
-use std::ptr::replace;
-use std::thread::current;
-use crate::context::with_context;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -237,7 +234,7 @@ impl VectorType {
             }
         };
         let len = match self.element {
-            VectorElementType::Scalar(s) => aligned_len,
+            VectorElementType::Scalar(_) => aligned_len,
             VectorElementType::Vector(_) => self.length,
         };
         el_sz * len as usize
@@ -520,6 +517,7 @@ pub enum Func {
     ThreadId,
     BlockId,
     WarpSize,
+    WarpLaneId,
     DispatchId,
     DispatchSize,
 
@@ -564,8 +562,8 @@ pub enum Func {
 
     RasterDiscard,
 
-    IndirectClearDispatchBuffer,
-    IndirectEmplaceDispatchKernel,
+    IndirectDispatchSetCount,
+    IndirectDispatchSetKernel,
 
     /// When referencing a Local in Call, it is always interpreted as a load
     /// However, there are cases you want to do this explicitly
@@ -2445,7 +2443,7 @@ pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<Mo
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_builder(pools: CArc<ModulePools>) -> IrBuilder {
-    unsafe { IrBuilder::new(pools.clone()) }
+    IrBuilder::new(pools.clone())
 }
 
 #[no_mangle]
