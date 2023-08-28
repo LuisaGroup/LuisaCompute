@@ -4,17 +4,20 @@
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/vstl/hash_map.h>
 namespace luisa::compute::graph {
-class KernelNode : public GraphNode {
+class GraphBuilder;
+class LC_RUNTIME_API KernelNode final : public GraphNode {
     template<size_t N>
     friend class GraphShaderInvoke;
 public:
-    KernelNode(GraphBuilder *builder, span<uint64_t> arg_ids, const Resource *shader_resource) noexcept
-        : GraphNode{builder, arg_ids}, _shader_resource{shader_resource} {
-    }
+    KernelNode(GraphBuilder *builder, span<uint64_t> arg_ids, const Resource *shader_resource) noexcept;
     virtual ~KernelNode() noexcept {}
+    uint64_t kernel_id() const noexcept { return _kernel_id; }
+protected:
+    //virtual U<GraphNode> clone() const noexcept override;
 private:
     const Resource *_shader_resource;
     uint3 _dispatch_size;
+    uint64_t _kernel_id;
 };
 
 template<size_t N>
@@ -49,13 +52,13 @@ private:
 template<>
 class GraphShaderInvoke<3> {
 public:
-	GraphShaderInvoke(KernelNode *node) noexcept
-		: _node{node} {}
-	KernelNode *dispatch(uint32_t dispatch_x, uint32_t dispatch_y, uint32_t dispatch_z) noexcept {
-		_node->_dispatch_size = {dispatch_x, dispatch_y, dispatch_z};
-		return _node;
-	}
+    GraphShaderInvoke(KernelNode *node) noexcept
+        : _node{node} {}
+    KernelNode *dispatch(uint32_t dispatch_x, uint32_t dispatch_y, uint32_t dispatch_z) noexcept {
+        _node->_dispatch_size = {dispatch_x, dispatch_y, dispatch_z};
+        return _node;
+    }
 private:
-KernelNode *_node = nullptr;
+    KernelNode *_node = nullptr;
 };
 }// namespace luisa::compute::graph

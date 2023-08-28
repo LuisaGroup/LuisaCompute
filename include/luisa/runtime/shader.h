@@ -266,7 +266,6 @@ public:
     }
     [[nodiscard]] auto operator()(
         graph::detail::view_to_graph_shader_invocation_t<detail::prototype_to_shader_invocation_t<Args>>... args) const noexcept {
-        
         using namespace graph;
         eastl::array ids = {args.arg_id() ...};
         return GraphShaderInvoke<dimension>(graph::GraphBuilder::add_kernel_node(ids, this));

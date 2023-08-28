@@ -153,6 +153,8 @@ public:
         SPARSE_TEXTURE,
         SPARSE_BUFFER_HEAP,
         SPARSE_TEXTURE_HEAP,
+        GRAPH,
+        GRAPH_NODE,
     };
 
 private:

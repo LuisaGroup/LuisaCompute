@@ -19,6 +19,9 @@
 #include <luisa/runtime/graph/graph_builder.h>
 #include <luisa/runtime/graph/graph_var.h>
 #include <luisa/runtime/graph/graph_dsl.h>
+
+#include <luisa/backends/ext/graph_ext.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -28,52 +31,60 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device("cuda");
     Stream stream = device.create_stream();
     auto b0 = device.create_buffer<float>(8);
-    auto b1 = device.create_buffer<float>(8);
+    auto b1 = device.create_buffer<int>(8);
     auto shader0 = device.compile<1>(
-        [&](BufferFloat b0, BufferInt b1) {
-            auto r = b0.read(0);
+        [](BufferFloat b0, BufferInt b1) {
+            b0.write(0, 1.0f);
         });
-
-    Kernel1D k = [&](BufferFloat b0, BufferFloat b1) {
-        auto r = b0.read(0);
-    };
-
     auto shader1 = device.compile<1>(
-        [&](BufferFloat b1) {
-            b1.write(0, 0.0f);
+        [](BufferFloat b0) {
+            b0.read(0);
         });
+    auto shader2 = device.compile<1>(
+        [](BufferFloat b0) {
+            b0.read(0);
+        });
+
     using namespace graph;
 
-    std::cout << std::endl << "graph build info>>>" << std::endl;
+    std::cout << std::endl
+              << "graph build info>>>" << std::endl;
+    
+    
     KernelNode *node0;
     GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<int> b1) {
         node0 = shader0(b0, b1).dispatch(1);
         shader1(b0).dispatch(1);
+        shader2(b0).dispatch(1);
     };
+
+    auto graph_ext = device.extension<GraphExt>();
+    auto g = graph_ext->create_graph(gd);
+    g.check_parms_update(b0, b1);
+
+
     auto &vars = gd._builder->_vars;
     for (auto &v : vars) {
         std::cout << "graph var " << v->arg_id() << ":[tag = " << (int)v->tag() << "]\n";
     }
-    auto& kernels = gd._builder->_kernel_nodes;
+    auto &kernels = gd._builder->_kernel_nodes;
 
     for (int kid = 0; auto &k : kernels) {
-        auto &args = k->arg_set();
+        auto &args = k->arg_usage();
         std::cout << "kernel" << kid << "'s args:[";
-        for (auto argid : args) std::cout << argid << " ";
+        for (auto [arg_id, usage] : args) std::cout << "id=" << arg_id << " usage="
+                                                    << (int)usage << "; ";
         std::cout << "]\n";
         ++kid;
     }
-    std::cout << std::endl << "graph build info<<<" << std::endl;
-    //GraphNode *node0, *node1, *node2;
+    std::cout << "deps:" << std::endl;
+    auto &deps = gd._builder->_deps;
+    for (auto dep : deps) {
+        std::cout << "[" << dep.src << "]->[" << dep.dst << "]\n";
+    };
 
-    //auto graph = [&](BufferView<float> b0, BufferView<float> b1) {
-    //    shader0.operator()(b0, b1);
-    //    node0 = Graph::add_node(shader0(b0, b1), 1);
-    //    node1 = Graph::add_node(b0.copy_from(b1));
-    //    node2 = Graph::add_node(shader1(b1), 1);
-    //};
-
-    //graph(b0, b1);
+    std::cout << std::endl
+              << "graph build info<<<" << std::endl;
 }
 
 void test_map() {

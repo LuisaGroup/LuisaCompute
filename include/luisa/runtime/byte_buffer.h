@@ -19,7 +19,7 @@ private:
 public:
     [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
     ByteBuffer() noexcept = default;
-    ~ByteBuffer() noexcept override;
+    ~ByteBuffer() noexcept = default;
     ByteBuffer(ByteBuffer &&) noexcept = default;
     ByteBuffer(ByteBuffer const &) noexcept = delete;
     ByteBuffer &operator=(ByteBuffer &&rhs) noexcept {

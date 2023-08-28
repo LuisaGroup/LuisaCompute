@@ -5,42 +5,87 @@
 #include <luisa/runtime/graph/kernel_node.h>
 #include <luisa/runtime/graph/memory_node.h>
 #include <luisa/runtime/graph/graph_instance.h>
+#include <luisa/runtime/rhi/resource.h>
+#include <luisa/runtime/graph/graph_var.h>
+#include <luisa/runtime/graph/utils.h>
 
-namespace luisa::compute {
-class Graph {
-public:
-    class Guard {
-    public:
-        Guard(Graph *graph) noexcept { Graph::set_current(graph); }
-        ~Guard() noexcept { Graph::set_current(nullptr); }
-    };
-    //static KernelNode *add_node(luisa::compute::detail::ShaderInvoke<1> &&ivk, size_t dispatch_size_x) noexcept {
-    //    return get_current()->add_node_impl(std::move(ivk), dispatch_size_x);
-    //}
-    //static KernelNode *add_node(luisa::compute::detail::ShaderInvoke<2> &&ivk, size_t dispatch_size_x, size_t dispatch_size_y) noexcept {
-    //    return get_current()->add_node_impl(std::move(ivk), dispatch_size_x, dispatch_size_y);
-    //}
-    //static KernelNode *add_node(luisa::compute::detail::ShaderInvoke<3> &&ivk, size_t dispatch_size_x, size_t dispatch_size_y, size_t dispatch_size_z) noexcept {
-    //    return get_current()->add_node_impl(std::move(ivk), dispatch_size_x, dispatch_size_y, dispatch_size_z);
-    //}
-
-    //static MemoryNode *add_node(luisa::unique_ptr<BufferCopyCommand> &&cpy) noexcept {
-    //    return get_current()->add_node_impl(std::move(cpy));
-    //}
-    static bool is_building() noexcept { return get_current() != nullptr; }
-
-    GraphInstance *instantiate() noexcept { return instantiate_impl(); }
+namespace luisa::compute::graph {
+class GraphExt;
+class LC_RUNTIME_API GraphInterface : public Resource {
+    template<typename... Args>
+    friend class Graph;
 protected:
-    // backend-specific implementation
-    //virtual KernelNode *add_node_impl(luisa::compute::detail::ShaderInvoke<1> ivk, size_t dispatch_size_x) noexcept = 0;
-    //virtual KernelNode *add_node_impl(luisa::compute::detail::ShaderInvoke<2> ivk, size_t dispatch_size_x, size_t dispatch_size_y) noexcept = 0;
-    //virtual KernelNode *add_node_impl(luisa::compute::detail::ShaderInvoke<3> ivk, size_t dispatch_size_x, size_t dispatch_size_y, size_t dispatch_size_z) noexcept = 0;
-
-    // virtual MemoryNode *add_node_impl(luisa::unique_ptr<BufferCopyCommand> cpy) noexcept = 0;
-    virtual GraphInstance *instantiate_impl() noexcept = 0;
-private:
-    static thread_local Graph *current;
-    static void set_current(Graph *graph) noexcept;
-    static Graph *get_current() noexcept;
+    virtual void create_graph_instance(GraphBuilder *builder) noexcept {}
+    virtual void destroy_graph_instance(GraphBuilder *builder) noexcept {}
+    virtual void update_graph_instance_node_parms(GraphBuilder *builder) noexcept {}
+    virtual void launch_graph_instance(Stream *stream) noexcept {}
 };
-}// namespace luisa::compute
+
+class LC_RUNTIME_API GraphBase {
+protected:
+    template<typename T>
+    using U = luisa::unique_ptr<T>;
+
+    friend class GraphExt;
+    GraphBase(GraphExt *graph_ext, const GraphBuilder *builder) noexcept;
+    virtual ~GraphBase() noexcept;
+
+    // delete copy
+    GraphBase(const GraphBase &) = delete;
+    GraphBase &operator=(const GraphBase &) = delete;
+
+    GraphExt *_graph_ext = nullptr;
+    GraphInterface *_impl = nullptr;
+    U<GraphBuilder> _builder = nullptr;
+    operator bool() const noexcept { return _impl != nullptr && _graph_ext != nullptr; }
+
+public:
+    GraphBase(GraphBase &&other) noexcept
+        : _graph_ext{other._graph_ext},
+          _impl{other._impl},
+          _builder{std::move(other._builder)} {
+        other._graph_ext = nullptr;
+        other._impl = nullptr;
+    }
+
+    GraphBase &operator=(GraphBase &&other) noexcept {
+        _graph_ext = other._graph_ext;
+        _impl = other._impl;
+        other._graph_ext = nullptr;
+        other._impl = nullptr;
+        _builder = std::move(other._builder);
+        return *this;
+    }
+};
+
+template<typename... Args>
+class Graph : public GraphBase {
+public:
+    using GraphBase::GraphBase;
+    virtual ~Graph() noexcept = default;
+    GraphInvoke operator()(detail::graph_var_to_view_t<Args> &&...args) noexcept;
+    GraphInvoke launch_without_check(detail::graph_var_to_view_t<Args> &&...args) noexcept;
+    void check_parms_update(detail::graph_var_to_view_t<Args> &&...args) noexcept;
+};
+
+template<typename... Args>
+GraphInvoke Graph<Args...>::operator()(detail::graph_var_to_view_t<Args> &&...args) noexcept {
+    check_parms_update(std::forward<detail::graph_var_to_view_t<Args>>(args)...);
+    return launch_without_check(std::forward<detail::graph_var_to_view_t<Args>>(args)...);
+}
+
+template<typename... Args>
+void Graph<Args...>::check_parms_update(detail::graph_var_to_view_t<Args> &&...args) noexcept {
+    detail::for_each_arg_with_index(
+        [&]<typename Arg>(uint64_t I, Arg &&arg) noexcept {
+            using raw_type = std::remove_cvref_t<Arg>;
+            auto derived = _builder->_vars[I]->cast<GraphVar<raw_type>>();
+            derived->update_check(arg);
+        },
+        std::forward<detail::graph_var_to_view_t<Args>>(args)...);
+}
+
+template<typename... Args>
+GraphInvoke Graph<Args...>::launch_without_check(detail::graph_var_to_view_t<Args> &&...args) noexcept {
+}
+}// namespace luisa::compute::graph

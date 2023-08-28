@@ -5,54 +5,18 @@
 #include <luisa/runtime/graph/graph_var.h>
 #include <luisa/runtime/graph/graph_builder.h>
 #include <iostream>
+#include <luisa/runtime/graph/utils.h>
 
 namespace luisa::compute::graph {
 namespace detail {
 /// Append an element in a tuple
-template<typename... T, typename A>
-[[nodiscard]] inline auto tuple_append(std::tuple<T...> tuple, A &&arg) noexcept {
-    auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
-        return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
-    };
-    return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
-}
-
-template<typename... Args>
-auto print_types_with_index() {
-    auto print = []<size_t... I>(std::index_sequence<I...>) {
-        ((std::cout << "[" << I << "] " << typeid(Args).name() << ";\n"),
-         ...);
-    };
-    std::cout << "{\n";
-    print(std::index_sequence_for<Args...>{});
-    std::cout << "}\n";
-}
-
-template<typename... Args>
-auto print_args_with_index(Args &&...args) {
-    auto print = []<size_t... I>(std::index_sequence<I...>, Args &&...args) {
-        ((std::cout << "[" << I << "] " << typeid(args).name() << ";\n"),
-         ...);
-    };
-    std::cout << "{\n";
-    print(std::index_sequence_for<Args...>{}, std::forward<Args>(args)...);
-    std::cout << "}\n";
-}
-
-template<typename F, typename... Args>
-auto for_each_type_with_index(F &&func) {
-    []<typename Fn, size_t... I>(Fn &&f, std::index_sequence<I...>) {
-        (f(I), ...);
-    }(std::forward<F>(func), std::index_sequence_for<Args...>{});
-}
-
-template<typename F, typename... Args>
-auto for_each_arg_with_index(F &&func, Args &&...args) {
-    []<typename Fn, size_t... I>(Fn &&f, std::index_sequence<I...>, Args &&...args) {
-        (f(I, std::forward<Args>(args)), ...);
-    }(std::forward<F>(func), std::index_sequence_for<Args...>{}, std::forward<Args>(args)...);
-}
-
+//template<typename... T, typename A>
+//[[nodiscard]] inline auto tuple_append(std::tuple<T...> tuple, A &&arg) noexcept {
+//    auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
+//        return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
+//    };
+//    return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
+//}
 }// namespace detail
 
 //Args: prototype, e.g. BufferView<int>
@@ -60,6 +24,8 @@ template<typename... Args>
 class GraphDefBase {
     template<typename...>
     friend class GraphDef;
+
+    friend class GraphExt;
 
     template<typename T>
     using U = unique_ptr<T>;
@@ -71,7 +37,7 @@ public:
         static_assert(std::conjunction_v<std::is_base_of<GraphVarBase, Args>...>);
         _builder = GraphBuilder::build([&] {
             // debug print:
-            detail::print_types_with_index<Args...>();
+            // detail::print_types_with_index<Args...>();
             GraphBuilder::set_var_count(sizeof...(Args));
             []<typename Fn, size_t... I>(Fn &&fn, std::index_sequence<I...>) {
                 fn(GraphBuilder::define_graph_var<Args, I>()...);

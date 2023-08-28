@@ -1,6 +1,6 @@
 #pragma once
 #include <luisa/runtime/command_list.h>
-namespace luisa::compute {
+namespace luisa::compute::graph {
 class GraphInvoke {
 public:
     GraphInvoke() noexcept {}
@@ -8,6 +8,7 @@ public:
     GraphInvoke &operator=(GraphInvoke &&) noexcept = default;
     virtual ~GraphInvoke() noexcept {}
 };
+
 class GraphInstance {
 public:
     GraphInstance() noexcept {}

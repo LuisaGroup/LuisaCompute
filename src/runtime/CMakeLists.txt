@@ -16,6 +16,7 @@ set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
 set(LUISA_COMPUTE_RUNTIME_GRAPH_SOURCES
         graph/graph.cpp
         graph/graph_builder.cpp
+        graph/kernel_node.cpp
 )
 
 set(LUISA_COMPUTE_RUNTIME_SOURCES
