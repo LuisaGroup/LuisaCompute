@@ -1,5 +1,5 @@
 #include "ext.h"
-#define LCDX_ENABLE_CUDA
+
 #ifdef LCDX_ENABLE_CUDA
 #include <cuda.h>
 #include <cuda_runtime_api.h>
