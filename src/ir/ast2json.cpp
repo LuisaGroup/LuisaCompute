@@ -145,32 +145,27 @@ public:
         }
         return v;
     }
-
     [[nodiscard]] static auto make_null() noexcept {
         return JSON{};
     }
-
     [[nodiscard]] static auto make_string(String s = {}) noexcept {
         auto v = JSON{};
         v._tag = Tag::VALUE_STRING;
         v._value.string = luisa::new_with_allocator<String>(std::move(s));
         return v;
     }
-
     [[nodiscard]] static auto make_object(Object o = {}) noexcept {
         auto v = JSON{};
         v._tag = Tag::VALUE_OBJECT;
         v._value.object = luisa::new_with_allocator<Object>(std::move(o));
         return v;
     }
-
     [[nodiscard]] static auto make_array(Array a = {}) noexcept {
         auto v = JSON{};
         v._tag = Tag::VALUE_ARRAY;
         v._value.array = luisa::new_with_allocator<Array>(std::move(a));
         return v;
     }
-
     [[nodiscard]] static auto make_number(double n = 0.) noexcept {
         auto v = JSON{};
         v._tag = Tag::VALUE_NUMBER;
@@ -205,7 +200,6 @@ public:
                      "JSON(uint64_t) cannot represent {}.", n);
         return make_number(static_cast<double>(n));
     }
-
     [[nodiscard]] static auto make_bool(bool b = false) noexcept {
         auto v = JSON{};
         v._tag = Tag::VALUE_BOOL;
