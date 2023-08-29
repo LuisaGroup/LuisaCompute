@@ -357,7 +357,7 @@ public:
                      luisa::to_string(_tag));
         return _value.number;
     }
-    [[nodiscard]] auto as_bool() noexcept {
+    [[nodiscard]] auto &as_bool() noexcept {
         LUISA_ASSERT(is_bool(),
                      "JSON value (tag = {}) is not a boolean.",
                      luisa::to_string(_tag));
