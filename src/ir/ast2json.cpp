@@ -2,6 +2,7 @@
 // Created by Mike on 8/29/2023.
 //
 
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
@@ -507,7 +508,7 @@ public:
 
     [[nodiscard]] auto dump(uint32_t indent = 2u) const noexcept {
         auto ss = luisa::string{};
-        ss.reserve(4096u);
+        ss.reserve(std::min<size_t>(luisa::pagesize(), 4_k) - 1u);
         dump_to(ss, indent);
         ss.shrink_to_fit();
         return ss;
