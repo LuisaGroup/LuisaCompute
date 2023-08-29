@@ -233,7 +233,12 @@ GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
             return GFXFormat_BC2_UNorm;
         case PixelFormat::BC3UNorm:
             return GFXFormat_BC3_UNorm;
-
+        case PixelFormat::R10G10B10A2UNorm:
+            return GFXFormat_R10G10B10A2_UNorm;
+        case PixelFormat::R10G10B10A2UInt:
+            return GFXFormat_R10G10B10A2_UInt;
+        case PixelFormat::R11G11B10F:
+            return GFXFormat_R11G11B10_Float;
     }
     LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
