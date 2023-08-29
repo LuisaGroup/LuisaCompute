@@ -27,7 +27,11 @@ inline auto to_string(T x) noexcept {
 
 }// namespace detail
 
-StringScratch::StringScratch(size_t reserved_size) noexcept { _buffer.reserve(luisa::align(reserved_size, 256u) - 1u /* count for the trailing zero */); }
+StringScratch::StringScratch(size_t reserved_size) noexcept {
+    _buffer.reserve(luisa::align(reserved_size, 256u) -
+                    1u /* count for the trailing zero */);
+}
+
 StringScratch::StringScratch() noexcept : StringScratch{std::min<size_t>(luisa::pagesize(), 4_k)} {}
 StringScratch &StringScratch::operator<<(std::string_view s) noexcept { return _buffer.append(s), *this; }
 StringScratch &StringScratch::operator<<(const char *s) noexcept { return *this << std::string_view{s}; }
