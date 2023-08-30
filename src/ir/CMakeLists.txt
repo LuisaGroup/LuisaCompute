@@ -1,6 +1,7 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_COMPUTE_IR_SOURCES
             ast2ir.cpp
+            ast2json.cpp
             ir2ast.cpp
             ir.cpp)
 

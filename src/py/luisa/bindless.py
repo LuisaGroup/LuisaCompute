@@ -1,5 +1,5 @@
 from .dylibs import lcapi
-from .dylibs.lcapi import uint2, uint3, ulong
+from .dylibs.lcapi import uint2, uint3
 from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
@@ -114,8 +114,8 @@ class BindlessArray:
 
     @BuiltinFuncBuilder
     def buffer_size(self, buffer_index):
-        check_exact_signature([ulong], [buffer_index], "texture2d_size")
-        return ulong, lcapi.builder().call(to_lctype(ulong), lcapi.CallOp.BINDLESS_BUFFER_SIZE, [self.expr, buffer_index.expr])
+        check_exact_signature([uint], [buffer_index], "texture2d_size")
+        return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BINDLESS_BUFFER_SIZE, [self.expr, buffer_index.expr])
 
     @BuiltinFuncBuilder
     def texture2d_size(self, texture2d_index):

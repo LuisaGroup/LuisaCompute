@@ -1,6 +1,6 @@
 // A Rust implementation of LuisaCompute backend.
 #![allow(non_snake_case)]
-use std::{cell::RefCell, sync::Arc};
+use std::{sync::Arc};
 
 use self::{
     accel::{AccelImpl, GeometryImpl},
@@ -11,7 +11,7 @@ use self::{
 use super::Backend;
 use crate::{cpu::llvm::LLVM_PATH, SwapChainForCpuContext};
 use crate::{cpu::shader::clang_args, panic_abort};
-use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
+use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo};
 use libc::c_void;
 use log::debug;
 use luisa_compute_api_types as api;
@@ -40,6 +40,12 @@ impl RustBackend {
     }
 }
 impl Backend for RustBackend {
+    fn compute_warp_size(&self) -> u32 {
+        1
+    }
+    fn native_handle(&self) -> *mut c_void {
+        self as *const _ as *mut c_void
+    }
     fn create_buffer(
         &self,
         ty: &CArc<ir::Type>,

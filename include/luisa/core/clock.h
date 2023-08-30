@@ -35,7 +35,7 @@ public:
     [[nodiscard]] auto toc() const noexcept {
         auto curr = SystemClock::now();
         using namespace std::chrono_literals;
-        return (curr - _last) / 1ns * 1e-6;
+        return static_cast<double>((curr - _last) / 1ns) * 1e-6;
     }
 };
 

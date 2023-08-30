@@ -20,6 +20,7 @@ class Device;
 namespace luisa::compute {
 class Statement;
 class Expression;
+class CallableLibrary;
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -31,6 +32,7 @@ namespace luisa::compute::detail {
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
 
+    friend class luisa::compute::CallableLibrary;
     friend class lc::validation::Device;
 
 public:
@@ -250,6 +252,10 @@ public:
     [[nodiscard]] const RefExpr *kernel_id() noexcept;
     /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *object_id() noexcept;
+    /// Return warp lane count
+    [[nodiscard]] const RefExpr *warp_lane_count() noexcept;
+    /// Return warp lane count
+    [[nodiscard]] const RefExpr *warp_lane_id() noexcept;
 
     // variables
     /// Add local variable of type

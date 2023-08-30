@@ -164,7 +164,9 @@ namespace luisa::compute::optix {
         dynamic_module_find_symbol(handle, "optixQueryFunctionTable"));
     FunctionTable t{};
     if (optixQueryFunctionTable(ABI_VERSION, 0, nullptr, nullptr, &t, sizeof(t)) != 0u) {
-        LUISA_ERROR_WITH_LOCATION("Failed to load OptiX function table.");
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to load OptiX function table. "
+            "You may need to update your driver.");
     }
     return t;
 }

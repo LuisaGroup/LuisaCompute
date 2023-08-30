@@ -16,7 +16,7 @@ namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const IndirectDispatchBuffer &buffer) noexcept {
     buffer._check_is_valid();
-    _encoder.encode_buffer(buffer.handle(), 0, buffer.size_bytes());
+    _encoder.encode_buffer(buffer.handle(), 0u, buffer.capacity());
     return *this;
 }
 

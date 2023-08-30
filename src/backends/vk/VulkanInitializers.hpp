@@ -11,7 +11,7 @@
 #pragma once
 
 #include "vulkan/vulkan.h"
-
+#include <luisa/vstl/common.h>
 namespace vks
 {
 	namespace initializers
@@ -224,7 +224,7 @@ namespace vks
 		}
 
 		inline VkDescriptorPoolCreateInfo descriptorPoolCreateInfo(
-			const std::vector<VkDescriptorPoolSize>& poolSizes,
+			const vstd::vector<VkDescriptorPoolSize>& poolSizes,
 			uint32_t maxSets)
 		{
 			VkDescriptorPoolCreateInfo descriptorPoolInfo{};
@@ -271,7 +271,7 @@ namespace vks
 		}
 
 		inline VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo(
-			const std::vector<VkDescriptorSetLayoutBinding>& bindings)
+			const vstd::vector<VkDescriptorSetLayoutBinding>& bindings)
 		{
 			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo{};
 			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -390,8 +390,8 @@ namespace vks
 		}
 
 		inline VkPipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo(
-			const std::vector<VkVertexInputBindingDescription> &vertexBindingDescriptions,
-			const std::vector<VkVertexInputAttributeDescription> &vertexAttributeDescriptions
+			const vstd::vector<VkVertexInputBindingDescription> &vertexBindingDescriptions,
+			const vstd::vector<VkVertexInputAttributeDescription> &vertexAttributeDescriptions
 		)
 		{
 			VkPipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo{};
@@ -506,7 +506,7 @@ namespace vks
 		}
 
 		inline VkPipelineDynamicStateCreateInfo pipelineDynamicStateCreateInfo(
-			const std::vector<VkDynamicState>& pDynamicStates,
+			const vstd::vector<VkDynamicState>& pDynamicStates,
 			VkPipelineDynamicStateCreateFlags flags = 0)
 		{
 			VkPipelineDynamicStateCreateInfo pipelineDynamicStateCreateInfo{};
@@ -601,7 +601,7 @@ namespace vks
 		}
 
 		/** @brief Initialize a specialization constant info structure to pass to a shader stage */
-		inline VkSpecializationInfo specializationInfo(const std::vector<VkSpecializationMapEntry> &mapEntries, size_t dataSize, const void* data)
+		inline VkSpecializationInfo specializationInfo(const vstd::vector<VkSpecializationMapEntry> &mapEntries, size_t dataSize, const void* data)
 		{
 			VkSpecializationInfo specializationInfo{};
 			specializationInfo.mapEntryCount = static_cast<uint32_t>(mapEntries.size());

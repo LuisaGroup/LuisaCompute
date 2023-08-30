@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
         Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
         luisa::vector<std::byte> pinned(image.view().size_bytes());
         luisa::vector<std::byte> result(image.view().size_bytes());
-        SparseTextureHeap tex_heap = device.allocate_sparse_texture_heap(pixel_storage_size(image.storage(), make_uint3(resolution, 1u)));
+        SparseTextureHeap tex_heap = device.allocate_sparse_texture_heap(pixel_storage_size(image.storage(), make_uint3(resolution, 1u)), false);
         sparse_cmdlist << sparse_image.map_tile(pixel_offset / sparse_image.tile_size(), resolution / sparse_image.tile_size(), 0, tex_heap);
         stream
             << bindless_arr.update()

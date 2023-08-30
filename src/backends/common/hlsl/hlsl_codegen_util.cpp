@@ -76,7 +76,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (ops.test(CallOp::INVERSE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
     }
-    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL)) {
+    if (ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_COUNT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
     }
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
@@ -180,6 +180,20 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
         case Variable::Tag::OBJECT_ID:
             LUISA_ASSERT(opt->isRaster, "object id only allowed in raster shader");
             str << "obj_id"sv;
+            break;
+        case Variable::Tag::WARP_LANE_COUNT:
+            if (opt->funcType == CodegenStackData::FuncType::Callable) {
+                str << "_wrpct"sv;
+            } else {
+                str << "WaveGetLaneCount()"sv;
+            }
+            break;
+        case Variable::Tag::WARP_LANE_ID:
+            if (opt->funcType == CodegenStackData::FuncType::Callable) {
+                str << "_wrpid"sv;
+            } else {
+                str << "WaveGetLaneIndex()"sv;
+            }
             break;
         case Variable::Tag::LOCAL:
             switch (opt->funcType) {
@@ -366,7 +380,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: {
-            str << "ByteAddressBuffer"sv;
+            str << "StructuredBuffer<uint>"sv;
         } break;
         case Type::Tag::ACCEL: {
             str << "RaytracingAccelerationStructure"sv;
@@ -876,9 +890,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
             str << "_bdlsBfSize"sv;
-        }break;
+            opt->useBufferBindless = true;
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            str << "bdls)"sv;
+            return;
+        }
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "_READ_BUFFER"sv;
+            opt->useBufferBindless = true;
             str << '(';
             for (auto &&i : args) {
                 i->accept(vis);
@@ -887,18 +910,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             vstd::to_string(expr->type()->size(), str);
             str << ',';
             GetTypeName(*expr->type(), str, Usage::READ, true);
-            str << ')';
+            str << ",bdls)"sv;
             return;
         }
         case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
             str << "_READ_BUFFER_BYTES"sv;
+            opt->useBufferBindless = true;
             str << '(';
             for (auto &&i : args) {
                 i->accept(vis);
                 str << ',';
             }
             GetTypeName(*expr->type(), str, Usage::READ, true);
-            str << ')';
+            str << ",bdls)"sv;
             return;
         }
         case CallOp::ASSERT:
@@ -1030,13 +1054,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: {
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "_ClearDispInd"sv;
-            break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "_EmplaceDispInd"sv;
+            str << "_SetDispCount"sv;
         } break;
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: {
             LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
@@ -1113,6 +1133,60 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: str << "_mat_comp_mul"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE:
+            str << "WaveIsFirstLane"sv;
+            break;
+        case CallOp::WARP_ACTIVE_ALL_EQUAL:
+            str << "WaveActiveAllEqual"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_AND:
+            str << "WaveActiveBitAnd"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_OR:
+            str << "WaveActiveBitOr"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_XOR:
+            str << "WaveActiveBitXor"sv;
+            break;
+        case CallOp::WARP_ACTIVE_COUNT_BITS:
+            str << "WaveActiveCountBits"sv;
+            break;
+        case CallOp::WARP_PREFIX_COUNT_BITS:
+            str << "WavePrefixCountBits"sv;
+            break;
+        case CallOp::WARP_ACTIVE_MAX:
+            str << "WaveActiveMax"sv;
+            break;
+        case CallOp::WARP_ACTIVE_MIN:
+            str << "WaveActiveMin"sv;
+            break;
+        case CallOp::WARP_PREFIX_PRODUCT:
+            str << "WavePrefixProduct"sv;
+            break;
+        case CallOp::WARP_ACTIVE_PRODUCT:
+            str << "WaveActiveProduct"sv;
+            break;
+        case CallOp::WARP_PREFIX_SUM:
+            str << "WavePrefixProduct"sv;
+            break;
+        case CallOp::WARP_ACTIVE_SUM:
+            str << "WaveActiveSum"sv;
+            break;
+        case CallOp::WARP_ACTIVE_ALL:
+            str << "WaveActiveAllTrue"sv;
+            break;
+        case CallOp::WARP_ACTIVE_ANY:
+            str << "WaveActiveAnyTrue"sv;
+            break;
+        case CallOp::WARP_ACTIVE_BIT_MASK:
+            str << "WaveActiveBallot"sv;
+            break;
+        case CallOp::WARP_READ_LANE:
+            str << "WaveReadLaneAt"sv;
+            break;
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE:
+            str << "WaveReadLaneFirst"sv;
+            break;
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;
@@ -1606,6 +1680,12 @@ void CodegenUtility::GenerateBindless(
                 table_idx,
                 0u, std::numeric_limits<uint>::max()});
     };
+
+    if (opt->useBufferBindless) {
+        str << "ByteAddressBuffer bdls[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
+        add_prop(ShaderVariableType::SRVBufferHeap);
+        table_idx++;
+    }
     if (opt->useTex2DBindless) {
         str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
@@ -1775,8 +1855,10 @@ void CodegenUtility::CodegenProperties(
             default: break;
         }
     }
-    if (uavArgCount > 8) {
-        LUISA_ERROR("Writable resources' count must be less than 8.");
+    if (uavArgCount > 64) [[unlikely]] {
+        LUISA_WARNING("Writable resources' count greater than 8 may cause crash.");
+    } else if (uavArgCount > 64) [[unlikely]] {
+        LUISA_ERROR("Writable resources' count must be less than 64.");
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
@@ -1856,6 +1938,7 @@ uint4 dsp_c;
         std::move(properties),
         opt->useTex2DBindless,
         opt->useTex3DBindless,
+        opt->useBufferBindless,
         immutableHeaderSize,
         GetTypeMD5(kernel)};
 }
@@ -2026,6 +2109,7 @@ uint iid:SV_INSTANCEID;
         std::move(properties),
         opt->useTex2DBindless,
         opt->useTex3DBindless,
+        opt->useBufferBindless,
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }

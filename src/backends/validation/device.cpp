@@ -362,8 +362,8 @@ void Device::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->deallocate_sparse_buffer_heap(handle);
 }
-ResourceCreationInfo Device::allocate_sparse_texture_heap(size_t byte_size) noexcept {
-    auto r = _native->allocate_sparse_texture_heap(byte_size);
+ResourceCreationInfo Device::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
+    auto r = _native->allocate_sparse_texture_heap(byte_size, is_compressed_type);
     new SparseHeap(r.handle, byte_size);
     return r;
 }

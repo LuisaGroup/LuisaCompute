@@ -1,12 +1,11 @@
 #![allow(unused_unsafe)]
 
-use std::ffi::CStr;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use crate::{Backend, BackendProvider, Context, Interface};
+use crate::{Backend, BackendProvider, Interface};
 use api::StreamTag;
 use libc::c_void;
 use luisa_compute_api_types as api;
@@ -47,22 +46,22 @@ pub(crate) fn _signal_handler(signal: libc::c_int) {
 macro_rules! catch_abort {
     ($stmts:expr) => {
         unsafe {
-            // #[cfg(debug_assertions)]
-            // {
-            //     let _guard = CPP_MUTEX.lock();
-            //     OLD_SIGABRT_HANDLER =
-            //         libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
-            //     OLD_SIGABRT_HANDLER =
-            //         libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
-            //     let ret = $stmts;
-            //     restore_signal_handler();
-            //     ret
-            // }
-            // #[cfg(not(debug_assertions))]
-            // {
+            #[cfg(debug_assertions)]
+            {
+                let _guard = CPP_MUTEX.lock();
+                OLD_SIGABRT_HANDLER =
+                    libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
+                OLD_SIGABRT_HANDLER =
+                    libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
+                let ret = $stmts;
+                restore_signal_handler();
+                ret
+            }
+            #[cfg(not(debug_assertions))]
+            {
                 let ret = $stmts;
                 ret
-            // }
+            }
         }
     };
 }
@@ -93,6 +92,12 @@ impl ProxyBackend {
 }
 
 impl Backend for ProxyBackend {
+    fn compute_warp_size(&self) -> u32 {
+        catch_abort!({ (self.device.compute_warp_size)(self.device.device) })
+    }
+    fn native_handle(&self) -> *mut c_void {
+        catch_abort!({ (self.device.native_handle)(self.device.device) })
+    }
     #[inline]
     fn create_buffer(&self, ty: &CArc<Type>, count: usize) -> api::CreatedBufferInfo {
         catch_abort!({
@@ -279,7 +284,10 @@ impl Backend for ProxyBackend {
     }
     #[inline]
     fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive) {
-        catch_abort!((self.device.destroy_procedural_primitive)(self.device.device, primitive))
+        catch_abort!((self.device.destroy_procedural_primitive)(
+            self.device.device,
+            primitive
+        ))
     }
 
     #[inline]

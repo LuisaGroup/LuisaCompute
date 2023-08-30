@@ -168,6 +168,8 @@ const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Type::o
 const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::DISPATCH_SIZE); }
 const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::KERNEL_ID); }
 const RefExpr *FunctionBuilder::object_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::OBJECT_ID); }
+const RefExpr *FunctionBuilder::warp_lane_count() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_COUNT); }
+const RefExpr *FunctionBuilder::warp_lane_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_ID); }
 
 inline const RefExpr *FunctionBuilder::_builtin(Type const *type, Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
@@ -613,6 +615,14 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
         if (kernel_size == 0 || kernel_size > 1024) [[unlikely]] {
             LUISA_ERROR("Function block size must be in range [1, 1024], Current block size is: {}.",
                         kernel_size);
+        }
+        if (any(size == uint3(0))) [[unlikely]] {
+            LUISA_ERROR("Function block size must be larger than 0, Current block size is: [{}, {}, {}].",
+                        size.x, size.y, size.z);
+        }
+        if(size.z > 64)[[unlikely]]{
+            LUISA_ERROR("Function block z-axis's size must be less or equal than 64, Current block size is: {}.",
+                        size.z);
         }
         _block_size = size;
     } else {

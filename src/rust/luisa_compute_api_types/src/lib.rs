@@ -652,6 +652,8 @@ pub struct DeviceInterface {
     pub destroy_buffer: unsafe extern "C" fn(Device, Buffer),
     pub create_texture:
         unsafe extern "C" fn(Device, PixelFormat, u32, u32, u32, u32, u32, bool) -> CreatedResourceInfo,
+    pub native_handle: unsafe extern "C" fn(Device) -> *mut c_void,
+    pub compute_warp_size: unsafe extern "C" fn(Device) -> u32,
     pub destroy_texture: unsafe extern "C" fn(Device, Texture),
     pub create_bindless_array: unsafe extern "C" fn(Device, usize) -> CreatedResourceInfo,
     pub destroy_bindless_array: unsafe extern "C" fn(Device, BindlessArray),

@@ -187,6 +187,10 @@ void *MetalDevice::native_handle() const noexcept {
     return _handle;
 }
 
+uint MetalDevice::compute_warp_size() const noexcept {
+    return _builtin_update_bindless_slots->threadExecutionWidth();
+}
+
 [[nodiscard]] inline auto create_device_buffer(MTL::Device *device, size_t element_stride, size_t element_count) noexcept {
     auto buffer_size = element_stride * element_count;
     auto buffer = new_with_allocator<MetalBuffer>(device, buffer_size);

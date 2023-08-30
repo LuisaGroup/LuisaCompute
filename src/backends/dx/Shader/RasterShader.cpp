@@ -313,6 +313,7 @@ RasterShader *RasterShader::CompileRaster(
     auto CompileNewCompute = [&](bool writeCache) -> RasterShader * {
         auto str = codegen();
         uint bdlsBufferCount = 0;
+        if (str.useBufferBindless) bdlsBufferCount++;
         if (str.useTex2DBindless) bdlsBufferCount++;
         if (str.useTex3DBindless) bdlsBufferCount++;
         if constexpr (RasterShaderDetail::PRINT_CODE) {
@@ -412,10 +413,11 @@ void RasterShader::SaveRaster(
     auto vertBin = GetSpan(*compResult.vertex.get<0>());
     auto pixelBin = GetSpan(*compResult.pixel.get<0>());
     uint bdlsBufferCount = 0;
+    if (str.useBufferBindless) bdlsBufferCount++;
     if (str.useTex2DBindless) bdlsBufferCount++;
     if (str.useTex3DBindless) bdlsBufferCount++;
     auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
-    fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+    static_cast<void>(fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()}));
 }
 RasterShader *RasterShader::LoadRaster(
     BinaryIO const *fileIo,

@@ -191,6 +191,7 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
                 // trace
                 Var<TriangleHit> hit = accel.trace_closest(ray);
+                reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
@@ -289,7 +290,7 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
-    ShaderOption o{.enable_debug_info = true};
+    ShaderOption o{.enable_debug_info = false};
     o.name = "clear";
     Shader2D<Image<float>> clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";

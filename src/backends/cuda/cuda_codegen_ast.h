@@ -4,6 +4,8 @@
 #include <luisa/ast/statement.h>
 #include <luisa/ast/expression.h>
 
+#include "../common/string_scratch.h"
+
 namespace luisa::compute::cuda {
 
 class CUDAConstantPrinter;

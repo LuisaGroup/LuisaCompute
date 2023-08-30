@@ -1,18 +1,18 @@
-use std::ffi::{CStr, CString};
-use std::fmt::{Debug, Display};
+use std::ffi::{CStr};
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use crate::proxy::ProxyBackend;
-use api::{CreatedSwapchainInfo, PixelFormat};
+use api::{PixelFormat};
 use libc::{c_char, c_void};
-use libloading::Library;
+
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
     ir::{self, KernelModule},
-    CArc, CArcSharedBlock,
+    CArc,
 };
 
 pub mod proxy;
@@ -169,6 +169,8 @@ pub struct RustcInfo {
 }
 
 pub trait Backend: Sync + Send {
+    fn native_handle(&self) -> *mut c_void;
+    fn compute_warp_size(&self) -> u32;
     fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> api::CreatedBufferInfo;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
@@ -497,13 +499,22 @@ extern "C" fn destroy_device<B: Backend>(device: api::DeviceInterface) {
     let backend: Box<B> = unsafe { Box::from_raw(device.device.0 as *mut B) };
     drop(backend)
 }
-
+extern "C" fn native_handle<B: Backend>(device: api::Device) -> *mut c_void {
+    let backend: &B = get_backend(device);
+    backend.native_handle()
+}
+extern "C" fn compute_warp_size<B: Backend>(device: api::Device) -> u32 {
+    let backend: &B = get_backend(device);
+    backend.compute_warp_size()
+}
 #[inline]
 pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
     let backend = Box::new(backend);
     let backend_ptr = Box::into_raw(backend);
     api::DeviceInterface {
         device: api::Device(backend_ptr as u64),
+        native_handle: native_handle::<B>,
+        compute_warp_size: compute_warp_size::<B>,
         destroy_device: destroy_device::<B>,
         create_buffer: create_buffer::<B>,
         destroy_buffer: destroy_buffer::<B>,

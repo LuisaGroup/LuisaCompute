@@ -84,8 +84,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
 
             # building from source is preferred for Python wheels
-            if (UNIX AND SKBUILD)
-                corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+            if (UNIX)
+                if (APPLE) # workaround clang linking
+                    corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_CC=cc" "EMBREE_CXX=c++")
+                endif ()
+                if (SKBUILD) # force building from source for Python binding to avoid dependency issues
+                    corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+                endif ()
             endif ()
             add_custom_target(luisa-compute-rust-copy DEPENDS cargo-build_luisa_compute_backend_impl)
             add_custom_command(TARGET luisa-compute-rust-copy

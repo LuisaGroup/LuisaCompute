@@ -5,6 +5,7 @@ namespace lc::dx {
 ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO const *ctx) {
     auto func = [&] {
         hlsl::CodegenResult code;
+        code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
         code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process", ctx);
@@ -50,6 +51,7 @@ static ComputeShader *LoadBCKernel(
         auto kerCode = kernelCode();
         code.result.reserve(incCode.size() + kerCode.size());
         code.result << incCode << kerCode;
+        code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
         code.properties.resize(4);

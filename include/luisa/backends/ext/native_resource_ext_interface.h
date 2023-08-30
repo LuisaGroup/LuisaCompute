@@ -47,7 +47,6 @@ public:
     [[nodiscard]] uint64_t get_device_address(const Image<T> &image) noexcept;
     template<typename T>
     [[nodiscard]] uint64_t get_device_address(const Volume<T> &volume) noexcept;
-    [[nodiscard]] uint64_t get_device_address(const ByteBuffer &buffer) noexcept;
     template<typename T>
     [[nodiscard]] Buffer<T> create_native_buffer(void *native_ptr, size_t elem_count, void *custom_data) noexcept;
     [[nodiscard]] DepthBuffer create_native_depth_buffer(

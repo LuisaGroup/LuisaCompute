@@ -17,6 +17,9 @@ template<typename T>
 class VolumeView;
 
 template<typename T>
+class Buffer;
+
+template<typename T>
 class BufferView;
 
 namespace detail {
@@ -64,6 +67,7 @@ public:
     }
 
     [[nodiscard]] luisa::unique_ptr<TextureCopyCommand> copy_from(MipmapView src) const noexcept;
+
     template<typename U>
     [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
@@ -72,6 +76,11 @@ public:
         return luisa::make_unique<BufferToTextureCopyCommand>(
             buffer.handle(), buffer.offset_bytes(),
             _handle, _storage, _level, _size);
+    }
+
+    template<typename U>
+    [[nodiscard]] auto copy_from(const Buffer<U> &buffer) const noexcept {
+        return copy_from(buffer.view());
     }
     
     template<typename U>
@@ -82,6 +91,11 @@ public:
         return luisa::make_unique<TextureToBufferCopyCommand>(
             buffer.handle(), buffer.offset_bytes(),
             _handle, _storage, _level, _size);
+    }
+
+    template<typename U>
+    [[nodiscard]] auto copy_to(const Buffer<U> &buffer) const noexcept {
+        return copy_to(buffer.view());
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {

@@ -490,6 +490,7 @@ bool Type::is_scalar() const noexcept {
         case Tag::FLOAT16:
         case Tag::INT16:
         case Tag::UINT16:
+        case Tag::FLOAT64:
             return true;
         default:
             return false;

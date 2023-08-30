@@ -46,7 +46,7 @@ void GetStaticAABBGeometryDesc(
     D3D12_RAYTRACING_GEOMETRY_DESC &geometryDesc,
     Buffer const *aabbBuffer, size_t aabbObjectOffset, size_t aabbObjectSize) {
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
-    geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+    geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
     geometryDesc.AABBs.AABBCount = aabbObjectSize / sizeof(AABB);
     geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset;
     geometryDesc.AABBs.AABBs.StrideInBytes = sizeof(AABB);
