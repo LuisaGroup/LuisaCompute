@@ -4,10 +4,15 @@
 using namespace luisa::compute::graph;
 
 // # Add Node API:
-KernelNode *GraphBuilder::add_kernel_node(span<uint64_t> arg_ids, const Resource *shader_resource) noexcept {
-    auto node = make_shared<KernelNode>(current(), arg_ids, shader_resource);
+KernelNode *GraphBuilder::add_kernel_node(span<uint64_t> arg_ids,
+                                          const Resource *shader_resource,
+                                          U<KernelNodeCmdEncoder> &&encoder,
+                                          size_t dimension,
+                                          const uint3 &block_size) noexcept {
+    auto node = make_shared<KernelNode>(current(), arg_ids, shader_resource, dimension, block_size);
     auto ptr = node.get();
     _current()->_kernel_nodes.emplace_back(std::move(node));
+    _current()->_kernel_node_cmd_encoders.emplace_back(std::move(encoder));
     _current()->_nodes.emplace_back(ptr);
     return ptr;
 }
@@ -117,6 +122,49 @@ void GraphBuilder::_build_var_accessors() noexcept {
     }
 }
 
+// # Update Node API:
+void GraphBuilder::_set_up_node_need_update_flags() noexcept {
+    _node_need_update_flags.resize(graph_var_count(), 1);
+}
+
+void GraphBuilder::propagate_need_update_flag_from_vars_to_nodes() noexcept {
+    for (auto &var : _vars)
+        if (var->need_update()) {// if a var need update, all nodes that use this var should be updated
+            for (auto nid : _var_accessors[var->arg_id()]) {
+                auto size = _var_accessors.size();
+                _node_need_update_flags[nid] = true;
+            }
+        }
+
+    for (auto node : _nodes)
+        if (node_need_update(node)) {
+            switch (node->type()) {
+                case GraphNodeType::Kernel:
+                    // if it's a kernel node, we need update the argument buffer in cmd encoder
+                    _update_kernel_node_cmd_encoders(dynamic_cast<const KernelNode *>(node));
+                    break;
+                default:
+                    break;
+            }
+        }
+}
+
+void GraphBuilder::_update_kernel_node_cmd_encoders(const KernelNode *node) noexcept {
+    for (size_t i = 0; i < node->kernel_args().size(); ++i) {
+        auto arg_idx_in_kernel_parms = i;
+        auto &&[arg_id, usage] = node->arg_usage()[i];
+        graph_var(arg_id)->update_kernel_node_cmd_encoder(
+            arg_idx_in_kernel_parms,
+            _kernel_node_cmd_encoders[node->kernel_id()].get());
+    }
+    uint3 dispatch_size = {1, 1, 1};
+    for (size_t i = 0; i < node->dispatch_args().size(); ++i) {
+        auto &&[arg_id, usage] = node->dispatch_args()[i];
+        dispatch_size[i] = dynamic_cast<const GraphVar<uint> *>(graph_var(arg_id))->value();
+    }
+    _kernel_node_cmd_encoders[node->kernel_id()]->_dispatch_size = dispatch_size;
+}
+
 // # Getter/Setter:
 void GraphBuilder::set_var_count(size_t size) noexcept { current()->_vars.resize(size); }
 
@@ -131,11 +179,20 @@ bool GraphBuilder::is_building() noexcept { return _current() != nullptr && _cur
 
 void GraphBuilder::clear_need_update_flags() noexcept {
     for (auto &var : _vars) var->clear_need_update_flag();
+    for (auto &i : _node_need_update_flags) i = 0;
 }
 
 const GraphNode *luisa::compute::graph::GraphBuilder::graph_node(uint64_t id) const noexcept {
     LUISA_ASSERT(id < _nodes.size(), "GraphNode id out of range.");
     return _nodes[id];
+}
+
+bool luisa::compute::graph::GraphBuilder::node_need_update(const GraphNode *node) const noexcept {
+    return _node_need_update_flags[node->node_id()];
+}
+
+bool luisa::compute::graph::GraphBuilder::var_need_update(const GraphVarBase *var) const noexcept {
+    return _vars[var->arg_id()]->need_update();
 }
 
 const GraphVarBase *GraphBuilder::graph_var(uint64_t id) const noexcept {
@@ -151,7 +208,7 @@ GraphBuilder::GraphBuilder() noexcept {}
 
 GraphBuilder::~GraphBuilder() noexcept {}
 
-luisa::compute::graph::GraphBuilder::GraphBuilder(const GraphBuilder &other) noexcept {
+GraphBuilder::GraphBuilder(const GraphBuilder &other) noexcept {
     LUISA_ASSERT(!is_building() && !other.is_building(), "Copy is not allowed when building");
 
     //auto set_nodes = [&]<typename T>(luisa::vector<U<T>> &concrete_nodes) {
@@ -179,4 +236,10 @@ luisa::compute::graph::GraphBuilder::GraphBuilder(const GraphBuilder &other) noe
     _nodes = other._nodes;
     _deps = other._deps;
     _var_accessors = other._var_accessors;
+    _node_need_update_flags = other._node_need_update_flags;
+
+    _kernel_node_cmd_encoders.reserve(other._kernel_node_cmd_encoders.size());
+    for (auto& encoder : other._kernel_node_cmd_encoders) {
+		_kernel_node_cmd_encoders.emplace_back(make_unique<KernelNodeCmdEncoder>(*encoder));
+	}
 }

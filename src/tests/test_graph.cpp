@@ -21,6 +21,7 @@
 #include <luisa/runtime/graph/graph_dsl.h>
 
 #include <luisa/backends/ext/graph_ext.h>
+#include <luisa/runtime/graph/kernel_node_cmd_encoder.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -30,38 +31,45 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     Device device = context.create_device("cuda");
     Stream stream = device.create_stream();
-    auto b0 = device.create_buffer<float>(8);
-    auto b1 = device.create_buffer<int>(8);
-    auto shader0 = device.compile<1>(
-        [](BufferFloat b0, BufferInt b1) {
-            b0.write(0, 1.0f);
-        });
-    auto shader1 = device.compile<1>(
-        [](BufferFloat b0) {
-            b0.read(0);
-        });
-    auto shader2 = device.compile<1>(
-        [](BufferFloat b0) {
-            b0.read(0);
-        });
-
     using namespace graph;
 
     std::cout << std::endl
               << "graph build info>>>" << std::endl;
-    
-    
-    KernelNode *node0;
-    GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<int> b1) {
-        node0 = shader0(b0, b1).dispatch(1);
-        shader1(b0).dispatch(1);
-        shader2(b0).dispatch(1);
+
+    auto b0 = device.create_buffer<float>(8);
+    auto b1 = device.create_buffer<int>(8);
+    luisa::vector<float> h_b0(8);
+
+    auto shader0 = device.compile<1>(
+        [](BufferFloat b0, BufferInt b1) {
+            b0.write(0, 1.0f);
+            b0.write(1, 2.0f);
+            auto b = b1.read(0);
+        });
+    auto shader1 = device.compile<1>(
+        [](BufferFloat b0) {
+            auto b = b0.read(0);
+        });
+    auto shader2 = device.compile<1>(
+        [](BufferFloat b0) {
+            auto b = b0.read(0);
+        });
+
+    GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<int> b1, GraphVar<uint32_t> dispatch_size) {
+        shader0(b0, b1).dispatch(dispatch_size);
+        shader1(b0).dispatch(dispatch_size);
+        shader2(b0).dispatch(dispatch_size);
     };
 
     auto graph_ext = device.extension<GraphExt>();
     auto g = graph_ext->create_graph(gd);
-    g.check_parms_update(b0, b1);
-
+    stream << g(b0, b1, 1).dispatch();
+    auto b0_new = device.create_buffer<float>(8);
+    stream << g(b0_new, b1, 1).dispatch();
+    stream << b0.copy_to(h_b0.data()) << synchronize();
+    LUISA_INFO("b0[0] = {}, b0[1] = {}", h_b0[0], h_b0[1]);
+    stream << b0_new.copy_to(h_b0.data()) << synchronize();
+    LUISA_INFO("b0[0] = {}, b0[1] = {}", h_b0[0], h_b0[1]);
 
     auto &vars = gd._builder->_vars;
     for (auto &v : vars) {
@@ -70,10 +78,15 @@ int main(int argc, char *argv[]) {
     auto &kernels = gd._builder->_kernel_nodes;
 
     for (int kid = 0; auto &k : kernels) {
-        auto &args = k->arg_usage();
+        auto args = k->kernel_args();
         std::cout << "kernel" << kid << "'s args:[";
-        for (auto [arg_id, usage] : args) std::cout << "id=" << arg_id << " usage="
-                                                    << (int)usage << "; ";
+        for (auto &&[arg_id, usage] : args) std::cout << "id=" << arg_id << " usage="
+                                                      << (int)usage << "; ";
+        std::cout << "] ";
+        auto dispatch_args = k->dispatch_args();
+        std::cout << "dispatch args:[";
+        for (auto &&[arg_id, usage] : dispatch_args) std::cout << "id=" << arg_id << " usage="
+                                                               << (int)usage << "; ";
         std::cout << "]\n";
         ++kid;
     }

@@ -7,6 +7,9 @@
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/stream_event.h>
 #include <luisa/runtime/command_list.h>
+namespace luisa::compute::graph {
+class GraphInvokeCommit;
+}
 
 namespace luisa::compute {
 
@@ -90,6 +93,7 @@ public:
     }
     Stream &operator<<(CommandList::Commit &&commit) noexcept;
     Stream &operator<<(Synchronize &&) noexcept;
+    Stream &operator<<(graph::GraphInvokeCommit&& commit) noexcept;
     void synchronize() noexcept { _synchronize(); }
     [[nodiscard]] auto stream_tag() const noexcept { return _stream_tag; }
 

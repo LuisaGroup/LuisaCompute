@@ -9,7 +9,11 @@
 
 namespace luisa::compute {
 class ShaderDispatchCommand;
-}
+}// namespace luisa::compute
+
+namespace luisa::compute::graph {
+class KernelNodeCmdEncoder;
+}// namespace luisa::compute::graph
 
 namespace luisa::compute::cuda {
 
@@ -37,8 +41,8 @@ public:
     [[nodiscard]] virtual void *handle() const noexcept = 0;
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
+    virtual void encode_kernel_node_parms(luisa::function<void(CUDA_KERNEL_NODE_PARAMS *)> func, luisa::compute::graph::KernelNodeCmdEncoder *encoder) noexcept;
     void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda
-

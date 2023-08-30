@@ -32,5 +32,7 @@ void CUDAShader::launch(CUDACommandEncoder &encoder,
     if (!name.empty()) { nvtxRangePop(); }
 }
 
+void CUDAShader::encode_kernel_node_parms(luisa::function<void(CUDA_KERNEL_NODE_PARAMS *)> func, luisa::compute::graph::KernelNodeCmdEncoder *encoder) noexcept {
+    LUISA_ERROR_WITH_LOCATION("not supported yet");
+}
 }// namespace luisa::compute::cuda
-

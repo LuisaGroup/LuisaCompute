@@ -4,6 +4,10 @@
 #include <luisa/core/stl/string.h>
 #include "cuda_shader.h"
 
+namespace luisa::compute::graph {
+class KernelNodeCmdEncoder;
+}// namespace luisa::compute::graph
+
 namespace luisa::compute::cuda {
 
 class CUDADevice;
@@ -29,7 +33,7 @@ public:
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
     [[nodiscard]] void *handle() const noexcept override { return _function; }
+    virtual void encode_kernel_node_parms(luisa::function<void(CUDA_KERNEL_NODE_PARAMS *)> func, luisa::compute::graph::KernelNodeCmdEncoder *encoder) noexcept override;
 };
 
 }// namespace luisa::compute::cuda
-

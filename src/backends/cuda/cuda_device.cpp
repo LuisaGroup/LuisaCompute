@@ -39,7 +39,7 @@
 
 #include "cuda_dstorage.h"
 #include "cuda_ext.h"
-#include <luisa/backends/ext/graph_ext.h>
+#include "graph/cuda_graph_ext.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 static const bool LUISA_CUDA_DUMP_SOURCE = ([] {
@@ -817,14 +817,17 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
         if (v == nullptr) { v = luisa::make_unique<CUDA##ext##Ext>(this); } \
         return v.get();                                                     \
     }
-    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(Denoiser, _denoiser_ext)
-    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
-    if (name == graph::GraphExt::name) {
-        std::scoped_lock lock{_ext_mutex};
-        if (_graph_ext == nullptr) {
-            _graph_ext = luisa::make_unique<graph::GraphExt>(this);
-        }
-        return _graph_ext.get();
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(Denoiser, _denoiser_ext);
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext);
+    {
+        using namespace luisa::compute::graph; using namespace luisa::compute::cuda::graph;
+        if (name == GraphExt::name) {
+            std::scoped_lock lock{_ext_mutex};
+            if (_graph_ext == nullptr) {
+                _graph_ext = luisa::make_unique<CUDAGraphExt>(this);
+            }
+            return _graph_ext.get();
+        };
     }
 #undef LUISA_COMPUTE_CREATE_CUDA_EXTENSION
 

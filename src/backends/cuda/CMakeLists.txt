@@ -3,6 +3,14 @@ find_package(CUDAToolkit 11.7)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
 
+    set(LUISA_COMPUTE_CUDA_GRAPH_SOURCES
+        graph/cuda_graph_ext.h
+        graph/cuda_graph_ext.cpp
+        graph/cuda_graph_instance.h
+        graph/cuda_graph_instance.cpp
+        graph/cuda_graph_interface.h
+        graph/cuda_graph_interface.cpp)
+
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
@@ -30,7 +38,8 @@ if (CUDAToolkit_FOUND)
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h
             default_binary_io.cpp
-            string_scratch.cpp)
+            string_scratch.cpp
+            ${LUISA_COMPUTE_CUDA_GRAPH_SOURCES})
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 
@@ -61,6 +70,9 @@ if (CUDAToolkit_FOUND)
     if (WIN32)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
+
+    # # for cuda graph
+    # target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cudart_static)
 
     # nvCOMP
     if (LUISA_COMPUTE_DOWNLOAD_NVCOMP)

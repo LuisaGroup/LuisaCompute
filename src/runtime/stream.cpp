@@ -4,6 +4,7 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/runtime/graph/graph_invoke.h>
 
 namespace luisa::compute {
 
@@ -97,6 +98,11 @@ Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexc
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
     _dispatch(std::move(commit).command_list());
+    return *this;
+}
+
+Stream &Stream::operator<<(graph::GraphInvokeCommit &&commit) noexcept {
+    commit.func(this);
     return *this;
 }
 

@@ -1,7 +1,10 @@
 #pragma once
+#include <luisa/core/logging.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/core/basic_traits.h>
 #include <luisa/vstl/unique_ptr.h>
+#include <luisa/runtime/graph/kernel_node_cmd_encoder.h>
+
 namespace luisa::compute::graph {
 
 enum class GraphResourceTag {
@@ -38,15 +41,22 @@ public:
     bool need_update() const noexcept { return _need_update; }
 
     uint64_t arg_id() const noexcept { return _arg_id.value(); }
-    void clear_need_update_flag() noexcept { _need_update = false;}
+    void clear_need_update_flag() noexcept { _need_update = false; }
 
     GraphResourceTag tag() const noexcept { return _tag; }
     virtual U<GraphVarBase> clone() const noexcept = 0;
     template<typename T>
-    T *cast() noexcept {
+    auto cast() noexcept {
         static_assert(std::is_base_of_v<GraphVarBase, T>);
         return dynamic_cast<T *>(this);
     }
+    template<typename T>
+    auto cast() const noexcept {
+        static_assert(std::is_base_of_v<GraphVarBase, T>);
+        return dynamic_cast<const T *>(this);
+    }
+    virtual void update_kernel_node_cmd_encoder(
+        size_t arg_idx_in_kernel_parms, KernelNodeCmdEncoder *encoder) const noexcept = 0;
 private:
     bool _is_virtual{true};
     GraphArgId _arg_id{invalid_id};
@@ -61,14 +71,20 @@ public:
     GraphVar(GraphArgId id) noexcept : GraphVarBase{id, GraphResourceTag::Basic} {}
     U<GraphVarBase> clone() const noexcept override { return make_unique<GraphVar<T>>(*this); }
     void update_check(const T &new_value) noexcept {
-        _need_update || = _value != new_value;
+        _need_update = _need_update || _value != new_value;
         if (_need_update) {
             LUISA_INFO("arg {} need update: new value = {}", this->arg_id(), new_value);
             _value = new_value;
         }
     }
+    const T &value() const noexcept { return _value; }
+    const T &view() const noexcept { return _value; }
+    virtual void update_kernel_node_cmd_encoder(
+        size_t arg_idx_in_kernel_parms, KernelNodeCmdEncoder *encoder) const noexcept override {
+        encoder->update_uniform(arg_idx_in_kernel_parms, &_value);
+    }
 private:
-    T _value{};
+    mutable T _value{};
 };
 
 template<typename T>
@@ -84,11 +100,18 @@ public:
     U<GraphVarBase> clone() const noexcept override { return make_unique<GraphVar<BufferView<T>>>(*this); }
 
     void update_check(const BufferView<T> &new_view) noexcept {
-        _need_update || = !is_same_view(new_view);
+        _need_update = _need_update || !is_same_view(new_view);
         if (_need_update) {
             LUISA_INFO("arg {} need update: new buffer view handle = {}", this->arg_id(), new_view.handle());
             _view = new_view;
         }
+    }
+
+    const BufferView<T> view() const noexcept { return _view; }
+
+    virtual void update_kernel_node_cmd_encoder(
+        size_t arg_idx_in_kernel_parms, KernelNodeCmdEncoder *encoder) const noexcept override {
+        encoder->update_buffer(arg_idx_in_kernel_parms, _view.handle(), _view.offset(), _view.size());
     }
 private:
     BufferView<T> _view{};

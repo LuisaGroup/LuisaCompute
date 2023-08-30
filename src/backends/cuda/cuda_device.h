@@ -10,9 +10,9 @@
 #include "cuda_compiler.h"
 #include "optix_api.h"
 #include "cuda_shader_metadata.h"
-namespace luisa::compute::graph {
-class GraphExt;
-}// namespace luisa::compute::graph
+namespace luisa::compute::cuda::graph {
+class CUDAGraphExt;
+}// namespace luisa::compute::cuda::graph
 namespace luisa::compute::cuda {
 
 class CUDADenoiserExt;
@@ -99,7 +99,7 @@ private:
     std::mutex _ext_mutex;
     luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
-    luisa::unique_ptr<graph::GraphExt> _graph_ext;
+    luisa::unique_ptr<graph::CUDAGraphExt> _graph_ext;
 
 private:
     [[nodiscard]] ShaderCreationInfo _create_shader(luisa::string name,

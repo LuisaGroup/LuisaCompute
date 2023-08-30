@@ -217,4 +217,3 @@ void RasterDispatchCmdEncoder::set_viewport(Viewport viewport) noexcept {
 }
 
 }// namespace luisa::compute
-
