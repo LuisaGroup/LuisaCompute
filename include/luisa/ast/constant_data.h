@@ -37,7 +37,9 @@ public:
 };
 
 class LC_AST_API ConstantData {
+
     friend class CallableLibrary;
+
 private:
     const Type *_type;
     const std::byte *_raw;
@@ -52,6 +54,7 @@ public:
     [[nodiscard]] auto raw() const noexcept { return _raw; }
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto hash() const noexcept { return _hash; }
+    [[nodiscard]] bool operator==(const ConstantData &rhs) const noexcept { return _hash == rhs._hash; }
     void decode(ConstantDecoder &d) const noexcept { d.decode(_type, _raw); }
 };
 

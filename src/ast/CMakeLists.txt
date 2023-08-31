@@ -1,5 +1,6 @@
 set(LUISA_COMPUTE_AST_SOURCES
         ast_evaluator.cpp
+        ast2json.cpp
         atomic_ref_node.cpp
         callable_library.cpp
         constant_data.cpp

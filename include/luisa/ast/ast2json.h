@@ -7,5 +7,5 @@
 #include <luisa/ast/function.h>
 
 namespace luisa::compute {
-[[nodiscard]] LC_IR_API luisa::string to_json(Function function) noexcept;
+[[nodiscard]] LC_AST_API luisa::string to_json(Function function) noexcept;
 }// namespace luisa::compute
