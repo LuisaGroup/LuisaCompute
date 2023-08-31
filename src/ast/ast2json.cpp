@@ -192,15 +192,25 @@ public:
     [[nodiscard]] static auto make_number(uint n) noexcept {
         return make_number(static_cast<double>(n));
     }
-    [[nodiscard]] static auto make_number(int64_t n) noexcept {
+    [[nodiscard]] static auto make_number(long long n) noexcept {
         LUISA_ASSERT(static_cast<int64_t>(static_cast<double>(n)) == n,
                      "JSON(int64_t) cannot represent {}.", n);
         return make_number(static_cast<double>(n));
     }
-    [[nodiscard]] static auto make_number(uint64_t n) noexcept {
+    [[nodiscard]] static auto make_number(unsigned long long n) noexcept {
         LUISA_ASSERT(static_cast<uint64_t>(static_cast<double>(n)) == n,
                      "JSON(uint64_t) cannot represent {}.", n);
         return make_number(static_cast<double>(n));
+    }
+    [[nodiscard]] static auto make_number(long n) noexcept {
+        return sizeof(n) == 4u ?
+                   make_number(static_cast<int32_t>(n)) :
+                   make_number(static_cast<long long>(n));
+    }
+    [[nodiscard]] static auto make_number(unsigned long n) noexcept {
+        return sizeof(n) == 4u ?
+                   make_number(static_cast<uint32_t>(n)) :
+                   make_number(static_cast<unsigned long long>(n));
     }
     [[nodiscard]] static auto make_bool(bool b = false) noexcept {
         auto v = JSON{};
@@ -234,8 +244,10 @@ public:
     JSON(uint16_t n) noexcept : JSON{make_number(n)} {}
     JSON(int32_t n) noexcept : JSON{make_number(n)} {}
     JSON(uint32_t n) noexcept : JSON{make_number(n)} {}
-    JSON(int64_t n) noexcept : JSON{make_number(n)} {}
-    JSON(uint64_t n) noexcept : JSON{make_number(n)} {}
+    JSON(long n) noexcept : JSON{make_number(n)} {}
+    JSON(unsigned long n) noexcept : JSON{make_number(n)} {}
+    JSON(long long n) noexcept : JSON{make_number(n)} {}
+    JSON(unsigned long long n) noexcept : JSON{make_number(n)} {}
 
     JSON &operator=(const JSON &rhs) noexcept {
         _copy(rhs);
@@ -306,11 +318,19 @@ public:
         _copy(make_number(n));
         return *this;
     }
-    JSON &operator=(int64_t n) noexcept {
+    JSON &operator=(long n) noexcept {
         _copy(make_number(static_cast<double>(n)));
         return *this;
     }
-    JSON &operator=(uint64_t n) noexcept {
+    JSON &operator=(unsigned long n) noexcept {
+        _copy(make_number(static_cast<double>(n)));
+        return *this;
+    }
+    JSON &operator=(long long n) noexcept {
+        _copy(make_number(static_cast<double>(n)));
+        return *this;
+    }
+    JSON &operator=(unsigned long long n) noexcept {
         _copy(make_number(static_cast<double>(n)));
         return *this;
     }
