@@ -2509,6 +2509,28 @@ template<typename T>
     return lc_warp_read_lane(x, lc_warp_first_active_lane());
 }
 
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_min_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return min(a, b); });
+}
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_max_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return max(a, b); });
+}
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_sum_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a + b; });
+}
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_product_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a * b; });
+}
+
+#define LC_WARP_ACTIVE_REDUCE_SCALAR(op, T)                                       \
+    [[nodiscard]] __device__ inline auto lc_warp_active_##op(lc_##T x) noexcept { \
+        return lc_warp_active_##op##_impl<lc_##T>(x);                             \
+    }
+
 #if __CUDA_ARCH__ >= 800
 [[nodiscard]] __device__ inline auto lc_warp_active_min(lc_uint x) noexcept {
     return __reduce_min_sync(LC_WARP_ACTIVE_MASK, x);
@@ -2546,29 +2568,20 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_warp_active_sum(lc_short x) noexcept {
     return static_cast<lc_short>(__reduce_add_sync(LC_WARP_ACTIVE_MASK, static_cast<lc_int>(x)));
 }
+#else
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, uint)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, uint)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, uint)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, int)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, int)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, int)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, ushort)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, ushort)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, ushort)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, short)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, short)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, short)
 #endif
-
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_min_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return min(a, b); });
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_max_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return max(a, b); });
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_sum_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a + b; });
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_product_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a * b; });
-}
-
-#define LC_WARP_ACTIVE_REDUCE_SCALAR(op, T)                                       \
-    [[nodiscard]] __device__ inline auto lc_warp_active_##op(lc_##T x) noexcept { \
-        return lc_warp_active_##op##_impl<lc_##T>(x);                             \
-    }
 
 LC_WARP_ACTIVE_REDUCE_SCALAR(product, uint)
 LC_WARP_ACTIVE_REDUCE_SCALAR(product, int)
