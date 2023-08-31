@@ -39,6 +39,7 @@ private:
     mutable uint64_t _hash{0u};
     mutable bool _hash_computed{false};
     Tag _tag;
+
 protected:
     Statement() noexcept = default;
 
