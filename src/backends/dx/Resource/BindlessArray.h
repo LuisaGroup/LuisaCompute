@@ -14,6 +14,7 @@ public:
     using MapIndex = typename Map::Index;
     struct BindlessStruct {
         static constexpr auto n_pos = std::numeric_limits<uint>::max();
+        static constexpr auto mask = (1u << 28u) - 1;
         uint buffer = n_pos;
         uint tex2D = n_pos;
         uint tex3D = n_pos;
@@ -36,8 +37,9 @@ private:
     mutable std::mutex mtx;
     DefaultBuffer buffer;
     void TryReturnIndex(MapIndex &index, uint &originValue);
+    void TryReturnIndexTex(MapIndex &index, uint &originValue);
     MapIndex AddIndex(size_t ptr);
-    mutable vstd::vector<int> freeQueue;
+    mutable vstd::vector<uint> freeQueue;
 
 public:
     void Lock() const {
