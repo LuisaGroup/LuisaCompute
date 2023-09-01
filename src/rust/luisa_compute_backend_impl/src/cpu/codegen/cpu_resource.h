@@ -153,7 +153,7 @@ lc_bindless_buffer_type(const KernelFnArgs *k_args, const BindlessArray &array, 
     return buf.ty;
 }
 template<class T>
-inline T lc_bindless_byte_address_buffer_read(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
+inline T lc_bindless_byte_buffer_read(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
                                  size_t element) noexcept {
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     return lc_byte_buffer_read<T>(k_args, buf, element);

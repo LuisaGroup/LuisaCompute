@@ -905,8 +905,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
-            _scratch << "lc_bindless_byte_address_buffer_read<";
+        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
+            _scratch << "lc_bindless_byte_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;

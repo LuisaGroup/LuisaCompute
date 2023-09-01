@@ -380,6 +380,8 @@ struct Func {
         WarpReadLaneAt,
         WarpReadFirstLane,
         SynchronizeBlock,
+        /// (buffer/smem, indices...): do not appear in the final IR, but will be lowered to a Atomic* instruction
+        AtomicRef,
         /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
         AtomicExchange,
         /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
@@ -404,6 +406,12 @@ struct Func {
         BufferWrite,
         /// buffer -> uint: returns buffer size in *elements*
         BufferSize,
+        /// (buffer, index_bytes) -> value
+        ByteBufferRead,
+        /// (buffer, index_bytes, value) -> void
+        ByteBufferWrite,
+        /// buffer -> size in bytes
+        ByteBufferSize,
         /// (texture, coord) -> value
         Texture2dRead,
         /// (texture, coord, value) -> void
@@ -449,6 +457,7 @@ struct Func {
         /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
         BindlessBufferType,
+        BindlessByteAdressBufferRead,
         Vec,
         Vec2,
         Vec3,
