@@ -2539,6 +2539,13 @@ pub mod debug {
         let cstring = CString::new(s).unwrap();
         CBoxedSlice::new(cstring.as_bytes().to_vec())
     }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_ast_json_to_ir_kernel(j: CBoxedSlice<u8>) -> *mut CArcSharedBlock<KernelModule> {
+        let j = j.to_string();
+        let kernel = ast2ir::convert_ast_to_ir_kernel(j);
+        CArc::into_raw(kernel)
+    }
 }
 
 #[cfg(test)]

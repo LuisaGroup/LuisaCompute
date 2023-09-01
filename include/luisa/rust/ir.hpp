@@ -53,17 +53,74 @@ struct IrBuilder {
     NodeRef insert_point;
 };
 
+struct Module {
+    ModuleKind kind;
+    Pooled<BasicBlock> entry;
+    CArc<ModulePools> pools;
+};
+
+struct BufferBinding {
+    uint64_t handle;
+    uint64_t offset;
+    size_t size;
+};
+
+struct TextureBinding {
+    uint64_t handle;
+    uint32_t level;
+};
+
+struct BindlessArrayBinding {
+    uint64_t handle;
+};
+
+struct AccelBinding {
+    uint64_t handle;
+};
+
+struct Binding {
+    enum class Tag {
+        Buffer,
+        Texture,
+        BindlessArray,
+        Accel,
+    };
+
+    struct Buffer_Body {
+        BufferBinding _0;
+    };
+
+    struct Texture_Body {
+        TextureBinding _0;
+    };
+
+    struct BindlessArray_Body {
+        BindlessArrayBinding _0;
+    };
+
+    struct Accel_Body {
+        AccelBinding _0;
+    };
+
+    Tag tag;
+    union {
+        Buffer_Body buffer;
+        Texture_Body texture;
+        BindlessArray_Body bindless_array;
+        Accel_Body accel;
+    };
+};
+
+struct Capture {
+    NodeRef node;
+    Binding binding;
+};
+
 template<typename T>
 struct CBoxedSlice {
     T *ptr;
     size_t len;
     void (*destructor)(T*, size_t);
-};
-
-struct Module {
-    ModuleKind kind;
-    Pooled<BasicBlock> entry;
-    CArc<ModulePools> pools;
 };
 
 struct VectorElementType {
@@ -155,69 +212,22 @@ struct Type {
     };
 };
 
-struct BufferBinding {
-    uint64_t handle;
-    uint64_t offset;
-    size_t size;
-};
-
-struct TextureBinding {
-    uint64_t handle;
-    uint32_t level;
-};
-
-struct BindlessArrayBinding {
-    uint64_t handle;
-};
-
-struct AccelBinding {
-    uint64_t handle;
-};
-
-struct Binding {
-    enum class Tag {
-        Buffer,
-        Texture,
-        BindlessArray,
-        Accel,
-    };
-
-    struct Buffer_Body {
-        BufferBinding _0;
-    };
-
-    struct Texture_Body {
-        TextureBinding _0;
-    };
-
-    struct BindlessArray_Body {
-        BindlessArrayBinding _0;
-    };
-
-    struct Accel_Body {
-        AccelBinding _0;
-    };
-
-    Tag tag;
-    union {
-        Buffer_Body buffer;
-        Texture_Body texture;
-        BindlessArray_Body bindless_array;
-        Accel_Body accel;
-    };
-};
-
-struct Capture {
-    NodeRef node;
-    Binding binding;
-};
-
 struct CpuCustomOp {
     uint8_t *data;
     /// func(data, args); func should modify args in place
     void (*func)(uint8_t*, uint8_t*);
     void (*destructor)(uint8_t*);
     CArc<Type> arg_type;
+};
+
+struct KernelModule {
+    Module module;
+    CBoxedSlice<Capture> captures;
+    CBoxedSlice<NodeRef> args;
+    CBoxedSlice<NodeRef> shared;
+    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
+    uint32_t block_size[3];
+    CArc<ModulePools> pools;
 };
 
 struct CallableModule {
@@ -745,16 +755,6 @@ struct Instruction {
     };
 };
 
-struct KernelModule {
-    Module module;
-    CBoxedSlice<Capture> captures;
-    CBoxedSlice<NodeRef> args;
-    CBoxedSlice<NodeRef> shared;
-    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    uint32_t block_size[3];
-    CArc<ModulePools> pools;
-};
-
 struct Node {
     CArc<Type> type_;
     NodeRef next;
@@ -776,6 +776,8 @@ static const NodeRef INVALID_REF = NodeRef{ /* ._0 = */ 0 };
 extern "C" {
 
 void luisa_compute_ir_append_node(IrBuilder *builder, NodeRef node_ref);
+
+CArcSharedBlock<KernelModule> *luisa_compute_ir_ast_json_to_ir_kernel(CBoxedSlice<uint8_t> j);
 
 NodeRef luisa_compute_ir_build_call(IrBuilder *builder,
                                     Func func,
