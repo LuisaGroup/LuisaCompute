@@ -7,7 +7,7 @@
  *   4. Move all local variables to the beginning of the function to make the following passes (e.g., lower control flow) easier.
  */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use crate::ir::{BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModulePools, new_node, Node, NodeRef};
 use crate::{CArc, CBoxedSlice, Pooled};
 use crate::transform::Transform;

@@ -22,14 +22,32 @@ BindlessArray::~BindlessArray() {
             device->globalHeap->ReturnIndex(i);
         }
     };
+    auto ReturnTex = [&](auto &&i) {
+        if (i != BindlessStruct::n_pos) {
+            device->globalHeap->ReturnIndex(i & BindlessStruct::mask);
+        }
+    };
     for (auto &&i : binded) {
         Return(i.first.buffer);
-        Return(i.first.tex2D);
-        Return(i.first.tex3D);
+        ReturnTex(i.first.tex2D);
+        ReturnTex(i.first.tex3D);
     }
     for(auto&& i : freeQueue){
         device->globalHeap->ReturnIndex(i);
     }
+}
+void  BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue){
+    if (originValue != BindlessStruct::n_pos) {
+        freeQueue.push_back(originValue & BindlessStruct::mask);
+        originValue = BindlessStruct::n_pos;
+        // device->globalHeap->ReturnIndex(originValue);
+        auto &&v = index.value();
+        v--;
+        if (v == 0) {
+            ptrMap.remove(index);
+        }
+    }
+    index = {};
 }
 void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
@@ -54,9 +72,9 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
     if (mods.empty()) return;
     auto EmplaceTex = [&]<bool isTex2D>(BindlessStruct &bindGrp, MapIndicies &indices, uint64_t handle, TextureBase const *tex, Sampler const &samp) {
         if constexpr (isTex2D)
-            TryReturnIndex(indices.tex2D, bindGrp.tex2D);
+            TryReturnIndexTex(indices.tex2D, bindGrp.tex2D);
         else
-            TryReturnIndex(indices.tex3D, bindGrp.tex3D);
+            TryReturnIndexTex(indices.tex3D, bindGrp.tex3D);
         auto texIdx = device->globalHeap->AllocateIndex();
         device->globalHeap->CreateSRV(
             tex->GetResource(),
@@ -103,7 +121,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         }
         switch (mod.tex2d.op) {
             case Ope::REMOVE:
-                TryReturnIndex(indices.tex2D, bindGrp.tex2D);
+                TryReturnIndexTex(indices.tex2D, bindGrp.tex2D);
                 break;
             case Ope::EMPLACE:
                 EmplaceTex.operator()<true>(bindGrp, indices, mod.tex2d.handle, reinterpret_cast<TextureBase *>(mod.tex2d.handle), mod.tex2d.sampler);
@@ -112,7 +130,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         }
         switch (mod.tex3d.op) {
             case Ope::REMOVE:
-                TryReturnIndex(indices.tex3D, bindGrp.tex3D);
+                TryReturnIndexTex(indices.tex3D, bindGrp.tex3D);
                 break;
             case Ope::EMPLACE:
                 EmplaceTex.operator()<false>(bindGrp, indices, mod.tex3d.handle, reinterpret_cast<TextureBase *>(mod.tex3d.handle), mod.tex3d.sampler);

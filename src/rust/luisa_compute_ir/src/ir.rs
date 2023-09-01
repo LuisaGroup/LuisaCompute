@@ -4,6 +4,7 @@ use half::f16;
 
 use crate::usage_detect::detect_usage;
 use crate::*;
+use crate::ast2ir;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};

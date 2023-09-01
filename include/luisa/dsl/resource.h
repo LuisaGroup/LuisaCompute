@@ -122,12 +122,12 @@ public:
     }
     template<typename I, typename V>
         requires is_integral_expr_v<I>
-    void write(I &&byte_offset, Expr<V> value) const noexcept {
+    void write(I &&byte_offset, V &&value) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::BYTE_BUFFER_WRITE,
             {_expression,
              detail::extract_expression(std::forward<I>(byte_offset)),
-             value.expression()});
+             detail::extract_expression(std::forward<V>(value))});
     }
 };
 

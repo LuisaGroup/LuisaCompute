@@ -9,9 +9,11 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/rtx/accel.h>
-#include "common/cornell_box.h"
 #include <stb/stb_image_write.h>
 #include <luisa/gui/window.h>
+#include <luisa/ast/ast2json.h>
+
+#include "common/cornell_box.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"

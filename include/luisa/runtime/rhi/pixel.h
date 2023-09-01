@@ -32,6 +32,10 @@ enum struct PixelStorage : uint32_t {
     FLOAT1,
     FLOAT2,
     FLOAT4,
+
+    R10G10B10A2,
+    R11G11B10,
+
     BC1,
     BC2,
     BC3,
@@ -84,6 +88,10 @@ enum struct PixelFormat : uint32_t {
     R32F,
     RG32F,
     RGBA32F,
+
+    R10G10B10A2UInt,
+    R10G10B10A2UNorm,
+    R11G11B10F,
 
     BC1UNorm,
     BC2UNorm,
@@ -170,6 +178,11 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
             return PixelStorage::BC2;
         case PixelFormat::BC1UNorm:
             return PixelStorage::BC1;
+        case PixelFormat::R10G10B10A2UNorm:
+        case PixelFormat::R10G10B10A2UInt:
+            return PixelStorage::R10G10B10A2;
+        case PixelFormat::R11G11B10F:
+            return PixelStorage::R11G11B10;
         default:
             break;
     }
@@ -210,6 +223,9 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
         case PixelStorage::FLOAT1: return pixel_count * sizeof(float) * 1u;
         case PixelStorage::FLOAT2: return pixel_count * sizeof(float) * 2u;
         case PixelStorage::FLOAT4: return pixel_count * sizeof(float) * 4u;
+        case PixelStorage::R10G10B10A2:
+        case PixelStorage::R11G11B10:
+            return pixel_count * 4;
         default: break;
     }
     detail::error_pixel_invalid_format("unknown");
@@ -232,6 +248,9 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
         case PixelStorage::FLOAT1: return 1u;
         case PixelStorage::FLOAT2: return 2u;
         case PixelStorage::FLOAT4: return 4u;
+
+        case PixelStorage::R11G11B10: return 3u;
+        case PixelStorage::R10G10B10A2: return 4u;
 
         case PixelStorage::BC4: return 1u;
         case PixelStorage::BC5: return 2u;
@@ -261,6 +280,8 @@ template<typename T>
             case PixelStorage::FLOAT1: return PixelFormat::R32F;
             case PixelStorage::FLOAT2: return PixelFormat::RG32F;
             case PixelStorage::FLOAT4: return PixelFormat::RGBA32F;
+            case PixelStorage::R11G11B10: return PixelFormat::R11G11B10F;
+            case PixelStorage::R10G10B10A2: return PixelFormat::R10G10B10A2UNorm;
             case PixelStorage::BC1: return PixelFormat ::BC1UNorm;
             case PixelStorage::BC2: return PixelFormat ::BC2UNorm;
             case PixelStorage::BC3: return PixelFormat ::BC3UNorm;
@@ -294,6 +315,7 @@ template<typename T>
             case PixelStorage::INT1: return PixelFormat::R32UInt;
             case PixelStorage::INT2: return PixelFormat::RG32UInt;
             case PixelStorage::INT4: return PixelFormat::RGBA32UInt;
+            case PixelStorage::R10G10B10A2: return PixelFormat::R10G10B10A2UInt;
             default: detail::error_pixel_invalid_format("uint");
         }
     } else {
