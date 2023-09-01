@@ -448,7 +448,7 @@ public:
     /// Get byte-address buffer at index
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto byte_address_buffer(I &&index) const noexcept {
+    [[nodiscard]] auto byte_buffer(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return detail::BindlessByteBuffer{_expression, i.expression()};
     }
@@ -603,8 +603,8 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto byte_address_buffer(I &&index) const noexcept {
-        return Expr<BindlessArray>{_array}.byte_address_buffer(std::forward<I>(index));
+    [[nodiscard]] auto byte_buffer(I &&index) const noexcept {
+        return Expr<BindlessArray>{_array}.byte_buffer(std::forward<I>(index));
     }
 };
 

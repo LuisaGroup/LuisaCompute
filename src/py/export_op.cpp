@@ -155,7 +155,7 @@ void export_op(py::module &m) {
         .value("BINDLESS_TEXTURE3D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL)              //(bindless_array, index: uint, level: uint): uint3
 
         .value("BINDLESS_BUFFER_READ", CallOp::BINDLESS_BUFFER_READ)//(bindless_array, index: uint): expr->type()
-        .value("BINDLESS_BYTE_ADDRESS_BUFFER_READ", CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ)
+        .value("BINDLESS_BYTE_ADDRESS_BUFFER_READ", CallOp::BINDLESS_BYTE_BUFFER_READ)
 
         .value("MAKE_BOOL2", CallOp::MAKE_BOOL2)
         .value("MAKE_BOOL3", CallOp::MAKE_BOOL3)

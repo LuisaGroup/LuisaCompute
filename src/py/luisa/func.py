@@ -10,7 +10,7 @@ import ast
 from .dylibs import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
-from .types import dtype_of, to_lctype, implicit_covertable, basic_dtypes, uint
+from .types import dtype_of, to_lctype, implicit_convertible, basic_dtypes, uint
 from .astbuilder import VariableInfo
 import textwrap
 from pathlib import Path
@@ -55,7 +55,7 @@ def annotation_type_check(funcname, parameters, argtypes):
         if idx >= count:
             break
         anno = parameters[name].annotation
-        if anno != inspect._empty and not implicit_covertable(anno, argtypes[idx]):
+        if anno != inspect._empty and not implicit_convertible(anno, argtypes[idx]):
             hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
             raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
 
