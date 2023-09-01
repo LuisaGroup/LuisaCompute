@@ -365,7 +365,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
     };
     auto make_matrix = [&](size_t dimension) -> const Expression * {
         LUISA_ASSERT(args.size() == dimension, "`Mat` takes {} argument(s), got {}.", dimension, args.size());
-        LUISA_ASSERT(type->is_matrix(), "`Mat` must return a matrix, got {}.", type->description());
+        LUISA_ASSERT(type->is_matrix(), "`Mat{}` must return a matrix, got {}.", dimension, type->description());
         auto matrix_dimension = type->dimension();
         auto converted_args = luisa::vector<const Expression *>{};
         for (const auto &arg : args) {

@@ -26,7 +26,16 @@ inline T lc_buffer_read(const KernelFnArgs *k_args, const BufferView &buffer, si
 #endif
     return *(reinterpret_cast<const T *>(buffer.data) + i);
 }
-
+template<class T>
+inline T lc_byte_buffer_read(const KernelFnArgs *k_args, const BufferView &buffer, size_t i) noexcept {
+#ifdef LUISA_DEBUG
+    if (i >= lc_buffer_size<uint8_t>(k_args, buffer)) {
+        lc_abort_and_print_sll(k_args->internal_data, "Buffer read out of bounds: {} >= {}", i,
+                               lc_buffer_size<T>(k_args, buffer));
+    }
+#endif
+    return *(reinterpret_cast<const T *>(buffer.data + i));
+}
 template<class T>
 inline T *lc_buffer_ref(const KernelFnArgs *k_args, const BufferView &buffer, size_t i) noexcept {
 #ifdef LUISA_DEBUG
@@ -47,6 +56,16 @@ inline void lc_buffer_write(const KernelFnArgs *k_args, const BufferView &buffer
     }
 #endif
     *(reinterpret_cast<T *>(buffer.data) + i) = value;
+}
+template<class T>
+inline void lc_byte_buffer_write(const KernelFnArgs *k_args, const BufferView &buffer, size_t i, T value) noexcept {
+#ifdef LUISA_DEBUG
+    if (i >= lc_buffer_size<uint8_t>(k_args, buffer)) {
+        lc_abort_and_print_sll(k_args->internal_data, "Buffer read out of bounds: {} >= {}", i,
+                               lc_buffer_size<T>(k_args, buffer));
+    }
+#endif
+    *(reinterpret_cast<T *>(buffer.data + i)) = value;
 }
 
 inline BufferView lc_buffer_arg(const KernelFnArgs *k_args, size_t i) noexcept {
