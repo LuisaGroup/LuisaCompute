@@ -341,7 +341,7 @@ _implicit_map = {
 }
 
 
-def implicit_covertable(src, dst):
+def implicit_convertible(src, dst):
     return (src == dst) or (
             _implicit_map.get(src) is not None and \
             _implicit_map.get(src) is not None and \

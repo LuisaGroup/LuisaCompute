@@ -98,8 +98,19 @@ void *LCDevice::native_handle() const noexcept {
 }
 
 BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
-    BufferCreationInfo info;
-    Buffer *res;
+    BufferCreationInfo info{};
+    Buffer *res{};
+    if (element == Type::of<void>()) {
+        info.total_size_bytes = elem_count;
+        info.element_stride = 1u;
+        res = new DefaultBuffer(
+            &nativeDevice,
+            info.total_size_bytes,
+            nativeDevice.defaultAllocator.get());
+        info.handle = reinterpret_cast<uint64_t>(res);
+        info.native_handle = res->GetResource();
+        return info;
+    }
     if (element->is_custom()) {
         if (element == Type::of<IndirectKernelDispatch>()) {
             info.element_stride = ComputeShader::DispatchIndirectStride;

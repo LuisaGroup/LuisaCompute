@@ -954,7 +954,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
+        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
             _scratch << "bindless_byte_address_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";

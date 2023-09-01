@@ -645,6 +645,34 @@ impl<'a> FunctionEmitter<'a> {
         args_v: &Vec<String>,
     ) -> bool {
         match f {
+            Func::ByteBufferRead => {
+                writeln!(
+                    &mut self.body,
+                    "const auto {1} = lc_byte_buffer_read<{0}>(k_args, {2}, {3});",
+                    node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::ByteBufferWrite => {
+                let v_ty = self.type_gen.gen_c_type(args[2].type_());
+                writeln!(
+                    &mut self.body,
+                    "lc_byte_buffer_write<{}>(k_args, {}, {}, {});",
+                    v_ty, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::ByteBufferSize => {
+                writeln!(
+                    &mut self.body,
+                    "const {} {} = lc_buffer_size<uint8_t>(k_args, {});",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::BufferRead => {
                 let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
                 writeln!(
@@ -671,6 +699,15 @@ impl<'a> FunctionEmitter<'a> {
                     &mut self.body,
                     "const {} {} = lc_buffer_size<{}>(k_args, {});",
                     node_ty_s, var, buffer_ty, args_v[0]
+                )
+                .unwrap();
+                true
+            } 
+            Func::BindlessByteAdressBufferRead => {
+                writeln!(
+                    &mut self.body,
+                    "const auto {1} = lc_bindless_byte_buffer_read<{0}>(k_args, {2}, {3}, {4});",
+                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -890,8 +927,13 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
                 true
             }
-            Func::ShaderExecutionReorder=> {
-                writeln!(&mut self.body, "lc_shader_execution_reorder({});", args_v.join(", ")).unwrap();
+            Func::ShaderExecutionReorder => {
+                writeln!(
+                    &mut self.body,
+                    "lc_shader_execution_reorder({});",
+                    args_v.join(", ")
+                )
+                .unwrap();
                 true
             }
             Func::Unreachable(msg) => {

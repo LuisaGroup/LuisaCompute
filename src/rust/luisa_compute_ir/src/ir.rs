@@ -706,7 +706,8 @@ pub enum Func {
     WarpReadFirstLane,
 
     SynchronizeBlock,
-
+    /// (buffer/smem, indices...): do not appear in the final IR, but will be lowered to a Atomic* instruction
+    AtomicRef,
     /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
     AtomicExchange,
     /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
@@ -732,6 +733,12 @@ pub enum Func {
     BufferWrite,
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
+    /// (buffer, index_bytes) -> value
+    ByteBufferRead,
+    /// (buffer, index_bytes, value) -> void
+    ByteBufferWrite,
+    /// buffer -> size in bytes
+    ByteBufferSize,
     /// (texture, coord) -> value
     Texture2dRead,
     /// (texture, coord, value) -> void
@@ -778,6 +785,8 @@ pub enum Func {
     BindlessBufferSize,
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
+    // (bindless_array, index: uint, element_bytes: uint) -> T
+    BindlessByteAdressBufferRead,
 
     // scalar -> vector, the resulting type is stored in node
     Vec,
@@ -790,11 +799,11 @@ pub enum Func {
 
     // (vector, indices,...) -> vector
     Permute,
-    // (vector, scalar, index) -> vector
+    // (vector, scalar, indices...) -> vector
     InsertElement,
-    // (vector, index) -> scalar
+    // (vector, indices...) -> scalar
     ExtractElement,
-    //(struct, index) -> value; the value can be passed to an Update instruction
+    //(struct, indices, ...) -> value; the value can be passed to an Update instruction
     GetElementPtr,
     // (fields, ...) -> struct
     Struct,
@@ -2529,6 +2538,13 @@ pub mod debug {
         let s = d.display_ir(module);
         let cstring = CString::new(s).unwrap();
         CBoxedSlice::new(cstring.as_bytes().to_vec())
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_ast_json_to_ir_kernel(j: CBoxedSlice<u8>) -> *mut CArcSharedBlock<KernelModule> {
+        let j = j.to_string();
+        let kernel = ast2ir::convert_ast_to_ir_kernel(j);
+        CArc::into_raw(kernel)
     }
 }
 

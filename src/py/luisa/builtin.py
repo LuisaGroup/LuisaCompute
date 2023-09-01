@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from .mathtypes import *
 from .types import uint, uint3, float2, float3, float4, short, ushort, half, half2, half3, half4, long, ulong, to_lctype, is_bit16_types, is_bit64_types, BuiltinFuncBuilder, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, \
-    vector, length_of, element_of, nameof, implicit_covertable, basic_dtypes, integer_scalar_vector_dtypes
+    vector, length_of, element_of, nameof, implicit_convertible, basic_dtypes, integer_scalar_vector_dtypes
 import functools
 from . import globalvars
 from types import SimpleNamespace
@@ -137,12 +137,12 @@ def builtin_bin_op(op, lhs, rhs):
     length0, length1 = length_of(dtype0), length_of(dtype1)
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
     if op != ast.Mult:
-        assert implicit_covertable(dtype0, dtype1) or \
-               (length0 == 1 or length1 == 1 and implicit_covertable(element_of(dtype0), element_of(dtype1))), \
+        assert implicit_convertible(dtype0, dtype1) or \
+               (length0 == 1 or length1 == 1 and implicit_convertible(element_of(dtype0), element_of(dtype1))), \
             f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     else:
-        assert implicit_covertable(dtype0, dtype1) or \
-               (length0 == 1 or length1 == 1 and implicit_covertable(element_of(dtype0), element_of(dtype1))) or \
+        assert implicit_convertible(dtype0, dtype1) or \
+               (length0 == 1 or length1 == 1 and implicit_convertible(element_of(dtype0), element_of(dtype1))) or \
                (dtype0 == float2x2 and dtype1 in {float2, half2}) or \
                (dtype0 == float3x3 and dtype1 in {float3, half3}) or \
                (dtype0 == float4x4 and dtype1 in {float4, half4}), \
@@ -160,7 +160,7 @@ def builtin_bin_op(op, lhs, rhs):
                 f'operator `{op}` only supports `int` and `uint` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
-            assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
+            assert implicit_convertible(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
@@ -183,7 +183,7 @@ def builtin_bin_op(op, lhs, rhs):
         else:
             # forbid implicit type conversion
             # so check rhs's type, ensure it is the same with lhs
-            assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
+            assert implicit_convertible(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in {ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq}:
@@ -253,7 +253,7 @@ def check_exact_signature(signature, args, name):
     if len(signature) != len(args):
         raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
     for idx in range(len(args)):
-        if not implicit_covertable(signature[idx], args[idx].dtype):
+        if not implicit_convertible(signature[idx], args[idx].dtype):
             raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
@@ -296,7 +296,7 @@ def make_vector_call(dtype, op, args):
     assert dtype in {int, uint, float, short, ushort, half, bool, long, ulong}
     dim = 1
     for arg in args:
-        if not (implicit_covertable(arg.dtype, dtype) or arg.dtype in vector_dtypes and implicit_covertable(
+        if not (implicit_convertible(arg.dtype, dtype) or arg.dtype in vector_dtypes and implicit_convertible(
                 element_of(arg.dtype), dtype)):
             raise TypeError("arguments must be float or float vector")
         if arg.dtype in vector_dtypes:
@@ -308,7 +308,7 @@ def make_vector_call(dtype, op, args):
     convtype = vector(dtype, dim)
     exprlist = []
     for arg in args:
-        if implicit_covertable(arg.dtype, convtype):
+        if implicit_convertible(arg.dtype, convtype):
             exprlist.append(arg.expr)
         else:
             dtype1, expr1 = builtin_type_cast(convtype, arg)
@@ -655,7 +655,7 @@ for name in ('clamp', 'fma'):
 def _step(name, *args):
     op = getattr(lcapi.CallOp, name.upper())
     assert len(args) == 2
-    assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
+    assert implicit_convertible(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
         "invalid parameter"
     if args[0].dtype in {int, uint, float}:
         # step(scalar, scalar) -> float

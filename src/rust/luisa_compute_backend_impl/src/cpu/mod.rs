@@ -1,6 +1,6 @@
 // A Rust implementation of LuisaCompute backend.
 #![allow(non_snake_case)]
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use self::{
     accel::{AccelImpl, GeometryImpl},
@@ -51,8 +51,17 @@ impl Backend for RustBackend {
         ty: &CArc<ir::Type>,
         count: usize,
     ) -> luisa_compute_api_types::CreatedBufferInfo {
-        let size_bytes = ty.size() * count;
-        let buffer = Box::new(BufferImpl::new(size_bytes, ty.alignment(), type_hash(&ty)));
+        let size_bytes = if ty == &ir::Type::void() {
+            count
+        } else {
+            ty.size() * count
+        };
+        let alignment = if ty == &ir::Type::void() {
+            16
+        } else {
+            ty.alignment()
+        };
+        let buffer = Box::new(BufferImpl::new(size_bytes, alignment, type_hash(&ty)));
         let data = buffer.data;
         let ptr = Box::into_raw(buffer);
         CreatedBufferInfo {

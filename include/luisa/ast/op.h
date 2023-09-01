@@ -202,7 +202,7 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
     BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
-    BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
+    BINDLESS_BYTE_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
     BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint, stride: uint) -> size
     BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
                                       // could be compared with the value of a TypeIDExpr to examine the type of the buffer

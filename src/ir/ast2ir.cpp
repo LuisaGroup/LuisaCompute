@@ -761,7 +761,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::BUFFER_SIZE: return ir::Func::Tag::BufferSize;
             case CallOp::BINDLESS_BUFFER_SIZE: return ir::Func::Tag::BindlessBufferSize;
             case CallOp::BINDLESS_BUFFER_TYPE: return ir::Func::Tag::BindlessBufferType;
-            case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BINDLESS_BYTE_BUFFER_READ: LUISA_NOT_IMPLEMENTED();
             case CallOp::REQUIRES_GRADIENT: return ir::Func::Tag::RequiresGradient;
             case CallOp::GRADIENT: return ir::Func::Tag::Gradient;
             case CallOp::BACKWARD: return ir::Func::Tag::Backward;

@@ -80,10 +80,10 @@ class BindlessArray:
         return dtype, expr
     
     @BuiltinFuncBuilder
-    def byte_address_buffer_read(*argnodes):  # (dtype, buffer_index, element_index)
-        check_exact_signature([type, int, uint], argnodes[1:], "byte_address_buffer_read")
+    def byte_buffer_read(*argnodes):  # (dtype, buffer_index, element_index)
+        check_exact_signature([type, int, uint], argnodes[1:], "byte_buffer_read")
         dtype = argnodes[1].expr
-        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BYTE_ADDRESS_BUFFER_READ,
+        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BYTE_BUFFER_READ,
                                     [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
         return dtype, expr
 

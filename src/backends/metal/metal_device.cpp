@@ -214,6 +214,9 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element, size_t elem_c
             info.total_size_bytes = p->dispatch_buffer()->length();
             return info;
         }
+        if (element == Type::of<void>()) {
+            return create_device_buffer(_handle, 1u, elem_count);
+        }
         // normal buffer
         auto elem_size = MetalCodegenAST::type_size_bytes(element);
         return create_device_buffer(_handle, elem_size, elem_count);

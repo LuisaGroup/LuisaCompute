@@ -464,6 +464,7 @@ impl KernelSerializer {
             Func::ShaderExecutionReorder => SerializedFunc::ShaderExecutionReorder,
             Func::Unknown0 => todo!(),
             Func::Unknown1 => todo!(),
+            _ => todo!(),
         }
     }
     fn new() -> Self {

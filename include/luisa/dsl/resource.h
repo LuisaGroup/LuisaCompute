@@ -122,12 +122,12 @@ public:
     }
     template<typename I, typename V>
         requires is_integral_expr_v<I>
-    void write(I &&byte_offset, Expr<V> value) const noexcept {
+    void write(I &&byte_offset, V &&value) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::BYTE_BUFFER_WRITE,
             {_expression,
              detail::extract_expression(std::forward<I>(byte_offset)),
-             value.expression()});
+             detail::extract_expression(std::forward<V>(value))});
     }
 };
 
@@ -292,14 +292,14 @@ public:
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
-class LC_DSL_API BindlessByteAddressBuffer {
+class LC_DSL_API BindlessByteBuffer {
 
 private:
     const RefExpr *_array{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    BindlessByteAddressBuffer(const RefExpr *array, const Expression *index) noexcept
+    BindlessByteBuffer(const RefExpr *array, const Expression *index) noexcept
         : _array{array}, _index{index} {}
 
     template<typename T, typename I>
@@ -308,7 +308,7 @@ public:
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(
-                Type::of<T>(), CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ,
+                Type::of<T>(), CallOp::BINDLESS_BYTE_BUFFER_READ,
                 {_array, _index, detail::extract_expression(std::forward<I>(offset))}));
     }
 
@@ -448,9 +448,9 @@ public:
     /// Get byte-address buffer at index
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto byte_address_buffer(I &&index) const noexcept {
+    [[nodiscard]] auto byte_buffer(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
-        return detail::BindlessByteAddressBuffer{_expression, i.expression()};
+        return detail::BindlessByteBuffer{_expression, i.expression()};
     }
 
     /// Self-pointer to unify the interfaces of the captured BindlessArray and Expr<BindlessArray>
@@ -603,8 +603,8 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto byte_address_buffer(I &&index) const noexcept {
-        return Expr<BindlessArray>{_array}.byte_address_buffer(std::forward<I>(index));
+    [[nodiscard]] auto byte_buffer(I &&index) const noexcept {
+        return Expr<BindlessArray>{_array}.byte_buffer(std::forward<I>(index));
     }
 };
 
