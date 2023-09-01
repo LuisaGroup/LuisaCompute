@@ -621,6 +621,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BufferRead: return builtin_func(2, CallOp::BUFFER_READ);
         case ir::Func::Tag::BufferWrite: return builtin_func(3, CallOp::BUFFER_WRITE);
         case ir::Func::Tag::BufferSize: return builtin_func(1, CallOp::BUFFER_SIZE);
+        case ir::Func::Tag::ByteBufferRead: return builtin_func(2, CallOp::BYTE_BUFFER_READ);
+        case ir::Func::Tag::ByteBufferWrite: return builtin_func(3, CallOp::BYTE_BUFFER_WRITE);
+        case ir::Func::Tag::ByteBufferSize: return builtin_func(1, CallOp::BYTE_BUFFER_SIZE);
         case ir::Func::Tag::Texture2dRead: return builtin_func(2, CallOp::TEXTURE_READ);
         case ir::Func::Tag::Texture3dRead: return builtin_func(2, CallOp::TEXTURE_READ);
         case ir::Func::Tag::Texture2dWrite: return builtin_func(3, CallOp::TEXTURE_WRITE);
@@ -641,6 +644,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture3dSize: return builtin_func(2, CallOp::BINDLESS_TEXTURE3D_SIZE);
         case ir::Func::Tag::BindlessTexture2dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
+        case ir::Func::Tag::BindlessByteAdressBufferRead: return builtin_func(3, CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ);
         case ir::Func::Tag::BindlessBufferRead: return builtin_func(3, CallOp::BINDLESS_BUFFER_READ);
         case ir::Func::Tag::BindlessBufferSize: return builtin_func(3, CallOp::BINDLESS_BUFFER_SIZE);
         case ir::Func::Tag::BindlessBufferType: return builtin_func(2, CallOp::BINDLESS_BUFFER_TYPE);
@@ -1292,7 +1296,12 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             return _ctx->function_builder->texture(texture_type);
         }
         case ir::Instruction::Tag::Buffer: {
-            auto buffer_type = Type::buffer(type);
+            const luisa::compute::Type *buffer_type = nullptr;
+            if (type == Type::of<void>()) {
+                buffer_type = Type::of<ByteBuffer>();
+            } else {
+                buffer_type = Type::buffer(type);
+            }
             return _ctx->function_builder->buffer(buffer_type);
         }
         case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
@@ -1306,7 +1315,12 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
     auto type = _convert_type(node->type_.get());
     switch (captured.binding.tag) {
         case ir::Binding::Tag::Buffer: {
-            auto buffer_type = Type::buffer(type);
+            const luisa::compute::Type *buffer_type = nullptr;
+            if (type == Type::of<void>()) {
+                buffer_type = Type::of<ByteBuffer>();
+            } else {
+                buffer_type = Type::buffer(type);
+            }
             auto &&[handle, offset_bytes, size_bytes] = captured.binding.buffer._0;
             return _ctx->function_builder->buffer_binding(buffer_type, handle, offset_bytes, size_bytes);
         }

@@ -872,7 +872,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
-        case CallOp::BYTE_BUFFER_READ: _scratch << "lc_byte_buffer_read"; break;
+        case CallOp::BYTE_BUFFER_READ: {
+            _scratch << "lc_byte_buffer_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::BYTE_BUFFER_WRITE: _scratch << "lc_byte_buffer_write"; break;
         case CallOp::BYTE_BUFFER_SIZE: _scratch << "lc_byte_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "lc_texture_read"; break;
@@ -1485,6 +1490,8 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     // process types in topological order
     types.clear();
     auto emit = [&](auto &&self, auto type) noexcept -> void {
+        if (type == Type::of<void>())
+            return;
         if (types.emplace(type).second) {
             if (type->is_array() || type->is_buffer()) {
                 self(self, type->element());

@@ -184,6 +184,14 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
         info.native_handle = reinterpret_cast<void *>(buffer->handle());
         info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
         info.total_size_bytes = buffer->size_bytes();
+    } else if (element == Type::of<void>()) {
+        info.element_stride = 1;
+        info.total_size_bytes = elem_count;
+        auto buffer = with_handle([size = info.total_size_bytes] {
+            return new_with_allocator<CUDABuffer>(size);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = reinterpret_cast<void *>(buffer->handle());
     } else {
         info.element_stride = CUDACompiler::type_size(element);
         info.total_size_bytes = info.element_stride * elem_count;
