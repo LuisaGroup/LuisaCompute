@@ -19,7 +19,7 @@
 #include <luisa/runtime/graph/graph_builder.h>
 #include <luisa/runtime/graph/graph_var.h>
 #include <luisa/runtime/graph/graph_dsl.h>
-
+#include <luisa/runtime/graph/capture_node.h>
 #include <luisa/backends/ext/graph_ext.h>
 #include <luisa/runtime/graph/kernel_node_cmd_encoder.h>
 
@@ -55,10 +55,16 @@ int main(int argc, char *argv[]) {
             auto b = b0.read(0);
         });
 
-    GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<int> b1, GraphVar<uint32_t> dispatch_size) {
+    GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<int> b1, GraphUInt dispatch_size) {
         shader0(b0, b1).dispatch(dispatch_size);
         shader1(b0).dispatch(dispatch_size);
         shader2(b0).dispatch(dispatch_size);
+
+        capture([](const GraphBuffer<float> &a) -> std::array<Usage, 1> { return {Usage::READ}; },
+                [](uint64_t s, const BufferView<float> &a) {
+                    LUISA_INFO("capture on stream {}", s);
+                },
+                b0);
     };
 
     auto graph_ext = device.extension<GraphExt>();

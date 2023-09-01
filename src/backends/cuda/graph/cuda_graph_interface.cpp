@@ -3,6 +3,7 @@
 #include "../cuda_error.h"
 #include "../cuda_shader.h"
 #include <luisa/runtime/stream.h>
+#include <cuda.h>
 
 using namespace luisa::compute::graph;
 using namespace luisa::compute::cuda::graph;
@@ -12,6 +13,7 @@ void CUDAGraphInterface::build_graph(GraphBuilder *builder) noexcept {
 
     // set kernel nodes:
     _add_kernel_nodes(builder);
+    _add_capture_nodes(builder);
     _add_deps(builder);
     builder->clear_need_update_flags();
 }
@@ -54,6 +56,26 @@ void CUDAGraphInterface::_add_kernel_nodes(GraphBuilder *builder) noexcept {
     };
 }
 
+void CUDAGraphInterface::_add_capture_nodes(GraphBuilder *builder) noexcept {
+    auto s = capture_stream();
+    auto &capture_nodes = builder->capture_nodes();
+    _cuda_capture_node_graphs.reserve(capture_nodes.size());
+    _cuda_capture_nodes.reserve(capture_nodes.size());
+
+    _device->with_handle([&] {
+        for (auto &&n : capture_nodes) {
+            CUgraph child_graph = nullptr;
+            LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal));
+            n->capture(reinterpret_cast<uint64_t>(s));
+            LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamEndCapture(s, &child_graph));
+            _cuda_capture_node_graphs.emplace_back(child_graph);// record the child graph, for later update or delete
+            CUgraphNode node;
+            LUISA_CHECK_CUDA(cuGraphAddChildGraphNode(&node, _cuda_graph, nullptr, 0, child_graph));
+            _cuda_graph_nodes[n->node_id()] = node;
+        }
+    });
+}
+
 void CUDAGraphInterface::_add_deps(GraphBuilder *builder) noexcept {
     auto &deps = builder->graph_deps();
     _device->with_handle([&] {
@@ -72,7 +94,10 @@ void CUDAGraphInterface::update_graph_instance_node_parms(GraphBuilder *builder)
         if (builder->node_need_update(node)) {
             switch (node->type()) {
                 case GraphNodeType::Kernel:
-                    _update_graph_kernel_node(dynamic_cast<const KernelNode *>(node), builder);
+                    _update_kernel_node(dynamic_cast<const KernelNode *>(node), builder);
+                    break;
+                case GraphNodeType::Capture:
+                    _update_capture_node(dynamic_cast<const CaptureNodeBase *>(node), builder);
                     break;
                 default: {
                     LUISA_ERROR_WITH_LOCATION("Unspported graph node type!");
@@ -82,7 +107,7 @@ void CUDAGraphInterface::update_graph_instance_node_parms(GraphBuilder *builder)
     builder->clear_need_update_flags();
 }
 
-void CUDAGraphInterface::_update_graph_kernel_node(const KernelNode *kernel, GraphBuilder *builder) noexcept {
+void CUDAGraphInterface::_update_kernel_node(const KernelNode *kernel, GraphBuilder *builder) noexcept {
     auto kernel_id = kernel->kernel_id();
     auto encoder = builder->kernel_node_cmd_encoder(kernel_id);
     auto cuda_node = _cuda_graph_nodes[kernel->node_id()];
@@ -94,6 +119,32 @@ void CUDAGraphInterface::_update_graph_kernel_node(const KernelNode *kernel, Gra
             });
         },
         encoder);
+}
+
+void CUDAGraphInterface::_update_capture_node(const CaptureNodeBase *capture, GraphBuilder *builder) noexcept {
+    auto capture_id = capture->capture_id();
+    auto child_graph = _cuda_capture_node_graphs[capture_id];
+    auto capture_node = _cuda_graph_nodes[capture->node_id()];
+    auto s = capture_stream();
+    _device->with_handle([&] {
+        // delete the old graph
+        LUISA_CHECK_CUDA(cuGraphDestroy(child_graph));
+        // re-capture
+        LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal));
+        capture->capture(reinterpret_cast<uint64_t>(s));
+        LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamEndCapture(s, &child_graph));
+        LUISA_CHECK_CUDA(cuGraphExecChildGraphNodeSetParams(_cuda_graph_exec, capture_node, child_graph));
+    });
+    _cuda_capture_node_graphs[capture_id] = child_graph;
+}
+
+CUstream luisa::compute::cuda::graph::CUDAGraphInterface::capture_stream() noexcept {
+    if (!_capture_stream) {
+        _device->with_handle([&] {
+            LUISA_CHECK_CUDA(cuStreamCreate(&_capture_stream, CU_STREAM_NON_BLOCKING));
+        });
+    }
+    return _capture_stream;
 }
 
 void CUDAGraphInterface::create_graph_instance(GraphBuilder *builder) noexcept {
@@ -129,6 +180,8 @@ void CUDAGraphInterface::launch_graph_instance(Stream *stream) noexcept {
 CUDAGraphInterface::CUDAGraphInterface(CUDADevice *device) noexcept : _device{device} {}
 
 CUDAGraphInterface::~CUDAGraphInterface() noexcept {
+    for (auto &&g : _cuda_capture_node_graphs) { LUISA_CHECK_CUDA(cuGraphDestroy(g)); }
     if (_cuda_graph) { LUISA_CHECK_CUDA(cuGraphDestroy(_cuda_graph)); }
     if (_cuda_graph_exec) { LUISA_CHECK_CUDA(cuGraphExecDestroy(_cuda_graph_exec)); }
+    if (_capture_stream) { LUISA_CHECK_CUDA(cuStreamDestroy(_capture_stream)); }
 }

@@ -71,8 +71,8 @@ if (CUDAToolkit_FOUND)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
 
-    # # for cuda graph
-    # target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cudart_static)
+    # for cuda graph capture node
+    target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cudart_static)
 
     # nvCOMP
     if (LUISA_COMPUTE_DOWNLOAD_NVCOMP)

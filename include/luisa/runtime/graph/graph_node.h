@@ -11,7 +11,8 @@ enum class GraphNodeType {
     Kernel = 1,
     MemoryCopy = 2,
     EventRecord = 3,
-    EventWait = 4
+    EventWait = 4,
+    Capture = 5,
 };
 
 class GraphBuilder;
@@ -31,6 +32,7 @@ public:
     GraphNode &operator=(GraphNode &&) noexcept = default;
     virtual ~GraphNode() noexcept {}
     const auto &arg_usage() const noexcept { return _arg_usage; }
+    uint64_t arg_id(size_t index) const noexcept { return _arg_usage[index].first; }
     uint64_t node_id() const noexcept { return _node_id; }
     GraphNodeType type() const noexcept { return _type; }
     span<GraphDependency> deps() const noexcept { return span{builder()->_deps}.subspan(_dep_begin, _dep_count); }

@@ -1,10 +1,14 @@
 #pragma once
 #include <luisa/vstl/unique_ptr.h>
+#include <luisa/vstl/functional.h>
 #include <luisa/vstl/vector.h>
 #include <luisa/runtime/graph/graph_var.h>
 #include <luisa/runtime/graph/graph_deps.h>
+#include <luisa/ast/usage.h>
+
 namespace luisa::compute::graph {
 class KernelNode;
+class CaptureNodeBase;
 class GraphNode;
 class KernelNodeCmdEncoder;
 class LC_RUNTIME_API GraphBuilder {
@@ -39,6 +43,7 @@ public:
     // concrete
     luisa::vector<S<KernelNode>> _kernel_nodes;
     luisa::vector<U<KernelNodeCmdEncoder>> _kernel_node_cmd_encoders;
+    luisa::vector<S<CaptureNodeBase>> _capture_nodes;
 
     GraphBuilder() noexcept;
     ~GraphBuilder() noexcept;
@@ -64,12 +69,14 @@ public:
     const auto &graph_nodes() const noexcept { return _nodes; }
 
     const auto &kernel_nodes() const noexcept { return _kernel_nodes; }
+    const auto &capture_nodes() const noexcept { return _capture_nodes; }
     auto *kernel_node_cmd_encoder(node_id_t kernel_node_id) const noexcept {
         return _kernel_node_cmd_encoders[kernel_node_id].get();
     }
 
     const luisa::vector<GraphBuilder::node_id_t> &accessor_node_ids(const GraphVarBase *graph_var) const noexcept;
     const luisa::vector<GraphDependency> &graph_deps() const noexcept { return _deps; }
+
 private:
     // only used by GraphDef >>>
     static void set_var_count(size_t size) noexcept;
@@ -93,11 +100,19 @@ private:
     }
     // only used by GraphDef <<<
 
-    // only used by Shader >>>
+    // only used by Shader:
     static KernelNode *add_kernel_node(span<uint64_t> arg_ids,
                                        const Resource *shader_resource, U<KernelNodeCmdEncoder> &&encoder,
                                        size_t dimension, const uint3 &block_size) noexcept;
-    // only used by Shader <<<
+
+    template<typename FAddUsage, typename FCapture, typename... Args>
+        requires std::is_invocable_v<std::remove_cvref_t<FAddUsage>, GraphVar<Args>...> &&
+                 std::is_invocable_v<FCapture, uint64_t, Args...> &&
+                 std::is_same_v<std::invoke_result_t<FAddUsage, GraphVar<Args>...>, std::array<Usage, sizeof...(Args)>>
+    friend void capture(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
+
+    template<typename FAddUsage, typename FCapture, typename... Args>
+    static CaptureNodeBase *add_capture_node(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
 
     // only used by Graph >>>
     void propagate_need_update_flag_from_vars_to_nodes() noexcept;
@@ -112,4 +127,31 @@ private:
     void _update_kernel_node_cmd_encoders(const KernelNode *node) noexcept;
     // private methods <<<
 };
+}// namespace luisa::compute::graph
+
+namespace luisa::compute::graph {
+template<typename FAddUsage, typename FCapture, typename... Args>
+    requires std::is_invocable_v<std::remove_cvref_t<FAddUsage>, GraphVar<Args>...> &&
+             std::is_invocable_v<FCapture, uint64_t, Args...> &&
+             std::is_same_v<std::invoke_result_t<FAddUsage, GraphVar<Args>...>, std::array<Usage, sizeof...(Args)>>
+void capture(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
+    GraphBuilder::add_capture_node(
+        std::forward<FAddUsage>(add_arg_usages),
+        std::forward<FCapture>(capture),
+        args...);
+}
+}// namespace luisa::compute::graph
+
+#include <luisa/runtime/graph/capture_node.h>
+namespace luisa::compute::graph {
+template<typename FAddUsage, typename FCapture, typename... Args>
+CaptureNodeBase *GraphBuilder::add_capture_node(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
+    using FuncAddUsage = std::remove_cvref_t<FAddUsage>;
+    using FuncCapture = std::remove_cvref_t<FCapture>;
+    auto node = make_shared<CaptureNode<FuncCapture, Args...>>(current(), add_arg_usages, capture, args...);
+    auto ptr = node.get();
+    current()->_capture_nodes.emplace_back(std::move(node));
+    current()->_nodes.emplace_back(ptr);
+    return ptr;
+}
 }// namespace luisa::compute::graph

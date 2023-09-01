@@ -53,11 +53,11 @@
         }                                                  \
     } while (false)
 
-//#define LUISA_CHECK_CUDA_RUNTIME_ERROR(...)                  \
-//    do {                                                     \
-//        if (auto ec = __VA_ARGS__; ec != CUDA_SUCCESS) {     \
-//            auto error_name = cudaGetErrorName(ec);          \
-//            LUISA_ERROR_WITH_LOCATION(                       \
-//                "{}: {}", static_cast<int>(ec), error_name); \
-//        }                                                    \
-//    } while (false)
+#define LUISA_CHECK_CUDA_RUNTIME_ERROR(...)                  \
+    do {                                                     \
+        if (auto ec = __VA_ARGS__; ec != CUDA_SUCCESS) {     \
+            auto error_name = cudaGetErrorName(ec);          \
+            LUISA_ERROR_WITH_LOCATION(                       \
+                "{}: {}", static_cast<int>(ec), error_name); \
+        }                                                    \
+    } while (false)

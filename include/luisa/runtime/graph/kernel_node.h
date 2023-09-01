@@ -48,9 +48,9 @@ class GraphShaderInvoke<1> {
 public:
     GraphShaderInvoke(KernelNode *node) noexcept
         : _node{node} {}
-    KernelNode *dispatch(GraphVar<uint32_t> dispatch_x) noexcept {
+    auto dispatch(GraphVar<uint32_t> dispatch_x) noexcept {
         _node->add_dispatch_arg(dispatch_x.arg_id());
-        return _node;
+        //return _node;
     }
 private:
     KernelNode *_node = nullptr;
@@ -61,10 +61,10 @@ class GraphShaderInvoke<2> {
 public:
     GraphShaderInvoke(KernelNode *node) noexcept
         : _node{node} {}
-    KernelNode *dispatch(GraphVar<uint32_t> dispatch_x,
-                         GraphVar<uint32_t> dispatch_y) noexcept {
+    auto dispatch(GraphVar<uint32_t> dispatch_x,
+                  GraphVar<uint32_t> dispatch_y) noexcept {
         _node->add_dispatch_arg(dispatch_x.arg_id(), dispatch_y.arg_id());
-        return _node;
+        //return _node;
     }
 private:
     KernelNode *_node = nullptr;
@@ -76,11 +76,11 @@ public:
     GraphShaderInvoke(KernelNode *node) noexcept
         : _node{node} {}
 
-    KernelNode *dispatch(GraphVar<uint32_t> dispatch_x,
-                         GraphVar<uint32_t> dispatch_y,
-                         GraphVar<uint32_t> dispatch_z) noexcept {
+    auto dispatch(GraphVar<uint32_t> dispatch_x,
+                  GraphVar<uint32_t> dispatch_y,
+                  GraphVar<uint32_t> dispatch_z) noexcept {
         _node->add_dispatch_arg(dispatch_x.arg_id(), dispatch_y.arg_id(), dispatch_z.arg_id());
-        return _node;
+        //return _node;
     }
 private:
     KernelNode *_node = nullptr;

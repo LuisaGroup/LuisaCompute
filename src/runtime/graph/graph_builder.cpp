@@ -1,5 +1,6 @@
 #include <luisa/runtime/graph/graph_builder.h>
 #include <luisa/runtime/graph/kernel_node.h>
+#include <luisa/runtime/graph/capture_node.h>
 
 using namespace luisa::compute::graph;
 
@@ -124,7 +125,8 @@ void GraphBuilder::_build_var_accessors() noexcept {
 
 // # Update Node API:
 void GraphBuilder::_set_up_node_need_update_flags() noexcept {
-    _node_need_update_flags.resize(graph_var_count(), 1);
+    auto node_count = _nodes.size();
+    _node_need_update_flags.resize(node_count, 1);
 }
 
 void GraphBuilder::propagate_need_update_flag_from_vars_to_nodes() noexcept {
@@ -182,7 +184,7 @@ void GraphBuilder::clear_need_update_flags() noexcept {
     for (auto &i : _node_need_update_flags) i = 0;
 }
 
-const GraphNode *luisa::compute::graph::GraphBuilder::graph_node(uint64_t id) const noexcept {
+const GraphNode *luisa::compute::graph::GraphBuilder::graph_node(node_id_t id) const noexcept {
     LUISA_ASSERT(id < _nodes.size(), "GraphNode id out of range.");
     return _nodes[id];
 }
@@ -195,7 +197,7 @@ bool luisa::compute::graph::GraphBuilder::var_need_update(const GraphVarBase *va
     return _vars[var->arg_id()]->need_update();
 }
 
-const GraphVarBase *GraphBuilder::graph_var(uint64_t id) const noexcept {
+const GraphVarBase *GraphBuilder::graph_var(var_id_t id) const noexcept {
     LUISA_ASSERT(id < _vars.size(), "GraphVarBase id out of range.");
     return _vars[id].get();
 }
@@ -238,6 +240,9 @@ GraphBuilder::GraphBuilder(const GraphBuilder &other) noexcept {
     _var_accessors = other._var_accessors;
     _node_need_update_flags = other._node_need_update_flags;
 
+    
+
+    _capture_nodes = other._capture_nodes;
     _kernel_node_cmd_encoders.reserve(other._kernel_node_cmd_encoders.size());
     for (auto& encoder : other._kernel_node_cmd_encoders) {
 		_kernel_node_cmd_encoders.emplace_back(make_unique<KernelNodeCmdEncoder>(*encoder));

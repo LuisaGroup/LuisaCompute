@@ -121,9 +121,6 @@ private:
 };
 
 template<typename T>
-using GraphBuffer = GraphVar<BufferView<T>>;
-
-template<typename T>
 struct is_graph_var : std::false_type {};
 
 template<typename T>
@@ -148,4 +145,17 @@ struct graph_var_to_view<GraphVar<T>> : std::type_identity<T> {};
 template<typename T>
 using graph_var_to_view_t = typename graph_var_to_view<T>::type;
 }// namespace detail
+}// namespace luisa::compute::graph
+
+
+// graph var define
+namespace luisa::compute::graph {
+template<typename T>
+using GraphBuffer = GraphVar<BufferView<T>>;
+
+using GraphUInt = GraphVar<uint32_t>;
+
+using GraphInt = GraphVar<int>;
+
+using GraphFloat = GraphVar<float>;
 }// namespace luisa::compute::graph
