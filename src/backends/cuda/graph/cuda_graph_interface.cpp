@@ -66,11 +66,16 @@ void CUDAGraphInterface::_add_capture_nodes(GraphBuilder *builder) noexcept {
         for (auto &&n : capture_nodes) {
             CUgraph child_graph = nullptr;
             LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal));
-            n->capture(reinterpret_cast<uint64_t>(s));
+            n->capture(builder, reinterpret_cast<uint64_t>(s));
             LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamEndCapture(s, &child_graph));
             _cuda_capture_node_graphs.emplace_back(child_graph);// record the child graph, for later update or delete
             CUgraphNode node;
             LUISA_CHECK_CUDA(cuGraphAddChildGraphNode(&node, _cuda_graph, nullptr, 0, child_graph));
+            // capture info
+            cudaGraphNode_t *nodes = NULL;
+            size_t numNodes = 0;
+            cudaGraphGetNodes(child_graph, nodes, &numNodes);
+            _cuda_capture_nodes.emplace_back(node);
             _cuda_graph_nodes[n->node_id()] = node;
         }
     });
@@ -78,12 +83,12 @@ void CUDAGraphInterface::_add_capture_nodes(GraphBuilder *builder) noexcept {
 
 void CUDAGraphInterface::_add_deps(GraphBuilder *builder) noexcept {
     auto &deps = builder->graph_deps();
+    auto deps_size = deps.size();
     _device->with_handle([&] {
         for (auto &&dep : deps) {
             auto &src_node = _cuda_graph_nodes[dep.src];
             auto &dst_node = _cuda_graph_nodes[dep.dst];
-
-            LUISA_CHECK_CUDA(cuGraphAddDependencies(_cuda_graph, &src_node, &dst_node, 1));
+            LUISA_CHECK_CUDA(cuGraphAddDependencies(_cuda_graph, &dst_node, &src_node, 1));
         }
     });
 }
@@ -131,7 +136,7 @@ void CUDAGraphInterface::_update_capture_node(const CaptureNodeBase *capture, Gr
         LUISA_CHECK_CUDA(cuGraphDestroy(child_graph));
         // re-capture
         LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal));
-        capture->capture(reinterpret_cast<uint64_t>(s));
+        capture->capture(builder, reinterpret_cast<uint64_t>(s));
         LUISA_CHECK_CUDA_RUNTIME_ERROR(cudaStreamEndCapture(s, &child_graph));
         LUISA_CHECK_CUDA(cuGraphExecChildGraphNodeSetParams(_cuda_graph_exec, capture_node, child_graph));
     });

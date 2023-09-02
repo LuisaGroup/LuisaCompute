@@ -13,15 +13,18 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/backends/ext/registry.h>
+#include <luisa/runtime/graph/graph_capture_command.h>
 
 namespace luisa::compute::cuda {
 
-class CudaLCubCommand final : public luisa::compute::CustomCommand {
+class CudaLCubCommand final : public luisa::compute::CustomCommand, public luisa::compute::graph::GraphCaptureCommand {
 
 public:
     friend lc::validation::Stream;
     luisa::function<void(CUstream)> func;
-
+    virtual void capture_on(uint64_t stream_handle) const noexcept override {
+		func(reinterpret_cast<CUstream>(stream_handle));
+	}
 public:
     explicit CudaLCubCommand(luisa::function<void(CUstream)> f) noexcept
         : CustomCommand{}, func{std::move(f)} {}

@@ -86,7 +86,6 @@ luisa_compute_add_executable(test_soa_simple test_soa_simple.cpp)
 luisa_compute_add_executable(test_raytracing_weekend test_raytracing_weekend/main.cpp)
 luisa_compute_add_executable(test_dml test_dml.cpp)
 luisa_compute_add_executable(test_oso_parser test_oso_parser.cpp)
-luisa_compute_add_executable(test_graph test_graph.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_swapchain test_swapchain.cpp)
@@ -108,6 +107,7 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
     luisa_compute_add_executable(test_cuda_lcub test_cuda_lcub.cpp)
+    luisa_compute_add_executable(test_graph test_graph.cpp)
 endif ()
 
 # GUI interaction with wxWidgets

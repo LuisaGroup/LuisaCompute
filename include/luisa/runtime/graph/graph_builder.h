@@ -105,14 +105,12 @@ private:
                                        const Resource *shader_resource, U<KernelNodeCmdEncoder> &&encoder,
                                        size_t dimension, const uint3 &block_size) noexcept;
 
-    template<typename FAddUsage, typename FCapture, typename... Args>
-        requires std::is_invocable_v<std::remove_cvref_t<FAddUsage>, GraphVar<Args>...> &&
-                 std::is_invocable_v<FCapture, uint64_t, Args...> &&
-                 std::is_same_v<std::invoke_result_t<FAddUsage, GraphVar<Args>...>, std::array<Usage, sizeof...(Args)>>
-    friend void capture(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
+    template<typename FCapture, typename... Args>
+        requires std::is_invocable_v<FCapture, uint64_t, Args...>
+    friend CaptureNodeBase& capture(std::array<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
 
-    template<typename FAddUsage, typename FCapture, typename... Args>
-    static CaptureNodeBase *add_capture_node(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
+    template<typename FCapture, typename... Args>
+    static CaptureNodeBase *add_capture_node(span<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
 
     // only used by Graph >>>
     void propagate_need_update_flag_from_vars_to_nodes() noexcept;
@@ -130,13 +128,11 @@ private:
 }// namespace luisa::compute::graph
 
 namespace luisa::compute::graph {
-template<typename FAddUsage, typename FCapture, typename... Args>
-    requires std::is_invocable_v<std::remove_cvref_t<FAddUsage>, GraphVar<Args>...> &&
-             std::is_invocable_v<FCapture, uint64_t, Args...> &&
-             std::is_same_v<std::invoke_result_t<FAddUsage, GraphVar<Args>...>, std::array<Usage, sizeof...(Args)>>
-void capture(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
-    GraphBuilder::add_capture_node(
-        std::forward<FAddUsage>(add_arg_usages),
+template<typename FCapture, typename... Args>
+    requires std::is_invocable_v<FCapture, uint64_t, Args...>
+CaptureNodeBase& capture(std::array<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
+    return *GraphBuilder::add_capture_node(
+        usages,
         std::forward<FCapture>(capture),
         args...);
 }
@@ -144,11 +140,10 @@ void capture(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... a
 
 #include <luisa/runtime/graph/capture_node.h>
 namespace luisa::compute::graph {
-template<typename FAddUsage, typename FCapture, typename... Args>
-CaptureNodeBase *GraphBuilder::add_capture_node(FAddUsage &&add_arg_usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
-    using FuncAddUsage = std::remove_cvref_t<FAddUsage>;
+template<typename FCapture, typename... Args>
+CaptureNodeBase *GraphBuilder::add_capture_node(span<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
     using FuncCapture = std::remove_cvref_t<FCapture>;
-    auto node = make_shared<CaptureNode<FuncCapture, Args...>>(current(), add_arg_usages, capture, args...);
+    auto node = make_shared<CaptureNode<FuncCapture, Args...>>(current(), usages, capture, args...);
     auto ptr = node.get();
     current()->_capture_nodes.emplace_back(std::move(node));
     current()->_nodes.emplace_back(ptr);

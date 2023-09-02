@@ -40,49 +40,51 @@ private:
     // <<< private: never access in friend class <<<
 };
 
+class GraphShaderInvokeBase {
+public:
+    GraphShaderInvokeBase(KernelNode *node) noexcept
+        : _node{node} {}
+protected:
+    KernelNode *_node = nullptr;
+};
+
 template<size_t N>
 class GraphShaderInvoke;
 
 template<>
-class GraphShaderInvoke<1> {
+class GraphShaderInvoke<1> : public GraphShaderInvokeBase {
 public:
     GraphShaderInvoke(KernelNode *node) noexcept
-        : _node{node} {}
-    auto dispatch(GraphVar<uint32_t> dispatch_x) noexcept {
+        : GraphShaderInvokeBase{node} {}
+    auto& dispatch(GraphVar<uint32_t> dispatch_x) noexcept {
         _node->add_dispatch_arg(dispatch_x.arg_id());
-        //return _node;
+        return *_node;
     }
-private:
-    KernelNode *_node = nullptr;
 };
 
 template<>
-class GraphShaderInvoke<2> {
+class GraphShaderInvoke<2> : public GraphShaderInvokeBase {
 public:
     GraphShaderInvoke(KernelNode *node) noexcept
-        : _node{node} {}
-    auto dispatch(GraphVar<uint32_t> dispatch_x,
+        : GraphShaderInvokeBase{node} {}
+    auto& dispatch(GraphVar<uint32_t> dispatch_x,
                   GraphVar<uint32_t> dispatch_y) noexcept {
         _node->add_dispatch_arg(dispatch_x.arg_id(), dispatch_y.arg_id());
-        //return _node;
+        return *_node;
     }
-private:
-    KernelNode *_node = nullptr;
 };
 
 template<>
-class GraphShaderInvoke<3> {
+class GraphShaderInvoke<3> : public GraphShaderInvokeBase {
 public:
     GraphShaderInvoke(KernelNode *node) noexcept
-        : _node{node} {}
+        : GraphShaderInvokeBase{node} {}
 
-    auto dispatch(GraphVar<uint32_t> dispatch_x,
+    auto& dispatch(GraphVar<uint32_t> dispatch_x,
                   GraphVar<uint32_t> dispatch_y,
                   GraphVar<uint32_t> dispatch_z) noexcept {
         _node->add_dispatch_arg(dispatch_x.arg_id(), dispatch_y.arg_id(), dispatch_z.arg_id());
-        //return _node;
+        return *_node;
     }
-private:
-    KernelNode *_node = nullptr;
 };
 }// namespace luisa::compute::graph

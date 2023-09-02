@@ -12,6 +12,7 @@
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/rhi/command_encoder.h>
 #include <luisa/runtime/graph/graph_builder.h>
+#include <luisa/runtime/graph/kernel_node.h>
 #include <luisa/runtime/graph/kernel_node_cmd_encoder.h>
 namespace luisa::compute {
 
@@ -264,7 +265,7 @@ public:
         invoke_type invoke{handle(), arg_count, _uniform_size};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
-    [[nodiscard]] auto operator()(
+    [[nodiscard]] luisa::compute::graph::GraphShaderInvoke<dimension> as_node(
         graph::detail::view_to_graph_shader_invocation_t<detail::prototype_to_shader_invocation_t<Args>>... args) const noexcept {
         using namespace graph;
         eastl::array ids = {args.arg_id()...};
@@ -272,9 +273,10 @@ public:
         LUISA_ASSERT(arg_count == ids.size(), "arg count miss matching: {} != {}", arg_count, ids.size());
         auto encoder = make_unique<KernelNodeCmdEncoder>(arg_count, _uniform_size);// pass the encoder to the graph builder for later use
         (encoder->operator<<(args.view()), ...);
-        return GraphShaderInvoke<dimension>(graph::GraphBuilder::add_kernel_node(
+        auto kernel_node = graph::GraphBuilder::add_kernel_node(
             ids, this, std::move(encoder),
-            dimension, block_size()));
+            dimension, block_size());
+        return GraphShaderInvoke<dimension>(kernel_node);
     }
     [[nodiscard]] uint3 block_size() const noexcept {
         _check_is_valid();

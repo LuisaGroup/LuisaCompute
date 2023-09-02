@@ -84,7 +84,7 @@ public:
         encoder->update_uniform(arg_idx_in_kernel_parms, &_value);
     }
 private:
-    mutable T _value{};
+    T _value{};
 };
 
 template<typename T>
@@ -146,7 +146,6 @@ template<typename T>
 using graph_var_to_view_t = typename graph_var_to_view<T>::type;
 }// namespace detail
 }// namespace luisa::compute::graph
-
 
 // graph var define
 namespace luisa::compute::graph {
