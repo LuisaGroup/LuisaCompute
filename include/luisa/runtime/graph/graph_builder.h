@@ -76,7 +76,11 @@ public:
 
     const luisa::vector<GraphBuilder::node_id_t> &accessor_node_ids(const GraphVarBase *graph_var) const noexcept;
     const luisa::vector<GraphDependency> &graph_deps() const noexcept { return _deps; }
-
+    class GraphvizOptions {
+    public:
+        bool show_vars = true;
+    };
+    void graphviz(std::ostream &o, GraphvizOptions options = {}) noexcept;
 private:
     // only used by GraphDef >>>
     static void set_var_count(size_t size) noexcept;

@@ -25,7 +25,7 @@ enum class GraphVarReadWriteTag : uint8_t {
     ReadWrite = 2
 };
 
-class GraphVarBase {
+class LC_RUNTIME_API GraphVarBase {
 protected:
     template<typename T>
     using U = luisa::unique_ptr<T>;
@@ -33,6 +33,7 @@ protected:
     bool _need_update{false};
 public:
     static constexpr uint64_t invalid_id = std::numeric_limits<uint64_t>::max();
+    static constexpr string_view graphviz_prefix = "var_";
     // when we analyse a graph, all graph vars are virtual(not a real resource view)
     GraphVarBase(GraphArgId id, GraphResourceTag tag) noexcept
         : _is_virtual{id.value() != invalid_id}, _arg_id{id}, _tag{tag} {}
@@ -57,10 +58,15 @@ public:
     }
     virtual void update_kernel_node_cmd_encoder(
         size_t arg_idx_in_kernel_parms, KernelNodeCmdEncoder *encoder) const noexcept = 0;
+    virtual void graphviz_def(std::ostream &o) const noexcept;
+    virtual void graphviz_id(std::ostream &o) const noexcept { o << graphviz_prefix << arg_id(); }
+    string_view var_name() const noexcept { return _name; }
+    GraphVarBase &set_var_name(string_view name) noexcept;
 private:
     bool _is_virtual{true};
     GraphArgId _arg_id{invalid_id};
     GraphResourceTag _tag;
+    string _name;
 };
 
 template<typename T>

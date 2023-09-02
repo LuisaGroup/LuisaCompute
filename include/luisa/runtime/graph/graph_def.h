@@ -44,7 +44,10 @@ public:
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
     }
-    // TODO: to make private, now public just for test
+    void graphviz(std::ostream &o, GraphBuilder::GraphvizOptions options = {}) {
+        _builder->graphviz(o, options);
+    }
+private:
     U<GraphBuilder> _builder = nullptr;
 };
 

@@ -19,6 +19,8 @@ set(LUISA_COMPUTE_RUNTIME_GRAPH_SOURCES
         graph/kernel_node.cpp
         graph/kernel_node_cmd_encoder.cpp
         graph/capture_node.cpp
+        graph/graph_var.cpp
+        graph/graph_node.cpp
 )
 
 set(LUISA_COMPUTE_RUNTIME_SOURCES

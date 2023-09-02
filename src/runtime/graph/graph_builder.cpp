@@ -240,11 +240,44 @@ GraphBuilder::GraphBuilder(const GraphBuilder &other) noexcept {
     _var_accessors = other._var_accessors;
     _node_need_update_flags = other._node_need_update_flags;
 
-    
-
     _capture_nodes = other._capture_nodes;
     _kernel_node_cmd_encoders.reserve(other._kernel_node_cmd_encoders.size());
-    for (auto& encoder : other._kernel_node_cmd_encoders) {
-		_kernel_node_cmd_encoders.emplace_back(make_unique<KernelNodeCmdEncoder>(*encoder));
-	}
+    for (auto &encoder : other._kernel_node_cmd_encoders) {
+        _kernel_node_cmd_encoders.emplace_back(make_unique<KernelNodeCmdEncoder>(*encoder));
+    }
+}
+
+//# Graphviz
+
+void GraphBuilder::graphviz(std::ostream &o, GraphvizOptions options) noexcept {
+    o << "digraph G {\n";
+    if (options.show_vars) {
+        for (auto &&var : _vars) {
+            var->graphviz_def(o);
+            o << "\n";
+        }
+        o << "\n";
+    }
+
+    for (auto &&node : _nodes) {
+        node->graphviz_def(o);
+        o << "\n";
+    }
+    o << "\n";
+    if (options.show_vars) {
+        for (auto &&node : _nodes) {
+            node->graphviz_arg_usages(o);
+            o << "\n";
+        }
+        o << "\n";
+    }
+    for (auto dep : _deps) {
+        auto src = _nodes[dep.src];
+        auto dst = _nodes[dep.dst];
+        dst->graphviz_id(o);
+        o << "->";
+        src->graphviz_id(o);
+        o << "\n";
+    }
+    o << "}\n";
 }

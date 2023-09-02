@@ -18,7 +18,6 @@
 #include <luisa/runtime/graph/graph_def.h>
 #include <luisa/runtime/graph/graph_builder.h>
 #include <luisa/runtime/graph/graph_var.h>
-#include <luisa/runtime/graph/graph_dsl.h>
 #include <luisa/runtime/graph/capture_node.h>
 #include <luisa/backends/ext/graph_ext.h>
 #include <luisa/runtime/graph/kernel_node_cmd_encoder.h>
@@ -79,13 +78,16 @@ int main(int argc, char *argv[]) {
             temp, b0, b0_out, scan_size);
     };
 
-    GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<float> b0_out, GraphBuffer<int> b1, GraphUInt scan_size, GraphBuffer<int> temp_buffer,
+    GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<float> b0_out, GraphBuffer<int> b1,
+                      GraphUInt scan_size, GraphBuffer<int> temp_buffer,
                       GraphUInt dispatch_size) {
+        b0.set_var_name("b0");
         shader0.as_node(b0, b1).dispatch(dispatch_size).set_node_name("write_data");
         shader1.as_node(b0).dispatch(dispatch_size);
         shader2.as_node(b0).dispatch(dispatch_size);
         exclusive_scan(temp_buffer, b0, b0_out, scan_size).set_node_name("exclusive_scan");
     };
+    gd.graphviz(std::cout, {.show_vars = true});
 
     auto graph_ext = device.extension<GraphExt>();
     auto g = graph_ext->create_graph(gd);
@@ -101,33 +103,33 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("b0_out[{}] = {}", i, h_b0_out[i]);
     }
 
-    auto &vars = gd._builder->_vars;
-    for (auto &v : vars) {
-        std::cout << "graph var " << v->arg_id() << ":[tag = " << (int)v->tag() << "]\n";
-    }
-    auto &kernels = gd._builder->_kernel_nodes;
+    //auto &vars = gd._builder->_vars;
+    //for (auto &v : vars) {
+    //    std::cout << "graph var " << v->arg_id() << ":[tag = " << (int)v->tag() << "]\n";
+    //}
+    //auto &kernels = gd._builder->_kernel_nodes;
 
-    for (int kid = 0; auto &k : kernels) {
-        auto args = k->kernel_args();
-        std::cout << "kernel" << kid << "-" << k->node_name() << "'s args:[";
-        for (auto &&[arg_id, usage] : args) std::cout << "id=" << arg_id << " usage="
-                                                      << (int)usage << "; ";
-        std::cout << "] ";
-        auto dispatch_args = k->dispatch_args();
-        std::cout << "dispatch args:[";
-        for (auto &&[arg_id, usage] : dispatch_args) std::cout << "id=" << arg_id << " usage="
-                                                               << (int)usage << "; ";
-        std::cout << "]\n";
-        ++kid;
-    }
-    std::cout << "deps:" << std::endl;
-    auto &deps = gd._builder->_deps;
-    for (auto dep : deps) {
-        std::cout << "[" << dep.src << "]->[" << dep.dst << "]\n";
-    };
+    //for (int kid = 0; auto &k : kernels) {
+    //    auto args = k->kernel_args();
+    //    std::cout << "kernel" << kid << "-" << k->node_name() << "'s args:[";
+    //    for (auto &&[arg_id, usage] : args) std::cout << "id=" << arg_id << " usage="
+    //                                                  << (int)usage << "; ";
+    //    std::cout << "] ";
+    //    auto dispatch_args = k->dispatch_args();
+    //    std::cout << "dispatch args:[";
+    //    for (auto &&[arg_id, usage] : dispatch_args) std::cout << "id=" << arg_id << " usage="
+    //                                                           << (int)usage << "; ";
+    //    std::cout << "]\n";
+    //    ++kid;
+    //}
+    //std::cout << "deps:" << std::endl;
+    //auto &deps = gd._builder->_deps;
+    //for (auto dep : deps) {
+    //    std::cout << "[" << dep.src << "]->[" << dep.dst << "]\n";
+    //};
 
-    std::cout << std::endl
-              << "graph build info<<<" << std::endl;
+    //std::cout << std::endl
+    //          << "graph build info<<<" << std::endl;
 }
 
 void test_map() {

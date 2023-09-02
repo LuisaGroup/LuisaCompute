@@ -21,13 +21,8 @@ class LC_RUNTIME_API GraphNode {
     friend class GraphBuilder;
 public:
     static constexpr uint64_t invalid_node_id() noexcept { return std::numeric_limits<uint64_t>::max(); }
-
-    GraphNode(GraphBuilder *builder, GraphNodeType type) noexcept
-        ://_builder{builder},
-          _node_id{builder->graph_nodes().size()},
-          _type{type} {
-        _arg_usage.clear();
-    }
+    static constexpr string_view graphviz_prefix = "node_";
+    GraphNode(GraphBuilder *builder, GraphNodeType type) noexcept;
     GraphNode(GraphNode &&) noexcept = default;
     GraphNode &operator=(GraphNode &&) noexcept = default;
     virtual ~GraphNode() noexcept {}
@@ -41,6 +36,9 @@ public:
         _node_name = name;
         return *this;
     }
+    virtual void graphviz_def(std::ostream &o) const noexcept;
+    virtual void graphviz_id(std::ostream &o) const noexcept;
+    virtual void graphviz_arg_usages(std::ostream &o) const noexcept;
 protected:
     template<typename T>
     using U = unique_ptr<T>;
