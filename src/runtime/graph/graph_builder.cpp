@@ -25,7 +25,7 @@ static void process_node(
     luisa::vector<GraphDependency> &deps,
     luisa::vector<uint64_t> &last_read_or_write_nodes,
     luisa::vector<uint64_t> &last_write_nodes,
-    const luisa::vector<luisa::unique_ptr<GraphVarBase>> &vars,
+    const luisa::vector<GraphVarBase *> &vars,
     luisa::vector<GraphNode *> &nodes,
     uint64_t current_node_id,
     uint64_t &dep_begin,
@@ -124,18 +124,20 @@ void GraphBuilder::_build_var_accessors() noexcept {
 }
 
 // # Update Node API:
-void GraphBuilder::_set_up_node_need_update_flags() noexcept {
+void GraphBuilder::_setup_node_need_update_flags() noexcept {
     auto node_count = _nodes.size();
     _node_need_update_flags.resize(node_count, 1);
 }
 
-void GraphBuilder::propagate_need_update_flag_from_vars_to_nodes() noexcept {
+bool GraphBuilder::propagate_need_update_flag_from_vars_to_nodes() noexcept {
+    auto need_update = false;
     for (auto &var : _vars)
         if (var->need_update()) {// if a var need update, all nodes that use this var should be updated
             for (auto nid : _var_accessors[var->arg_id()]) {
                 auto size = _var_accessors.size();
                 _node_need_update_flags[nid] = true;
             }
+            need_update = true;
         }
 
     for (auto node : _nodes)
@@ -149,6 +151,7 @@ void GraphBuilder::propagate_need_update_flag_from_vars_to_nodes() noexcept {
                     break;
             }
         }
+    return need_update;
 }
 
 void GraphBuilder::_update_kernel_node_cmd_encoders(const KernelNode *node) noexcept {
@@ -165,6 +168,40 @@ void GraphBuilder::_update_kernel_node_cmd_encoders(const KernelNode *node) noex
         dispatch_size[i] = dynamic_cast<const GraphVar<uint> *>(graph_var(arg_id))->value();
     }
     _kernel_node_cmd_encoders[node->kernel_id()]->_dispatch_size = dispatch_size;
+}
+
+void GraphBuilder::check_var_overlap() noexcept {
+    _check_buffer_var_overlap();
+}
+
+void GraphBuilder::_check_buffer_var_overlap() noexcept {
+    auto &buffer_vars = _buffer_vars;
+    struct Data {
+        uint64_t id;
+        uint64_t value;
+        bool operator<(const Data &rhs) const noexcept { return value < rhs.value; }
+    };
+    luisa::vector<Data> begins(buffer_vars.size());
+    luisa::vector<Data> ends(buffer_vars.size());
+    for (size_t i = 0; i < buffer_vars.size(); ++i) {
+        const auto &bv = buffer_vars[i]->buffer_view_base();
+        begins[i] = {i, bv.native_handle + bv.offset_bytes};
+        ends[i] = {i, bv.native_handle + bv.size_bytes};
+    }
+    std::sort(begins.begin(), begins.end());
+    std::sort(ends.begin(), ends.end());
+    for (size_t i = 0; i < buffer_vars.size() - 1; ++i) {
+        auto &this_end = ends[i];
+        auto &next_begin = begins[i + 1];
+        if (this_end.value > next_begin.value) {
+            const auto &this_var = buffer_vars[this_end.id];
+            const auto &next_var = buffer_vars[next_begin.id];
+            LUISA_ERROR_WITH_LOCATION(
+                "Graph Buffer Var Overlap Detected: Var{}[name={}] and Var{}[name={}] overlap",
+                this_var->arg_id(), this_var->var_name(),
+                next_var->arg_id(), next_var->var_name());
+        }
+    }
 }
 
 // # Getter/Setter:
@@ -199,7 +236,7 @@ bool luisa::compute::graph::GraphBuilder::var_need_update(const GraphVarBase *va
 
 const GraphVarBase *GraphBuilder::graph_var(var_id_t id) const noexcept {
     LUISA_ASSERT(id < _vars.size(), "GraphVarBase id out of range.");
-    return _vars[id].get();
+    return _vars[id];
 }
 const luisa::vector<GraphBuilder::node_id_t> &GraphBuilder::accessor_node_ids(const GraphVarBase *graph_var) const noexcept {
     return _var_accessors[graph_var->arg_id()];
@@ -224,14 +261,18 @@ GraphBuilder::GraphBuilder(const GraphBuilder &other) noexcept {
     //};
 
     // graph vars can be different in different graph (e.g. different input)
-    _vars.reserve(other._vars.size());
-    for (size_t i = 0; i < other._vars.size(); ++i) {
-        auto &var = other._vars[i];
-        LUISA_ASSERT(var->is_virtual(), "Only virtual GraphVar (in GraphDef) can be cloned.");
-        auto cloned_var = var->clone();
-        cloned_var->_is_virtual = false;
-        _vars.emplace_back(std::move(cloned_var));
-    }
+    _vars.resize(other._vars.size(), nullptr);
+    auto clone_var = [&]<typename T>(const U<T> &var) -> U<T> {
+        auto ret = var->clone();
+        _vars[ret->arg_id()] = ret.get();
+        return std::move(ret);
+    };
+
+    _basic_vars.resize(other._basic_vars.size());
+    std::transform(other._basic_vars.begin(), other._basic_vars.end(), _basic_vars.begin(), clone_var);
+
+    _buffer_vars.resize(other._buffer_vars.size());
+    std::transform(other._buffer_vars.begin(), other._buffer_vars.end(), _buffer_vars.begin(), clone_var);
 
     // nodes should be identical, so we just copy the shared pointers
     _kernel_nodes = other._kernel_nodes;

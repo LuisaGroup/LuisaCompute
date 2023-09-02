@@ -98,38 +98,11 @@ int main(int argc, char *argv[]) {
     stream << g(b0_new, b0_out, b1, b0.size(), temp, 1).dispatch();
     stream << b0.copy_to(h_b0.data()) << synchronize();
     stream << b0_out.copy_to(h_b0_out.data()) << synchronize();
+    // g(b0_out, b0_out, b1, b0.size(), temp, 1);
     for (int i = 0; i < 8; ++i) {
         LUISA_INFO("b0[{}] = {}", i, h_b0[i]);
         LUISA_INFO("b0_out[{}] = {}", i, h_b0_out[i]);
     }
-
-    //auto &vars = gd._builder->_vars;
-    //for (auto &v : vars) {
-    //    std::cout << "graph var " << v->arg_id() << ":[tag = " << (int)v->tag() << "]\n";
-    //}
-    //auto &kernels = gd._builder->_kernel_nodes;
-
-    //for (int kid = 0; auto &k : kernels) {
-    //    auto args = k->kernel_args();
-    //    std::cout << "kernel" << kid << "-" << k->node_name() << "'s args:[";
-    //    for (auto &&[arg_id, usage] : args) std::cout << "id=" << arg_id << " usage="
-    //                                                  << (int)usage << "; ";
-    //    std::cout << "] ";
-    //    auto dispatch_args = k->dispatch_args();
-    //    std::cout << "dispatch args:[";
-    //    for (auto &&[arg_id, usage] : dispatch_args) std::cout << "id=" << arg_id << " usage="
-    //                                                           << (int)usage << "; ";
-    //    std::cout << "]\n";
-    //    ++kid;
-    //}
-    //std::cout << "deps:" << std::endl;
-    //auto &deps = gd._builder->_deps;
-    //for (auto dep : deps) {
-    //    std::cout << "[" << dep.src << "]->[" << dep.dst << "]\n";
-    //};
-
-    //std::cout << std::endl
-    //          << "graph build info<<<" << std::endl;
 }
 
 void test_map() {

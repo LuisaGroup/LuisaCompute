@@ -10,6 +10,8 @@ namespace luisa::compute::graph {
 enum class GraphResourceTag {
     Basic,
     Buffer,
+
+    Max,
 };
 
 class GraphArgId {
@@ -45,7 +47,7 @@ public:
     void clear_need_update_flag() noexcept { _need_update = false; }
 
     GraphResourceTag tag() const noexcept { return _tag; }
-    virtual U<GraphVarBase> clone() const noexcept = 0;
+    // virtual U<GraphVarBase> clone() const noexcept = 0;
     template<typename T>
     auto cast() noexcept {
         static_assert(std::is_base_of_v<GraphVarBase, T>);
@@ -69,13 +71,19 @@ private:
     string _name;
 };
 
+class GraphBasicVarBase : public GraphVarBase {
+public:
+    using GraphVarBase::GraphVarBase;
+    virtual U<GraphBasicVarBase> clone() const noexcept = 0;
+};
+
 template<typename T>
-class GraphVar final : public GraphVarBase {
+class GraphVar final : public GraphBasicVarBase {
 public:
     using value_type = T;
     // GraphVar(const T &value) noexcept : GraphVarBase{invalid_id, GraphResourceTag::Basic}, _value{value} {}
-    GraphVar(GraphArgId id) noexcept : GraphVarBase{id, GraphResourceTag::Basic} {}
-    U<GraphVarBase> clone() const noexcept override { return make_unique<GraphVar<T>>(*this); }
+    GraphVar(GraphArgId id) noexcept : GraphBasicVarBase{id, GraphResourceTag::Basic} {}
+    U<GraphBasicVarBase> clone() const noexcept override { return make_unique<GraphVar<T>>(*this); }
     void update_check(const T &new_value) noexcept {
         _need_update = _need_update || _value != new_value;
         if (_need_update) {
@@ -93,17 +101,37 @@ private:
     T _value{};
 };
 
+class GraphBufferVarBase : public GraphVarBase {
+public:
+    class BufferViewBase {
+    public:
+        template<typename T>
+        BufferViewBase(const BufferView<T> &view) noexcept
+            : native_handle{reinterpret_cast<uint64_t>(view.native_handle())},
+              offset_bytes{view.offset_bytes()},
+              size_bytes{view.size_bytes()}
+        {}
+
+        uint64_t native_handle;
+        size_t offset_bytes;
+        size_t size_bytes;
+    };
+    using GraphVarBase::GraphVarBase;
+    virtual BufferViewBase buffer_view_base() const noexcept = 0;
+    virtual U<GraphBufferVarBase> clone() const noexcept = 0;
+};
+
 template<typename T>
-class GraphVar<BufferView<T>> final : public GraphVarBase {
+class GraphVar<BufferView<T>> final : public GraphBufferVarBase {
 public:
     using value_type = T;
-    using GraphVarBase::GraphVarBase;
+    using GraphBufferVarBase::GraphBufferVarBase;
     //GraphVar(const BufferView<T> &view) noexcept
     //    : GraphVar(GraphArgId{invalid_id}),
     //      _view{view} {}
-    GraphVar(GraphArgId id) noexcept : GraphVarBase{id, GraphResourceTag::Buffer} {}
+    GraphVar(GraphArgId id) noexcept : GraphBufferVarBase{id, GraphResourceTag::Buffer} {}
 
-    U<GraphVarBase> clone() const noexcept override { return make_unique<GraphVar<BufferView<T>>>(*this); }
+    U<GraphBufferVarBase> clone() const noexcept override { return make_unique<GraphVar<BufferView<T>>>(*this); }
 
     void update_check(const BufferView<T> &new_view) noexcept {
         _need_update = _need_update || !is_same_view(new_view);
@@ -119,6 +147,9 @@ public:
         size_t arg_idx_in_kernel_parms, KernelNodeCmdEncoder *encoder) const noexcept override {
         encoder->update_buffer(arg_idx_in_kernel_parms, _view.handle(), _view.offset(), _view.size());
     }
+
+    virtual BufferViewBase buffer_view_base() const noexcept override { return BufferViewBase{_view}; }
+
 private:
     BufferView<T> _view{};
     bool is_same_view(const BufferView<T> &view) const noexcept {

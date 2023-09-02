@@ -268,12 +268,13 @@ public:
     [[nodiscard]] luisa::compute::graph::GraphShaderInvoke<dimension> as_node(
         graph::detail::view_to_graph_shader_invocation_t<detail::prototype_to_shader_invocation_t<Args>>... args) const noexcept {
         using namespace graph;
+        LUISA_ASSERT(GraphBuilder::is_building(), "This function is invocable in GraphDef only");
         eastl::array ids = {args.arg_id()...};
         auto arg_count = (0u + ... + luisa::compute::detail::shader_argument_encode_count<Args>::value);
         LUISA_ASSERT(arg_count == ids.size(), "arg count miss matching: {} != {}", arg_count, ids.size());
         auto encoder = make_unique<KernelNodeCmdEncoder>(arg_count, _uniform_size);// pass the encoder to the graph builder for later use
         (encoder->operator<<(args.view()), ...);
-        auto kernel_node = graph::GraphBuilder::add_kernel_node(
+        auto kernel_node = GraphBuilder::add_kernel_node(
             ids, this, std::move(encoder),
             dimension, block_size());
         return GraphShaderInvoke<dimension>(kernel_node);

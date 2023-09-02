@@ -102,7 +102,7 @@ void Graph<Args...>::check_parms_update(detail::graph_var_to_view_t<Args> &&...a
             derived->update_check(arg);
         },
         std::forward<detail::graph_var_to_view_t<Args>>(args)...);
-    _builder->propagate_need_update_flag_from_vars_to_nodes();
+    auto need_update = _builder->propagate_need_update_flag_from_vars_to_nodes();
 
     // then we can build the graph if needed
     auto first_build = build_if_needed();
@@ -110,5 +110,11 @@ void Graph<Args...>::check_parms_update(detail::graph_var_to_view_t<Args> &&...a
         // if it is not the first time build, we are going to update the graph instance node parms
         _impl->update_graph_instance_node_parms(_builder.get());
     }
+
+#ifdef _DEBUG
+    if (need_update) {
+        _builder->check_var_overlap();
+    }
+#endif
 }
 }// namespace luisa::compute::graph

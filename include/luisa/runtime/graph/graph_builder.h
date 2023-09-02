@@ -34,13 +34,17 @@ public:
     using node_id_t = uint64_t;
     using var_id_t = uint64_t;
 
-    luisa::vector<U<GraphVarBase>> _vars;
+    luisa::vector<GraphVarBase *> _vars;
     luisa::vector<luisa::vector<node_id_t>> _var_accessors;// var_id -> {node_id, ...}
     luisa::vector<GraphNode *> _nodes;
     luisa::vector<int> _node_need_update_flags;
     luisa::vector<GraphDependency> _deps;
 
-    // concrete
+    // concrete var
+    luisa::vector<U<GraphBufferVarBase>> _buffer_vars;
+    luisa::vector<U<GraphBasicVarBase>> _basic_vars;
+
+    // concrete node
     luisa::vector<S<KernelNode>> _kernel_nodes;
     luisa::vector<U<KernelNodeCmdEncoder>> _kernel_node_cmd_encoders;
     luisa::vector<S<CaptureNodeBase>> _capture_nodes;
@@ -83,24 +87,25 @@ public:
     void graphviz(std::ostream &o, GraphvizOptions options = {}) noexcept;
 private:
     // only used by GraphDef >>>
-    static void set_var_count(size_t size) noexcept;
-    template<typename T, size_t I>
-    [[nodiscard]] static T &define_graph_var() noexcept {
-        auto var = make_unique<T>(GraphArgId{I});
-        auto ptr = var.get();
-        _current()->_vars[I] = std::move(var);
-        return *ptr;
-    }
     template<typename F>
     [[nodiscard]] static U<GraphBuilder> build(F &&fn) noexcept {
         _current() = make_unique<GraphBuilder>();
         _current()->_is_building = true;
         fn();
-        _current()->_set_up_node_need_update_flags();
+        _current()->_setup_node_need_update_flags();
         _current()->_build_deps();
         _current()->_build_var_accessors();
         _current()->_is_building = false;
         return std::move(_current());
+    }
+    static void set_var_count(size_t size) noexcept;
+    template<typename T, size_t I>
+        requires std::is_base_of_v<GraphVarBase, T>
+    [[nodiscard]] static void define_graph_var() noexcept {
+        auto var = make_unique<T>(GraphArgId{I});
+        auto ptr = var.get();
+        _current()->_def_var(std::move(var));
+        _current()->_vars[I] = ptr;
     }
     // only used by GraphDef <<<
 
@@ -111,13 +116,14 @@ private:
 
     template<typename FCapture, typename... Args>
         requires std::is_invocable_v<FCapture, uint64_t, Args...>
-    friend CaptureNodeBase& capture(std::array<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
+    friend CaptureNodeBase &capture(std::array<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
 
     template<typename FCapture, typename... Args>
     static CaptureNodeBase *add_capture_node(span<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept;
 
     // only used by Graph >>>
-    void propagate_need_update_flag_from_vars_to_nodes() noexcept;
+    bool propagate_need_update_flag_from_vars_to_nodes() noexcept;
+    void check_var_overlap() noexcept;
     // only used by Graph <<<
 
     static U<GraphBuilder> &_current() noexcept;
@@ -125,8 +131,12 @@ private:
     // private methods >>>
     void _build_deps() noexcept;
     void _build_var_accessors() noexcept;
-    void _set_up_node_need_update_flags() noexcept;
+    void _setup_node_need_update_flags() noexcept;
     void _update_kernel_node_cmd_encoders(const KernelNode *node) noexcept;
+    void _check_buffer_var_overlap() noexcept;
+
+    void _def_var(U<GraphBasicVarBase> &&var) noexcept { _basic_vars.emplace_back(std::move(var)); }
+    void _def_var(U<GraphBufferVarBase> &&buffer) noexcept { _buffer_vars.emplace_back(std::move(buffer)); }
     // private methods <<<
 };
 }// namespace luisa::compute::graph
@@ -134,7 +144,8 @@ private:
 namespace luisa::compute::graph {
 template<typename FCapture, typename... Args>
     requires std::is_invocable_v<FCapture, uint64_t, Args...>
-CaptureNodeBase& capture(std::array<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
+CaptureNodeBase &capture(std::array<Usage, sizeof...(Args)> usages, FCapture &&capture, GraphVar<Args>... args) noexcept {
+    LUISA_ASSERT(GraphBuilder::is_building(), "This function is invocable in GraphDef only");
     return *GraphBuilder::add_capture_node(
         usages,
         std::forward<FCapture>(capture),

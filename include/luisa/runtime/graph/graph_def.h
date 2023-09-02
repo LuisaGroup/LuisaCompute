@@ -8,17 +8,6 @@
 #include <luisa/runtime/graph/utils.h>
 
 namespace luisa::compute::graph {
-namespace detail {
-/// Append an element in a tuple
-//template<typename... T, typename A>
-//[[nodiscard]] inline auto tuple_append(std::tuple<T...> tuple, A &&arg) noexcept {
-//    auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
-//        return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
-//    };
-//    return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
-//}
-}// namespace detail
-
 //Args: prototype, e.g. BufferView<int>
 template<typename... Args>
 class GraphDefBase {
@@ -40,7 +29,8 @@ public:
             // detail::print_types_with_index<Args...>();
             GraphBuilder::set_var_count(sizeof...(Args));
             []<typename Fn, size_t... I>(Fn &&fn, std::index_sequence<I...>) {
-                fn(GraphBuilder::define_graph_var<Args, I>()...);
+                (GraphBuilder::define_graph_var<Args, I>(), ...);
+                fn(*GraphBuilder::current()->graph_var(I)->cast<Args>()...);
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
     }

@@ -57,6 +57,7 @@ public:
     GraphShaderInvoke(KernelNode *node) noexcept
         : GraphShaderInvokeBase{node} {}
     auto& dispatch(GraphVar<uint32_t> dispatch_x) noexcept {
+        LUISA_ASSERT(GraphBuilder::is_building(), "This function is invocable in GraphDef only");
         _node->add_dispatch_arg(dispatch_x.arg_id());
         return *_node;
     }
@@ -69,6 +70,7 @@ public:
         : GraphShaderInvokeBase{node} {}
     auto& dispatch(GraphVar<uint32_t> dispatch_x,
                   GraphVar<uint32_t> dispatch_y) noexcept {
+        LUISA_ASSERT(GraphBuilder::is_building(), "This function is invocable in GraphDef only");
         _node->add_dispatch_arg(dispatch_x.arg_id(), dispatch_y.arg_id());
         return *_node;
     }
@@ -83,6 +85,7 @@ public:
     auto& dispatch(GraphVar<uint32_t> dispatch_x,
                   GraphVar<uint32_t> dispatch_y,
                   GraphVar<uint32_t> dispatch_z) noexcept {
+        LUISA_ASSERT(GraphBuilder::is_building(), "This function is invocable in GraphDef only");
         _node->add_dispatch_arg(dispatch_x.arg_id(), dispatch_y.arg_id(), dispatch_z.arg_id());
         return *_node;
     }
