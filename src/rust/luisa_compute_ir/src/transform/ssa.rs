@@ -79,6 +79,9 @@ impl ToSSAImpl {
             let value = self.promote(value, builder, record);
             record.phis.insert(var);
             record.stored.insert(var, value);
+            if !self.local_defs.contains(&var) {
+                builder.update(var, value);
+            }
         } else {
             // the hardpart
             let (var, indices) = var.access_chain().unwrap();
@@ -100,9 +103,9 @@ impl ToSSAImpl {
             }
             record.phis.insert(var);
             record.stored.insert(var, cur);
-        }
-        if !self.local_defs.contains(&var) {
-            builder.update(var, value);
+            if !self.local_defs.contains(&var) {
+                builder.update(var, value);
+            }
         }
     }
     fn promot_branches(
