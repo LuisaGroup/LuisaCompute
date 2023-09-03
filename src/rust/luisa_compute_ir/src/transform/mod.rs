@@ -5,7 +5,6 @@ pub mod ssa;
 pub mod vectorize;
 pub mod eval;
 pub mod ref2ret;
-
 pub mod reg2mem;
 
 use crate::ir;
