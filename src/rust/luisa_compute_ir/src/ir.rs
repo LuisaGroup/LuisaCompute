@@ -392,6 +392,17 @@ impl Type {
             length,
         }))
     }
+    pub fn vector_of(element: CArc<Type>, length: u32) -> CArc<Type> {
+        match element.as_ref() {
+            Type::Primitive(v) => {
+                Self::vector(*v, length)
+            }
+            Type::Vector(v) => {
+                Self::vector_vector(CArc::new(v.clone()), length)
+            }
+            _ => panic!("Cannot create vector of non-primitive type"),
+        }
+    }
     pub fn matrix(element: Primitive, dimension: u32) -> CArc<Type> {
         context::register_type(Type::Matrix(MatrixType {
             element: VectorElementType::Scalar(element),
@@ -402,6 +413,40 @@ impl Type {
         context::register_type(Type::Matrix(MatrixType {
             element: VectorElementType::Vector(element),
             dimension,
+        }))
+    }
+    pub fn matrix_of(element: CArc<Type>, dimension: u32) -> CArc<Type> {
+        match element.as_ref() {
+            Type::Primitive(v) => {
+                Self::matrix(*v, dimension)
+            }
+            Type::Vector(v) => {
+                Self::matrix_vector(CArc::new(v.clone()), dimension)
+            }
+            _ => panic!("Cannot create matrix of non-primitive type"),
+        }
+    }
+    pub fn array_of(element: CArc<Type>, length: u32) -> CArc<Type> {
+        context::register_type(Type::Array(ArrayType { element, length: length as usize }))
+    }
+    pub fn struct_of(alignment: u32, members: Vec<CArc<Type>>) -> CArc<Type> {
+        let mut size = 0;
+        let mut align = 0;
+        for member in members.iter() {
+            let a = member.alignment();
+            size = (size + a - 1) / a * a;
+            size += member.size();
+            align = std::cmp::max(align, a);
+        }
+        assert!(align <= alignment as usize,
+                "Struct alignment must be at least as \
+                large as the largest member alignment.");
+        align = alignment as usize;
+        size = (size + align - 1) / align * align;
+        context::register_type(Type::Struct(StructType {
+            fields: CBoxedSlice::new(members),
+            alignment: align,
+            size,
         }))
     }
     pub fn is_void(&self) -> bool {

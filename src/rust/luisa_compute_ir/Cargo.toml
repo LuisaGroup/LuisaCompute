@@ -16,6 +16,7 @@ base64ct = { version = "1.5.0", features = ["alloc"] }
 sha2 = "0.10"
 indexmap = "2.0.0"
 half = { version = "2.3.1", features = ["std", "serde", "num-traits", "zerocopy"] }
+json = "0.12.4"
 
 [build-dependencies]
 cbindgen = "0.24.3"

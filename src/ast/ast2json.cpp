@@ -643,7 +643,7 @@ private:
         types.emplace_back(std::move(converted_type));
         return index;
     }
-    [[nodiscard]] uint _variable_index(Variable v) noexcept {
+    [[nodiscard]] uint _variable_index(Variable v, bool is_argument) noexcept {
         if (auto iter = _func_ctx->variable_to_index.find(v.uid());
             iter != _func_ctx->variable_to_index.end()) {
             return iter->second;
@@ -653,8 +653,8 @@ private:
         _func_ctx->variable_to_index[v.uid()] = index;
         // For callables, built-in variables are already lowered
         // to local variables by the FunctionBuilder.
-        auto tag = _func_ctx->f.tag() == Function::Tag::CALLABLE && v.is_builtin() ?
-                       "LOCAL" :
+        auto tag = (v.is_local() || v.is_builtin()) && is_argument ?
+                       "ARGUMENT" :
                        luisa::to_string(v.tag());
         vars.emplace_back(JSON::Object{
             {"tag", tag},
@@ -747,7 +747,7 @@ private:
             JSON::Array a;
             a.reserve(f.arguments().size());
             for (auto &&arg : f.arguments()) {
-                a.emplace_back(_variable_index(arg));
+                a.emplace_back(_variable_index(arg, true));
             }
             return a;
         }();
@@ -830,7 +830,7 @@ private:
             expr->value());
     }
     void _convert_ref_expr(JSON &j, const RefExpr *expr) noexcept {
-        j["variable"] = _variable_index(expr->variable());
+        j["variable"] = _variable_index(expr->variable(), false);
     }
     void _convert_constant_expr(JSON &j, const ConstantExpr *expr) noexcept {
         j["data"] = _constant_index(expr->data());
