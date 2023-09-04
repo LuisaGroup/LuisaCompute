@@ -7,10 +7,12 @@
  *   4. Move all local variables to the beginning of the function to make the following passes (e.g., lower control flow) easier.
  */
 
-use std::collections::HashSet;
-use crate::ir::{BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModulePools, new_node, Node, NodeRef};
-use crate::{CArc, CBoxedSlice, Pooled};
+use crate::ir::{
+    new_node, BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModulePools, Node, NodeRef,
+};
 use crate::transform::Transform;
+use crate::{CArc, CBoxedSlice, Pooled};
+use std::collections::HashSet;
 
 struct Reg2MemCtx {
     pools: CArc<ModulePools>,
@@ -49,31 +51,42 @@ impl Reg2MemImpl {
                 Instruction::Invalid => {}
                 Instruction::Const(_) => {}
                 Instruction::Update { .. } => {}
-                Instruction::Call(func, _) => {
-                    match func {
-                        Func::Callable(callable) => {
-                            self.transform_module(&callable.0.module);
-                        }
-                        _ => {}
+                Instruction::Call(func, _) => match func {
+                    Func::Callable(callable) => {
+                        self.transform_module(&callable.0.module);
                     }
-                }
+                    _ => {}
+                },
                 Instruction::Phi(_) => {}
                 Instruction::Return(_) => {}
                 Instruction::Loop { body, cond: _ } => {
                     self.transform_recursive(body);
                 }
-                Instruction::GenericLoop { prepare, body, update, cond: _ } => {
+                Instruction::GenericLoop {
+                    prepare,
+                    body,
+                    update,
+                    cond: _,
+                } => {
                     self.transform_recursive(prepare);
                     self.transform_recursive(body);
                     self.transform_recursive(update);
                 }
                 Instruction::Break => {}
                 Instruction::Continue => {}
-                Instruction::If { cond: _, true_branch, false_branch } => {
+                Instruction::If {
+                    cond: _,
+                    true_branch,
+                    false_branch,
+                } => {
                     self.transform_recursive(true_branch);
                     self.transform_recursive(false_branch);
                 }
-                Instruction::Switch { value: _, cases, default } => {
+                Instruction::Switch {
+                    value: _,
+                    cases,
+                    default,
+                } => {
                     for case in cases.iter() {
                         self.transform_recursive(&case.block);
                     }
@@ -82,7 +95,11 @@ impl Reg2MemImpl {
                 Instruction::AdScope { body } => {
                     self.transform_recursive(body);
                 }
-                Instruction::RayQuery { ray_query: _, on_triangle_hit, on_procedural_hit } => {
+                Instruction::RayQuery {
+                    ray_query: _,
+                    on_triangle_hit,
+                    on_procedural_hit,
+                } => {
                     self.transform_recursive(on_triangle_hit);
                     self.transform_recursive(on_procedural_hit);
                 }
@@ -120,18 +137,31 @@ impl Reg2MemImpl {
                 Instruction::Loop { body, cond: _ } => {
                     self.collect_phi_and_local_nodes(body);
                 }
-                Instruction::GenericLoop { prepare, body, update, cond: _ } => {
+                Instruction::GenericLoop {
+                    prepare,
+                    body,
+                    update,
+                    cond: _,
+                } => {
                     self.collect_phi_and_local_nodes(prepare);
                     self.collect_phi_and_local_nodes(body);
                     self.collect_phi_and_local_nodes(update);
                 }
                 Instruction::Break => {}
                 Instruction::Continue => {}
-                Instruction::If { cond: _, true_branch, false_branch } => {
+                Instruction::If {
+                    cond: _,
+                    true_branch,
+                    false_branch,
+                } => {
                     self.collect_phi_and_local_nodes(true_branch);
                     self.collect_phi_and_local_nodes(false_branch);
                 }
-                Instruction::Switch { value: _, cases, default } => {
+                Instruction::Switch {
+                    value: _,
+                    cases,
+                    default,
+                } => {
                     for case in cases.iter() {
                         self.collect_phi_and_local_nodes(&case.block);
                     }
@@ -140,7 +170,11 @@ impl Reg2MemImpl {
                 Instruction::AdScope { body } => {
                     self.collect_phi_and_local_nodes(body);
                 }
-                Instruction::RayQuery { ray_query: _, on_triangle_hit, on_procedural_hit } => {
+                Instruction::RayQuery {
+                    ray_query: _,
+                    on_triangle_hit,
+                    on_procedural_hit,
+                } => {
                     self.collect_phi_and_local_nodes(on_triangle_hit);
                     self.collect_phi_and_local_nodes(on_procedural_hit);
                 }
@@ -181,10 +215,13 @@ impl Reg2MemImpl {
                         &pools,
                         Node::new(
                             CArc::new(Instruction::Const(Const::Zero(node.type_.clone()))),
-                            node.type_.clone()));
+                            node.type_.clone(),
+                        ),
+                    );
                     let local = Node::new(
                         CArc::new(Instruction::Local { init: zero }),
-                        node.type_.clone());
+                        node.type_.clone(),
+                    );
                     node_ref.replace_with(&local);
                     // move to the beginning of the function
                     if builder.insert_point != node_ref.clone() {
@@ -212,10 +249,10 @@ impl Reg2MemImpl {
                     // restore the insert point
                     builder.set_insert_point(decl_point);
                     // replace the phi node with a load instruction
-                    let load = Node::new(CArc::new(
-                        Instruction::Call(Func::Load,
-                                          CBoxedSlice::new(vec![local]))),
-                                         node.type_.clone());
+                    let load = Node::new(
+                        CArc::new(Instruction::Call(Func::Load, CBoxedSlice::new(vec![local]))),
+                        node.type_.clone(),
+                    );
                     node_ref.replace_with(&load);
                 }
                 _ => unreachable!(),

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
-use json::{JsonValue as JSON, parse as parse_json, Result, iterators};
-use base64ct::{Base64, Encoding};
-use half::f16;
 use crate::context::register_type;
 use crate::ir::*;
+use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
+use base64ct::{Base64, Encoding};
+use half::f16;
+use json::{iterators, parse as parse_json, JsonValue as JSON, Result};
+use std::collections::HashMap;
 
 struct AST2IRCtx<'a> {
     j: &'a JSON,
@@ -61,8 +61,10 @@ impl<'a, 'b> AST2IR<'a, 'b> {
             "MATRIX" => {
                 if let Some(elem) = j["element"].as_usize() {
                     let elem = self.convert_type(elem);
-                    assert!(elem.is_float() && elem.is_primitive(),
-                            "Matrix element type must be float scalars.");
+                    assert!(
+                        elem.is_float() && elem.is_primitive(),
+                        "Matrix element type must be float scalars."
+                    );
                 }
                 let elem = <f32 as TypeOf>::type_();
                 let dim = j["dimension"].as_u32().unwrap();
@@ -75,9 +77,10 @@ impl<'a, 'b> AST2IR<'a, 'b> {
                 Type::array_of(elem_type, dim)
             }
             "STRUCTURE" => {
-                let members: Vec<_> = j["members"].members().map(|m| {
-                    self.convert_type(m.as_usize().unwrap())
-                }).collect();
+                let members: Vec<_> = j["members"]
+                    .members()
+                    .map(|m| self.convert_type(m.as_usize().unwrap()))
+                    .collect();
                 let align = j["alignment"].as_u32().unwrap();
                 Type::struct_of(align, members)
             }
@@ -112,125 +115,162 @@ impl<'a, 'b> AST2IR<'a, 'b> {
         self.ctx.as_ref().unwrap()
     }
 
+    fn unwrap_ctx(
+        &mut self,
+    ) -> (
+        &mut IrBuilder,
+        &mut HashMap<u32, NodeRef>,
+        &mut HashMap<u32, NodeRef>,
+    ) {
+        let ctx = self.ctx.as_mut().unwrap();
+        let AST2IRCtx {
+            builder,
+            arguments,
+            variables,
+            ..
+        } = ctx;
+        (builder.as_mut().unwrap(), arguments, variables)
+    }
     fn convert_variables(&mut self) {
-        self._curr_ctx().j_variables.members().enumerate().for_each(|(i, v)| {
-            let v_tag = v["tag"].as_str().unwrap();
-            let v_type = v["type"].as_usize().unwrap();
-            let v = match v_tag {
-                "LOCAL" => {
-                    let t = self.convert_type(v_type);
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    builder.local_zero_init(t)
-                }
-                "SHARED" => {
-                    let t = self.convert_type(v_type);
-                    new_node(&self.pools, Node::new(CArc::new(Instruction::Shared), t.clone()))
-                }
-                "ARGUMENT" => {
-                    let t = self.convert_type(v_type);
-                    let arg = if self._curr_ctx().j_tag == "KERNEL" {
-                        Instruction::Uniform
-                    } else {
-                        Instruction::Argument { by_value: true }
-                    };
-                    let arg = new_node(
-                        &self.pools, Node::new(CArc::new(arg), t.clone()));
-                    self._curr_ctx_mut().arguments.insert(i as u32, arg);
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    builder.local(arg)
-                }
-                "REFERENCE" => {
-                    let t = self.convert_type(v_type);
-                    assert_eq!(self._curr_ctx().j_tag, "CALLABLE", "Only callable can have reference variables.");
-                    let arg = Instruction::Argument { by_value: false };
-                    let arg = new_node(
-                        &self.pools, Node::new(CArc::new(arg), t.clone()));
-                    self._curr_ctx_mut().arguments.insert(i as u32, arg);
-                    arg
-                }
-                "BUFFER" => {
-                    let t = &self.j_types[v_type];
-                    assert_eq!(t["tag"], "BUFFER", "Only buffer can be a buffer variable.");
-                    let t = t["element"].as_usize().unwrap();
-                    let t = self.convert_type(t);
-                    let arg = new_node(
-                        &self.pools, Node::new(CArc::new(Instruction::Buffer), t.clone()));
-                    self._curr_ctx_mut().arguments.insert(i as u32, arg);
-                    arg
-                }
-                "TEXTURE" => {
-                    let t = &self.j_types[v_type];
-                    assert_eq!(t["tag"], "TEXTURE", "Only texture can be a texture variable.");
-                    let dim = t["dimension"].as_u32().unwrap();
-                    let t = t["element"].as_usize().unwrap();
-                    let t = Type::vector_of(self.convert_type(t), 4);
-                    let instr = match dim {
-                        2 => Instruction::Texture2D,
-                        3 => Instruction::Texture3D,
-                        _ => panic!("Invalid texture dimension: {}", dim),
-                    };
-                    let arg = new_node(
-                        &self.pools, Node::new(CArc::new(instr), t.clone()));
-                    self._curr_ctx_mut().arguments.insert(i as u32, arg);
-                    arg
-                }
-                "BINDLESS_ARRAY" => {
-                    let t = &self.j_types[v_type];
-                    assert_eq!(t["tag"], "BINDLESS_ARRAY", "Only bindless array can be a bindless array variable.");
-                    let arg = new_node(
-                        &self.pools, Node::new(CArc::new(Instruction::Bindless), Type::void()));
-                    self._curr_ctx_mut().arguments.insert(i as u32, arg);
-                    arg
-                }
-                "ACCEL" => {
-                    let t = &self.j_types[v_type];
-                    assert_eq!(t["tag"], "ACCEL", "Only accel can be a accel variable.");
-                    let arg = new_node(
-                        &self.pools, Node::new(CArc::new(Instruction::Accel), Type::void()));
-                    self._curr_ctx_mut().arguments.insert(i as u32, arg);
-                    arg
-                }
-                "THREAD_ID" => {
-                    let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    let v = builder.call(Func::ThreadId, &[], t);
-                    builder.local(v)
-                }
-                "BLOCK_ID" => {
-                    let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    let v = builder.call(Func::BlockId, &[], t);
-                    builder.local(v)
-                }
-                "DISPATCH_ID" => {
-                    let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    let v = builder.call(Func::DispatchId, &[], t);
-                    builder.local(v)
-                }
-                "DISPATCH_SIZE" => {
-                    let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    let v = builder.call(Func::DispatchSize, &[], t);
-                    builder.local(v)
-                }
-                "KERNEL_ID" => todo!("KERNEL_ID"),
-                "WARP_LANE_COUNT" => {
-                    let t = <u32 as TypeOf>::type_();
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    let v = builder.call(Func::WarpSize, &[], t);
-                    builder.local(v)
-                }
-                "WARP_LANE_ID" => {
-                    let t = <u32 as TypeOf>::type_();
-                    let builder = self._curr_ctx_mut().builder.as_mut().unwrap();
-                    let v = builder.call(Func::WarpLaneId, &[], t);
-                    builder.local(v)
-                }
-                "OBJECT_ID" => todo!("OBJECT_ID"),
-                _ => panic!("Invalid variable tag: {}", v_tag),
-            };
-        });
+        self._curr_ctx()
+            .j_variables
+            .members()
+            .enumerate()
+            .for_each(|(i, v)| {
+                let v_tag = v["tag"].as_str().unwrap();
+                let v_type = v["type"].as_usize().unwrap();
+                let v = match v_tag {
+                    "LOCAL" => {
+                        let t = self.convert_type(v_type);
+                        let (builder, _, _) = self.unwrap_ctx();
+                        builder.local_zero_init(t)
+                    }
+                    "SHARED" => {
+                        let t = self.convert_type(v_type);
+                        new_node(
+                            &self.pools,
+                            Node::new(CArc::new(Instruction::Shared), t.clone()),
+                        )
+                    }
+                    "ARGUMENT" => {
+                        let t = self.convert_type(v_type);
+                        let arg = if self._curr_ctx().j_tag == "KERNEL" {
+                            Instruction::Uniform
+                        } else {
+                            Instruction::Argument { by_value: true }
+                        };
+                        let arg = new_node(&self.pools, Node::new(CArc::new(arg), t.clone()));
+                        let (builder, arguments, _) = self.unwrap_ctx();
+                        arguments.insert(i as u32, arg);
+                        builder.local(arg)
+                    }
+                    "REFERENCE" => {
+                        let t = self.convert_type(v_type);
+                        assert_eq!(
+                            self._curr_ctx().j_tag,
+                            "CALLABLE",
+                            "Only callable can have reference variables."
+                        );
+                        let arg = Instruction::Argument { by_value: false };
+                        let arg = new_node(&self.pools, Node::new(CArc::new(arg), t.clone()));
+                        let (_builder, arguments, _) = self.unwrap_ctx();
+                        arguments.insert(i as u32, arg);
+                        arg
+                    }
+                    "BUFFER" => {
+                        let t = &self.j_types[v_type];
+                        assert_eq!(t["tag"], "BUFFER", "Only buffer can be a buffer variable.");
+                        let t = t["element"].as_usize().unwrap();
+                        let t = self.convert_type(t);
+                        let arg = new_node(
+                            &self.pools,
+                            Node::new(CArc::new(Instruction::Buffer), t.clone()),
+                        );
+                        self._curr_ctx_mut().arguments.insert(i as u32, arg);
+                        arg
+                    }
+                    "TEXTURE" => {
+                        let t = &self.j_types[v_type];
+                        assert_eq!(
+                            t["tag"], "TEXTURE",
+                            "Only texture can be a texture variable."
+                        );
+                        let dim = t["dimension"].as_u32().unwrap();
+                        let t = t["element"].as_usize().unwrap();
+                        let t = Type::vector_of(self.convert_type(t), 4);
+                        let instr = match dim {
+                            2 => Instruction::Texture2D,
+                            3 => Instruction::Texture3D,
+                            _ => panic!("Invalid texture dimension: {}", dim),
+                        };
+                        let arg = new_node(&self.pools, Node::new(CArc::new(instr), t.clone()));
+                        self._curr_ctx_mut().arguments.insert(i as u32, arg);
+                        arg
+                    }
+                    "BINDLESS_ARRAY" => {
+                        let t = &self.j_types[v_type];
+                        assert_eq!(
+                            t["tag"], "BINDLESS_ARRAY",
+                            "Only bindless array can be a bindless array variable."
+                        );
+                        let arg = new_node(
+                            &self.pools,
+                            Node::new(CArc::new(Instruction::Bindless), Type::void()),
+                        );
+                        self._curr_ctx_mut().arguments.insert(i as u32, arg);
+                        arg
+                    }
+                    "ACCEL" => {
+                        let t = &self.j_types[v_type];
+                        assert_eq!(t["tag"], "ACCEL", "Only accel can be a accel variable.");
+                        let arg = new_node(
+                            &self.pools,
+                            Node::new(CArc::new(Instruction::Accel), Type::void()),
+                        );
+                        self._curr_ctx_mut().arguments.insert(i as u32, arg);
+                        arg
+                    }
+                    "THREAD_ID" => {
+                        let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
+                        let (builder, _, _) = self.unwrap_ctx();
+                        let v = builder.call(Func::ThreadId, &[], t);
+                        builder.local(v)
+                    }
+                    "BLOCK_ID" => {
+                        let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
+                        let (builder, _, _) = self.unwrap_ctx();
+                        let v = builder.call(Func::BlockId, &[], t);
+                        builder.local(v)
+                    }
+                    "DISPATCH_ID" => {
+                        let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
+                        let (builder, _, _) = self.unwrap_ctx();
+                        let v = builder.call(Func::DispatchId, &[], t);
+                        builder.local(v)
+                    }
+                    "DISPATCH_SIZE" => {
+                        let t = Type::vector_of(<u32 as TypeOf>::type_(), 3);
+                        let (builder, _, _) = self.unwrap_ctx();
+                        let v = builder.call(Func::DispatchSize, &[], t);
+                        builder.local(v)
+                    }
+                    "KERNEL_ID" => todo!("KERNEL_ID"),
+                    "WARP_LANE_COUNT" => {
+                        let t = <u32 as TypeOf>::type_();
+                        let (builder, _, _) = self.unwrap_ctx();
+                        let v = builder.call(Func::WarpSize, &[], t);
+                        builder.local(v)
+                    }
+                    "WARP_LANE_ID" => {
+                        let t = <u32 as TypeOf>::type_();
+                        let (builder, _, _) = self.unwrap_ctx();
+                        let v = builder.call(Func::WarpLaneId, &[], t);
+                        builder.local(v)
+                    }
+                    "OBJECT_ID" => todo!("OBJECT_ID"),
+                    _ => panic!("Invalid variable tag: {}", v_tag),
+                };
+            });
     }
 
     fn _do_convert_kernel(&mut self) -> KernelModule {
@@ -285,13 +325,17 @@ impl<'a, 'b> AST2IR<'a, 'b> {
         for i in 0usize..j["functions"].len() {
             ast2ir.convert_function(i);
         }
-        let kernels: Vec<_> = ast2ir.functions.iter().filter_map(|(_, f)| {
-            if let FunctionModule::Kernel(k) = f {
-                Some(k)
-            } else {
-                None
-            }
-        }).collect();
+        let kernels: Vec<_> = ast2ir
+            .functions
+            .iter()
+            .filter_map(|(_, f)| {
+                if let FunctionModule::Kernel(k) = f {
+                    Some(k)
+                } else {
+                    None
+                }
+            })
+            .collect();
         // TODO: support converting multiple kernels
         assert_eq!(kernels.len(), 1, "There should be only one kernel function");
         kernels[0].clone()
