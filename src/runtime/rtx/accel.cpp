@@ -24,6 +24,12 @@ Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
 
 Accel::~Accel() noexcept {
+    if (!_modifications.empty()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Accel #{} destroyed with {} uncommitted modifications. "
+            "Did you forget to call build()?",
+            this->handle(), _modifications.size());
+    }
     if (*this) { device()->destroy_accel(handle()); }
 }
 
