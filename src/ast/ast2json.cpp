@@ -1,3 +1,4 @@
+#ifdef LC_AST_ENABLE_IR
 //
 // Created by Mike on 8/29/2023.
 //
@@ -952,3 +953,4 @@ public:
 }
 
 }// namespace luisa::compute
+#endif
