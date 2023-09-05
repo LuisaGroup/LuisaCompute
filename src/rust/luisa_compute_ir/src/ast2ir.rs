@@ -1,6 +1,6 @@
 use crate::context::register_type;
 use crate::ir::*;
-use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
+use crate::{CArc, CBox, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 use half::f16;
 use json::{iterators, parse as parse_json, JsonValue as JSON, Result};
@@ -13,7 +13,7 @@ struct AST2IRCtx<'a> {
     builder: Option<IrBuilder>,
     arguments: HashMap<u32, NodeRef>,
     variables: HashMap<u32, NodeRef>,
-    inside_generic_loop: bool,
+    shared: Vec<NodeRef>,
 }
 
 struct AST2IR<'a: 'b, 'b> {
@@ -40,8 +40,13 @@ impl<'a, 'b> AST2IR<'a, 'b> {
             return t.clone();
         }
         let j = &self.j_types[i];
-        let tag = j["tag"].as_str().unwrap();
+        let tag = if j.is_null() {
+            "VOID"
+        } else {
+            j["tag"].as_str().unwrap()
+        };
         let t = match tag {
+            "VOID" => Type::void(),
             "BOOL" => <bool as TypeOf>::type_(),
             "INT16" => <i16 as TypeOf>::type_(),
             "UINT16" => <u16 as TypeOf>::type_(),
@@ -147,10 +152,12 @@ impl<'a, 'b> AST2IR<'a, 'b> {
                     }
                     "SHARED" => {
                         let t = self.convert_type(v_type);
-                        new_node(
+                        let node = new_node(
                             &self.pools,
                             Node::new(CArc::new(Instruction::Shared), t.clone()),
-                        )
+                        );
+                        self._curr_ctx_mut().shared.push(node.clone());
+                        node
                     }
                     "ARGUMENT" => {
                         let t = self.convert_type(v_type);
@@ -270,15 +277,276 @@ impl<'a, 'b> AST2IR<'a, 'b> {
                     "OBJECT_ID" => todo!("OBJECT_ID"),
                     _ => panic!("Invalid variable tag: {}", v_tag),
                 };
+                self._curr_ctx_mut().variables.insert(i as u32, v);
             });
     }
 
+    fn _convert_expression(&mut self, j: &JSON, is_lval: bool) -> NodeRef {
+        if j.is_null() {
+            INVALID_REF
+        } else {
+            todo!()
+        }
+    }
+
+    fn _with_builder<F: FnOnce(&mut Self)>(&mut self, f: F) -> Pooled<BasicBlock> {
+        let builder = IrBuilder::new(self.pools.clone());
+        let old_builder = self._curr_ctx_mut().builder.replace(builder);
+        f(self);
+        let builder = self._curr_ctx_mut().builder.take().unwrap();
+        self._curr_ctx_mut().builder = old_builder;
+        builder.finish()
+    }
+
+    fn _convert_scope(&mut self, j: &JSON, ignore_top_level_break: bool) -> Pooled<BasicBlock> {
+        assert_eq!(j["tag"], "SCOPE", "Scope must be a scope.");
+        self._with_builder(|this| {
+            for s in j["statements"].members() {
+                if ignore_top_level_break && s["tag"].as_str().unwrap() == "BREAK" {
+                    break;
+                }
+                this._convert_statement(s);
+            }
+        })
+    }
+
+    fn _convert_statement(&mut self, j: &JSON) -> NodeRef {
+        let tag = j["tag"].as_str().unwrap();
+        match tag {
+            "BREAK" => {
+                let (builder, ..) = self.unwrap_ctx();
+                builder.break_()
+            }
+            "CONTINUE" => {
+                let (builder, ..) = self.unwrap_ctx();
+                builder.continue_()
+            }
+            "RETURN" => {
+                let v = self._convert_expression(&j["expression"], false);
+                let (builder, ..) = self.unwrap_ctx();
+                builder.return_(v)
+            }
+            "SCOPE" => unreachable!("Scope should be handled by _convert_scope."),
+            "IF" => {
+                let cond = self._convert_expression(&j["condition"], false);
+                let true_ = self._convert_scope(&j["true_branch"], false);
+                let false_ = self._convert_scope(&j["false_branch"], false);
+                let (builder, ..) = self.unwrap_ctx();
+                builder.if_(cond, true_, false_)
+            }
+            "LOOP" => {
+                let body = self._convert_scope(&j["body"], false);
+                let (builder, ..) = self.unwrap_ctx();
+                let cond = builder.const_(Const::Bool(true));
+                builder.loop_(body, cond)
+            }
+            "EXPR" => {
+                self._convert_expression(&j["expression"], false);
+                INVALID_REF
+            }
+            "SWITCH" => {
+                let v = self._convert_expression(&j["expression"], false);
+                let body = &j["body"];
+                assert_eq!(body["tag"], "SCOPE", "Switch body must be a scope.");
+                let cases: Vec<_> = body["statements"]
+                    .members()
+                    .filter_map(|s| {
+                        let s_tag = s["tag"].as_str().unwrap();
+                        match s_tag {
+                            "SWITCH_CASE" => Some(SwitchCase {
+                                value: s["value"].as_i32().unwrap(),
+                                block: self._convert_scope(&s["body"], true),
+                            }),
+                            "SWITCH_DEFAULT" => None,
+                            _ => panic!("Invalid switch case tag: {}", s_tag),
+                        }
+                    })
+                    .collect();
+                let default: Vec<_> = body["statements"]
+                    .members()
+                    .filter_map(|s| {
+                        let s_tag = s["tag"].as_str().unwrap();
+                        match s_tag {
+                            "SWITCH_CASE" => None,
+                            "SWITCH_DEFAULT" => Some(self._convert_scope(&s["body"], true)),
+                            _ => panic!("Invalid switch case tag: {}", s_tag),
+                        }
+                    })
+                    .collect();
+                let default = if default.is_empty() {
+                    IrBuilder::new(self.pools.clone()).finish()
+                } else {
+                    assert_eq!(default.len(), 1, "Switch can only have one default case.");
+                    default[0]
+                };
+                let (builder, ..) = self.unwrap_ctx();
+                builder.switch(v, cases.as_slice(), default)
+            }
+            "SWITCH_CASE" => {
+                unreachable!("Switch case should be handled by _convert_statement.")
+            }
+            "SWITCH_DEFAULT" => {
+                unreachable!("Switch default should be handled by _convert_statement.")
+            }
+            "ASSIGN" => {
+                let lhs = self._convert_expression(&j["lhs"], true);
+                let rhs = self._convert_expression(&j["rhs"], false);
+                let (builder, ..) = self.unwrap_ctx();
+                builder.update(lhs, rhs)
+            }
+            "FOR" => {
+                let mut cond = INVALID_REF;
+                let prepare = self._with_builder(|this| {
+                    cond = this._convert_expression(&j["condition"], false);
+                    let ty_cond = cond.type_();
+                    if !ty_cond.is_bool() {
+                        let (builder, ..) = this.unwrap_ctx();
+                        cond = builder.cast(cond, <bool as TypeOf>::type_());
+                    }
+                });
+                let body = self._convert_scope(&j["body"], false);
+                let update = self._with_builder(|this| {
+                    let var = this._convert_expression(&j["variable"], true);
+                    let step = this._convert_expression(&j["step"], false);
+                    let (builder, ..) = this.unwrap_ctx();
+                    let step = if step.type_().as_ref() != var.type_().as_ref() {
+                        builder.cast(step, var.type_().clone())
+                    } else {
+                        step
+                    };
+                    let next = builder.call(Func::Add, &[var, step], var.type_().clone());
+                    builder.update(var, next);
+                });
+                let (builder, ..) = self.unwrap_ctx();
+                builder.generic_loop(prepare, cond, body, update)
+            }
+            "COMMENT" => {
+                let comment = j["comment"].as_str().unwrap();
+                let (builder, ..) = self.unwrap_ctx();
+                builder.comment(comment.to_string().into())
+            }
+            "RAY_QUERY" => {
+                let rq = self._convert_expression(&j["query"], true);
+                let on_triangle_candidate = &j["on_triangle_candidate"];
+                assert_eq!(
+                    on_triangle_candidate["tag"], "SCOPE",
+                    "On triangle candidate must be a scope."
+                );
+                let on_triangle_candidate = self._convert_scope(on_triangle_candidate, false);
+                let on_procedural_candidate = &j["on_procedural_candidate"];
+                assert_eq!(
+                    on_procedural_candidate["tag"], "SCOPE",
+                    "On procedural candidate must be a scope."
+                );
+                let on_procedural_candidate = self._convert_scope(on_procedural_candidate, false);
+                let (builder, ..) = self.unwrap_ctx();
+                builder.ray_query(
+                    rq,
+                    on_triangle_candidate,
+                    on_procedural_candidate,
+                    Type::void(),
+                )
+            }
+            "AUTO_DIFF" => {
+                let body = self._convert_scope(&j["body"], false);
+                let (builder, ..) = self.unwrap_ctx();
+                builder.ad_scope(body)
+            }
+            _ => panic!("Invalid statement tag: {}", tag),
+        }
+    }
+
+    fn _convert_module(&mut self, kind: ModuleKind) -> Module {
+        // push builder
+        let builder = IrBuilder::new(self.pools.clone());
+        let old_builder = self._curr_ctx_mut().builder.replace(builder);
+        // convert variables
+        self.convert_variables();
+        // convert body
+        self.j["body"]["statements"].members().for_each(|s| {
+            self._convert_statement(s);
+        });
+        // pop builder
+        let builder = self._curr_ctx_mut().builder.take().unwrap();
+        self._curr_ctx_mut().builder = old_builder;
+        // finalize
+        let entry = builder.finish();
+        Module {
+            kind,
+            entry,
+            pools: self.pools.clone(),
+        }
+    }
+
     fn _do_convert_kernel(&mut self) -> KernelModule {
-        todo!()
+        let module = self._convert_module(ModuleKind::Kernel);
+        let args: Vec<_> = self._curr_ctx().j["arguments"]
+            .members()
+            .map(|a| {
+                let a = a.as_usize().unwrap();
+                self._curr_ctx().arguments.get(&(a as u32)).unwrap().clone()
+            })
+            .collect();
+        let captures: Vec<_> = self._curr_ctx().j["bound_arguments"]
+            .members()
+            .enumerate()
+            .map(|(i, a)| {
+                let tag = a["tag"].as_str().unwrap();
+                let handle = a["handle"].as_str().unwrap().parse().unwrap();
+                let node = args[i].clone();
+                let binding = match tag {
+                    "BUFFER" => Binding::Buffer(BufferBinding {
+                        handle,
+                        offset: a["offset"].as_str().unwrap().parse().unwrap(),
+                        size: a["size"].as_str().unwrap().parse().unwrap(),
+                    }),
+                    "TEXTURE" => Binding::Texture(TextureBinding {
+                        handle,
+                        level: a["level"].as_str().unwrap().parse().unwrap(),
+                    }),
+                    "BINDLESS_ARRAY" => Binding::BindlessArray(BindlessArrayBinding { handle }),
+                    "ACCEL" => Binding::Accel(AccelBinding { handle }),
+                    _ => panic!("Invalid capture tag: {}", tag),
+                };
+                Capture { node, binding }
+            })
+            .collect();
+        let shared = self._curr_ctx().shared.clone();
+        let block_size = &self.j["block_size"];
+        let block_size = [
+            block_size[0].as_u32().unwrap(),
+            block_size[1].as_u32().unwrap(),
+            block_size[2].as_u32().unwrap(),
+        ];
+        KernelModule {
+            module,
+            captures: CBoxedSlice::new(captures),
+            args: CBoxedSlice::new(args),
+            shared: CBoxedSlice::new(shared),
+            cpu_custom_ops: CBoxedSlice::new(vec![]),
+            block_size,
+            pools: self.pools.clone(),
+        }
     }
 
     fn _do_convert_callable(&mut self) -> CallableModule {
-        todo!()
+        let module = self._convert_module(ModuleKind::Function);
+        let args: Vec<_> = self._curr_ctx().j["arguments"]
+            .members()
+            .map(|a| {
+                let a = a.as_usize().unwrap();
+                self._curr_ctx().arguments.get(&(a as u32)).unwrap().clone()
+            })
+            .collect();
+        let ret_type = self.convert_type(self._curr_ctx().j["return_type"].as_usize().unwrap());
+        CallableModule {
+            module,
+            ret_type,
+            args: CBoxedSlice::new(args),
+            captures: CBoxedSlice::new(Vec::new()),
+            cpu_custom_ops: CBoxedSlice::new(Vec::new()),
+            pools: self.pools.clone(),
+        }
     }
 
     fn convert_function(&mut self, i: usize) -> FunctionModule {
@@ -293,7 +561,7 @@ impl<'a, 'b> AST2IR<'a, 'b> {
             builder: None,
             arguments: HashMap::new(),
             variables: HashMap::new(),
-            inside_generic_loop: false,
+            shared: Vec::new(),
         };
         // push current context
         let tag = ctx.j_tag;
@@ -310,7 +578,7 @@ impl<'a, 'b> AST2IR<'a, 'b> {
         module
     }
 
-    fn convert(j: JSON) -> CArc<KernelModule> {
+    fn convert(j: JSON) -> FunctionModule {
         let mut ast2ir = AST2IR {
             j: &j,
             j_functions: &j["functions"],
@@ -325,24 +593,23 @@ impl<'a, 'b> AST2IR<'a, 'b> {
         for i in 0usize..j["functions"].len() {
             ast2ir.convert_function(i);
         }
-        let kernels: Vec<_> = ast2ir
-            .functions
-            .iter()
-            .filter_map(|(_, f)| {
-                if let FunctionModule::Kernel(k) = f {
-                    Some(k)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        // TODO: support converting multiple kernels
-        assert_eq!(kernels.len(), 1, "There should be only one kernel function");
-        kernels[0].clone()
+        let entry = j["entry"].as_usize().unwrap();
+        ast2ir.functions.get(&entry).unwrap().clone()
     }
 }
 
 pub fn convert_ast_to_ir_kernel(data: String) -> CArc<KernelModule> {
     let j: JSON = parse_json(data.as_str()).unwrap();
-    AST2IR::convert(j)
+    match AST2IR::convert(j) {
+        FunctionModule::Kernel(k) => k,
+        _ => panic!("Expected kernel module."),
+    }
+}
+
+pub fn convert_ast_to_ir_callable(data: String) -> CArc<CallableModule> {
+    let j: JSON = parse_json(data.as_str()).unwrap();
+    match AST2IR::convert(j) {
+        FunctionModule::Callable(c) => c,
+        _ => panic!("Expected callable module."),
+    }
 }
