@@ -527,6 +527,7 @@ impl AccelImpl {
             let t_far = &mut *(args.ray as *mut f32).add(8);
             debug_assert!(prim_id != u32::MAX && geom_id != u32::MAX);
             let rq = &mut *ctx.rq;
+            rq.ray.tmax = *t_far;
             rq.cur_triangle_hit = defs::TriangleHit {
                 prim: prim_id,
                 inst: inst_id,
@@ -565,7 +566,7 @@ impl AccelImpl {
                 prim: args.primID,
                 inst: cur_inst_id,
             };
-
+            rq.ray.tmax = *t_far;
             rq.cur_commited = false;
             rq.terminated = false;
             (ctx.on_procedural_hit)(rq);
@@ -573,7 +574,7 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near {
+                if rq.cur_committed_ray_t >= *t_far || rq.cur_committed_ray_t < t_near {
                     *args.valid = 0;
                     return;
                 }
@@ -600,6 +601,7 @@ impl AccelImpl {
             let t_far = &mut *(args.rayhit as *mut f32).add(8);
             let cur_inst_id = (*args.context).instID[0];
             let rq = &mut *ctx.rq;
+            rq.ray.tmax = *t_far;
             rq.cur_procedural_hit = defs::ProceduralHit {
                 prim: args.primID,
                 inst: cur_inst_id,
@@ -612,7 +614,7 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near {
+                if rq.cur_committed_ray_t >= *t_far || rq.cur_committed_ray_t < t_near {
                     *args.valid = 0;
                     return;
                 }
