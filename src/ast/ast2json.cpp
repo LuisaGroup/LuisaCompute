@@ -1,4 +1,3 @@
-#ifdef LC_AST_ENABLE_IR
 //
 // Created by Mike on 8/29/2023.
 //
@@ -756,7 +755,38 @@ private:
             ctx.j["bound_arguments"] = [&] {
                 JSON::Array a;
                 a.reserve(f.bound_arguments().size());
-                // TODO
+                for (auto b : f.bound_arguments()) {
+                    a.emplace_back(luisa::visit(
+                        [&a]<typename T>(T b) noexcept -> JSON {
+                            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                                return JSON::Object{
+                                    {"tag", "BUFFER"},
+                                    {"handle", luisa::format("{}", b.handle)},
+                                    {"offset", luisa::format("{}", b.offset)},
+                                    {"size", luisa::format("{}", b.size)},
+                                };
+                            } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                                return JSON::Object{
+                                    {"tag", "TEXTURE"},
+                                    {"handle", luisa::format("{}", b.handle)},
+                                    {"level", luisa::format("{}", b.level)},
+                                };
+                            } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                                return JSON::Object{
+                                    {"tag", "BINDLESS_ARRAY"},
+                                    {"handle", luisa::format("{}", b.handle)},
+                                };
+                            } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                                return JSON::Object{
+                                    {"tag", "ACCEL"},
+                                    {"handle", luisa::format("{}", b.handle)},
+                                };
+                            } else {
+                                LUISA_ERROR_WITH_LOCATION("Invalid bound argument type.");
+                            }
+                        },
+                        b));
+                }
                 return a;
             }();
             ctx.j["block_size"] = JSON::Array{
@@ -910,7 +940,24 @@ private:
         j["body"] = _convert_stmt(stmt->body());
     }
     void _convert_switch_case_stmt(JSON &j, const SwitchCaseStmt *stmt) noexcept {
-        j["expression"] = _convert_expr(stmt->expression());
+        LUISA_ASSERT(stmt->expression()->tag() == Expression::Tag::LITERAL,
+                     "Switch case expression must be a literal.");
+        auto literal = static_cast<const LiteralExpr *>(stmt->expression());
+        j["value"] = luisa::visit(
+            []<typename T>(T v) noexcept -> int32_t {
+                if constexpr (std::is_integral_v<T>) {
+                    auto vv = static_cast<int32_t>(v);
+                    LUISA_ASSERT(static_cast<T>(vv) == v,
+                                 "Switch case expression must "
+                                 "be an int32 literal (got {}).",
+                                 Type::of<T>()->description());
+                    return vv;
+                } else {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Switch case expression must be an integer literal.");
+                }
+            },
+            literal->value());
         j["body"] = _convert_stmt(stmt->body());
     }
     void _convert_switch_default_stmt(JSON &j, const SwitchDefaultStmt *stmt) noexcept {
@@ -941,10 +988,12 @@ private:
 public:
     [[nodiscard]] static JSON convert(Function f) noexcept {
         AST2JSON converter;
-        static_cast<void>(converter._function_index(f));
+        auto entry = converter._function_index(f);
         LUISA_ASSERT(converter._func_ctx == nullptr,
                      "Function context stack corrupted.");
-        return std::move(converter._root);
+        auto j = std::move(converter._root);
+        j["entry"] = entry;
+        return j;
     }
 };
 
@@ -953,4 +1002,3 @@ public:
 }
 
 }// namespace luisa::compute
-#endif
