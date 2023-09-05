@@ -927,7 +927,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::ASSERT:
         case CallOp::ASSUME:
+            return;
         case CallOp::UNREACHABLE: {
+            str << "("sv;
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ")0"sv;
             return;
         }
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
