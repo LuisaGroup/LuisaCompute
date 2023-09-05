@@ -158,7 +158,10 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         pdf_bsdf = cos_wi * (1 / 3.1415926)
 
         # rr
-        l = dot(float3(0.212671, 0.715160, 0.072169), beta)
+        if enable_aces:
+            l = dot(float3(1. / 3.), beta)
+        else:
+            l = dot(float3(0.212671, 0.715160, 0.072169), beta)
         if l == 0.0:
             break
         q = max(l, 0.05)
