@@ -1015,10 +1015,10 @@ fn cpu_features() -> Vec<String> {
 fn cpu_features() -> Vec<String> {
     let mut features = vec![];
     if is_x86_feature_detected!("aes") { features.push("aes"); }
-    if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
-    if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
-    if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
-    if is_x86_feature_detected!("tsc") { features.push("tsc"); }
+    // if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
+    // if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
+    // if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
+    // if is_x86_feature_detected!("tsc") { features.push("tsc"); }
     if is_x86_feature_detected!("mmx") { features.push("mmx"); }
     if is_x86_feature_detected!("sse") { features.push("sse"); }
     if is_x86_feature_detected!("sse2") { features.push("sse2"); }
@@ -1050,9 +1050,9 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("avx512vp2intersect") { features.push("avx512vp2intersect"); }
     if is_x86_feature_detected!("f16c") { features.push("f16c"); }
     if is_x86_feature_detected!("fma") { features.push("fma"); }
-    if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
+    // if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
     if is_x86_feature_detected!("bmi2") { features.push("bmi2"); }
-    if is_x86_feature_detected!("abm") { features.push("abm"); }
+    // if is_x86_feature_detected!("abm") { features.push("abm"); }
     if is_x86_feature_detected!("lzcnt") { features.push("lzcnt"); }
     if is_x86_feature_detected!("tbm") { features.push("tbm"); }
     if is_x86_feature_detected!("popcnt") { features.push("popcnt"); }
@@ -1061,7 +1061,7 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("xsaveopt") { features.push("xsaveopt"); }
     if is_x86_feature_detected!("xsaves") { features.push("xsaves"); }
     if is_x86_feature_detected!("xsavec") { features.push("xsavec"); }
-    if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
+    // if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
     if is_x86_feature_detected!("adx") { features.push("adx"); }
     if is_x86_feature_detected!("rtm") { features.push("rtm"); }
     // this breaks msvc shipped with vs2019
