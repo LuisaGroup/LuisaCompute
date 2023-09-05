@@ -88,12 +88,8 @@ impl GeometryImpl {
 
             sys::rtcSetGeometryUserData(geometry, aabb_buffer.data as *mut c_void);
             sys::rtcSetGeometryUserPrimitiveCount(geometry, cmd.aabb_count as u32);
-            sys::rtcSetGeometryBoundsFunction(
-                geometry,
-                Some(bounds_func),
-                null_mut(),
-            );
-          
+            sys::rtcSetGeometryBoundsFunction(geometry, Some(bounds_func), null_mut());
+
             check_error!(device);
             sys::rtcCommitGeometry(geometry);
             check_error!(device);
@@ -186,6 +182,7 @@ impl Drop for GeometryImpl {
         }
     }
 }
+#[derive(Clone, Copy)]
 struct Instance {
     affine: [f32; 12],
     dirty: bool,
@@ -212,6 +209,7 @@ impl Default for Instance {
 pub struct AccelImpl {
     pub(crate) handle: sys::RTCScene,
     instances: Vec<RwLock<Instance>>,
+    instances_fast: Vec<Instance>,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -229,6 +227,7 @@ impl AccelImpl {
         Self {
             handle,
             instances: Vec::new(),
+            instances_fast: Vec::new(),
         }
     }
     pub unsafe fn update(
@@ -337,6 +336,13 @@ impl AccelImpl {
         }
 
         sys::rtcCommitScene(self.handle);
+        self.instances_fast.clear();
+        for instance in &self.instances {
+            let instance = instance.read();
+            if instance.valid() {
+                self.instances_fast.push(*instance);
+            }
+        }
     }
     #[inline]
     pub unsafe fn trace_closest(&self, ray: &defs::Ray, mask: u8) -> defs::Hit {
@@ -535,7 +541,7 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                
+
                 rq.hit.set_from_triangle_hit(rq.cur_triangle_hit);
             }
             if rq.terminated {
@@ -550,7 +556,7 @@ impl AccelImpl {
             let ctx = &mut *(args.context as *mut RayQueryContext);
             debug_assert!(args.N == 1);
 
-            let t_near =*(args.ray as *mut f32).add(3);
+            let t_near = *(args.ray as *mut f32).add(3);
             let t_far = &mut *(args.ray as *mut f32).add(8);
             let cur_inst_id = (*args.context).instID[0];
 
@@ -567,7 +573,7 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near{
+                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near {
                     *args.valid = 0;
                     return;
                 }
@@ -578,7 +584,6 @@ impl AccelImpl {
             if rq.terminated {
                 *t_far = f32::NEG_INFINITY;
             }
-
         }
         unsafe extern "C" fn intersect_fn(args: *const sys::RTCIntersectFunctionNArguments) {
             let args = &*args;
@@ -591,7 +596,7 @@ impl AccelImpl {
             let prim_id = &mut *hit.add(5);
             // let geom_id = &mut *hit.add(6);
             let inst_id = &mut *hit.add(7);
-            let t_near =*(args.rayhit as *mut f32).add(3);
+            let t_near = *(args.rayhit as *mut f32).add(3);
             let t_far = &mut *(args.rayhit as *mut f32).add(8);
             let cur_inst_id = (*args.context).instID[0];
             let rq = &mut *ctx.rq;
@@ -607,7 +612,7 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near{
+                if rq.cur_committed_ray_t >= *t_far && rq.cur_committed_ray_t < t_near {
                     *args.valid = 0;
                     return;
                 }
