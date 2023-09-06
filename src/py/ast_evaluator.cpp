@@ -1,6 +1,5 @@
-#ifdef LC_AST_ENABLE_PY
 #include <luisa/ast/function.h>
-#include <luisa/ast/ast_evaluator.h>
+#include "ast_evaluator.h"
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
 #include <algorithm>
@@ -1673,4 +1672,3 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
 }
 
 }// namespace luisa::compute
-#endif

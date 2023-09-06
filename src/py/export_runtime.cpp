@@ -3,7 +3,7 @@
 #include <pybind11/stl.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/raster/raster_shader.h>
-#include <luisa/ast/ast_evaluator.h>
+#include "ast_evaluator.h"
 #include <luisa/core/binary_file_stream.h>
 #include <luisa/vstl/common.h>
 #include <luisa/ast/function.h>
