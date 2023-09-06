@@ -1,4 +1,5 @@
 set(LUISA_PYTHON_SOURCES
+        ast_evaluator.cpp ast_evaluator.h
         export_commands.cpp
         export_expr.cpp
         export_gui.cpp

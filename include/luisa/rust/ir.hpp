@@ -390,7 +390,7 @@ struct Func {
         WarpReadLaneAt,
         WarpReadFirstLane,
         SynchronizeBlock,
-        /// (buffer/smem, indices...): do not appear in the final IR, but will be lowered to a Atomic* instruction
+        /// (buffer/smem, indices...): do not appear in the final IR, but will be lowered to an Atomic* instruction
         AtomicRef,
         /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
         AtomicExchange,

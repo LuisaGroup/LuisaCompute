@@ -663,6 +663,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Transpose: return builtin_func(1, CallOp::TRANSPOSE);
         case ir::Func::Tag::Inverse: return builtin_func(1, CallOp::INVERSE);
         case ir::Func::Tag::SynchronizeBlock: return builtin_func(0, CallOp::SYNCHRONIZE_BLOCK);
+        case ir::Func::Tag::AtomicRef: LUISA_ERROR_WITH_LOCATION("AtomicRef should have been lowered.");
         case ir::Func::Tag::AtomicExchange: return builtin_func(args.size(), CallOp::ATOMIC_EXCHANGE);
         case ir::Func::Tag::AtomicCompareExchange: return builtin_func(args.size(), CallOp::ATOMIC_COMPARE_EXCHANGE);
         case ir::Func::Tag::AtomicFetchAdd: return builtin_func(args.size(), CallOp::ATOMIC_FETCH_ADD);
