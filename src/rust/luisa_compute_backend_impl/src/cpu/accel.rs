@@ -574,10 +574,16 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                if rq.cur_committed_ray_t >= *t_far || rq.cur_committed_ray_t < t_near {
-                    *args.valid = 0;
-                    return;
+                #[cfg(debug_assertions)]
+                {
+                    if rq.cur_committed_ray_t >= *t_far || rq.cur_committed_ray_t < t_near {
+                        panic!(
+                            "invalid ray t. {} {} {}",
+                            rq.cur_committed_ray_t, *t_far, t_near
+                        );
+                    }
                 }
+
                 rq.hit
                     .set_from_procedural_hit(rq.cur_procedural_hit, rq.cur_committed_ray_t);
                 *t_far = rq.hit.committed_ray_t;
@@ -614,9 +620,16 @@ impl AccelImpl {
                 *args.valid = 0;
             } else {
                 // eprintln!("accepting hit");
-                if rq.cur_committed_ray_t >= *t_far || rq.cur_committed_ray_t < t_near {
-                    *args.valid = 0;
-                    return;
+                #[cfg(debug_assertions)]
+                {
+                    if rq.cur_committed_ray_t >= *t_far || rq.cur_committed_ray_t < t_near {
+                        panic_abort!(
+                            "invalid ray t. {} {} {}",
+                            rq.cur_committed_ray_t,
+                            t_near,
+                            *t_far
+                        );
+                    }
                 }
                 rq.hit
                     .set_from_procedural_hit(rq.cur_procedural_hit, rq.cur_committed_ray_t);

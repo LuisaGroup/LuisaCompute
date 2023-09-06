@@ -144,7 +144,57 @@ void IR2AST::_convert_instr_update(const ir::Node *node) noexcept {
 namespace detail {
 
 [[nodiscard]] inline const Expression *
-ir2ast_convert_ray(FunctionBuilder *b, const Expression *expr) noexcept {
+ir2ast_convert_ray_ast_type_2_ir_type(FunctionBuilder *b, const Expression *expr) noexcept {
+    auto ft = Type::of<float>();
+    auto vt = Type::structure(4u, ft, ft, ft);
+    auto rt = Type::structure(16, vt, ft, vt, ft);
+    // if the types are the same (i.e. Ray), no need to convert
+    if (expr->type() == rt) { return expr; }
+    LUISA_ASSERT(expr->type() == Type::of<Ray>(),
+                 "Invalid ray type: {}.",
+                 expr->type()->description());
+    // if the ray is not a local variable, make a local copy first
+    if (expr->tag() != Expression::Tag::REF) {
+        auto ref = b->local(expr->type());
+        b->assign(ref, expr);
+        expr = ref;
+    }
+    auto ut = Type::of<uint>();
+    auto at = Type::array(ft, 3u);
+
+
+    auto u0 = b->literal(ut, 0u);
+    auto u1 = b->literal(ut, 1u);
+    auto u2 = b->literal(ut, 2u);
+    auto u3 = b->literal(ut, 3u);
+    // @Mike-Leo-Smith: check pls
+    // decompose ray
+    auto o = b->member(at, expr, 0u);
+    auto ox = b->access(ft, o, u0);
+    auto oy = b->access(ft, o, u1);
+    auto oz = b->access(ft, o, u2);
+    auto tmin = b->member(ft, expr, 1u);
+    auto d = b->member(at, expr, 2u);
+    auto dx = b->access(ft, d, u0);
+    auto dy = b->access(ft, d, u1);
+    auto dz = b->access(ft, d, u2);
+    auto tmax = b->member(ft, expr, 3u);
+    auto ray = b->local(rt);
+    auto o_ = b->member(vt, ray, 0u);
+    auto d_ = b->member(vt, ray, 2u);
+    
+    b->assign(b->member(ft, o_, 0), ox);
+    b->assign(b->member(ft, o_, 1), oy);
+    b->assign(b->member(ft, o_, 2), oz);
+    b->assign(b->member(ft, ray, 1), tmin);
+    b->assign(b->member(ft, d_, 0), dx);
+    b->assign(b->member(ft, d_, 1), dy);
+    b->assign(b->member(ft, d_, 2), dz);
+    b->assign(b->member(ft, ray, 3), tmax);
+    return ray;
+}
+[[nodiscard]] inline const Expression *
+ir2ast_convert_ray_ir_type_2_ast_type(FunctionBuilder *b, const Expression *expr) noexcept {
     // if the types are the same (i.e. Ray), no need to convert
     if (expr->type() == Type::of<Ray>()) { return expr; }
     auto ft = Type::of<float>();
@@ -273,7 +323,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             call_op == CallOp::RAY_TRACING_TRACE_ANY ||
             call_op == CallOp::RAY_TRACING_QUERY_ALL ||
             call_op == CallOp::RAY_TRACING_QUERY_ANY) {
-            converted_args[1] = detail::ir2ast_convert_ray(
+            converted_args[1] = detail::ir2ast_convert_ray_ir_type_2_ast_type(
                 _ctx->function_builder.get(),
                 converted_args[1]);
         }
@@ -290,6 +340,10 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             auto call = _ctx->function_builder->call(type, call_op, converted_args);
             _ctx->function_builder->assign(local, call);
             return local;
+        }
+        if (call_op == CallOp::RAY_QUERY_WORLD_SPACE_RAY) {
+            auto ray = _ctx->function_builder->call(Type::of<Ray>(), call_op, converted_args);
+            return detail::ir2ast_convert_ray_ast_type_2_ir_type(_ctx->function_builder.get(), ray);
         }
         if (type == nullptr) {
             _ctx->function_builder->call(
