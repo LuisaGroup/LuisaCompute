@@ -16,10 +16,6 @@ set(LUISA_COMPUTE_AST_SOURCES
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_EXPORT_DLL=1)
 
-if (SKBUILD)
-    target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_ENABLE_PY=1)
-endif ()
-
 if (LUISA_COMPUTE_ENABLE_RUST)
     target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_ENABLE_IR=1)
 endif()

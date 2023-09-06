@@ -1,7 +1,6 @@
 #pragma once
 
 #include <luisa/ast/ast2json.h>
-#include <luisa/ast/ast_evaluator.h>
 #include <luisa/ast/atomic_ref_node.h>
 #include <luisa/ast/callable_library.h>
 #include <luisa/ast/constant_data.h>

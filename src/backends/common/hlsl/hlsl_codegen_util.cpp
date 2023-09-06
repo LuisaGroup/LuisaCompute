@@ -699,7 +699,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_Smptx";
             break;
         case CallOp::TEXTURE_WRITE:
-            LUISA_ASSERT(!opt->isRaster, "texture-write can only be used in compute shader");
             str << "_Writetx";
             break;
         case CallOp::MAKE_LONG2:
@@ -775,7 +774,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_WRITE: {
-            LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
             str << "_bfwrite"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {

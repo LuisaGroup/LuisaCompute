@@ -24,7 +24,7 @@ using make_optional_literal_value_t = typename make_optional_literal_value<T>::t
 
 }// namespace detail
 
-class LC_AST_API ASTEvaluator {
+class ASTEvaluator {
 
 public:
     using Result = detail::make_optional_literal_value_t<basic_types>;
