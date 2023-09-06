@@ -21,7 +21,7 @@ struct v2p {
     float2 uv;
     float color;
 };
-LUISA_STRUCT(v2p, pos, uv, color){};
+LUISA_STRUCT(v2p, pos, uv, color) {};
 struct Vertex {
     std::array<float, 3> pos;
     std::array<float, 2> uv;
@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     RasterStageKernel vert = [&](Var<AppData> var, Float time) {
         Var<v2p> o;
         o.pos = make_float4(var.position, 1.f);
-        $if(var.vertex_id >= 3) {
+        $if (var.vertex_id >= 3) {
             o.pos.y += sin(time) * 0.1f;
             o.color = 0.5f;
         }
@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
             // clear depth buffer
             << depth_buffer.clear(1.f)
             << clear_shader(out_img).dispatch(width, height)
-            << shader(time, time * 5).draw(std::move(meshes), Viewport{}, state, &depth_buffer, out_img)
+            << shader(time, time * 5).draw(std::move(meshes), Viewport{0.f, 0.f, float(width), float(height)}, state, &depth_buffer, out_img)
             << swap_chain.present(out_img);
         window.poll_events();
     }

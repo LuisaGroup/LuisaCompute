@@ -100,6 +100,11 @@ pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
 return pl;
 }
+template<typename Q>
+void _CommitProcedural(Q q,float dist){
+if(dist<q.CommittedRayT())
+q.CommitProceduralPrimitiveHit(dist);
+}
 template<typename T>
 bool _TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
