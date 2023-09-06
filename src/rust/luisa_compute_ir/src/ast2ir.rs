@@ -283,6 +283,7 @@ impl<'a, 'b> AST2IR<'a, 'b> {
 
     fn _convert_expression(&mut self, j: &JSON, is_lval: bool) -> NodeRef {
         if j.is_null() {
+            assert!(!is_lval, "L-value cannot be null.");
             INVALID_REF
         } else {
             todo!()
@@ -399,6 +400,10 @@ impl<'a, 'b> AST2IR<'a, 'b> {
                 let prepare = self._with_builder(|this| {
                     cond = this._convert_expression(&j["condition"], false);
                     let ty_cond = cond.type_();
+                    assert!(
+                        ty_cond.is_primitive(),
+                        "Condition of the FOR statement must be a primitive."
+                    );
                     if !ty_cond.is_bool() {
                         let (builder, ..) = this.unwrap_ctx();
                         cond = builder.cast(cond, <bool as TypeOf>::type_());
