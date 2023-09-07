@@ -2197,16 +2197,12 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
-    pub fn store(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
-        assert!(var.is_lvalue());
-        let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
-        let node = new_node(&self.pools, node);
-        self.append(node);
-        node
-    }
     pub fn extract(&mut self, node: NodeRef, index: usize, ret_type: CArc<Type>) -> NodeRef {
         let c = self.const_(Const::Int32(index as i32));
         self.call(Func::ExtractElement, &[node, c], ret_type)
+    }
+    pub fn extract_dynamic(&mut self, node: NodeRef, index: NodeRef, ret_type: CArc<Type>) -> NodeRef {
+        self.call(Func::ExtractElement, &[node, index], ret_type)
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
         let node = Node::new(
@@ -2222,6 +2218,9 @@ impl IrBuilder {
     }
     pub fn bitcast(&mut self, node: NodeRef, t: CArc<Type>) -> NodeRef {
         self.call(Func::Bitcast, &[node], t)
+    }
+    pub fn gep(&mut self, this: NodeRef, indices: &[NodeRef], t: CArc<Type>) -> NodeRef {
+        self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
         match var.get().instruction.as_ref() {

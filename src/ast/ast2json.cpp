@@ -842,7 +842,7 @@ private:
         if (expr->is_swizzle()) {
             luisa::string swizzle;
             for (auto i = 0u; i < expr->swizzle_size(); i++) {
-                swizzle.push_back("0123"[expr->swizzle_index(i)]);
+                swizzle.push_back("xyzw"[expr->swizzle_index(i)]);
             }
             j["swizzle"] = std::move(swizzle);
         } else {

@@ -78,9 +78,7 @@ struct TypePromotion {
  */
 enum struct CallOp : uint32_t {
 
-    CALL_OP_BEGIN = 0u,
-
-    CUSTOM = CALL_OP_BEGIN,
+    CUSTOM,
     EXTERNAL,
 
     ALL,// (boolN)
@@ -330,11 +328,9 @@ enum struct CallOp : uint32_t {
 
     // SER
     SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
-
-    CALL_OP_END = SHADER_EXECUTION_REORDER
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::CALL_OP_END) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::SHADER_EXECUTION_REORDER) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
     auto op_value = luisa::to_underlying(op);
@@ -442,4 +438,4 @@ public:
 
 }// namespace luisa::compute
 
-LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CALL_OP_BEGIN, CALL_OP_END)
+LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, SHADER_EXECUTION_REORDER)

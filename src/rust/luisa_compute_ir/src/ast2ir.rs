@@ -1,15 +1,19 @@
 use crate::context::register_type;
+use crate::ir::Func::Div;
 use crate::ir::*;
 use crate::{CArc, CBox, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 use half::f16;
 use json::{iterators, parse as parse_json, JsonValue as JSON, Result};
+use std::cmp::max;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 struct AST2IRCtx<'a> {
     j: &'a JSON,
     j_tag: &'a str,
     j_variables: &'a JSON,
+    ret_type: CArc<Type>,
     builder: Option<IrBuilder>,
     arguments: HashMap<u32, NodeRef>,
     variables: HashMap<u32, NodeRef>,
@@ -34,7 +38,7 @@ enum FunctionModule {
     Callable(CArc<CallableModule>),
 }
 
-impl<'a, 'b> AST2IR<'a, 'b> {
+impl<'a: 'b, 'b> AST2IR<'a, 'b> {
     fn convert_type(&mut self, i: usize) -> CArc<Type> {
         if let Some(t) = self.types.get(&i) {
             return t.clone();
@@ -281,12 +285,550 @@ impl<'a, 'b> AST2IR<'a, 'b> {
             });
     }
 
+    fn _cast(builder: &mut IrBuilder, dst: &CArc<Type>, node: NodeRef) -> NodeRef {
+        if dst.is_void() {
+            INVALID_REF
+        } else if dst.as_ref() == node.type_().as_ref() {
+            node
+        } else {
+            let src = node.type_();
+            // scalar to scalar
+            match (src.as_ref(), dst.as_ref()) {
+                (Type::Primitive(_), Type::Primitive(_)) => builder.cast(node, dst.clone()),
+                (Type::Vector(vsrc), Type::Vector(vdst)) => {
+                    assert_eq!(vsrc.length, vdst.length);
+                    builder.cast(node, dst.clone())
+                }
+                (Type::Primitive(_), Type::Vector(_)) => {
+                    let node = Self::_cast(builder, &dst.element(), node);
+                    builder.call(Func::Vec, &[node], dst.clone())
+                }
+                _ => panic!("Invalid cast."),
+            }
+        }
+    }
+
+    fn _convert_unary_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let operand = self._convert_expression(&j["operand"], false);
+        let op = j["op"].as_str().unwrap();
+        let (builder, ..) = self.unwrap_ctx();
+        match op {
+            "PLUS" => {
+                assert_eq!(
+                    operand.type_().as_ref(),
+                    t.as_ref(),
+                    "Mismatched types in unary plus operator."
+                );
+                operand
+            }
+            "MINUS" => {
+                assert_eq!(
+                    operand.type_().as_ref(),
+                    t.as_ref(),
+                    "Mismatched types in unary minus operator."
+                );
+                builder.call(Func::Neg, &[operand], t.clone())
+            }
+            "NOT" => {
+                assert!(t.is_bool(), "Invalid result type for unary not operator.");
+                let operand = Self::_cast(builder, &t, operand);
+                builder.call(Func::Not, &[operand], t.clone())
+            }
+            "BIT_NOT" => {
+                assert_eq!(
+                    operand.type_().as_ref(),
+                    t.as_ref(),
+                    "Mismatched types in unary bitwise not operator."
+                );
+                assert!(
+                    t.is_int(),
+                    "Only integral operands are allowed in unary bitwise not operator."
+                );
+                builder.call(Func::BitNot, &[operand], t.clone())
+            }
+            _ => panic!("Invalid unary operator: {}.", op),
+        }
+    }
+
+    fn _promote_binary_op_types(
+        op: &str,
+        t_lhs: &CArc<Type>,
+        t_rhs: &CArc<Type>,
+    ) -> (
+        CArc<Type>, // dest lhs type
+        CArc<Type>, // dest rhs type
+        CArc<Type>, // result type
+    ) {
+        assert!(
+            t_lhs.is_primitive() || t_lhs.is_vector() || t_lhs.is_matrix(),
+            "Invalid LHS operand type for binary operator."
+        );
+        assert!(
+            t_rhs.is_primitive() || t_rhs.is_vector() || t_rhs.is_matrix(),
+            "Invalid RHS operand type for binary operator."
+        );
+        let dim_lhs = t_lhs.dimension();
+        let dim_rhs = t_rhs.dimension();
+        assert!(
+            dim_lhs == dim_rhs || dim_lhs == 1 || dim_rhs == 1,
+            "Incompatible dimensions in binary operator."
+        );
+        let dim = max(dim_lhs, dim_rhs) as u32;
+
+        // logical operator, convert both operands to boolean
+        if op == "AND" || op == "OR" {
+            assert!(
+                (t_lhs.is_primitive() || t_lhs.is_vector())
+                    && (t_rhs.is_primitive() || t_rhs.is_vector()),
+                "Logical operators must have scalar or vector operands."
+            );
+            let b = if dim == 1 {
+                <bool as TypeOf>::type_()
+            } else {
+                Type::vector(Primitive::Bool, dim)
+            };
+            return (b.clone(), b.clone(), b);
+        }
+
+        // scalar op scalar
+        if t_lhs.is_primitive() && t_rhs.is_primitive() {
+            let score_scalar = |t: &CArc<Type>| match t.as_ref() {
+                Type::Primitive(s) => match s {
+                    Primitive::Bool => 0,
+                    Primitive::Int16 => 1,
+                    Primitive::Uint16 => 2,
+                    Primitive::Int32 => 3,
+                    Primitive::Uint32 => 4,
+                    Primitive::Int64 => 5,
+                    Primitive::Uint64 => 6,
+                    Primitive::Float16 => 7,
+                    Primitive::Float32 => 8,
+                    Primitive::Float64 => 9,
+                },
+                _ => unreachable!("Invalid scalar type."),
+            };
+            let t = if score_scalar(t_lhs) > score_scalar(t_rhs) {
+                t_lhs.clone()
+            } else {
+                t_rhs.clone()
+            };
+            let ret = match op {
+                "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL" | "EQUAL" | "NOT_EQUAL" => {
+                    <bool as TypeOf>::type_()
+                }
+                _ => t.clone(),
+            };
+            return (t.clone(), t, ret);
+        }
+
+        // scalar op vector | vector op scalar | vector op vector
+        if (t_lhs.is_primitive() && t_rhs.is_vector())
+            || (t_lhs.is_vector() && t_rhs.is_primitive())
+            || (t_lhs.is_vector() && t_rhs.is_vector())
+        {
+            let (prom_lhs, prom_rhs, prom_ret) =
+                Self::_promote_binary_op_types(&op, &t_lhs.element(), &t_rhs.element());
+            assert!(prom_lhs.is_primitive() && prom_rhs.is_primitive() && prom_ret.is_primitive());
+            return (
+                Type::vector_of(prom_lhs, dim),
+                Type::vector_of(prom_rhs, dim),
+                Type::vector_of(prom_ret, dim),
+            );
+        }
+
+        // matrix op matrix
+        if t_lhs.is_matrix() && t_rhs.is_matrix() {
+            assert_eq!(t_lhs.as_ref(), t_rhs.as_ref());
+            return (t_lhs.clone(), t_lhs.clone(), t_lhs.clone());
+        }
+
+        // matrix op scalar
+        if t_lhs.is_matrix() && t_rhs.is_primitive() {
+            return (t_lhs.clone(), t_lhs.element(), t_lhs.clone());
+        }
+
+        // scalar op matrix
+        if t_lhs.is_primitive() && t_rhs.is_matrix() {
+            return (t_rhs.element(), t_rhs.clone(), t_rhs.clone());
+        }
+
+        // otherwise, should be matrix op vector
+        assert!(t_lhs.is_matrix() && t_rhs.is_vector());
+        assert_eq!(t_lhs.element().as_ref(), t_rhs.element().as_ref());
+        (t_lhs.clone(), t_rhs.clone(), t_rhs.clone())
+    }
+
+    fn _convert_binary_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let lhs = self._convert_expression(&j["lhs"], false);
+        let rhs = self._convert_expression(&j["rhs"], false);
+        let op = j["op"].as_str().unwrap();
+        let (t_lhs, t_rhs, t_ret) = Self::_promote_binary_op_types(op, lhs.type_(), rhs.type_());
+        assert_eq!(
+            t_ret.as_ref(),
+            t.as_ref(),
+            "Mismatched result types in binary operator."
+        );
+        let (builder, ..) = self.unwrap_ctx();
+        let lhs = Self::_cast(builder, &t_lhs, lhs);
+        let rhs = Self::_cast(builder, &t_rhs, rhs);
+        // matrix-scalar operators requires special handling
+        let mut scalar_to_mat = |scalar: NodeRef, t_mat: &CArc<Type>| {
+            let t_scalar = scalar.type_();
+            let scalar = if op == "DIV" {
+                let one = builder.const_(Const::One(t_scalar.clone()));
+                builder.call(Func::Div, &[one, scalar], t_scalar.clone())
+            } else {
+                scalar
+            };
+            builder.call(Func::Mat, &[scalar], t_mat.clone())
+        };
+        let (is_mat_scalar, lhs, rhs) = if t_lhs.is_primitive() && t_rhs.is_matrix() {
+            // scalar op matrix
+            (true, scalar_to_mat(lhs, &t_rhs), rhs)
+        } else if t_lhs.is_matrix() && t_rhs.is_primitive() {
+            // matrix op scalar
+            (true, lhs, scalar_to_mat(rhs, &t_lhs))
+        } else {
+            (false, lhs, rhs)
+        };
+        // build the expression
+        let op = match op {
+            "ADD" => Func::Add,
+            "SUB" => Func::Sub,
+            "MUL" => {
+                if is_mat_scalar {
+                    Func::MatCompMul
+                } else {
+                    Func::Mul
+                }
+            }
+            "DIV" => {
+                if is_mat_scalar {
+                    Func::MatCompMul
+                } else {
+                    Func::Div
+                }
+            }
+            "MOD" => Func::Rem,
+            "BIT_AND" | "AND" => Func::BitAnd,
+            "BIT_OR" | "OR" => Func::BitOr,
+            "BIT_XOR" => Func::BitXor,
+            "SHL" => Func::Shl,
+            "SHR" => Func::Shr,
+            "LESS" => Func::Lt,
+            "GREATER" => Func::Gt,
+            "LESS_EQUAL" => Func::Le,
+            "GREATER_EQUAL" => Func::Ge,
+            "EQUAL" => Func::Eq,
+            "NOT_EQUAL" => Func::Ne,
+            _ => panic!("Invalid binary operator: {}.", op),
+        };
+        builder.call(op, &[lhs, rhs], t_ret.clone())
+    }
+
+    fn _convert_member_expr(&mut self, t: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
+        let v = self._convert_expression(&j["self"], is_lval);
+        let t_v = v.type_();
+        let (builder, ..) = self.unwrap_ctx();
+        if let Some(swizzle) = j["swizzle"].as_str() {
+            assert!(t_v.is_vector());
+            assert!(
+                swizzle.len() >= 1 && swizzle.len() <= 4,
+                "Invalid swizzle length."
+            );
+            let mut indices = Vec::with_capacity(swizzle.len());
+            for c in swizzle.chars() {
+                let i = match c {
+                    'x' | 'r' | '0' => 0,
+                    'y' | 'g' | '1' => 1,
+                    'z' | 'b' | '2' => 2,
+                    'w' | 'a' | '3' => 3,
+                    _ => panic!("Invalid swizzle character: {}.", c),
+                };
+                assert!(i < t_v.dimension(), "Invalid swizzle index.");
+                indices.push(i as u32);
+            }
+            if indices.len() == 1 {
+                assert_eq!(t.as_ref(), t_v.element().as_ref(), "Invalid swizzle type.");
+                if is_lval {
+                    let i = builder.const_(Const::Uint32(indices[0]));
+                    builder.gep(v, &[i], t.clone())
+                } else {
+                    builder.extract(v, indices[0] as usize, t.clone())
+                }
+            } else {
+                assert!(!is_lval, "L-value cannot be a swizzle.");
+                let t_elem = t_v.element();
+                let t_swizzle = Type::vector_of(t_elem.clone(), indices.len() as u32);
+                assert_eq!(t.as_ref(), t_swizzle.as_ref(), "Invalid swizzle type.");
+                let args: Vec<_> = indices
+                    .iter()
+                    .map(|i| builder.extract(v, *i as usize, t_elem.clone()))
+                    .collect();
+                match args.len() {
+                    2 => builder.call(Func::Vec2, args.as_slice(), t_swizzle),
+                    3 => builder.call(Func::Vec3, args.as_slice(), t_swizzle),
+                    4 => builder.call(Func::Vec4, args.as_slice(), t_swizzle),
+                    _ => unreachable!("Invalid swizzle length."),
+                }
+            }
+        } else {
+            // member access
+            let i = j["member"].as_usize().unwrap();
+            let t_elem = match t_v.as_ref() {
+                Type::Vector(vt) => {
+                    assert!((i as u32) < vt.length);
+                    vt.element.to_type()
+                }
+                Type::Struct(st) => {
+                    assert!(i < st.fields.len());
+                    st.fields[i].clone()
+                }
+                _ => panic!("Invalid member access."),
+            };
+            assert_eq!(t.as_ref(), t_elem.as_ref(), "Invalid member type.");
+            if is_lval {
+                let i = builder.const_(Const::Uint32(i as u32));
+                builder.gep(v, &[i], t.clone())
+            } else {
+                builder.extract(v, i, t.clone())
+            }
+        }
+    }
+
+    fn _convert_access_expr(&mut self, t: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
+        let range = self._convert_expression(&j["range"], is_lval);
+        let index = self._convert_expression(&j["index"], false);
+        assert!(index.type_().is_int(), "Index must be an integer.");
+        let t_range = range.type_();
+        assert!(t_range.is_array() || t_range.is_vector() || t_range.is_matrix());
+        let elem = if t_range.is_matrix() {
+            Type::vector_of(t_range.element(), t_range.dimension() as u32)
+        } else {
+            t_range.element()
+        };
+        assert_eq!(elem.as_ref(), t.as_ref(), "Invalid access type.");
+        let (builder, ..) = self.unwrap_ctx();
+        if is_lval {
+            builder.gep(range, &[index], elem)
+        } else {
+            builder.extract_dynamic(range, index, elem)
+        }
+    }
+
+    fn _convert_literal_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let v = base64ct::Base64::decode_vec(j["value"].as_str().unwrap()).unwrap();
+        let (builder, ..) = self.unwrap_ctx();
+        match t.as_ref() {
+            Type::Primitive(s) => match s {
+                Primitive::Bool => {
+                    assert_eq!(v.len(), 1, "Invalid bool literal.");
+                    unsafe {
+                        let b: bool = std::mem::transmute(v[0]);
+                        builder.const_(Const::Bool(b))
+                    }
+                }
+                Primitive::Int16 => {
+                    assert_eq!(v.len(), 2, "Invalid int16 literal.");
+                    unsafe {
+                        let i: i16 = std::mem::transmute([v[0], v[1]]);
+                        builder.const_(Const::Int16(i))
+                    }
+                }
+                Primitive::Uint16 => {
+                    assert_eq!(v.len(), 2, "Invalid uint16 literal.");
+                    unsafe {
+                        let i: u16 = std::mem::transmute([v[0], v[1]]);
+                        builder.const_(Const::Uint16(i))
+                    }
+                }
+                Primitive::Int32 => {
+                    assert_eq!(v.len(), 4, "Invalid int32 literal.");
+                    unsafe {
+                        let i: i32 = std::mem::transmute([v[0], v[1], v[2], v[3]]);
+                        builder.const_(Const::Int32(i))
+                    }
+                }
+                Primitive::Uint32 => {
+                    assert_eq!(v.len(), 4, "Invalid uint32 literal.");
+                    unsafe {
+                        let i: u32 = std::mem::transmute([v[0], v[1], v[2], v[3]]);
+                        builder.const_(Const::Uint32(i))
+                    }
+                }
+                Primitive::Int64 => {
+                    assert_eq!(v.len(), 8, "Invalid int64 literal.");
+                    unsafe {
+                        let i: i64 =
+                            std::mem::transmute([v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]]);
+                        builder.const_(Const::Int64(i))
+                    }
+                }
+                Primitive::Uint64 => {
+                    assert_eq!(v.len(), 8, "Invalid uint64 literal.");
+                    unsafe {
+                        let i: u64 =
+                            std::mem::transmute([v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]]);
+                        builder.const_(Const::Uint64(i))
+                    }
+                }
+                Primitive::Float16 => {
+                    assert_eq!(v.len(), 2, "Invalid float16 literal.");
+                    unsafe {
+                        let i: u16 = std::mem::transmute([v[0], v[1]]);
+                        let f: f16 = std::mem::transmute(i);
+                        builder.const_(Const::Float16(f))
+                    }
+                }
+                Primitive::Float32 => {
+                    assert_eq!(v.len(), 4, "Invalid float32 literal.");
+                    unsafe {
+                        let i: u32 = std::mem::transmute([v[0], v[1], v[2], v[3]]);
+                        let f: f32 = std::mem::transmute(i);
+                        builder.const_(Const::Float32(f))
+                    }
+                }
+                Primitive::Float64 => {
+                    assert_eq!(v.len(), 8, "Invalid float64 literal.");
+                    unsafe {
+                        let i: u64 =
+                            std::mem::transmute([v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]]);
+                        let f: f64 = std::mem::transmute(i);
+                        builder.const_(Const::Float64(f))
+                    }
+                }
+            },
+            Type::Vector(_) | Type::Matrix(_) => {
+                assert_eq!(t.size(), v.len(), "Invalid vector/matrix literal.");
+                builder.const_(Const::Generic(CBoxedSlice::new(v), t.clone()))
+            }
+            _ => panic!("Invalid literal type."),
+        }
+    }
+
+    fn _convert_ref_expr(&mut self, t: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
+        let v = self
+            ._curr_ctx()
+            .variables
+            .get(&j["variable"].as_u32().unwrap())
+            .unwrap()
+            .clone();
+        if is_lval {
+            v
+        } else {
+            let (builder, ..) = self.unwrap_ctx();
+            builder.load(v)
+        }
+    }
+
+    fn _convert_constant_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let c = self.convert_constant(j["constant"].as_usize().unwrap());
+        assert_eq!(c.type_().as_ref(), t.as_ref(), "Constant type mismatch.");
+        let (builder, ..) = self.unwrap_ctx();
+        builder.const_(c)
+    }
+
+    fn _convert_call_builtin(&mut self, t: &CArc<Type>, f: &str, args: &JSON) -> NodeRef {
+        todo!()
+    }
+
+    fn _convert_call_custom(&mut self, t: &CArc<Type>, f: usize, args: &JSON) -> NodeRef {
+        let f = match self.convert_function(f) {
+            FunctionModule::Callable(callable) => callable,
+            _ => panic!("Invalid custom function."),
+        };
+        let args: Vec<_> = f
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let by_value = match a.get().instruction.as_ref() {
+                    Instruction::Argument { by_value } => *by_value,
+                    _ => true,
+                };
+                let arg = self._convert_expression(&args[i], !by_value);
+                if arg.type_().as_ref() != a.get().type_.as_ref() {
+                    assert!(by_value, "Invalid argument type.");
+                    let (builder, ..) = self.unwrap_ctx();
+                    Self::_cast(builder, &a.get().type_, arg)
+                } else {
+                    arg
+                }
+            })
+            .collect();
+        let (builder, ..) = self.unwrap_ctx();
+        assert_eq!(f.ret_type.as_ref(), t.as_ref(), "Invalid return type.");
+        builder.call(
+            Func::Callable(CallableModuleRef(f)),
+            args.as_slice(),
+            t.clone(),
+        )
+    }
+
+    fn _convert_call_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let op = j["op"].as_str().unwrap();
+        match op {
+            "CUSTOM" => {
+                self._convert_call_custom(t, j["custom"].as_usize().unwrap(), &j["arguments"])
+            }
+            "EXTERNAL" => unimplemented!("External calls."),
+            _ => {
+                // built-in functions
+                assert!(!j.contains("custom") && !j.contains("external"));
+                self._convert_call_builtin(t, op, &j["arguments"])
+            }
+        }
+    }
+
+    fn _convert_cast_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let expr = self._convert_expression(&j["expression"], false);
+        let op = j["op"].as_str().unwrap();
+        let (builder, ..) = self.unwrap_ctx();
+        match op {
+            "BITWISE" => builder.call(Func::Bitcast, &[expr], t.clone()),
+            "STATIC" => Self::_cast(builder, t, expr),
+            _ => panic!("Invalid cast operator: {}.", op),
+        }
+    }
+
     fn _convert_expression(&mut self, j: &JSON, is_lval: bool) -> NodeRef {
         if j.is_null() {
             assert!(!is_lval, "L-value cannot be null.");
             INVALID_REF
         } else {
-            todo!()
+            let tag = j["tag"].as_str().unwrap();
+            let t = self.convert_type(j["type"].as_usize().unwrap());
+            match tag {
+                "UNARY" => {
+                    assert!(!is_lval, "Unary expressions cannot be used as L-values.");
+                    self._convert_unary_expr(&t, j)
+                }
+                "BINARY" => {
+                    assert!(!is_lval, "Binary expressions cannot be used as L-values.");
+                    self._convert_binary_expr(&t, j)
+                }
+                "MEMBER" => self._convert_member_expr(&t, j, is_lval),
+                "ACCESS" => self._convert_access_expr(&t, j, is_lval),
+                "LITERAL" => {
+                    assert!(!is_lval, "Literals cannot be used as L-values.");
+                    self._convert_literal_expr(&t, j)
+                }
+                "REF" => self._convert_ref_expr(&t, j, is_lval),
+                "CONSTANT" => {
+                    assert!(!is_lval, "Constants cannot be used as L-values.");
+                    self._convert_constant_expr(&t, j)
+                }
+                "CALL" => {
+                    assert!(!is_lval, "Call expressions cannot return L-values.");
+                    self._convert_call_expr(&t, j)
+                }
+                "CAST" => {
+                    assert!(!is_lval, "Cast expressions cannot be used as L-values.");
+                    self._convert_cast_expr(&t, j)
+                }
+                "TYPE_ID" => unimplemented!("TypeID expressions."),
+                _ => panic!("Invalid expression tag: {}", tag),
+            }
         }
     }
 
@@ -324,7 +866,9 @@ impl<'a, 'b> AST2IR<'a, 'b> {
             }
             "RETURN" => {
                 let v = self._convert_expression(&j["expression"], false);
+                let ret_type = self._curr_ctx().ret_type.clone();
                 let (builder, ..) = self.unwrap_ctx();
+                let v = Self::_cast(builder, &ret_type, v);
                 builder.return_(v)
             }
             "SCOPE" => unreachable!("Scope should be handled by _convert_scope."),
@@ -333,6 +877,7 @@ impl<'a, 'b> AST2IR<'a, 'b> {
                 let true_ = self._convert_scope(&j["true_branch"], false);
                 let false_ = self._convert_scope(&j["false_branch"], false);
                 let (builder, ..) = self.unwrap_ctx();
+                let cond = Self::_cast(builder, &<bool as TypeOf>::type_(), cond);
                 builder.if_(cond, true_, false_)
             }
             "LOOP" => {
@@ -399,26 +944,15 @@ impl<'a, 'b> AST2IR<'a, 'b> {
                 let mut cond = INVALID_REF;
                 let prepare = self._with_builder(|this| {
                     cond = this._convert_expression(&j["condition"], false);
-                    let ty_cond = cond.type_();
-                    assert!(
-                        ty_cond.is_primitive(),
-                        "Condition of the FOR statement must be a primitive."
-                    );
-                    if !ty_cond.is_bool() {
-                        let (builder, ..) = this.unwrap_ctx();
-                        cond = builder.cast(cond, <bool as TypeOf>::type_());
-                    }
+                    let (builder, ..) = this.unwrap_ctx();
+                    cond = Self::_cast(builder, &<bool as TypeOf>::type_(), cond);
                 });
                 let body = self._convert_scope(&j["body"], false);
                 let update = self._with_builder(|this| {
                     let var = this._convert_expression(&j["variable"], true);
                     let step = this._convert_expression(&j["step"], false);
                     let (builder, ..) = this.unwrap_ctx();
-                    let step = if step.type_().as_ref() != var.type_().as_ref() {
-                        builder.cast(step, var.type_().clone())
-                    } else {
-                        step
-                    };
+                    let step = Self::_cast(builder, &var.type_(), step);
                     let next = builder.call(Func::Add, &[var, step], var.type_().clone());
                     builder.update(var, next);
                 });
@@ -567,6 +1101,11 @@ impl<'a, 'b> AST2IR<'a, 'b> {
             arguments: HashMap::new(),
             variables: HashMap::new(),
             shared: Vec::new(),
+            ret_type: if let Some(ret) = j["return_type"].as_usize() {
+                self.convert_type(ret)
+            } else {
+                Type::void()
+            },
         };
         // push current context
         let tag = ctx.j_tag;
