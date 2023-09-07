@@ -826,7 +826,7 @@ public:
                     } else {
                         auto bf = reinterpret_cast<Buffer *>(i.handle());
                         D3D12_INDEX_BUFFER_VIEW idx{
-                            .BufferLocation = bf->GetAddress() + i.offset(),
+                            .BufferLocation = bf->GetAddress() + i.offset_bytes(),
                             .SizeInBytes = static_cast<uint>(i.size_bytes()),
                             .Format = DXGI_FORMAT_R32_UINT};
                         cmdList->IASetIndexBuffer(&idx);

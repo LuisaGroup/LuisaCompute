@@ -1057,11 +1057,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::INDIRECT_SET_DISPATCH_COUNT: {
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
             str << "_SetDispCount"sv;
         } break;
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: {
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
             str << "_SetDispInd"sv;
         } break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
@@ -1085,11 +1083,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ".CommitNonOpaqueTriangleHit()"sv;
             return;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
-            args[0]->accept(vis);
-            str << ".CommitProceduralPrimitiveHit("sv;
-            args[1]->accept(vis);
-            str << ')';
-            return;
+            str << "_CommitProcedural"sv;
+            break;
         case CallOp::RAY_QUERY_TERMINATE:
             args[0]->accept(vis);
             str << ".Abort()"sv;
@@ -1512,8 +1507,10 @@ v2p o;
         result << retName
                << " r=vert(vt);\n"sv;
         for (auto i : vstd::range(retType->members().size())) {
+            auto member = retType->members()[i];
             auto num = vstd::to_string(i);
-            result << "o.v"sv << num << "=r.v"sv << num << ";\n"sv;
+            result << "o.v"sv << num << "=r.v"sv << num;
+            result << ";\n"sv;
         }
     }
     if (isDX) {
@@ -1978,7 +1975,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     if (v2pType->is_structure()) {
         size_t memberIdx = 0;
         for (auto &&i : v2pType->members()) {
-            GetTypeName(*i, codegenData, Usage::READ);
+            GetTypeName(*i, codegenData, Usage::READ, false);
             codegenData << " v"sv << vstd::to_string(memberIdx);
             if (memberIdx == 0) {
                 codegenData << ":SV_POSITION;\n"sv;
@@ -2043,8 +2040,8 @@ uint obj_id:register(b0);
                 if (idx >= 4) {
                     d << "vv.v4.v["sv << vstd::to_string(idx - 4) << "]=vt."sv << name << ";\n"sv;
                 } else {
-                    d << "vv.v"sv << vstd::to_string(i);
-                    if (i < 2) {
+                    d << "vv.v"sv << vstd::to_string(idx);
+                    if (idx < 2) {
                         d << ".v"sv;
                     }
                     d << "=vt."sv << name << ";\n"sv;
