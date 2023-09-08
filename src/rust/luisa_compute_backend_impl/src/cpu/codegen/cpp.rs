@@ -1749,8 +1749,7 @@ impl<'a> FunctionEmitter<'a> {
             }
             Instruction::Comment(comment) => {
                 self.write_ident();
-                let comment = CString::new(comment.as_ref()).unwrap();
-                writeln!(&mut self.body, "/* {} */", comment.to_string_lossy()).unwrap();
+                writeln!(&mut self.body, "/* {} */", comment.to_string()).unwrap();
             }
         }
     }

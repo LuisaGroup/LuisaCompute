@@ -2249,6 +2249,7 @@ impl IrBuilder {
         self.call(Func::Bitcast, &[node], t)
     }
     pub fn gep(&mut self, this: NodeRef, indices: &[NodeRef], t: CArc<Type>) -> NodeRef {
+        assert!(this.is_lvalue());
         self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {

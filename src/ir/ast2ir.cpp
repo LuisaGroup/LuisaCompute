@@ -3,7 +3,12 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ast/function_builder.h>
+
+#define LUISA_COMPUTE_USE_NEW_AST2IR 0
+
+#if LUISA_COMPUTE_USE_NEW_AST2IR
 #include <luisa/ast/ast2json.h>
+#endif
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "misc-no-recursion"
@@ -1443,8 +1448,6 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
         },
         value);
 }
-
-#define LUISA_COMPUTE_USE_NEW_AST2IR 0
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
 #if LUISA_COMPUTE_USE_NEW_AST2IR
