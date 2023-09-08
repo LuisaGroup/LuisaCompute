@@ -1444,36 +1444,44 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
         value);
 }
 
+#define LUISA_COMPUTE_USE_NEW_AST2IR 0
+
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
+#if LUISA_COMPUTE_USE_NEW_AST2IR
+        auto j = to_json(function);
+        auto slice = ir::CBoxedSlice<uint8_t>{
+            .ptr = reinterpret_cast<uint8_t *>(j.data()),
+            .len = j.size(),
+            .destructor = nullptr,
+        };
+        auto f = ir::luisa_compute_ir_ast_json_to_ir_kernel(slice);
+        return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(f),
+                [](ir::CArc<ir::KernelModule> *p) noexcept {
+                    p->release();
+                    luisa::delete_with_allocator(p);
+                }};
+#else
     return AST2IR{}._convert_kernel(function);
-    //    auto j = to_json(function);
-    //    auto slice = ir::CBoxedSlice<uint8_t>{
-    //        .ptr = reinterpret_cast<uint8_t *>(j.data()),
-    //        .len = j.size(),
-    //        .destructor = nullptr,
-    //    };
-    //    auto f = ir::luisa_compute_ir_ast_json_to_ir_kernel(slice);
-    //    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(f),
-    //            [](ir::CArc<ir::KernelModule> *p) noexcept {
-    //                p->release();
-    //                luisa::delete_with_allocator(p);
-    //            }};
+#endif
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::CallableModule>> AST2IR::build_callable(Function function) noexcept {
+#if LUISA_COMPUTE_USE_NEW_AST2IR
+        auto j = to_json(function);
+        auto slice = ir::CBoxedSlice<uint8_t>{
+            .ptr = reinterpret_cast<uint8_t *>(j.data()),
+            .len = j.size(),
+            .destructor = nullptr,
+        };
+        auto f = ir::luisa_compute_ir_ast_json_to_ir_callable(slice);
+        return {luisa::new_with_allocator<ir::CArc<ir::CallableModule>>(f),
+                [](ir::CArc<ir::CallableModule> *p) noexcept {
+                    p->release();
+                    luisa::delete_with_allocator(p);
+                }};
+#else
     return AST2IR{}._convert_callable(function);
-    //    auto j = to_json(function);
-    //    auto slice = ir::CBoxedSlice<uint8_t>{
-    //        .ptr = reinterpret_cast<uint8_t *>(j.data()),
-    //        .len = j.size(),
-    //        .destructor = nullptr,
-    //    };
-    //    auto f = ir::luisa_compute_ir_ast_json_to_ir_callable(slice);
-    //    return {luisa::new_with_allocator<ir::CArc<ir::CallableModule>>(f),
-    //            [](ir::CArc<ir::CallableModule> *p) noexcept {
-    //                p->release();
-    //                luisa::delete_with_allocator(p);
-    //            }};
+#endif
 }
 
 ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {

@@ -4,7 +4,7 @@ use base64ct::{Base64, Encoding};
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter::zip;
 
 struct AST2IRCtx<'a> {
@@ -91,10 +91,16 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let align = j["alignment"].as_u32().unwrap();
                 Type::struct_of(align, members)
             }
-            "BUFFER" => panic!("Buffer's are not treated as types in IR."),
-            "TEXTURE" => panic!("Texture's are not treated as types in IR."),
-            "BINDLESS_ARRAY" => panic!("BindlessArray's are not treated as types in IR."),
-            "ACCEL" => panic!("Accel's are not treated as types in IR."),
+            "BUFFER" => {
+                let elem_index = j["element"].as_usize().unwrap();
+                self.convert_type(elem_index)
+            }
+            "TEXTURE" => {
+                let elem_index = j["element"].as_usize().unwrap();
+                Type::vector_of(self.convert_type(elem_index), 4)
+            }
+            "BINDLESS_ARRAY" => Type::void(),
+            "ACCEL" => Type::void(),
             "CUSTOM" => Type::opaque(j["id"].as_str().unwrap().into()),
             _ => panic!("Invalid type tag: {}", tag),
         };
@@ -730,7 +736,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
     }
 
     fn _convert_constant_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
-        let c = self.convert_constant(j["constant"].as_usize().unwrap());
+        let c = self.convert_constant(j["data"].as_usize().unwrap());
         assert_eq!(c.type_().as_ref(), t.as_ref(), "Constant type mismatch.");
         let (builder, ..) = self.unwrap_ctx();
         builder.const_(c)
@@ -938,7 +944,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         let mut check_is_ray_query = |node: NodeRef| {
             let t = node.type_();
             assert!(
-                t.is_opaque("LC_RayQueryAll") || t.is_opaque("LC_RayQueryAll"),
+                t.is_opaque("LC_RayQueryAll") || t.is_opaque("LC_RayQueryAny"),
                 "Invalid ray query type."
             );
         };
@@ -1026,7 +1032,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             }
             "MIN" | "MAX" => {
                 // (vecN, vecN) -> vecN
-                let args = convert_args(&[false]);
+                let args = convert_args(&[false, false]);
                 check_same_types!(t, args[0].type_());
                 args
             }
@@ -1328,12 +1334,13 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 };
                 let ret = Type::vector_of(elem.clone(), n);
                 check_same_types!(t, ret);
-                let is_lval: Vec<_> = (0..n).map(|_| false).collect();
+                let is_lval: Vec<_> = (0..args.len()).map(|_| false).collect();
                 let args = convert_args(is_lval.as_slice());
                 let (builder, ..) = self.unwrap_ctx();
                 if args.len() == 1 {
                     if args[0].type_().is_primitive() {
-                        vec![Self::_cast(builder, &t, args[0])]
+                        let s = Self::_cast(builder, &elem, args[0]);
+                        (0..n).map(|_| s.clone()).collect()
                     } else {
                         let v = args[0];
                         let v_elem = v.type_().element();
@@ -1348,14 +1355,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 } else {
                     let mut scalars = Vec::new();
                     for arg in args {
-                        let s = if arg.type_().is_primitive() {
+                        if arg.type_().is_primitive() {
                             assert_eq!(arg.type_().as_ref(), elem.as_ref());
                             scalars.push(arg);
                         } else {
                             assert_eq!(arg.type_().element().as_ref(), elem.as_ref());
                             assert!(arg.type_().is_vector());
-                            for i in 0..n {
-                                scalars.push(builder.extract(arg, i as usize, elem.clone()));
+                            for i in 0..arg.type_().dimension() {
+                                scalars.push(builder.extract(arg, i, elem.clone()));
                             }
                         };
                     }
@@ -1866,9 +1873,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         // convert variables
         self.convert_variables();
         // convert body
-        self.j["body"]["statements"].members().for_each(|s| {
-            self._convert_statement(s);
-        });
+        self._curr_ctx().j["body"]["statements"]
+            .members()
+            .for_each(|s| {
+                self._convert_statement(s);
+            });
         // pop builder
         let builder = self._curr_ctx_mut().builder.take().unwrap();
         self._curr_ctx_mut().builder = old_builder;
@@ -1883,6 +1892,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
 
     fn _do_convert_kernel(&mut self) -> KernelModule {
         let module = self._convert_module(ModuleKind::Kernel);
+        let bound_args = &self._curr_ctx().j["bound_arguments"];
         let args: Vec<_> = self._curr_ctx().j["arguments"]
             .members()
             .map(|a| {
@@ -1890,7 +1900,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 self._curr_ctx().arguments.get(&(a as u32)).unwrap().clone()
             })
             .collect();
-        let captures: Vec<_> = self._curr_ctx().j["bound_arguments"]
+        let captures: Vec<_> = bound_args
             .members()
             .enumerate()
             .map(|(i, a)| {
@@ -1914,6 +1924,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 Capture { node, binding }
             })
             .collect();
+        let args = args[captures.len()..].to_vec();
         let shared = self._curr_ctx().shared.clone();
         let block_size = &self._curr_ctx().j["block_size"];
         let block_size = [
