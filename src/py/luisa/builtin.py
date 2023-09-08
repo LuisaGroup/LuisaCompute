@@ -674,7 +674,9 @@ _func_map["step"] = _step
 def _int_func(name, *args):
     op = getattr(lcapi.CallOp, name.upper())
     assert len(args) == 1
-    assert args[0].dtype in integer_scalar_vector_dtypes, "invalid parameter"
+    assert args[0].dtype == uint or \
+           args[0].dtype in vector_dtypes and element_of(args[0].dtype) is uint, \
+        "invalid parameter"
     # clz(uint) -> uint
     # clz(vector<uint>) -> vector<uint>
     dtype = args[0].dtype
