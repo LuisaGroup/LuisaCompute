@@ -1393,15 +1393,15 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "ONE" => unreachable!(),
             "PACK" => {
                 let args = convert_args(&[false, false, false]);
-                check_is_buffer(args[0]);
-                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                check_is_buffer(args[1]);
+                check_is_index(args[2].type_());
                 assert!(t.is_void());
                 args
             }
             "UNPACK" => {
                 let args = convert_args(&[false, false]);
                 check_is_buffer(args[0]);
-                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                check_is_index(args[1].type_());
                 args
             }
             "REQUIRES_GRADIENT" => convert_args(&[true]),
