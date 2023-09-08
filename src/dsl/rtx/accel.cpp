@@ -5,20 +5,20 @@ namespace luisa::compute {
 
 namespace detail {
 
-Var<TriangleHit> AccelExprProxy::trace_closest(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.trace_closest(ray, vis_mask);
+Var<TriangleHit> AccelExprProxy::trace_closest(Expr<Ray> ray, Expr<uint> vis_mask, RayCullMode cull_mode) const noexcept {
+    return Expr<Accel>{_accel}.trace_closest(ray, vis_mask, cull_mode);
 }
 
-Var<bool> AccelExprProxy::trace_any(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.trace_any(ray, vis_mask);
+Var<bool> AccelExprProxy::trace_any(Expr<Ray> ray, Expr<uint> vis_mask, RayCullMode cull_mode) const noexcept {
+    return Expr<Accel>{_accel}.trace_any(ray, vis_mask, cull_mode);
 }
 
-RayQueryAll AccelExprProxy::query_all(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.query_all(ray, vis_mask);
+RayQueryAll AccelExprProxy::query_all(Expr<Ray> ray, Expr<uint> vis_mask, RayCullMode cull_mode) const noexcept {
+    return Expr<Accel>{_accel}.query_all(ray, vis_mask, cull_mode);
 }
 
-RayQueryAny AccelExprProxy::query_any(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.query_any(ray, vis_mask);
+RayQueryAny AccelExprProxy::query_any(Expr<Ray> ray, Expr<uint> vis_mask, RayCullMode cull_mode) const noexcept {
+    return Expr<Accel>{_accel}.query_any(ray, vis_mask, cull_mode);
 }
 
 Var<float4x4> AccelExprProxy::instance_transform(Expr<int> instance_id) const noexcept {
@@ -61,26 +61,50 @@ Expr<Accel>::Expr(const Accel &accel) noexcept
     : _expression{detail::FunctionBuilder::current()->accel_binding(
           accel.handle())} {}
 
-Var<TriangleHit> Expr<Accel>::trace_closest(Expr<Ray> ray, Expr<uint> mask) const noexcept {
+Var<TriangleHit> Expr<Accel>::trace_closest(Expr<Ray> ray, Expr<uint> mask, RayCullMode cull_mode) const noexcept {
+    CallOp op;
+    switch (cull_mode) {
+        case RayCullMode::None:
+            op = CallOp::RAY_TRACING_TRACE_CLOSEST;
+            break;
+        case RayCullMode::CullBack:
+            op = CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE;
+            break;
+        case RayCullMode::CullFront:
+            op = CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE;
+            break;
+    }
     return def<TriangleHit>(
         detail::FunctionBuilder::current()->call(
-            Type::of<TriangleHit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
+            Type::of<TriangleHit>(), op,
             {_expression, ray.expression(), mask.expression()}));
 }
 
-Var<bool> Expr<Accel>::trace_any(Expr<Ray> ray, Expr<uint> mask) const noexcept {
+Var<bool> Expr<Accel>::trace_any(Expr<Ray> ray, Expr<uint> mask, RayCullMode cull_mode) const noexcept {
+    CallOp op;
+    switch (cull_mode) {
+        case RayCullMode::None:
+            op = CallOp::RAY_TRACING_TRACE_ANY;
+            break;
+        case RayCullMode::CullBack:
+            op = CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE;
+            break;
+        case RayCullMode::CullFront:
+            op = CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE;
+            break;
+    }
     return def<bool>(
         detail::FunctionBuilder::current()->call(
             Type::of<bool>(), CallOp::RAY_TRACING_TRACE_ANY,
             {_expression, ray.expression(), mask.expression()}));
 }
 
-RayQueryAll Expr<Accel>::query_all(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return {_expression, ray.expression(), mask.expression()};
+RayQueryAll Expr<Accel>::query_all(Expr<Ray> ray, Expr<uint> mask, RayCullMode cull_mode) const noexcept {
+    return {_expression, ray.expression(), mask.expression(), cull_mode};
 }
 
-RayQueryAny Expr<Accel>::query_any(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return {_expression, ray.expression(), mask.expression()};
+RayQueryAny Expr<Accel>::query_any(Expr<Ray> ray, Expr<uint> mask,RayCullMode cull_mode) const noexcept {
+    return {_expression, ray.expression(), mask.expression(), cull_mode};
 }
 
 Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noexcept {
@@ -134,4 +158,3 @@ void Expr<Accel>::set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque)
 }
 
 }// namespace luisa::compute
-

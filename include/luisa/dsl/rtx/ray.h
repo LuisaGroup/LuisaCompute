@@ -5,6 +5,12 @@
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/var.h>
 
+enum class RayCullMode {
+    None,
+    CullFront,
+    CullBack
+};
+
 LUISA_STRUCT(luisa::compute::Ray,
              compressed_origin,
              compressed_t_min,

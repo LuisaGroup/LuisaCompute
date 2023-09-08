@@ -54,13 +54,29 @@ namespace detail {
 template<bool terminate_on_first>
 [[nodiscard]] inline auto make_ray_query_object(const Expression *accel,
                                                 const Expression *ray,
-                                                const Expression *mask) noexcept {
+                                                const Expression *mask,
+                                                RayCullMode cull_mode) noexcept {
     auto builder = detail::FunctionBuilder::current();
     auto type = Type::of<RayQueryBase<terminate_on_first>>();
     auto local = builder->local(type);
-    auto op = terminate_on_first ?
-                  CallOp::RAY_TRACING_QUERY_ANY :
-                  CallOp::RAY_TRACING_QUERY_ALL;
+    CallOp op;
+    switch (cull_mode) {
+        case RayCullMode::None:
+            op = terminate_on_first ?
+                     CallOp::RAY_TRACING_QUERY_ANY :
+                     CallOp::RAY_TRACING_QUERY_ALL;
+            break;
+        case RayCullMode::CullBack:
+            op = terminate_on_first ?
+                     CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE :
+                     CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE;
+            break;
+        case RayCullMode::CullFront:
+            op = terminate_on_first ?
+                     CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE :
+                     CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE;
+            break;
+    }
     auto call = builder->call(type, op, {accel, ray, mask});
     builder->assign(local, call);
     return local;
@@ -69,9 +85,10 @@ template<bool terminate_on_first>
 template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
                                                const Expression *ray,
-                                               const Expression *mask) noexcept
+                                               const Expression *mask,
+                                               RayCullMode cull_mode) noexcept
     : _stmt{detail::FunctionBuilder::current()->ray_query_(
-          make_ray_query_object<terminate_on_first>(accel, ray, mask))} {}
+          make_ray_query_object<terminate_on_first>(accel, ray, mask, cull_mode))} {}
 
 template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>
@@ -134,4 +151,3 @@ template class RayQueryBase<true>;
 }// namespace detail
 
 }// namespace luisa::compute
-

@@ -877,14 +877,38 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
             str << "_TraceClosest"sv;
             break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE:
+            str << "_TraceClosestCullFront"sv;
+            break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE:
+            str << "_TraceClosestCullBack"sv;
+            break;
         case CallOp::RAY_TRACING_TRACE_ANY:
             str << "_TraceAny"sv;
+            break;
+        case CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE:
+            str << "_TraceAnyCullFront"sv;
+            break;
+        case CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE:
+            str << "_TraceAnyCullBack"sv;
             break;
         case CallOp::RAY_TRACING_QUERY_ALL:
             str << "_QueryAll"sv;
             break;
         case CallOp::RAY_TRACING_QUERY_ANY:
             str << "_QueryAny"sv;
+            break;
+        case CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE:
+            str << "_QueryAllCullBack"sv;
+            break;
+        case CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE:
+            str << "_QueryAnyCullBack"sv;
+            break;
+        case CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE:
+            str << "_QueryAllCullFront"sv;
+            break;
+        case CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE:
+            str << "_QueryAnyCullFront"sv;
             break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
             str << "_bdlsBfSize"sv;
