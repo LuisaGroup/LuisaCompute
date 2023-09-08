@@ -201,11 +201,11 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE2D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint2
     BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
+    BINDLESS_BUFFER_READ,     // (bindless_array, index: uint, elem_index: uint): expr->type()
     BINDLESS_BYTE_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
-    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint, stride: uint) -> size
-    BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
-                                      // could be compared with the value of a TypeIDExpr to examine the type of the buffer
+    BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size
+    BINDLESS_BUFFER_TYPE,     // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
+                              // could be compared with the value of a TypeIDExpr to examine the type of the buffer
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)
@@ -276,15 +276,15 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery
     RAY_TRACING_QUERY_ANY,              // (Accel, ray, mask: uint): RayQuery
 
-    RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE,          // (Accel, ray, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY_CULL_FRONTFACE,              // (Accel, ray, mask: uint): bool
-    RAY_TRACING_QUERY_ALL_CULL_FRONTFACE,              // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY_CULL_FRONTFACE,              // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE,// (Accel, ray, mask: uint): TriangleHit
+    RAY_TRACING_TRACE_ANY_CULL_FRONTFACE,    // (Accel, ray, mask: uint): bool
+    RAY_TRACING_QUERY_ALL_CULL_FRONTFACE,    // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY_CULL_FRONTFACE,    // (Accel, ray, mask: uint): RayQuery
 
-    RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE,          // (Accel, ray, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY_CULL_BACKFACE,              // (Accel, ray, mask: uint): bool
-    RAY_TRACING_QUERY_ALL_CULL_BACKFACE,              // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY_CULL_BACKFACE,              // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE,// (Accel, ray, mask: uint): TriangleHit
+    RAY_TRACING_TRACE_ANY_CULL_BACKFACE,    // (Accel, ray, mask: uint): bool
+    RAY_TRACING_QUERY_ALL_CULL_BACKFACE,    // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY_CULL_BACKFACE,    // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
@@ -401,11 +401,23 @@ public:
         return test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
                test(CallOp::RAY_TRACING_TRACE_ANY) ||
                test(CallOp::RAY_TRACING_QUERY_ALL) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY);
+               test(CallOp::RAY_TRACING_QUERY_ANY) ||
+               test(CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE) ||
+               test(CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE) ||
+               test(CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE) ||
+               test(CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE);
     }
     [[nodiscard]] auto uses_ray_query() const noexcept {
         return test(CallOp::RAY_TRACING_QUERY_ALL) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY);
+               test(CallOp::RAY_TRACING_QUERY_ANY) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE);
     }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||
