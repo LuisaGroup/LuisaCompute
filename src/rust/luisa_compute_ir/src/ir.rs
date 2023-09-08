@@ -510,6 +510,29 @@ impl Type {
             _ => false,
         }
     }
+    pub fn is_unsigned(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Uint16 | Primitive::Uint32 | Primitive::Uint64 => true,
+                _ => false,
+            },
+            Type::Vector(v) => v.element.to_type().is_unsigned(),
+            Type::Matrix(m) => m.element.to_type().is_unsigned(),
+            _ => false,
+        }
+    }
+    pub fn is_signed(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => true,
+                Primitive::Float16 | Primitive::Float32 | Primitive::Float64 => true,
+                _ => false,
+            },
+            Type::Vector(v) => v.element.to_type().is_signed(),
+            Type::Matrix(m) => m.element.to_type().is_signed(),
+            _ => false,
+        }
+    }
     pub fn is_matrix(&self) -> bool {
         match self {
             Type::Matrix(_) => true,
@@ -832,7 +855,7 @@ pub enum Func {
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
     // (bindless_array, index: uint, element_bytes: uint) -> T
-    BindlessByteAdressBufferRead,
+    BindlessByteBufferRead,
 
     // scalar -> vector, the resulting type is stored in node
     Vec,
@@ -1510,7 +1533,8 @@ impl NodeRef {
     pub fn is_lvalue(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Local { .. } => true,
-            Instruction::Argument { by_value, .. } => !by_value,
+            Instruction::Argument { by_value } => !by_value,
+            Instruction::Shared => true,
             Instruction::Call(f, _) => *f == Func::GetElementPtr,
             _ => false,
         }
@@ -2201,7 +2225,12 @@ impl IrBuilder {
         let c = self.const_(Const::Int32(index as i32));
         self.call(Func::ExtractElement, &[node, c], ret_type)
     }
-    pub fn extract_dynamic(&mut self, node: NodeRef, index: NodeRef, ret_type: CArc<Type>) -> NodeRef {
+    pub fn extract_dynamic(
+        &mut self,
+        node: NodeRef,
+        index: NodeRef,
+        ret_type: CArc<Type>,
+    ) -> NodeRef {
         self.call(Func::ExtractElement, &[node, index], ret_type)
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {

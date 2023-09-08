@@ -1,13 +1,11 @@
-use crate::context::register_type;
-use crate::ir::Func::Div;
 use crate::ir::*;
-use crate::{CArc, CBox, CBoxedSlice, Pooled, TypeOf};
+use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 use half::f16;
-use json::{iterators, parse as parse_json, JsonValue as JSON, Result};
+use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::iter::zip;
 
 struct AST2IRCtx<'a> {
     j: &'a JSON,
@@ -292,7 +290,6 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             node
         } else {
             let src = node.type_();
-            // scalar to scalar
             match (src.as_ref(), dst.as_ref()) {
                 (Type::Primitive(_), Type::Primitive(_)) => builder.cast(node, dst.clone()),
                 (Type::Vector(vsrc), Type::Vector(vdst)) => {
@@ -624,42 +621,42 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 Primitive::Bool => {
                     assert_eq!(v.len(), 1, "Invalid bool literal.");
                     unsafe {
-                        let b: bool = std::mem::transmute(v[0]);
+                        let b = std::mem::transmute(v[0]);
                         builder.const_(Const::Bool(b))
                     }
                 }
                 Primitive::Int16 => {
                     assert_eq!(v.len(), 2, "Invalid int16 literal.");
                     unsafe {
-                        let i: i16 = std::mem::transmute([v[0], v[1]]);
+                        let i = std::mem::transmute([v[0], v[1]]);
                         builder.const_(Const::Int16(i))
                     }
                 }
                 Primitive::Uint16 => {
                     assert_eq!(v.len(), 2, "Invalid uint16 literal.");
                     unsafe {
-                        let i: u16 = std::mem::transmute([v[0], v[1]]);
+                        let i = std::mem::transmute([v[0], v[1]]);
                         builder.const_(Const::Uint16(i))
                     }
                 }
                 Primitive::Int32 => {
                     assert_eq!(v.len(), 4, "Invalid int32 literal.");
                     unsafe {
-                        let i: i32 = std::mem::transmute([v[0], v[1], v[2], v[3]]);
+                        let i = std::mem::transmute([v[0], v[1], v[2], v[3]]);
                         builder.const_(Const::Int32(i))
                     }
                 }
                 Primitive::Uint32 => {
                     assert_eq!(v.len(), 4, "Invalid uint32 literal.");
                     unsafe {
-                        let i: u32 = std::mem::transmute([v[0], v[1], v[2], v[3]]);
+                        let i = std::mem::transmute([v[0], v[1], v[2], v[3]]);
                         builder.const_(Const::Uint32(i))
                     }
                 }
                 Primitive::Int64 => {
                     assert_eq!(v.len(), 8, "Invalid int64 literal.");
                     unsafe {
-                        let i: i64 =
+                        let i =
                             std::mem::transmute([v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]]);
                         builder.const_(Const::Int64(i))
                     }
@@ -667,7 +664,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 Primitive::Uint64 => {
                     assert_eq!(v.len(), 8, "Invalid uint64 literal.");
                     unsafe {
-                        let i: u64 =
+                        let i =
                             std::mem::transmute([v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]]);
                         builder.const_(Const::Uint64(i))
                     }
@@ -675,25 +672,22 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 Primitive::Float16 => {
                     assert_eq!(v.len(), 2, "Invalid float16 literal.");
                     unsafe {
-                        let i: u16 = std::mem::transmute([v[0], v[1]]);
-                        let f: f16 = std::mem::transmute(i);
+                        let f = std::mem::transmute([v[0], v[1]]);
                         builder.const_(Const::Float16(f))
                     }
                 }
                 Primitive::Float32 => {
                     assert_eq!(v.len(), 4, "Invalid float32 literal.");
                     unsafe {
-                        let i: u32 = std::mem::transmute([v[0], v[1], v[2], v[3]]);
-                        let f: f32 = std::mem::transmute(i);
+                        let f = std::mem::transmute([v[0], v[1], v[2], v[3]]);
                         builder.const_(Const::Float32(f))
                     }
                 }
                 Primitive::Float64 => {
                     assert_eq!(v.len(), 8, "Invalid float64 literal.");
                     unsafe {
-                        let i: u64 =
+                        let f =
                             std::mem::transmute([v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]]);
-                        let f: f64 = std::mem::transmute(i);
                         builder.const_(Const::Float64(f))
                     }
                 }
@@ -713,7 +707,21 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             .get(&j["variable"].as_u32().unwrap())
             .unwrap()
             .clone();
-        if is_lval {
+        let loadable = match v.get().instruction.as_ref() {
+            Instruction::Shared => true,
+            Instruction::Local { .. } => true,
+            Instruction::Argument { by_value } => {
+                assert!(!by_value);
+                true
+            }
+            Instruction::Buffer => false,
+            Instruction::Bindless => false,
+            Instruction::Texture2D => false,
+            Instruction::Texture3D => false,
+            Instruction::Accel => false,
+            _ => unreachable!("Invalid variable instruction."),
+        };
+        if is_lval || !loadable {
             v
         } else {
             let (builder, ..) = self.unwrap_ctx();
@@ -729,7 +737,863 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
     }
 
     fn _convert_call_builtin(&mut self, t: &CArc<Type>, f: &str, args: &JSON) -> NodeRef {
-        todo!()
+        // zero and one are special cases
+        if f == "ZERO" {
+            let (builder, ..) = self.unwrap_ctx();
+            return builder.const_(Const::Zero(t.clone()));
+        }
+        if f == "ONE" {
+            let (builder, ..) = self.unwrap_ctx();
+            return builder.const_(Const::One(t.clone()));
+        }
+        let func = match f {
+            "ALL" => Func::All,
+            "ANY" => Func::Any,
+            "SELECT" => Func::Select,
+            "CLAMP" => Func::Clamp,
+            "SATURATE" => Func::Saturate,
+            "LERP" => Func::Lerp,
+            "SMOOTHSTEP" => Func::SmoothStep,
+            "STEP" => Func::Step,
+            "ABS" => Func::Abs,
+            "MIN" => Func::Min,
+            "MAX" => Func::Max,
+            "CLZ" => Func::Clz,
+            "CTZ" => Func::Ctz,
+            "POPCOUNT" => Func::PopCount,
+            "REVERSE" => Func::Reverse,
+            "ISINF" => Func::IsInf,
+            "ISNAN" => Func::IsNan,
+            "ACOS" => Func::Acos,
+            "ACOSH" => Func::Acosh,
+            "ASIN" => Func::Asin,
+            "ASINH" => Func::Asinh,
+            "ATAN" => Func::Atan,
+            "ATAN2" => Func::Atan2,
+            "ATANH" => Func::Atanh,
+            "COS" => Func::Cos,
+            "COSH" => Func::Cosh,
+            "SIN" => Func::Sin,
+            "SINH" => Func::Sinh,
+            "TAN" => Func::Tan,
+            "TANH" => Func::Tanh,
+            "EXP" => Func::Exp,
+            "EXP2" => Func::Exp2,
+            "EXP10" => Func::Exp10,
+            "LOG" => Func::Log,
+            "LOG2" => Func::Log2,
+            "LOG10" => Func::Log10,
+            "POW" => Func::Powf,
+            "SQRT" => Func::Sqrt,
+            "RSQRT" => Func::Rsqrt,
+            "CEIL" => Func::Ceil,
+            "FLOOR" => Func::Floor,
+            "FRACT" => Func::Fract,
+            "TRUNC" => Func::Trunc,
+            "ROUND" => Func::Round,
+            "FMA" => Func::Fma,
+            "COPYSIGN" => Func::Copysign,
+            "CROSS" => Func::Cross,
+            "DOT" => Func::Dot,
+            "LENGTH" => Func::Length,
+            "LENGTH_SQUARED" => Func::LengthSquared,
+            "NORMALIZE" => Func::Normalize,
+            "FACEFORWARD" => Func::Faceforward,
+            "REFLECT" => Func::Reflect,
+            "REDUCE_SUM" => Func::ReduceSum,
+            "REDUCE_PRODUCT" => Func::ReduceProd,
+            "REDUCE_MIN" => Func::ReduceMin,
+            "REDUCE_MAX" => Func::ReduceMax,
+            "OUTER_PRODUCT" => Func::OuterProduct,
+            "MATRIX_COMPONENT_WISE_MULTIPLICATION" => Func::MatCompMul,
+            "DETERMINANT" => Func::Determinant,
+            "TRANSPOSE" => Func::Transpose,
+            "INVERSE" => Func::Inverse,
+            "SYNCHRONIZE_BLOCK" => Func::SynchronizeBlock,
+            "ATOMIC_EXCHANGE" => Func::AtomicExchange,
+            "ATOMIC_COMPARE_EXCHANGE" => Func::AtomicCompareExchange,
+            "ATOMIC_FETCH_ADD" => Func::AtomicFetchAdd,
+            "ATOMIC_FETCH_SUB" => Func::AtomicFetchSub,
+            "ATOMIC_FETCH_AND" => Func::AtomicFetchAnd,
+            "ATOMIC_FETCH_OR" => Func::AtomicFetchOr,
+            "ATOMIC_FETCH_XOR" => Func::AtomicFetchXor,
+            "ATOMIC_FETCH_MIN" => Func::AtomicFetchMin,
+            "ATOMIC_FETCH_MAX" => Func::AtomicFetchMax,
+            "BUFFER_READ" => Func::BufferRead,
+            "BUFFER_WRITE" => Func::BufferWrite,
+            "BUFFER_SIZE" => Func::BufferSize,
+            "BYTE_BUFFER_READ" => Func::ByteBufferRead,
+            "BYTE_BUFFER_WRITE" => Func::ByteBufferWrite,
+            "BYTE_BUFFER_SIZE" => Func::ByteBufferSize,
+            "TEXTURE_READ" | "TEXTURE_WRITE" | "TEXTURE_SIZE" => {
+                let tt = &self.j_types[args[0]["type"].as_usize().unwrap()];
+                assert_eq!(tt["tag"], "TEXTURE");
+                let dim = tt["dimension"].as_u32().unwrap();
+                match (dim, f) {
+                    (2, "TEXTURE_READ") => Func::Texture2dRead,
+                    (2, "TEXTURE_WRITE") => Func::Texture2dWrite,
+                    (2, "TEXTURE_SIZE") => unimplemented!("Func::Texture2dSize"),
+                    (3, "TEXTURE_READ") => Func::Texture3dRead,
+                    (3, "TEXTURE_WRITE") => Func::Texture3dWrite,
+                    (3, "TEXTURE_SIZE") => unimplemented!("Func::Texture3dSize"),
+                    _ => panic!("Invalid texture dimension: {}.", dim),
+                }
+            }
+            "BINDLESS_TEXTURE2D_SAMPLE" => Func::BindlessTexture2dSample,
+            "BINDLESS_TEXTURE2D_SAMPLE_LEVEL" => Func::BindlessTexture2dSampleLevel,
+            "BINDLESS_TEXTURE2D_SAMPLE_GRAD" => Func::BindlessTexture2dSampleGrad,
+            "BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL" => Func::BindlessTexture2dSampleGradLevel,
+            "BINDLESS_TEXTURE3D_SAMPLE" => Func::BindlessTexture3dSample,
+            "BINDLESS_TEXTURE3D_SAMPLE_LEVEL" => Func::BindlessTexture3dSampleLevel,
+            "BINDLESS_TEXTURE3D_SAMPLE_GRAD" => Func::BindlessTexture3dSampleGrad,
+            "BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL" => Func::BindlessTexture3dSampleGradLevel,
+            "BINDLESS_TEXTURE2D_READ" => Func::BindlessTexture2dRead,
+            "BINDLESS_TEXTURE3D_READ" => Func::BindlessTexture3dRead,
+            "BINDLESS_TEXTURE2D_READ_LEVEL" => Func::BindlessTexture2dReadLevel,
+            "BINDLESS_TEXTURE3D_READ_LEVEL" => Func::BindlessTexture3dReadLevel,
+            "BINDLESS_TEXTURE2D_SIZE" => Func::BindlessTexture2dSize,
+            "BINDLESS_TEXTURE3D_SIZE" => Func::BindlessTexture3dSize,
+            "BINDLESS_TEXTURE2D_SIZE_LEVEL" => Func::BindlessTexture2dSizeLevel,
+            "BINDLESS_TEXTURE3D_SIZE_LEVEL" => Func::BindlessTexture3dSizeLevel,
+            "BINDLESS_BUFFER_READ" => Func::BindlessBufferRead,
+            "BINDLESS_BYTE_BUFFER_READ" => Func::BindlessByteBufferRead,
+            "BINDLESS_BUFFER_SIZE" => Func::BindlessBufferSize,
+            "BINDLESS_BUFFER_TYPE" => Func::BindlessBufferType,
+            "MAKE_BOOL2" | "MAKE_SHORT2" | "MAKE_USHORT2" | "MAKE_INT2" | "MAKE_UINT2"
+            | "MAKE_LONG2" | "MAKE_ULONG2" | "MAKE_HALF2" | "MAKE_FLOAT2" | "MAKE_DOUBLE2" => {
+                Func::Vec2
+            }
+            "MAKE_BOOL3" | "MAKE_SHORT3" | "MAKE_USHORT3" | "MAKE_INT3" | "MAKE_UINT3"
+            | "MAKE_LONG3" | "MAKE_ULONG3" | "MAKE_HALF3" | "MAKE_FLOAT3" | "MAKE_DOUBLE3" => {
+                Func::Vec3
+            }
+            "MAKE_BOOL4" | "MAKE_SHORT4" | "MAKE_USHORT4" | "MAKE_INT4" | "MAKE_UINT4"
+            | "MAKE_LONG4" | "MAKE_ULONG4" | "MAKE_HALF4" | "MAKE_FLOAT4" | "MAKE_DOUBLE4" => {
+                Func::Vec4
+            }
+            "MAKE_FLOAT2X2" => Func::Mat2,
+            "MAKE_FLOAT3X3" => Func::Mat3,
+            "MAKE_FLOAT4X4" => Func::Mat4,
+            "ASSERT" => Func::Assert(CBoxedSlice::new(Vec::new())),
+            "ASSUME" => Func::Assume,
+            "UNREACHABLE" => Func::Unreachable(CBoxedSlice::new(Vec::new())),
+            "ZERO" | "ONE" => unreachable!(),
+            "PACK" => Func::Pack,
+            "UNPACK" => Func::Unpack,
+            "REQUIRES_GRADIENT" => Func::RequiresGradient,
+            "GRADIENT" => Func::Gradient,
+            "GRADIENT_MARKER" => Func::GradientMarker,
+            "ACCUMULATE_GRADIENT" => Func::AccGrad,
+            "BACKWARD" => Func::Backward,
+            "DETACH" => Func::Detach,
+            "RAY_TRACING_INSTANCE_TRANSFORM" => Func::RayTracingInstanceTransform,
+            "RAY_TRACING_SET_INSTANCE_TRANSFORM" => Func::RayTracingSetInstanceTransform,
+            "RAY_TRACING_SET_INSTANCE_VISIBILITY" => Func::RayTracingSetInstanceVisibility,
+            "RAY_TRACING_SET_INSTANCE_OPACITY" => Func::RayTracingSetInstanceOpacity,
+            "RAY_TRACING_TRACE_CLOSEST" => Func::RayTracingTraceClosest,
+            "RAY_TRACING_TRACE_ANY" => Func::RayTracingTraceAny,
+            "RAY_TRACING_QUERY_ALL" => Func::RayTracingQueryAll,
+            "RAY_TRACING_QUERY_ANY" => Func::RayTracingQueryAny,
+            "RAY_QUERY_WORLD_SPACE_RAY" => Func::RayQueryWorldSpaceRay,
+            "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT" => Func::RayQueryProceduralCandidateHit,
+            "RAY_QUERY_TRIANGLE_CANDIDATE_HIT" => Func::RayQueryTriangleCandidateHit,
+            "RAY_QUERY_COMMITTED_HIT" => Func::RayQueryCommittedHit,
+            "RAY_QUERY_COMMIT_TRIANGLE" => Func::RayQueryCommitTriangle,
+            "RAY_QUERY_COMMIT_PROCEDURAL" => Func::RayQueryCommitProcedural,
+            "RAY_QUERY_TERMINATE" => Func::RayQueryTerminate,
+            "RASTER_DISCARD" => unimplemented!("Func::RasterDiscard"),
+            "DDX" => unimplemented!("Func::Ddx"),
+            "DDY" => unimplemented!("Func::Ddy"),
+            "WARP_IS_FIRST_ACTIVE_LANE" => Func::WarpIsFirstActiveLane,
+            "WARP_FIRST_ACTIVE_LANE" => Func::WarpFirstActiveLane,
+            "WARP_ACTIVE_ALL_EQUAL" => Func::WarpActiveAllEqual,
+            "WARP_ACTIVE_BIT_AND" => Func::WarpActiveBitAnd,
+            "WARP_ACTIVE_BIT_OR" => Func::WarpActiveBitOr,
+            "WARP_ACTIVE_BIT_XOR" => Func::WarpActiveBitXor,
+            "WARP_ACTIVE_COUNT_BITS" => Func::WarpActiveCountBits,
+            "WARP_ACTIVE_MAX" => Func::WarpActiveMax,
+            "WARP_ACTIVE_MIN" => Func::WarpActiveMin,
+            "WARP_ACTIVE_PRODUCT" => Func::WarpActiveProduct,
+            "WARP_ACTIVE_SUM" => Func::WarpActiveSum,
+            "WARP_ACTIVE_ALL" => Func::WarpActiveAll,
+            "WARP_ACTIVE_ANY" => Func::WarpActiveAny,
+            "WARP_ACTIVE_BIT_MASK" => Func::WarpActiveBitMask,
+            "WARP_PREFIX_COUNT_BITS" => Func::WarpPrefixCountBits,
+            "WARP_PREFIX_SUM" => Func::WarpPrefixSum,
+            "WARP_PREFIX_PRODUCT" => Func::WarpPrefixProduct,
+            "WARP_READ_LANE" => Func::WarpReadLaneAt,
+            "WARP_READ_FIRST_ACTIVE_LANE" => Func::WarpReadFirstLane,
+            "INDIRECT_SET_DISPATCH_KERNEL" => Func::IndirectDispatchSetKernel,
+            "INDIRECT_SET_DISPATCH_COUNT" => Func::IndirectDispatchSetCount,
+            "SHADER_EXECUTION_REORDER" => Func::ShaderExecutionReorder,
+            _ => panic!("Invalid built-in function: {}.", f),
+        };
+
+        let mut convert_args = |is_lval: &[bool]| -> Vec<_> {
+            assert_eq!(is_lval.len(), args.len());
+            zip(args.members(), is_lval)
+                .map(|(arg, is_lval)| self._convert_expression(arg, *is_lval))
+                .collect()
+        };
+        let mut check_is_ray_query = |node: NodeRef| {
+            let t = node.type_();
+            assert!(
+                t.is_opaque("LC_RayQueryAll") || t.is_opaque("LC_RayQueryAll"),
+                "Invalid ray query type."
+            );
+        };
+        let mut check_is_accel = |node: NodeRef| match node.get().instruction.as_ref() {
+            Instruction::Accel => {}
+            _ => panic!("Invalid accel type."),
+        };
+        let mut check_is_buffer = |node: NodeRef| match node.get().instruction.as_ref() {
+            Instruction::Buffer => {}
+            _ => panic!("Invalid buffer type."),
+        };
+        let mut check_is_texture = |node: NodeRef| match node.get().instruction.as_ref() {
+            Instruction::Texture2D => {}
+            Instruction::Texture3D => {}
+            _ => panic!("Invalid texture type."),
+        };
+        let mut check_is_bindless = |node: NodeRef| match node.get().instruction.as_ref() {
+            Instruction::Bindless => {}
+            _ => panic!("Invalid bindless type."),
+        };
+        let mut check_is_index = |t: &CArc<Type>| {
+            assert!(t.is_int() && t.is_primitive());
+        };
+        let mut check_is_tex_int_coord = |t: &CArc<Type>| {
+            assert!(t.is_int() && t.is_vector() && (t.dimension() == 2 || t.dimension() == 3));
+        };
+        let mut check_is_tex_float_coord = |t: &CArc<Type>| {
+            assert!(t.is_float() && t.is_vector() && (t.dimension() == 2 || t.dimension() == 3));
+        };
+        macro_rules! check_same_types {
+            ($first: expr) => {};
+            ($first: expr, $($rest: expr),+) => {
+                {
+                    let first = $first;
+                    $(
+                        assert_eq!(first.as_ref(), $rest.as_ref());
+                    )+
+                }
+            };
+        }
+        let args = match f {
+            "ALL" | "ANY" => {
+                // (boolN) -> bool
+                let args = convert_args(&[false]);
+                assert!(args[0].type_().is_bool() && args[0].type_().is_vector());
+                assert!(t.is_bool() && t.is_primitive());
+                args
+            }
+            "SELECT" => {
+                // (T, T, bool) -> T or (vecN, vecN, boolN) -> vecN
+                let args = convert_args(&[false, false, false]);
+                // IR and AST have different order of arguments for select
+                let args = vec![args[2], args[1], args[0]];
+                assert!(args[0].type_().is_bool());
+                // Now: (bool, T, T) -> T or (boolN, vecN, vecN) -> vecN
+                assert!(args[0].type_().is_bool());
+                check_same_types!(t, args[1].type_(), args[2].type_());
+                match args[0].type_().as_ref() {
+                    Type::Primitive(_) => {}
+                    Type::Vector(_) => {
+                        assert_eq!(args[0].type_().dimension(), t.dimension());
+                    }
+                    _ => panic!("Invalid select type."),
+                }
+                args
+            }
+            "CLAMP" | "LERP" => {
+                // (vecN, vecN, vecN) -> vecN
+                let args = convert_args(&[false, false, false]);
+                check_same_types!(t, args[0].type_(), args[1].type_(), args[2].type_());
+                args
+            }
+            "SMOOTHSTEP" | "STEP" | "FMA" => {
+                // (floatN, floatN, floatN) -> floatN
+                let args = convert_args(&[false, false, false]);
+                check_same_types!(t, args[0].type_(), args[1].type_(), args[2].type_());
+                assert!(t.is_float());
+                args
+            }
+            "ABS" => {
+                // (vecN) -> vecN
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                args
+            }
+            "MIN" | "MAX" => {
+                // (vecN, vecN) -> vecN
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                args
+            }
+            "CLZ" | "CTZ" | "POPCOUNT" | "REVERSE" => {
+                // (uintN) -> uintN
+                let args = convert_args(&[false]);
+                let t_arg = args[0].type_();
+                assert!(t_arg.is_int() && t_arg.is_unsigned());
+                check_same_types!(t, t_arg);
+                args
+            }
+            "ISINF" | "ISNAN" => {
+                // (floatN) -> boolN
+                let args = convert_args(&[false]);
+                let t_arg = args[0].type_();
+                assert!(t_arg.is_float() && t.is_bool());
+                assert_eq!(t_arg.dimension(), t.dimension());
+                args
+            }
+            "ACOS" | "ACOSH" | "ASIN" | "ASINH" | "ATAN" | "ATANH" | "COS" | "COSH" | "SIN"
+            | "SINH" | "TAN" | "TANH" | "EXP" | "EXP2" | "EXP10" | "LOG" | "LOG2" | "LOG10"
+            | "CEIL" | "FLOOR" | "FRACT" | "TRUNC" | "ROUND" | "SQRT" | "RSQRT" | "SATURATE"
+            | "NORMALIZE" => {
+                // (floatN) -> floatN
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                assert!(t.is_float());
+                args
+            }
+            "POW" | "ATAN2" | "COPYSIGN" => {
+                // (floatN, floatN) -> floatN
+                let args = convert_args(&[false, false]);
+                check_same_types!(t, args[0].type_(), args[1].type_());
+                assert!(t.is_float());
+                args
+            }
+            "CROSS" | "REFLECT" => {
+                // (float3, float3) -> float3
+                let args = convert_args(&[false, false]);
+                check_same_types!(t, args[0].type_(), args[1].type_());
+                assert!(t.is_float());
+                assert_eq!(t.dimension(), 3);
+                args
+            }
+            "DOT" => {
+                // (floatN, floatN) -> float
+                let args = convert_args(&[false, false]);
+                check_same_types!(args[0].type_(), args[1].type_());
+                let t_arg = args[0].type_();
+                assert_eq!(t_arg.element().as_ref(), t.as_ref());
+                assert!(t_arg.is_float() && t_arg.is_vector() && t.is_float());
+                args
+            }
+            "LENGTH" | "LENGTH_SQUARED" => {
+                // (floatN) -> float
+                let args = convert_args(&[false]);
+                let t_arg = args[0].type_();
+                assert_eq!(t_arg.element().as_ref(), t.as_ref());
+                assert!(t_arg.is_float() && t_arg.is_vector() && t.is_float());
+                args
+            }
+            "FACEFORWARD" => {
+                // (float3, float3, float3) -> float3
+                let args = convert_args(&[false, false, false]);
+                check_same_types!(t, args[0].type_(), args[1].type_(), args[2].type_());
+                assert!(t.is_float());
+                assert_eq!(t.dimension(), 3);
+                args
+            }
+            "REDUCE_SUM" | "REDUCE_PRODUCT" | "REDUCE_MIN" | "REDUCE_MAX" => {
+                // (vecN) -> scalar or (matNxN) -> scalar
+                let args = convert_args(&[false]);
+                let t_arg = args[0].type_();
+                assert!(t_arg.is_vector() || t_arg.is_matrix());
+                assert_eq!(t_arg.element().as_ref(), t.as_ref());
+                args
+            }
+            "OUTER_PRODUCT" => {
+                // (floatN, floatN) -> floatNxN or (floatNxN, floatNxN) -> floatNxN
+                let args = convert_args(&[false, false]);
+                let t_lhs = args[0].type_();
+                let t_rhs = args[1].type_();
+                check_same_types!(t.element(), t_lhs.element(), t_rhs.element());
+                assert_eq!(t_lhs.dimension(), t_rhs.dimension());
+                assert_eq!(t_lhs.dimension(), t.dimension());
+                match (t_lhs.as_ref(), t_rhs.as_ref(), t.as_ref()) {
+                    (Type::Vector(_), Type::Vector(_), Type::Matrix(_)) => {}
+                    (Type::Matrix(_), Type::Matrix(_), Type::Matrix(_)) => {}
+                    _ => panic!("Invalid outer product type."),
+                }
+                args
+            }
+            "MATRIX_COMPONENT_WISE_MULTIPLICATION" => {
+                // (floatNxN, floatNxN) -> floatNxN
+                let args = convert_args(&[false, false]);
+                check_same_types!(t, args[0].type_(), args[1].type_());
+                assert!(t.is_matrix());
+                args
+            }
+            "DETERMINANT" => {
+                // (floatNxN) -> float
+                let args = convert_args(&[false]);
+                let t_arg = args[0].type_();
+                assert!(t_arg.is_matrix());
+                assert_eq!(t_arg.element().as_ref(), t.as_ref());
+                assert!(t.is_float());
+                args
+            }
+            "TRANSPOSE" | "INVERSE" => {
+                // (floatNxN) -> floatNxN
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                assert!(t.is_matrix());
+                args
+            }
+            "SYNCHRONIZE_BLOCK" => {
+                // () -> void
+                assert!(t.is_void());
+                convert_args(&[])
+            }
+            "ATOMIC_EXCHANGE" | "ATOMIC_FETCH_ADD" | "ATOMIC_FETCH_SUB" | "ATOMIC_FETCH_MIN"
+            | "ATOMIC_FETCH_MAX" => {
+                assert!(args.len() >= 3);
+                let is_lval: Vec<_> = args.members().enumerate().map(|(i, _)| i == 0).collect();
+                let args = convert_args(is_lval.as_slice());
+                check_same_types!(args.last().unwrap().type_(), t);
+                assert!(t.is_primitive() && (t.is_int() || t.is_float()));
+                args
+            }
+            "ATOMIC_COMPARE_EXCHANGE" => {
+                assert!(args.len() >= 4);
+                let is_lval: Vec<_> = args.members().enumerate().map(|(i, _)| i == 0).collect();
+                let args = convert_args(is_lval.as_slice());
+                let n = args.len();
+                check_same_types!(args[n - 2].type_(), args[n - 1].type_(), t);
+                assert!(t.is_primitive() && (t.is_int() || t.is_float()));
+                args
+            }
+            "ATOMIC_FETCH_AND" | "ATOMIC_FETCH_OR" | "ATOMIC_FETCH_XOR" => {
+                // [(atomic_ref, val) -> old]: stores (old & val), returns old.
+                assert!(args.len() >= 3);
+                let is_lval: Vec<_> = args.members().enumerate().map(|(i, _)| i == 0).collect();
+                let args = convert_args(is_lval.as_slice());
+                check_same_types!(args.last().unwrap().type_(), t);
+                assert!(t.is_primitive() && t.is_int());
+                args
+            }
+            "BUFFER_READ" | "BYTE_BUFFER_READ" => {
+                // [(buffer, index) -> value]: reads the index-th element in buffer
+                let args = convert_args(&[false, false]);
+                check_is_buffer(args[0]);
+                check_is_index(args[1].type_());
+                args
+            }
+            "BUFFER_WRITE" | "BYTE_BUFFER_WRITE" => {
+                // [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+                let args = convert_args(&[false, false, false]);
+                check_is_buffer(args[0]);
+                check_is_index(args[1].type_());
+                assert!(t.is_void());
+                args
+            }
+            "BUFFER_SIZE" | "BYTE_BUFFER_SIZE" => {
+                // [(buffer) -> size]
+                let args = convert_args(&[false]);
+                check_is_buffer(args[0]);
+                assert!(t.is_int() && t.is_unsigned());
+                args
+            }
+            "TEXTURE_READ" => {
+                // [(texture, coord) -> value]
+                let args = convert_args(&[false, false]);
+                check_is_texture(args[0]);
+                check_is_tex_int_coord(args[1].type_());
+                args
+            }
+            "TEXTURE_WRITE" => {
+                // [(texture, coord, value) -> void]
+                let args = convert_args(&[false, false, false]);
+                check_is_texture(args[0]);
+                check_is_tex_int_coord(args[1].type_());
+                assert!(t.is_void());
+                args
+            }
+            "TEXTURE_SIZE" => {
+                // [(texture) -> Vector<uint, dim>]
+                let args = convert_args(&[false]);
+                check_is_texture(args[0]);
+                check_is_tex_int_coord(t);
+                args
+            }
+            "BINDLESS_TEXTURE2D_SAMPLE" | "BINDLESS_TEXTURE3D_SAMPLE" => {
+                let args = convert_args(&[false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_float_coord(args[2].type_());
+                args
+            }
+            "BINDLESS_TEXTURE2D_SAMPLE_LEVEL" | "BINDLESS_TEXTURE3D_SAMPLE_LEVEL" => {
+                let args = convert_args(&[false, false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_float_coord(args[2].type_());
+                assert!(args[3].type_().is_float() && args[3].type_().is_primitive());
+                args
+            }
+            "BINDLESS_TEXTURE2D_SAMPLE_GRAD" | "BINDLESS_TEXTURE3D_SAMPLE_GRAD" => {
+                let args = convert_args(&[false, false, false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_float_coord(args[2].type_());
+                check_is_tex_float_coord(args[3].type_());
+                check_is_tex_float_coord(args[4].type_());
+                args
+            }
+            "BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL" | "BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL" => {
+                let args = convert_args(&[false, false, false, false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_float_coord(args[2].type_());
+                check_is_tex_float_coord(args[3].type_());
+                check_is_tex_float_coord(args[4].type_());
+                assert!(args[5].type_().is_float() && args[5].type_().is_primitive());
+                args
+            }
+            "BINDLESS_TEXTURE2D_READ" | "BINDLESS_TEXTURE3D_READ" => {
+                let args = convert_args(&[false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_int_coord(args[2].type_());
+                args
+            }
+            "BINDLESS_TEXTURE2D_READ_LEVEL" | "BINDLESS_TEXTURE3D_READ_LEVEL" => {
+                let args = convert_args(&[false, false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_int_coord(args[2].type_());
+                check_is_index(args[3].type_());
+                args
+            }
+            "BINDLESS_TEXTURE2D_SIZE" | "BINDLESS_TEXTURE3D_SIZE" => {
+                let args = convert_args(&[false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_tex_int_coord(t);
+                args
+            }
+            "BINDLESS_TEXTURE2D_SIZE_LEVEL" | "BINDLESS_TEXTURE3D_SIZE_LEVEL" => {
+                let args = convert_args(&[false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_index(args[2].type_());
+                check_is_tex_int_coord(t);
+                args
+            }
+            "BINDLESS_BUFFER_READ" | "BINDLESS_BYTE_BUFFER_READ" => {
+                let args = convert_args(&[false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_index(args[2].type_());
+                args
+            }
+            "BINDLESS_BUFFER_SIZE" => {
+                // (bindless_array, index: uint, stride: uint) -> size
+                let args = convert_args(&[false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_index(args[2].type_());
+                check_is_index(t);
+                args
+            }
+            "BINDLESS_BUFFER_TYPE" => {
+                let args = convert_args(&[false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_index(t);
+                args
+            }
+            "MAKE_BOOL2" | "MAKE_BOOL3" | "MAKE_BOOL4" | "MAKE_INT2" | "MAKE_INT3"
+            | "MAKE_INT4" | "MAKE_UINT2" | "MAKE_UINT3" | "MAKE_UINT4" | "MAKE_FLOAT2"
+            | "MAKE_FLOAT3" | "MAKE_FLOAT4" | "MAKE_SHORT2" | "MAKE_SHORT3" | "MAKE_SHORT4"
+            | "MAKE_USHORT2" | "MAKE_USHORT3" | "MAKE_USHORT4" | "MAKE_LONG2" | "MAKE_LONG3"
+            | "MAKE_LONG4" | "MAKE_ULONG2" | "MAKE_ULONG3" | "MAKE_ULONG4" | "MAKE_HALF2"
+            | "MAKE_HALF3" | "MAKE_HALF4" | "MAKE_DOUBLE2" | "MAKE_DOUBLE3" | "MAKE_DOUBLE4" => {
+                let n = f.chars().last().unwrap().to_digit(10).unwrap();
+                let elem = &f[5..f.len() - 1];
+                let elem = match elem {
+                    "BOOL" => <bool as TypeOf>::type_(),
+                    "INT" => <i32 as TypeOf>::type_(),
+                    "UINT" => <u32 as TypeOf>::type_(),
+                    "FLOAT" => <f32 as TypeOf>::type_(),
+                    "SHORT" => <i16 as TypeOf>::type_(),
+                    "USHORT" => <u16 as TypeOf>::type_(),
+                    "LONG" => <i64 as TypeOf>::type_(),
+                    "ULONG" => <u64 as TypeOf>::type_(),
+                    "HALF" => <f16 as TypeOf>::type_(),
+                    "DOUBLE" => <f64 as TypeOf>::type_(),
+                    _ => panic!("Invalid vector element type: {}.", elem),
+                };
+                let ret = Type::vector_of(elem.clone(), n);
+                check_same_types!(t, ret);
+                let is_lval: Vec<_> = (0..n).map(|_| false).collect();
+                let args = convert_args(is_lval.as_slice());
+                let (builder, ..) = self.unwrap_ctx();
+                if args.len() == 1 {
+                    if args[0].type_().is_primitive() {
+                        vec![Self::_cast(builder, &t, args[0])]
+                    } else {
+                        let v = args[0];
+                        let v_elem = v.type_().element();
+                        assert!(v.type_().dimension() >= n as usize);
+                        (0..n)
+                            .map(|i| {
+                                let x = builder.extract(v, i as usize, v_elem.clone());
+                                Self::_cast(builder, &elem, x)
+                            })
+                            .collect()
+                    }
+                } else {
+                    let mut scalars = Vec::new();
+                    for arg in args {
+                        let s = if arg.type_().is_primitive() {
+                            assert_eq!(arg.type_().as_ref(), elem.as_ref());
+                            scalars.push(arg);
+                        } else {
+                            assert_eq!(arg.type_().element().as_ref(), elem.as_ref());
+                            assert!(arg.type_().is_vector());
+                            for i in 0..n {
+                                scalars.push(builder.extract(arg, i as usize, elem.clone()));
+                            }
+                        };
+                    }
+                    assert_eq!(scalars.len(), n as usize);
+                    scalars
+                }
+            }
+            "MAKE_FLOAT2X2" | "MAKE_FLOAT3X3" | "MAKE_FLOAT4X4" => {
+                let n = f.chars().last().unwrap().to_digit(10).unwrap();
+                let ret = Type::matrix(Primitive::Float32, n);
+                check_same_types!(t, ret);
+                let is_lval: Vec<_> = (0..n).map(|_| false).collect();
+                let args = convert_args(is_lval.as_slice());
+                let col = Type::vector(Primitive::Float32, n);
+                args.iter().for_each(|arg| {
+                    assert_eq!(arg.type_().as_ref(), col.as_ref());
+                });
+                args
+            }
+            "ASSERT" | "ASSUME" => {
+                let args = convert_args(&[false]);
+                assert!(args[0].type_().is_bool());
+                assert!(t.is_void());
+                args
+            }
+            "UNREACHABLE" => convert_args(&[]),
+            "ZERO" => unreachable!(),
+            "ONE" => unreachable!(),
+            "PACK" => {
+                let args = convert_args(&[false, false, false]);
+                check_is_buffer(args[0]);
+                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                assert!(t.is_void());
+                args
+            }
+            "UNPACK" => {
+                let args = convert_args(&[false, false]);
+                check_is_buffer(args[0]);
+                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                args
+            }
+            "REQUIRES_GRADIENT" => convert_args(&[true]),
+            "GRADIENT" => convert_args(&[true]),
+            "GRADIENT_MARKER" => convert_args(&[true, false]),
+            "ACCUMULATE_GRADIENT" => convert_args(&[true, false]),
+            "BACKWARD" => convert_args(&[true]),
+            "DETACH" => convert_args(&[true]),
+            "RAY_TRACING_INSTANCE_TRANSFORM" => {
+                let args = convert_args(&[false, false]);
+                check_is_accel(args[0]);
+                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                assert!(t.is_matrix() && t.is_float());
+                assert_eq!(t.dimension(), 4);
+                args
+            }
+            "RAY_TRACING_SET_INSTANCE_TRANSFORM" => {
+                // (Accel, uint, float4x4)
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                assert!(args[2].type_().is_matrix() && args[2].type_().is_float());
+                assert_eq!(args[2].type_().dimension(), 4);
+                assert!(t.is_void());
+                args
+            }
+            "RAY_TRACING_SET_INSTANCE_VISIBILITY" => {
+                // (Accel, uint, uint)
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
+                assert!(t.is_void());
+                args
+            }
+            "RAY_TRACING_SET_INSTANCE_OPACITY" => {
+                // (Accel, uint, bool)
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                assert!(args[2].type_().is_bool() && args[2].type_().is_primitive());
+                assert!(t.is_void());
+                args
+            }
+            "RAY_TRACING_TRACE_CLOSEST" => {
+                // (Accel, ray, mask: uint): TriangleHit
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
+                args
+            }
+            "RAY_TRACING_TRACE_ANY" => {
+                // (Accel, ray, mask: uint): bool
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
+                assert!(t.is_bool() && t.is_primitive());
+                args
+            }
+            "RAY_TRACING_QUERY_ALL" | "RAY_TRACING_QUERY_ANY" => {
+                // (Accel, ray, mask: uint): RayQuery
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
+                args
+            }
+            "RAY_QUERY_WORLD_SPACE_RAY"
+            | "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"
+            | "RAY_QUERY_TRIANGLE_CANDIDATE_HIT"
+            | "RAY_QUERY_COMMITTED_HIT" => {
+                let args = convert_args(&[true]);
+                check_is_ray_query(args[0]);
+                args
+            }
+            "RAY_QUERY_COMMIT_TRIANGLE" => {
+                assert!(t.is_void());
+                let args = convert_args(&[true]);
+                check_is_ray_query(args[0]);
+                args
+            }
+            "RAY_QUERY_COMMIT_PROCEDURAL" => {
+                assert!(t.is_void());
+                let args = convert_args(&[true, false]);
+                check_is_ray_query(args[0]);
+                assert!(args[1].type_().is_float() && args[1].type_().is_primitive());
+                args
+            }
+            "RAY_QUERY_TERMINATE" => {
+                assert!(t.is_void());
+                let args = convert_args(&[true]);
+                check_is_ray_query(args[0]);
+                args
+            }
+            "RASTER_DISCARD" => unimplemented!("Func::RasterDiscard"),
+            "DDX" => unimplemented!("Func::Ddx"),
+            "DDY" => unimplemented!("Func::Ddy"),
+            "WARP_IS_FIRST_ACTIVE_LANE" => {
+                let args = convert_args(&[]);
+                assert!(t.is_bool() && t.is_primitive());
+                args
+            }
+            "WARP_FIRST_ACTIVE_LANE" => {
+                let args = convert_args(&[]);
+                assert!(t.is_int() && t.is_primitive());
+                args
+            }
+            "WARP_ACTIVE_ALL_EQUAL" => {
+                // (scalar/vector): boolN
+                let args = convert_args(&[false]);
+                assert!(t.is_bool());
+                assert_eq!(args[0].type_().dimension(), t.dimension());
+                args
+            }
+            "WARP_ACTIVE_BIT_AND" | "WARP_ACTIVE_BIT_OR" | "WARP_ACTIVE_BIT_XOR" => {
+                // (scalar/vector): uintN
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                assert!(t.is_int());
+                args
+            }
+            "WARP_ACTIVE_COUNT_BITS" | "WARP_PREFIX_COUNT_BITS" => {
+                // (bool): uint
+                let args = convert_args(&[false]);
+                assert!(t.is_int() && t.is_primitive());
+                assert!(args[0].type_().is_bool() && args[0].type_().is_primitive());
+                args
+            }
+            "WARP_ACTIVE_MAX"
+            | "WARP_ACTIVE_MIN"
+            | "WARP_ACTIVE_PRODUCT"
+            | "WARP_ACTIVE_SUM"
+            | "WARP_PREFIX_SUM"
+            | "WARP_PREFIX_PRODUCT" => {
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                assert!(t.is_primitive() || t.is_vector());
+                args
+            }
+            "WARP_ACTIVE_ALL" | "WARP_ACTIVE_ANY" => {
+                // (bool): bool
+                let args = convert_args(&[false]);
+                check_same_types!(args[0].type_(), t);
+                assert!(t.is_bool() && t.is_primitive());
+                args
+            }
+            "WARP_ACTIVE_BIT_MASK" => {
+                // (bool): uint4 (uint4 contained 128-bit)
+                let args = convert_args(&[false]);
+                assert!(t.is_int() && t.is_vector() && t.dimension() == 4);
+                assert!(args[0].type_().is_bool() && args[0].type_().is_primitive());
+                args
+            }
+            "WARP_READ_LANE" => {
+                // (type: scalar/vector/matrix, index: uint): type (read this variable's value at this lane)
+                let args = convert_args(&[false, false]);
+                check_same_types!(args[0].type_(), t);
+                assert!(t.is_primitive() || t.is_vector() || t.is_matrix());
+                check_is_index(args[1].type_());
+                args
+            }
+            "WARP_READ_FIRST_ACTIVE_LANE" => {
+                // (type: scalar/vector/matrix): type (read this variable's value at the first lane)
+                let args = convert_args(&[false]);
+                check_same_types!(args[0].type_(), t);
+                assert!(t.is_primitive() || t.is_vector() || t.is_matrix());
+                args
+            }
+            "INDIRECT_SET_DISPATCH_KERNEL" => {
+                // (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+                let args = convert_args(&[false, false, false, false, false]);
+                check_same_types!(args[1].type_(), args[4].type_());
+                check_same_types!(args[2].type_(), args[3].type_());
+                check_is_index(args[1].type_());
+                assert!(
+                    args[3].type_().is_int()
+                        && args[3].type_().is_vector()
+                        && args[3].type_().dimension() == 3
+                );
+                args
+            }
+            "INDIRECT_SET_DISPATCH_COUNT" => {
+                // (Buffer, uint count)
+                let args = convert_args(&[false, false]);
+                check_is_index(args[1].type_());
+                assert!(t.is_void());
+                args
+            }
+            "SHADER_EXECUTION_REORDER" => {
+                // (uint hint, uint hint_bits): void
+                let args = convert_args(&[false, false]);
+                check_same_types!(args[0].type_(), args[1].type_());
+                assert!(args[0].type_().is_int() && args[0].type_().is_primitive());
+                assert!(t.is_void());
+                args
+            }
+            _ => panic!("Invalid built-in function: {}.", f),
+        };
+        let (builder, ..) = self.unwrap_ctx();
+        builder.call(func, args.as_slice(), t.clone())
     }
 
     fn _convert_call_custom(&mut self, t: &CArc<Type>, f: usize, args: &JSON) -> NodeRef {
@@ -1051,7 +1915,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             })
             .collect();
         let shared = self._curr_ctx().shared.clone();
-        let block_size = &self.j["block_size"];
+        let block_size = &self._curr_ctx().j["block_size"];
         let block_size = [
             block_size[0].as_u32().unwrap(),
             block_size[1].as_u32().unwrap(),

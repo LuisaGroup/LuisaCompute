@@ -96,28 +96,28 @@ enum struct CallOp : uint32_t {
     MIN,// (vecN)
     MAX,// (vecN)
 
-    CLZ,     // (int/uint)
-    CTZ,     // (int/uint)
-    POPCOUNT,// (int/uint)
-    REVERSE, // (int/uint)
+    CLZ,     // (uintN)
+    CTZ,     // (uintN)
+    POPCOUNT,// (uintN)
+    REVERSE, // (uintN)
 
     ISINF,// (floatN)
     ISNAN,// (floatN)
 
-    ACOS, // (float)
-    ACOSH,// (float)
-    ASIN, // (float)
-    ASINH,// (float)
-    ATAN, // (float)
-    ATAN2,// (float)
-    ATANH,// (float)
+    ACOS, // (floatN)
+    ACOSH,// (floatN)
+    ASIN, // (floatN)
+    ASINH,// (floatN)
+    ATAN, // (floatN)
+    ATAN2,// (floatN)
+    ATANH,// (floatN)
 
-    COS, // (float)
-    COSH,// (float)
-    SIN, // (float)
-    SINH,// (float)
-    TAN, // (float)
-    TANH,// (float)
+    COS, // (floatN)
+    COSH,// (floatN)
+    SIN, // (floatN)
+    SINH,// (floatN)
+    TAN, // (floatN)
+    TANH,// (floatN)
 
     EXP,  // (floatN)
     EXP2, // (floatN)
@@ -136,8 +136,8 @@ enum struct CallOp : uint32_t {
     TRUNC,// (floatN)
     ROUND,// (floatN)
 
-    FMA,     // (a, b): return a * b + c
-    COPYSIGN,// (float, float)
+    FMA,     // (a: floatN, b: floatN, c: floatN): return a * b + c
+    COPYSIGN,// (floatN, floatN)
 
     CROSS,         // (floatN, floatN)
     DOT,           // (floatN, floatN)

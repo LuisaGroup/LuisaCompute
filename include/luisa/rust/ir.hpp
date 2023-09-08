@@ -467,7 +467,7 @@ struct Func {
         /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
         BindlessBufferType,
-        BindlessByteAdressBufferRead,
+        BindlessByteBufferRead,
         Vec,
         Vec2,
         Vec3,

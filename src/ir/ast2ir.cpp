@@ -3,6 +3,7 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ast/function_builder.h>
+#include <luisa/ast/ast2json.h>
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "misc-no-recursion"
@@ -761,7 +762,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::BUFFER_SIZE: return ir::Func::Tag::BufferSize;
             case CallOp::BINDLESS_BUFFER_SIZE: return ir::Func::Tag::BindlessBufferSize;
             case CallOp::BINDLESS_BUFFER_TYPE: return ir::Func::Tag::BindlessBufferType;
-            case CallOp::BINDLESS_BYTE_BUFFER_READ: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BINDLESS_BYTE_BUFFER_READ: return ir::Func::Tag::BindlessByteBufferRead;
             case CallOp::REQUIRES_GRADIENT: return ir::Func::Tag::RequiresGradient;
             case CallOp::GRADIENT: return ir::Func::Tag::Gradient;
             case CallOp::BACKWARD: return ir::Func::Tag::Backward;
@@ -796,9 +797,9 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::ZERO: LUISA_ERROR_WITH_LOCATION(
                 "Unexpected CallOp: {}.",
                 luisa::to_string(expr->op()));
-            case CallOp::BYTE_BUFFER_READ: LUISA_NOT_IMPLEMENTED();
-            case CallOp::BYTE_BUFFER_WRITE: LUISA_NOT_IMPLEMENTED();
-            case CallOp::BYTE_BUFFER_SIZE: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BYTE_BUFFER_READ: return ir::Func::Tag::ByteBufferRead;
+            case CallOp::BYTE_BUFFER_WRITE: return ir::Func::Tag::ByteBufferWrite;
+            case CallOp::BYTE_BUFFER_SIZE: return ir::Func::Tag::ByteBufferSize;
             case CallOp::WARP_IS_FIRST_ACTIVE_LANE: return ir::Func::Tag::WarpIsFirstActiveLane;
             case CallOp::WARP_FIRST_ACTIVE_LANE: return ir::Func::Tag::WarpFirstActiveLane;
             case CallOp::WARP_ACTIVE_ALL_EQUAL: return ir::Func::Tag::WarpActiveAllEqual;
@@ -876,8 +877,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             }
             args.resize(expr->type()->dimension());
         }
-    }
-    else if (expr->op() == CallOp::GRADIENT_MARKER) {
+    } else if (expr->op() == CallOp::GRADIENT_MARKER) {
         //        LUISA_VERBOSE("using gradient marker arg emplace");
         args.reserve(2);
         args.emplace_back(_convert_expr(expr->arguments()[0], true));
@@ -1446,10 +1446,34 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
     return AST2IR{}._convert_kernel(function);
+    //    auto j = to_json(function);
+    //    auto slice = ir::CBoxedSlice<uint8_t>{
+    //        .ptr = reinterpret_cast<uint8_t *>(j.data()),
+    //        .len = j.size(),
+    //        .destructor = nullptr,
+    //    };
+    //    auto f = ir::luisa_compute_ir_ast_json_to_ir_kernel(slice);
+    //    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(f),
+    //            [](ir::CArc<ir::KernelModule> *p) noexcept {
+    //                p->release();
+    //                luisa::delete_with_allocator(p);
+    //            }};
 }
 
 [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::CallableModule>> AST2IR::build_callable(Function function) noexcept {
     return AST2IR{}._convert_callable(function);
+    //    auto j = to_json(function);
+    //    auto slice = ir::CBoxedSlice<uint8_t>{
+    //        .ptr = reinterpret_cast<uint8_t *>(j.data()),
+    //        .len = j.size(),
+    //        .destructor = nullptr,
+    //    };
+    //    auto f = ir::luisa_compute_ir_ast_json_to_ir_callable(slice);
+    //    return {luisa::new_with_allocator<ir::CArc<ir::CallableModule>>(f),
+    //            [](ir::CArc<ir::CallableModule> *p) noexcept {
+    //                p->release();
+    //                luisa::delete_with_allocator(p);
+    //            }};
 }
 
 ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {

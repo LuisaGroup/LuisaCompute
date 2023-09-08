@@ -702,8 +702,8 @@ impl<'a> FunctionEmitter<'a> {
                 )
                 .unwrap();
                 true
-            } 
-            Func::BindlessByteAdressBufferRead => {
+            }
+            Func::BindlessByteBufferRead => {
                 writeln!(
                     &mut self.body,
                     "const auto {1} = lc_bindless_byte_buffer_read<{0}>(k_args, {2}, {3}, {4});",
