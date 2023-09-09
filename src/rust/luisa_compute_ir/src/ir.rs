@@ -2202,13 +2202,6 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
-    pub fn store(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
-        assert!(var.is_lvalue());
-        let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
-        let node = new_node(&self.pools, node);
-        self.append(node);
-        node
-    }
     pub fn const_(&mut self, const_: Const) -> NodeRef {
         let t = const_.type_();
         let node = Node::new(CArc::new(Instruction::Const(const_)), t);
