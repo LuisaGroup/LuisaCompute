@@ -1838,6 +1838,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 };
                 let ad_block = ToSSA.transform(ad_block);
                 let mut backward = None;
+                let mut gradient_marker = None;
                 for node in body.iter() {
                     match node.get().instruction.as_ref() {
                         Instruction::Call(f, _) => {
@@ -1847,6 +1848,12 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                                 } else {
                                     panic!("multiple backward calls inside AdScope!");
                                 }
+                            } else if *f == Func::GradientMarker {
+                                if gradient_marker == None {
+                                    gradient_marker = Some(node);
+                                } else {
+                                    panic!("multiple gradient_marker calls inside AdScope!");
+                                }
                             }
                         }
                         _ => {}
@@ -1855,6 +1862,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 let backward = backward.unwrap_or_else(|| {
                     panic!("no backward call inside AdScope!");
                 });
+              
                 let epilogue = body.split(backward, pools);
                 backward.remove();
                 let (ad_block, grads) = ad_transform_block(ad_block);
@@ -1880,6 +1888,9 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                         }
                     }
                 }
+                {
+                    gradient_marker.unwrap().remove();
+                 }
                 assert_eq!(ad_block.entry.ptr, body.ptr);
                 body.merge(epilogue);
 
