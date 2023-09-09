@@ -7,7 +7,10 @@ use std::{
 };
 
 use crate::context::is_type_equal;
-use crate::ir::{new_node, Const, Instruction, ModulePools, PhiIncoming, Primitive, SwitchCase};
+use crate::ir::{
+    new_node, CallableModuleRef, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming,
+    Primitive, SwitchCase,
+};
 use crate::transform::ssa::ToSSA;
 use crate::{
     context,
@@ -1820,6 +1823,7 @@ fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<
             kind: ModuleKind::Block,
             entry: fwd,
             pools: module.pools,
+            flags: ModuleFlags::NONE,
         },
         grads,
     )
@@ -1835,6 +1839,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     kind: ModuleKind::Block,
                     entry: body.clone(),
                     pools: pools.clone(),
+                    flags: ModuleFlags::NONE,
                 };
                 let ad_block = ToSSA.transform(ad_block);
                 let mut backward = None;
@@ -1862,7 +1867,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 let backward = backward.unwrap_or_else(|| {
                     panic!("no backward call inside AdScope!");
                 });
-              
+
                 let epilogue = body.split(backward, pools);
                 backward.remove();
                 let (ad_block, grads) = ad_transform_block(ad_block);
@@ -1871,6 +1876,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                         kind: ModuleKind::Block,
                         entry: epilogue,
                         pools: pools.clone(),
+                        flags: ModuleFlags::NONE,
                     };
                     let nodes = epilogue.collect_nodes();
                     for node in nodes {
@@ -1890,14 +1896,13 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 }
                 {
                     gradient_marker.unwrap().remove();
-                 }
+                }
                 assert_eq!(ad_block.entry.ptr, body.ptr);
                 body.merge(epilogue);
 
                 let after_ad = block.split(node, pools);
                 node.remove();
                 block.merge(*body);
-                println!("merging after_ad:");
                 block.merge(after_ad);
             }
             Instruction::If {
@@ -1931,13 +1936,22 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     ad_transform_recursive(*block, pools);
                 }
             }
+            Instruction::Call(f, ..) => match f {
+                Func::Callable(callable) => {
+                    let callable = &callable.0;
+                    if callable.module.flags.contains(ModuleFlags::REQUIRES_AD_TRANSFORM) {
+                        ad_transform_recursive(callable.module.entry, pools);
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
         i += 1;
     }
 }
 impl Transform for Autodiff {
-    fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
+    fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
         // {
         //     println!("Before AD:");
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
@@ -1945,6 +1959,7 @@ impl Transform for Autodiff {
         //     println!("{}", debug.to_str().unwrap());
         // }
         ad_transform_recursive(module.entry, &module.pools);
+        module.flags.remove(ModuleFlags::REQUIRES_AD_TRANSFORM);
         // {
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
         //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();

@@ -16,6 +16,7 @@ struct AST2IRCtx<'a> {
     arguments: HashMap<u32, NodeRef>,
     variables: HashMap<u32, NodeRef>,
     shared: Vec<NodeRef>,
+    has_autodiff: bool,
 }
 
 struct AST2IR<'a: 'b, 'b> {
@@ -1858,6 +1859,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 )
             }
             "AUTO_DIFF" => {
+                self._curr_ctx_mut().has_autodiff = true;
                 let body = self._convert_scope(&j["body"], false);
                 let (builder, ..) = self.unwrap_ctx();
                 builder.ad_scope(body)
@@ -1887,6 +1889,13 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             kind,
             entry,
             pools: self.pools.clone(),
+            flags: {
+                let mut flags = ModuleFlags::empty();
+                if self._curr_ctx().has_autodiff {
+                    flags |= ModuleFlags::REQUIRES_AD_TRANSFORM;
+                }
+                flags
+            }
         }
     }
 
@@ -1981,6 +1990,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             } else {
                 Type::void()
             },
+            has_autodiff: false,
         };
         // push current context
         let tag = ctx.j_tag;

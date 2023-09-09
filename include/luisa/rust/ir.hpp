@@ -53,9 +53,44 @@ struct IrBuilder {
     NodeRef insert_point;
 };
 
+struct ModuleFlags {
+    uint32_t bits;
+
+    explicit operator bool() const {
+        return !!bits;
+    }
+    ModuleFlags operator~() const {
+        return ModuleFlags { static_cast<decltype(bits)>(~bits) };
+    }
+    ModuleFlags operator|(const ModuleFlags& other) const {
+        return ModuleFlags { static_cast<decltype(bits)>(this->bits | other.bits) };
+    }
+    ModuleFlags& operator|=(const ModuleFlags& other) {
+        *this = (*this | other);
+        return *this;
+    }
+    ModuleFlags operator&(const ModuleFlags& other) const {
+        return ModuleFlags { static_cast<decltype(bits)>(this->bits & other.bits) };
+    }
+    ModuleFlags& operator&=(const ModuleFlags& other) {
+        *this = (*this & other);
+        return *this;
+    }
+    ModuleFlags operator^(const ModuleFlags& other) const {
+        return ModuleFlags { static_cast<decltype(bits)>(this->bits ^ other.bits) };
+    }
+    ModuleFlags& operator^=(const ModuleFlags& other) {
+        *this = (*this ^ other);
+        return *this;
+    }
+};
+static const ModuleFlags ModuleFlags_NONE = ModuleFlags{ /* .bits = */ (uint32_t)0 };
+static const ModuleFlags ModuleFlags_REQUIRES_AD_TRANSFORM = ModuleFlags{ /* .bits = */ (uint32_t)1 };
+
 struct Module {
     ModuleKind kind;
     Pooled<BasicBlock> entry;
+    ModuleFlags flags;
     CArc<ModulePools> pools;
 };
 
@@ -851,6 +886,8 @@ void luisa_compute_ir_node_replace_with(NodeRef node_ref, const Node *new_node);
 CBoxedSlice<uint8_t> luisa_compute_ir_node_usage(const KernelModule *kernel);
 
 CArcSharedBlock<Type> *luisa_compute_ir_register_type(const Type *ty);
+
+Module luisa_compute_ir_transform_auto(Module module);
 
 void luisa_compute_ir_transform_pipeline_add_transform(TransformPipeline *pipeline,
                                                        const char *name);

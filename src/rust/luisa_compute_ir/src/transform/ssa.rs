@@ -1,4 +1,4 @@
-use std::collections::{HashSet};
+use std::collections::HashSet;
 
 use super::Transform;
 
@@ -76,17 +76,16 @@ impl ToSSAImpl {
         record: &mut SSABlockRecord,
     ) {
         let value = self.promote(value, builder, record);
-        if var.is_local() {
+        if var.is_local() || var.is_refernece_argument() {
             record.phis.insert(var);
             record.stored.insert(var, value);
             if !self.local_defs.contains(&var) {
                 builder.update(var, value);
             }
         } else {
-           
             // the hardpart
             let (var, indices) = var.access_chain().unwrap();
-             let unpromoted_var = var;
+            let unpromoted_var = var;
             let var = self.promote(var, builder, record);
             let mut st = vec![var];
             let mut cur = var;
@@ -205,7 +204,18 @@ impl ToSSAImpl {
                 record.stored.insert(node, init);
                 return var;
             }
-            Instruction::Argument { .. } => todo!(),
+            Instruction::Argument { by_value } => {
+                if *by_value {
+                    return node;
+                }
+                assert!(!self.local_defs.contains(&node));
+                if !record.stored.contains_key(&node) {
+                    let val = builder.load(node);
+                    record.stored.insert(node, val);
+                    return node;
+                }
+                unreachable!();
+            }
             Instruction::UserData(_) => return node,
             Instruction::Invalid => return node,
             Instruction::Const(c) => {
@@ -354,6 +364,7 @@ impl Transform for ToSSA {
             kind: module.kind,
             entry,
             pools: module.pools,
+            flags: module.flags,
         }
     }
 }

@@ -5,11 +5,13 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::ast2ir;
 use crate::usage_detect::detect_usage;
 use crate::*;
+use bitflags::bitflags;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hasher;
 use std::ops::Deref;
+use std::sync::atomic::AtomicU32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -1556,12 +1558,21 @@ pub enum ModuleKind {
     Function,
     Kernel,
 }
-
+bitflags! {
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct ModuleFlags : u32 {
+        const NONE = 0;
+        const REQUIRES_AD_TRANSFORM = 1;
+    }
+}
 #[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct Module {
     pub kind: ModuleKind,
     pub entry: Pooled<BasicBlock>,
+    pub flags: ModuleFlags,
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
@@ -1680,16 +1691,6 @@ pub struct BlockModule {
 }
 
 unsafe impl Send for BlockModule {}
-
-impl Module {
-    pub fn from_fragment(entry: Pooled<BasicBlock>, pools: CArc<ModulePools>) -> Self {
-        Self {
-            kind: ModuleKind::Block,
-            entry,
-            pools,
-        }
-    }
-}
 
 struct NodeCollector {
     nodes: Vec<NodeRef>,
@@ -2094,6 +2095,7 @@ impl ModuleDuplicator {
             kind: module.kind,
             entry: dup_entry,
             pools: module.pools.clone(),
+            flags: module.flags,
         }
     }
 }
@@ -2672,6 +2674,9 @@ pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBl
     CArc::into_raw(context::register_type(ty.clone()))
 }
 
+
+// #[no_mangle]
+// pub extern "C"
 pub mod debug {
     use crate::display::DisplayIR;
     use std::ffi::CString;
