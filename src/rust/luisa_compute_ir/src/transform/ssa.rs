@@ -85,6 +85,7 @@ impl ToSSAImpl {
         } else {
             // the hardpart
             let (var, indices) = var.access_chain().unwrap();
+            dbg!(var.type_(), &indices);
             let unpromoted_var = var;
             let var = self.promote(var, builder, record);
             let mut st = vec![var];
@@ -96,12 +97,18 @@ impl ToSSAImpl {
                 cur = el;
             }
             let mut value = value;
-            for (t, i) in indices.iter().rev() {
+            for (_, i) in indices.iter().rev() {
                 let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::InsertElement, &[cur, value, i], t.clone());
+                let el = builder.call(Func::InsertElement, &[cur, value, i], cur.type_().clone());
                 value = el;
                 cur = st.pop().unwrap();
             }
+            assert!(
+                context::is_type_equal(unpromoted_var.type_(), value.type_()),
+                "Type mismatch: {} vs {}",
+                unpromoted_var.type_(),
+                value.type_()
+            );
             record.phis.insert(var);
             record.stored.insert(unpromoted_var, value);
             assert_eq!(self.promote(unpromoted_var, builder, record), value);
