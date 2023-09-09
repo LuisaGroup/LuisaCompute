@@ -1354,21 +1354,29 @@ impl BasicBlock {
     /// split the block into two at @at
     /// @at is not transfered into the other block
     pub fn split(&self, at: NodeRef, pools: &CArc<ModulePools>) -> Pooled<BasicBlock> {
+        #[cfg(debug_assertions)]
+        {
+            let nodes = self.nodes();
+            assert!(nodes.contains(&at));
+        }
         let new_bb_start = at.get().next;
         let second_last = self.last.get().prev;
         let new_bb = pools.bb_pool.alloc(BasicBlock::new(pools));
-        new_bb.first.update(|first| {
-            first.next = new_bb_start;
-        });
-        new_bb.last.update(|last| {
-            last.prev = second_last;
-        });
-        second_last.update(|node| {
-            node.next = new_bb.last;
-        });
-        new_bb_start.update(|node| {
-            node.prev = new_bb.first;
-        });
+        if new_bb_start != self.last {
+            new_bb.first.update(|first| {
+                first.next = new_bb_start;
+            });
+            new_bb.last.update(|last| {
+                last.prev = second_last;
+            });
+            second_last.update(|node| {
+                node.next = new_bb.last;
+            });
+            new_bb_start.update(|node| {
+                node.prev = new_bb.first;
+            });
+        }
+
         at.update(|at| {
             at.next = self.last;
         });

@@ -412,7 +412,7 @@ struct Backward {
     intermediate: IndexMap<NodeRef, NodeRef>,
     intermediate_to_node: IndexMap<NodeRef, NodeRef>,
     final_grad: IndexMap<NodeRef, usize>,
-    locally_defined_nodes: HashSet<NodeRef>
+    locally_defined_nodes: HashSet<NodeRef>,
 }
 
 impl Backward {
@@ -1154,7 +1154,6 @@ impl Backward {
                 let node = self.get_intermediate(node);
                 let out_grad = out_grad.unwrap();
                 match func {
-                   
                     Func::Add => {
                         let (lhs_grad, rhs_grad) =
                             self.backward_add(args[0], args[1], out_grad, builder);
@@ -1826,7 +1825,10 @@ fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<
     )
 }
 fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
-    for node in block.iter() {
+    let nodes = block.nodes();
+    let mut i = 0;
+    while i < nodes.len() {
+        let node = nodes[i];
         match node.get().instruction.as_ref() {
             Instruction::AdScope { body } => {
                 let ad_block = Module {
@@ -1880,6 +1882,12 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 }
                 assert_eq!(ad_block.entry.ptr, body.ptr);
                 body.merge(epilogue);
+
+                let after_ad = block.split(node, pools);
+                node.remove();
+                block.merge(*body);
+                println!("merging after_ad:");
+                block.merge(after_ad);
             }
             Instruction::If {
                 cond: _,
@@ -1914,6 +1922,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
             }
             _ => {}
         }
+        i += 1;
     }
 }
 impl Transform for Autodiff {
