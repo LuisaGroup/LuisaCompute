@@ -2286,6 +2286,7 @@ impl IrBuilder {
                     Type::Vector(vt) => Some(vt.element.to_type()),
                     Type::Matrix(mt) => Some(mt.column()),
                     Type::Array(at) => Some(at.element.clone()),
+                    Type::Struct(st) => Some(st.fields[i.get_i32() as usize].clone()),
                     Type::Opaque(_) => None,
                     _ => panic!(
                         "Invalid type {:?} for GEP with dynamic indices",

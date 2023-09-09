@@ -606,7 +606,6 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         let index = self._convert_expression(&j["index"], false);
         assert!(index.type_().is_int(), "Index must be an integer.");
         let t_range = range.type_();
-        println!("{:?} {:?}", t_range, t);
         assert!(t_range.is_array() || t_range.is_vector() || t_range.is_matrix());
         let elem = if t_range.is_matrix() {
             Type::vector_of(t_range.element(), t_range.dimension() as u32)
