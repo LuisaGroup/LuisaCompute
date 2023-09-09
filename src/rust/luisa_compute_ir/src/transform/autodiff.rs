@@ -1,5 +1,6 @@
 use indexmap::{IndexMap, IndexSet};
 
+use bitflags::Flags;
 use std::ops::Deref;
 use std::{
     cell::RefCell,
@@ -13,7 +14,7 @@ use crate::ir::{
 };
 use crate::transform::ssa::ToSSA;
 use crate::{
-    context,
+    context, ir,
     ir::{
         ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
         StructType, Type, VectorElementType, VectorType,
@@ -1841,7 +1842,24 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     pools: pools.clone(),
                     flags: ModuleFlags::NONE,
                 };
+                {
+                    println!(
+                        "Before SSA:\n{}",
+                        ir::debug::dump_ir_human_readable(&Module {
+                            kind: ModuleKind::Block,
+                            entry: body.clone(),
+                            pools: pools.clone(),
+                            flags: ModuleFlags::NONE,
+                        })
+                    );
+                }
                 let ad_block = ToSSA.transform(ad_block);
+                {
+                    println!(
+                        "After SSA:\n{}",
+                        ir::debug::dump_ir_human_readable(&ad_block)
+                    );
+                }
                 let mut backward = None;
                 let mut gradient_marker = None;
                 for node in body.iter() {
@@ -1884,6 +1902,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                         match inst {
                             Instruction::Call(f, args) => {
                                 if *f == Func::Gradient {
+                                    println!("{:?}", args[0].get());
                                     let grad = grads[&args[0]];
                                     // assert!(grad.is_lvalue(), "{:?}", grad.get().instruction.as_ref());
                                     *inst =
@@ -1939,7 +1958,11 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
             Instruction::Call(f, ..) => match f {
                 Func::Callable(callable) => {
                     let callable = &callable.0;
-                    if callable.module.flags.contains(ModuleFlags::REQUIRES_AD_TRANSFORM) {
+                    if callable
+                        .module
+                        .flags
+                        .contains(ModuleFlags::REQUIRES_AD_TRANSFORM)
+                    {
                         ad_transform_recursive(callable.module.entry, pools);
                     }
                 }
@@ -1952,19 +1975,19 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 }
 impl Transform for Autodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
-        // {
-        //     println!("Before AD:");
-        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
-        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-        //     println!("{}", debug.to_str().unwrap());
-        // }
+        {
+            println!("Before AD:");
+            let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+            let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+            println!("{}", debug.to_str().unwrap());
+        }
         ad_transform_recursive(module.entry, &module.pools);
         module.flags.remove(ModuleFlags::REQUIRES_AD_TRANSFORM);
-        // {
-        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
-        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-        //     println!("After AD:\n{}", debug.to_str().unwrap());
-        // }
+        {
+            let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+            let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+            println!("After AD:\n{}", debug.to_str().unwrap());
+        }
         module
     }
 }

@@ -814,10 +814,14 @@ pub enum Func {
     Texture2dRead,
     /// (texture, coord, value) -> void
     Texture2dWrite,
+    /// (texture) -> uint2
+    Texture2dSize,
     /// (texture, coord) -> value
     Texture3dRead,
     /// (texture, coord, value) -> void
     Texture3dWrite,
+    /// (texture) -> uint3
+    Texture3dSize,
     ///(bindless_array, index: uint, uv: float2) -> float4
     BindlessTexture2dSample,
     ///(bindless_array, index: uint, uv: float2, level: float) -> float4
@@ -2232,6 +2236,14 @@ impl IrBuilder {
         node
     }
     pub fn extract(&mut self, node: NodeRef, index: usize, ret_type: CArc<Type>) -> NodeRef {
+        match node.type_().as_ref() {
+            Type::Vector(vt) => assert_eq!(vt.element.to_type(), ret_type),
+            Type::Matrix(mt) => assert_eq!(mt.column(), ret_type),
+            Type::Struct(st) => assert_eq!(st.fields[index], ret_type),
+            Type::Array(at) => assert_eq!(at.element, ret_type),
+            Type::Opaque(_) => {}
+            _ => panic!("Invalid type for extract"),
+        }
         let c = self.const_(Const::Int32(index as i32));
         self.call(Func::ExtractElement, &[node, c], ret_type)
     }
@@ -2241,6 +2253,13 @@ impl IrBuilder {
         index: NodeRef,
         ret_type: CArc<Type>,
     ) -> NodeRef {
+        match node.type_().as_ref() {
+            Type::Vector(vt) => assert_eq!(vt.element.to_type(), ret_type),
+            Type::Matrix(mt) => assert_eq!(mt.column(), ret_type),
+            Type::Array(at) => assert_eq!(at.element, ret_type),
+            Type::Opaque(_) => {}
+            _ => panic!("Invalid type for extract with dynamic index"),
+        }
         self.call(Func::ExtractElement, &[node, index], ret_type)
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
@@ -2260,6 +2279,24 @@ impl IrBuilder {
     }
     pub fn gep(&mut self, this: NodeRef, indices: &[NodeRef], t: CArc<Type>) -> NodeRef {
         assert!(this.is_lvalue());
+        let mut e = Some(this.type_().clone());
+        indices.iter().for_each(|i| {
+            if let Some(ee) = &e {
+                e = match ee.as_ref() {
+                    Type::Vector(vt) => Some(vt.element.to_type()),
+                    Type::Matrix(mt) => Some(mt.column()),
+                    Type::Array(at) => Some(at.element.clone()),
+                    Type::Opaque(_) => None,
+                    _ => panic!(
+                        "Invalid type {:?} for GEP with dynamic indices",
+                        this.type_()
+                    ),
+                };
+            };
+        });
+        if let Some(e) = e {
+            assert_eq!(e, t);
+        }
         self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
@@ -2673,7 +2710,6 @@ pub extern "C" fn luisa_compute_ir_new_block_module(
 pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBlock<Type> {
     CArc::into_raw(context::register_type(ty.clone()))
 }
-
 
 // #[no_mangle]
 // pub extern "C"

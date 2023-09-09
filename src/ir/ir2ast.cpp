@@ -162,7 +162,6 @@ ir2ast_convert_ray_ast_type_2_ir_type(FunctionBuilder *b, const Expression *expr
     auto ut = Type::of<uint>();
     auto at = Type::array(ft, 3u);
 
-
     auto u0 = b->literal(ut, 0u);
     auto u1 = b->literal(ut, 1u);
     auto u2 = b->literal(ut, 2u);
@@ -182,7 +181,7 @@ ir2ast_convert_ray_ast_type_2_ir_type(FunctionBuilder *b, const Expression *expr
     auto ray = b->local(rt);
     auto o_ = b->member(vt, ray, 0u);
     auto d_ = b->member(vt, ray, 2u);
-    
+
     b->assign(b->member(ft, o_, 0), ox);
     b->assign(b->member(ft, o_, 1), oy);
     b->assign(b->member(ft, o_, 2), oz);
@@ -683,6 +682,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Texture3dRead: return builtin_func(2, CallOp::TEXTURE_READ);
         case ir::Func::Tag::Texture2dWrite: return builtin_func(3, CallOp::TEXTURE_WRITE);
         case ir::Func::Tag::Texture3dWrite: return builtin_func(3, CallOp::TEXTURE_WRITE);
+        case ir::Func::Tag::Texture2dSize: return builtin_func(1, CallOp::TEXTURE_SIZE);
+        case ir::Func::Tag::Texture3dSize: return builtin_func(1, CallOp::TEXTURE_SIZE);
         case ir::Func::Tag::BindlessTexture2dSample: return builtin_func(3, CallOp::BINDLESS_TEXTURE2D_SAMPLE);
         case ir::Func::Tag::BindlessTexture2dSampleLevel: return builtin_func(4, CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL);
         case ir::Func::Tag::BindlessTexture2dSampleGrad: return builtin_func(5, CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD);

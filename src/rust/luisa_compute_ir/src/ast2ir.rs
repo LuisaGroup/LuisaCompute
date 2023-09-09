@@ -1,6 +1,7 @@
 use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
+use bitflags::Flags;
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
@@ -605,6 +606,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         let index = self._convert_expression(&j["index"], false);
         assert!(index.type_().is_int(), "Index must be an integer.");
         let t_range = range.type_();
+        println!("{:?} {:?}", t_range, t);
         assert!(t_range.is_array() || t_range.is_vector() || t_range.is_matrix());
         let elem = if t_range.is_matrix() {
             Type::vector_of(t_range.element(), t_range.dimension() as u32)
@@ -839,10 +841,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 match (dim, f) {
                     (2, "TEXTURE_READ") => Func::Texture2dRead,
                     (2, "TEXTURE_WRITE") => Func::Texture2dWrite,
-                    (2, "TEXTURE_SIZE") => unimplemented!("Func::Texture2dSize"),
+                    (2, "TEXTURE_SIZE") => Func::Texture2dSize,
                     (3, "TEXTURE_READ") => Func::Texture3dRead,
                     (3, "TEXTURE_WRITE") => Func::Texture3dWrite,
-                    (3, "TEXTURE_SIZE") => unimplemented!("Func::Texture3dSize"),
+                    (3, "TEXTURE_SIZE") => Func::Texture3dSize,
                     _ => panic!("Invalid texture dimension: {}.", dim),
                 }
             }
@@ -1405,12 +1407,40 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 check_is_index(args[1].type_());
                 args
             }
-            "REQUIRES_GRADIENT" => convert_args(&[false]),
-            "GRADIENT" => convert_args(&[false]),
-            "GRADIENT_MARKER" => convert_args(&[false, false]),
-            "ACCUMULATE_GRADIENT" => convert_args(&[true, false]),
-            "BACKWARD" => convert_args(&[false]),
-            "DETACH" => convert_args(&[false]),
+            "REQUIRES_GRADIENT" => {
+                let args = convert_args(&[true]);
+                assert!(args[0].is_local());
+                assert!(t.is_void());
+                args
+            }
+            "GRADIENT" => {
+                let args = convert_args(&[true]);
+                assert!(args[0].is_local());
+                check_same_types!(t, args[0].type_());
+                args
+            }
+            "GRADIENT_MARKER" => {
+                let args = convert_args(&[false, false]);
+                check_same_types!(args[0].type_(), args[1].type_());
+                assert!(t.is_void());
+                args
+            }
+            "ACCUMULATE_GRADIENT" => {
+                let args = convert_args(&[true, false]);
+                check_same_types!(args[0].type_(), args[1].type_());
+                assert!(t.is_void());
+                args
+            }
+            "BACKWARD" => {
+                let args = convert_args(&[false]);
+                assert!(t.is_void());
+                args
+            }
+            "DETACH" => {
+                let args = convert_args(&[false]);
+                check_same_types!(t, args[0].type_());
+                args
+            }
             "RAY_TRACING_INSTANCE_TRANSFORM" => {
                 let args = convert_args(&[false, false]);
                 check_is_accel(args[0]);
@@ -1609,6 +1639,8 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             FunctionModule::Callable(callable) => callable,
             _ => panic!("Invalid custom function."),
         };
+        self._curr_ctx_mut().has_autodiff |=
+            f.module.flags.contains(ModuleFlags::REQUIRES_AD_TRANSFORM);
         let args: Vec<_> = f
             .args
             .iter()
@@ -1889,13 +1921,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             kind,
             entry,
             pools: self.pools.clone(),
-            flags: {
-                let mut flags = ModuleFlags::empty();
-                if self._curr_ctx().has_autodiff {
-                    flags |= ModuleFlags::REQUIRES_AD_TRANSFORM;
-                }
-                flags
-            }
+            flags: if self._curr_ctx().has_autodiff {
+                ModuleFlags::REQUIRES_AD_TRANSFORM
+            } else {
+                ModuleFlags::NONE
+            },
         }
     }
 

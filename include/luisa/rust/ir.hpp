@@ -461,10 +461,14 @@ struct Func {
         Texture2dRead,
         /// (texture, coord, value) -> void
         Texture2dWrite,
+        /// (texture) -> uint2
+        Texture2dSize,
         /// (texture, coord) -> value
         Texture3dRead,
         /// (texture, coord, value) -> void
         Texture3dWrite,
+        /// (texture) -> uint3
+        Texture3dSize,
         ///(bindless_array, index: uint, uv: float2) -> float4
         BindlessTexture2dSample,
         ///(bindless_array, index: uint, uv: float2, level: float) -> float4

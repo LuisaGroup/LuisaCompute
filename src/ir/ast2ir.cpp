@@ -4,7 +4,7 @@
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ast/function_builder.h>
 
-#define LUISA_COMPUTE_USE_NEW_AST2IR 0
+#define LUISA_COMPUTE_USE_NEW_AST2IR 1
 
 #if LUISA_COMPUTE_USE_NEW_AST2IR
 #include <luisa/ast/ast2json.h>
