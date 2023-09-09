@@ -191,6 +191,7 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
                 // trace
                 Var<TriangleHit> hit = accel.trace_closest(ray);
+                reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);

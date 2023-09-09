@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <cstddef>
-#include <tuple>
 #include <type_traits>
 
 #define HALF_NO_THROW

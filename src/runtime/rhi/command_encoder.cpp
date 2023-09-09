@@ -3,7 +3,7 @@
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/rhi/command_encoder.h>
 #include <luisa/runtime/raster/raster_scene.h>
-
+#include <numeric>
 namespace luisa::compute {
 
 std::byte *ShaderDispatchCmdEncoder::_make_space(size_t size) noexcept {

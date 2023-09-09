@@ -55,7 +55,11 @@ private:
             if constexpr (std::is_same_v<TCurr, int> ||
                           std::is_same_v<TCurr, uint> ||
                           std::is_same_v<TCurr, float>) {
+                static_assert(N == 1u);
                 _buffer->write(offset + index, dsl::as<uint>(curr));
+            } else if constexpr (std::is_same_v<TCurr, bool>) {
+                static_assert(N == 1u);
+                _buffer->write(offset + index, dsl::cast<uint>(curr));
             } else {
                 dsl::pack_to(curr, _buffer, offset + index);
             }
