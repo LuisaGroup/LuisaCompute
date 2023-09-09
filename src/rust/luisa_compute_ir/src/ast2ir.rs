@@ -1404,12 +1404,12 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 check_is_index(args[1].type_());
                 args
             }
-            "REQUIRES_GRADIENT" => convert_args(&[true]),
-            "GRADIENT" => convert_args(&[true]),
-            "GRADIENT_MARKER" => convert_args(&[true, false]),
+            "REQUIRES_GRADIENT" => convert_args(&[false]),
+            "GRADIENT" => convert_args(&[false]),
+            "GRADIENT_MARKER" => convert_args(&[false, false]),
             "ACCUMULATE_GRADIENT" => convert_args(&[true, false]),
-            "BACKWARD" => convert_args(&[true]),
-            "DETACH" => convert_args(&[true]),
+            "BACKWARD" => convert_args(&[false]),
+            "DETACH" => convert_args(&[false]),
             "RAY_TRACING_INSTANCE_TRANSFORM" => {
                 let args = convert_args(&[false, false]);
                 check_is_accel(args[0]);

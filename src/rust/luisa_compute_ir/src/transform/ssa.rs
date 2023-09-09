@@ -53,9 +53,9 @@ impl ToSSAImpl {
         builder: &mut IrBuilder,
         record: &mut SSABlockRecord,
     ) -> NodeRef {
-        if !self.local_defs.contains(&node) {
-            return builder.call(Func::Load, &[node], node.type_().clone());
-        }
+        // if !self.local_defs.contains(&node) {
+        //     return builder.call(Func::Load, &[node], node.type_().clone());
+        // }
         if let Some((var, indices)) = node.access_chain() {
             let mut cur = self.promote(var, builder, record);
             for (t, i) in &indices {

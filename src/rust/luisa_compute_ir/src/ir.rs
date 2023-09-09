@@ -2253,6 +2253,7 @@ impl IrBuilder {
         self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
+        assert!(context::is_type_equal(var.type_(), value.type_()));
         match var.get().instruction.as_ref() {
             Instruction::Local { .. } => {}
             Instruction::Argument { by_value } => {

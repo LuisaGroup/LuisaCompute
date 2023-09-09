@@ -155,6 +155,12 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
         #f, device, [&](auto x) { return f(x); }, options); \
 }()
 
+struct Foo {
+    float3 v;
+    float f;
+};
+LUISA_STRUCT(Foo, v, f) {};
+
 int main(int argc, char *argv[]) {
 
     luisa::log_level_info();
@@ -186,6 +192,8 @@ int main(int argc, char *argv[]) {
         test_ad_helper<4>("float2_dot", device, [](auto x, auto y, auto z, auto w) { return dot(make_float2(x, y), make_float2(z, w)); });
     }
     {
+        test_ad_helper<3>("float3_sum", device, [](auto x, auto y, auto z) { return reduce_sum(make_float3(x, y, z)); });
+        test_ad_helper<3>("float3_prod", device, [](auto x, auto y, auto z) { return reduce_prod(make_float3(x, y, z)); });
         test_ad_helper<3>("float3_length", device, [](auto x, auto y, auto z) { return length(make_float3(x, y, z)); });
         test_ad_helper<3>("float3_dot2", device, [](auto x, auto y, auto z) { return dot(make_float3(x, y, z), make_float3(x, y, z)); });
         test_ad_helper<6>("float3_dot", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return dot(make_float3(vx, vy, vz), make_float3(wx, wy, wz)); });
@@ -193,8 +201,14 @@ int main(int argc, char *argv[]) {
         test_ad_helper<6>("float3_cross_sum", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) {
              auto n = (cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)));
              return n.x + n.y + n.z; });
-        test_ad_helper<6>("float3_cross_x", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).x + 0.0f; });
-        test_ad_helper<6>("float3_cross_y", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).y + 0.0f; });
-        test_ad_helper<6>("float3_cross_z", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).z + 0.0f; });
+        test_ad_helper<6>("float3_cross_x", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).x; });
+        test_ad_helper<6>("float3_cross_y", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).y; });
+        test_ad_helper<6>("float3_cross_z", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).z; });
+    }
+    {
+        test_ad_helper<3>("struct", device, [](auto a, auto b, auto c) { 
+            Var<Foo> foo{make_float3(a, b, c), a + b + c};
+            return foo.v.x * foo.v.y + foo.v.z * foo.f;
+        });
     }
 }

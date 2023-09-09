@@ -424,6 +424,7 @@ impl Backward {
             node = self.intermediate_to_node[&node];
         }
         if let Some(grad_var) = self.grad(node) {
+            assert!(grad_var.is_lvalue());
             builder.call(Func::AccGrad, &[grad_var, grad], Type::void());
         }
         // } else {
@@ -1741,7 +1742,7 @@ impl Backward {
 
         builder.finish()
     }
-    fn run(&mut self, block: &BasicBlock) -> Pooled<BasicBlock> {
+    fn run(&mut self, block: &BasicBlock) -> (Pooled<BasicBlock>, HashMap<NodeRef, NodeRef>) {
         let mut builder = IrBuilder::new(self.pools.clone());
         for node in block.nodes().iter().rev() {
             self.backward(*node, &mut builder);
@@ -1752,23 +1753,25 @@ impl Backward {
             .map(|(k, v)| (*k, *v))
             .collect::<Vec<_>>();
         final_grads.sort_by_key(|(_, k)| *k);
+        let mut grads = HashMap::new();
         for (n, _) in final_grads {
-            let mut grad = self
+            let grad = self
                 .grads
                 .get(&n)
                 .cloned()
                 .unwrap_or_else(|| builder.zero_initializer(n.type_().clone()));
-            if grad.is_local() {
-                grad = builder.call(Func::Load, &[grad], grad.type_().clone());
-            }
-            builder.call(Func::GradientMarker, &[n, grad], Type::void());
+            // if grad.is_local() {
+            //     grad = builder.call(Func::Load, &[grad], grad.type_().clone());
+            // }
+            // builder.call(Func::GradientMarker, &[n, grad], Type::void());
+            grads.insert(n, grad);
         }
-        builder.finish()
+        (builder.finish(), grads)
     }
 }
 
 pub struct Autodiff;
-fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
+fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<NodeRef, NodeRef>) {
     assert!(
         module.kind == crate::ir::ModuleKind::Block,
         "ad_transform_block should be applied to a block"
@@ -1797,18 +1800,21 @@ fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
     // dbg!(&backward.grads);
     let fwd = module.entry;
 
-    let bwd = backward.run(&fwd);
+    let (bwd, grads) = backward.run(&fwd);
     fwd.merge(bwd);
 
     // let mut display = display::DisplayIR::new();
     // let fwd_src = display.display_ir(&module);
     // print!("{}\n", fwd_src);
 
-    Module {
-        kind: ModuleKind::Block,
-        entry: fwd,
-        pools: module.pools,
-    }
+    (
+        Module {
+            kind: ModuleKind::Block,
+            entry: fwd,
+            pools: module.pools,
+        },
+        grads,
+    )
 }
 fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
     for node in block.iter() {
@@ -1840,7 +1846,29 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 });
                 let epilogue = body.split(backward, pools);
                 backward.remove();
-                let ad_block = ad_transform_block(ad_block);
+                let (ad_block, grads) = ad_transform_block(ad_block);
+                {
+                    let epilogue = Module {
+                        kind: ModuleKind::Block,
+                        entry: epilogue,
+                        pools: pools.clone(),
+                    };
+                    let nodes = epilogue.collect_nodes();
+                    for node in nodes {
+                        let inst = CArc::get_mut(&mut node.get_mut().instruction).unwrap();
+                        match inst {
+                            Instruction::Call(f, args) => {
+                                if *f == Func::Gradient {
+                                    let grad = grads[&args[0]];
+                                    // assert!(grad.is_lvalue(), "{:?}", grad.get().instruction.as_ref());
+                                    *inst =
+                                        Instruction::Call(Func::Load, CBoxedSlice::new(vec![grad]));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 assert_eq!(ad_block.entry.ptr, body.ptr);
                 body.merge(epilogue);
             }
@@ -1881,7 +1909,18 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 }
 impl Transform for Autodiff {
     fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
+        // {
+        //     println!("Before AD:");
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("{}", debug.to_str().unwrap());
+        // }
         ad_transform_recursive(module.entry, &module.pools);
+        // {
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("After AD:\n{}", debug.to_str().unwrap());
+        // }
         module
     }
 }
