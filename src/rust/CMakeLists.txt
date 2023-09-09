@@ -1,7 +1,9 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
-
+    # set profile based on build type
+    set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+            PROFILE ${LUISA_CARGO_PROFILE}
             NO_DEFAULT_FEATURES)
 
     corrosion_set_env_vars(luisa_compute_ir "LC_RS_DO_NOT_GENERATE_BINDINGS=0")

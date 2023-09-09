@@ -412,6 +412,7 @@ struct Backward {
     intermediate: IndexMap<NodeRef, NodeRef>,
     intermediate_to_node: IndexMap<NodeRef, NodeRef>,
     final_grad: IndexMap<NodeRef, usize>,
+    locally_defined_nodes: HashSet<NodeRef>
 }
 
 impl Backward {
@@ -1137,6 +1138,11 @@ impl Backward {
                 if out_grad.is_none() {
                     return;
                 }
+                if *func == Func::Load {
+                    let var = args[0];
+                    assert!(!self.locally_defined_nodes.contains(&var));
+                    return;
+                }
                 // dbg!(node);
                 // dbg!(func);
                 let original_args = args.as_ref().iter().cloned().collect::<Vec<_>>();
@@ -1148,6 +1154,7 @@ impl Backward {
                 let node = self.get_intermediate(node);
                 let out_grad = out_grad.unwrap();
                 match func {
+                   
                     Func::Add => {
                         let (lhs_grad, rhs_grad) =
                             self.backward_add(args[0], args[1], out_grad, builder);
@@ -1783,6 +1790,7 @@ fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<
         final_grad,
         intermediate,
         intermediate_to_node,
+        locally_defined_nodes,
         // backward_reachable,
         // forward_reachable,
         ..
@@ -1794,6 +1802,7 @@ fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<
         final_grad,
         intermediate,
         intermediate_to_node,
+        locally_defined_nodes,
         pools: module.pools.clone(),
     };
     // dbg!(&backward.intermediate);

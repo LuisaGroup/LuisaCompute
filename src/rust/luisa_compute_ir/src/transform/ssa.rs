@@ -75,16 +75,18 @@ impl ToSSAImpl {
         builder: &mut IrBuilder,
         record: &mut SSABlockRecord,
     ) {
+        let value = self.promote(value, builder, record);
         if var.is_local() {
-            let value = self.promote(value, builder, record);
             record.phis.insert(var);
             record.stored.insert(var, value);
             if !self.local_defs.contains(&var) {
                 builder.update(var, value);
             }
         } else {
+           
             // the hardpart
             let (var, indices) = var.access_chain().unwrap();
+             let unpromoted_var = var;
             let var = self.promote(var, builder, record);
             let mut st = vec![var];
             let mut cur = var;
@@ -102,9 +104,10 @@ impl ToSSAImpl {
                 cur = st.pop().unwrap();
             }
             record.phis.insert(var);
-            record.stored.insert(var, cur);
+            record.stored.insert(unpromoted_var, value);
+            assert_eq!(self.promote(unpromoted_var, builder, record), value);
             if !self.local_defs.contains(&var) {
-                builder.update(var, value);
+                builder.update(unpromoted_var, value);
             }
         }
     }
@@ -191,7 +194,9 @@ impl ToSSAImpl {
             Instruction::Shared => return node,
             Instruction::Uniform => return node,
             Instruction::Local { init } => {
-                if !self.local_defs.contains(&node) {
+                if !self.local_defs.contains(&node) && !record.stored.contains_key(&node) {
+                    let val = builder.load(node);
+                    record.stored.insert(node, val);
                     return node;
                 }
                 let init = self.promote(*init, builder, record);
@@ -219,7 +224,8 @@ impl ToSSAImpl {
                 }
                 if *func == Func::GetElementPtr {
                     let v = self.load(args[0], builder, record);
-                    return builder.call(Func::ExtractElement, &[v, args[1]], type_.clone());
+                    let idx = self.promote(args[1], builder, record);
+                    return builder.call(Func::ExtractElement, &[v, idx], type_.clone());
                 }
                 let promoted_args = args
                     .as_ref()
