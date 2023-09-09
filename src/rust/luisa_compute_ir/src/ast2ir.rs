@@ -1841,6 +1841,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let lhs = self._convert_expression(&j["lhs"], true);
                 let rhs = self._convert_expression(&j["rhs"], false);
                 let (builder, ..) = self.unwrap_ctx();
+                let rhs = Self::_cast(builder, lhs.type_(), rhs);
                 builder.update(lhs, rhs)
             }
             "FOR" => {

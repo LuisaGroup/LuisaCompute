@@ -85,7 +85,7 @@ impl ToSSAImpl {
         } else {
             // the hardpart
             let (var, indices) = var.access_chain().unwrap();
-            dbg!(var.type_(), &indices);
+            // dbg!(var.type_(), &indices);
             let unpromoted_var = var;
             let var = self.promote(var, builder, record);
             let mut st = vec![var];
