@@ -196,7 +196,7 @@ impl ToSSAImpl {
                 if !self.local_defs.contains(&node) && !record.stored.contains_key(&node) {
                     let val = builder.load(node);
                     record.stored.insert(node, val);
-                    return node;
+                    return val;
                 }
                 let init = self.promote(*init, builder, record);
                 let var = builder.local(init);
