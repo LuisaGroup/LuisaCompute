@@ -38,6 +38,7 @@ inline int __float_as_int(float x) {
     return u.i;
 }
 
+#define inf __builtin_inf()
 
 #define __device__
 #define lc_assert(cond, msg)  do { if (!(cond)) { lc_abort(k_args->internal_data, msg); } } while (false)
