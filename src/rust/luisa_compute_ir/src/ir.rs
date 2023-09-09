@@ -458,7 +458,7 @@ impl Type {
     }
     pub fn is_opaque(&self, name: &str) -> bool {
         match self {
-            Type::Opaque(name_) => name_.to_string().as_str() == name,
+            Type::Opaque(name_) => name.is_empty() || name_.to_string().as_str() == name,
             _ => false,
         }
     }
@@ -2301,7 +2301,12 @@ impl IrBuilder {
         self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
-        assert!(context::is_type_equal(var.type_(), value.type_()), "type mismatch {} {}", var.type_(), value.type_());
+        assert!(
+            context::is_type_equal(var.type_(), value.type_()),
+            "type mismatch {} {}",
+            var.type_(),
+            value.type_()
+        );
         match var.get().instruction.as_ref() {
             Instruction::Local { .. } => {}
             Instruction::Argument { by_value } => {

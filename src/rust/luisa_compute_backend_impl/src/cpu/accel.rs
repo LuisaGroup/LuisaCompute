@@ -430,7 +430,7 @@ impl AccelImpl {
         sys::rtcGetGeometryTransform(
             geometry,
             0.0,
-            sys::RTC_FORMAT_FLOAT3X4_COLUMN_MAJOR,
+            sys::RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
             affine.as_mut_ptr() as *mut c_void,
         );
         affine

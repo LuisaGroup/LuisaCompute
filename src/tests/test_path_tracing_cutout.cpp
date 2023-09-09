@@ -195,7 +195,7 @@ int main(int argc, char *argv[]) {
         return valid;
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" ? 4u : 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);

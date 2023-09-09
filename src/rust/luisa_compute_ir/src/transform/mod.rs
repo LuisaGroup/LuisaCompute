@@ -8,6 +8,7 @@ pub mod ref2ret;
 pub mod reg2mem;
 
 use crate::ir::{self, ModuleFlags};
+use bitflags::Flags;
 
 pub trait Transform {
     fn transform(&self, module: ir::Module) -> ir::Module;

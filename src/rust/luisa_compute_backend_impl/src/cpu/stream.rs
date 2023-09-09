@@ -1,8 +1,6 @@
 use api::{Argument, Sampler};
 use luisa_compute_api_types as api;
-use luisa_compute_ir::{
-    ir::{Binding, Capture},
-};
+use luisa_compute_ir::ir::{Binding, Capture};
 use parking_lot::{Condvar, Mutex};
 use rayon;
 use std::{
@@ -11,10 +9,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use std::{
-    panic::{RefUnwindSafe},
-    sync::atomic::AtomicBool,
-};
+use std::{panic::RefUnwindSafe, sync::atomic::AtomicBool};
 
 use super::{
     accel::{AccelImpl, GeometryImpl},

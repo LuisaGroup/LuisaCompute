@@ -89,7 +89,6 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               //    << synchronize()
                << mesh.build();
     }
 
@@ -169,7 +168,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" ? 1u : 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);

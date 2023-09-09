@@ -258,6 +258,7 @@ inline void lc_set_instance_transform(const Accel &accel, lc_uint inst_id, const
     auto m4 = lc_bit_cast<Mat4>(transform);
     accel.set_instance_transform(accel.handle, inst_id, &m4);
 }
+
 using LC_RayQueryAll = RayQuery;
 using LC_RayQueryAny = RayQuery;
 
