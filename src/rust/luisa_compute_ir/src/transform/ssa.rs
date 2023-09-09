@@ -117,7 +117,7 @@ impl ToSSAImpl {
             }
         }
     }
-    fn promot_branches(
+    fn promote_branches(
         &mut self,
         branches: &[Pooled<BasicBlock>],
         builder: &mut IrBuilder,
@@ -284,7 +284,7 @@ impl ToSSAImpl {
             } => {
                 let cond = self.promote(*cond, builder, record);
                 let (records, branches, phis) =
-                    self.promot_branches(&[*true_branch, *false_branch], builder, record);
+                    self.promote_branches(&[*true_branch, *false_branch], builder, record);
                 builder.if_(cond, branches[0], branches[1]);
                 self.merge_incomings(&records, &branches, &phis, builder, record);
                 return INVALID_REF;
@@ -301,7 +301,7 @@ impl ToSSAImpl {
                     .chain(std::iter::once(*default))
                     .collect::<Vec<_>>();
                 let (incoming_records, incoming_branches, phis) =
-                    self.promot_branches(&branches, builder, record);
+                    self.promote_branches(&branches, builder, record);
                 builder.switch(
                     value,
                     &incoming_branches[0..incoming_branches.len() - 1]

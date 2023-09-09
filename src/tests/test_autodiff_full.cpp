@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
         test_ad_helper<6>("float3_cross_z", device, [](auto vx, auto vy, auto vz, auto wx, auto wy, auto wz) { return cross(make_float3(vx, vy, vz), make_float3(wx, wy, wz)).z; });
     }
     {
-        test_ad_helper<3>("struct", device, [](auto a, auto b, auto c) { 
+        test_ad_helper<3>("struct", device, [](auto a, auto b, auto c) {
             Var<Foo> foo{make_float3(a, b, c), a + b + c};
             return foo.v.x * foo.v.y + foo.v.z * foo.f;
         });
