@@ -8,6 +8,7 @@ use std::env::{current_exe, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
+use std::ptr::null;
 use std::sync::atomic::Ordering;
 use std::{
     cell::RefCell,
@@ -15,7 +16,6 @@ use std::{
     ffi::{CStr, CString},
     path::Path,
 };
-use std::ptr::null;
 
 enum LLVMContext {}
 
@@ -65,7 +65,7 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
@@ -209,9 +209,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -220,9 +220,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -232,7 +232,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -267,7 +267,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -277,7 +277,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -300,9 +300,9 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
 }
@@ -500,7 +500,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetInfo = lift(
@@ -511,7 +511,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMC = lift(
@@ -522,7 +522,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMCA = lift(
@@ -533,7 +533,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeAsmPrinter = lift(
@@ -544,7 +544,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMContextDispose = load!(b"LLVMContextDispose");
@@ -658,7 +658,9 @@ unsafe extern "C" fn llvm_orc_registerEHFrameSectionWrapper(_: LLVMExecutorAddrR
 }
 
 #[no_mangle]
-unsafe extern "C" fn llvm_orc_deregisterEHFrameSectionWrapper(_: LLVMExecutorAddrRange) -> LLVMError {
+unsafe extern "C" fn llvm_orc_deregisterEHFrameSectionWrapper(
+    _: LLVMExecutorAddrRange,
+) -> LLVMError {
     LLVMError { payload: null() }
 }
 
@@ -873,9 +875,17 @@ impl Context {
                     let shader = &*shader;
 
                     eprintln!("{}", shader.messages[msg as usize]);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(
+                        file,
+                        "LuisaCompute CPU backend kernel aborted:\n{}",
+                        shader.messages[msg as usize]
+                    )
+                    .unwrap();
                 }
 
-                panic!("kernel execution aborted");
+                panic!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
@@ -923,8 +933,16 @@ impl Context {
                     display.push_str(&format!("{}", j));
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
                     eprintln!("{}", display);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(
+                        file,
+                        "LuisaCompute CPU backend kernel aborted:\n{}",
+                        display
+                    )
+                    .unwrap();
                 }
-                panic!("kernel execution aborted");
+                panic!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
