@@ -125,7 +125,7 @@ void export_runtime(py::module &m) {
             return accel.GetAccel().size();
         })
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
-        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             MeshUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -137,9 +137,9 @@ void export_runtime(py::module &m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            accel.emplace(cmd, transform, visibility_mask, opaque);
+            accel.emplace(cmd, transform, visibility_mask, opaque, user_id);
         })
-        .def("emplace_procedural", [](ManagedAccel &accel, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("emplace_procedural", [](ManagedAccel &accel, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             ProceduralUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -147,10 +147,10 @@ void export_runtime(py::module &m) {
             cmd.aabb_buffer = aabb_buffer;
             cmd.aabb_offset = aabb_offset * sizeof(AABB);
             cmd.aabb_size = aabb_count * sizeof(AABB);
-            accel.emplace(cmd, transform, visibility_mask, opaque);
+            accel.emplace(cmd, transform, visibility_mask, opaque, user_id);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
-        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             MeshUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -162,9 +162,9 @@ void export_runtime(py::module &m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            accel.set(index, cmd, transform, visibility_mask, opaque);
+            accel.set(index, cmd, transform, visibility_mask, opaque, user_id);
         })
-        .def("set_procedural", [](ManagedAccel &accel, size_t index, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("set_procedural", [](ManagedAccel &accel, size_t index, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             ProceduralUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -172,10 +172,11 @@ void export_runtime(py::module &m) {
             cmd.aabb_buffer = aabb_buffer;
             cmd.aabb_offset = aabb_offset * sizeof(AABB);
             cmd.aabb_size = aabb_count * sizeof(AABB);
-            accel.set(index, cmd, transform, visibility_mask, opaque);
+            accel.set(index, cmd, transform, visibility_mask, opaque, user_id);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
-        .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, int visibility_mask) { a.GetAccel().set_visibility_on_update(index, visibility_mask); });
+        .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, int visibility_mask) { a.GetAccel().set_visibility_on_update(index, visibility_mask); })
+        .def("set_user_id", [](ManagedAccel &a, size_t index, uint user_id) { a.GetAccel().set_user_id(index, user_id); });
     py::class_<ManagedDevice>(m, "Device")
         .def(
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })

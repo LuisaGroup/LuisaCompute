@@ -45,6 +45,7 @@ void CallExpr::_mark() const noexcept {
             case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
             case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID:
             case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
             case CallOp::RAY_QUERY_TERMINATE:

@@ -95,8 +95,10 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
+        ops.test(CallOp::RAY_TRACING_USER_ID) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
         builder << CodegenUtility::ReadInternalHLSLFile("accel_header", internalDataPath);
     }
@@ -1056,6 +1058,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
+        case CallOp::RAY_TRACING_USER_ID: {
+            str << "_InstId("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
             str << "_SetAccelTransform("sv;
             args[0]->accept(vis);
@@ -1074,6 +1084,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
             str << "_SetAccelOpaque("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            PrintArgs(1);
+            str << ')';
+            return;
+        }
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
+            str << "_SetUserId("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
