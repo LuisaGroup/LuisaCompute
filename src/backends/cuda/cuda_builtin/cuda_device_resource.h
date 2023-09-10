@@ -1249,8 +1249,10 @@ struct LCCommittedHit {
     lc_uint m3;  // hit type
     lc_float m4; // t_hit
 };
+
 static_assert(sizeof(LCCommittedHit) == 24u, "LCCommittedHit size mismatch");
 static_assert(alignof(LCCommittedHit) == 8u, "LCCommittedHit align mismatch");
+
 enum LCInstanceFlags : lc_uint {
     LC_INSTANCE_FLAG_NONE = 0u,
     LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
