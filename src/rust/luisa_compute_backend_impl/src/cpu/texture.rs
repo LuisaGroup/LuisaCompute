@@ -180,6 +180,7 @@ impl TextureView {
     }
     #[inline]
     pub(crate) fn copy_to_vec_par_2d(&self) -> Vec<u8> {
+        // dbg!(self);
         unsafe {
             let mut data: Vec<u8> = Vec::with_capacity(self.unpadded_data_size());
             let data_ptr = data.as_mut_ptr() as u64;
