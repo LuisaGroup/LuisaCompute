@@ -176,7 +176,7 @@ void export_runtime(py::module &m) {
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
         .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, int visibility_mask) { a.GetAccel().set_visibility_on_update(index, visibility_mask); })
-        .def("set_user_id", [](ManagedAccel &a, size_t index, uint user_id) { a.GetAccel().set_user_id(index, user_id); });
+        .def("set_user_id", [](ManagedAccel &a, size_t index, uint user_id) { a.GetAccel().set_instance_user_id_on_update(index, user_id); });
     py::class_<ManagedDevice>(m, "Device")
         .def(
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
