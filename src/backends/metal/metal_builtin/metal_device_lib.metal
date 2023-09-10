@@ -622,7 +622,7 @@ struct LCAccel {
     device LCInstance *__restrict__ instances;
 };
 
-[[nodiscard]] auto intersector_closest() {
+[[nodiscard]] inline auto intersector_closest() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
@@ -630,11 +630,47 @@ struct LCAccel {
     return i;
 }
 
-[[nodiscard]] auto intersector_any() {
+[[nodiscard]] inline auto intersector_any() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
     i.accept_any_intersection(true);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest_cull_front() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(false);
+    i.set_triangle_cull_mode(triangle_cull_mode::front);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_any_cull_front() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(true);
+    i.set_triangle_cull_mode(triangle_cull_mode::front);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest_cull_back() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(false);
+    i.set_triangle_cull_mode(triangle_cull_mode::back);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_any_cull_back() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(true);
+    i.set_triangle_cull_mode(triangle_cull_mode::back);
     return i;
 }
 
@@ -656,6 +692,36 @@ struct LCAccel {
 
 [[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
+    return isect.type != intersection_type::none;
+}
+
+[[nodiscard]] inline auto accel_trace_closest_cull_frontface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_closest_cull_front().intersect(make_ray(r), accel.handle, mask);
+    return isect.type == intersection_type::none ?
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
+}
+
+[[nodiscard]] inline auto accel_trace_any_cull_frontface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_any_cull_front().intersect(make_ray(r), accel.handle, mask);
+    return isect.type != intersection_type::none;
+}
+
+[[nodiscard]] inline auto accel_trace_closest_cull_backface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_closest_cull_back().intersect(make_ray(r), accel.handle, mask);
+    return isect.type == intersection_type::none ?
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
+}
+
+[[nodiscard]] inline auto accel_trace_any_cull_backface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_any_cull_back().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
 
@@ -681,6 +747,9 @@ void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_dat
     params.assume_geometry_type(has_procedural_branch ?
                                     geometry_type::triangle | geometry_type::bounding_box :
                                     geometry_type::triangle);
+    // face culling is removed
+    // if (q.cull_front) { params.set_triangle_cull_mode(triangle_cull_mode::front); }
+    // if (q.cull_back) { params.set_triangle_cull_mode(triangle_cull_mode::back); }
     i.reset(q.ray, q.accel, q.mask, params);
     q.i = &i;
 }
@@ -748,14 +817,21 @@ inline void ray_query_terminate(LCRayQuery q) {
     q.i->abort();
 }
 
-[[nodiscard]] inline auto
-accel_instance_transform(LCAccel accel, uint i) {
+[[nodiscard]] inline auto accel_instance_transform(LCAccel accel, uint i) {
     auto m = accel.instances[i].transform;
     return float4x4(
         m[0], m[1], m[2], 0.0f,
         m[3], m[4], m[5], 0.0f,
         m[6], m[7], m[8], 0.0f,
         m[9], m[10], m[11], 1.0f);
+}
+
+[[nodiscard]] inline auto accel_instance_user_id(LCAccel accel, uint i) {
+    return accel.instances[i].intersection_function_offset;
+}
+
+inline void accel_set_instance_user_id(LCAccel accel, uint i, uint user_id) {
+    accel.instances[i].intersection_function_offset = user_id;
 }
 
 inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {

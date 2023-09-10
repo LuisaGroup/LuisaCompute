@@ -266,7 +266,7 @@ enum struct CallOp : uint32_t {
 
     // ray tracing
     RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
-    RAY_TRACING_USER_ID,                // (Accel, uint)
+    RAY_TRACING_INSTANCE_USER_ID,                // (Accel, uint)
     RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
     RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
     RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
@@ -276,16 +276,6 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
     RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery
     RAY_TRACING_QUERY_ANY,              // (Accel, ray, mask: uint): RayQuery
-
-    RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE,// (Accel, ray, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY_CULL_FRONTFACE,    // (Accel, ray, mask: uint): bool
-    RAY_TRACING_QUERY_ALL_CULL_FRONTFACE,    // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY_CULL_FRONTFACE,    // (Accel, ray, mask: uint): RayQuery
-
-    RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE,// (Accel, ray, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY_CULL_BACKFACE,    // (Accel, ray, mask: uint): bool
-    RAY_TRACING_QUERY_ALL_CULL_BACKFACE,    // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY_CULL_BACKFACE,    // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
@@ -400,23 +390,11 @@ public:
         return test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
                test(CallOp::RAY_TRACING_TRACE_ANY) ||
                test(CallOp::RAY_TRACING_QUERY_ALL) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY) ||
-               test(CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE) ||
-               test(CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE) ||
-               test(CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE) ||
-               test(CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE);
+               test(CallOp::RAY_TRACING_QUERY_ANY);
     }
     [[nodiscard]] auto uses_ray_query() const noexcept {
         return test(CallOp::RAY_TRACING_QUERY_ALL) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY) ||
-               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE);
+               test(CallOp::RAY_TRACING_QUERY_ANY);
     }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||

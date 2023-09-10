@@ -84,8 +84,7 @@ private:
     friend class compute::ProceduralCandidate;
     RayQueryBase(const Expression *accel,
                  const Expression *ray,
-                 const Expression *mask,
-                 RayCullMode cull_mode) noexcept;
+                 const Expression *mask) noexcept;
     RayQueryBase(RayQueryBase &&) noexcept;
 
 public:

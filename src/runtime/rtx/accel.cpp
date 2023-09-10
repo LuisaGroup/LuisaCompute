@@ -140,7 +140,8 @@ void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noex
         iter->second.set_visibility(visibility_mask);
     }
 }
-void Accel::set_user_id(size_t index, uint user_id) noexcept {
+
+void Accel::set_instance_user_id_on_update(size_t index, uint user_id) noexcept {
     _check_is_valid();
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
@@ -152,4 +153,5 @@ void Accel::set_user_id(size_t index, uint user_id) noexcept {
         iter->second.set_user_id(user_id);
     }
 }
+
 }// namespace luisa::compute

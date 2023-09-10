@@ -512,9 +512,11 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Detach: return builtin_func(1, CallOp::DETACH);
         case ir::Func::Tag::Backward: return builtin_func(1, CallOp::BACKWARD);
         case ir::Func::Tag::RayTracingInstanceTransform: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_TRANSFORM);
+        case ir::Func::Tag::RayTracingInstanceUserId: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_USER_ID);
         case ir::Func::Tag::RayTracingSetInstanceTransform: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM);
         case ir::Func::Tag::RayTracingSetInstanceVisibility: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY);
         case ir::Func::Tag::RayTracingSetInstanceOpacity: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_OPACITY);
+        case ir::Func::Tag::RayTracingSetInstanceUserId: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_USER_ID);
         case ir::Func::Tag::RayTracingTraceClosest: return builtin_func(3, CallOp::RAY_TRACING_TRACE_CLOSEST);
         case ir::Func::Tag::RayTracingTraceAny: return builtin_func(3, CallOp::RAY_TRACING_TRACE_ANY);
         case ir::Func::Tag::RayTracingQueryAll: return builtin_func(3, CallOp::RAY_TRACING_QUERY_ALL);

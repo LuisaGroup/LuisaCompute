@@ -95,7 +95,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
-        ops.test(CallOp::RAY_TRACING_USER_ID) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
@@ -879,38 +879,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
             str << "_TraceClosest"sv;
             break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE:
-            str << "_TraceClosestCullFront"sv;
-            break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE:
-            str << "_TraceClosestCullBack"sv;
-            break;
         case CallOp::RAY_TRACING_TRACE_ANY:
             str << "_TraceAny"sv;
-            break;
-        case CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE:
-            str << "_TraceAnyCullFront"sv;
-            break;
-        case CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE:
-            str << "_TraceAnyCullBack"sv;
             break;
         case CallOp::RAY_TRACING_QUERY_ALL:
             str << "_QueryAll"sv;
             break;
         case CallOp::RAY_TRACING_QUERY_ANY:
             str << "_QueryAny"sv;
-            break;
-        case CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE:
-            str << "_QueryAllCullBack"sv;
-            break;
-        case CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE:
-            str << "_QueryAnyCullBack"sv;
-            break;
-        case CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE:
-            str << "_QueryAllCullFront"sv;
-            break;
-        case CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE:
-            str << "_QueryAnyCullFront"sv;
             break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
             str << "_bdlsBfSize"sv;
@@ -1058,7 +1034,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
-        case CallOp::RAY_TRACING_USER_ID: {
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
             str << "_InstId("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;

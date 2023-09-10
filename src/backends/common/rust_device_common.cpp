@@ -273,6 +273,10 @@ public:
                 m[i].flags.bits |= api::AccelBuildModificationFlags_VISIBILITY.bits;
                 m[i].visibility = mod.vis_mask;
             }
+            if (mod.flags & Mod::flag_user_id) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_USER_ID.bits;
+                m[i].user_id = mod.user_id;
+            }
         }
         api::Command converted{.tag = Tag::ACCEL_BUILD};
         converted.ACCEL_BUILD._0 = api::AccelBuildCommand{
