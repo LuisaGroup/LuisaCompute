@@ -95,7 +95,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
-        ops.test(CallOp::RAY_TRACING_USER_ID) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
@@ -1058,7 +1058,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
-        case CallOp::RAY_TRACING_USER_ID: {
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
             str << "_InstId("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;

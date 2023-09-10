@@ -471,9 +471,9 @@ public:
         static constexpr auto flag_transform = 1u << 1u;
         static constexpr auto flag_opaque_on = 1u << 2u;
         static constexpr auto flag_opaque_off = 1u << 3u;
+        static constexpr auto flag_opaque = flag_opaque_on | flag_opaque_off;
         static constexpr auto flag_visibility = 1u << 4u;
         static constexpr auto flag_user_id = 1u << 5u;
-        static constexpr auto flag_opaque = flag_opaque_on | flag_opaque_off;
 
         // members
         uint index{};

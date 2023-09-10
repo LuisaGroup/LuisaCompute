@@ -29,12 +29,12 @@ Var<float4x4> AccelExprProxy::instance_transform(Expr<uint> instance_id) const n
     return Expr<Accel>{_accel}.instance_transform(instance_id);
 }
 
-Var<uint> AccelExprProxy::user_id(Expr<int> instance_id) const noexcept {
-    return Expr<Accel>{_accel}.user_id(instance_id);
+Var<uint> AccelExprProxy::instance_user_id(Expr<int> instance_id) const noexcept {
+    return Expr<Accel>{_accel}.instance_user_id(instance_id);
 }
 
-Var<uint> AccelExprProxy::user_id(Expr<uint> instance_id) const noexcept {
-    return Expr<Accel>{_accel}.user_id(instance_id);
+Var<uint> AccelExprProxy::instance_user_id(Expr<uint> instance_id) const noexcept {
+    return Expr<Accel>{_accel}.instance_user_id(instance_id);
 }
 
 void AccelExprProxy::set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
@@ -131,10 +131,10 @@ Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noex
             {_expression, instance_id.expression()}));
 }
 
-Var<uint> Expr<Accel>::user_id(Expr<uint> instance_id) const noexcept {
+Var<uint> Expr<Accel>::instance_user_id(Expr<uint> instance_id) const noexcept {
     return def<uint>(
         detail::FunctionBuilder::current()->call(
-            Type::of<uint>(), CallOp::RAY_TRACING_USER_ID,
+            Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_USER_ID,
             {_expression, instance_id.expression()}));
 }
 
@@ -145,10 +145,10 @@ Var<float4x4> Expr<Accel>::instance_transform(Expr<int> instance_id) const noexc
             {_expression, instance_id.expression()}));
 }
 
-Var<uint> Expr<Accel>::user_id(Expr<int> instance_id) const noexcept {
+Var<uint> Expr<Accel>::instance_user_id(Expr<int> instance_id) const noexcept {
     return def<uint>(
         detail::FunctionBuilder::current()->call(
-            Type::of<uint>(), CallOp::RAY_TRACING_USER_ID,
+            Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_USER_ID,
             {_expression, instance_id.expression()}));
 }
 

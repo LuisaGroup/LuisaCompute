@@ -194,7 +194,7 @@ class Accel:
     @BuiltinFuncBuilder
     def user_id(self, index):
         check_exact_signature([uint], [index], "uesr_id")
-        expr = lcapi.builder().call(to_lctype(uint), lcapi.CallOp.RAY_TRACING_USER_ID, [self.expr, index.expr])
+        expr = lcapi.builder().call(to_lctype(uint), lcapi.CallOp.RAY_TRACING_INSTANCE_USER_ID, [self.expr, index.expr])
         return uint, expr
 
     @BuiltinFuncBuilder

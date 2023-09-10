@@ -164,11 +164,13 @@ static const AccelBuildModificationFlags AccelBuildModificationFlags_TRANSFORM =
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 2) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 3) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 4) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_USER_ID = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 5) };
 
 struct AccelBuildModification {
     uint32_t index;
+    uint32_t user_id;
     AccelBuildModificationFlags flags;
-    uint8_t visibility;
+    uint32_t visibility;
     uint64_t mesh;
     float affine[12];
 };
