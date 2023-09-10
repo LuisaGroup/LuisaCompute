@@ -895,9 +895,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "BACKWARD" => Func::Backward,
             "DETACH" => Func::Detach,
             "RAY_TRACING_INSTANCE_TRANSFORM" => Func::RayTracingInstanceTransform,
+            "RAY_TRACING_INSTANCE_USER_ID" => Func::RayTracingSetInstanceUserId,
             "RAY_TRACING_SET_INSTANCE_TRANSFORM" => Func::RayTracingSetInstanceTransform,
             "RAY_TRACING_SET_INSTANCE_VISIBILITY" => Func::RayTracingSetInstanceVisibility,
             "RAY_TRACING_SET_INSTANCE_OPACITY" => Func::RayTracingSetInstanceOpacity,
+            "RAY_TRACING_SET_INSTANCE_USER_ID" => Func::RayTracingSetInstanceUserId,
             "RAY_TRACING_TRACE_CLOSEST" => Func::RayTracingTraceClosest,
             "RAY_TRACING_TRACE_ANY" => Func::RayTracingTraceAny,
             "RAY_TRACING_QUERY_ALL" => Func::RayTracingQueryAll,
@@ -1443,16 +1445,23 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "RAY_TRACING_INSTANCE_TRANSFORM" => {
                 let args = convert_args(&[false, false]);
                 check_is_accel(args[0]);
-                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                check_is_index(args[1].type_());
                 assert!(t.is_matrix() && t.is_float());
                 assert_eq!(t.dimension(), 4);
+                args
+            }
+            "RAY_TRACING_INSTANCE_USER_ID" => {
+                let args = convert_args(&[false, false]);
+                check_is_accel(args[0]);
+                check_is_index(args[1].type_());
+                assert!(t.is_int() && t.is_primitive());
                 args
             }
             "RAY_TRACING_SET_INSTANCE_TRANSFORM" => {
                 // (Accel, uint, float4x4)
                 let args = convert_args(&[false, false, false]);
                 check_is_accel(args[0]);
-                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                check_is_index(args[1].type_());
                 assert!(args[2].type_().is_matrix() && args[2].type_().is_float());
                 assert_eq!(args[2].type_().dimension(), 4);
                 assert!(t.is_void());
@@ -1462,7 +1471,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 // (Accel, uint, uint)
                 let args = convert_args(&[false, false, false]);
                 check_is_accel(args[0]);
-                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                check_is_index(args[1].type_());
                 assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
                 assert!(t.is_void());
                 args
@@ -1471,8 +1480,17 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 // (Accel, uint, bool)
                 let args = convert_args(&[false, false, false]);
                 check_is_accel(args[0]);
-                assert!(args[1].type_().is_int() && args[1].type_().is_primitive());
+                check_is_index(args[1].type_());
                 assert!(args[2].type_().is_bool() && args[2].type_().is_primitive());
+                assert!(t.is_void());
+                args
+            }
+            "RAY_TRACING_SET_INSTANCE_USER_ID" => {
+                // (Accel, uint, uint)
+                let args = convert_args(&[false, false, false]);
+                check_is_accel(args[0]);
+                check_is_index(args[1].type_());
+                check_is_index(args[2].type_());
                 assert!(t.is_void());
                 args
             }

@@ -1,7 +1,7 @@
 // built-in update kernel for Accel
 
 struct alignas(16) InstanceProperty {
-    unsigned int instance_id;
+    unsigned int user_id;
     unsigned int sbt_offset;
     unsigned int mask;
     unsigned int flags;
@@ -16,9 +16,11 @@ struct alignas(16) Instance {
 
 struct alignas(16) InstanceModification {
     unsigned int index;
+    unsigned int user_id;
     unsigned int flags;
-    unsigned long long primitive;
+    unsigned int vis_mask;
     float4 affine[3];
+    unsigned long long primitive;
 };
 
 struct alignas(16) InstanceHandleMidification {
@@ -35,7 +37,7 @@ enum InstanceFlags : unsigned int {
 };
 
 static_assert(sizeof(Instance) == 80, "");
-static_assert(sizeof(InstanceModification) == 64, "");
+static_assert(sizeof(InstanceModification) == 80, "");
 
 extern "C" __global__ void update_accel_instance_handles(Instance *__restrict__ instances,
                                                          const InstanceHandleMidification *__restrict__ mods,
@@ -58,13 +60,12 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         constexpr auto update_flag_opaque_on = 1u << 2u;
         constexpr auto update_flag_opaque_off = 1u << 3u;
         constexpr auto update_flag_visibility = 1u << 4u;
+        constexpr auto update_flag_user_id = 1u << 5u;
         constexpr auto update_flag_procedural = 1u << 8u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
-        constexpr auto update_flag_vis_mask_offset = 24u;
 
         auto m = mods[tid];
         auto p = instances[m.index].property;
-        p.instance_id = m.index;
         p.sbt_offset = 0u;
         if (m.flags & update_flag_primitive) {
             p.traversable = m.primitive;
@@ -72,7 +73,7 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
                           INSTANCE_FLAG_ENFORCE_ANYHIT :
                           INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
         }
-        if (m.flags & update_flag_visibility) { p.mask = m.flags >> update_flag_vis_mask_offset; }
+        if (m.flags & update_flag_visibility) { p.mask = m.vis_mask; }
         if (m.flags & update_flag_opaque) {
             if (p.flags & INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING) {
                 p.flags &= ~(INSTANCE_FLAG_DISABLE_ANYHIT |
@@ -81,6 +82,9 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
                                INSTANCE_FLAG_DISABLE_ANYHIT :
                                INSTANCE_FLAG_ENFORCE_ANYHIT;
             }
+        }
+        if (m.flags & update_flag_user_id) {
+            p.user_id = m.user_id;
         }
         instances[m.index].property = p;
         if (m.flags & update_flag_transform) {

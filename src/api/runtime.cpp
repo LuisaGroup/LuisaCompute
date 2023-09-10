@@ -210,8 +210,8 @@ private:
                 auto modifications = luisa::vector<AccelBuildCommand::Modification>{};
                 modifications.reserve(modifications_count);
                 for (auto i = 0u; i < modifications_count; i++) {
-                    auto [index, flags, visibility, mesh, affine] = api_modifications[i];
-                    AccelBuildCommand::Modification modification{index};
+                    auto m = api_modifications[i];
+                    AccelBuildCommand::Modification modification{m.index};
 #define LUISA_DEPARANTHESES_IMPL(...) __VA_ARGS__
 #define LUISA_DEPARANTHESES(...) LUISA_DEPARANTHESES_IMPL __VA_ARGS__
                     constexpr auto flag_primitive = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_PRIMITIVE);
@@ -219,21 +219,25 @@ private:
                     constexpr auto flag_opaque_on = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_ON);
                     constexpr auto flag_opaque_off = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_OFF);
                     constexpr auto flag_visibility = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_VISIBILITY);
+                    constexpr auto flag_user_id = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_USER_ID);
 #undef LUISA_DEPARANTHESES
 #undef LUISA_DEPARANTHESES_IMPL
-                    if (flags.bits & flag_primitive.bits) {
-                        modification.set_primitive(mesh);
+                    if (m.flags.bits & flag_primitive.bits) {
+                        modification.set_primitive(m.mesh);
                     }
-                    if (flags.bits & flag_transform.bits) {
-                        modification.set_transform_data(affine);
+                    if (m.flags.bits & flag_transform.bits) {
+                        modification.set_transform_data(m.affine);
                     }
-                    if (flags.bits & flag_opaque_on.bits) {
+                    if (m.flags.bits & flag_opaque_on.bits) {
                         modification.set_opaque(true);
-                    } else if (flags.bits & flag_opaque_off.bits) {
+                    } else if (m.flags.bits & flag_opaque_off.bits) {
                         modification.set_opaque(false);
                     }
-                    if (flags.bits & flag_visibility.bits) {
-                        modification.set_visibility(visibility);
+                    if (m.flags.bits & flag_visibility.bits) {
+                        modification.set_visibility(m.visibility);
+                    }
+                    if (m.flags.bits & flag_user_id.bits) {
+                        modification.set_user_id(m.user_id);
                     }
                     modifications.emplace_back(modification);
                 }

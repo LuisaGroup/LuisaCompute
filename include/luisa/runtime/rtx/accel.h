@@ -100,7 +100,7 @@ public:
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept;
     void set_opaque_on_update(size_t index, bool opaque) noexcept;
-    void set_user_id(size_t index, uint user_id) noexcept;
+    void set_instance_user_id_on_update(size_t index, uint user_id) noexcept;
 
     // update top-level acceleration structure's instance data without build
     [[nodiscard]] luisa::unique_ptr<Command> update_instance_buffer() noexcept {

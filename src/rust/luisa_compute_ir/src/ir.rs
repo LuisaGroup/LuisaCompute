@@ -605,9 +605,11 @@ pub enum Func {
 
     // (handle, instance_id) -> Mat4
     RayTracingInstanceTransform,
+    RayTracingInstanceUserId,
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,
+    RayTracingSetInstanceUserId,
     // (handle, Ray, mask) -> Hit
     // struct Ray alignas(16) { float origin[3], tmin; float direction[3], tmax; };
     // struct Hit alignas(16) { uint inst; uint prim; float u; float v; };

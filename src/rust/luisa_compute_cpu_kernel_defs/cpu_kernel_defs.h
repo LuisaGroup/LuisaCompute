@@ -59,7 +59,9 @@ struct Accel {
     bool (*trace_any)(const void*, const Ray*, uint8_t);
     void (*set_instance_visibility)(const void*, uint32_t, uint8_t);
     void (*set_instance_transform)(const void*, uint32_t, const Mat4*);
+    void (*set_instance_user_id)(const void*, uint32_t, uint32_t);
     Mat4 (*instance_transform)(const void*, uint32_t);
+    uint32_t (*instance_user_id)(const void*, uint32_t);
     void (*ray_query)(const void*, RayQuery*, OnHitCallback, OnHitCallback);
 };
 

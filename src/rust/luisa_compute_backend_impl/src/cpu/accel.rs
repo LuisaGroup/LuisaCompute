@@ -185,10 +185,11 @@ impl Drop for GeometryImpl {
 #[derive(Clone, Copy)]
 struct Instance {
     affine: [f32; 12],
-    dirty: bool,
-    visible: u8,
-    geometry: sys::RTCGeometry,
+    user_id: u32,
+    visible: u32,
     opaque: bool,
+    dirty: bool,
+    geometry: sys::RTCGeometry,
 }
 impl Instance {
     pub fn valid(&self) -> bool {
@@ -199,10 +200,11 @@ impl Default for Instance {
     fn default() -> Self {
         Self {
             affine: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            dirty: false,
-            visible: u8::MAX,
-            geometry: std::ptr::null_mut(),
+            user_id: 0,
+            visible: 0xff,
             opaque: true,
+            dirty: false,
+            geometry: std::ptr::null_mut(),
         }
     }
 }
@@ -275,10 +277,11 @@ impl AccelImpl {
                     sys::rtcSetGeometryEnableFilterFunctionFromArguments(geometry, false);
                     *self.instances[m.index as usize].write() = Instance {
                         affine,
-                        dirty: false,
-                        visible: u8::MAX,
-                        geometry,
+                        visible: 0xff,
+                        user_id: m.user_id,
                         opaque: true,
+                        dirty: false,
+                        geometry,
                     };
                 }
             }
@@ -290,8 +293,7 @@ impl AccelImpl {
                     instance.geometry,
                     !instance.opaque,
                 );
-            };
-            if m.flags.contains(AccelBuildModificationFlags::OPAQUE_OFF) {
+            } else if m.flags.contains(AccelBuildModificationFlags::OPAQUE_OFF) {
                 let mut instance = self.instances[m.index as usize].write();
                 instance.opaque = false;
                 instance.dirty = true;
@@ -321,6 +323,15 @@ impl AccelImpl {
                 sys::rtcEnableGeometry(geometry);
                 sys::rtcSetGeometryMask(geometry, m.visibility as u32);
                 instance.visible = m.visibility;
+                instance.dirty = true;
+            }
+            if m.flags.contains(AccelBuildModificationFlags::USER_ID) {
+                let mut instance = self.instances[m.index as usize].write();
+                let geometry = instance.geometry;
+                assert!(!geometry.is_null());
+                // TODO: check if this should work
+                sys::rtcSetGeometryUserData(geometry, m.user_id as u64 as *mut c_void);
+                instance.user_id = m.user_id;
                 instance.dirty = true;
             }
         }
@@ -436,6 +447,11 @@ impl AccelImpl {
         affine
     }
     #[inline]
+    pub unsafe fn instance_user_id(&self, id: u32) -> u32 {
+        let geometry = sys::rtcGetGeometry(self.handle, id);
+        sys::rtcGetGeometryUserData(geometry) as u64 as u32
+    }
+    #[inline]
     pub unsafe fn set_instance_transform(&self, id: u32, affine: [f32; 12]) {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
@@ -446,7 +462,14 @@ impl AccelImpl {
     pub unsafe fn set_instance_visibility(&self, id: u32, visibility: u8) {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
-        instance.visible = visibility;
+        instance.visible = visibility as u32;
+        instance.dirty = true;
+    }
+    #[inline]
+    pub unsafe fn set_instance_user_id(&self, id: u32, user_id: u32) {
+        let mut instance = self.instances[id as usize].write();
+        assert!(instance.valid());
+        instance.user_id = user_id;
         instance.dirty = true;
     }
 
@@ -541,8 +564,6 @@ impl AccelImpl {
             if !rq.cur_commited {
                 *args.valid = 0;
             } else {
-                // eprintln!("accepting hit");
-
                 rq.hit.set_from_triangle_hit(rq.cur_triangle_hit);
             }
             if rq.terminated {
