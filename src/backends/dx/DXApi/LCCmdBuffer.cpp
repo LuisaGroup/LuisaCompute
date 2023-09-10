@@ -67,7 +67,7 @@ public:
     template<typename T>
     void EmplaceData(T const &data) {
         size_t sz = argBuffer->size();
-        argBuffer->push_back_uninitialized(sz + sizeof(T));
+        argBuffer->push_back_uninitialized(sizeof(T));
         using PlaceHolder = eastl::aligned_storage_t<sizeof(T), 1>;
         *reinterpret_cast<PlaceHolder *>(argBuffer->data() + sz) =
             *reinterpret_cast<PlaceHolder const *>(&data);
@@ -76,7 +76,7 @@ public:
     void EmplaceData(T const *data, size_t size) {
         size_t sz = argBuffer->size();
         auto byteSize = size * sizeof(T);
-        argBuffer->resize_uninitialized(sz + byteSize);
+        argBuffer->push_back_uninitialized(byteSize);
         memcpy(argBuffer->data() + sz, data, byteSize);
     }
     struct Visitor {
