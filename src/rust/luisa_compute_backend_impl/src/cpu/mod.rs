@@ -232,7 +232,6 @@ impl Backend for RustBackend {
             stream.enqueue(
                 move || {
                     let pixels = img.view(0).copy_to_vec_par_2d();
-
                     present(
                         swapchain_handle.0 as *mut c_void,
                         pixels.as_ptr() as *const c_void,

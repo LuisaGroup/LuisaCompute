@@ -90,12 +90,12 @@ int main(int argc, char *argv[]) {
         auto dlglo = def(0.f);
         auto trg = def(false);
         auto dist = def(0.f);
-        $for(i, 80) {
+        $for (i, 80) {
             dist = scene(p);
             auto hit = dist * dist < 1e-6f;
             glo += .2f / (1.f + lazors * lazors * 20.f) * atten;
             dlglo += .2f / (1.f + doodad * doodad * 20.f) * atten;
-            $if(hit & ((sin(d3 * 45.f) < -0.4f & (dist != doodad)) | (dist == doodad & sin(pow(length(p2 * p2 * p2), .3f) * 120.f) > .4f)) & dist != lazors) {
+            $if (hit & ((sin(d3 * 45.f) < -0.4f & (dist != doodad)) | (dist == doodad & sin(pow(length(p2 * p2 * p2), .3f) * 120.f) > .4f)) & dist != lazors) {
                 trg = trg | dist == doodad;
                 hit = false;
                 auto n = norm(p);
@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
             p += cam * dist;
             tlen += dist;
             fog += dist * atten / 30.f;
-            $if(hit) { $break; };
+            $if (hit) { $break; };
         };
         fog = smoothstep(0.f, 1.f, fog);
         auto lz = lazors == dist;
@@ -159,4 +159,3 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
-
