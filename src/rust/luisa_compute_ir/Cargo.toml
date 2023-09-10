@@ -17,7 +17,7 @@ sha2 = "0.10"
 indexmap = "2.0.0"
 half = { version = "2.3.1", features = ["std", "serde", "num-traits", "zerocopy"] }
 json = "0.12.4"
-bitflags = {version = "2.2.1", features = ["serde"]}
+bitflags = {version = "2.2.3", features = ["serde"]}
 
 [build-dependencies]
 cbindgen = "0.24.3"
