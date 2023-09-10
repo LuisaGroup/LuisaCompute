@@ -156,12 +156,6 @@ class Accel:
         return TriangleHit, expr
     
     @BuiltinFuncBuilder
-    def trace_closest_cullfront(self, ray, vis_mask):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest_cullfront")
-        expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE, [self.expr, ray.expr, vis_mask.expr])
-        return TriangleHit, expr
-    
-    @BuiltinFuncBuilder
     def trace_closest_cullback(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest_cullback")
         expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
@@ -171,12 +165,6 @@ class Accel:
     def trace_any(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any")
         expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY, [self.expr, ray.expr, vis_mask.expr])
-        return bool, expr
-    
-    @BuiltinFuncBuilder
-    def trace_any_cullfront(self, ray, vis_mask):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any_cullfront")
-        expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY_CULL_FRONTFACE, [self.expr, ray.expr, vis_mask.expr])
         return bool, expr
     
     @BuiltinFuncBuilder
@@ -232,28 +220,4 @@ class Accel:
     def query_any(self, ray, vis_mask: int):
         check_exact_signature([Ray, uint], [ray, vis_mask], "query_any")
         expr = lcapi.builder().call(to_lctype(rayQueryAnyType), lcapi.CallOp.RAY_TRACING_QUERY_ANY, [self.expr, ray.expr, vis_mask.expr])
-        return rayQueryAnyType, expr
-
-    @BuiltinFuncBuilder
-    def query_all_cullfront(self, ray, vis_mask):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "query_all_cullfront")
-        expr = lcapi.builder().call(to_lctype(rayQueryAllType), lcapi.CallOp.RAY_TRACING_QUERY_ALL_CULL_FRONTFACE, [self.expr, ray.expr, vis_mask.expr])
-        return rayQueryAllType, expr
-
-    @BuiltinFuncBuilder
-    def query_any_cullfront(self, ray, vis_mask: int):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "query_any_cullfront")
-        expr = lcapi.builder().call(to_lctype(rayQueryAnyType), lcapi.CallOp.RAY_TRACING_QUERY_ANY_CULL_FRONTFACE, [self.expr, ray.expr, vis_mask.expr])
-        return rayQueryAnyType, expr
-
-    @BuiltinFuncBuilder
-    def query_all_cullback(self, ray, vis_mask):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "query_all_cullback")
-        expr = lcapi.builder().call(to_lctype(rayQueryAllType), lcapi.CallOp.RAY_TRACING_QUERY_ALL_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
-        return rayQueryAllType, expr
-
-    @BuiltinFuncBuilder
-    def query_any_cullback(self, ray, vis_mask: int):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "query_any_cullback")
-        expr = lcapi.builder().call(to_lctype(rayQueryAnyType), lcapi.CallOp.RAY_TRACING_QUERY_ANY_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
         return rayQueryAnyType, expr

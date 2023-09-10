@@ -1,15 +1,7 @@
 #define _CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
 #define _ANY_HIT_RAY_FLAG (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_SKIP_CLOSEST_HIT_SHADER|RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
-#define _CLOSEST_HIT_RAY_FLAG_CULLFRONT (RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES|RAY_FLAG_CULL_FRONT_FACING_TRIANGLES)
-#define _CLOSEST_HIT_RAY_FLAG_CULLBACK (RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES|RAY_FLAG_CULL_BACK_FACING_TRIANGLES)
-#define _ANY_HIT_RAY_FLAG_CULLFRONT (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_SKIP_CLOSEST_HIT_SHADER|RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES|RAY_FLAG_CULL_FRONT_FACING_TRIANGLES)
-#define _ANY_HIT_RAY_FLAG_CULLBACK (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_SKIP_CLOSEST_HIT_SHADER|RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES|RAY_FLAG_CULL_BACK_FACING_TRIANGLES)
 typedef RayQuery<RAY_FLAG_NONE> _LC_RayQueryAll;
-typedef RayQuery<RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> _LC_RayQueryAllCullFront;
-typedef RayQuery<RAY_FLAG_CULL_BACK_FACING_TRIANGLES> _LC_RayQueryAllCullBack;
 typedef RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> _LC_RayQueryAny;
-typedef RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> _LC_RayQueryAnyCullFront;
-typedef RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_CULL_BACK_FACING_TRIANGLES> _LC_RayQueryAnyCullBack;
 template<typename T>
 _Hit1 _TraceClosest(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
@@ -19,48 +11,6 @@ ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 RayQuery<_CLOSEST_HIT_RAY_FLAG> q;
 q.TraceRayInline(accel,_CLOSEST_HIT_RAY_FLAG,mask,ray);
-_Hit1 pl;
-q.Proceed();
-if(q.CommittedStatus()==COMMITTED_TRIANGLE_HIT){
-pl.v0=q.CommittedInstanceIndex();
-pl.v1=q.CommittedPrimitiveIndex();
-pl.v2=q.CommittedTriangleBarycentrics();
-pl.v3=q.CommittedRayT();
-}else{
-pl.v0=4294967295;
-}
-return pl;
-}
-template<typename T>
-_Hit1 _TraceClosestCullFront(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-RayQuery<_CLOSEST_HIT_RAY_FLAG_CULLFRONT> q;
-q.TraceRayInline(accel,_CLOSEST_HIT_RAY_FLAG_CULLFRONT,mask,ray);
-_Hit1 pl;
-q.Proceed();
-if(q.CommittedStatus()==COMMITTED_TRIANGLE_HIT){
-pl.v0=q.CommittedInstanceIndex();
-pl.v1=q.CommittedPrimitiveIndex();
-pl.v2=q.CommittedTriangleBarycentrics();
-pl.v3=q.CommittedRayT();
-}else{
-pl.v0=4294967295;
-}
-return pl;
-}
-template<typename T>
-_Hit1 _TraceClosestCullBack(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-RayQuery<_CLOSEST_HIT_RAY_FLAG_CULLBACK> q;
-q.TraceRayInline(accel,_CLOSEST_HIT_RAY_FLAG_CULLBACK,mask,ray);
 _Hit1 pl;
 q.Proceed();
 if(q.CommittedStatus()==COMMITTED_TRIANGLE_HIT){
@@ -85,28 +35,6 @@ q.TraceRayInline(accel,RAY_FLAG_NONE,mask,ray);
 return q;
 }
 template<typename T>
-_LC_RayQueryAllCullFront _QueryAllCullFront(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-_LC_RayQueryAllCullFront q;
-q.TraceRayInline(accel,RAY_FLAG_CULL_FRONT_FACING_TRIANGLES,mask,ray);
-return q;
-}
-template<typename T>
-_LC_RayQueryAllCullBack _QueryAllCullBack(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-_LC_RayQueryAllCullBack q;
-q.TraceRayInline(accel,RAY_FLAG_CULL_BACK_FACING_TRIANGLES,mask,ray);
-return q;
-}
-template<typename T>
 _LC_RayQueryAny _QueryAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
 ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
@@ -115,28 +43,6 @@ ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 _LC_RayQueryAny q;
 q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,mask,ray);
-return q;
-}
-template<typename T>
-_LC_RayQueryAnyCullBack _QueryAnyCullBack(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-_LC_RayQueryAnyCullBack q;
-q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_CULL_BACK_FACING_TRIANGLES,mask,ray);
-return q;
-}
-template<typename T>
-_LC_RayQueryAnyCullFront _QueryAnyCullFront(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-_LC_RayQueryAnyCullFront q;
-q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_CULL_FRONT_FACING_TRIANGLES,mask,ray);
 return q;
 }
 template<typename T, typename Q>
@@ -208,30 +114,6 @@ ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 RayQuery<_ANY_HIT_RAY_FLAG> q;
 q.TraceRayInline(accel,_ANY_HIT_RAY_FLAG,mask,ray);
-q.Proceed();
-return q.CommittedStatus()!=COMMITTED_NOTHING;
-}
-template<typename T>
-bool _TraceAnyCullFront(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-RayQuery<_ANY_HIT_RAY_FLAG_CULLFRONT> q;
-q.TraceRayInline(accel,_ANY_HIT_RAY_FLAG_CULLFRONT,mask,ray);
-q.Proceed();
-return q.CommittedStatus()!=COMMITTED_NOTHING;
-}
-template<typename T>
-bool _TraceAnyCullBack(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
-RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
-ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
-ray.TMin=rayDesc.v1;
-ray.TMax=rayDesc.v3;
-RayQuery<_ANY_HIT_RAY_FLAG_CULLBACK> q;
-q.TraceRayInline(accel,_ANY_HIT_RAY_FLAG_CULLBACK,mask,ray);
 q.Proceed();
 return q.CommittedStatus()!=COMMITTED_NOTHING;
 }

@@ -16,10 +16,10 @@ public:
     explicit Expr(const RefExpr *expr) noexcept;
     explicit Expr(const Accel &accel) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
-    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu, RayCullMode cull_mode = RayCullMode::None) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu, RayCullMode cull_mode = RayCullMode::None) const noexcept;
-    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu, RayCullMode cull_mode = RayCullMode::None) const noexcept;
-    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu, RayCullMode cull_mode = RayCullMode::None) const noexcept;
+    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<uint> user_id(Expr<uint> instance_id) const noexcept;
@@ -60,10 +60,10 @@ public:
     LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(AccelExprProxy)
 
 public:
-    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 255u, RayCullMode cull_mode = RayCullMode::None) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u, RayCullMode cull_mode = RayCullMode::None) const noexcept;
-    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 255u, RayCullMode cull_mode = RayCullMode::None) const noexcept;
-    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u, RayCullMode cull_mode = RayCullMode::None) const noexcept;
+    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
+    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
+    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<uint> user_id(Expr<int> instance_id) const noexcept;
