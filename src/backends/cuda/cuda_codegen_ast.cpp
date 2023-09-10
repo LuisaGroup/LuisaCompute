@@ -951,11 +951,21 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE: _scratch << "lc_accel_trace_closest_cull_frontface"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE: _scratch << "lc_accel_trace_any_cull_frontface"; break;
+        case CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE: _scratch << "lc_accel_query_all_cull_frontface"; break;
+        case CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE: _scratch << "lc_accel_query_any_cull_frontface"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE: _scratch << "lc_accel_trace_closest_cull_backface"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE: _scratch << "lc_accel_trace_any_cull_backface"; break;
+        case CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE: _scratch << "lc_accel_query_all_cull_backface"; break;
+        case CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE: _scratch << "lc_accel_query_any_cull_backface"; break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
