@@ -179,6 +179,10 @@ public:
                 }
                 case Argument::Tag::UNIFORM: {
                     auto data = command->uniform(arg.uniform);
+//                    if (data.size_bytes() == 4u) {
+//                        auto time = *reinterpret_cast<const float *>(data.data());
+//                        LUISA_INFO("Time: {}", time);
+//                    }
                     auto u = uniforms + uniform_offset;
                     uniform_offset += luisa::align(data.size_bytes(), 16u);
                     memcpy(u, data.data(), data.size_bytes());
