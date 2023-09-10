@@ -12,13 +12,15 @@ struct alignas(16) AccelInstance {
 
 struct alignas(16) AccelInstanceModification {
     uint index;
+    uint user_id;
     uint flags;
-    ulong primitive;
+    uint vis_mask;
     float4 affine[3];// row-major
+    ulong primitive;
 };
 
 static_assert(sizeof(AccelInstance) == 64u, "");
-static_assert(sizeof(AccelInstanceModification) == 64u, "");
+static_assert(sizeof(AccelInstanceModification) == 80u, "");
 
 [[kernel]] void update_accel_instances(device AccelInstance *__restrict__ instances,
                                        device const AccelInstanceModification *__restrict__ mods,
@@ -30,8 +32,8 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
         constexpr auto update_flag_opaque_on = 1u << 2u;
         constexpr auto update_flag_opaque_off = 1u << 3u;
         constexpr auto update_flag_visibility = 1u << 4u;
+        constexpr auto update_flag_user_id = 1u << 5u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
-        constexpr auto update_flag_vis_mask_offset = 24u;
 
         constexpr auto instance_option_disable_culling = 1u;
         constexpr auto instance_option_opaque = 4u;
@@ -39,12 +41,11 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
 
         auto m = mods[tid];
         auto instance = instances[m.index];
-        instance.intersection_function_offset = m.primitive;
         if (m.flags & update_flag_primitive) {
             instance.mesh_index = m.index;
         }
         if (m.flags & update_flag_visibility) {
-            instance.mask = (m.flags >> update_flag_vis_mask_offset) & 0xffu;
+            instance.mask = m.vis_mask;
         }
         if (m.flags & update_flag_opaque) {
             instance.options = (m.flags & update_flag_opaque_on) ?
@@ -64,6 +65,9 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
             instance.transform[9] = m.affine[0].w;
             instance.transform[10] = m.affine[1].w;
             instance.transform[11] = m.affine[2].w;
+        }
+        if (m.flags & update_flag_user_id) {
+            instance.intersection_function_offset = m.user_id;
         }
         instances[m.index] = instance;
     }
