@@ -730,33 +730,15 @@ struct LCRayQuery {
     ray ray;
     uint mask;
     bool terminate_on_first_hit;
-    bool cull_front;
-    bool cull_back;
     thread intersection_query<triangle_data, instancing> *i;
 };
 
 [[nodiscard]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, false, false, false, nullptr};
+    return LCRayQuery{accel.handle, make_ray(ray), mask, false, nullptr};
 }
 
 [[nodiscard]] inline auto accel_query_any(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, true, false, false, nullptr};
-}
-
-[[nodiscard]] inline auto accel_query_all_cull_backface(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, false, false, true, nullptr};
-}
-
-[[nodiscard]] inline auto accel_query_any_cull_backface(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, true, false, true, nullptr};
-}
-
-[[nodiscard]] inline auto accel_query_all_cull_frontface(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, false, true, false, nullptr};
-}
-
-[[nodiscard]] inline auto accel_query_any_cull_frontface(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, true, true, false, nullptr};
+    return LCRayQuery{accel.handle, make_ray(ray), mask, true, nullptr};
 }
 
 void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_data, instancing> &i, bool has_procedural_branch) {
@@ -765,8 +747,9 @@ void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_dat
     params.assume_geometry_type(has_procedural_branch ?
                                     geometry_type::triangle | geometry_type::bounding_box :
                                     geometry_type::triangle);
-    if (q.cull_front) { params.set_triangle_cull_mode(triangle_cull_mode::front); }
-    if (q.cull_back) { params.set_triangle_cull_mode(triangle_cull_mode::back); }
+    // face culling is removed
+    // if (q.cull_front) { params.set_triangle_cull_mode(triangle_cull_mode::front); }
+    // if (q.cull_back) { params.set_triangle_cull_mode(triangle_cull_mode::back); }
     i.reset(q.ray, q.accel, q.mask, params);
     q.i = &i;
 }

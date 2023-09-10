@@ -1020,14 +1020,6 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "accel_trace_any"; break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "accel_query_any"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_FRONTFACE: _scratch << "accel_trace_closest_cull_frontface"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY_CULL_FRONTFACE: _scratch << "accel_trace_any_cull_frontface"; break;
-        case CallOp::RAY_TRACING_QUERY_ALL_CULL_FRONTFACE: _scratch << "accel_query_all_cull_frontface"; break;
-        case CallOp::RAY_TRACING_QUERY_ANY_CULL_FRONTFACE: _scratch << "accel_query_any_cull_frontface"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE: _scratch << "accel_trace_closest_cull_backface"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY_CULL_BACKFACE: _scratch << "accel_trace_any_cull_backface"; break;
-        case CallOp::RAY_TRACING_QUERY_ALL_CULL_BACKFACE: _scratch << "accel_query_all_cull_backface"; break;
-        case CallOp::RAY_TRACING_QUERY_ANY_CULL_BACKFACE: _scratch << "accel_query_any_cull_backface"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "ray_query_world_ray"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "ray_query_procedural_candidate"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "ray_query_triangle_candidate"; break;

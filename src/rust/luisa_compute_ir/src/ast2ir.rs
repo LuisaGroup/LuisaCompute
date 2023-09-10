@@ -21,7 +21,6 @@ struct AST2IRCtx<'a> {
 }
 
 struct AST2IR<'a: 'b, 'b> {
-    j: &'a JSON,
     j_functions: &'a JSON,
     j_constants: &'a JSON,
     j_types: &'a JSON,
@@ -2057,7 +2056,6 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
 
     fn convert(j: JSON) -> FunctionModule {
         let mut ast2ir = AST2IR {
-            j: &j,
             j_functions: &j["functions"],
             j_constants: &j["constants"],
             j_types: &j["types"],
