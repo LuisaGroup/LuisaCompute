@@ -148,7 +148,17 @@ public:
         LUISA_ASSERT(!command->is_indirect(),
                      "Indirect dispatch is not supported.");
         auto n = command->arguments().size();
-        auto args = _create_temporary<api::Argument>(n);
+        auto arg_buffer_size = sizeof(api::Argument) * n;
+        static_assert(sizeof(api::Argument) >= 16u);
+        for (auto &&arg : command->arguments()) {
+            if (arg.tag == Argument::Tag::UNIFORM) {
+                arg_buffer_size += luisa::align(arg.uniform.size, 16u);
+            }
+        }
+        auto temp = _create_temporary<std::byte>(arg_buffer_size);
+        auto args = reinterpret_cast<api::Argument *>(temp);
+        auto uniforms = reinterpret_cast<std::byte *>(args + n);
+        auto uniform_offset = static_cast<size_t>(0u);
         for (size_t i = 0; i < n; i++) {
             auto &&arg = command->arguments()[i];
             switch (arg.tag) {
@@ -169,10 +179,13 @@ public:
                 }
                 case Argument::Tag::UNIFORM: {
                     auto data = command->uniform(arg.uniform);
+                    auto u = uniforms + uniform_offset;
+                    uniform_offset += luisa::align(data.size_bytes(), 16u);
+                    memcpy(u, data.data(), data.size_bytes());
                     args[i].tag = api::Argument::Tag::UNIFORM;
                     args[i].UNIFORM._0 = api::UniformArgument{
-                        .data = reinterpret_cast<const uint8_t *>(data.data()),
-                        .size = data.size()};
+                        .data = reinterpret_cast<const uint8_t *>(u),
+                        .size = data.size_bytes()};
                     break;
                 }
                 case Argument::Tag::BINDLESS_ARRAY: {
