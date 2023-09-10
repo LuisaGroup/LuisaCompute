@@ -593,6 +593,13 @@ pub enum Func {
     DispatchId,
     DispatchSize,
 
+    // Forward AD
+    /// (input, grads, ...) -> ()
+    PropagateGrad,
+    /// (var, idx) -> dvar/dinput_{idx}
+    RetreiveGradAt,
+
+    // Reverse AD
     RequiresGradient,
     Backward,
     // marks the beginning of backward pass
@@ -1149,6 +1156,7 @@ pub enum Instruction {
     },
     AdScope {
         body: Pooled<BasicBlock>,
+        forward: bool,
     },
     RayQuery {
         ray_query: NodeRef,
@@ -1568,7 +1576,8 @@ bitflags! {
     #[serde(transparent)]
     pub struct ModuleFlags : u32 {
         const NONE = 0;
-        const REQUIRES_AD_TRANSFORM = 1;
+        const REQUIRES_REV_AD_TRANSFORM = 1;
+        const REQUIRES_FWD_AD_TRANSFORM = 2;
     }
 }
 #[repr(C)]
@@ -1721,7 +1730,7 @@ impl NodeCollector {
         self.nodes.push(node_ref);
         let inst = node_ref.get().instruction.as_ref();
         match inst {
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, .. } => {
                 self.visit_block(*body);
             }
             Instruction::If {
@@ -1999,9 +2008,9 @@ impl ModuleDuplicator {
                 let dup_default = self.duplicate_block(&builder.pools, default);
                 builder.switch(dup_value, dup_cases.as_slice(), dup_default)
             }
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, forward } => {
                 let dup_body = self.duplicate_block(&builder.pools, body);
-                builder.ad_scope(dup_body)
+                builder.ad_scope(dup_body, *forward)
             }
             Instruction::RayQuery {
                 ray_query,
@@ -2400,8 +2409,11 @@ impl IrBuilder {
         self.append(node);
         node
     }
-    pub fn ad_scope(&mut self, body: Pooled<BasicBlock>) -> NodeRef {
-        let node = Node::new(CArc::new(Instruction::AdScope { body }), Type::void());
+    pub fn ad_scope(&mut self, body: Pooled<BasicBlock>, forward: bool) -> NodeRef {
+        let node = Node::new(
+            CArc::new(Instruction::AdScope { body, forward }),
+            Type::void(),
+        );
         let node = new_node(&self.pools, node);
         self.append(node);
         node

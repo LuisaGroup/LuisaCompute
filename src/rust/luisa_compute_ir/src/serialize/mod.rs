@@ -141,6 +141,7 @@ pub enum SerializedInstruction {
     },
     AdScope {
         body: SerializedBlockRef,
+        forward:bool,
     },
     AdDetach(SerializedBlockRef),
     RayQuery {

@@ -1835,7 +1835,10 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
     while i < nodes.len() {
         let node = nodes[i];
         match node.get().instruction.as_ref() {
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, forward } => {
+                if *forward {
+                    continue;
+                }
                 let ad_block = Module {
                     kind: ModuleKind::Block,
                     entry: body.clone(),
@@ -1960,7 +1963,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     if callable
                         .module
                         .flags
-                        .contains(ModuleFlags::REQUIRES_AD_TRANSFORM)
+                        .contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM)
                     {
                         ad_transform_recursive(callable.module.entry, pools);
                     }
@@ -1981,7 +1984,7 @@ impl Transform for Autodiff {
         //     println!("{}", debug.to_str().unwrap());
         // }
         ad_transform_recursive(module.entry, &module.pools);
-        module.flags.remove(ModuleFlags::REQUIRES_AD_TRANSFORM);
+        module.flags.remove(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
         // {
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
         //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();

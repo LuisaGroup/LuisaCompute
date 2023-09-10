@@ -139,8 +139,9 @@ impl StreamImpl {
                         drop(guard);
                         f();
                         (callback.0)(callback.1);
-                        ctx.finished_count
+                        let cnt = ctx.finished_count
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        println!("finished: {}", cnt);
                         guard = ctx.queue.lock();
                         if guard.is_empty() {
                             ctx.sync.notify_one();
@@ -331,6 +332,7 @@ impl StreamImpl {
                         );
                     }
                     api::Command::ShaderDispatch(cmd) => {
+                        println!("launching shader");
                         let shader = &*(cmd.shader.0 as *mut ShaderImpl);
                         let dispatch_size = cmd.dispatch_size;
                         let block_size = shader.block_size;
@@ -401,6 +403,7 @@ impl StreamImpl {
                             1,
                             block_count,
                         );
+                        println!("shader completed");
                     }
                     api::Command::MeshBuild(mesh_build) => {
                         let mesh = &mut *(mesh_build.mesh.0 as *mut GeometryImpl);

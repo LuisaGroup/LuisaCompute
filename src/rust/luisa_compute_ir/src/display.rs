@@ -205,8 +205,8 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::AdScope { body } => {
-                self.output += "AdScope {\n";
+            Instruction::AdScope { body,forward } => {
+                self.output += &format!("{}AdScope {{\n", if *forward { "Forward" } else { "Reverse" });
                 for node in body.nodes().iter() {
                     self.display(*node, ident + 1, false);
                 }

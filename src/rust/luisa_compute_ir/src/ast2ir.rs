@@ -1639,7 +1639,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             _ => panic!("Invalid custom function."),
         };
         self._curr_ctx_mut().has_autodiff |=
-            f.module.flags.contains(ModuleFlags::REQUIRES_AD_TRANSFORM);
+            f.module.flags.contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
         let args: Vec<_> = f
             .args
             .iter()
@@ -1894,7 +1894,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 self._curr_ctx_mut().has_autodiff = true;
                 let body = self._convert_scope(&j["body"], false);
                 let (builder, ..) = self.unwrap_ctx();
-                builder.ad_scope(body)
+                builder.ad_scope(body, false)
             }
             _ => panic!("Invalid statement tag: {}", tag),
         }
@@ -1922,7 +1922,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             entry,
             pools: self.pools.clone(),
             flags: if self._curr_ctx().has_autodiff {
-                ModuleFlags::REQUIRES_AD_TRANSFORM
+                ModuleFlags::REQUIRES_REV_AD_TRANSFORM
             } else {
                 ModuleFlags::NONE
             },

@@ -4,6 +4,7 @@ pub mod ssa;
 // pub mod validate;
 pub mod vectorize;
 // pub mod eval;
+pub mod fwd_autodiff;
 pub mod ref2ret;
 pub mod reg2mem;
 
@@ -98,8 +99,11 @@ pub extern "C" fn luisa_compute_ir_transform_pipeline_destroy(pipeline: *mut Tra
 pub extern "C" fn luisa_compute_ir_transform_auto(module: ir::Module) -> ir::Module {
     let flags = module.flags;
     let mut pipeline = TransformPipeline::new();
-    if flags.contains(ModuleFlags::REQUIRES_AD_TRANSFORM) {
+    if flags.contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM) {
         pipeline.add_transform(Box::new(autodiff::Autodiff));
+    }
+    if flags.contains(ModuleFlags::REQUIRES_FWD_AD_TRANSFORM) {
+        pipeline.add_transform(Box::new(fwd_autodiff::FwdAutodiff));
     }
     pipeline.transform(module)
 }

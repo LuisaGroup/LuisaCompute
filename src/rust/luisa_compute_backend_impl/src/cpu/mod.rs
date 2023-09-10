@@ -231,6 +231,7 @@ impl Backend for RustBackend {
             let present = ctx.cpu_swapchain_present;
             stream.enqueue(
                 move || {
+                    println!("presenting");
                     let pixels = img.view(0).copy_to_vec_par_2d();
 
                     present(

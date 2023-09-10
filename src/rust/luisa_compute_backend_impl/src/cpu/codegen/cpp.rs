@@ -1711,7 +1711,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 writeln!(&mut self.body, "}}").unwrap();
             }
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, .. } => {
                 writeln!(&mut self.body, "/* AdScope */").unwrap();
                 self.gen_block(*body);
                 self.write_ident();
