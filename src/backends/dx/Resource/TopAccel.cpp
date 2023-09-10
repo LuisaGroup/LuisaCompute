@@ -8,18 +8,6 @@
 
 namespace lc::dx {
 
-namespace detail {
-void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
-    float *x[3] = {inst.Transform[0],
-                   inst.Transform[1],
-                   inst.Transform[2]};
-    for (auto i : vstd::range(4))
-        for (auto j : vstd::range(3)) {
-            auto ptr = reinterpret_cast<float const *>(&tr.cols[i]);
-            x[j][i] = ptr[j];
-        }
-}
-}// namespace detail
 TopAccel::TopAccel(Device *device, AccelOption const &option)
     : Resource(device) {
     //TODO: allow_compact not supported

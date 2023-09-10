@@ -7,6 +7,11 @@ float4(v.p0.y,v.p1.y,v.p2.y,0),
 float4(v.p0.z,v.p1.z,v.p2.z,0),
 float4(v.p0.w,v.p1.w,v.p2.w,1));
 }
+template<typename T>
+uint _InstId(T instBuffer,uint index){
+_MeshInst v=instBuffer[index];
+return v.InstanceID;
+}
 void _SetInstTransform(inout _MeshInst i,float4x4 mat){
 i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
 i.p1=float4(mat[0].y,mat[1].y,mat[2].y,mat[3].y);
@@ -20,4 +25,7 @@ buffer[index].InstanceMask=mask;
 }
 void _SetAccelOpaque(RWStructuredBuffer<_MeshInst> buffer,uint index,bool opaque){
 buffer[index].Flags=select(opaque,4,8);
+}
+void _SetUserId(RWStructuredBuffer<_MeshInst> buffer,uint index,uint id){
+buffer[index].InstanceID=id;
 }

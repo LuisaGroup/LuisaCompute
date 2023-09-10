@@ -266,9 +266,12 @@ enum struct CallOp : uint32_t {
 
     // ray tracing
     RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
+    RAY_TRACING_USER_ID,                // (Accel, uint)
     RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
     RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
     RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
+    RAY_TRACING_SET_INSTANCE_USER_ID,   // (Accel, uint, uint)
+
     RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): TriangleHit
     RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
     RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery

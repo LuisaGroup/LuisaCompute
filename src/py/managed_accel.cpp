@@ -81,17 +81,17 @@ void ManagedAccel::remove_mesh(size_t index) noexcept {
         data->created_mesh.erase(iter);
     }
 }
-void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept {
+void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque, uint user_id) noexcept {
     auto sz = data->meshes.size();
     data->meshes.emplace_back(MeshValue{invalid_resource_handle, vstd::MD5{}, MeshRefType::Mesh});
     auto new_mesh = set_mesh<MeshUpdateCmd>(sz, mesh);
-    data->accel._emplace_back_handle(new_mesh, transform, visibility_mask, opaque);
+    data->accel._emplace_back_handle(new_mesh, transform, visibility_mask, opaque, user_id);
 }
-void ManagedAccel::emplace(ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept {
+void ManagedAccel::emplace(ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque, uint user_id) noexcept {
     auto sz = data->meshes.size();
     data->meshes.emplace_back(MeshValue{invalid_resource_handle, vstd::MD5{}, MeshRefType::Procedural});
     auto new_mesh = set_mesh<ProceduralUpdateCmd>(sz, procedural);
-    data->accel._emplace_back_handle(new_mesh, transform, visibility_mask, opaque);
+    data->accel._emplace_back_handle(new_mesh, transform, visibility_mask, opaque, user_id);
 }
 
 void ManagedAccel::pop_back() noexcept {
@@ -100,15 +100,15 @@ void ManagedAccel::pop_back() noexcept {
     data->meshes.pop_back();
 }
 
-void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept {
+void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque, uint user_id) noexcept {
     auto &last_mesh = data->meshes[idx];
     auto new_mesh = set_mesh<MeshUpdateCmd>(idx, mesh);
-    data->accel._set_handle(idx, new_mesh, transform, visibility_mask, opaque);
+    data->accel._set_handle(idx, new_mesh, transform, visibility_mask, opaque, user_id);
 }
-void ManagedAccel::set(size_t idx, ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept {
+void ManagedAccel::set(size_t idx, ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque, uint user_id) noexcept {
     auto &last_mesh = data->meshes[idx];
     auto new_mesh = set_mesh<ProceduralUpdateCmd>(idx, procedural);
-    data->accel._set_handle(idx, new_mesh, transform, visibility_mask, opaque);
+    data->accel._set_handle(idx, new_mesh, transform, visibility_mask, opaque, user_id);
 }
 void ManagedAccel::update_instance_buffer(PyStream &stream) noexcept {
     stream.add(data->accel.update_instance_buffer());
