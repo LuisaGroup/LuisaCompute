@@ -160,12 +160,12 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
     explicit ShaderInvoke(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept
         : ShaderInvokeBase{handle, arg_count, uniform_size} {}
     [[nodiscard]] auto dispatch(uint size_x) && noexcept {
-        return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
+        return std::move(*this)._parallelize(uint3{size_x, 1u, 1u}).build();
     }
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
-        return std::move(std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size)).build();
+        return std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size).build();
     }
 };
 
@@ -174,7 +174,7 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
     explicit ShaderInvoke(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept
         : ShaderInvokeBase{handle, arg_count, uniform_size} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) && noexcept {
-        return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
+        return std::move(*this)._parallelize(uint3{size_x, size_y, 1u}).build();
     }
     [[nodiscard]] auto dispatch(uint2 size) && noexcept {
         return std::move(*this).dispatch(size.x, size.y);
@@ -182,7 +182,7 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
-        return std::move(std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size)).build();
+        return std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size).build();
     }
 };
 
@@ -191,12 +191,12 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
     explicit ShaderInvoke(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept
         : ShaderInvokeBase{handle, arg_count, uniform_size} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) && noexcept {
-        return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
+        return std::move(*this)._parallelize(uint3{size_x, size_y, size_z}).build();
     }
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
-        return std::move(std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size)).build();
+        return std::move(*this)._parallelize(indirect_buffer, offset, max_dispatch_size).build();
     }
     [[nodiscard]] auto dispatch(uint3 size) && noexcept {
         return std::move(*this).dispatch(size.x, size.y, size.z);
@@ -270,7 +270,8 @@ public:
         using invoke_type = detail::ShaderInvoke<dimension>;
         auto arg_count = (0u + ... + detail::shader_argument_encode_count<Args>::value);
         invoke_type invoke{handle(), arg_count, _uniform_size};
-        return static_cast<invoke_type &&>((invoke << ... << args));
+        (invoke << ... << args);
+        return invoke;
     }
     [[nodiscard]] uint3 block_size() const noexcept {
         _check_is_valid();
