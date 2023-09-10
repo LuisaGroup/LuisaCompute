@@ -271,7 +271,7 @@ public:
             }
             if (mod.flags & Mod::flag_visibility) {
                 m[i].flags.bits |= api::AccelBuildModificationFlags_VISIBILITY.bits;
-                m[i].visibility = mod.flags >> Mod::flag_vis_mask_offset;
+                m[i].visibility = mod.vis_mask;
             }
         }
         api::Command converted{.tag = Tag::ACCEL_BUILD};
