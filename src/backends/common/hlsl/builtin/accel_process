@@ -11,13 +11,12 @@ uint2 accelStructPtr;
 struct InputInst{
 uint index;
 uint user_id;
-uint flags:8;
-uint vis_mask:8;
-uint _a0;
-uint2 mesh;
+uint flags;
+uint vis_mask;
 float4 p0;
 float4 p1;
 float4 p2;
+uint2 mesh;
 uint2 _a1;
 };
 RWStructuredBuffer<MeshInst> _InstBuffer:register(u0);

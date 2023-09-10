@@ -478,10 +478,10 @@ public:
         // members
         uint index{};
         uint user_id{};
-        uint8_t flags{};
-        uint8_t vis_mask{};
-        uint64_t primitive{};
+        uint flags{};
+        uint vis_mask{};
         float affine[12]{};
+        uint64_t primitive{};
 
         // ctor
         Modification() noexcept = default;
