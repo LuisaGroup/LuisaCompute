@@ -207,6 +207,10 @@ uint64_t TypeIDExpr::_compute_hash() const noexcept {
     return _data_type->hash();
 }
 
+uint64_t StringIDExpr::_compute_hash() const noexcept {
+    return hash_value(_data);
+}
+
 void ExprVisitor::visit(const CpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend.");
 }
@@ -214,4 +218,5 @@ void ExprVisitor::visit(const CpuCustomOpExpr *) {
 void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
+
 }// namespace luisa::compute

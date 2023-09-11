@@ -301,6 +301,8 @@ public:
     [[nodiscard]] const Expression *swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept;
     /// Create access expression
     [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
+    /// Create string ID expression
+    [[nodiscard]] const StringIDExpr *string_id(luisa::string s) noexcept;
     /// Create cast expression
     [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
     /// Create call expression

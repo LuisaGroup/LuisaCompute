@@ -85,7 +85,8 @@ struct ModuleFlags {
     }
 };
 static const ModuleFlags ModuleFlags_NONE = ModuleFlags{ /* .bits = */ (uint32_t)0 };
-static const ModuleFlags ModuleFlags_REQUIRES_AD_TRANSFORM = ModuleFlags{ /* .bits = */ (uint32_t)1 };
+static const ModuleFlags ModuleFlags_REQUIRES_REV_AD_TRANSFORM = ModuleFlags{ /* .bits = */ (uint32_t)1 };
+static const ModuleFlags ModuleFlags_REQUIRES_FWD_AD_TRANSFORM = ModuleFlags{ /* .bits = */ (uint32_t)2 };
 
 struct Module {
     ModuleKind kind;
@@ -290,6 +291,10 @@ struct Func {
         WarpLaneId,
         DispatchId,
         DispatchSize,
+        /// (input, grads, ...) -> ()
+        PropagateGrad,
+        /// (var, idx) -> dvar/dinput_{idx}
+        RetreiveGradAt,
         RequiresGradient,
         Backward,
         Gradient,
@@ -759,6 +764,7 @@ struct Instruction {
 
     struct AdScope_Body {
         Pooled<BasicBlock> body;
+        bool forward;
     };
 
     struct RayQuery_Body {

@@ -1109,6 +1109,10 @@ void MetalCodegenAST::visit(const TypeIDExpr *expr) noexcept {
     // TODO: use expr->data_type() to generate correct type
 }
 
+void MetalCodegenAST::visit(const StringIDExpr *expr) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+}
+
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {
     switch (expr->op()) {
         case CastOp::STATIC: _scratch << "static_cast<"; break;

@@ -823,6 +823,7 @@ private:
             case Expression::Tag::CALL: _convert_call_expr(j, static_cast<const CallExpr *>(expr)); break;
             case Expression::Tag::CAST: _convert_cast_expr(j, static_cast<const CastExpr *>(expr)); break;
             case Expression::Tag::TYPE_ID: _convert_type_id_expr(j, static_cast<const TypeIDExpr *>(expr)); break;
+            case Expression::Tag::STRING_ID: _convert_string_id_expr(j, static_cast<const StringIDExpr *>(expr)); break;
             case Expression::Tag::CPUCUSTOM: LUISA_NOT_IMPLEMENTED();
             case Expression::Tag::GPUCUSTOM: LUISA_NOT_IMPLEMENTED();
         }
@@ -888,6 +889,9 @@ private:
     }
     void _convert_type_id_expr(JSON &j, const TypeIDExpr *expr) noexcept {
         j["data_type"] = _type_index(expr->data_type());
+    }
+    void _convert_string_id_expr(JSON &j, const StringIDExpr *expr) noexcept {
+        j["data"] = expr->data();
     }
     [[nodiscard]] JSON _convert_stmt(const Statement *stmt) noexcept {
         JSON j;

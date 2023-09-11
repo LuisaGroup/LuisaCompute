@@ -53,6 +53,11 @@ inline void unreachable() noexcept {
         CallOp::UNREACHABLE, {});
 }
 
+inline void unreachable(luisa::string_view msg) noexcept {
+    auto message = detail::FunctionBuilder::current()->string_id(luisa::string{msg});
+    detail::FunctionBuilder::current()->call(CallOp::UNREACHABLE, {message});
+}
+
 /// Get thread_id(uint3)
 [[nodiscard]] inline auto thread_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->thread_id());

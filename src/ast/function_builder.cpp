@@ -294,6 +294,10 @@ const CastExpr *FunctionBuilder::cast(const Type *type, CastOp op, const Express
     return _create_expression<CastExpr>(type, op, expr);
 }
 
+const StringIDExpr *FunctionBuilder::string_id(luisa::string s) noexcept {
+    return _create_expression<StringIDExpr>(std::move(s));
+}
+
 const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
     return _create_expression<RefExpr>(v);
 }

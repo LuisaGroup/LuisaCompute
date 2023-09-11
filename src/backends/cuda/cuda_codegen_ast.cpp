@@ -1115,6 +1115,10 @@ void CUDACodegenAST::visit(const TypeIDExpr *expr) {
     // TODO: use type id
 }
 
+void CUDACodegenAST::visit(const StringIDExpr *expr) {
+    LUISA_NOT_IMPLEMENTED();
+}
+
 void CUDACodegenAST::visit(const BreakStmt *) {
     _scratch << "break;";
 }

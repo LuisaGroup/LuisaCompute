@@ -49,6 +49,7 @@ private:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const TypeIDExpr *expr) override;
+    void visit(const StringIDExpr *expr) override;
     void visit(const BreakStmt *stmt) override;
     void visit(const ContinueStmt *stmt) override;
     void visit(const ReturnStmt *stmt) override;

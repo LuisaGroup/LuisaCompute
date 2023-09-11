@@ -754,6 +754,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             let (builder, ..) = self.unwrap_ctx();
             return builder.const_(Const::One(t.clone()));
         }
+        let decode_string_id_expr = |j: &JSON| {
+            assert_eq!(j["tag"], "STRING_ID");
+            let s = j["data"].as_str().unwrap();
+            CBoxedSlice::from(s.as_bytes())
+        };
         let func = match f {
             "ALL" => Func::All,
             "ANY" => Func::Any,
@@ -882,13 +887,23 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "MAKE_FLOAT2X2" => Func::Mat2,
             "MAKE_FLOAT3X3" => Func::Mat3,
             "MAKE_FLOAT4X4" => Func::Mat4,
-            "ASSERT" => Func::Assert(CBoxedSlice::from(
-                CString::new("Assertion failed!").unwrap(),
-            )),
+            "ASSERT" => {
+                let msg = if args.len() > 1 {
+                    decode_string_id_expr(&args[1])
+                } else {
+                    CBoxedSlice::from("Assertion failed!".as_bytes())
+                };
+                Func::Assert(msg)
+            }
             "ASSUME" => Func::Assume,
-            "UNREACHABLE" => Func::Unreachable(CBoxedSlice::from(
-                CString::new("Unreachable code!").unwrap(),
-            )),
+            "UNREACHABLE" => {
+                let msg = if args.len() > 0 {
+                    decode_string_id_expr(&args[1])
+                } else {
+                    CBoxedSlice::from("Unreachable code!".as_bytes())
+                };
+                Func::Unreachable(msg)
+            }
             "ZERO" | "ONE" => unreachable!(),
             "PACK" => Func::Pack,
             "UNPACK" => Func::Unpack,
@@ -1390,13 +1405,20 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 });
                 args
             }
-            "ASSERT" | "ASSUME" => {
+            "ASSERT" => {
+                assert!(args.len() == 1 || args.len() == 2);
+                let a = self._convert_expression(&args[0], false);
+                assert!(a.type_().is_bool() && a.type_().is_primitive());
+                assert!(t.is_void());
+                vec![a]
+            }
+            "ASSUME" => {
                 let args = convert_args(&[false]);
                 assert!(args[0].type_().is_bool());
                 assert!(t.is_void());
                 args
             }
-            "UNREACHABLE" => convert_args(&[]),
+            "UNREACHABLE" => Vec::new(),
             "ZERO" => unreachable!(),
             "ONE" => unreachable!(),
             "PACK" => {
@@ -1754,6 +1776,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                     self._convert_cast_expr(&t, j)
                 }
                 "TYPE_ID" => unimplemented!("TypeID expressions."),
+                "STRING_ID" => unimplemented!("StringID expressions."),
                 _ => panic!("Invalid expression tag: {}", tag),
             }
         }
