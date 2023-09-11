@@ -1854,6 +1854,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                                 block: self._convert_scope(&s["body"], true),
                             }),
                             "SWITCH_DEFAULT" => None,
+                            "COMMENT" => None,
                             _ => panic!("Invalid switch case tag: {}", s_tag),
                         }
                     })
@@ -1865,6 +1866,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         match s_tag {
                             "SWITCH_CASE" => None,
                             "SWITCH_DEFAULT" => Some(self._convert_scope(&s["body"], true)),
+                            "COMMENT" => None,
                             _ => panic!("Invalid switch case tag: {}", s_tag),
                         }
                     })

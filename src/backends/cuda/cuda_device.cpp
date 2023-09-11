@@ -41,13 +41,18 @@
 #include "cuda_ext.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
+#define LUISA_CUDA_KERNEL_DEBUG 1
+
+#ifndef NDEBUG
+#define LUISA_CUDA_DUMP_SOURCE 1
+#else
 static const bool LUISA_CUDA_DUMP_SOURCE = ([]{
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
     return std::string_view{env} == "1";
 })();
-#define LUISA_CUDA_KERNEL_DEBUG 1
+#endif
 
 namespace luisa::compute::cuda {
 
