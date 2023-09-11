@@ -1026,6 +1026,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         }
     } else {
         auto trailing_comma = false;
+        if (op == CallOp::UNREACHABLE) {
+            _scratch << "__FILE__, __LINE__, ";
+            trailing_comma = true;
+        }
         for (auto arg : expr->arguments()) {
             trailing_comma = true;
             arg->accept(*this);

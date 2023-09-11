@@ -15,10 +15,17 @@ inline __device__ void lc_assume(bool) noexcept {}
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 #endif
 
+[[noreturn]] inline void lc_trap() noexcept { asm("trap;"); }
+
 template<typename T = void>
-[[noreturn]] inline __device__ T lc_unreachable() noexcept {
-#if LC_NVRTC_VERSION < 110300
-    asm("trap;");
+[[noreturn]] inline __device__ T lc_unreachable(
+    const char *file, int line,
+    const char *user_msg = nullptr) noexcept {
+#if LC_NVRTC_VERSION < 110300 || defined(LUISA_DEBUG)
+    printf("Unreachable code reached: %s. [%s:%d]\n",
+           user_msg ? user_msg : "no user-specified message",
+           file, line);
+    lc_trap();
 #else
     __builtin_unreachable();
 #endif
@@ -33,7 +40,7 @@ template<typename T = void>
                    __FILE__,                            \
                    static_cast<int>(__LINE__),          \
                    __FUNCTION__);                       \
-            asm("trap;");                               \
+            lc_trap();                                  \
         }                                               \
     } while (false)
 #define lc_check_in_bounds(size, max_size)                               \
@@ -44,6 +51,7 @@ template<typename T = void>
                    #max_size, static_cast<size_t>(max_size),             \
                    __FILE__, static_cast<int>(__LINE__),                 \
                    __FUNCTION__);                                        \
+            lc_trap();                                                   \
         }                                                                \
     } while (false)
 #else
@@ -2064,7 +2072,7 @@ extern "C" __global__ void __intersection__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 31
         case 31u: r = lc_ray_query_procedural_intersection_31(ctx); break;
 #endif
-        default: lc_unreachable();
+        default: lc_unreachable(__FILE__, __LINE__);
     }
     if (r.committed) {
         lc_ray_query_report_intersection(
@@ -2186,7 +2194,7 @@ extern "C" __global__ void __anyhit__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 31
             case 31u: r = lc_ray_query_triangle_intersection_31(ctx); break;
 #endif
-            default: lc_unreachable();
+            default: lc_unreachable(__FILE__, __LINE__);
         }
         // ignore the intersection if not committed
         if (!r.committed) { lc_ray_query_ignore_intersection(); }
