@@ -885,7 +885,7 @@ impl Context {
                     .unwrap();
                 }
 
-                panic!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
@@ -924,6 +924,7 @@ impl Context {
                         }
                     }
                     let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
+                    dbg!(msg.len());
                     let idx = msg.find("{}").unwrap();
                     let mut display = String::new();
                     display.push_str(&msg[..idx]);
@@ -942,7 +943,7 @@ impl Context {
                     )
                     .unwrap();
                 }
-                panic!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/

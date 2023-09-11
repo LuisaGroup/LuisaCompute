@@ -39,7 +39,7 @@ impl StagingBuffers {
     unsafe fn allocate(&mut self, ptr: *const u8, size: usize) {
         let bump = &mut self.bump;
         let buffer = bump
-            .alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap())
+            .alloc_layout(std::alloc::Layout::from_size_align(size, 16).unwrap())
             .as_ptr();
         std::ptr::copy_nonoverlapping(ptr, buffer, size);
         self.buffers.push(buffer);

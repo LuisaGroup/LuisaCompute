@@ -6,6 +6,7 @@ use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::ffi::CString;
 use std::iter::zip;
 
 struct AST2IRCtx<'a> {
@@ -881,9 +882,13 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "MAKE_FLOAT2X2" => Func::Mat2,
             "MAKE_FLOAT3X3" => Func::Mat3,
             "MAKE_FLOAT4X4" => Func::Mat4,
-            "ASSERT" => Func::Assert(CBoxedSlice::new(Vec::new())),
+            "ASSERT" => Func::Assert(CBoxedSlice::from(
+                CString::new("Assertion failed!").unwrap(),
+            )),
             "ASSUME" => Func::Assume,
-            "UNREACHABLE" => Func::Unreachable(CBoxedSlice::new(Vec::new())),
+            "UNREACHABLE" => Func::Unreachable(CBoxedSlice::from(
+                CString::new("Unreachable code!").unwrap(),
+            )),
             "ZERO" | "ONE" => unreachable!(),
             "PACK" => Func::Pack,
             "UNPACK" => Func::Unpack,
@@ -1655,8 +1660,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             FunctionModule::Callable(callable) => callable,
             _ => panic!("Invalid custom function."),
         };
-        self._curr_ctx_mut().has_autodiff |=
-            f.module.flags.contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
+        self._curr_ctx_mut().has_autodiff |= f
+            .module
+            .flags
+            .contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
         let args: Vec<_> = f
             .args
             .iter()

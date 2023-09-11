@@ -107,7 +107,7 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
         location.file(),
         location.line()
     );
-    eprintln!("set LUISA_BACKTRACE=1 ro enable host DSL backtrace");
+    eprintln!("set LUISA_BACKTRACE=1 to enable host DSL backtrace");
     match env::var("RUST_BACKTRACE") {
         Ok(v) => {
             if v == "1" {
