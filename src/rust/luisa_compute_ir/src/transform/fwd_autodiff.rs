@@ -45,7 +45,7 @@ impl ForwardAdTransform {
             .map(|_| builder.local_zero_init(out_grads[0].type_().clone()))
             .collect::<NodeVec>();
         for (out_grad, grad) in out_grads.iter().zip(grads.iter()) {
-            builder.call(Func::AccGrad, &[*grad, *out_grad], Type::void());
+            builder.update(grad.clone(), out_grad.clone());
         }
         self.duals.insert(
             node,
@@ -256,9 +256,102 @@ impl ForwardAdTransform {
                 );
                 self.create_grad(out, &grads, builder);
             }
-            _ => {
+            // Func::Vec => {
+            //     let out_grads = self.create_call(builder, *f, &[&[args[0]]], type_);
+            //     self.create_grad(out, &out_grads, builder);
+            // }
+            // Func::Vec2 => {
+            //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]]], type_);
+            //     self.create_grad(out, &out_grads, builder);
+            // }
+            // Func::Vec3 => {
+            //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]],&[args[2]]], type_);
+            //     self.create_grad(out, &out_grads, builder);
+            // }
+            // Func::Vec4 => {
+            //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]],&], type_);
+            //     self.create_grad(out, &out_grads, builder);
+            // }
+
+            Func::BufferRead
+            | Func::BufferSize
+            | Func::BufferWrite
+            | Func::Shl
+            | Func::Shr
+            | Func::BitAnd
+            | Func::BitOr
+            | Func::BitNot
+            | Func::BitXor
+            | Func::Clz
+            | Func::Ctz
+            | Func::PopCount
+            | Func::Reverse
+            | Func::IsInf
+            | Func::IsNan
+            | Func::WarpIsFirstActiveLane
+            | Func::WarpFirstActiveLane
+            | Func::WarpActiveAllEqual
+            | Func::WarpActiveBitAnd
+            | Func::WarpActiveBitOr
+            | Func::WarpActiveBitXor
+            | Func::WarpActiveCountBits
+            | Func::WarpActiveMax
+            | Func::WarpActiveMin
+            | Func::WarpActiveProduct
+            | Func::WarpActiveSum
+            | Func::WarpActiveAll
+            | Func::WarpActiveAny
+            | Func::WarpActiveBitMask
+            | Func::WarpPrefixCountBits
+            | Func::WarpPrefixSum
+            | Func::WarpPrefixProduct
+            | Func::WarpReadLaneAt
+            | Func::WarpReadFirstLane
+            | Func::AtomicCompareExchange
+            | Func::AtomicExchange
+            | Func::AtomicFetchAdd
+            | Func::AtomicFetchSub
+            | Func::AtomicFetchAnd
+            | Func::AtomicFetchOr
+            | Func::AtomicFetchXor
+            | Func::AtomicFetchMin
+            | Func::AtomicFetchMax
+            | Func::ShaderExecutionReorder
+            | Func::Assert(_)
+            | Func::Assume
+            | Func::Unreachable(_)
+            | Func::Unpack
+            | Func::Pack
+            | Func::CpuCustomOp(_)
+            | Func::Texture2dRead
+            | Func::Texture2dWrite
+            | Func::Texture2dSize
+            | Func::Texture3dRead
+            | Func::Texture3dWrite
+            | Func::Texture3dSize
+            | Func::BindlessTexture2dSample
+            | Func::BindlessTexture2dSampleLevel
+            | Func::BindlessTexture2dSampleGrad
+            | Func::BindlessTexture2dSampleGradLevel
+            | Func::BindlessTexture3dSample
+            | Func::BindlessTexture3dSampleLevel
+            | Func::BindlessTexture3dSampleGrad
+            | Func::BindlessTexture3dSampleGradLevel
+            | Func::BindlessTexture2dRead
+            | Func::BindlessTexture3dRead
+            | Func::BindlessTexture2dReadLevel
+            | Func::BindlessTexture3dReadLevel
+            | Func::BindlessTexture2dSize
+            | Func::BindlessTexture3dSize
+            | Func::BindlessTexture2dSizeLevel
+            | Func::BindlessTexture3dSizeLevel
+            | Func::BindlessBufferRead
+            | Func::BindlessBufferSize
+            | Func::BindlessBufferType
+            | Func::BindlessByteBufferRead => {
                 self.zero_grad(out, builder);
             }
+            _ => todo!("{:?}", f),
         }
     }
     fn transform_block(&mut self, block: &Pooled<BasicBlock>, mut builder: IrBuilder) {
@@ -294,7 +387,9 @@ impl ForwardAdTransform {
                     cond,
                     true_branch,
                     false_branch,
-                } => todo!(),
+                } => {
+                    todo!()
+                }
                 ir::Instruction::Switch {
                     value,
                     default,

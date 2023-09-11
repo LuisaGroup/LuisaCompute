@@ -312,8 +312,6 @@ src/rust/target/**
 .xmake/**
 src/ext/python311/**
 
-src/rust/Cargo.lock
-
 
 config.json
 options.cli
