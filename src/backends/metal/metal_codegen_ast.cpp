@@ -676,9 +676,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
     // collect functions
     luisa::vector<Function> functions;
     {
-        auto collect_functions = [&functions, collected = luisa::unordered_set<Function>{}](
+        auto collect_functions = [&functions, collected = luisa::unordered_set<uint64_t>{}](
                                      auto &&self, Function function) mutable noexcept -> void {
-            if (collected.emplace(function).second) {
+            if (collected.emplace(function.hash()).second) {
                 for (auto &&c : function.custom_callables()) { self(self, c->function()); }
                 functions.emplace_back(function);
             }

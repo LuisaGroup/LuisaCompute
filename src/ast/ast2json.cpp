@@ -549,7 +549,7 @@ private:
     JSON _root;
     luisa::unordered_map<const Type *, uint> _type_to_index;
     luisa::unordered_map<const std::byte *, uint> _constant_to_index;
-    luisa::unordered_map<Function, uint> _function_to_index;
+    luisa::unordered_map<uint64_t, uint> _function_to_index;
     luisa::unordered_map<const ExternalFunction *, uint> _external_function_to_index;
     FunctionContext *_func_ctx{nullptr};
 
@@ -721,7 +721,7 @@ private:
     [[nodiscard]] uint _function_index(Function f) noexcept {
         LUISA_ASSERT(f.tag() != Function::Tag::RASTER_STAGE,
                      "Raster stage functions are not supported.");
-        if (auto iter = _function_to_index.find(f);
+        if (auto iter = _function_to_index.find(f.hash());
             iter != _function_to_index.end()) {
             return iter->second;
         }
@@ -803,7 +803,7 @@ private:
         // insert into the root table
         auto &funcs = _root["functions"].as_array();
         auto index = static_cast<uint>(funcs.size());
-        _function_to_index[f] = index;
+        _function_to_index.emplace(f.hash(), index);
         funcs.emplace_back(std::move(ctx.j));
         return index;
     }

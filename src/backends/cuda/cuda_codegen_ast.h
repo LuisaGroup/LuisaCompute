@@ -23,7 +23,7 @@ public:
 private:
     StringScratch &_scratch;
     Function _function;
-    luisa::vector<Function> _generated_functions;
+    luisa::vector<uint64_t> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
     luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
     uint32_t _indent{0u};
