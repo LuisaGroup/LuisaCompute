@@ -1254,10 +1254,12 @@ void CUDACodegenAST::emit(Function f,
 
 void CUDACodegenAST::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find_if(_generated_functions.cbegin(),
-                                 _generated_functions.cend(), [&](auto &&other) noexcept { return other.hash() == f.hash(); });
+    if (auto iter = std::find_if(
+            _generated_functions.cbegin(),
+            _generated_functions.cend(),
+            [&](auto &&other) noexcept { return other == f.hash(); });
         iter != _generated_functions.cend()) { return; }
-    _generated_functions.emplace_back(f);
+    _generated_functions.emplace_back(f.hash());
 
     // ray tracing kernels use __constant__ args
     // note: this must go before any other

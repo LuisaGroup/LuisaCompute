@@ -102,7 +102,7 @@ public:
     template<typename S>
     [[nodiscard]] static auto create_with_comment(S &&s) noexcept {
         luisa::compute::detail::comment(std::forward<S>(s));
-        return AutoDiffStmt{};
+        return AutoDiffStmtBuilder{};
     }
 
     /// Add body statement
