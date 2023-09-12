@@ -766,6 +766,7 @@ struct Instruction {
     struct AdScope_Body {
         Pooled<BasicBlock> body;
         bool forward;
+        size_t n_forward_grads;
     };
 
     struct RayQuery_Body {

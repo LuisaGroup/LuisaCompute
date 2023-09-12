@@ -1379,7 +1379,7 @@ protected:
 };
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty) {
-
+    opt->Clear();
     auto codegenOneFunc = [&](Function func) {
         auto constants = func.constants();
         for (auto &&i : constants) {
@@ -1454,12 +1454,11 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
         }
         result << "}\n"sv;
     };
-    vstd::unordered_set<void const *> callableMap;
+    vstd::unordered_set<uint64_t> callableMap;
     auto callable = [&](auto &&callable, Function func) -> void {
         for (auto &&i : func.custom_callables()) {
-            if (callableMap.emplace(i.get()).second) {
-                Function f(i.get());
-                callable(callable, f);
+            if (callableMap.emplace(i->hash()).second) {
+                callable(callable, i->function());
             }
         }
         codegenOneFunc(func);
