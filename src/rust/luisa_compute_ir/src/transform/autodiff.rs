@@ -1132,6 +1132,7 @@ impl Backward {
             crate::ir::Instruction::AdScope { .. } => {
                 todo!()
             }
+            crate::ir::Instruction::Print { .. } => {}
             crate::ir::Instruction::AdDetach(_) => {}
             Instruction::RayQuery { .. } => panic!("RayQuery is not supported yet"),
             crate::ir::Instruction::Call(func, args) => {

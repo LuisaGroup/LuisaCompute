@@ -340,6 +340,14 @@ impl ToSSAImpl {
             Instruction::Return(_) => {
                 panic!("call LowerControlFlow before ToSSA");
             }
+            Instruction::Print { fmt, args } => {
+                let args = args
+                    .iter()
+                    .map(|node| self.promote(*node, builder, record))
+                    .collect::<Vec<_>>();
+                builder.print(fmt.clone(), &args);
+                return INVALID_REF;
+            }
         }
     }
     fn promote_bb(

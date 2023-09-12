@@ -294,7 +294,7 @@ struct Func {
         /// (input, grads, ...) -> ()
         PropagateGrad,
         /// (var, idx) -> dvar/dinput_{idx}
-        RetreiveGradAt,
+        OutputGrad,
         RequiresGradient,
         Backward,
         Gradient,
@@ -700,6 +700,7 @@ struct Instruction {
         Switch,
         AdScope,
         RayQuery,
+        Print,
         AdDetach,
         Comment,
     };
@@ -773,6 +774,11 @@ struct Instruction {
         Pooled<BasicBlock> on_procedural_hit;
     };
 
+    struct Print_Body {
+        CBoxedSlice<uint8_t> fmt;
+        CBoxedSlice<NodeRef> args;
+    };
+
     struct AdDetach_Body {
         Pooled<BasicBlock> _0;
     };
@@ -797,6 +803,7 @@ struct Instruction {
         Switch_Body switch_;
         AdScope_Body ad_scope;
         RayQuery_Body ray_query;
+        Print_Body print;
         AdDetach_Body ad_detach;
         Comment_Body comment;
     };

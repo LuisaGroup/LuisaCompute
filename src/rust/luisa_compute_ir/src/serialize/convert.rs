@@ -260,6 +260,7 @@ impl KernelSerializer {
                 let s = s.as_ref().to_vec();
                 SerializedInstruction::Comment(s)
             }
+            _ => todo!(),
         }
     }
     fn serialize_func(&mut self, func: &Func) -> SerializedFunc {

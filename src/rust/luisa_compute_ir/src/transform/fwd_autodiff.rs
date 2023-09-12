@@ -4,7 +4,10 @@ use indexmap::IndexMap;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    ir::{BasicBlock, Const, Func, IrBuilder, ModulePools, Node, NodeRef},
+    ir::{
+        BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModuleFlags, ModuleKind,
+        ModulePools, Node, NodeRef, SwitchCase,
+    },
     *,
 };
 
@@ -272,7 +275,6 @@ impl ForwardAdTransform {
             //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]],&], type_);
             //     self.create_grad(out, &out_grads, builder);
             // }
-
             Func::BufferRead
             | Func::BufferSize
             | Func::BufferWrite
@@ -354,10 +356,10 @@ impl ForwardAdTransform {
             _ => todo!("{:?}", f),
         }
     }
-    fn transform_block(&mut self, block: &Pooled<BasicBlock>, mut builder: IrBuilder) {
-        for node in block.iter() {
-            let inst = node.get().instruction.as_ref();
-            match inst {
+    fn transform_node(&mut self, node: NodeRef, builder: &mut IrBuilder) {
+        builder.set_insert_point(node);
+        let inst = node.get().instruction.as_ref();
+        match inst {
                 ir::Instruction::Buffer => {}
                 ir::Instruction::Bindless => {}
                 ir::Instruction::Texture2D => {}
@@ -369,51 +371,146 @@ impl ForwardAdTransform {
                 ir::Instruction::Argument { by_value } => todo!(),
                 ir::Instruction::UserData(_) => todo!(),
                 ir::Instruction::Invalid => todo!(),
-                ir::Instruction::Const(_) => todo!(),
+                ir::Instruction::Const(_) => {
+                    self.zero_grad(node, builder);
+                },
                 ir::Instruction::Update { var, value } => todo!(),
-                ir::Instruction::Call(_, _) => todo!(),
+                ir::Instruction::Call(f, args) => {
+                    self.transform_call(node, &f, args, builder);
+                }
                 ir::Instruction::Phi(_) => todo!(),
                 ir::Instruction::Return(_) => todo!(),
-                ir::Instruction::Loop { body, cond } => todo!(),
+                ir::Instruction::Loop { body, cond } => {
+                    self.transform_block(body, builder);
+                    self.transform_node(*cond, builder);
+                }
                 ir::Instruction::GenericLoop {
                     prepare,
                     cond,
                     body,
                     update,
-                } => todo!(),
-                ir::Instruction::Break => todo!(),
-                ir::Instruction::Continue => todo!(),
+                } => {
+                    self.transform_block(prepare, builder);
+                    self.transform_node(*cond, builder);
+                    self.transform_block(body, builder);
+                    self.transform_block(update, builder);
+                },
+                ir::Instruction::Break => {},
+                ir::Instruction::Continue => {},
                 ir::Instruction::If {
                     cond,
                     true_branch,
                     false_branch,
                 } => {
-                    todo!()
+                    self.transform_node(*cond, builder);
+                    self.transform_block(true_branch, builder);
+                    self.transform_block(false_branch, builder);
                 }
                 ir::Instruction::Switch {
                     value,
                     default,
                     cases,
-                } => todo!(),
-                ir::Instruction::AdScope { body, forward } => {
+                } => {
+                    self.transform_node(*value, builder);
+                    self.transform_block(default, builder);
+                    for SwitchCase { value:_, block } in cases.iter() {
+                        self.transform_block(block, builder);
+                    }
+                },
+                ir::Instruction::AdScope { .. } => {
                     todo!("Nested AD scope is not supported");
                 },
                 ir::Instruction::RayQuery {
-                    ray_query,
-                    on_triangle_hit,
-                    on_procedural_hit,
+                  ..
                 } => panic!("RayQuery not supported in AD. Please recompute ray intersection after the RayQuery result is obtained"),
                 ir::Instruction::AdDetach(block) => {
 
                 },
                 ir::Instruction::Comment(_) => {}
+                ir::Instruction::Print{..}=>{}
             }
+    }
+    fn transform_block(&mut self, block: &Pooled<BasicBlock>, builder: &mut IrBuilder) {
+        for node in block.iter() {
+            self.transform_node(node, builder);
         }
     }
 }
 pub(crate) struct FwdAutodiff;
+
+fn ad_transform_block(module: crate::ir::Module) {}
+fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
+    let nodes = block.nodes();
+    let mut i = 0;
+    while i < nodes.len() {
+        let node = nodes[i];
+        match node.get().instruction.as_ref() {
+            Instruction::AdScope { body, forward } => {
+                if !*forward {
+                    continue;
+                }
+                let ad_block = Module {
+                    kind: ModuleKind::Block,
+                    entry: body.clone(),
+                    pools: pools.clone(),
+                    flags: ModuleFlags::NONE,
+                };
+                ad_transform_block(ad_block);
+            }
+            Instruction::If {
+                cond: _,
+                true_branch,
+                false_branch,
+            } => {
+                ad_transform_recursive(*true_branch, pools);
+                ad_transform_recursive(*false_branch, pools);
+            }
+            Instruction::GenericLoop {
+                prepare,
+                cond: _,
+                body,
+                update,
+            } => {
+                ad_transform_recursive(*prepare, pools);
+                ad_transform_recursive(*body, pools);
+                ad_transform_recursive(*update, pools);
+            }
+            Instruction::Loop { body, cond: _ } => {
+                ad_transform_recursive(*body, pools);
+            }
+            Instruction::Switch {
+                value: _,
+                default,
+                cases,
+            } => {
+                ad_transform_recursive(*default, pools);
+                for SwitchCase { value: _, block } in cases.iter() {
+                    ad_transform_recursive(*block, pools);
+                }
+            }
+            Instruction::Call(f, ..) => match f {
+                Func::Callable(callable) => {
+                    let callable = &callable.0;
+                    if callable
+                        .module
+                        .flags
+                        .contains(ModuleFlags::REQUIRES_FWD_AD_TRANSFORM)
+                    {
+                        ad_transform_recursive(callable.module.entry, pools);
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
 impl Transform for FwdAutodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
-        todo!()
+        ad_transform_recursive(module.entry, &module.pools);
+        module.flags.remove(ModuleFlags::REQUIRES_FWD_AD_TRANSFORM);
+        module
     }
 }

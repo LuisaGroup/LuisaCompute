@@ -107,6 +107,7 @@ impl Reg2MemImpl {
                     self.transform_recursive(body);
                 }
                 Instruction::Comment(_) => {}
+                Instruction::Print { .. } => {todo!()}
             }
         }
     }
@@ -182,6 +183,9 @@ impl Reg2MemImpl {
                     self.collect_phi_and_local_nodes(body);
                 }
                 Instruction::Comment(_) => {}
+                Instruction::Print { .. } => {
+                    todo!()
+                }
             }
         }
     }

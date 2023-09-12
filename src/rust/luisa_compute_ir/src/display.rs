@@ -205,8 +205,11 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::AdScope { body,forward } => {
-                self.output += &format!("{}AdScope {{\n", if *forward { "Forward" } else { "Reverse" });
+            Instruction::AdScope { body, forward } => {
+                self.output += &format!(
+                    "{}AdScope {{\n",
+                    if *forward { "Forward" } else { "Reverse" }
+                );
                 for node in body.nodes().iter() {
                     self.display(*node, ident + 1, false);
                 }
@@ -223,6 +226,7 @@ impl DisplayIR {
             }
             Instruction::Comment(_) => {}
             Instruction::Return(_) => todo!(),
+            Instruction::Print { .. } => {}
         }
         if !no_new_line {
             self.output += "\n";

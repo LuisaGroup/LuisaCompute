@@ -597,7 +597,7 @@ pub enum Func {
     /// (input, grads, ...) -> ()
     PropagateGrad,
     /// (var, idx) -> dvar/dinput_{idx}
-    RetreiveGradAt,
+    OutputGrad,
 
     // Reverse AD
     RequiresGradient,
@@ -1164,6 +1164,10 @@ pub enum Instruction {
         ray_query: NodeRef,
         on_triangle_hit: Pooled<BasicBlock>,
         on_procedural_hit: Pooled<BasicBlock>,
+    },
+    Print {
+        fmt: CBoxedSlice<u8>,
+        args: CBoxedSlice<NodeRef>,
     },
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
@@ -2034,6 +2038,13 @@ impl ModuleDuplicator {
                 builder.ad_detach(dup_body)
             }
             Instruction::Comment(msg) => builder.comment(msg.clone()),
+            Instruction::Print { fmt, args } => {
+                let args = args
+                    .iter()
+                    .map(|x| self.find_duplicated_node(*x))
+                    .collect::<Vec<_>>();
+                builder.print(fmt.clone(), &args)
+            }
         };
         // insert the duplicated node into the map
         self.current
@@ -2160,6 +2171,20 @@ impl IrBuilder {
         let new_node = new_node(
             &self.pools,
             Node::new(CArc::new(Instruction::Comment(msg)), Type::void()),
+        );
+        self.append(new_node);
+        new_node
+    }
+    pub fn print(&mut self, fmt: CBoxedSlice<u8>, args: &[NodeRef]) -> NodeRef {
+        let new_node = new_node(
+            &self.pools,
+            Node::new(
+                CArc::new(Instruction::Print {
+                    fmt,
+                    args: CBoxedSlice::new(args.to_vec()),
+                }),
+                Type::void(),
+            ),
         );
         self.append(new_node);
         new_node

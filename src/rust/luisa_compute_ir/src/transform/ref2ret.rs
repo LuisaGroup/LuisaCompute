@@ -232,6 +232,7 @@ impl Ref2RetImpl {
                 }
                 Instruction::AdDetach(body) => self.transform_block(body),
                 Instruction::Comment(_) => {}
+                Instruction::Print { .. } => {todo!()}
             }
         }
     }

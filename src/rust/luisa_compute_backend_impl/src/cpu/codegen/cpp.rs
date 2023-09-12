@@ -1751,6 +1751,9 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 writeln!(&mut self.body, "/* {} */", comment.to_string()).unwrap();
             }
+            Instruction::Print { fmt, args } => {
+                todo!()
+            }
         }
     }
     fn gen_block_(&mut self, block: Pooled<ir::BasicBlock>) {
