@@ -231,7 +231,11 @@ impl KernelSerializer {
                     cases,
                 }
             }
-            Instruction::AdScope { body, forward } => {
+            Instruction::AdScope {
+                body,
+                forward,
+                n_forward_grads: _,
+            } => {
                 let body = self.serialize_block(body);
                 SerializedInstruction::AdScope {
                     body,

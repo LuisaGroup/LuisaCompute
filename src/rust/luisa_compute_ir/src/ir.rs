@@ -1159,6 +1159,7 @@ pub enum Instruction {
     AdScope {
         body: Pooled<BasicBlock>,
         forward: bool,
+        n_forward_grads: usize,
     },
     RayQuery {
         ray_query: NodeRef,
@@ -2014,9 +2015,17 @@ impl ModuleDuplicator {
                 let dup_default = self.duplicate_block(&builder.pools, default);
                 builder.switch(dup_value, dup_cases.as_slice(), dup_default)
             }
-            Instruction::AdScope { body, forward } => {
+            Instruction::AdScope {
+                body,
+                forward,
+                n_forward_grads,
+            } => {
                 let dup_body = self.duplicate_block(&builder.pools, body);
-                builder.ad_scope(dup_body, *forward)
+                if *forward {
+                    builder.fwd_ad_scope(dup_body, *n_forward_grads)
+                } else {
+                    builder.ad_scope(dup_body)
+                }
             }
             Instruction::RayQuery {
                 ray_query,
@@ -2436,9 +2445,26 @@ impl IrBuilder {
         self.append(node);
         node
     }
-    pub fn ad_scope(&mut self, body: Pooled<BasicBlock>, forward: bool) -> NodeRef {
+    pub fn ad_scope(&mut self, body: Pooled<BasicBlock>) -> NodeRef {
         let node = Node::new(
-            CArc::new(Instruction::AdScope { body, forward }),
+            CArc::new(Instruction::AdScope {
+                body,
+                forward: false,
+                n_forward_grads: 0,
+            }),
+            Type::void(),
+        );
+        let node = new_node(&self.pools, node);
+        self.append(node);
+        node
+    }
+    pub fn fwd_ad_scope(&mut self, body: Pooled<BasicBlock>, n_grads: usize) -> NodeRef {
+        let node = Node::new(
+            CArc::new(Instruction::AdScope {
+                body,
+                forward: true,
+                n_forward_grads: n_grads,
+            }),
             Type::void(),
         );
         let node = new_node(&self.pools, node);

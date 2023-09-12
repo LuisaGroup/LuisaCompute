@@ -561,6 +561,7 @@ dependencies = [
  "indexmap 2.0.0",
  "json",
  "lazy_static",
+ "log",
  "luisa_compute_api_types",
  "parking_lot",
  "serde",

@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{collections::HashSet, ops::Deref};
 
 use indexmap::IndexMap;
 use smallvec::{smallvec, SmallVec};
@@ -6,7 +6,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::{
     ir::{
         BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModuleFlags, ModuleKind,
-        ModulePools, Node, NodeRef, SwitchCase,
+        ModulePools, Node, NodeRef, PhiIncoming, SwitchCase,
     },
     *,
 };
@@ -18,49 +18,94 @@ type NodeVec = SmallVec<[NodeRef; 4]>;
 struct Dual {
     var: NodeRef,
     grad: NodeVec,
+    loaded_grad: NodeVec,
 }
 
 // Inplace transform
 struct ForwardAdTransform {
     n_grads: usize,
-    duals: IndexMap<NodeRef, Dual>,
+    duals: RefCell<IndexMap<NodeRef, Dual>>,
     pools: CArc<ModulePools>,
+    locally_defined_nodes: HashSet<NodeRef>,
 }
 impl ForwardAdTransform {
-    fn grads(&self, node: NodeRef) -> &NodeVec {
-        &self.duals[&node].grad
+    fn new(
+        n_grads: usize,
+        pools: &CArc<ModulePools>,
+        locally_defined_nodes: HashSet<NodeRef>,
+    ) -> Self {
+        Self {
+            n_grads,
+            duals: RefCell::new(IndexMap::new()),
+            pools: pools.clone(),
+            locally_defined_nodes,
+        }
     }
-    fn zero_grad(&mut self, node: NodeRef, builder: &mut IrBuilder) {
-        assert!(!self.duals.contains_key(&node));
+    fn grads(&self, node: NodeRef) -> NodeVec {
+        assert!(!context::is_type_equal(node.type_(), &Type::void()));
+        {
+            let duals = self.duals.borrow();
+            if !self.locally_defined_nodes.contains(&node) {
+                if !duals.contains_key(&node) {
+                    drop(duals);
+                    let mut builder = IrBuilder::new(self.pools.clone());
+                    builder.set_insert_point(node);
+                    self.zero_grad(node, &mut builder);
+                }
+            }
+        }
+
+        let duals = self.duals.borrow();
+        assert!(
+            duals.contains_key(&node),
+            "node {:?} {:?} has no grad",
+            node,
+            node.get().instruction.as_ref()
+        );
+        duals[&node].loaded_grad.clone()
+    }
+    fn grad_vars(&self, node: NodeRef) -> NodeVec {
+        assert!(!context::is_type_equal(node.type_(), &Type::void()));
+        let duals = self.duals.borrow();
+        duals[&node].grad.clone()
+    }
+    fn zero_grad(&self, node: NodeRef, builder: &mut IrBuilder) {
+        assert!(!context::is_type_equal(node.type_(), &Type::void()));
         let zero = builder.const_(Const::Zero(node.type_().clone()));
         let grads = (0..self.n_grads).map(|_| zero.clone()).collect::<NodeVec>();
-        self.duals.insert(
-            node,
-            Dual {
-                var: node,
-                grad: grads,
-            },
-        );
+        self.create_grad(node, &grads, builder);
     }
-    fn create_grad(&mut self, node: NodeRef, out_grads: &[NodeRef], builder: &mut IrBuilder) {
-        assert!(!self.duals.contains_key(&node));
+    fn create_grad(&self, node: NodeRef, out_grads: &[NodeRef], builder: &mut IrBuilder) {
+        let mut duals = self.duals.borrow_mut();
+        assert!(
+            !duals.contains_key(&node),
+            "node {:?} {:?} already has a grad",
+            node,
+            node.get().instruction.as_ref()
+        );
+        // println!(
+        //     "adding grad for {:?} {:?}",
+        //     node,
+        //     node.get().instruction.as_ref()
+        // );
         let grads = (0..self.n_grads)
             .map(|_| builder.local_zero_init(out_grads[0].type_().clone()))
             .collect::<NodeVec>();
         for (out_grad, grad) in out_grads.iter().zip(grads.iter()) {
             builder.update(grad.clone(), out_grad.clone());
         }
-        self.duals.insert(
+        let loaded_grads = out_grads.into();
+        duals.insert(
             node,
             Dual {
                 var: node,
                 grad: grads,
+                loaded_grad: loaded_grads,
             },
         );
     }
     fn create_call(
         &self,
-
         builder: &mut IrBuilder,
         f: Func,
         args: &[&[NodeRef]],
@@ -92,14 +137,38 @@ impl ForwardAdTransform {
         args: &[NodeRef],
         builder: &mut IrBuilder,
     ) {
+        // dbg!(out.get().instruction.as_ref());
         let type_ = out.type_();
         let n_grads = self.n_grads;
         match f {
+            Func::PropagateGrad => {
+                let var = args[0];
+                let grads = &args[1..];
+                assert_eq!(grads.len(), n_grads);
+                self.create_grad(var, grads, builder);
+            }
+            Func::OutputGrad => {
+                let idx = args[1].get_i32();
+                let var = args[0];
+                let duals = self.grad_vars(var);
+                let grad = duals[idx as usize];
+                assert!(grad.is_lvalue());
+                #[allow(unused_variables)]
+                let f = ();
+                #[allow(unused_variables)]
+                let args = ();
+                // this operation is unsafe as it invalidates f and args
+                #[allow(unused_unsafe)]
+                unsafe {
+                    let inst = CArc::get_mut(&mut out.get_mut().instruction).unwrap();
+                    *inst = Instruction::Call(Func::Load, CBoxedSlice::new(vec![grad]));
+                }
+            }
             Func::Add => {
                 let grads = self.create_call(
                     builder,
                     Func::Add,
-                    &[self.grads(args[0]), self.grads(args[1])],
+                    &[&self.grads(args[0]), &self.grads(args[1])],
                     type_,
                 );
                 self.create_grad(out, &grads, builder);
@@ -108,7 +177,7 @@ impl ForwardAdTransform {
                 let grads = self.create_call(
                     builder,
                     Func::Sub,
-                    &[self.grads(args[0]), self.grads(args[1])],
+                    &[&self.grads(args[0]), &self.grads(args[1])],
                     type_,
                 );
                 self.create_grad(out, &grads, builder);
@@ -126,13 +195,13 @@ impl ForwardAdTransform {
                     let lhs = self.create_call(
                         builder,
                         Func::Mul,
-                        &[self.grads(args[0]), &[args[1]]],
+                        &[&self.grads(args[0]), &[args[1]]],
                         type_,
                     );
                     let rhs = self.create_call(
                         builder,
                         Func::Mul,
-                        &[self.grads(args[1]), &[args[0]]],
+                        &[&self.grads(args[1]), &[args[0]]],
                         type_,
                     );
                     let grads = self.create_call(builder, Func::Add, &[&lhs, &rhs], type_);
@@ -143,33 +212,32 @@ impl ForwardAdTransform {
                 let lhs = self.create_call(
                     builder,
                     Func::Mul,
-                    &[self.grads(args[0]), &[args[1]]],
+                    &[&self.grads(args[0]), &[args[1]]],
                     type_,
                 );
                 let rhs = self.create_call(
                     builder,
                     Func::Mul,
-                    &[self.grads(args[1]), &[args[0]]],
+                    &[&self.grads(args[1]), &[args[0]]],
                     type_,
                 );
                 let sqr = self.create_call(builder, Func::Mul, &[&[args[1]], &[args[1]]], type_);
                 let numerator = self.create_call(builder, Func::Sub, &[&lhs, &rhs], type_);
-                let denominator = self.create_call(builder, Func::Div, &[&sqr, &[args[1]]], type_);
                 let grads =
-                    self.create_call(builder, Func::Div, &[&numerator, &denominator], type_);
+                    self.create_call(builder, Func::Div, &[&numerator, &sqr], type_);
                 self.create_grad(out, &grads, builder);
             }
             Func::MatCompMul => {
                 let lhs = self.create_call(
                     builder,
                     Func::MatCompMul,
-                    &[self.grads(args[0]), &[args[1]]],
+                    &[&self.grads(args[0]), &[args[1]]],
                     type_,
                 );
                 let rhs = self.create_call(
                     builder,
                     Func::MatCompMul,
-                    &[self.grads(args[1]), &[args[0]]],
+                    &[&self.grads(args[1]), &[args[0]]],
                     type_,
                 );
                 let grads = self.create_call(builder, Func::Add, &[&lhs, &rhs], type_);
@@ -188,7 +256,7 @@ impl ForwardAdTransform {
                 let neg_one_over_sqrt =
                     self.create_call(builder, Func::Neg, &[&one_over_sqrt], type_);
                 let out_grad =
-                    self.create_call(builder, Func::Mul, &[grad_x, &neg_one_over_sqrt], type_);
+                    self.create_call(builder, Func::Mul, &[&grad_x, &neg_one_over_sqrt], type_);
                 self.create_grad(out, &out_grad, builder);
             }
             Func::Acosh => {
@@ -204,7 +272,7 @@ impl ForwardAdTransform {
                 let neg_one_over_sqrt =
                     self.create_call(builder, Func::Neg, &[&one_over_sqrt], type_);
                 let out_grad =
-                    self.create_call(builder, Func::Mul, &[grad_x, &neg_one_over_sqrt], type_);
+                    self.create_call(builder, Func::Mul, &[&grad_x, &neg_one_over_sqrt], type_);
                 self.create_grad(out, &out_grad, builder);
             }
             Func::Asin => {
@@ -218,34 +286,34 @@ impl ForwardAdTransform {
                 let sqrt = self.create_call(builder, Func::Sqrt, &[&one_minus_x2], type_);
                 let one_over_sqrt = self.create_call(builder, Func::Div, &[&one, &sqrt], type_);
                 let out_grad =
-                    self.create_call(builder, Func::Mul, &[grad_x, &one_over_sqrt], type_);
+                    self.create_call(builder, Func::Mul, &[&grad_x, &one_over_sqrt], type_);
                 self.create_grad(out, &out_grad, builder);
             }
             Func::Sin => {
                 let cos = self.create_call(builder, Func::Cos, &[&[args[0]]], type_);
                 let grads =
-                    self.create_call(builder, Func::Mul, &[&cos, self.grads(args[0])], type_);
+                    self.create_call(builder, Func::Mul, &[&cos, &self.grads(args[0])], type_);
                 self.create_grad(out, &grads, builder);
             }
             Func::Cos => {
                 let sin = self.create_call(builder, Func::Sin, &[&[args[0]]], type_);
                 let neg_sin = self.create_call(builder, Func::Neg, &[&sin], type_);
                 let grads =
-                    self.create_call(builder, Func::Mul, &[&neg_sin, self.grads(args[0])], type_);
+                    self.create_call(builder, Func::Mul, &[&neg_sin, &self.grads(args[0])], type_);
                 self.create_grad(out, &grads, builder);
             }
             Func::Tan => {
                 let grad_x = self.grads(args[0]);
                 let cos_x = self.create_call(builder, Func::Cos, &[&[args[0]]], type_);
                 let sqr_cos_x = self.create_call(builder, Func::Mul, &[&cos_x, &cos_x], type_);
-                let grad = self.create_call(builder, Func::Div, &[grad_x, &sqr_cos_x], type_);
+                let grad = self.create_call(builder, Func::Div, &[&grad_x, &sqr_cos_x], type_);
                 self.create_grad(out, &grad, builder);
             }
             Func::ExtractElement => {
                 let grads = self.create_call(
                     builder,
                     Func::ExtractElement,
-                    &[self.grads(args[0]), self.grads(args[1]), &[args[2]]],
+                    &[&self.grads(args[0]), &self.grads(args[1]), &[args[2]]],
                     type_,
                 );
                 self.create_grad(out, &grads, builder);
@@ -254,7 +322,7 @@ impl ForwardAdTransform {
                 let grads = self.create_call(
                     builder,
                     Func::InsertElement,
-                    &[self.grads(args[0]), self.grads(args[1]), &[args[2]]],
+                    &[&self.grads(args[0]), &self.grads(args[1]), &[args[2]]],
                     type_,
                 );
                 self.create_grad(out, &grads, builder);
@@ -275,7 +343,17 @@ impl ForwardAdTransform {
             //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]],&], type_);
             //     self.create_grad(out, &out_grads, builder);
             // }
-            Func::BufferRead
+            Func::Cast => {
+                let grads = self.create_call(builder, Func::Cast, &[&self.grads(args[0])], type_);
+                self.create_grad(out, &grads, builder);
+            }
+            Func::Le
+            | Func::Lt
+            | Func::Ge
+            | Func::Gt
+            | Func::Eq
+            | Func::Ne
+            | Func::BufferRead
             | Func::BufferSize
             | Func::BufferWrite
             | Func::Shl
@@ -351,7 +429,9 @@ impl ForwardAdTransform {
             | Func::BindlessBufferSize
             | Func::BindlessBufferType
             | Func::BindlessByteBufferRead => {
-                self.zero_grad(out, builder);
+                if !context::is_type_equal(out.type_(), &Type::void()) {
+                    self.zero_grad(out, builder);
+                }
             }
             _ => todo!("{:?}", f),
         }
@@ -360,93 +440,122 @@ impl ForwardAdTransform {
         builder.set_insert_point(node);
         let inst = node.get().instruction.as_ref();
         match inst {
-                ir::Instruction::Buffer => {}
-                ir::Instruction::Bindless => {}
-                ir::Instruction::Texture2D => {}
-                ir::Instruction::Texture3D => {}
-                ir::Instruction::Accel => {}
-                ir::Instruction::Shared => todo!(),
-                ir::Instruction::Uniform => todo!(),
-                ir::Instruction::Local { init } => todo!(),
-                ir::Instruction::Argument { by_value } => todo!(),
-                ir::Instruction::UserData(_) => todo!(),
-                ir::Instruction::Invalid => todo!(),
-                ir::Instruction::Const(_) => {
-                    self.zero_grad(node, builder);
-                },
-                ir::Instruction::Update { var, value } => todo!(),
-                ir::Instruction::Call(f, args) => {
-                    self.transform_call(node, &f, args, builder);
-                }
-                ir::Instruction::Phi(_) => todo!(),
-                ir::Instruction::Return(_) => todo!(),
-                ir::Instruction::Loop { body, cond } => {
-                    self.transform_block(body, builder);
-                    self.transform_node(*cond, builder);
-                }
-                ir::Instruction::GenericLoop {
-                    prepare,
-                    cond,
-                    body,
-                    update,
-                } => {
-                    self.transform_block(prepare, builder);
-                    self.transform_node(*cond, builder);
-                    self.transform_block(body, builder);
-                    self.transform_block(update, builder);
-                },
-                ir::Instruction::Break => {},
-                ir::Instruction::Continue => {},
-                ir::Instruction::If {
-                    cond,
-                    true_branch,
-                    false_branch,
-                } => {
-                    self.transform_node(*cond, builder);
-                    self.transform_block(true_branch, builder);
-                    self.transform_block(false_branch, builder);
-                }
-                ir::Instruction::Switch {
-                    value,
-                    default,
-                    cases,
-                } => {
-                    self.transform_node(*value, builder);
-                    self.transform_block(default, builder);
-                    for SwitchCase { value:_, block } in cases.iter() {
-                        self.transform_block(block, builder);
-                    }
-                },
-                ir::Instruction::AdScope { .. } => {
-                    todo!("Nested AD scope is not supported");
-                },
-                ir::Instruction::RayQuery {
-                  ..
-                } => panic!("RayQuery not supported in AD. Please recompute ray intersection after the RayQuery result is obtained"),
-                ir::Instruction::AdDetach(block) => {
-
-                },
-                ir::Instruction::Comment(_) => {}
-                ir::Instruction::Print{..}=>{}
+            ir::Instruction::Buffer => {}
+            ir::Instruction::Bindless => {}
+            ir::Instruction::Texture2D => {}
+            ir::Instruction::Texture3D => {}
+            ir::Instruction::Accel => {}
+            ir::Instruction::Shared => todo!(),
+            ir::Instruction::Uniform => todo!(),
+            ir::Instruction::Local { init } => todo!(),
+            ir::Instruction::Argument { by_value } => todo!(),
+            ir::Instruction::UserData(_) => todo!(),
+            ir::Instruction::Invalid => todo!(),
+            ir::Instruction::Const(_) => {
+                self.zero_grad(node, builder);
+            },
+            ir::Instruction::Update { var, value } => todo!(),
+            ir::Instruction::Call(f, args) => {
+                self.transform_call(node, &f, args, builder);
             }
+            ir::Instruction::Phi(incomings) => {
+                let mut incoming_grads = vec![];
+                for incoming in incomings.iter() {
+                    let value = incoming.value;
+                    let grads = self.grads(value);
+                    incoming_grads.push(grads);
+                }
+                let mut phi_grads = NodeVec::new();
+
+                // generate a phi for each grad
+                for i in 0..self.n_grads {
+                    let mut grad_incomings = vec![];
+                    for j in 0..incomings.len() {
+                        grad_incomings.push(PhiIncoming {
+                            value:incoming_grads[j][i],
+                            block:incomings[j].block,
+                        });
+                    }
+                    let phi_grad = builder.phi(&grad_incomings, node.type_().clone());
+                    phi_grads.push(phi_grad);
+                }
+                self.create_grad(node, &phi_grads, builder);
+            },
+            ir::Instruction::Return(_) => todo!(),
+            ir::Instruction::Loop { body, cond } => {
+                self.transform_block(body, builder);
+                self.transform_node(*cond, builder);
+            }
+            ir::Instruction::GenericLoop {
+                prepare,
+                cond:_,
+                body,
+                update,
+            } => {
+                self.transform_block(prepare, builder);
+                self.transform_block(body, builder);
+                self.transform_block(update, builder);
+            },
+            ir::Instruction::Break => {},
+            ir::Instruction::Continue => {},
+            ir::Instruction::If {
+                cond,
+                true_branch,
+                false_branch,
+            } => {
+                self.transform_block(true_branch, builder);
+                self.transform_block(false_branch, builder);
+            }
+            ir::Instruction::Switch {
+                value,
+                default,
+                cases,
+            } => {
+                self.transform_block(default, builder);
+                for SwitchCase { value:_, block } in cases.iter() {
+                    self.transform_block(block, builder);
+                }
+            },
+            ir::Instruction::AdScope { .. } => {
+                todo!("Nested AD scope is not supported");
+            },
+            ir::Instruction::RayQuery {
+                ..
+            } => panic!("RayQuery not supported in AD. Please recompute ray intersection after the RayQuery result is obtained"),
+            ir::Instruction::AdDetach(block) => {
+                todo!()
+            },
+            ir::Instruction::Comment(_) => {}
+            ir::Instruction::Print{..}=>{}
+        }
     }
     fn transform_block(&mut self, block: &Pooled<BasicBlock>, builder: &mut IrBuilder) {
-        for node in block.iter() {
+        let nodes = block.nodes();
+        for node in nodes {
             self.transform_node(node, builder);
         }
     }
 }
 pub(crate) struct FwdAutodiff;
 
-fn ad_transform_block(module: crate::ir::Module) {}
+fn ad_transform_block(module: crate::ir::Module, n_grads: usize) {
+    let nodes = module.collect_nodes().into_iter().collect();
+    let mut transform = ForwardAdTransform::new(n_grads, &module.pools, nodes);
+    transform.transform_block(&module.entry, &mut IrBuilder::new(transform.pools.clone()));
+}
 fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
     let nodes = block.nodes();
     let mut i = 0;
     while i < nodes.len() {
         let node = nodes[i];
         match node.get().instruction.as_ref() {
-            Instruction::AdScope { body, forward } => {
+            Instruction::AdScope {
+                body,
+                forward,
+                n_forward_grads,
+            } => {
                 if !*forward {
+                    i += 1;
                     continue;
                 }
                 let ad_block = Module {
@@ -455,7 +564,9 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     pools: pools.clone(),
                     flags: ModuleFlags::NONE,
                 };
-                ad_transform_block(ad_block);
+                ad_transform_block(ad_block, *n_forward_grads);
+                node.remove();
+                block.merge(*body);
             }
             Instruction::If {
                 cond: _,
@@ -509,7 +620,19 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 
 impl Transform for FwdAutodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
+        log::debug!("FwdAutodiff transform");
+        // {
+        //     println!("Before AD:");
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("{}", debug.to_str().unwrap());
+        // }
         ad_transform_recursive(module.entry, &module.pools);
+        // {
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("After AD:\n{}", debug.to_str().unwrap());
+        // }
         module.flags.remove(ModuleFlags::REQUIRES_FWD_AD_TRANSFORM);
         module
     }

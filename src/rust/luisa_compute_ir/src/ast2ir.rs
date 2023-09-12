@@ -1943,7 +1943,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 self._curr_ctx_mut().has_autodiff = true;
                 let body = self._convert_scope(&j["body"], false);
                 let (builder, ..) = self.unwrap_ctx();
-                builder.ad_scope(body, false)
+                builder.ad_scope(body)
             }
             _ => panic!("Invalid statement tag: {}", tag),
         }
