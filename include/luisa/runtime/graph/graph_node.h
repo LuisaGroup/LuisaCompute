@@ -1,9 +1,13 @@
 #pragma once
+#include <luisa/runtime/graph/graph_node_id.h>
+#include <luisa/runtime/graph/graph_var_id.h>
+#include <luisa/runtime/graph/graph_deps.h>
+
 #include <luisa/vstl/unique_ptr.h>
 #include <luisa/core/logging.h>
 #include <luisa/vstl/hash_map.h>
 #include <luisa/runtime/device.h>
-#include <luisa/runtime/graph/graph_deps.h>
+#include <luisa/vstl/vector.h>
 
 namespace luisa::compute::graph {
 enum class GraphNodeType {
@@ -20,17 +24,18 @@ class GraphBuilder;
 class LC_RUNTIME_API GraphNode {
     friend class GraphBuilder;
 public:
-    static constexpr uint64_t invalid_node_id() noexcept { return std::numeric_limits<uint64_t>::max(); }
     static constexpr string_view graphviz_prefix = "node_";
     GraphNode(GraphBuilder *builder, GraphNodeType type) noexcept;
     GraphNode(GraphNode &&) noexcept = default;
     GraphNode &operator=(GraphNode &&) noexcept = default;
     virtual ~GraphNode() noexcept {}
-    const auto &arg_usage() const noexcept { return _arg_usage; }
-    uint64_t arg_id(size_t index) const noexcept { return _arg_usage[index].first; }
-    uint64_t node_id() const noexcept { return _node_id; }
+    const auto &input_var_usage() const noexcept { return _input_var_usage; }
+    const auto &sub_var_ids() const noexcept { return _sub_var_ids; }
+    auto input_var_id(size_t index) const noexcept { return _input_var_usage[index].first; }
+    auto sub_var_id(size_t index) const noexcept { return _sub_var_ids[index]; }
+    auto node_id() const noexcept { return _node_id; }
     GraphNodeType type() const noexcept { return _type; }
-    span<GraphDependency> deps(GraphBuilder *builder) const noexcept { return span{builder->_deps}.subspan(_dep_begin, _dep_count); }
+    span<GraphDependency> deps(GraphBuilder *builder) const noexcept;
     string_view node_name() const noexcept { return _node_name; }
     auto &set_node_name(string_view name) noexcept {
         _node_name = name;
@@ -44,16 +49,16 @@ protected:
     using U = unique_ptr<T>;
     // virtual U<GraphNode> clone() const noexcept = 0;
     // GraphBuilder *builder() const noexcept { return _builder; }
-    void add_arg_usage(uint64_t arg_id, Usage usage) noexcept { _arg_usage.emplace_back(arg_id, usage); }
+    void add_arg_usage(GraphSubVarId sub_var_id, Usage usage) noexcept;
 private:
     void set_dep_range(size_t begin, size_t count) noexcept {
         _dep_begin = begin;
         _dep_count = count;
     }
-    vector<std::pair<uint64_t, Usage>> _arg_usage;
+    vector<std::pair<GraphInputVarId, Usage>> _input_var_usage;
+    vector<GraphSubVarId> _sub_var_ids;
     friend class GraphBuilder;
-    // GraphBuilder *_builder{nullptr};
-    uint64_t _node_id{invalid_node_id()};
+    GraphNodeId _node_id{GraphNodeId::invalid_id};
     GraphNodeType _type{GraphNodeType::None};
     size_t _dep_begin{0};
     size_t _dep_count{0};

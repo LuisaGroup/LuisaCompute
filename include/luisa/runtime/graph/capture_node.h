@@ -2,15 +2,16 @@
 #include <luisa/runtime/graph/graph_node.h>
 #include <luisa/vstl/functional.h>
 #include <luisa/runtime/graph/utils.h>
+
 namespace luisa::compute::graph {
 
 class LC_RUNTIME_API CaptureNodeBase : public GraphNode {
 public:
     CaptureNodeBase(GraphBuilder *builder) noexcept;
-    auto capture_id() const noexcept { return _capture_id; }
+    auto capture_node_id() const noexcept { return _capture_id; }
     virtual void capture(GraphBuilder *builder, uint64_t stream_handle) const noexcept = 0;
 private:
-    uint64_t _capture_id = invalid_node_id();
+    GraphNodeId _capture_id{GraphNodeId::invalid_id};
 };
 
 template<typename FuncCapture, typename... Args>
@@ -23,16 +24,18 @@ public:
         : CaptureNodeBase{builder},
           _capture{capture} {
         detail::for_each_arg_with_index([&](size_t I, const GraphVarBase &arg) noexcept {
-            add_arg_usage(arg.arg_id(), usages[I]);
+            add_arg_usage(arg.sub_var_id(), usages[I]);
         },
                                         args...);
     }
 protected:
     void capture(GraphBuilder *builder, uint64_t stream_handle) const noexcept override {
         auto arg_view = [&]<typename Arg>(size_t I) {
-            auto arg = builder->graph_var(arg_id(I));
-            auto drived = arg->cast<GraphVar<Arg>>()->cast<GraphVar<Arg>>();
-            auto view = drived->view();
+            auto sub_var_id = this->sub_var_id(I);
+            auto arg = builder->sub_var(sub_var_id);
+            std::string tname = typeid(Arg).name();
+            auto drived = arg->cast<GraphVar<Arg>>();
+            auto view = drived->eval();
             return view;
         };
 

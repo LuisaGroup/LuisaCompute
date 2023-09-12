@@ -2,15 +2,24 @@
 #include <luisa/vstl/unique_ptr.h>
 #include <luisa/vstl/functional.h>
 #include <luisa/vstl/vector.h>
-#include <luisa/runtime/graph/graph_var.h>
+#include <luisa/runtime/graph/graph_var_id.h>
+#include <luisa/runtime/graph/graph_node_id.h>
 #include <luisa/runtime/graph/graph_deps.h>
+#include <luisa/runtime/graph/memory_node_direction.h>
 #include <luisa/ast/usage.h>
+#include <luisa/runtime/graph/sparse_2d_array.h>
+#include <luisa/runtime/graph/utils.h>
+#include <luisa/runtime/graph/input_sub_var_collection.h>
 
 namespace luisa::compute::graph {
-class KernelNode;
-class CaptureNodeBase;
 class GraphNode;
+class KernelNode;
+class MemoryNode;
+class CaptureNodeBase;
 class KernelNodeCmdEncoder;
+class GraphBufferVarBase;
+class GraphBasicVarBase;
+
 class LC_RUNTIME_API GraphBuilder {
     template<typename... Args>
     friend class GraphDef;
@@ -29,25 +38,51 @@ class LC_RUNTIME_API GraphBuilder {
     using S = luisa::shared_ptr<T>;
 
     bool _is_building = false;
+    size_t _input_var_count = 0;
 public:
-    // generic
-    using node_id_t = uint64_t;
-    using var_id_t = uint64_t;
+    // # graph topology
+    // ## input var : graph input arguments, used to calculate graph nodes' dependencies
+    // input var with overlapping memory space is not allowed
+    auto input_vars() noexcept { return span{_sub_vars}.subspan(0, _input_var_count); };
+    auto input_vars() const noexcept { return span{_sub_vars}.subspan(0, _input_var_count); };
+    const GraphVarBase *input_var(GraphInputVarId id) const noexcept { return input_vars()[id.value()]; }
+    GraphVarBase *input_var(GraphInputVarId id) noexcept { return input_vars()[id.value()]; }
 
-    luisa::vector<GraphVarBase *> _vars;
-    luisa::vector<luisa::vector<node_id_t>> _var_accessors;// var_id -> {node_id, ...}
-    luisa::vector<GraphNode *> _nodes;
-    luisa::vector<int> _node_need_update_flags;
+    // ## sub var : sub var of input var, used to split input var
+    // sub var with overlapping memory space(in side a input var) is permitted
+    // they are not considered when calculating graph nodes' dependencies.
+    // in this collection, input var is also included (considered as a sub var of itself)
+    luisa::vector<GraphVarBase *> _sub_vars;
+    auto sub_vars() noexcept { return span{_sub_vars}; }
+    auto sub_vars() const noexcept { return span{_sub_vars}; }
+    const GraphVarBase *sub_var(GraphSubVarId id) const noexcept { return _sub_vars[id.value()]; }
+    GraphVarBase *sub_var(GraphSubVarId id) noexcept { return _sub_vars[id.value()]; }
+    auto pure_sub_vars() noexcept { return span{_sub_vars}.subspan(_input_var_count); }
+    auto pure_sub_vars() const noexcept { return span{_sub_vars}.subspan(_input_var_count); }
+
+    // ## graph node : graph nodes
+    luisa::vector<GraphNode *> _graph_nodes;
+    const GraphNode *node(GraphNodeId id) const noexcept { return _graph_nodes[id.value()]; }
+    GraphNode *node(GraphNodeId id) noexcept { return _graph_nodes[id.value()]; }
+
+    // ## graph nodes' dependencies
     luisa::vector<GraphDependency> _deps;
+    auto deps() const noexcept { return span{_deps}; }
+    auto deps() noexcept { return span{_deps}; }
 
-    // concrete var
-    luisa::vector<U<GraphBufferVarBase>> _buffer_vars;
-    luisa::vector<U<GraphBasicVarBase>> _basic_vars;
+    // # graph update
+    // ## input var accessors : input_var_id -> {sub_var_id, ...}
+    luisa::compute::Sparse2DArray<GraphSubVarId> _input_var_to_sub_vars;
+    auto dep_sub_vars(GraphInputVarId id) const noexcept { return _input_var_to_sub_vars(id.value()); }
+    auto dep_sub_vars(GraphInputVarId id) noexcept { return _input_var_to_sub_vars(id.value()); }
 
-    // concrete node
-    luisa::vector<S<KernelNode>> _kernel_nodes;
-    luisa::vector<U<KernelNodeCmdEncoder>> _kernel_node_cmd_encoders;
-    luisa::vector<S<CaptureNodeBase>> _capture_nodes;
+    // ## sub var accessors : sub_var_id -> {node_id, ...}
+    luisa::compute::Sparse2DArray<GraphNodeId> _sub_var_to_nodes;
+    auto dep_nodes(GraphSubVarId id) const noexcept { return _sub_var_to_nodes(id.value()); }
+    // ## node need update flags : for backends to check whether a node need update
+    luisa::vector<int> _node_need_update_flags;
+    int &node_need_update_flag(GraphNodeId id) noexcept { return _node_need_update_flags[id.value()]; }
+    int node_need_update_flag(GraphNodeId id) const noexcept { return _node_need_update_flags[id.value()]; }
 
     GraphBuilder() noexcept;
     ~GraphBuilder() noexcept;
@@ -58,31 +93,31 @@ public:
     static GraphBuilder *current() noexcept;
     static bool is_building() noexcept;
 
-    const GraphVarBase *graph_var(var_id_t id) const noexcept;
-    const GraphNode *graph_node(node_id_t id) const noexcept;
+    const GraphNode *graph_node(GraphNodeId id) const noexcept;
 
-    bool node_need_update(const GraphNode *node) const noexcept;
-    bool var_need_update(const GraphVarBase *var) const noexcept;
+    bool node_need_update(GraphNodeId id) const noexcept;
+
     void clear_need_update_flags() noexcept;
 
-    size_t graph_var_count() const noexcept { return _vars.size(); }
-    size_t kernel_node_count() const noexcept { return _kernel_nodes.size(); }
-    size_t graph_node_count() const noexcept { return _nodes.size(); }
+    auto graph_nodes() const noexcept { return span{_graph_nodes}; }
+    auto graph_nodes() noexcept { return span{_graph_nodes}; }
+    auto kernel_nodes() const noexcept { return span{_kernel_nodes}; }
+    auto kernel_nodes() noexcept { return span{_kernel_nodes}; }
+    auto memory_nodes() const noexcept { return span{_memory_nodes}; }
+    auto memory_nodes() noexcept { return span{_memory_nodes}; }
+    auto capture_nodes() const noexcept { return span{_capture_nodes}; }
+    auto capture_nodes() noexcept { return span{_capture_nodes}; }
 
-    const auto &graph_vars() const noexcept { return _vars; }
-    const auto &graph_nodes() const noexcept { return _nodes; }
-
-    const auto &kernel_nodes() const noexcept { return _kernel_nodes; }
-    const auto &capture_nodes() const noexcept { return _capture_nodes; }
-    auto *kernel_node_cmd_encoder(node_id_t kernel_node_id) const noexcept {
-        return _kernel_node_cmd_encoders[kernel_node_id].get();
+    auto *kernel_node_cmd_encoder(GraphNodeId kernel_node_id) const noexcept {
+        return _kernel_node_cmd_encoders[kernel_node_id.value()].get();
     }
 
-    const luisa::vector<GraphBuilder::node_id_t> &accessor_node_ids(const GraphVarBase *graph_var) const noexcept;
+    //const luisa::vector<GraphNodeId> &accessor_node_ids(const GraphVarBase *graph_var) const noexcept;
     const luisa::vector<GraphDependency> &graph_deps() const noexcept { return _deps; }
     class GraphvizOptions {
     public:
         bool show_vars = true;
+        bool show_nodes = true;
     };
     void graphviz(std::ostream &o, GraphvizOptions options = {}) noexcept;
 private:
@@ -101,18 +136,40 @@ private:
     static void set_var_count(size_t size) noexcept;
     template<typename T, size_t I>
         requires std::is_base_of_v<GraphVarBase, T>
-    [[nodiscard]] static void define_graph_var() noexcept {
-        auto var = make_unique<T>(GraphArgId{I});
+    [[nodiscard]] static void define_input_var() noexcept {
+        auto var = make_unique<T>(GraphInputVarId{I});
         auto ptr = var.get();
-        _current()->_def_var(std::move(var));
-        _current()->_vars[I] = ptr;
+        _current()->_def_input_var(std::move(var));
+        _current()->_sub_vars[I] = ptr;
     }
     // only used by GraphDef <<<
 
+    // only used by GraphVarBase >>>
+    friend class GraphVarBase;
+    template<typename T, typename... Args>
+        requires std::is_base_of_v<GraphVarBase, T>
+    [[nodiscard]] static auto &emplace_sub_var(Args &&...args) noexcept {
+        // get a new sub var id
+        auto id = _current()->_sub_vars.size();
+        // set the sub var id to the input var
+        auto sub_var = make_unique<T>(GraphSubVarId{id}, std::forward<Args>(args)...);
+        auto ptr = sub_var.get();
+        _current()->_def_sub_var(std::move(sub_var));
+        _current()->_sub_vars.emplace_back(ptr);
+        return *ptr;
+    }
+    // only used by GraphVarBase <<<
+
     // only used by Shader:
-    static KernelNode *add_kernel_node(span<uint64_t> arg_ids,
+    static KernelNode *add_kernel_node(span<GraphSubVarId> arg_ids,
                                        const Resource *shader_resource, U<KernelNodeCmdEncoder> &&encoder,
                                        size_t dimension, const uint3 &block_size) noexcept;
+
+    template<typename T>
+    friend class GraphVar;
+    template<typename T>
+    friend class GraphSubVar;
+    static MemoryNode *add_memory_node(GraphSubVarId src_var_id, GraphSubVarId dst_var_id, MemoryNodeDirection direction) noexcept;
 
     template<typename FCapture, typename... Args>
         requires std::is_invocable_v<FCapture, uint64_t, Args...>
@@ -128,15 +185,58 @@ private:
 
     static U<GraphBuilder> &_current() noexcept;
 
+    // # storage
+    // ## concrete var
+    // ### graph basic var : input var and its sub var
+    friend class GraphBasicVarBase;
+    InputSubVarCollection<GraphBasicVarBase> _basic_vars;
+    void _def_input_var(U<GraphBasicVarBase> &&var) noexcept;
+    void _def_sub_var(U<GraphBasicVarBase> &&var) noexcept;
+
+    // ### graph buffer var : input var and its sub var
+    friend class GraphBufferVarBase;
+    InputSubVarCollection<GraphBufferVarBase> _buffer_vars;
+    void _def_input_var(U<GraphBufferVarBase> &&buffer) noexcept;
+    void _def_sub_var(U<GraphBufferVarBase> &&buffer) noexcept;
+
+    // ### graph host memory var : input var and its sub var
+    friend class GraphHostMemoryVar;
+    InputSubVarCollection<GraphVar<void *>> _host_memory_vars;
+    void _def_input_var(U<GraphVar<void *>> &&var) noexcept;
+    void _def_sub_var(U<GraphVar<void *>> &&var) noexcept;
+
+    template<typename T>
+    void fill_sub_vars(const InputSubVarCollection<T> &collection) {
+        for (auto &&sub_var : collection._sub_vars) {
+            _sub_vars[sub_var->sub_var_id().value()] = sub_var.get();
+        }
+    }
+
+    // ## concrete node
+    // ### kernel node and its cmd encoder
+    friend class KernelNode;
+    luisa::vector<S<KernelNode>> _kernel_nodes;
+    luisa::vector<U<KernelNodeCmdEncoder>> _kernel_node_cmd_encoders;
+
+    // ### capture node
+    friend class CaptureNodeBase;
+    luisa::vector<S<CaptureNodeBase>> _capture_nodes;
+    // ### memory node
+    friend class MemoryNode;
+    luisa::vector<S<MemoryNode>> _memory_nodes;
+
     // private methods >>>
     void _build_deps() noexcept;
+
+    // build a dep tree:
+    // input var -> {sub var, ...}
+    // sub var -> {node, ...}
+    // to calculate the related update flags
+    // an update of a input var will cause all its sub var and nodes update
     void _build_var_accessors() noexcept;
     void _setup_node_need_update_flags() noexcept;
     void _update_kernel_node_cmd_encoders(const KernelNode *node) noexcept;
     void _check_buffer_var_overlap() noexcept;
-
-    void _def_var(U<GraphBasicVarBase> &&var) noexcept { _basic_vars.emplace_back(std::move(var)); }
-    void _def_var(U<GraphBufferVarBase> &&buffer) noexcept { _buffer_vars.emplace_back(std::move(buffer)); }
     // private methods <<<
 };
 }// namespace luisa::compute::graph
@@ -161,7 +261,7 @@ CaptureNodeBase *GraphBuilder::add_capture_node(span<Usage, sizeof...(Args)> usa
     auto node = make_shared<CaptureNode<FuncCapture, Args...>>(current(), usages, capture, args...);
     auto ptr = node.get();
     current()->_capture_nodes.emplace_back(std::move(node));
-    current()->_nodes.emplace_back(ptr);
+    current()->_graph_nodes.emplace_back(ptr);
     return ptr;
 }
 }// namespace luisa::compute::graph

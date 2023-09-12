@@ -29,8 +29,8 @@ public:
             // detail::print_types_with_index<Args...>();
             GraphBuilder::set_var_count(sizeof...(Args));
             []<typename Fn, size_t... I>(Fn &&fn, std::index_sequence<I...>) {
-                (GraphBuilder::define_graph_var<Args, I>(), ...);
-                fn(*GraphBuilder::current()->graph_var(I)->cast<Args>()...);
+                (GraphBuilder::define_input_var<Args, I>(), ...);
+                fn(*GraphBuilder::current()->input_var(GraphInputVarId{I})->cast<Args>()...);
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
     }

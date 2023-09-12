@@ -17,11 +17,16 @@
 #include <luisa/runtime/graph/graph.h>
 #include <luisa/runtime/graph/graph_def.h>
 #include <luisa/runtime/graph/graph_builder.h>
+#include <luisa/runtime/graph/input_sub_var_collection.h>
 #include <luisa/runtime/graph/graph_var.h>
 #include <luisa/runtime/graph/capture_node.h>
 #include <luisa/backends/ext/graph_ext.h>
 #include <luisa/runtime/graph/kernel_node_cmd_encoder.h>
+#include <luisa/runtime/graph/memory_node.h>
 #include <luisa/backends/ext/cuda/lcub/device_scan.h>
+#include <luisa/runtime/graph/graph_buffer_var.h>
+#include <luisa/runtime/graph/graph_basic_var.h>
+#include <luisa/runtime/graph/graph_host_memory_var.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -45,7 +50,9 @@ int main(int argc, char *argv[]) {
     auto shader0 = device.compile<1>(
         [](BufferFloat b0, BufferInt b1) {
             b0.write(0, 1.0f);
-            b0.write(1, 2.0f);
+            b0.write(1, 1.0f);
+            b0.write(2, 1.0f);
+            b0.write(3, 1.0f);
             auto b = b1.read(0);
         });
     auto shader1 = device.compile<1>(
@@ -80,25 +87,33 @@ int main(int argc, char *argv[]) {
 
     GraphDef gd = [&](GraphBuffer<float> b0, GraphBuffer<float> b0_out, GraphBuffer<int> b1,
                       GraphUInt scan_size, GraphBuffer<int> temp_buffer,
-                      GraphUInt dispatch_size) {
+                      GraphUInt dispatch_size, GraphVar<void *> h_b_out, GraphVar<void *> h_b,
+                      GraphUInt offset, GraphUInt size) {
         b0.set_var_name("b0");
+        b0_out.set_var_name("b0_out");
+        b1.set_var_name("b1");
+        scan_size.set_var_name("scan_size");
+        temp_buffer.set_var_name("temp_buffer");
+        dispatch_size.set_var_name("dispatch_size");
+        h_b_out.set_var_name("h_b_out");
+        h_b.set_var_name("h_b");
+        offset.set_var_name("offset");
+        size.set_var_name("size");
+
         shader0.as_node(b0, b1).dispatch(dispatch_size).set_node_name("write_data");
         shader1.as_node(b0).dispatch(dispatch_size);
         shader2.as_node(b0).dispatch(dispatch_size);
         exclusive_scan(temp_buffer, b0, b0_out, scan_size).set_node_name("exclusive_scan");
+        b0_out.copy_to(h_b_out).set_node_name("copy_back_b0_out");
+        auto sub_b0 = b0.view(offset, size);
+        sub_b0.set_var_name("sub_b0");
+        sub_b0.copy_to(h_b).set_node_name("copy_back_b0");
     };
-    gd.graphviz(std::cout, {.show_vars = true});
+    gd.graphviz(std::cout, {.show_vars = true, .show_nodes = true});
 
     auto graph_ext = device.extension<GraphExt>();
     auto g = graph_ext->create_graph(gd);
-    h_b0[0] = 1.0f;
-    stream << b0.copy_from(h_b0.data()) << synchronize();
-    stream << g(b0, b0_out, b1, b0.size(), temp, 1).dispatch();
-    auto b0_new = device.create_buffer<float>(8);
-    stream << g(b0_new, b0_out, b1, b0.size(), temp, 1).dispatch();
-    stream << b0.copy_to(h_b0.data()) << synchronize();
-    stream << b0_out.copy_to(h_b0_out.data()) << synchronize();
-    // g(b0_out, b0_out, b1, b0.size(), temp, 1);
+    stream << g(b0, b0_out, b1, b0.size(), temp, 1, h_b0_out.data(), h_b0.data(), 0, 3).dispatch() << synchronize();
     for (int i = 0; i < 8; ++i) {
         LUISA_INFO("b0[{}] = {}", i, h_b0[i]);
         LUISA_INFO("b0_out[{}] = {}", i, h_b0_out[i]);

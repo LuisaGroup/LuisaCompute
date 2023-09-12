@@ -1,5 +1,5 @@
 #pragma once
-
+#include <luisa/vstl/unique_ptr.h>
 namespace luisa::compute::graph::detail {
 //template<typename... Args>
 //auto print_types_with_index() {
@@ -37,5 +37,4 @@ auto for_each_arg_with_index(F &&func, Args &&...args) {
     };
     impl(std::forward<F>(func), std::index_sequence_for<Args...>{}, std::forward<Args>(args)...);
 }
-
 }// namespace luisa::compute::graph::detail

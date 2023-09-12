@@ -21,6 +21,8 @@ set(LUISA_COMPUTE_RUNTIME_GRAPH_SOURCES
         graph/capture_node.cpp
         graph/graph_var.cpp
         graph/graph_node.cpp
+        graph/memory_node.cpp
+        graph/graph_buffer_var.cpp
 )
 
 set(LUISA_COMPUTE_RUNTIME_SOURCES

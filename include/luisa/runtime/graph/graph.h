@@ -98,8 +98,9 @@ void Graph<Args...>::check_parms_update(detail::graph_var_to_view_t<Args> &&...a
     detail::for_each_arg_with_index(
         [&]<typename Arg>(uint64_t I, Arg &&arg) noexcept {
             using raw_type = std::remove_cvref_t<Arg>;
-            auto derived = _builder->_vars[I]->cast<GraphVar<raw_type>>();
-            derived->update_check(arg);
+            auto input_var = _builder->input_var(GraphInputVarId{I});
+            auto derived = input_var->cast<GraphVar<raw_type>>();
+            derived->input_var_update_check(arg);
         },
         std::forward<detail::graph_var_to_view_t<Args>>(args)...);
     auto need_update = _builder->propagate_need_update_flag_from_vars_to_nodes();

@@ -6,7 +6,17 @@ using namespace luisa::compute::graph;
 GraphNode::GraphNode(GraphBuilder *builder, GraphNodeType type) noexcept
     : _node_id{builder->graph_nodes().size()},
       _type{type} {
-    _arg_usage.clear();
+    _input_var_usage.clear();
+}
+
+void luisa::compute::graph::GraphNode::add_arg_usage(GraphSubVarId sub_var_id, Usage usage) noexcept {
+    auto input_var_id = GraphBuilder::current()->sub_var(sub_var_id)->input_var_id();
+    _input_var_usage.emplace_back(input_var_id, usage);
+    _sub_var_ids.push_back(sub_var_id);
+}
+
+luisa::span<GraphDependency> GraphNode::deps(GraphBuilder *builder) const noexcept {
+    return span{builder->_deps}.subspan(_dep_begin, _dep_count);
 }
 
 void GraphNode::graphviz_def(std::ostream &o) const noexcept {
@@ -22,7 +32,7 @@ void GraphNode::graphviz_id(std::ostream &o) const noexcept {
 }
 
 void GraphNode::graphviz_arg_usages(std::ostream &o) const noexcept {
-    for (auto &&[arg_id, usage] : _arg_usage) {
+    for (auto &&[arg_id, usage] : _input_var_usage) {
         o << GraphVarBase::graphviz_prefix << arg_id;
         o << "->";
         graphviz_id(o);

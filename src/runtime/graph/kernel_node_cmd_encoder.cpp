@@ -13,10 +13,10 @@ void KernelNodeCmdEncoder::update_uniform(size_t i, const void *data) noexcept {
     std::memcpy(_argument_buffer.data() + offset, data, size);
 }
 
-void KernelNodeCmdEncoder::update_buffer(size_t i, uint64_t handle, size_t offset, size_t size) noexcept {
+void KernelNodeCmdEncoder::update_buffer(size_t i, uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept {
     auto &arg = arguments()[i];
     LUISA_ASSERT(arg.tag == Argument::Tag::BUFFER, "Argument type mismatches");
     arg.buffer.handle = handle;
-    arg.buffer.offset = offset;
-    arg.buffer.size = size;
+    arg.buffer.offset = offset_bytes;
+    arg.buffer.size = size_bytes;
 }

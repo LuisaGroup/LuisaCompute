@@ -73,7 +73,7 @@ public:
     //// see definition in runtime/dispatch_buffer.cpp
     //KernelNodeCmdEncoder &operator<<(const IndirectDispatchBuffer &array) noexcept;
 
-    void update_buffer(size_t i, uint64_t handle, size_t offset, size_t size) noexcept;
+    void update_buffer(size_t i, uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept;
 
     auto arguments() noexcept {
         return span<Argument>{reinterpret_cast<Argument *>(_argument_buffer.data()), _argument_count};
