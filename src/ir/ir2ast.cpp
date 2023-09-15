@@ -43,11 +43,16 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::AdScope: _convert_instr_ad_scope(node); break;
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
             case ir::Instruction::Tag::RayQuery: _convert_instr_ray_query(node); break;
-            case ir::Instruction::Tag::Comment:
-                _convert_instr_comment(node);
-                break;
-                //            case ir::Instruction::Tag::Debug: _convert_instr_debug(node); break;
-            default: LUISA_ERROR_WITH_LOCATION("Invalid instruction in body: `{}`.", to_string(node->instruction->tag));
+            case ir::Instruction::Tag::Comment: _convert_instr_comment(node); break;
+            case ir::Instruction::Tag::Print: LUISA_NOT_IMPLEMENTED();// TODO: print
+            case ir::Instruction::Tag::Buffer: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Buffer' in function body."); break;
+            case ir::Instruction::Tag::Bindless: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Bindless' in function body."); break;
+            case ir::Instruction::Tag::Texture2D: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Texture2D' in function body."); break;
+            case ir::Instruction::Tag::Texture3D: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Texture3D' in function body."); break;
+            case ir::Instruction::Tag::Accel: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Accel' in function body."); break;
+            case ir::Instruction::Tag::Shared: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Shared' in function body."); break;
+            case ir::Instruction::Tag::Uniform: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Uniform' in function body."); break;
+            case ir::Instruction::Tag::Argument: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Argument' in function body."); break;
         }
         node_ref = node->next;
     }
@@ -511,6 +516,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::AccGrad: return builtin_func(2, CallOp::ACCUMULATE_GRADIENT);
         case ir::Func::Tag::Detach: return builtin_func(1, CallOp::DETACH);
         case ir::Func::Tag::Backward: return builtin_func(1, CallOp::BACKWARD);
+        case ir::Func::Tag::PropagateGrad: LUISA_NOT_IMPLEMENTED();// TODO
+        case ir::Func::Tag::OutputGrad: LUISA_NOT_IMPLEMENTED();   // TODO
         case ir::Func::Tag::RayTracingInstanceTransform: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_TRANSFORM);
         case ir::Func::Tag::RayTracingInstanceUserId: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_USER_ID);
         case ir::Func::Tag::RayTracingSetInstanceTransform: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM);
@@ -1243,6 +1250,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 break;
             }
             case ir::Instruction::Tag::Comment: break;
+            case ir::Instruction::Tag::Print: break;
         }
     });
 }
