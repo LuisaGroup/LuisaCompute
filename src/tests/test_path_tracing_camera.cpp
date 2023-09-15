@@ -259,8 +259,8 @@ int main(int argc, char *argv[]) {
             Float3 p2 = vertex_buffer->read(triangle.i2);
             Float3 p = hit->interpolate(p0, p1, p2);
             Float3 n = normalize(cross(p1 - p0, p2 - p0));
-            Float cos_wi = dot(-ray->direction(), n);
-            $if(cos_wi < 1e-4f) { $break; };
+            Float cos_wo = dot(-ray->direction(), n);
+            $if(cos_wo < 1e-4f) { $break; };
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -268,7 +268,7 @@ int main(int argc, char *argv[]) {
                     radiance += light_emission;
                 }
                 $else {
-                    Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                    Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
                     Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                     radiance += mis_weight * beta * light_emission;
                 };
@@ -300,10 +300,12 @@ int main(int argc, char *argv[]) {
             Var<Onb> onb = make_onb(n);
             Float ux = lcg(state);
             Float uy = lcg(state);
-            Float3 new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
+            Float3 wi_local = cosine_sample_hemisphere(make_float2(ux, uy));
+            Float cos_wi = abs(wi_local.z);
+            Float3 new_direction = onb->to_world(wi_local);
             ray = make_ray(pp, new_direction);
-            beta *= albedo;
             pdf_bsdf = cos_wi * inv_pi;
+            beta *= albedo; // * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
             // rr
             Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
