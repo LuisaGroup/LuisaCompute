@@ -261,7 +261,7 @@ ir2ast_convert_triangle_hit(FunctionBuilder *b, const Type *dst_ht, const Expres
         b->assign(ref, expr);
         expr = ref;
     }
-    auto bary = b->member(ft, expr, 2u);
+    auto bary = b->member(vt, expr, 2u);
     auto bary_x = b->access(ft, bary, b->literal(ut, 0u));
     auto bary_y = b->access(ft, bary, b->literal(ut, 1u));
     auto hit = b->local(dst_ht);
