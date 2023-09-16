@@ -114,7 +114,7 @@ impl<K: Hash + Eq, V> NestedHashMap<K, V> {
     pub(crate) fn insert(&mut self, k: K, v: V) {
         unsafe {
             let inner = self.inner.as_ref() as *const _ as *mut NestedHashMapInner<K, V>;
-            let inner = &mut *inner;
+            let inner = inner.as_mut().unwrap();
             inner.map.insert(k, v);
         }
     }
