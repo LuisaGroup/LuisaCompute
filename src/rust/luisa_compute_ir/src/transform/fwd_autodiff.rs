@@ -223,8 +223,7 @@ impl ForwardAdTransform {
                 );
                 let sqr = self.create_call(builder, Func::Mul, &[&[args[1]], &[args[1]]], type_);
                 let numerator = self.create_call(builder, Func::Sub, &[&lhs, &rhs], type_);
-                let grads =
-                    self.create_call(builder, Func::Div, &[&numerator, &sqr], type_);
+                let grads = self.create_call(builder, Func::Div, &[&numerator, &sqr], type_);
                 self.create_grad(out, &grads, builder);
             }
             Func::MatCompMul => {
@@ -327,22 +326,110 @@ impl ForwardAdTransform {
                 );
                 self.create_grad(out, &grads, builder);
             }
-            // Func::Vec => {
-            //     let out_grads = self.create_call(builder, *f, &[&[args[0]]], type_);
-            //     self.create_grad(out, &out_grads, builder);
-            // }
-            // Func::Vec2 => {
-            //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]]], type_);
-            //     self.create_grad(out, &out_grads, builder);
-            // }
-            // Func::Vec3 => {
-            //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]],&[args[2]]], type_);
-            //     self.create_grad(out, &out_grads, builder);
-            // }
-            // Func::Vec4 => {
-            //     let out_grads = self.create_call(builder, *f, &[&[args[0]], &[args[1]],&], type_);
-            //     self.create_grad(out, &out_grads, builder);
-            // }
+            Func::GetElementPtr => {
+                let grads = self.create_call(
+                    builder,
+                    Func::GetElementPtr,
+                    &[&self.grads(args[0]), &self.grads(args[1]), &[args[2]]],
+                    type_,
+                );
+                // GEP is special as it is technically not a value
+                let mut duals = self.duals.borrow_mut();
+                duals.insert(
+                    out,
+                    Dual {
+                        var: out,
+                        grad: grads.clone(),
+                        loaded_grad: grads.clone(),
+                    },
+                );
+            }
+            Func::Vec => {
+                let out_grads = self.create_call(builder, Func::Vec, &[&[args[0]]], type_);
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Vec2 => {
+                let out_grads =
+                    self.create_call(builder, Func::Vec2, &[&[args[0]], &[args[1]]], type_);
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Vec3 => {
+                let out_grads = self.create_call(
+                    builder,
+                    Func::Vec3,
+                    &[&[args[0]], &[args[1]], &[args[2]]],
+                    type_,
+                );
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Vec4 => {
+                let out_grads = self.create_call(
+                    builder,
+                    Func::Vec4,
+                    &[&[args[0]], &[args[1]], &[args[2]], &[args[3]]],
+                    type_,
+                );
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Mat => {
+                let out_grads = self.create_call(builder, Func::Mat, &[&[args[0]]], type_);
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Mat2 => {
+                let out_grads =
+                    self.create_call(builder, Func::Mat2, &[&[args[0]], &[args[1]]], type_);
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Mat3 => {
+                let out_grads = self.create_call(
+                    builder,
+                    Func::Mat3,
+                    &[&[args[0]], &[args[1]], &[args[2]]],
+                    type_,
+                );
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Mat4 => {
+                let out_grads = self.create_call(
+                    builder,
+                    Func::Mat4,
+                    &[&[args[0]], &[args[1]], &[args[2]], &[args[3]]],
+                    type_,
+                );
+                self.create_grad(out, &out_grads, builder);
+            }
+            Func::Dot => {
+                let lhs = self.create_call(
+                    builder,
+                    Func::Dot,
+                    &[&self.grads(args[0]), &[args[1]]],
+                    type_,
+                );
+                let rhs = self.create_call(
+                    builder,
+                    Func::Dot,
+                    &[&self.grads(args[1]), &[args[0]]],
+                    type_,
+                );
+                let grads = self.create_call(builder, Func::Add, &[&lhs, &rhs], type_);
+                self.create_grad(out, &grads, builder);
+            }
+            Func::Cross => {
+                let lhs = self.create_call(
+                    builder,
+                    Func::Cross,
+                    &[&self.grads(args[0]), &[args[1]]],
+                    type_,
+                );
+                let rhs = self.create_call(
+                    builder,
+                    Func::Cross,
+                    &[&self.grads(args[1]), &[args[0]]],
+                    type_,
+                );
+                let grads = self.create_call(builder, Func::Add, &[&lhs, &rhs], type_);
+                self.create_grad(out, &grads, builder);
+            }
             Func::Cast => {
                 let grads = self.create_call(builder, Func::Cast, &[&self.grads(args[0])], type_);
                 self.create_grad(out, &grads, builder);

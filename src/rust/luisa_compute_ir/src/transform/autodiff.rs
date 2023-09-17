@@ -1,6 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
 
 use bitflags::Flags;
+use core::panic;
 use std::ops::Deref;
 use std::{
     cell::RefCell,
@@ -1692,6 +1693,9 @@ impl Backward {
                             self.accumulate_grad(*member, member_grad, builder);
                         }
                     }
+                    Func::Callable(_) => {
+                        panic!("Callable not supported yet! Please inline your callables manually.")
+                    }
                     _ => {}
                 }
             }
@@ -1836,7 +1840,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
     while i < nodes.len() {
         let node = nodes[i];
         match node.get().instruction.as_ref() {
-            Instruction::AdScope { body, forward,.. } => {
+            Instruction::AdScope { body, forward, .. } => {
                 if *forward {
                     i += 1;
                     continue;

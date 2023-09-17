@@ -98,7 +98,7 @@ pub extern "C" fn luisa_compute_ir_transform_pipeline_destroy(pipeline: *mut Tra
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_transform_auto(module: ir::Module) -> ir::Module {
     let flags = module.flags;
-    dbg!(flags);
+    // dbg!(flags);
     let mut pipeline = TransformPipeline::new();
     if flags.contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM) {
         pipeline.add_transform(Box::new(autodiff::Autodiff));
