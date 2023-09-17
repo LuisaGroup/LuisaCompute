@@ -445,13 +445,16 @@ impl<'a> FunctionEmitter<'a> {
             callable_emitter.gen_callable_module(&f.0);
             callable_emitter.indent += self.indent;
 
+            let ret_type = self.type_gen.gen_c_type(&f.0.ret_type);
+
             let fname = format!(
                 "callable_{}",
                 callable_emitter.globals.generated_callables.len()
             );
             let source = format!(
-                "[=]({}){{\n{}\n{};}}",
+                "[=]({}) -> {} {{\n{}\n{};}}",
                 params.join(","),
+                ret_type,
                 callable_emitter.fwd_defs,
                 callable_emitter.body
             );
