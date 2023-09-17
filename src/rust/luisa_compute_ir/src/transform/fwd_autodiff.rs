@@ -146,6 +146,7 @@ impl ForwardAdTransform {
                 let grads = &args[1..];
                 assert_eq!(grads.len(), n_grads);
                 self.create_grad(var, grads, builder);
+                out.remove();
             }
             Func::OutputGrad => {
                 let idx = args[1].get_i32();
