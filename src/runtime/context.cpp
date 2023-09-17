@@ -55,7 +55,9 @@ public:
         m.creator = m.module.function<Device::Creator>("create");
         m.deleter = m.module.function<Device::Deleter>("destroy");
         m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");
-        auto pm = loaded_backends.emplace(backend_name, luisa::make_unique<BackendModule>(std::move(m))).first->second.get();
+        auto pm = loaded_backends
+                      .emplace(backend_name, luisa::make_unique<BackendModule>(std::move(m)))
+                      .first->second.get();
         return *pm;
     }
 
