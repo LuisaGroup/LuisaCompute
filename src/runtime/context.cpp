@@ -36,10 +36,13 @@ public:
     luisa::vector<luisa::string> installed_backends;
     ValidationLayer validation_layer;
     luisa::unordered_map<luisa::string, luisa::unique_ptr<std::filesystem::path>> runtime_subdir_paths;
-    std::mutex runtime_subdir_mutex;
+    std::mutex mutex;
 
     const BackendModule &create_module(const luisa::string &backend_name) noexcept {
+        auto _guard = std::lock_guard{mutex};
         auto create_new = [&]() {
+           
+
             if (std::find(installed_backends.cbegin(),
                           installed_backends.cend(),
                           backend_name) == installed_backends.cend()) {
@@ -171,7 +174,7 @@ const luisa::filesystem::path &Context::runtime_directory() const noexcept {
 }
 
 const luisa::filesystem::path &Context::create_runtime_subdir(luisa::string_view folder_name) const noexcept {
-    std::lock_guard lock{_impl->runtime_subdir_mutex};
+    std::lock_guard lock{_impl->mutex};
     auto iter = _impl->runtime_subdir_paths.try_emplace(
         folder_name,
         luisa::lazy_construct([&]() {
