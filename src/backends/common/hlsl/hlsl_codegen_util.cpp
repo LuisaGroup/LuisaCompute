@@ -3,6 +3,7 @@
 #include "variant_util.h"
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/ast/function_builder.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <luisa/vstl/pdqsort.h>

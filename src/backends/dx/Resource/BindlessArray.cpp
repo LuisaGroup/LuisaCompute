@@ -32,11 +32,11 @@ BindlessArray::~BindlessArray() {
         ReturnTex(i.first.tex2D);
         ReturnTex(i.first.tex3D);
     }
-    for(auto&& i : freeQueue){
+    for (auto &&i : freeQueue) {
         device->globalHeap->ReturnIndex(i);
     }
 }
-void  BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue){
+void BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
         freeQueue.push_back(originValue & BindlessStruct::mask);
         originValue = BindlessStruct::n_pos;
@@ -155,13 +155,18 @@ void BindlessArray::UpdateStates(
     vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
     std::lock_guard lck{mtx};
     if (!mods.empty()) {
+        auto tempBuffer = builder.GetCB()->GetAlloc()->GetTempUploadBuffer(sizeof(BindlessStruct) * mods.size(), 16);
+        auto ubuffer = static_cast<UploadBuffer const *>(tempBuffer.buffer);
+        auto offset = tempBuffer.offset;
         for (auto &&mod : mods) {
-            builder.Upload(
-                BufferView{
-                    &buffer,
-                    sizeof(BindlessStruct) * mod.slot,
-                    sizeof(BindlessStruct)},
-                &binded[mod.slot].first);
+            ubuffer->CopyData(offset, {reinterpret_cast<uint8_t const *>(&binded[mod.slot].first), sizeof(BindlessStruct)});
+            builder.CopyBuffer(
+                ubuffer,
+                &buffer,
+                offset,
+                sizeof(BindlessStruct) * mod.slot,
+                sizeof(BindlessStruct));
+            offset += sizeof(BindlessStruct);
         }
         tracker.RecordState(
             &buffer,
