@@ -335,7 +335,7 @@ impl<'a> FunctionEmitter<'a> {
                 ty = ty.extract(0)
             } else {
                 assert!(ty.is_struct());
-                let idx = node.get_i32() as usize;
+                let idx = index.get_i32() as usize;
                 var = format!("{}.f{}", var, idx);
                 ty = ty.extract(idx);
             }
@@ -952,71 +952,31 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::ExtractElement => {
-                // TODO: support array pls
-                if args[0].type_().is_array() || !args[1].is_const() {
-                    let i = self.gen_node(args[1]);
-                    writeln!(
-                        self.body,
-                        "const {} {} = {}[{}];",
-                        node_ty_s, var, args_v[0], i
-                    )
-                    .unwrap();
-                    return true;
-                } else {
-                    let i = args[1].get_i32();
-                    let field_name = Self::gep_field_name(args[0], i);
-                    writeln!(
-                        self.body,
-                        "const {} {} = {}.{};",
-                        node_ty_s, var, args_v[0], field_name
-                    )
-                    .unwrap();
-                    true
-                }
+                let indices = &args[1..];
+                let access_chain = self.access_chain(args_v[0].clone(), args[0], indices);
+                writeln!(
+                    self.body,
+                    "const {} & {} = {};",
+                    node_ty_s, var, access_chain
+                )
+                .unwrap();
+                true
             }
             Func::InsertElement => {
-                if args[0].type_().is_array() || !args[2].is_const() {
-                    let i = self.gen_node(args[2]);
-                    writeln!(
-                        self.body,
-                        "{0} _{1} = {2}; _{1}[{3}] = {4}; const auto {1} = _{1};",
-                        node_ty_s, var, args_v[0], i, args_v[1]
-                    )
-                    .unwrap();
-                } else {
-                    let i = args[2].get_i32();
-                    let field_name = Self::gep_field_name(args[0], i);
-                    writeln!(
-                        self.body,
-                        "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
-                        node_ty_s, var, args_v[0], field_name, args_v[1]
-                    )
-                    .unwrap();
-                }
+                let indices = &args[2..];
+                let access_chain = self.access_chain(format!("_{}", var), args[0], indices);
+                writeln!(
+                    self.body,
+                    "{0} _{1} = {2}; {3} = {4}; const auto& {1} = _{1};",
+                    node_ty_s, var, args_v[0], access_chain, args_v[1]
+                )
+                .unwrap();
                 true
             }
             Func::GetElementPtr => {
-                // TODO: fix this
-                if args[0].type_().is_array()
-                    || args[0].type_().is_vector()
-                    || args[0].type_().is_matrix()
-                {
-                    writeln!(
-                        self.body,
-                        "{}& {} = {}[{}];",
-                        node_ty_s, var, args_v[0], args_v[1]
-                    )
-                    .unwrap();
-                } else {
-                    let i = args[1].get_i32();
-                    let field_name = Self::gep_field_name(args[0], i);
-                    writeln!(
-                        self.body,
-                        "{} & {} = {}.{};",
-                        node_ty_s, var, args_v[0], field_name
-                    )
-                    .unwrap();
-                }
+                let indices = &args[1..];
+                let access_chain = self.access_chain(args_v[0].clone(), args[0], indices);
+                writeln!(self.body, "{} & {} = {};", node_ty_s, var, access_chain).unwrap();
                 true
             }
             Func::Struct | Func::Array => {
