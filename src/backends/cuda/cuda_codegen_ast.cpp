@@ -1822,7 +1822,17 @@ void CUDACodegenAST::visit(const ForStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const CommentStmt *stmt) {
-    _scratch << "/* " << stmt->comment() << " */";
+    _scratch << "// ";
+    for (auto c : stmt->comment()) {
+        if (c == '\n') {
+            _scratch << "\n";
+            _emit_indent();
+            _scratch << "// ";
+        } else {
+            char s[] = {c, '\0'};
+            _scratch << s;
+        }
+    }
 }
 
 void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {

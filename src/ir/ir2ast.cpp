@@ -99,6 +99,10 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
                     return ret;
                 }
                 if (ret != nullptr) {
+                    LUISA_ASSERT(ret->type() == type,
+                                 "Type mismatch: expected {}, got {} (op = {}).",
+                                 type->description(), ret->type()->description(),
+                                 to_underlying(node->instruction->call._0.tag));
                     auto local = _ctx->function_builder->local(type);
                     _ctx->function_builder->assign(local, ret);
                     _ctx->node_to_exprs.emplace(node, local);
@@ -738,9 +742,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             // First we make a copy of self, then we assign the new value to the specified index.
             LUISA_ASSERT(args.size() >= 3u, "`InsertElement` takes 3 arguments.");
             auto old = _convert_node(args[0]);
-            auto self = static_cast<const Expression *>(_ctx->function_builder->local(old->type()));
-            _ctx->function_builder->assign(self, old);
-            auto elem = _convert_node(args[1]);
+            auto copy = _ctx->function_builder->local(old->type());
+            _ctx->function_builder->assign(copy, old);
+            auto self = static_cast<const Expression *>(copy);
             auto indices = args.subspan(2u);
             for (auto i : indices) {
                 if (auto self_type = self->type(); self_type->is_structure()) {
@@ -758,9 +762,10 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                     self = _ctx->function_builder->access(inner_type, self, index);
                 }
             }
+            auto elem = _convert_node(args[1]);
             LUISA_ASSERT(self->type() == elem->type(), "Type mismatch.");
             _ctx->function_builder->assign(self, elem);
-            return self;
+            return copy;
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
@@ -783,6 +788,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                     self = _ctx->function_builder->access(inner_type, self, index);
                 }
             }
+            LUISA_ASSERT(self->type() == type, "Type mismatch.");
             return self;
         }
         case ir::Func::Tag::Struct: {
@@ -1026,15 +1032,11 @@ void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
 }
 void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
     auto comment_body = node->instruction->comment._0;
-    auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), comment_body.len};
+    auto len = comment_body.ptr[comment_body.len - 1] == 0 ?
+                   comment_body.len - 1 :
+                   comment_body.len;
+    auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), len};
     _ctx->function_builder->comment_(comment_content);
-}
-
-void IR2AST::_convert_instr_debug(const ir::Node *node) noexcept {
-    //    LUISA_WARNING_WITH_LOCATION("Instruction `Debug` is not implemented.");
-    //    auto debug_body = node->instruction->debug._0;
-    //    auto debug_content = luisa::string_view{reinterpret_cast<const char *>(debug_body.ptr), debug_body.len};
-    //    _ctx->function_builder->comment_(luisa::format("Debug: {}", debug_content));
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
