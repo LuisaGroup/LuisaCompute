@@ -734,42 +734,56 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             return _ctx->function_builder->call(type, op, luisa::span{reconstruct_args});
         }
         case ir::Func::Tag::InsertElement: {
-            // for Sturct, auto a = b; a.c = d; return a;
-            // for Vector/Matrix, auto a = b; a[i] = c; return a;
-            LUISA_ASSERT(args.size() == 3u, "`InsertElement` takes 3 arguments.");
-            auto self = ir::luisa_compute_ir_node_get(args[0]);
-            auto self_type = _convert_type(self->type_.get());
-            auto tmp = _ctx->function_builder->local(self_type);
-            _ctx->function_builder->assign(tmp, _convert_node(self));
-            auto new_value = _convert_node(args[1]);
-            if (self->type_->tag == ir::Type::Tag::Struct) {
-                auto member_index = constant_index(args[2]);
-                auto member_type = self_type->members()[member_index];
-                auto ref = _ctx->function_builder->member(member_type, tmp, member_index);
-                _ctx->function_builder->assign(ref, new_value);
-            } else {
-                auto index = _convert_node(args[2]);
-                auto inner_type = self_type->element();
-                auto ref = _ctx->function_builder->access(inner_type, tmp, index);
-                _ctx->function_builder->assign(ref, new_value);
+            // InsertElement(self, new_value, indices...)
+            // First we make a copy of self, then we assign the new value to the specified index.
+            LUISA_ASSERT(args.size() >= 3u, "`InsertElement` takes 3 arguments.");
+            auto old = _convert_node(args[0]);
+            auto self = static_cast<const Expression *>(_ctx->function_builder->local(old->type()));
+            _ctx->function_builder->assign(self, old);
+            auto elem = _convert_node(args[1]);
+            auto indices = args.subspan(2u);
+            for (auto i : indices) {
+                if (auto self_type = self->type(); self_type->is_structure()) {
+                    auto member_index = constant_index(i);
+                    auto member_type = self_type->members()[member_index];
+                    self = _ctx->function_builder->member(member_type, self, member_index);
+                } else if (self_type->is_array() || self_type->is_vector()) {
+                    auto index = _convert_node(i);
+                    auto inner_type = self_type->element();
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                } else {
+                    LUISA_ASSERT(self_type->is_matrix(), "Invalid type.");
+                    auto index = _convert_node(i);
+                    auto inner_type = Type::vector(self_type->element(), self_type->dimension());
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                }
             }
-            return tmp;
+            LUISA_ASSERT(self->type() == elem->type(), "Type mismatch.");
+            _ctx->function_builder->assign(self, elem);
+            return self;
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
-            LUISA_ASSERT(args.size() == 2u, "{} takes 2 arguments.", to_string(func.tag));
-            auto self = ir::luisa_compute_ir_node_get(args[0]);
-            auto self_type = _convert_type(self->type_.get());
-            if (self->type_->tag == ir::Type::Tag::Struct) {
-                auto member_index = constant_index(args[1]);
-                auto member_type = self_type->members()[member_index];
-                return _ctx->function_builder->member(member_type, _convert_node(self), member_index);
-            } else {
-                auto container = _convert_node(self);
-                auto index = _convert_node(args[1]);
-                auto inner_type = self_type->element();
-                return _ctx->function_builder->access(inner_type, container, index);
+            LUISA_ASSERT(args.size() >= 2u, "{} takes at least 2 arguments.", to_string(func.tag));
+            auto self = _convert_node(args[0]);
+            auto indices = args.subspan(1u);
+            for (auto i : indices) {
+                if (auto self_type = self->type(); self_type->is_structure()) {
+                    auto member_index = constant_index(i);
+                    auto member_type = self_type->members()[member_index];
+                    self = _ctx->function_builder->member(member_type, self, member_index);
+                } else if (self_type->is_vector() || self_type->is_array()) {
+                    auto index = _convert_node(i);
+                    auto inner_type = self_type->element();
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                } else {
+                    LUISA_ASSERT(self_type->is_matrix(), "Invalid type.");
+                    auto index = _convert_node(i);
+                    auto inner_type = Type::vector(self_type->element(), self_type->dimension());
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                }
             }
+            return self;
         }
         case ir::Func::Tag::Struct: {
             auto alignment = node->type_->struct_._0.alignment;
