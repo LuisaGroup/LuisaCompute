@@ -2369,6 +2369,20 @@ impl IrBuilder {
         }
         self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
     }
+    // append the indices to this if it's a gep; otherwise behave like gep
+    pub fn gep_chained(&mut self, this: NodeRef, indices: &[NodeRef], t: CArc<Type>) -> NodeRef {
+        match this.get().instruction.as_ref() {
+            Instruction::Call(func, args) => match func {
+                Func::GetElementPtr => {
+                    let this = args[0];
+                    let indices = [&args[1..], indices].concat();
+                    self.gep(this, &indices, t)
+                }
+                _ => self.gep(this, indices, t),
+            },
+            _ => self.gep(this, indices, t),
+        }
+    }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
         assert!(
             context::is_type_equal(var.type_(), value.type_()),

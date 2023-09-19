@@ -559,7 +559,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 assert_eq!(t.as_ref(), t_v.element().as_ref(), "Invalid swizzle type.");
                 if is_lval {
                     let i = builder.const_(Const::Uint32(indices[0]));
-                    builder.gep(v, &[i], t.clone())
+                    builder.gep_chained(v, &[i], t.clone())
                 } else {
                     builder.extract(v, indices[0] as usize, t.clone())
                 }
@@ -596,7 +596,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             assert_eq!(t.as_ref(), t_elem.as_ref(), "Invalid member type.");
             if is_lval {
                 let i = builder.const_(Const::Uint32(i as u32));
-                builder.gep(v, &[i], t.clone())
+                builder.gep_chained(v, &[i], t.clone())
             } else {
                 builder.extract(v, i, t.clone())
             }
@@ -617,7 +617,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         assert_eq!(elem.as_ref(), t.as_ref(), "Invalid access type.");
         let (builder, ..) = self.unwrap_ctx();
         if is_lval {
-            builder.gep(range, &[index], elem)
+            builder.gep_chained(range, &[index], elem)
         } else {
             builder.extract_dynamic(range, index, elem)
         }
