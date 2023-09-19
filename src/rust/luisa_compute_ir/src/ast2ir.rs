@@ -565,19 +565,19 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 }
             } else {
                 assert!(!is_lval, "L-value cannot be a swizzle.");
+                let indices: Vec<_> = indices
+                    .iter()
+                    .map(|i| builder.const_(Const::Uint32(*i)))
+                    .collect();
+                assert!(
+                    indices.len() >= 1 && indices.len() <= 4,
+                    "Invalid swizzle length."
+                );
                 let t_elem = t_v.element();
                 let t_swizzle = Type::vector_of(t_elem.clone(), indices.len() as u32);
                 assert_eq!(t.as_ref(), t_swizzle.as_ref(), "Invalid swizzle type.");
-                let args: Vec<_> = indices
-                    .iter()
-                    .map(|i| builder.extract(v, *i as usize, t_elem.clone()))
-                    .collect();
-                match args.len() {
-                    2 => builder.call(Func::Vec2, args.as_slice(), t_swizzle),
-                    3 => builder.call(Func::Vec3, args.as_slice(), t_swizzle),
-                    4 => builder.call(Func::Vec4, args.as_slice(), t_swizzle),
-                    _ => unreachable!("Invalid swizzle length."),
-                }
+                let args = [&[v], indices.as_slice()].concat();
+                builder.call(Func::Permute, args.as_slice(), t_swizzle)
             }
         } else {
             // member access
