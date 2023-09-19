@@ -96,6 +96,22 @@ template<typename T>
 constexpr auto is_unsigned_v = is_unsigned<T>::value;
 
 template<typename T>
+using is_signed_integral = std::conjunction<
+    is_signed<T>,
+    is_integral<T>>;
+
+template<typename T>
+using is_unsigned_integral = std::conjunction<
+    is_unsigned<T>,
+    is_integral<T>>;
+
+template<typename T>
+constexpr auto is_signed_integral_v = is_signed_integral<T>::value;
+
+template<typename T>
+constexpr auto is_unsigned_integral_v = is_unsigned_integral<T>::value;
+
+template<typename T>
 using is_scalar = std::disjunction<
     is_integral<T>,
     is_boolean<T>,
@@ -211,28 +227,64 @@ template<typename T>
 using is_vector4 = is_vector<T, 4u>;
 
 template<typename T>
-using is_bool_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, bool>>;
+using is_boolean_vector = std::conjunction<is_vector<T>, is_boolean<vector_element_t<T>>>;
 
 template<typename T>
-constexpr auto is_bool_vector_v = is_bool_vector<T>::value;
+constexpr auto is_boolean_vector_v = is_boolean_vector<T>::value;
 
 template<typename T>
-using is_float_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, float>>;
+using is_floating_point_vector = std::conjunction<is_vector<T>, is_floating_point<vector_element_t<T>>>;
 
 template<typename T>
-constexpr auto is_float_vector_v = is_float_vector<T>::value;
+constexpr auto is_floating_point_vector_v = is_floating_point_vector<T>::value;
 
 template<typename T>
-using is_int_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, int>>;
+using is_integral_vector = std::conjunction<is_vector<T>, is_integral<vector_element_t<T>>>;
 
 template<typename T>
-constexpr auto is_int_vector_v = is_int_vector<T>::value;
+constexpr auto is_integral_vector_v = is_integral_vector<T>::value;
 
 template<typename T>
-using is_uint_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, uint>>;
+using is_signed_integral_vector = std::conjunction<is_vector<T>, is_signed_integral<vector_element_t<T>>>;
 
 template<typename T>
-constexpr auto is_uint_vector_v = is_uint_vector<T>::value;
+constexpr auto is_signed_integral_vector_v = is_signed_integral_vector<T>::value;
+
+template<typename T>
+using is_unsigned_integral_vector = std::conjunction<is_vector<T>, is_unsigned_integral<vector_element_t<T>>>;
+
+template<typename T>
+constexpr auto is_unsigned_integral_vector_v = is_unsigned_integral_vector<T>::value;
+
+template<typename T>
+using is_boolean_or_vector = std::disjunction<is_boolean<T>, is_boolean_vector<T>>;
+
+template<typename T>
+constexpr auto is_boolean_or_vector_v = is_boolean_or_vector<T>::value;
+
+template<typename T>
+using is_floating_point_or_vector = std::disjunction<is_floating_point<T>, is_floating_point_vector<T>>;
+
+template<typename T>
+constexpr auto is_floating_point_or_vector_v = is_floating_point_or_vector<T>::value;
+
+template<typename T>
+using is_integral_or_vector = std::disjunction<is_integral<T>, is_integral_vector<T>>;
+
+template<typename T>
+constexpr auto is_integral_or_vector_v = is_integral_or_vector<T>::value;
+
+template<typename T>
+using is_signed_integral_or_vector = std::disjunction<is_signed_integral<T>, is_signed_integral_vector<T>>;
+
+template<typename T>
+constexpr auto is_signed_integral_or_vector_v = is_signed_integral_or_vector<T>::value;
+
+template<typename T>
+using is_unsigned_integral_or_vector = std::disjunction<is_unsigned_integral<T>, is_unsigned_integral_vector<T>>;
+
+template<typename T>
+constexpr auto is_unsigned_integral_or_vector_v = is_unsigned_integral_or_vector<T>::value;
 
 template<typename T, size_t N = 0u>
 constexpr auto is_vector_v = is_vector<T, N>::value;

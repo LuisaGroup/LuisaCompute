@@ -478,6 +478,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::DispatchSize; }
     };
     explicit Func(Func::DispatchSize _) noexcept { _inner.tag = DispatchSize::tag(); }
+    class LC_IR_API PropagateGrad : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::PropagateGrad; }
+    };
+    explicit Func(Func::PropagateGrad _) noexcept { _inner.tag = PropagateGrad::tag(); }
+    class LC_IR_API OutputGrad : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::OutputGrad; }
+    };
+    explicit Func(Func::OutputGrad _) noexcept { _inner.tag = OutputGrad::tag(); }
     class LC_IR_API RequiresGradient : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -520,6 +532,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::RayTracingInstanceTransform; }
     };
     explicit Func(Func::RayTracingInstanceTransform _) noexcept { _inner.tag = RayTracingInstanceTransform::tag(); }
+    class LC_IR_API RayTracingInstanceUserId : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::RayTracingInstanceUserId; }
+    };
+    explicit Func(Func::RayTracingInstanceUserId _) noexcept { _inner.tag = RayTracingInstanceUserId::tag(); }
     class LC_IR_API RayTracingSetInstanceTransform : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -538,6 +556,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::RayTracingSetInstanceVisibility; }
     };
     explicit Func(Func::RayTracingSetInstanceVisibility _) noexcept { _inner.tag = RayTracingSetInstanceVisibility::tag(); }
+    class LC_IR_API RayTracingSetInstanceUserId : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::RayTracingSetInstanceUserId; }
+    };
+    explicit Func(Func::RayTracingSetInstanceUserId _) noexcept { _inner.tag = RayTracingSetInstanceUserId::tag(); }
     class LC_IR_API RayTracingTraceClosest : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1276,6 +1300,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::SynchronizeBlock; }
     };
     explicit Func(Func::SynchronizeBlock _) noexcept { _inner.tag = SynchronizeBlock::tag(); }
+    class LC_IR_API AtomicRef : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::AtomicRef; }
+    };
+    explicit Func(Func::AtomicRef _) noexcept { _inner.tag = AtomicRef::tag(); }
     class LC_IR_API AtomicExchange : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1348,6 +1378,24 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::BufferSize; }
     };
     explicit Func(Func::BufferSize _) noexcept { _inner.tag = BufferSize::tag(); }
+    class LC_IR_API ByteBufferRead : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::ByteBufferRead; }
+    };
+    explicit Func(Func::ByteBufferRead _) noexcept { _inner.tag = ByteBufferRead::tag(); }
+    class LC_IR_API ByteBufferWrite : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::ByteBufferWrite; }
+    };
+    explicit Func(Func::ByteBufferWrite _) noexcept { _inner.tag = ByteBufferWrite::tag(); }
+    class LC_IR_API ByteBufferSize : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::ByteBufferSize; }
+    };
+    explicit Func(Func::ByteBufferSize _) noexcept { _inner.tag = ByteBufferSize::tag(); }
     class LC_IR_API Texture2dRead : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1360,6 +1408,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Texture2dWrite; }
     };
     explicit Func(Func::Texture2dWrite _) noexcept { _inner.tag = Texture2dWrite::tag(); }
+    class LC_IR_API Texture2dSize : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::Texture2dSize; }
+    };
+    explicit Func(Func::Texture2dSize _) noexcept { _inner.tag = Texture2dSize::tag(); }
     class LC_IR_API Texture3dRead : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1372,6 +1426,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::Texture3dWrite; }
     };
     explicit Func(Func::Texture3dWrite _) noexcept { _inner.tag = Texture3dWrite::tag(); }
+    class LC_IR_API Texture3dSize : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::Texture3dSize; }
+    };
+    explicit Func(Func::Texture3dSize _) noexcept { _inner.tag = Texture3dSize::tag(); }
     class LC_IR_API BindlessTexture2dSample : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -1486,6 +1546,12 @@ public:
         static constexpr Tag tag() noexcept { return raw::Func::Tag::BindlessBufferType; }
     };
     explicit Func(Func::BindlessBufferType _) noexcept { _inner.tag = BindlessBufferType::tag(); }
+    class LC_IR_API BindlessByteBufferRead : Marker, concepts::Noncopyable {
+        uint8_t _pad;
+    public:
+        static constexpr Tag tag() noexcept { return raw::Func::Tag::BindlessByteBufferRead; }
+    };
+    explicit Func(Func::BindlessByteBufferRead _) noexcept { _inner.tag = BindlessByteBufferRead::tag(); }
     class LC_IR_API Vec : Marker, concepts::Noncopyable {
         uint8_t _pad;
     public:
@@ -2132,6 +2198,8 @@ public:
         static constexpr Tag tag() noexcept { return raw::Instruction::Tag::AdScope; }
         [[nodiscard]] auto raw() const noexcept { return &_inner; }
         [[nodiscard]] const Pooled<BasicBlock> &body() const noexcept;
+        [[nodiscard]] const bool &forward() const noexcept;
+        [[nodiscard]] const size_t &n_forward_grads() const noexcept;
     };
     class LC_IR_API RayQuery : Marker, concepts::Noncopyable {
         raw::Instruction::RayQuery_Body _inner{};
@@ -2141,6 +2209,14 @@ public:
         [[nodiscard]] const NodeRef &ray_query() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &on_triangle_hit() const noexcept;
         [[nodiscard]] const Pooled<BasicBlock> &on_procedural_hit() const noexcept;
+    };
+    class LC_IR_API Print : Marker, concepts::Noncopyable {
+        raw::Instruction::Print_Body _inner{};
+    public:
+        static constexpr Tag tag() noexcept { return raw::Instruction::Tag::Print; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
+        [[nodiscard]] luisa::span<const uint8_t> fmt() const noexcept;
+        [[nodiscard]] luisa::span<const NodeRef> args() const noexcept;
     };
     class LC_IR_API AdDetach : Marker, concepts::Noncopyable {
         raw::Instruction::AdDetach_Body _inner{};
@@ -2207,6 +2283,9 @@ public:
         }
         if constexpr (std::is_same_v<T, RayQuery>) {
             return reinterpret_cast<const RayQuery *>(&_inner.ray_query);
+        }
+        if constexpr (std::is_same_v<T, Print>) {
+            return reinterpret_cast<const Print *>(&_inner.print);
         }
         if constexpr (std::is_same_v<T, AdDetach>) {
             return reinterpret_cast<const AdDetach *>(&_inner.ad_detach);
@@ -2332,6 +2411,7 @@ public:
     [[nodiscard]] auto raw() const noexcept { return &_inner; }
     [[nodiscard]] const ModuleKind &kind() const noexcept;
     [[nodiscard]] const Pooled<BasicBlock> &entry() const noexcept;
+    [[nodiscard]] const ModuleFlags &flags() const noexcept;
     [[nodiscard]] const CArc<ModulePools> &pools() const noexcept;
 };
 

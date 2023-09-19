@@ -22,6 +22,7 @@ using raw::Pooled;
 using raw::ModulePools;
 using raw::CallableModuleRef;
 using raw::CpuCustomOp;
+using raw::ModuleFlags;
 
 namespace detail {
 template<class T>

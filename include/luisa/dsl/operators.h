@@ -36,12 +36,12 @@ constexpr auto dsl_binary_op_return_type_helper() noexcept {
     constexpr auto rhs_is_vector = luisa::is_vector_v<Rhs>;
     constexpr auto lhs_is_matrix = luisa::is_matrix_v<Lhs>;
     constexpr auto rhs_is_matrix = luisa::is_matrix_v<Rhs>;
-    constexpr auto lhs_is_integral = luisa::is_integral_v<Lhs> || luisa::is_int_vector_v<Lhs> || luisa::is_uint_vector_v<Lhs>;
-    constexpr auto rhs_is_integral = luisa::is_integral_v<Rhs> || luisa::is_int_vector_v<Rhs> || luisa::is_uint_vector_v<Rhs>;
-    constexpr auto lhs_is_boolean = luisa::is_boolean_v<Lhs> || luisa::is_bool_vector_v<Lhs>;
-    constexpr auto rhs_is_boolean = luisa::is_boolean_v<Rhs> || luisa::is_bool_vector_v<Rhs>;
-    constexpr auto lhs_is_fp = is_floating_point_v<Lhs> || is_float_vector_v<Lhs> || is_matrix_v<Lhs>;
-    constexpr auto rhs_is_fp = is_floating_point_v<Rhs> || is_float_vector_v<Rhs> || is_matrix_v<Rhs>;
+    constexpr auto lhs_is_integral = luisa::is_integral_or_vector_v<Lhs>;
+    constexpr auto rhs_is_integral = luisa::is_integral_or_vector_v<Rhs>;
+    constexpr auto lhs_is_boolean = luisa::is_boolean_or_vector_v<Lhs>;
+    constexpr auto rhs_is_boolean = luisa::is_boolean_or_vector_v<Rhs>;
+    constexpr auto lhs_is_fp = is_floating_point_or_vector_v<Lhs> || is_matrix_v<Lhs>;
+    constexpr auto rhs_is_fp = is_floating_point_or_vector_v<Rhs> || is_matrix_v<Rhs>;
 
     using lhs_elem = std::conditional_t<lhs_is_matrix, float, vector_element_t<Lhs>>;
     using rhs_elem = std::conditional_t<rhs_is_matrix, float, vector_element_t<Rhs>>;
