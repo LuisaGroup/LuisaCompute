@@ -2,6 +2,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use bitflags::Flags;
 use core::panic;
+use half::f16;
 use std::ops::Deref;
 use std::{
     cell::RefCell,
@@ -79,6 +80,8 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
         Type::Void | Type::UserData => None,
         Type::Primitive(p) => match p {
             crate::ir::Primitive::Bool => None,
+            crate::ir::Primitive::Int8 => None,
+            crate::ir::Primitive::Uint8 => None,
             crate::ir::Primitive::Int16 => None,
             crate::ir::Primitive::Uint16 => None,
             crate::ir::Primitive::Int32 => None,
@@ -922,7 +925,7 @@ impl Backward {
     fn fp_constant(&mut self, t: CArc<Type>, x: f64, builder: &mut IrBuilder) -> NodeRef {
         return match t.deref() {
             Type::Primitive(p) => match p {
-                Primitive::Float16 => todo!(),
+                Primitive::Float16 => builder.const_(Const::Float16(f16::from_f64(x))),
                 Primitive::Float32 => builder.const_(Const::Float32(x as f32)),
                 Primitive::Float64 => builder.const_(Const::Float64(x)),
                 _ => panic!("fp_constant: invalid type: {:?}", t),

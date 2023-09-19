@@ -399,16 +399,18 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         if t_lhs.is_primitive() && t_rhs.is_primitive() {
             let score_scalar = |t: &CArc<Type>| match t.as_ref() {
                 Type::Primitive(s) => match s {
-                    Primitive::Bool => 0,
-                    Primitive::Int16 => 1,
-                    Primitive::Uint16 => 2,
-                    Primitive::Int32 => 3,
-                    Primitive::Uint32 => 4,
-                    Primitive::Int64 => 5,
-                    Primitive::Uint64 => 6,
-                    Primitive::Float16 => 7,
-                    Primitive::Float32 => 8,
-                    Primitive::Float64 => 9,
+                    Primitive::Bool => 10,
+                    Primitive::Int8 => 20,
+                    Primitive::Uint8 => 30,
+                    Primitive::Int16 => 40,
+                    Primitive::Uint16 => 50,
+                    Primitive::Int32 => 60,
+                    Primitive::Uint32 => 70,
+                    Primitive::Int64 => 80,
+                    Primitive::Uint64 => 90,
+                    Primitive::Float16 => 100,
+                    Primitive::Float32 => 110,
+                    Primitive::Float64 => 120,
                 },
                 _ => unreachable!("Invalid scalar type."),
             };
@@ -632,6 +634,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         let b = std::mem::transmute(v[0]);
                         builder.const_(Const::Bool(b))
                     }
+                }
+                Primitive::Int8 => {
+                    assert_eq!(v.len(), 1, "Invalid int8 literal");
+                    builder.const_(Const::Int8(v[0] as i8))
+                }
+                Primitive::Uint8 => {
+                    assert_eq!(v.len(), 1, "Invalid uint8 literal.");
+                    builder.const_(Const::Uint8(v[0]))
                 }
                 Primitive::Int16 => {
                     assert_eq!(v.len(), 2, "Invalid int16 literal.");

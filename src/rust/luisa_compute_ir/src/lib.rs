@@ -1,15 +1,15 @@
 pub mod ffi;
 pub mod ir;
 pub use ffi::*;
-use serde::Serialize;
 use half::f16;
+use serde::Serialize;
 use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
+mod ast2ir;
 pub mod context;
 mod display;
 pub mod serialize;
 pub mod transform;
 mod usage_detect;
-mod ast2ir;
 
 use ir::{ArrayType, Primitive, Type};
 
@@ -20,6 +20,16 @@ pub trait TypeOf {
 impl TypeOf for bool {
     fn type_() -> CArc<Type> {
         context::register_type(Type::Primitive(Primitive::Bool))
+    }
+}
+impl TypeOf for i8 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Int8))
+    }
+}
+impl TypeOf for u8 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Uint8))
     }
 }
 impl TypeOf for u16 {

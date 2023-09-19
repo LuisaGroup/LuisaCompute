@@ -19,6 +19,8 @@ enum class ModuleKind {
 
 enum class Primitive {
     Bool,
+    Int8,
+    Uint8,
     Int16,
     Uint16,
     Int32,
@@ -571,6 +573,8 @@ struct Const {
         Zero,
         One,
         Bool,
+        Int8,
+        Uint8,
         Int16,
         Uint16,
         Int32,
@@ -593,6 +597,14 @@ struct Const {
 
     struct Bool_Body {
         bool _0;
+    };
+
+    struct Int8_Body {
+        int8_t _0;
+    };
+
+    struct Uint8_Body {
+        uint8_t _0;
     };
 
     struct Int16_Body {
@@ -641,6 +653,8 @@ struct Const {
         Zero_Body zero;
         One_Body one;
         Bool_Body bool_;
+        Int8_Body int8;
+        Uint8_Body uint8;
         Int16_Body int16;
         Uint16_Body uint16;
         Int32_Body int32;

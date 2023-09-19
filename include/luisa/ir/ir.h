@@ -1751,6 +1751,18 @@ public:
         static constexpr Tag tag() noexcept { return raw::Const::Tag::Bool; }
         [[nodiscard]] auto raw() const noexcept { return &_inner; }
     };
+    class LC_IR_API Int8 : Marker, concepts::Noncopyable {
+        raw::Const::Int8_Body _inner{};
+    public:
+        static constexpr Tag tag() noexcept { return raw::Const::Tag::Int8; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
+    };
+    class LC_IR_API Uint8 : Marker, concepts::Noncopyable {
+        raw::Const::Uint8_Body _inner{};
+    public:
+        static constexpr Tag tag() noexcept { return raw::Const::Tag::Uint8; }
+        [[nodiscard]] auto raw() const noexcept { return &_inner; }
+    };
     class LC_IR_API Int16 : Marker, concepts::Noncopyable {
         raw::Const::Int16_Body _inner{};
     public:
@@ -1831,6 +1843,12 @@ public:
         }
         if constexpr (std::is_same_v<T, Bool>) {
             return reinterpret_cast<const Bool *>(&_inner.bool_);
+        }
+        if constexpr (std::is_same_v<T, Int8>) {
+            return reinterpret_cast<const Int8 *>(&_inner.int8);
+        }
+        if constexpr (std::is_same_v<T, Uint8>) {
+            return reinterpret_cast<const Uint8 *>(&_inner.uint8);
         }
         if constexpr (std::is_same_v<T, Int16>) {
             return reinterpret_cast<const Int16 *>(&_inner.int16);

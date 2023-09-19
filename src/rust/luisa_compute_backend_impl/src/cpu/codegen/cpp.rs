@@ -34,6 +34,8 @@ impl TypeGenInner {
         match t.as_ref() {
             Type::Primitive(t) => match t {
                 ir::Primitive::Bool => "bool".to_string(),
+                ir::Primitive::Int8 => "int8_t".to_string(),
+                ir::Primitive::Uint8 => "uint8_t".to_string(),
                 ir::Primitive::Int16 => "int16_t".to_string(),
                 ir::Primitive::Uint16 => "uint16_t".to_string(),
                 ir::Primitive::Int32 => "int32_t".to_string(),
@@ -112,6 +114,8 @@ impl TypeGenInner {
                 match vt.element {
                     VectorElementType::Scalar(s) => match s {
                         Primitive::Bool => format!("lc_bool{}", n),
+                        Primitive::Int8 => format!("lc_char{}", n),
+                        Primitive::Uint8 => format!("lc_uchar{}", n),
                         Primitive::Int16 => format!("lc_short{}", n),
                         Primitive::Uint16 => format!("lc_ushort{}", n),
                         Primitive::Int32 => format!("lc_int{}", n),
@@ -1394,6 +1398,12 @@ impl<'a> FunctionEmitter<'a> {
             }
             Const::Bool(v) => {
                 writeln!(&mut self.body, "const bool {} = {};", var, *v).unwrap();
+            }
+            Const::Int8(v) => {
+                writeln!(&mut self.body, "const int8_t {} = {};", var, *v).unwrap();
+            }
+            Const::Uint8(v) => {
+                writeln!(&mut self.body, "const uint8_t {} = {};", var, *v).unwrap();
             }
             Const::Int16(v) => {
                 writeln!(&mut self.body, "const int16_t {} = {};", var, *v).unwrap();
