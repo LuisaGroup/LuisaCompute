@@ -1992,6 +1992,9 @@ CodegenResult CodegenUtility::RasterCodegen(
     if (v2pType->is_structure()) {
         size_t memberIdx = 0;
         for (auto &&i : v2pType->members()) {
+            if (v2pType->is_vector() && v2pType->dimension() == 3) [[unlikely]] {
+                LUISA_ERROR("Vector3 in vertex-to-pixel struct is not allowed.");
+            }
             GetTypeName(*i, codegenData, Usage::READ, false);
             codegenData << " v"sv << vstd::to_string(memberIdx);
             if (memberIdx == 0) {
