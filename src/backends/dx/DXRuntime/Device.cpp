@@ -57,7 +57,8 @@ hlsl::ShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
 Device::Device(Context &&ctx, DeviceConfig const *settings)
-    : setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
+    : setBindlessKernel(BuiltinKernel::LoadBindlessSetKernel),
+      setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
       bc6TryModeG10(BuiltinKernel::LoadBC6TryModeG10CSKernel),
       bc6TryModeLE10(BuiltinKernel::LoadBC6TryModeLE10CSKernel),
       bc6EncodeBlock(BuiltinKernel::LoadBC6EncodeBlockCSKernel),

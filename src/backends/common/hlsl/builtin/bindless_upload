@@ -1,0 +1,20 @@
+struct Ele{
+uint a;
+uint b;
+uint c;
+};
+struct Src{
+uint idx;
+Ele e;
+};
+RWStructuredBuffer<Ele> _Dst:register(u0);
+StructuredBuffer<Src> _Src:register(t0);
+cbuffer _Global:register(b0){
+uint dsp;
+}
+[numthreads(256,1,1)]
+void main(uint id:SV_DISPATCHTHREADID){
+if(id >= dsp) return;
+Src s=_Src[id];
+_Dst[s.idx]=s.e;
+}

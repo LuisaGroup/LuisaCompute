@@ -7,7 +7,7 @@
 #include <luisa/core/logging.h>
 namespace lc::dx {
 namespace RasterShaderDetail {
-static constexpr bool PRINT_CODE = false;
+static constexpr bool PRINT_CODE = true;
 static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function pixelKernel) {
     if (vertexKernel.builder() == nullptr || pixelKernel.builder() == nullptr) {
         return {};

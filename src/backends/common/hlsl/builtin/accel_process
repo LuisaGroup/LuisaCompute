@@ -25,7 +25,7 @@ cbuffer _Global:register(b0){
 uint dsp;
 uint count;
 }
-[numthreads(64,1,1)]
+[numthreads(256,1,1)]
 void main(uint id:SV_DISPATCHTHREADID){
 if(id >= dsp) return;
 const uint flag_mesh=1u << 0u;

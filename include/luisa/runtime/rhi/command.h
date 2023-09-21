@@ -617,7 +617,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto steal_modifications() noexcept { return std::move(_modifications); }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
 class CustomCommand : public Command {
