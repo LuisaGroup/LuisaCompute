@@ -1162,6 +1162,12 @@ impl Backward {
                     .collect::<Vec<_>>();
                 let node = self.get_intermediate(node);
                 let out_grad = out_grad.unwrap();
+                let out_grad = if out_grad.is_lvalue() {
+                    builder.load(out_grad)
+                } else {
+                    out_grad
+                };
+
                 match func {
                     Func::Add => {
                         let (lhs_grad, rhs_grad) =
@@ -1707,6 +1713,11 @@ impl Backward {
                     return;
                 }
                 let out_grad = self.grad(node).unwrap();
+                let out_grad = if out_grad.is_local() {
+                    builder.call(Func::Load, &[out_grad], out_grad.type_().clone())
+                } else {
+                    out_grad
+                };
                 for PhiIncoming { value, .. } in incomings.as_ref() {
                     self.accumulate_grad(*value, out_grad, builder);
                 }

@@ -434,7 +434,7 @@ impl<'a> FunctionEmitter<'a> {
                         if *by_value {
                             write!(&mut param, "const {}& {}", ty, var).unwrap();
                         } else {
-                            write!(&mut param, "{}& {}", ty, var).unwrap();
+                            write!(&mut param, "{}* {}", ty, var).unwrap();
                         }
                     }
                     _ => {
@@ -581,6 +581,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Length => Some("lc_length"),
             Func::LengthSquared => Some("lc_length_squared"),
             Func::Normalize => Some("lc_normalize"),
+            Func::Distance => Some("lc_distance"),
             Func::Faceforward => Some("lc_faceforward"),
             Func::Reflect => Some("lc_reflect"),
             Func::Determinant => Some("lc_determinant"),
@@ -979,8 +980,8 @@ impl<'a> FunctionEmitter<'a> {
             }
             Func::GetElementPtr => {
                 let indices = &args[1..];
-                let access_chain = self.access_chain(args_v[0].clone(), args[0], indices);
-                writeln!(self.body, "{} & {} = {};", node_ty_s, var, access_chain).unwrap();
+                let access_chain = self.access_chain(format!("(*{})", args_v[0]), args[0], indices);
+                writeln!(self.body, "{} * {} = &{};", node_ty_s, var, access_chain).unwrap();
                 true
             }
             Func::Struct | Func::Array => {
@@ -1079,7 +1080,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::Load => {
-                writeln!(self.body, "const {}& {} = {};", node_ty_s, var, args_v[0]).unwrap();
+                writeln!(self.body, "const {}& {} = *{};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
             Func::GradientMarker => {
@@ -1108,7 +1109,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::AccGrad => {
                 writeln!(
                     self.body,
-                    "lc_accumulate_grad(&{0}, {1});",
+                    "lc_accumulate_grad({0}, {1});",
                     args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -1517,7 +1518,12 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 let var = self.gen_node(node);
                 let init_v = self.gen_node(*init);
-                writeln!(&mut self.body, "{0} {1} = {2};", node_ty_s, var, init_v).unwrap();
+                writeln!(
+                    &mut self.body,
+                    "{0} _{1} = {2};{0} * {1} = &_{1};",
+                    node_ty_s, var, init_v
+                )
+                .unwrap();
             }
             Instruction::Argument { by_value: _ } => todo!(),
             Instruction::UserData(_) => {}
@@ -1531,7 +1537,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 let value_v = self.gen_node(*value);
                 let var_v = self.gen_node(*var);
-                writeln!(&mut self.body, "{} = {};", var_v, value_v).unwrap();
+                writeln!(&mut self.body, "*{} = {};", var_v, value_v).unwrap();
             }
             Instruction::Call(f, args) => {
                 // println!("call: {:?}({:?})", f, args);

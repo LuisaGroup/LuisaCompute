@@ -56,14 +56,28 @@ impl ToSSAImpl {
         // if !self.local_defs.contains(&node) {
         //     return builder.call(Func::Load, &[node], node.type_().clone());
         // }
-        if let Some((var, indices)) = node.access_chain() {
-            let mut cur = self.promote(var, builder, record);
-            for (t, i) in &indices {
-                let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::ExtractElement, &[cur, i], t.clone());
-                cur = el;
-            }
-            cur
+        if node.is_gep() {
+            let inst = node.get().instruction.as_ref();
+            let args = match inst {
+                Instruction::Call(f, args) => match f {
+                    Func::GetElementPtr => args,
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            let var = args[0];
+            let indices = &args[1..];
+            let indices = indices
+                .iter()
+                .map(|x| self.promote(*x, builder, record))
+                .collect::<Vec<_>>();
+            let promoted_var = self.promote(var, builder, record);
+            let args = vec![promoted_var]
+                .into_iter()
+                .chain(indices.into_iter())
+                .collect::<Vec<_>>();
+            let value = builder.call(Func::ExtractElement, &args, node.type_().clone());
+            value
         } else {
             self.promote(node, builder, record)
         }
@@ -84,36 +98,56 @@ impl ToSSAImpl {
             }
         } else {
             // the hardpart
-            let (var, indices) = var.access_chain().unwrap();
-            // dbg!(var.type_(), &indices);
-            let unpromoted_var = var;
-            let var = self.promote(var, builder, record);
-            let mut st = vec![var];
-            let mut cur = var;
-            for (t, i) in &indices[..indices.len() - 1] {
-                let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::ExtractElement, &[cur, i], t.clone());
-                st.push(el);
-                cur = el;
-            }
-            let mut value = value;
-            for (_, i) in indices.iter().rev() {
-                let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::InsertElement, &[cur, value, i], cur.type_().clone());
-                value = el;
-                cur = st.pop().unwrap();
-            }
-            assert!(
-                context::is_type_equal(unpromoted_var.type_(), value.type_()),
-                "Type mismatch: {} vs {}",
-                unpromoted_var.type_(),
-                value.type_()
-            );
+            let inst = var.get().instruction.as_ref();
+            let args = match inst {
+                Instruction::Call(f, args) => match f {
+                    Func::GetElementPtr => args,
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            let var = args[0];
+            let indices = &args[1..];
+            let indices = indices
+                .iter()
+                .map(|x| self.promote(*x, builder, record))
+                .collect::<Vec<_>>();
+            let promoted_var = self.promote(var, builder, record);
+            let args = vec![promoted_var, value]
+                .into_iter()
+                .chain(indices.into_iter())
+                .collect::<Vec<_>>();
+            let value = builder.call(Func::InsertElement, &args, promoted_var.type_().clone());
+            // let (var, indices) = var.access_chain().unwrap();
+            // // dbg!(var.type_(), &indices);
+            // let unpromoted_var = var;
+            // let var = self.promote(var, builder, record);
+            // let mut st = vec![var];
+            // let mut cur = var;
+            // for (t, i) in &indices[..indices.len() - 1] {
+            //     let i = builder.const_(Const::Int32(*i as i32));
+            //     let el = builder.call(Func::ExtractElement, &[cur, i], t.clone());
+            //     st.push(el);
+            //     cur = el;
+            // }
+            // let mut value = value;
+            // for (_, i) in indices.iter().rev() {
+            //     let i = builder.const_(Const::Int32(*i as i32));
+            //     let el = builder.call(Func::InsertElement, &[cur, value, i], cur.type_().clone());
+            //     value = el;
+            //     cur = st.pop().unwrap();
+            // }
+            // assert!(
+            //     context::is_type_equal(unpromoted_var.type_(), value.type_()),
+            //     "Type mismatch: {} vs {}",
+            //     unpromoted_var.type_(),
+            //     value.type_()
+            // );
             record.phis.insert(var);
-            record.stored.insert(unpromoted_var, value);
-            assert_eq!(self.promote(unpromoted_var, builder, record), value);
+            record.stored.insert(var, value);
+            assert_eq!(self.promote(var, builder, record), value);
             if !self.local_defs.contains(&var) {
-                builder.update(unpromoted_var, value);
+                builder.update(var, value);
             }
         }
     }
@@ -240,9 +274,18 @@ impl ToSSAImpl {
                     return self.load(args[0], builder, record);
                 }
                 if *func == Func::GetElementPtr {
-                    let v = self.load(args[0], builder, record);
-                    let idx = self.promote(args[1], builder, record);
-                    return builder.call(Func::ExtractElement, &[v, idx], type_.clone());
+                    return INVALID_REF;
+                    // let v = self.load(args[0], builder, record);
+                    // // let idx = self.promote(args[1], builder, record);
+                    // let indices = args[1..]
+                    //     .iter()
+                    //     .map(|x| self.promote(*x, builder, record))
+                    //     .collect::<Vec<_>>();
+                    // let args = vec![v]
+                    //     .into_iter()
+                    //     .chain(indices.into_iter())
+                    //     .collect::<Vec<_>>();
+                    // return builder.call(Func::ExtractElement, &args, type_.clone());
                 }
                 let promoted_args = args
                     .as_ref()

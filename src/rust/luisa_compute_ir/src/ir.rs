@@ -773,6 +773,7 @@ pub enum Func {
     LengthSquared,
     Normalize,
     Faceforward,
+    Distance,
     // reflect(i, n) => i - 2 * dot(n, i) * n
     Reflect,
 
@@ -1496,6 +1497,12 @@ impl NodeRef {
     pub fn is_refernece_argument(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Argument { by_value } => !*by_value,
+            _ => false,
+        }
+    }
+    pub fn is_gep(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Call(Func::GetElementPtr, _) => true,
             _ => false,
         }
     }
@@ -2276,7 +2283,7 @@ impl IrBuilder {
         new_node
     }
     pub fn load(&mut self, var: NodeRef) -> NodeRef {
-        assert!(var.is_lvalue());
+        assert!(var.is_lvalue(), "{:?}", var.get().instruction.as_ref());
         let node = Node::new(
             CArc::new(Instruction::Call(Func::Load, CBoxedSlice::new(vec![var]))),
             var.type_().clone(),
