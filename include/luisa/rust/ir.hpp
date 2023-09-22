@@ -410,6 +410,7 @@ struct Func {
         LengthSquared,
         Normalize,
         Faceforward,
+        Distance,
         Reflect,
         Determinant,
         Transpose,

@@ -5,8 +5,7 @@ use bitflags::Flags;
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::ffi::CString;
+use std::collections::HashMap;
 use std::iter::zip;
 
 struct AST2IRCtx<'a> {
@@ -624,7 +623,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
     }
 
     fn _convert_literal_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
-        let v = base64ct::Base64::decode_vec(j["value"].as_str().unwrap()).unwrap();
+        let v = Base64::decode_vec(j["value"].as_str().unwrap()).unwrap();
         let (builder, ..) = self.unwrap_ctx();
         match t.as_ref() {
             Type::Primitive(s) => match s {
@@ -718,7 +717,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         }
     }
 
-    fn _convert_ref_expr(&mut self, t: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
+    fn _convert_ref_expr(&mut self, _: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
         let v = self
             ._curr_ctx()
             .variables
@@ -974,37 +973,37 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 .map(|(arg, is_lval)| self._convert_expression(arg, *is_lval))
                 .collect()
         };
-        let mut check_is_ray_query = |node: NodeRef| {
+        let check_is_ray_query = |node: NodeRef| {
             let t = node.type_();
             assert!(
                 t.is_opaque("LC_RayQueryAll") || t.is_opaque("LC_RayQueryAny"),
                 "Invalid ray query type."
             );
         };
-        let mut check_is_accel = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_accel = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Accel => {}
             _ => panic!("Invalid accel type."),
         };
-        let mut check_is_buffer = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_buffer = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Buffer => {}
             _ => panic!("Invalid buffer type."),
         };
-        let mut check_is_texture = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_texture = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Texture2D => {}
             Instruction::Texture3D => {}
             _ => panic!("Invalid texture type."),
         };
-        let mut check_is_bindless = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_bindless = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Bindless => {}
             _ => panic!("Invalid bindless type."),
         };
-        let mut check_is_index = |t: &CArc<Type>| {
+        let check_is_index = |t: &CArc<Type>| {
             assert!(t.is_int() && t.is_primitive());
         };
-        let mut check_is_tex_int_coord = |t: &CArc<Type>| {
+        let check_is_tex_int_coord = |t: &CArc<Type>| {
             assert!(t.is_int() && t.is_vector() && (t.dimension() == 2 || t.dimension() == 3));
         };
-        let mut check_is_tex_float_coord = |t: &CArc<Type>| {
+        let check_is_tex_float_coord = |t: &CArc<Type>| {
             assert!(t.is_float() && t.is_vector() && (t.dimension() == 2 || t.dimension() == 3));
         };
         macro_rules! check_same_types {
