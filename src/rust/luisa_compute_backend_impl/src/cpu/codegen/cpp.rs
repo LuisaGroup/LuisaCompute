@@ -939,6 +939,7 @@ impl<'a> FunctionEmitter<'a> {
         match f {
             Func::PropagateGrad => true,
             Func::RequiresGradient => true,
+            Func::AtomicRef => true,
             Func::Assume => {
                 writeln!(&mut self.body, "lc_assume({});", args_v.join(", ")).unwrap();
                 true

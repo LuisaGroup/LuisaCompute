@@ -154,7 +154,7 @@ lc_bindless_buffer_type(const KernelFnArgs *k_args, const BindlessArray &array, 
 }
 template<class T>
 inline T lc_bindless_byte_buffer_read(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
-                                 size_t element) noexcept {
+                                      size_t element) noexcept {
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     return lc_byte_buffer_read<T>(k_args, buf, element);
 }
@@ -176,10 +176,23 @@ inline T lc_atomic_compare_exchange(T *ptr, T expected, T desired) noexcept {
     __atomic_compare_exchange_n(ptr, &old, desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     return old;
 }
+template<>
+inline float lc_atomic_compare_exchange(float *ptr, float expected, float desired) noexcept {
+    auto int_ptr = reinterpret_cast<lc_int *>(ptr);
+    auto int_expected = lc_bit_cast<lc_int>(expected);
+    auto int_desired = lc_bit_cast<lc_int>(desired);
+    return lc_bit_cast<float>(lc_atomic_compare_exchange<lc_int>(int_ptr, int_expected, int_desired));
+}
 
 template<class T>
 inline T lc_atomic_exchange(T *ptr, T desired) noexcept {
     return __atomic_exchange_n(ptr, desired, __ATOMIC_SEQ_CST);
+}
+template<>
+inline float lc_atomic_exchange(float *ptr, float desired) noexcept {
+    auto int_ptr = reinterpret_cast<lc_int *>(ptr);
+    auto int_desired = lc_bit_cast<lc_int>(desired);
+    return lc_bit_cast<float>(lc_atomic_exchange<lc_int>(int_ptr, int_desired));
 }
 
 template<class T>
@@ -375,19 +388,19 @@ inline bool warp_is_first_active_lane() {
     return true;
 }
 template<class T>
-inline bool warp_active_all_equal(T && v) {
+inline bool warp_active_all_equal(T &&v) {
     return true;
 }
 template<class T>
-inline T warp_active_bit_and(T && v) {
+inline T warp_active_bit_and(T &&v) {
     return v;
 }
 template<class T>
-inline T warp_active_bit_or(T && v) {
+inline T warp_active_bit_or(T &&v) {
     return v;
 }
 template<class T>
-inline T warp_active_bit_xor(T && v) {
+inline T warp_active_bit_xor(T &&v) {
     return v;
 }
 inline lc_uint warp_active_count_bits() {
@@ -433,11 +446,11 @@ inline T warp_prefix_product(T &&) {
     return lc_one<T>();
 }
 template<class T>
-inline T warp_read_lane_at(T && v, lc_uint index) {
+inline T warp_read_lane_at(T &&v, lc_uint index) {
     return v;
 }
 template<class T>
-inline T read_first_lane(T && v) {
+inline T read_first_lane(T &&v) {
     return v;
 }
 inline void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcept {}
