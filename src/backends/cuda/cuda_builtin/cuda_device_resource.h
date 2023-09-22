@@ -749,7 +749,7 @@ template<typename T>
                 : "=r"(x)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
             break;
         }
         case LCPixelStorage::HALF2: {
@@ -758,8 +758,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
-            result.y = lc_texel_read_convert<T, lc_half>(y);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
             break;
         }
         case LCPixelStorage::HALF4: {
@@ -768,10 +768,10 @@ template<typename T>
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
-            result.y = lc_texel_read_convert<T, lc_half>(y);
-            result.z = lc_texel_read_convert<T, lc_half>(z);
-            result.w = lc_texel_read_convert<T, lc_half>(w);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
+            result.z = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(z)});
+            result.w = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(w)});
             break;
         }
         case LCPixelStorage::FLOAT1: {
