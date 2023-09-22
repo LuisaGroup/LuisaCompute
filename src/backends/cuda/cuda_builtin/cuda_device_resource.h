@@ -665,8 +665,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(char2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert < T, char(x);
-            result.y = lc_texel_read_convert < T, char(y);
+            result.x = lc_texel_read_convert<T, char>(x);
+            result.y = lc_texel_read_convert<T, char>(y);
             break;
         }
         case LCPixelStorage::BYTE4: {
