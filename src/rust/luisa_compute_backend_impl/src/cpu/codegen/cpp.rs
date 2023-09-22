@@ -887,6 +887,24 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::Texture2dSize=> {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint2 {} = lc_texture2d_size(k_args, {});",
+                    var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::Texture3dSize=> {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint3 {} = lc_texture3d_size(k_args, {});",
+                    var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::Texture2dRead => {
                 writeln!(
                     &mut self.body,
