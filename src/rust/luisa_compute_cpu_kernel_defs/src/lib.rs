@@ -113,9 +113,9 @@ pub type OnHitCallback = extern "C" fn(&mut RayQuery);
 #[derive(Copy, Clone)]
 pub struct Accel {
     pub handle: *const c_void,
-    pub trace_closest: extern "C" fn(*const c_void, &Ray, u8) -> Hit,
-    pub trace_any: extern "C" fn(*const c_void, &Ray, u8) -> bool,
-    pub set_instance_visibility: extern "C" fn(*const c_void, u32, u8),
+    pub trace_closest: extern "C" fn(*const c_void, &Ray, u32) -> Hit,
+    pub trace_any: extern "C" fn(*const c_void, &Ray, u32) -> bool,
+    pub set_instance_visibility: extern "C" fn(*const c_void, u32, u32),
     pub set_instance_transform: extern "C" fn(*const c_void, u32, &Mat4),
     pub set_instance_user_id: extern "C" fn(*const c_void, u32, u32),
     pub instance_transform: extern "C" fn(*const c_void, u32) -> Mat4,

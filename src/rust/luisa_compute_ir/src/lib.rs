@@ -190,6 +190,12 @@ impl<T> Clone for Pooled<T> {
     }
 }
 impl<T> Pooled<T> {
+    pub fn null() -> Self {
+        Self { ptr: std::ptr::null_mut() }
+    }
+    pub fn from_ptr(ptr: *mut T) -> Self {
+        Self { ptr }
+    }
     pub fn get(&self) -> &T {
         unsafe { &*self.ptr }
     }

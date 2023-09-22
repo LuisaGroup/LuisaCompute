@@ -3,7 +3,7 @@ use crate::{
     ir::{BasicBlock, Instruction, Module, NodeRef, PhiIncoming, SwitchCase, Type, Func},
     Pooled,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub struct DisplayIR {
@@ -12,6 +12,7 @@ pub struct DisplayIR {
     cnt: usize,
     block_cnt: usize,
     block_labels: HashMap<*const BasicBlock, String>,
+    defs:HashSet<NodeRef>,
 }
 
 impl DisplayIR {
@@ -22,13 +23,15 @@ impl DisplayIR {
             cnt: 0,
             block_labels: HashMap::new(),
             block_cnt: 0,
+            defs:HashSet::new(),
         }
     }
 
     pub fn display_ir(&mut self, module: &Module) -> String {
         self.map.clear();
         self.cnt = 0;
-
+        self.defs.clear();
+        self.defs = module.collect_nodes().into_iter().collect();
         for node in module.entry.nodes().iter() {
             self.display(*node, 0, false);
         }
@@ -74,6 +77,11 @@ impl DisplayIR {
     // }
 
     fn display(&mut self, node: NodeRef, ident: usize, no_new_line: bool) {
+        if !self.defs.contains(&node) {
+            self.add_ident(ident);
+            let v = self.get(&node);
+            writeln!(self.output, "Detached node: ${}", v).unwrap();
+        }
         let instruction = &node.get().instruction;
         let type_ = &node.get().type_;
         self.add_ident(ident);
@@ -294,7 +302,10 @@ impl DisplayIR {
                 self.output += "}";
             }
             Instruction::Comment(_) => {}
-            Instruction::Return(_) => todo!(),
+            Instruction::Return(v) => {
+                let temp = format!("return ${}", self.get(v));
+                self.output += temp.as_str();
+            }
             Instruction::Print { .. } => {}
         }
         if !no_new_line {

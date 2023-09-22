@@ -976,7 +976,7 @@ impl<'a> FunctionEmitter<'a> {
                 let access_chain = self.access_chain(args_v[0].clone(), args[0], indices);
                 writeln!(
                     self.body,
-                    "const {} & {} = {};",
+                    "const {} {} = {};",
                     node_ty_s, var, access_chain
                 )
                 .unwrap();

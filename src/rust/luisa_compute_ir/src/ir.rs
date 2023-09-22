@@ -1286,6 +1286,14 @@ pub struct BasicBlock {
     pub(crate) first: NodeRef,
     pub(crate) last: NodeRef,
 }
+impl BasicBlock {
+    pub fn first(&self) -> NodeRef {
+        self.first
+    }
+    pub fn last(&self) -> NodeRef {
+        self.last
+    }
+}
 
 #[derive(Serialize)]
 struct NodeRefAndNode<'a> {
@@ -1479,6 +1487,12 @@ impl NodeRef {
     pub fn is_uniform(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Uniform => true,
+            _ => false,
+        }
+    }
+    pub fn is_atomic_ref(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Call(Func::AtomicRef, _) => true,
             _ => false,
         }
     }
@@ -2187,6 +2201,13 @@ impl IrBuilder {
     pub fn pools(&self) -> &CArc<ModulePools> {
         &self.pools
     }
+    pub fn new_without_bb(pools: CArc<ModulePools>) -> Self {
+        Self {
+            bb: Pooled::null(),
+            insert_point: INVALID_REF,
+            pools,
+        }
+    }
     pub fn new(pools: CArc<ModulePools>) -> Self {
         let bb = pools.bb_pool.alloc(BasicBlock::new(&pools));
         let insert_point = bb.first;
@@ -2196,8 +2217,21 @@ impl IrBuilder {
             pools,
         }
     }
+    pub fn bb(&self) -> Pooled<BasicBlock> {
+        self.bb
+    }
     pub fn set_insert_point(&mut self, node: NodeRef) {
+        assert!(node.valid());
         self.insert_point = node;
+    }
+    pub fn set_insert_point_to_end(&mut self) {
+        assert!(!self.bb.as_ptr().is_null());
+        while self.insert_point.get().next != self.bb.last {
+            self.insert_point = self.insert_point.get().next;
+        }
+    }
+    pub fn get_insert_point(&self) -> NodeRef {
+        self.insert_point
     }
     pub fn append(&mut self, node: NodeRef) {
         self.insert_point.insert_after_self(node);
