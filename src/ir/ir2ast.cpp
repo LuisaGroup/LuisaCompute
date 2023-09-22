@@ -595,7 +595,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Neg: return unary_op(UnaryOp::MINUS);
         case ir::Func::Tag::Not: return unary_op(UnaryOp::NOT);
         case ir::Func::Tag::BitNot: {
-            if (type->is_bool()) {
+            if (type->is_bool() || (type->is_vector() && type->element()->is_bool())) {
                 return unary_op(UnaryOp::NOT);
             } else {
                 return unary_op(UnaryOp::BIT_NOT);

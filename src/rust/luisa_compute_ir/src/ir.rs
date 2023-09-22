@@ -2347,6 +2347,14 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
+    pub fn call_no_append(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
+        let node = Node::new(
+            CArc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
+            ret_type,
+        );
+        let node = new_node(&self.pools, node);
+        node
+    }
     pub fn cast(&mut self, node: NodeRef, t: CArc<Type>) -> NodeRef {
         self.call(Func::Cast, &[node], t)
     }
