@@ -1578,6 +1578,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
         case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
         case Type::Tag::FLOAT64: _scratch << "lc_double"; break;
+        case Type::Tag::INT8: _scratch << "lc_byte"; break;
+        case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;

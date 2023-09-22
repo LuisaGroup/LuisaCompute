@@ -2294,10 +2294,8 @@ template<typename T>
     }
 }
 
-using lc_byte = unsigned char;
-
 template<typename T>
-[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<const lc_byte> buffer, lc_ulong offset) noexcept {
+[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<const lc_ubyte> buffer, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
@@ -2308,7 +2306,7 @@ template<typename T>
 }
 
 template<typename T>
-__device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong offset, T value) noexcept {
+__device__ inline void lc_byte_buffer_write(LCBuffer<lc_ubyte> buffer, lc_ulong offset, T value) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG

@@ -1102,6 +1102,8 @@ const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept 
         case ir::Primitive::Bool: return Type::of<bool>();
         case ir::Primitive::Float16: return Type::of<half>();
         case ir::Primitive::Float32: return Type::of<float>();
+        case ir::Primitive::Int8: return Type::of<int8_t>();
+        case ir::Primitive::Uint8: return Type::of<uint8_t>();
         case ir::Primitive::Int16: return Type::of<short>();
         case ir::Primitive::Uint16: return Type::of<ushort>();
         case ir::Primitive::Int32: return Type::of<int>();
