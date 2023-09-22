@@ -1,13 +1,17 @@
 use crate::{
     context::is_type_equal,
-    ir::{Instruction, Module, NodeRef, SwitchCase, Type},
+    ir::{BasicBlock, Instruction, Module, NodeRef, PhiIncoming, SwitchCase, Type},
+    Pooled,
 };
 use std::collections::HashMap;
+use std::fmt::Write;
 
 pub struct DisplayIR {
     output: String,
     map: HashMap<usize, usize>,
     cnt: usize,
+    block_cnt: usize,
+    block_labels: HashMap<*const BasicBlock, String>,
 }
 
 impl DisplayIR {
@@ -16,6 +20,8 @@ impl DisplayIR {
             output: String::new(),
             map: HashMap::new(),
             cnt: 0,
+            block_labels: HashMap::new(),
+            block_cnt: 0,
         }
     }
 
@@ -45,6 +51,27 @@ impl DisplayIR {
             self.output += "    ";
         }
     }
+    fn block_label(&mut self, block: Pooled<BasicBlock>) -> String {
+        self.block_labels
+            .entry(Pooled::as_ptr(&block))
+            .or_insert_with(|| {
+                let label = format!("block_{}", self.block_cnt);
+                self.block_cnt += 1;
+                label
+            })
+            .clone()
+    }
+    // fn display_block(&mut self, block: Pooled<BasicBlock>, ident: usize, no_new_line: bool) {
+    //     let label = self.block_label(block);
+    //     self.add_ident(ident);
+    //     self.output += format!("{}:\n", label).as_str();
+    //     for node in block.nodes().iter() {
+    //         self.display(*node, ident + 1, false);
+    //     }
+    //     if !no_new_line {
+    //         self.output += "\n";
+    //     }
+    // }
 
     fn display(&mut self, node: NodeRef, ident: usize, no_new_line: bool) {
         let instruction = &node.get().instruction;
@@ -114,9 +141,14 @@ impl DisplayIR {
 
                 self.output += format!("Call {:?}({})", func, args,).as_str();
             }
-            Instruction::Phi(_) => {
+            Instruction::Phi(incomings) => {
                 let n = self.get(&node);
-                self.output += &format!("${}: Phi", n)
+                self.output += &format!("${}: Phi", n);
+                for PhiIncoming { block, value } in incomings.iter() {
+                    let label = self.block_label(*block);
+                    let v = self.get(value);
+                    self.output += &format!(" block_{} -> ${}, ", label, v);
+                }
             }
             Instruction::Break => self.output += "break",
             Instruction::Continue => self.output += "continue",
@@ -127,12 +159,18 @@ impl DisplayIR {
             } => {
                 let temp = format!("if ${} {{\n", self.get(cond));
                 self.output += temp.as_str();
+                self.add_ident(ident);
+                let true_label = self.block_label(*true_branch);
+                let false_label = self.block_label(*false_branch);
+                writeln!(self.output, "{}:", true_label).unwrap();
                 for node in true_branch.nodes().iter() {
                     self.display(*node, ident + 1, false);
                 }
                 if !false_branch.nodes().is_empty() {
                     self.add_ident(ident);
                     self.output += "} else {\n";
+                    self.add_ident(ident);
+                    writeln!(self.output, "{}:", false_label).unwrap();
                     for node in false_branch.nodes().iter() {
                         self.display(*node, ident + 1, false);
                     }
@@ -150,6 +188,9 @@ impl DisplayIR {
                 for SwitchCase { value, block } in cases.as_ref() {
                     self.add_ident(ident + 1);
                     let temp = format!("{} => {{\n", value);
+                    self.add_ident(ident);
+                    let case_label = self.block_label(*block);
+                    writeln!(self.output, "{}:", case_label).unwrap();
                     self.output += temp.as_str();
                     for node in block.nodes().iter() {
                         self.display(*node, ident + 2, false);
@@ -159,6 +200,9 @@ impl DisplayIR {
                 }
                 self.add_ident(ident + 1);
                 self.output += "default => {\n";
+                self.add_ident(ident);
+                let default_label = self.block_label(*default);
+                writeln!(self.output, "{}:", default_label).unwrap();
                 for node in default.nodes().iter() {
                     self.display(*node, ident + 2, false);
                 }
@@ -166,7 +210,28 @@ impl DisplayIR {
                 self.output += "}\n";
                 self.output += "}";
             }
-            Instruction::RayQuery { .. } => todo!(),
+            Instruction::RayQuery {
+                ray_query,
+                on_procedural_hit,
+                on_triangle_hit,
+            } => {
+                let temp = format!("$RayQuery({}) {{", self.get(ray_query));
+                self.output += temp.as_str();
+                self.add_ident(ident + 1);
+                self.output += "on_procedural_hit {\n";
+                for node in on_procedural_hit.nodes().iter() {
+                    self.display(*node, ident + 2, false);
+                }
+                self.add_ident(ident + 1);
+                self.output += "}\n";
+                self.add_ident(ident + 1);
+                self.output += "on_triangle_hit {\n";
+                for node in on_triangle_hit.nodes().iter() {
+                    self.display(*node, ident + 2, false);
+                }
+                self.add_ident(ident);
+                self.output += "}\n";
+            }
             Instruction::Loop { body, cond } => {
                 let temp = format!("while ${} {{\n", self.get(cond));
                 self.output += temp.as_str();

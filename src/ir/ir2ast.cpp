@@ -331,9 +331,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             call_op == CallOp::RAY_TRACING_TRACE_ANY ||
             call_op == CallOp::RAY_TRACING_QUERY_ALL ||
             call_op == CallOp::RAY_TRACING_QUERY_ANY) {
-            converted_args[1] = detail::ir2ast_convert_ray_ir_type_2_ast_type(
-                _ctx->function_builder.get(),
-                converted_args[1]);
+            // converted_args[1] = detail::ir2ast_convert_ray_ir_type_2_ast_type(
+            //     _ctx->function_builder.get(),
+            //     converted_args[1]);
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ANY) {
             auto type = Type::of<RayQueryAny>();
@@ -351,7 +351,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         if (call_op == CallOp::RAY_QUERY_WORLD_SPACE_RAY) {
             auto ray = _ctx->function_builder->call(Type::of<Ray>(), call_op, converted_args);
-            return detail::ir2ast_convert_ray_ast_type_2_ir_type(_ctx->function_builder.get(), ray);
+            return ray;//detail::ir2ast_convert_ray_ast_type_2_ir_type(_ctx->function_builder.get(), ray);
         }
         if (type == nullptr) {
             _ctx->function_builder->call(
@@ -813,7 +813,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             LUISA_ASSERT(type->is_array(), "Invalid array type.");
             auto element_type = type->element();
             auto array_instance = _ctx->function_builder->local(type);
-            LUISA_ASSERT(args.size() == type->count(), "Array type inconsistent with arguments.");
+            LUISA_ASSERT(args.size() == type->dimension(), "Array type inconsistent with arguments. Expected {}, found {}", type->count(), args.size());
             for (auto i = 0u; i < args.size(); i++) {
                 auto index = _ctx->function_builder->literal(Type::of<uint>(), i);
                 auto access = _ctx->function_builder->access(element_type, array_instance, index);
@@ -1195,6 +1195,11 @@ void IR2AST::_collect_phis(const ir::BasicBlock *bb) noexcept {
             }
             case ir::Instruction::Tag::AdDetach: {
                 _collect_phis(instr->ad_detach._0.get());
+                break;
+            }
+            case ir::Instruction::Tag::RayQuery: {
+                _collect_phis(instr->ray_query.on_triangle_hit.get());
+                _collect_phis(instr->ray_query.on_procedural_hit.get());
                 break;
             }
             default: break;

@@ -245,6 +245,20 @@ impl PhiCollector {
                     self.visit_block(*body);
                     self.visit_block(*update);
                 }
+                Instruction::RayQuery {
+                    ray_query: _,
+                    on_triangle_hit,
+                    on_procedural_hit,
+                } => {
+                    self.visit_block(*on_triangle_hit);
+                    self.visit_block(*on_procedural_hit);
+                }
+                Instruction::AdDetach(detach) => {
+                    self.visit_block(*detach);
+                }
+                Instruction::AdScope { body, .. } => {
+                    self.visit_block(*body);
+                }
                 _ => {}
             }
         }
@@ -293,7 +307,7 @@ impl<'a> FunctionEmitter<'a> {
     }
     fn write_ident(&mut self) {
         for _ in 0..self.indent {
-            write!(&mut self.body, "  ").unwrap();
+            write!(&mut self.body, "    ").unwrap();
         }
     }
     fn gen_node(&mut self, node: NodeRef) -> String {
@@ -1454,7 +1468,6 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
             }
             Const::Generic(bytes, t) => {
-                self.write_ident();
                 writeln!(
                     &mut self.body,
                     "const {0} {1} = {2};",
