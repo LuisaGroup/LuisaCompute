@@ -243,7 +243,7 @@ impl ToSSAImpl {
                 let var = builder.local(init);
                 record.defined.insert(node);
                 record.stored.insert(node, init);
-                return var;
+                return init;
             }
             Instruction::Argument { by_value } => {
                 if *by_value {
@@ -271,7 +271,9 @@ impl ToSSAImpl {
             }
             Instruction::Call(func, args) => {
                 if *func == Func::Load {
-                    return self.load(args[0], builder, record);
+                    let v =  self.load(args[0], builder, record);
+                    self.map_immutables.insert(node, v);
+                    return v;
                 }
                 if *func == Func::GetElementPtr {
                     return INVALID_REF;

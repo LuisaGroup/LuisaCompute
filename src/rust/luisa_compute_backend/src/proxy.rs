@@ -189,6 +189,10 @@ impl Backend for ProxyBackend {
         kernel: &KernelModule,
         option: &api::ShaderOption,
     ) -> api::CreatedShaderInfo {
+        // let debug =
+        //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
+        // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        // println!("{}", debug.to_str().unwrap());
         catch_abort!({
             (self.device.create_shader)(
                 self.device.device,

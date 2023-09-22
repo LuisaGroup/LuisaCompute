@@ -1095,21 +1095,21 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::Load => {
-                writeln!(self.body, "const {}& {} = *{};", node_ty_s, var, args_v[0]).unwrap();
+                writeln!(self.body, "const {} {} = *{};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
             Func::GradientMarker => {
                 let ty = self.type_gen.gen_c_type(args[1].type_());
                 writeln!(
                     self.body,
-                    "const {}& {}_grad = {};",
+                    "const {} {}_grad = {};",
                     ty, args_v[0], args_v[1]
                 )
                 .unwrap();
                 true
             }
             Func::Detach => {
-                writeln!(self.body, "const {}& {} = {};", node_ty_s, var, args_v[0]).unwrap();
+                writeln!(self.body, "const {} {} = {};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
             Func::Gradient => {
@@ -1132,18 +1132,18 @@ impl<'a> FunctionEmitter<'a> {
             }
             Func::BitNot => {
                 if node_ty.is_bool() {
-                    writeln!(self.body, "const {}& {} = !{};", node_ty_s, var, args_v[0]).unwrap();
+                    writeln!(self.body, "const {} {} = !{};", node_ty_s, var, args_v[0]).unwrap();
                 } else {
-                    writeln!(self.body, "const {}& {} = ~{};", node_ty_s, var, args_v[0]).unwrap();
+                    writeln!(self.body, "const {} {} = ~{};", node_ty_s, var, args_v[0]).unwrap();
                 }
                 true
             }
             Func::Neg => {
-                writeln!(self.body, "const {}& {} = -{};", node_ty_s, var, args_v[0]).unwrap();
+                writeln!(self.body, "const {} {} = -{};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
             Func::Not => {
-                writeln!(self.body, "const {}& {} = !{};", node_ty_s, var, args_v[0]).unwrap();
+                writeln!(self.body, "const {} {} = !{};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
             Func::Bitcast => {
@@ -1159,14 +1159,14 @@ impl<'a> FunctionEmitter<'a> {
                 if node_ty.is_bool() && node_ty.is_primitive() {
                     writeln!(
                         self.body,
-                        "const {}& {} = {} != 0;",
+                        "const {} {} = {} != 0;",
                         node_ty_s, var, args_v[0]
                     )
                     .unwrap();
                 } else if (node_ty.is_float() || node_ty.is_int()) && node_ty.is_primitive() {
                     writeln!(
                         self.body,
-                        "const {}& {} = static_cast<{}>({});",
+                        "const {} {} = static_cast<{}>({});",
                         node_ty_s, var, node_ty_s, args_v[0]
                     )
                     .unwrap();
@@ -1174,7 +1174,7 @@ impl<'a> FunctionEmitter<'a> {
                     let vt_s = node_ty_s[3..].to_string();
                     writeln!(
                         self.body,
-                        "const {}& {} = lc_make_{}({});",
+                        "const {} {} = lc_make_{}({});",
                         node_ty_s, var, vt_s, args_v[0]
                     )
                     .unwrap();
@@ -1209,7 +1209,7 @@ impl<'a> FunctionEmitter<'a> {
                     .collect();
                 writeln!(
                     self.body,
-                    "const {}& {} = {}({});",
+                    "const {} {} = {}({});",
                     node_ty_s,
                     var,
                     node_ty_s,

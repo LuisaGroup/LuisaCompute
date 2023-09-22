@@ -1,6 +1,6 @@
 use crate::{
     context::is_type_equal,
-    ir::{BasicBlock, Instruction, Module, NodeRef, PhiIncoming, SwitchCase, Type},
+    ir::{BasicBlock, Instruction, Module, NodeRef, PhiIncoming, SwitchCase, Type, Func},
     Pooled,
 };
 use std::collections::HashMap;
@@ -138,8 +138,12 @@ impl DisplayIR {
                     .map(|arg| format!("${}", self.get(arg)))
                     .collect::<Vec<_>>()
                     .join(", ");
-
-                self.output += format!("Call {:?}({})", func, args,).as_str();
+                if let Func::Assert(_) = func {
+                    self.output += format!("Call Assert({})", args,).as_str();
+                }else{
+                    self.output += format!("Call {:?}({})", func, args,).as_str();
+                }
+                
             }
             Instruction::Phi(incomings) => {
                 let n = self.get(&node);
