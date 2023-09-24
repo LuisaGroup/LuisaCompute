@@ -1386,7 +1386,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         }
         case ir::Instruction::Tag::Buffer: {
             const luisa::compute::Type *buffer_type = nullptr;
-            if (type == Type::of<void>()) {
+            if (type == Type::of<void>() || type == Type::of<ubyte>()) {
                 buffer_type = Type::of<ByteBuffer>();
             } else {
                 buffer_type = Type::buffer(type);
@@ -1405,7 +1405,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
     switch (captured.binding.tag) {
         case ir::Binding::Tag::Buffer: {
             const luisa::compute::Type *buffer_type = nullptr;
-            if (type == Type::of<void>()) {
+            if (type == Type::of<void>() || type == Type::of<ubyte>()) {
                 buffer_type = Type::of<ByteBuffer>();
             } else {
                 buffer_type = Type::buffer(type);
