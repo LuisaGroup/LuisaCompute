@@ -1667,7 +1667,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
                 if (auto elem = v.type()->element()) {
                     _emit_type_name(elem);
                 } else {// void type marks a buffer of bytes
-                    _scratch << "lc_byte";
+                    _scratch << "lc_ubyte";
                 }
                 _scratch << "> ";
             }

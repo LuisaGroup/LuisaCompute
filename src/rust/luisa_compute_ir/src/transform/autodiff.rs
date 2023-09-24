@@ -1865,24 +1865,24 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     pools: pools.clone(),
                     flags: ModuleFlags::NONE,
                 };
-                {
-                    println!(
-                        "Before SSA:\n{}",
-                        ir::debug::dump_ir_human_readable(&Module {
-                            kind: ModuleKind::Block,
-                            entry: body.clone(),
-                            pools: pools.clone(),
-                            flags: ModuleFlags::NONE,
-                        })
-                    );
-                }
+                // {
+                //     println!(
+                //         "Before SSA:\n{}",
+                //         ir::debug::dump_ir_human_readable(&Module {
+                //             kind: ModuleKind::Block,
+                //             entry: body.clone(),
+                //             pools: pools.clone(),
+                //             flags: ModuleFlags::NONE,
+                //         })
+                //     );
+                // }
                 let ad_block = ToSSA.transform(ad_block);
-                {
-                    println!(
-                        "After SSA:\n{}",
-                        ir::debug::dump_ir_human_readable(&ad_block)
-                    );
-                }
+                // {
+                //     println!(
+                //         "After SSA:\n{}",
+                //         ir::debug::dump_ir_human_readable(&ad_block)
+                //     );
+                // }
                 let mut backward = None;
                 let mut gradient_marker = None;
                 for node in body.iter() {
