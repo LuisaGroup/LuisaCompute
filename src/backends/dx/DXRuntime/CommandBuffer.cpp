@@ -146,19 +146,11 @@ void CommandBufferBuilder::CopyBuffer(
 }
 CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
     TextureBase *texture,
-    uint3 size,
-    uint targetMip) {
+    uint3 size) {
     if (Resource::IsBCtex(texture->Format())) {
         size.x /= 4;
         size.y /= 4;
     }
-    auto GetValue = [&](uint &v) {
-        auto mip_v = v >> targetMip;
-        v = std::max<uint>(1, mip_v);
-    };
-    GetValue(size.x);
-    GetValue(size.y);
-    GetValue(size.z);
     auto pureLineSize = size.x * Resource::GetTexturePixelSize(texture->Format());
     auto lineSize = CalcConstantBufferByteSize(pureLineSize);
     return {
@@ -174,13 +166,6 @@ void CommandBufferBuilder::CopyBufferTexture(
     uint3 size,
     uint targetMip,
     BufferTextureCopy ope) {
-
-    auto GetValue = [&](uint &v) {
-        v = std::max<uint>(1, v >> targetMip);
-    };
-    GetValue(size.x);
-    GetValue(size.y);
-    GetValue(size.z);
     auto c = cb->cmdList.Get();
     D3D12_TEXTURE_COPY_LOCATION sourceLocation;
     sourceLocation.pResource = buffer.buffer->GetResource();
