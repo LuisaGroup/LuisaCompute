@@ -114,7 +114,7 @@ class BindlessArray:
 
     @BuiltinFuncBuilder
     def buffer_size(self, buffer_index):
-        check_exact_signature([uint], [buffer_index], "texture2d_size")
+        check_exact_signature([uint], [buffer_index], "buffer_size")
         return uint, lcapi.builder().call(to_lctype(uint), lcapi.CallOp.BINDLESS_BUFFER_SIZE, [self.expr, buffer_index.expr])
 
     @BuiltinFuncBuilder

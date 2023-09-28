@@ -12,7 +12,7 @@ LC_RUNTIME_API void check_sparse_tex2d_map(uint2 size, uint2 tile_size, uint2 st
 LC_RUNTIME_API void check_sparse_tex2d_unmap(uint2 size, uint2 tile_size, uint2 start_tile);
 LC_RUNTIME_API void check_sparse_tex3d_map(uint3 size, uint3 tile_size, uint3 start_tile, uint3 tile_count);
 LC_RUNTIME_API void check_sparse_tex3d_unmap(uint3 size, uint3 tile_size, uint3 start_tile);
-LC_RUNTIME_API void check_tex_heap_match(PixelStorage storage, SparseTextureHeap const& heap);
+LC_RUNTIME_API void check_tex_heap_match(PixelStorage storage, SparseTextureHeap const &heap);
 }// namespace detail
 
 template<typename T>
@@ -31,6 +31,7 @@ protected:
     ~SparseTexture() noexcept override;
 
 public:
+    SparseTexture() noexcept : _tile_size_bytes{0}, _tile_size{0} {}
     // deleted members should be public
     SparseTexture(const SparseTexture &) noexcept = delete;
     SparseTexture &operator=(SparseTexture &&) noexcept = delete;// use _move_from in derived classes
