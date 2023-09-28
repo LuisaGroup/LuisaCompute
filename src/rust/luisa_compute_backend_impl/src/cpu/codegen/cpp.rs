@@ -734,6 +734,16 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::BindlessBufferWrite => {
+                let v_ty = self.type_gen.gen_c_type(args[3].type_());
+                writeln!(
+                    &mut self.body,
+                    "lc_bindless_buffer_write<{}>(k_args, {}, {}, {}, {});",
+                    v_ty, args_v[0], args_v[1], args_v[2], args_v[3]
+                )
+                .unwrap();
+                true
+            }
             Func::BindlessBufferRead => {
                 writeln!(
                     &mut self.body,

@@ -715,6 +715,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessByteBufferRead: return builtin_func(3, CallOp::BINDLESS_BYTE_BUFFER_READ);
         case ir::Func::Tag::BindlessBufferRead: return builtin_func(3, CallOp::BINDLESS_BUFFER_READ);
+        case ir::Func::Tag::BindlessBufferWrite: return builtin_func(4, CallOp::BINDLESS_BUFFER_WRITE);
         case ir::Func::Tag::BindlessBufferSize: return builtin_func(3, CallOp::BINDLESS_BUFFER_SIZE);
         case ir::Func::Tag::BindlessBufferType: return builtin_func(2, CallOp::BINDLESS_BUFFER_TYPE);
         case ir::Func::Tag::Vec: return make_vector(1);

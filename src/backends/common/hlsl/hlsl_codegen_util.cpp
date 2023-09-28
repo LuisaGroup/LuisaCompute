@@ -791,6 +791,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_SIZE: {
+            LUISA_ERROR_WITH_LOCATION("Buffer size is broken on dx!"sv);
             str << "_bfsize"sv;
         } break;
         case CallOp::BYTE_BUFFER_READ: {

@@ -1057,6 +1057,18 @@ template<typename T = unsigned char>
 }
 
 template<typename T>
+[[nodiscard]] inline __device__ T* lc_bindless_buffer(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
+    return buffer;
+}
+
+
+template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
@@ -1065,6 +1077,17 @@ template<typename T>
     lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
 #endif
     return buffer[i];
+}
+
+template<typename T>
+[[nodiscard]] inline __device__ void lc_bindless_buffer_write(LCBindlessArray array, lc_uint index, lc_ulong i, T value) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
+    buffer[i] = value;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_type(LCBindlessArray array, lc_uint index) noexcept {
