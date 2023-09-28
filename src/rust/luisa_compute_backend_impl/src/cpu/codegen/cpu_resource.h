@@ -144,7 +144,13 @@ lc_bindless_buffer(const KernelFnArgs *k_args, const BindlessArray &array, size_
                                array.buffers_count);
     }
 #endif
-    return array.buffers[buf_index];
+    auto buffer = array.buffers[buf_index];
+#ifdef LUISA_DEBUG
+    if (buffer.data == nullptr) {
+        lc_abort_and_print(k_args->internal_data, "Bindless buffer is null. Maybe slot is not bound?");
+    }
+#endif
+    return buffer;
 }
 
 inline uint64_t

@@ -946,6 +946,38 @@ impl Context {
                 panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
+            unsafe extern "C" fn lc_abort_and_print(ctx: *const c_void, msg: *const c_char) {
+                let _lk = ABORT_MUTEX.lock();
+                {
+                    let ctx = ctx as *const ShaderDispatchContext;
+                    let ctx = &*ctx;
+                    if ctx.terminated.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    loop {
+                        let current = ctx.terminated.load(Ordering::SeqCst);
+                        if current {
+                            return;
+                        }
+                        match ctx.terminated.compare_exchange(
+                            current,
+                            true,
+                            Ordering::SeqCst,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(false) => break,
+                            _ => return,
+                        }
+                    }
+                    let msg = CStr::from_ptr(msg).to_str().unwrap();
+                    eprintln!("{}", msg);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(file, "LuisaCompute CPU backend kernel aborted:\n{}", msg).unwrap();
+                }
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
+            }
+            add_symbol!(lc_abort_and_print, lc_abort_and_print);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
             //cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
             //log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
