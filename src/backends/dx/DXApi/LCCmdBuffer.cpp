@@ -524,8 +524,7 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
-            cmd->size(),
-            cmd->level());
+            cmd->size());
         auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
         auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
         if (copyInfo.bufferSize == copyInfo.alignedBufferSize) {
@@ -576,8 +575,7 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
-            cmd->size(),
-            cmd->level());
+            cmd->size());
         auto alloc = bd->GetCB()->GetAlloc();
         auto bfView = alloc->GetTempReadbackBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
 

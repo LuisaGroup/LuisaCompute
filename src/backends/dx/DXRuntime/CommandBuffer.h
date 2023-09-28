@@ -89,8 +89,7 @@ public:
     };
     static CopyInfo GetCopyTextureBufferSize(
         TextureBase *texture,
-        uint3 size,
-        uint targetMip);
+        uint3 size);
     ~CommandBufferBuilder();
 };
 class CommandBuffer : public vstd::IOperatorNewBase {
