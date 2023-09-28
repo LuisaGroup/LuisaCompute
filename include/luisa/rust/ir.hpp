@@ -513,6 +513,8 @@ struct Func {
         BindlessTexture3dSizeLevel,
         /// (bindless_array, index: uint, element: uint) -> T
         BindlessBufferRead,
+        /// (bindless_array, index: uint, element: uint, value: T) -> void
+        BindlessBufferWrite,
         /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
         BindlessBufferType,
