@@ -282,7 +282,7 @@ using LC_RayQueryAll = RayQuery;
 using LC_RayQueryAny = RayQuery;
 
 template<bool TERMINATE_ON_FISRST_HIT>
-inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint32_t mask) {
     RayQuery rq{};
     rq.hit.inst = ~0u;
     rq.hit.prim = ~0u;
@@ -294,10 +294,10 @@ inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint8_t mask) {
     return rq;
 }
 
-inline LC_RayQueryAny lc_ray_query_any(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline LC_RayQueryAny lc_ray_query_any(const Accel &accel, const Ray &ray, uint32_t mask) {
     return make_rq<true>(accel, ray, mask);
 }
-inline LC_RayQueryAll lc_ray_query_all(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline LC_RayQueryAll lc_ray_query_all(const Accel &accel, const Ray &ray, uint32_t mask) {
     return make_rq<false>(accel, ray, mask);
 }
 inline Ray lc_ray_query_world_space_ray(const RayQuery &rq) {

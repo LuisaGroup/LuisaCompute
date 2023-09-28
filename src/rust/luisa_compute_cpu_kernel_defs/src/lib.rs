@@ -128,7 +128,7 @@ pub struct Accel {
 pub struct RayQuery {
     pub hit: CommitedHit,
     pub ray: Ray,
-    pub mask: u8,
+    pub mask: u32,
     pub cur_committed_ray_t: f32,
     pub cur_triangle_hit: TriangleHit,
     pub cur_procedural_hit: ProceduralHit,
