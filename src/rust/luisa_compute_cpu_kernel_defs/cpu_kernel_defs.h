@@ -40,7 +40,7 @@ struct ProceduralHit {
 struct alignas(16) RayQuery {
     CommitedHit hit;
     Ray ray;
-    uint8_t mask;
+    uint32_t mask;
     float cur_committed_ray_t;
     TriangleHit cur_triangle_hit;
     ProceduralHit cur_procedural_hit;

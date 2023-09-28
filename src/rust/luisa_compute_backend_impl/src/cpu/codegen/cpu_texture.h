@@ -631,7 +631,16 @@ lc_bindless_texture_2d(const KernelFnArgs *k_args, const BindlessArray &array, s
                                array.texture2ds_count);
     }
 #endif
-    return array.texture2ds[index];
+    const auto& view = array.texture2ds[index];
+#ifdef LUISA_DEBUG
+    if (view.dimension != 2u) {
+        lc_abort_and_print(k_args->internal_data, "Bindless texture2d dimension mismatch");
+    }
+    if (view.data == nullptr) {
+        lc_abort_and_print(k_args->internal_data, "Bindless texture2d data is null. Maybe slot is not bound?");
+    }
+#endif
+    return view;
 }
 
 [[nodiscard]] inline const Texture &
@@ -642,7 +651,16 @@ lc_bindless_texture_3d(const KernelFnArgs *k_args, const BindlessArray &array, s
                                array.texture3ds_count);
     }
 #endif
-    return array.texture3ds[index];
+    const auto& view = array.texture3ds[index];
+#ifdef LUISA_DEBUG
+    if (view.dimension != 3u) {
+        lc_abort_and_print(k_args->internal_data, "Bindless texture3d dimension mismatch3");
+    }
+    if (view.data == nullptr) {
+        lc_abort_and_print(k_args->internal_data, "Bindless texture3d data is null. Maybe slot is not bound?");
+    }
+#endif
+    return view;
 }
 
 [[nodiscard]] inline lc_float4 lc_bindless_texture2d_read(

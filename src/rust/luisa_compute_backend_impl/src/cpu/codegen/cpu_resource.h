@@ -144,7 +144,13 @@ lc_bindless_buffer(const KernelFnArgs *k_args, const BindlessArray &array, size_
                                array.buffers_count);
     }
 #endif
-    return array.buffers[buf_index];
+    auto buffer = array.buffers[buf_index];
+#ifdef LUISA_DEBUG
+    if (buffer.data == nullptr) {
+        lc_abort_and_print(k_args->internal_data, "Bindless buffer is null. Maybe slot is not bound?");
+    }
+#endif
+    return buffer;
 }
 
 inline uint64_t
@@ -276,7 +282,7 @@ using LC_RayQueryAll = RayQuery;
 using LC_RayQueryAny = RayQuery;
 
 template<bool TERMINATE_ON_FISRST_HIT>
-inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint32_t mask) {
     RayQuery rq{};
     rq.hit.inst = ~0u;
     rq.hit.prim = ~0u;
@@ -288,10 +294,10 @@ inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint8_t mask) {
     return rq;
 }
 
-inline LC_RayQueryAny lc_ray_query_any(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline LC_RayQueryAny lc_ray_query_any(const Accel &accel, const Ray &ray, uint32_t mask) {
     return make_rq<true>(accel, ray, mask);
 }
-inline LC_RayQueryAll lc_ray_query_all(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline LC_RayQueryAll lc_ray_query_all(const Accel &accel, const Ray &ray, uint32_t mask) {
     return make_rq<false>(accel, ray, mask);
 }
 inline Ray lc_ray_query_world_space_ray(const RayQuery &rq) {
