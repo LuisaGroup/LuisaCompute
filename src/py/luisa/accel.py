@@ -184,6 +184,12 @@ class Accel:
         check_exact_signature([uint], [index], "uesr_id")
         expr = lcapi.builder().call(to_lctype(uint), lcapi.CallOp.RAY_TRACING_INSTANCE_USER_ID, [self.expr, index.expr])
         return uint, expr
+    
+    @BuiltinFuncBuilder
+    def visibility_mask(self, index):
+        check_exact_signature([uint], [index], "mask")
+        expr = lcapi.builder().call(to_lctype(uint), lcapi.CallOp.RAY_TRACING_INSTANCE_VISIBILITY_MASK, [self.expr, index.expr])
+        return uint, expr
 
     @BuiltinFuncBuilder
     def set_instance_transform(self, index, transform):

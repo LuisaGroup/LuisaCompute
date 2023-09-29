@@ -97,6 +97,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
@@ -1038,6 +1039,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
             str << "_InstId("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: {
+            str << "_InstVis("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);

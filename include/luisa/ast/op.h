@@ -200,7 +200,7 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
     BINDLESS_BUFFER_READ,     // (bindless_array, index: uint, elem_index: uint): expr->type()
-    BINDLESS_BUFFER_WRITE,     // (bindless_array, index: uint, elem_index: uint, value: expr): void
+    BINDLESS_BUFFER_WRITE,    // (bindless_array, index: uint, elem_index: uint, value: expr): void
     BINDLESS_BYTE_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
     BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size
     BINDLESS_BUFFER_TYPE,     // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
@@ -266,12 +266,13 @@ enum struct CallOp : uint32_t {
     DETACH,             // (expr) -> expr
 
     // ray tracing
-    RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
-    RAY_TRACING_INSTANCE_USER_ID,       // (Accel, uint)
-    RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
-    RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
-    RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
-    RAY_TRACING_SET_INSTANCE_USER_ID,   // (Accel, uint, uint)
+    RAY_TRACING_INSTANCE_TRANSFORM,      // (Accel, uint)
+    RAY_TRACING_INSTANCE_USER_ID,        // (Accel, uint)
+    RAY_TRACING_INSTANCE_VISIBILITY_MASK,// (Accel, uint)
+    RAY_TRACING_SET_INSTANCE_TRANSFORM,  // (Accel, uint, float4x4)
+    RAY_TRACING_SET_INSTANCE_VISIBILITY, // (Accel, uint, uint)
+    RAY_TRACING_SET_INSTANCE_OPACITY,    // (Accel, uint, bool)
+    RAY_TRACING_SET_INSTANCE_USER_ID,    // (Accel, uint, uint)
 
     RAY_TRACING_TRACE_CLOSEST,// (Accel, ray, mask: uint): TriangleHit
     RAY_TRACING_TRACE_ANY,    // (Accel, ray, mask: uint): bool
