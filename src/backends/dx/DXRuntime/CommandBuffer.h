@@ -23,10 +23,6 @@ private:
     CommandBufferBuilder(CommandBufferBuilder &&);
     void SetComputeResources(
         Shader const *s,
-        uint offset,
-        vstd::span<const BindProperty> resources);
-    void SetComputeResources(
-        Shader const *s,
         vstd::span<const BindProperty> resources);
     void SetRasterResources(
         Shader const *s,

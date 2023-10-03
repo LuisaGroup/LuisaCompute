@@ -493,6 +493,7 @@ public:
             bd->DispatchComputeIndirect(cs, *buffer, t.offset, t.max_dispatch_size, *bindProps);
         } else if (cmd->is_multiple_dispatch()) {
             size_t bindCount = bindProps->size();
+            bindProps->emplace_back();
             BeforeDispatch();
             auto sizes = cmd->dispatch_sizes();
             bd->DispatchCompute(

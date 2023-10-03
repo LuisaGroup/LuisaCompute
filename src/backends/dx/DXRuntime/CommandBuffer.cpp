@@ -41,23 +41,8 @@ CommandBuffer::CommandBuffer(
 }
 void CommandBufferBuilder::SetComputeResources(
     Shader const *s,
-    uint offset,
     vstd::span<const BindProperty> resources) {
-    // assert(resources.size() == s->Properties().size());
-    for (auto i : vstd::range(resources.size())) {
-        resources[i].visit(
-            [&](auto &&b) {
-                s->SetComputeResource(
-                    i + offset,
-                    this,
-                    b);
-            });
-    }
-}
-void CommandBufferBuilder::SetComputeResources(
-    Shader const *s,
-    vstd::span<const BindProperty> resources) {
-    // assert(resources.size() == s->Properties().size());
+    assert(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(
             [&](auto &&b) {
@@ -71,7 +56,7 @@ void CommandBufferBuilder::SetComputeResources(
 void CommandBufferBuilder::SetRasterResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    // assert(resources.size() == s->Properties().size());
+    assert(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(
             [&](auto &&b) {
@@ -96,7 +81,7 @@ void CommandBufferBuilder::DispatchCompute(
         calc(dispatchId.z, blk.z)};
     auto c = cb->cmdList.Get();
     c->SetComputeRootSignature(cs->RootSig());
-    SetComputeResources(cs, 0, resources);
+    SetComputeResources(cs, resources);
     c->SetPipelineState(cs->Pso());
     c->Dispatch(dispId.x, dispId.y, dispId.z);
 }
@@ -107,7 +92,7 @@ void CommandBufferBuilder::DispatchCompute(
     vstd::span<const BindProperty> resources) {
     auto c = cb->cmdList.Get();
     c->SetComputeRootSignature(cs->RootSig());
-    SetComputeResources(cs, 1, resources);
+    SetComputeResources(cs, resources);
     c->SetPipelineState(cs->Pso());
     auto calc = [](uint disp, uint thd) {
         return (disp + thd - 1) / thd;
@@ -146,7 +131,7 @@ void CommandBufferBuilder::DispatchComputeIndirect(
     size_t cmdSize = (byteSize - 4) / ComputeShader::DispatchIndirectStride;
     assert(cmdSize >= 1);
     c->SetComputeRootSignature(cs->RootSig());
-    SetComputeResources(cs, 0, resources);
+    SetComputeResources(cs, resources);
     c->SetPipelineState(cs->Pso());
     maxIndirectCount = std::min<uint>(maxIndirectCount, cmdSize - indirectOffset);
     // TODO
