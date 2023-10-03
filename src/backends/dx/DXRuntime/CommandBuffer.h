@@ -23,6 +23,10 @@ private:
     CommandBufferBuilder(CommandBufferBuilder &&);
     void SetComputeResources(
         Shader const *s,
+        uint offset,
+        vstd::span<const BindProperty> resources);
+    void SetComputeResources(
+        Shader const *s,
         vstd::span<const BindProperty> resources);
     void SetRasterResources(
         Shader const *s,
@@ -34,6 +38,11 @@ public:
     void DispatchCompute(
         ComputeShader const *cs,
         uint3 dispatchId,
+        vstd::span<const BindProperty> resources);
+    void DispatchCompute(
+        ComputeShader const *cs,
+        vstd::span<const uint3> dispatchSizes,
+        uint constBindPos,
         vstd::span<const BindProperty> resources);
     void SetRasterShader(
         RasterShader const *s,

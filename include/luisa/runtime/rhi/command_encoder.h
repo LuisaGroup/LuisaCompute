@@ -36,7 +36,7 @@ public:
 class LC_RUNTIME_API ComputeDispatchCmdEncoder final : public ShaderDispatchCmdEncoder {
 
 private:
-    luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
+    luisa::variant<uint3, IndirectDispatchArg, luisa::vector<uint3>> _dispatch_size;
 
 public:
     explicit ComputeDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept;
@@ -45,6 +45,7 @@ public:
     ~ComputeDispatchCmdEncoder() noexcept = default;
     void set_dispatch_size(uint3 launch_size) noexcept;
     void set_dispatch_size(IndirectDispatchArg indirect_arg) noexcept;
+    void set_dispatch_sizes(luisa::span<const uint3> sizes) noexcept;
 
     void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void encode_texture(uint64_t handle, uint32_t level) noexcept;

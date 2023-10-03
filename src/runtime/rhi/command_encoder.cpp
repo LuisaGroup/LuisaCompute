@@ -54,6 +54,12 @@ void ShaderDispatchCmdEncoder::_encode_uniform(const void *data, size_t size) no
 void ComputeDispatchCmdEncoder::set_dispatch_size(uint3 launch_size) noexcept {
     _dispatch_size = launch_size;
 }
+void ComputeDispatchCmdEncoder::set_dispatch_sizes(luisa::span<const uint3> sizes) noexcept {
+    luisa::vector<uint3> vec;
+    vec.push_back_uninitialized(sizes.size());
+    std::memcpy(vec.data(), sizes.data(), sizes.size_bytes());
+    _dispatch_size = std::move(vec);
+}
 
 void ComputeDispatchCmdEncoder::set_dispatch_size(IndirectDispatchArg indirect_arg) noexcept {
     _dispatch_size = indirect_arg;

@@ -41,8 +41,23 @@ CommandBuffer::CommandBuffer(
 }
 void CommandBufferBuilder::SetComputeResources(
     Shader const *s,
+    uint offset,
     vstd::span<const BindProperty> resources) {
-    assert(resources.size() == s->Properties().size());
+    // assert(resources.size() == s->Properties().size());
+    for (auto i : vstd::range(resources.size())) {
+        resources[i].visit(
+            [&](auto &&b) {
+                s->SetComputeResource(
+                    i + offset,
+                    this,
+                    b);
+            });
+    }
+}
+void CommandBufferBuilder::SetComputeResources(
+    Shader const *s,
+    vstd::span<const BindProperty> resources) {
+    // assert(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(
             [&](auto &&b) {
@@ -56,7 +71,7 @@ void CommandBufferBuilder::SetComputeResources(
 void CommandBufferBuilder::SetRasterResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    assert(resources.size() == s->Properties().size());
+    // assert(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(
             [&](auto &&b) {
@@ -81,9 +96,34 @@ void CommandBufferBuilder::DispatchCompute(
         calc(dispatchId.z, blk.z)};
     auto c = cb->cmdList.Get();
     c->SetComputeRootSignature(cs->RootSig());
-    SetComputeResources(cs, resources);
+    SetComputeResources(cs, 0, resources);
     c->SetPipelineState(cs->Pso());
     c->Dispatch(dispId.x, dispId.y, dispId.z);
+}
+void CommandBufferBuilder::DispatchCompute(
+    ComputeShader const *cs,
+    vstd::span<const uint3> dispatchSizes,
+    uint constBindPos,
+    vstd::span<const BindProperty> resources) {
+    auto c = cb->cmdList.Get();
+    c->SetComputeRootSignature(cs->RootSig());
+    SetComputeResources(cs, 1, resources);
+    c->SetPipelineState(cs->Pso());
+    auto calc = [](uint disp, uint thd) {
+        return (disp + thd - 1) / thd;
+    };
+    uint3 blk = cs->BlockSize();
+    uint kernelId = 0;
+    for (auto dispatchId : dispatchSizes) {
+        uint3 dispId = {
+            calc(dispatchId.x, blk.x),
+            calc(dispatchId.y, blk.y),
+            calc(dispatchId.z, blk.z)};
+        uint4 constValue{dispatchId.x, dispatchId.y, dispatchId.z, kernelId};
+        c->SetComputeRoot32BitConstants(constBindPos, 4, &constValue, 0);
+        ++kernelId;
+        c->Dispatch(dispId.x, dispId.y, dispId.z);
+    }
 }
 void CommandBufferBuilder::SetRasterShader(
     RasterShader const *s,
@@ -106,7 +146,7 @@ void CommandBufferBuilder::DispatchComputeIndirect(
     size_t cmdSize = (byteSize - 4) / ComputeShader::DispatchIndirectStride;
     assert(cmdSize >= 1);
     c->SetComputeRootSignature(cs->RootSig());
-    SetComputeResources(cs, resources);
+    SetComputeResources(cs, 0, resources);
     c->SetPipelineState(cs->Pso());
     maxIndirectCount = std::min<uint>(maxIndirectCount, cmdSize - indirectOffset);
     // TODO
