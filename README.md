@@ -33,6 +33,7 @@ Welcome to join the [discussion channel on Discord](https://discord.com/invite/y
     - [Callable and Kernels](#callable-and-kernels)
     - [Backends, Context, Devices and Resources](#backends-context-devices-and-resources)
     - [Command Submission and Synchronization](#command-submission-and-synchronization)
+    - [Automatic Differentiation](#automatic-differentiation)
   - [Applications](#applications)
   - [Documentation and Tutorials](#documentation-and-tutorials)
   - [Roadmap](#roadmap)
@@ -502,6 +503,30 @@ stream_b << event.wait()    // waits until the event signals
          << event.signal(); // signals again
 event.synchronize();        // blocks until the event signals
 ```
+### Automatic Differentiation
+We implemented reverse mode autodiff using source-to-source transformation. The autodiff supports control flows such as if-else and switch. The following example shows how to use the autodiff to compute the gradient of a function `f(t, x, y) = t < 1 ? x * y : x + y` with respect to `x` and `y`:
+```cpp
+Var<float> x = ...;
+Var<float> y = ...;
+Var<float> t = ...;
+$autodiff {
+    requires_grad(x, y);
+    Var<float> z;
+    $if(t < 1.0) {
+        auto no_grad = some_non_differentiable_function(x, y);
+        z = x * y;
+    }$else {
+        z = x + y;
+    };
+    backward(z);
+    dx->write(tid, grad(x));
+    dy->write(tid, grad(y));
+};
+```
+
+Limitation: 
+- we don't support loop with dynamic iteration count. To differentiate a loop, users have to unroll it by using `for(auto i = 0;i <count;i++) { dsl_body(i); }`.  
+- Differentiation across callable boundaries is also not supported. You can have an autodiff section inside any callable but you cannot invoke another callable inside autodiff section. This is because reverse mode autodiff requires all intermediate values to be stored in memory. If we allow callable invocation inside autodiff section, the autodiff transformer essentially inlines every callable into the autodiff section. We choose to make user do this inline in DSl manually to warn them about the potential performance impact.
 
 ## Applications
 
