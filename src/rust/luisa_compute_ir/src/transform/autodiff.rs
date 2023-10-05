@@ -398,8 +398,8 @@ impl<'a> StoreIntermediate<'a> {
                 }
             }
             Instruction::Phi(incomings) => {
-                for PhiIncoming { value, .. } in incomings.as_ref().iter() {
-                    if self.forward_reachable.contains(value) {
+                if self.backward_reachable.contains(&node) {
+                    for PhiIncoming { value, .. } in incomings.as_ref().iter() {
                         self.backward_reachable.insert(*value);
                     }
                 }
@@ -1865,24 +1865,24 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     pools: pools.clone(),
                     flags: ModuleFlags::NONE,
                 };
-                // {
-                //     println!(
-                //         "Before SSA:\n{}",
-                //         ir::debug::dump_ir_human_readable(&Module {
-                //             kind: ModuleKind::Block,
-                //             entry: body.clone(),
-                //             pools: pools.clone(),
-                //             flags: ModuleFlags::NONE,
-                //         })
-                //     );
-                // }
+                {
+                    println!(
+                        "Before SSA:\n{}",
+                        ir::debug::dump_ir_human_readable(&Module {
+                            kind: ModuleKind::Block,
+                            entry: body.clone(),
+                            pools: pools.clone(),
+                            flags: ModuleFlags::NONE,
+                        })
+                    );
+                }
                 let ad_block = ToSSA.transform(ad_block);
-                // {
-                //     println!(
-                //         "After SSA:\n{}",
-                //         ir::debug::dump_ir_human_readable(&ad_block)
-                //     );
-                // }
+                {
+                    println!(
+                        "After SSA:\n{}",
+                        ir::debug::dump_ir_human_readable(&ad_block)
+                    );
+                }
                 let mut backward = None;
                 let mut gradient_marker = None;
                 for node in body.iter() {
@@ -1998,12 +1998,12 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 impl Transform for Autodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
         log::debug!("Autodiff transform");
-        // {
-        //     println!("Before AD:");
-        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
-        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-        //     println!("{}", debug.to_str().unwrap());
-        // }
+        {
+            println!("Before AD:");
+            let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+            let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+            println!("{}", debug.to_str().unwrap());
+        }
         ad_transform_recursive(module.entry, &module.pools);
         module.flags.remove(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
         // {

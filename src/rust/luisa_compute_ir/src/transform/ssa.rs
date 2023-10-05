@@ -12,6 +12,7 @@ Remove all Instruction::Update nodes
 */
 pub struct ToSSA;
 struct ToSSAImpl {
+    entry: Pooled<BasicBlock>,
     map_blocks: HashMap<*mut BasicBlock, *mut BasicBlock>,
     local_defs: HashSet<NodeRef>,
     map_immutables: HashMap<NodeRef, NodeRef>,
@@ -42,6 +43,7 @@ impl SSABlockRecord {
 impl ToSSAImpl {
     fn new(model: &Module) -> Self {
         Self {
+            entry: model.entry,
             map_blocks: HashMap::new(),
             local_defs: model.collect_nodes().into_iter().collect(),
             map_immutables: HashMap::new(),
@@ -92,10 +94,20 @@ impl ToSSAImpl {
         let value = self.promote(value, builder, record);
         if var.is_local() || var.is_refernece_argument() {
             record.phis.insert(var);
-            record.stored.insert(var, value);
+
             if !self.local_defs.contains(&var) {
                 builder.update(var, value);
+                // this outter variable is not previously seen
+                // we need to generate a load in the outmost scope
+                if record.stored.get(&var).is_none() {
+                    let mut tmp_builder = IrBuilder::new_without_bb(builder.pools.clone());
+                    tmp_builder.set_insert_point(self.entry.first);
+                    let val = tmp_builder.load(var);
+                    record.stored.insert_at_top(var, val);
+                }
             }
+
+            record.stored.insert(var, value);
         } else {
             // the hardpart
             let inst = var.get().instruction.as_ref();
@@ -144,11 +156,20 @@ impl ToSSAImpl {
             //     value.type_()
             // );
             record.phis.insert(var);
-            record.stored.insert(var, value);
-            assert_eq!(self.promote(var, builder, record), value);
             if !self.local_defs.contains(&var) {
                 builder.update(var, value);
+                // this outter variable is not previously seen
+                // we need to generate a load in the outmost scope
+                if record.stored.get(&var).is_none() {
+                    let mut tmp_builder = IrBuilder::new_without_bb(builder.pools.clone());
+                    tmp_builder.set_insert_point(self.entry.first);
+                    let val = tmp_builder.load(var);
+                    record.stored.insert_at_top(var, val);
+                }
             }
+
+            record.stored.insert(var, value);
+            assert_eq!(self.promote(var, builder, record), value);
         }
     }
     fn promote_branches(
@@ -240,7 +261,6 @@ impl ToSSAImpl {
                     return val;
                 }
                 let init = self.promote(*init, builder, record);
-                let var = builder.local(init);
                 record.defined.insert(node);
                 record.stored.insert(node, init);
                 return init;
@@ -271,7 +291,7 @@ impl ToSSAImpl {
             }
             Instruction::Call(func, args) => {
                 if *func == Func::Load {
-                    let v =  self.load(args[0], builder, record);
+                    let v = self.load(args[0], builder, record);
                     self.map_immutables.insert(node, v);
                     return v;
                 }
