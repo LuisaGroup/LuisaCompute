@@ -527,7 +527,7 @@ $autodiff {
 
 Limitation: 
 - we don't support loop with dynamic iteration count. To differentiate a loop, users have to unroll it by using `for(auto i = 0;i <count;i++) { dsl_body(i); }`.  
-- Differentiation across callable boundaries is also not supported. You can have an autodiff section inside any callable but you cannot invoke another callable inside autodiff section. This is because reverse mode autodiff requires all intermediate values to be stored in memory. If we allow callable invocation inside autodiff section, the autodiff transformer essentially inlines every callable into the autodiff section. We choose to make user do this inline in DSl manually to warn them about the potential performance impact.
+- Differentiation across callable boundaries is also not supported. You can have an autodiff section inside any callable but you cannot invoke another callable inside autodiff section. This is because reverse mode autodiff requires all intermediate values to be stored in memory. If we allow callable invocation inside autodiff section, the autodiff transformer essentially inlines every callable into the autodiff section. We choose to make user do this inline in DSL manually to warn them about the potential performance impact.
 
 ## Applications
 
