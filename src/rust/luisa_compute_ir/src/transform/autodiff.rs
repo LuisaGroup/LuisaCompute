@@ -1118,7 +1118,7 @@ impl Backward {
         let instruction = &node.get().instruction;
         let type_ = &node.get().type_;
         let grad_type = grad_type_of(type_.clone());
-
+        // dbg!(node, instruction);
         match instruction.as_ref() {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless => {}
@@ -1623,26 +1623,25 @@ impl Backward {
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::ExtractElement => {
+                        let indices = original_args[1..].to_vec();
                         let v_grad = builder.const_(Const::Zero(args[0].type_().clone()));
-                        let v_grad = builder.call(
-                            Func::InsertElement,
-                            &[v_grad, out_grad, original_args[1]],
-                            v_grad.type_().clone(),
-                        );
+                        let mut call_args = vec![v_grad, out_grad];
+                        call_args.extend(indices);
+                        let v_grad =
+                            builder.call(Func::InsertElement, &call_args, v_grad.type_().clone());
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::InsertElement => {
                         let zero = builder.const_(Const::Zero(args[1].type_().clone()));
-                        let v_grad = builder.call(
-                            Func::InsertElement,
-                            &[out_grad, zero, original_args[2]],
-                            args[0].type_().clone(),
-                        );
-                        let x_grad = builder.call(
-                            Func::ExtractElement,
-                            &[out_grad, original_args[2]],
-                            args[1].type_().clone(),
-                        );
+                        let indices = original_args[2..].to_vec();
+                        let mut call_args = vec![out_grad, zero];
+                        call_args.extend(indices.clone());
+                        let v_grad =
+                            builder.call(Func::InsertElement, &call_args, args[0].type_().clone());
+                        call_args = vec![out_grad];
+                        call_args.extend(indices);
+                        let x_grad =
+                            builder.call(Func::ExtractElement, &call_args, args[1].type_().clone());
                         self.accumulate_grad(args[0], v_grad, builder);
                         self.accumulate_grad(args[1], x_grad, builder);
                     }
@@ -1712,7 +1711,7 @@ impl Backward {
                 if grad_type.is_none() {
                     return;
                 }
-                
+
                 let out_grad = self.grad(node);
                 if out_grad.is_none() {
                     return;
@@ -2002,20 +2001,20 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 }
 impl Transform for Autodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
-        log::debug!("Autodiff transform");
-        {
-            println!("Before AD:");
-            let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
-            let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-            println!("{}", debug.to_str().unwrap());
-        }
+        // log::debug!("Autodiff transform");
+        // {
+        //     println!("Before AD:");
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("{}", debug.to_str().unwrap());
+        // }
         ad_transform_recursive(module.entry, &module.pools);
         module.flags.remove(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
-        {
-            let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
-            let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-            println!("After AD:\n{}", debug.to_str().unwrap());
-        }
+        // {
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("After AD:\n{}", debug.to_str().unwrap());
+        // }
         module
     }
 }

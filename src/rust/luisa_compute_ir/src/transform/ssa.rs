@@ -215,6 +215,9 @@ impl ToSSAImpl {
             }
             let new_phi = builder.phi(&incomings, phi.get().type_.clone());
             new_phis.push(new_phi);
+            if phi.is_lvalue() {
+                record.stored.insert(*phi, new_phi);
+            }
             // if record.defined.contains(phi) {
             self.map_immutables.insert(*phi, new_phi);
             record.phis.insert(*phi);
