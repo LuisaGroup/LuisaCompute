@@ -85,7 +85,7 @@ On the programming interfaces for users, we provide high-level resource wrappers
 
 The backends are the final realizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
 
-Currently, we have 3 working GPU backends for the C++ and Python frontends, based on CUDA, Metal, and DirectX, respectively. A CPU backend (re-)implemented in Rust is a work in progress and currently can only be accessed from the [Rust frontend](https://github.com/LuisaGroup/luisa-compute-rs).
+Currently, we have 3 working GPU backends for the C++ and Python frontends, based on CUDA, Metal, and DirectX, respectively, and a CPU backend (re-)implemented in Rust for debugging purpose and fallback.
 
 ### Python Frontend
 
@@ -415,12 +415,13 @@ Most backends support caching the compiled shaders to accelerate future compilat
 
 ### Backends, Context, Devices and Resources<a name="devices-and-resources"/>
 
-LuisaCompute currently supports 3 GPU backends:
+LuisaCompute currently supports these backends:
 - CUDA
 - DirectX
 - Metal
+- CPU (Clang + LLVM)
 
-There is also a CPU backend implemented and available in [Rust](https://github.com/LuisaGroup/luisa-compute-rs) which not yet works with the C++/Python frontends. More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `lc-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
+More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `lc-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
 
 The `Context` object is responsible for loading and managing these plug-ins and creating/destroying devices. Users have to pass the executable path (typically, `argv[0]`) or the runtime directory to a context's constructor (so that it's able to locate the plug-ins), and pass the backend name to create the corresponding device object.
 ```cpp
