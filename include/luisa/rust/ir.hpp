@@ -53,16 +53,45 @@ struct IrBuilder {
     NodeRef insert_point;
 };
 
-template<typename T>
-struct CBoxedSlice {
-    T *ptr;
-    size_t len;
-    void (*destructor)(T*, size_t);
+struct ModuleFlags {
+    uint32_t bits;
+
+    explicit operator bool() const {
+        return !!bits;
+    }
+    ModuleFlags operator~() const {
+        return ModuleFlags { static_cast<decltype(bits)>(~bits) };
+    }
+    ModuleFlags operator|(const ModuleFlags& other) const {
+        return ModuleFlags { static_cast<decltype(bits)>(this->bits | other.bits) };
+    }
+    ModuleFlags& operator|=(const ModuleFlags& other) {
+        *this = (*this | other);
+        return *this;
+    }
+    ModuleFlags operator&(const ModuleFlags& other) const {
+        return ModuleFlags { static_cast<decltype(bits)>(this->bits & other.bits) };
+    }
+    ModuleFlags& operator&=(const ModuleFlags& other) {
+        *this = (*this & other);
+        return *this;
+    }
+    ModuleFlags operator^(const ModuleFlags& other) const {
+        return ModuleFlags { static_cast<decltype(bits)>(this->bits ^ other.bits) };
+    }
+    ModuleFlags& operator^=(const ModuleFlags& other) {
+        *this = (*this ^ other);
+        return *this;
+    }
 };
+static const ModuleFlags ModuleFlags_NONE = ModuleFlags{ /* .bits = */ (uint32_t)0 };
+static const ModuleFlags ModuleFlags_REQUIRES_REV_AD_TRANSFORM = ModuleFlags{ /* .bits = */ (uint32_t)1 };
+static const ModuleFlags ModuleFlags_REQUIRES_FWD_AD_TRANSFORM = ModuleFlags{ /* .bits = */ (uint32_t)2 };
 
 struct Module {
     ModuleKind kind;
     Pooled<BasicBlock> entry;
+    ModuleFlags flags;
     CArc<ModulePools> pools;
 };
 
@@ -95,6 +124,13 @@ struct VectorType {
 struct MatrixType {
     VectorElementType element;
     uint32_t dimension;
+};
+
+template<typename T>
+struct CBoxedSlice {
+    T *ptr;
+    size_t len;
+    void (*destructor)(T*, size_t);
 };
 
 struct StructType {
@@ -225,8 +261,17 @@ struct CallableModule {
     CArc<Type> ret_type;
     CBoxedSlice<NodeRef> args;
     CBoxedSlice<Capture> captures;
-    CBoxedSlice<CallableModuleRef> callables;
     CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
+    CArc<ModulePools> pools;
+};
+
+struct KernelModule {
+    Module module;
+    CBoxedSlice<Capture> captures;
+    CBoxedSlice<NodeRef> args;
+    CBoxedSlice<NodeRef> shared;
+    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
+    uint32_t block_size[3];
     CArc<ModulePools> pools;
 };
 
@@ -242,8 +287,14 @@ struct Func {
         Assert,
         ThreadId,
         BlockId,
+        WarpSize,
+        WarpLaneId,
         DispatchId,
         DispatchSize,
+        /// (input, grads, ...) -> ()
+        PropagateGrad,
+        /// (var, idx) -> dvar/dinput_{idx}
+        OutputGrad,
         RequiresGradient,
         Backward,
         Gradient,
@@ -251,9 +302,11 @@ struct Func {
         AccGrad,
         Detach,
         RayTracingInstanceTransform,
+        RayTracingInstanceUserId,
         RayTracingSetInstanceTransform,
         RayTracingSetInstanceOpacity,
         RayTracingSetInstanceVisibility,
+        RayTracingSetInstanceUserId,
         RayTracingTraceClosest,
         RayTracingTraceAny,
         RayTracingQueryAll,
@@ -266,8 +319,8 @@ struct Func {
         RayQueryCommitProcedural,
         RayQueryTerminate,
         RasterDiscard,
-        IndirectClearDispatchBuffer,
-        IndirectEmplaceDispatchKernel,
+        IndirectDispatchSetCount,
+        IndirectDispatchSetKernel,
         /// When referencing a Local in Call, it is always interpreted as a load
         /// However, there are cases you want to do this explicitly
         Load,
@@ -359,7 +412,28 @@ struct Func {
         Determinant,
         Transpose,
         Inverse,
+        WarpIsFirstActiveLane,
+        WarpFirstActiveLane,
+        WarpActiveAllEqual,
+        WarpActiveBitAnd,
+        WarpActiveBitOr,
+        WarpActiveBitXor,
+        WarpActiveCountBits,
+        WarpActiveMax,
+        WarpActiveMin,
+        WarpActiveProduct,
+        WarpActiveSum,
+        WarpActiveAll,
+        WarpActiveAny,
+        WarpActiveBitMask,
+        WarpPrefixCountBits,
+        WarpPrefixSum,
+        WarpPrefixProduct,
+        WarpReadLaneAt,
+        WarpReadFirstLane,
         SynchronizeBlock,
+        /// (buffer/smem, indices...): do not appear in the final IR, but will be lowered to an Atomic* instruction
+        AtomicRef,
         /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
         AtomicExchange,
         /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
@@ -384,14 +458,24 @@ struct Func {
         BufferWrite,
         /// buffer -> uint: returns buffer size in *elements*
         BufferSize,
+        /// (buffer, index_bytes) -> value
+        ByteBufferRead,
+        /// (buffer, index_bytes, value) -> void
+        ByteBufferWrite,
+        /// buffer -> size in bytes
+        ByteBufferSize,
         /// (texture, coord) -> value
         Texture2dRead,
         /// (texture, coord, value) -> void
         Texture2dWrite,
+        /// (texture) -> uint2
+        Texture2dSize,
         /// (texture, coord) -> value
         Texture3dRead,
         /// (texture, coord, value) -> void
         Texture3dWrite,
+        /// (texture) -> uint3
+        Texture3dSize,
         ///(bindless_array, index: uint, uv: float2) -> float4
         BindlessTexture2dSample,
         ///(bindless_array, index: uint, uv: float2, level: float) -> float4
@@ -429,6 +513,7 @@ struct Func {
         /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
         BindlessBufferType,
+        BindlessByteBufferRead,
         Vec,
         Vec2,
         Vec3,
@@ -445,6 +530,7 @@ struct Func {
         Mat4,
         Callable,
         CpuCustomOp,
+        ShaderExecutionReorder,
         Unknown0,
         Unknown1,
     };
@@ -614,6 +700,7 @@ struct Instruction {
         Switch,
         AdScope,
         RayQuery,
+        Print,
         AdDetach,
         Comment,
     };
@@ -678,12 +765,19 @@ struct Instruction {
 
     struct AdScope_Body {
         Pooled<BasicBlock> body;
+        bool forward;
+        size_t n_forward_grads;
     };
 
     struct RayQuery_Body {
         NodeRef ray_query;
         Pooled<BasicBlock> on_triangle_hit;
         Pooled<BasicBlock> on_procedural_hit;
+    };
+
+    struct Print_Body {
+        CBoxedSlice<uint8_t> fmt;
+        CBoxedSlice<NodeRef> args;
     };
 
     struct AdDetach_Body {
@@ -710,20 +804,10 @@ struct Instruction {
         Switch_Body switch_;
         AdScope_Body ad_scope;
         RayQuery_Body ray_query;
+        Print_Body print;
         AdDetach_Body ad_detach;
         Comment_Body comment;
     };
-};
-
-struct KernelModule {
-    Module module;
-    CBoxedSlice<Capture> captures;
-    CBoxedSlice<NodeRef> args;
-    CBoxedSlice<NodeRef> shared;
-    CBoxedSlice<CArc<CpuCustomOp>> cpu_custom_ops;
-    CBoxedSlice<CallableModuleRef> callables;
-    uint32_t block_size[3];
-    CArc<ModulePools> pools;
 };
 
 struct Node {
@@ -747,6 +831,10 @@ static const NodeRef INVALID_REF = NodeRef{ /* ._0 = */ 0 };
 extern "C" {
 
 void luisa_compute_ir_append_node(IrBuilder *builder, NodeRef node_ref);
+
+CArcSharedBlock<CallableModule> *luisa_compute_ir_ast_json_to_ir_callable(CBoxedSlice<uint8_t> j);
+
+CArcSharedBlock<KernelModule> *luisa_compute_ir_ast_json_to_ir_kernel(CBoxedSlice<uint8_t> j);
 
 NodeRef luisa_compute_ir_build_call(IrBuilder *builder,
                                     Func func,
@@ -772,6 +860,8 @@ NodeRef luisa_compute_ir_build_local(IrBuilder *builder, NodeRef init);
 
 NodeRef luisa_compute_ir_build_local_zero_init(IrBuilder *builder, CArc<Type> ty);
 
+NodeRef luisa_compute_ir_build_loop(IrBuilder *builder, Pooled<BasicBlock> body, NodeRef cond);
+
 NodeRef luisa_compute_ir_build_phi(IrBuilder *builder, CSlice<PhiIncoming> incoming, CArc<Type> t);
 
 NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
@@ -780,6 +870,8 @@ NodeRef luisa_compute_ir_build_switch(IrBuilder *builder,
                                       Pooled<BasicBlock> default_);
 
 void luisa_compute_ir_build_update(IrBuilder *builder, NodeRef var, NodeRef value);
+
+void luisa_compute_ir_builder_set_insert_point(IrBuilder *builder, NodeRef node_ref);
 
 CBoxedSlice<uint8_t> luisa_compute_ir_dump_binary(const Module *module);
 
@@ -791,7 +883,7 @@ CArcSharedBlock<BlockModule> *luisa_compute_ir_new_block_module(BlockModule m);
 
 IrBuilder luisa_compute_ir_new_builder(CArc<ModulePools> pools);
 
-CallableModuleRef luisa_compute_ir_new_callable_module(CallableModule m);
+CArcSharedBlock<CallableModule> *luisa_compute_ir_new_callable_module(CallableModule m);
 
 CArcSharedBlock<Instruction> *luisa_compute_ir_new_instruction(Instruction inst);
 
@@ -803,9 +895,19 @@ NodeRef luisa_compute_ir_new_node(CArc<ModulePools> pools, Node node);
 
 const Node *luisa_compute_ir_node_get(NodeRef node_ref);
 
+void luisa_compute_ir_node_insert_after_self(NodeRef node_ref, NodeRef new_node);
+
+void luisa_compute_ir_node_insert_before_self(NodeRef node_ref, NodeRef new_node);
+
+void luisa_compute_ir_node_remove(NodeRef node_ref);
+
+void luisa_compute_ir_node_replace_with(NodeRef node_ref, const Node *new_node);
+
 CBoxedSlice<uint8_t> luisa_compute_ir_node_usage(const KernelModule *kernel);
 
 CArcSharedBlock<Type> *luisa_compute_ir_register_type(const Type *ty);
+
+Module luisa_compute_ir_transform_auto(Module module);
 
 void luisa_compute_ir_transform_pipeline_add_transform(TransformPipeline *pipeline,
                                                        const char *name);
@@ -815,6 +917,8 @@ void luisa_compute_ir_transform_pipeline_destroy(TransformPipeline *pipeline);
 TransformPipeline *luisa_compute_ir_transform_pipeline_new();
 
 Module luisa_compute_ir_transform_pipeline_transform(TransformPipeline *pipeline, Module module);
+
+size_t luisa_compute_ir_type_alignment(const CArc<Type> *ty);
 
 size_t luisa_compute_ir_type_size(const CArc<Type> *ty);
 

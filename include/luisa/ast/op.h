@@ -4,6 +4,7 @@
 
 #include <luisa/core/stl/iterator.h>
 #include <luisa/core/basic_types.h>
+#include <luisa/core/magic_enum.h>
 
 namespace luisa::compute {
 
@@ -89,34 +90,34 @@ enum struct CallOp : uint32_t {
     LERP,    // (vecN, vecN, vecN)
 
     SMOOTHSTEP,// (vecN, vecN, vecN)
-    STEP,       // (x, y): (x >= y) ? 1 : 0
+    STEP,      // (x, y): (x >= y) ? 1 : 0
 
     ABS,// (vecN)
     MIN,// (vecN)
     MAX,// (vecN)
 
-    CLZ,     // (int/uint)
-    CTZ,     // (int/uint)
-    POPCOUNT,// (int/uint)
-    REVERSE, // (int/uint)
+    CLZ,     // (uintN)
+    CTZ,     // (uintN)
+    POPCOUNT,// (uintN)
+    REVERSE, // (uintN)
 
     ISINF,// (floatN)
     ISNAN,// (floatN)
 
-    ACOS, // (float)
-    ACOSH,// (float)
-    ASIN, // (float)
-    ASINH,// (float)
-    ATAN, // (float)
-    ATAN2,// (float)
-    ATANH,// (float)
+    ACOS, // (floatN)
+    ACOSH,// (floatN)
+    ASIN, // (floatN)
+    ASINH,// (floatN)
+    ATAN, // (floatN)
+    ATAN2,// (floatN)
+    ATANH,// (floatN)
 
-    COS, // (float)
-    COSH,// (float)
-    SIN, // (float)
-    SINH,// (float)
-    TAN, // (float)
-    TANH,// (float)
+    COS, // (floatN)
+    COSH,// (floatN)
+    SIN, // (floatN)
+    SINH,// (floatN)
+    TAN, // (floatN)
+    TANH,// (floatN)
 
     EXP,  // (floatN)
     EXP2, // (floatN)
@@ -135,8 +136,8 @@ enum struct CallOp : uint32_t {
     TRUNC,// (floatN)
     ROUND,// (floatN)
 
-    FMA,     // (a, b): return a * b + c
-    COPYSIGN,// (float, float)
+    FMA,     // (a: floatN, b: floatN, c: floatN): return a * b + c
+    COPYSIGN,// (floatN, floatN)
 
     CROSS,         // (floatN, floatN)
     DOT,           // (floatN, floatN)
@@ -169,13 +170,13 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
-    BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    BUFFER_SIZE,  /// [(buffer) -> size]
+    BUFFER_READ, /// [(buffer, index) -> value]: reads the index-th element in buffer
+    BUFFER_WRITE,/// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    BUFFER_SIZE, /// [(buffer) -> size]
 
-    BYTE_BUFFER_READ,  /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
-    BYTE_BUFFER_WRITE, /// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
-    BYTE_BUFFER_SIZE,  /// [(buffer) -> size_bytes]
+    BYTE_BUFFER_READ, /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
+    BYTE_BUFFER_WRITE,/// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
+    BYTE_BUFFER_SIZE, /// [(buffer) -> size_bytes]
 
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
@@ -198,11 +199,11 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE2D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint2
     BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
-    BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
-    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint, stride: uint) -> size
-    BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
-                                      // could be compared with the value of a TypeIDExpr to examine the type of the buffer
+    BINDLESS_BUFFER_READ,     // (bindless_array, index: uint, elem_index: uint): expr->type()
+    BINDLESS_BYTE_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
+    BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size
+    BINDLESS_BUFFER_TYPE,     // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
+                              // could be compared with the value of a TypeIDExpr to examine the type of the buffer
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)
@@ -252,8 +253,8 @@ enum struct CallOp : uint32_t {
     ONE,
 
     // Pack/unpack to array<uint, ceil(sizeof(T)/4))
-    PACK,   // (T) -> array<uint, ceil(sizeof(T)/4))
-    UNPACK, // (array<uint, ceil(sizeof(T)/4)) -> T
+    PACK,  // (T) -> array<uint, ceil(sizeof(T)/4))
+    UNPACK,// (array<uint, ceil(sizeof(T)/4)) -> T
 
     // autodiff ops
     REQUIRES_GRADIENT,  // (expr) -> void
@@ -265,13 +266,16 @@ enum struct CallOp : uint32_t {
 
     // ray tracing
     RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
+    RAY_TRACING_INSTANCE_USER_ID,       // (Accel, uint)
     RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
     RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
     RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
-    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
-    RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY,              // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_SET_INSTANCE_USER_ID,   // (Accel, uint, uint)
+
+    RAY_TRACING_TRACE_CLOSEST,// (Accel, ray, mask: uint): TriangleHit
+    RAY_TRACING_TRACE_ANY,    // (Accel, ray, mask: uint): bool
+    RAY_TRACING_QUERY_ALL,    // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY,    // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
@@ -290,14 +294,36 @@ enum struct CallOp : uint32_t {
     DDX,// (arg: float vector): float vector
     DDY,// (arg: float vector): float vector
 
-    // indirect
-    INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void
-    INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
-    INDIRECT_EMPLACE_DISPATCH_KERNEL,// (Buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+    // Wave:
+    WARP_IS_FIRST_ACTIVE_LANE,  // (): bool
+    WARP_FIRST_ACTIVE_LANE,     // (): uint
+    WARP_ACTIVE_ALL_EQUAL,      // (scalar/vector): boolN
+    WARP_ACTIVE_BIT_AND,        // (intN): intN
+    WARP_ACTIVE_BIT_OR,         // (intN): intN
+    WARP_ACTIVE_BIT_XOR,        // (intN): intN
+    WARP_ACTIVE_COUNT_BITS,     // (bool): uint
+    WARP_ACTIVE_MAX,            // (type: scalar/vector): type
+    WARP_ACTIVE_MIN,            // (type: scalar/vector): type
+    WARP_ACTIVE_PRODUCT,        // (type: scalar/vector): type
+    WARP_ACTIVE_SUM,            // (type: scalar/vector): type
+    WARP_ACTIVE_ALL,            // (bool): bool
+    WARP_ACTIVE_ANY,            // (bool): bool
+    WARP_ACTIVE_BIT_MASK,       // (bool): uint4 (uint4 contained 128-bit)
+    WARP_PREFIX_COUNT_BITS,     // (bool): uint (count bits before this lane)
+    WARP_PREFIX_SUM,            // (type: scalar/vector): type (sum lanes before this lane)
+    WARP_PREFIX_PRODUCT,        // (type: scalar/vector): type (multiply lanes before this lane)
+    WARP_READ_LANE,             // (type: scalar/vector/matrix, index: uint): type (read this variable's value at this lane)
+    WARP_READ_FIRST_ACTIVE_LANE,// (type: scalar/vector/matrix): type (read this variable's value at the first lane)
 
+    // indirect
+    INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+    INDIRECT_SET_DISPATCH_COUNT, // (Buffer, uint count)
+
+    // SER
+    SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::SHADER_EXECUTION_REORDER) + 1u;
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
     auto op_value = luisa::to_underlying(op);
@@ -323,8 +349,9 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
  * @brief Set of call operations.
  * 
  */
+class CallableLibrary;
 class LC_AST_API CallOpSet {
-
+    friend class CallableLibrary;
 public:
     using Bitset = std::bitset<call_op_count>;
 
@@ -391,3 +418,5 @@ public:
 };
 
 }// namespace luisa::compute
+
+LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, SHADER_EXECUTION_REORDER)

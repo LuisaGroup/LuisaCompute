@@ -8,6 +8,7 @@ use std::env::{current_exe, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
+use std::ptr::null;
 use std::sync::atomic::Ordering;
 use std::{
     cell::RefCell,
@@ -423,6 +424,8 @@ fn find_clang() -> Option<String> {
             }
         }
         None
+    } else if cfg!(target_os = "macos") {
+        try_exists("/opt/homebrew/opt/llvm/bin/clang")
     } else {
         None
     }
@@ -439,6 +442,8 @@ fn find_llvm() -> Option<String> {
             }
         }
         None
+    } else if cfg!(target_os = "macos") {
+        try_exists("/opt/homebrew/opt/llvm/lib/libLLVM-C.dylib")
     } else {
         None
     }
@@ -629,6 +634,34 @@ impl LibLLVM {
         let paths = LLVM_PATH.deref();
         eprintln!("clang++: {}, llvm: {}", paths.clang, paths.llvm);
     }
+}
+
+#[repr(C)]
+struct LLVMExecutorAddr {
+    addr: u64,
+}
+
+#[repr(C)]
+struct LLVMExecutorAddrRange {
+    start: LLVMExecutorAddr,
+    end: LLVMExecutorAddr,
+}
+
+#[repr(C)]
+struct LLVMError {
+    payload: *const c_void,
+}
+
+#[no_mangle]
+unsafe extern "C" fn llvm_orc_registerEHFrameSectionWrapper(_: LLVMExecutorAddrRange) -> LLVMError {
+    LLVMError { payload: null() }
+}
+
+#[no_mangle]
+unsafe extern "C" fn llvm_orc_deregisterEHFrameSectionWrapper(
+    _: LLVMExecutorAddrRange,
+) -> LLVMError {
+    LLVMError { payload: null() }
 }
 
 pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> Option<KernelFn> {
@@ -842,9 +875,17 @@ impl Context {
                     let shader = &*shader;
 
                     eprintln!("{}", shader.messages[msg as usize]);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(
+                        file,
+                        "LuisaCompute CPU backend kernel aborted:\n{}",
+                        shader.messages[msg as usize]
+                    )
+                    .unwrap();
                 }
 
-                panic!("kernel execution aborted");
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
@@ -883,6 +924,7 @@ impl Context {
                         }
                     }
                     let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
+                    dbg!(msg.len());
                     let idx = msg.find("{}").unwrap();
                     let mut display = String::new();
                     display.push_str(&msg[..idx]);
@@ -892,8 +934,16 @@ impl Context {
                     display.push_str(&format!("{}", j));
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
                     eprintln!("{}", display);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(
+                        file,
+                        "LuisaCompute CPU backend kernel aborted:\n{}",
+                        display
+                    )
+                    .unwrap();
                 }
-                panic!("kernel execution aborted");
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
@@ -984,10 +1034,10 @@ fn cpu_features() -> Vec<String> {
 fn cpu_features() -> Vec<String> {
     let mut features = vec![];
     if is_x86_feature_detected!("aes") { features.push("aes"); }
-    if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
-    if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
-    if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
-    if is_x86_feature_detected!("tsc") { features.push("tsc"); }
+    // if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
+    // if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
+    // if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
+    // if is_x86_feature_detected!("tsc") { features.push("tsc"); }
     if is_x86_feature_detected!("mmx") { features.push("mmx"); }
     if is_x86_feature_detected!("sse") { features.push("sse"); }
     if is_x86_feature_detected!("sse2") { features.push("sse2"); }
@@ -1019,9 +1069,9 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("avx512vp2intersect") { features.push("avx512vp2intersect"); }
     if is_x86_feature_detected!("f16c") { features.push("f16c"); }
     if is_x86_feature_detected!("fma") { features.push("fma"); }
-    if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
+    // if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
     if is_x86_feature_detected!("bmi2") { features.push("bmi2"); }
-    if is_x86_feature_detected!("abm") { features.push("abm"); }
+    // if is_x86_feature_detected!("abm") { features.push("abm"); }
     if is_x86_feature_detected!("lzcnt") { features.push("lzcnt"); }
     if is_x86_feature_detected!("tbm") { features.push("tbm"); }
     if is_x86_feature_detected!("popcnt") { features.push("popcnt"); }
@@ -1030,7 +1080,7 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("xsaveopt") { features.push("xsaveopt"); }
     if is_x86_feature_detected!("xsaves") { features.push("xsaves"); }
     if is_x86_feature_detected!("xsavec") { features.push("xsavec"); }
-    if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
+    // if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
     if is_x86_feature_detected!("adx") { features.push("adx"); }
     if is_x86_feature_detected!("rtm") { features.push("rtm"); }
     // this breaks msvc shipped with vs2019

@@ -20,10 +20,29 @@ const NodeRef &Node::prev() const noexcept { return detail::from_inner_ref(_inne
 const CArc<Instruction> &Node::instruction() const noexcept { return detail::from_inner_ref(_inner.instruction); }
 
 // including extra code from data/NodeRef.cpp
-[[nodiscard]] const Instruction *NodeRef::operator->() const noexcept {
-    auto node = luisa_compute_ir_node_get(_inner);
-    auto inst = node->instruction.get();
-    return reinterpret_cast<const Instruction *>(inst);
+[[nodiscard]] const Node *NodeRef::operator->() const noexcept {
+    return get();
+}
+
+[[nodiscard]] const Node *NodeRef::get() const noexcept {
+    auto node = raw::luisa_compute_ir_node_get(_inner);
+    return reinterpret_cast<const Node *>(node);
+}
+
+void NodeRef::insert_before_self(NodeRef node) noexcept {
+    raw::luisa_compute_ir_node_insert_before_self(_inner, node.raw());
+}
+
+void NodeRef::insert_after_self(NodeRef node) noexcept {
+    raw::luisa_compute_ir_node_insert_after_self(_inner, node.raw());
+}
+
+void NodeRef::replace_with(NodeRef node) noexcept {
+    raw::luisa_compute_ir_node_replace_with(_inner, reinterpret_cast<const raw::Node *>(node.get()));
+}
+
+void NodeRef::remove() noexcept {
+    raw::luisa_compute_ir_node_remove(_inner);
 }
 // end include
 
@@ -51,13 +70,24 @@ luisa::span<const SwitchCase> Instruction::Switch::cases() const noexcept {
 }
 
 const Pooled<BasicBlock> &Instruction::AdScope::body() const noexcept { return detail::from_inner_ref(_inner.body); }
+const bool &Instruction::AdScope::forward() const noexcept { return detail::from_inner_ref(_inner.forward); }
+const size_t &Instruction::AdScope::n_forward_grads() const noexcept { return detail::from_inner_ref(_inner.n_forward_grads); }
 const NodeRef &Instruction::RayQuery::ray_query() const noexcept { return detail::from_inner_ref(_inner.ray_query); }
 const Pooled<BasicBlock> &Instruction::RayQuery::on_triangle_hit() const noexcept { return detail::from_inner_ref(_inner.on_triangle_hit); }
 const Pooled<BasicBlock> &Instruction::RayQuery::on_procedural_hit() const noexcept { return detail::from_inner_ref(_inner.on_procedural_hit); }
+luisa::span<const uint8_t> Instruction::Print::fmt() const noexcept {
+    return {reinterpret_cast<const uint8_t *>(_inner.fmt.ptr), _inner.fmt.len};
+}
+
+luisa::span<const NodeRef> Instruction::Print::args() const noexcept {
+    return {reinterpret_cast<const NodeRef *>(_inner.args.ptr), _inner.args.len};
+}
+
 const NodeRef &BasicBlock::first() const noexcept { return detail::from_inner_ref(_inner.first); }
 const NodeRef &BasicBlock::last() const noexcept { return detail::from_inner_ref(_inner.last); }
 const ModuleKind &Module::kind() const noexcept { return detail::from_inner_ref(_inner.kind); }
 const Pooled<BasicBlock> &Module::entry() const noexcept { return detail::from_inner_ref(_inner.entry); }
+const ModuleFlags &Module::flags() const noexcept { return detail::from_inner_ref(_inner.flags); }
 const CArc<ModulePools> &Module::pools() const noexcept { return detail::from_inner_ref(_inner.pools); }
 const Module &CallableModule::module() const noexcept { return detail::from_inner_ref(_inner.module); }
 const CArc<Type> &CallableModule::ret_type() const noexcept { return detail::from_inner_ref(_inner.ret_type); }
@@ -67,10 +97,6 @@ luisa::span<const NodeRef> CallableModule::args() const noexcept {
 
 luisa::span<const Capture> CallableModule::captures() const noexcept {
     return {reinterpret_cast<const Capture *>(_inner.captures.ptr), _inner.captures.len};
-}
-
-luisa::span<const CallableModuleRef> CallableModule::callables() const noexcept {
-    return {reinterpret_cast<const CallableModuleRef *>(_inner.callables.ptr), _inner.callables.len};
 }
 
 luisa::span<const CArc<CpuCustomOp>> CallableModule::cpu_custom_ops() const noexcept {
@@ -102,10 +128,6 @@ luisa::span<const NodeRef> KernelModule::shared() const noexcept {
 
 luisa::span<const CArc<CpuCustomOp>> KernelModule::cpu_custom_ops() const noexcept {
     return {reinterpret_cast<const CArc<CpuCustomOp> *>(_inner.cpu_custom_ops.ptr), _inner.cpu_custom_ops.len};
-}
-
-luisa::span<const CallableModuleRef> KernelModule::callables() const noexcept {
-    return {reinterpret_cast<const CallableModuleRef *>(_inner.callables.ptr), _inner.callables.len};
 }
 
 const std::array<uint32_t, 3> &KernelModule::block_size() const noexcept { return detail::from_inner_ref(_inner.block_size); }
@@ -156,9 +178,19 @@ NodeRef IrBuilder::generic_loop(const Pooled<BasicBlock> &prepare, const NodeRef
                                                     reinterpret_cast<const Pooled<raw::BasicBlock> &>(update));
     return NodeRef::from_raw(node);
 }
+NodeRef IrBuilder::loop(const Pooled<BasicBlock> &body, const NodeRef &cond) noexcept {
+    auto node = luisa_compute_ir_build_loop(&_inner,
+                                            reinterpret_cast<const Pooled<raw::BasicBlock> &>(body),
+                                            cond._inner);
+    return NodeRef::from_raw(node);
+}
 Pooled<BasicBlock> IrBuilder::finish(IrBuilder &&builder) noexcept {
     auto block = luisa_compute_ir_build_finish(builder._inner);
     return luisa::bit_cast<Pooled<BasicBlock>>(block);
+}
+
+void IrBuilder::set_insert_point(const NodeRef &node) noexcept {
+    raw::luisa_compute_ir_builder_set_insert_point(&_inner, node._inner);
 }
 // end include
 

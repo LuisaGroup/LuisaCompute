@@ -1,5 +1,12 @@
 #pragma once
 
+#include <luisa/core/dll_export.h>
+#include <luisa/core/stl/string.h>
+
+namespace luisa::compute::dsl_detail {
+[[nodiscard]] LC_DSL_API luisa::string format_source_location(const char *file, int line) noexcept;
+}// namespace luisa::compute::dsl_detail
+
 #ifndef LUISA_COMPUTE_DESUGAR
 
 #include <luisa/dsl/syntax.h>
@@ -85,28 +92,60 @@
 #define $continue ::luisa::compute::continue_()
 #define $return(...) ::luisa::compute::return_(__VA_ARGS__)
 
-#define $if(...) ::luisa::compute::detail::IfStmtBuilder{__VA_ARGS__} % [&]() noexcept
-#define $else / [&]() noexcept
-#define $elif(...) *([&] { return __VA_ARGS__; }) % [&]() noexcept
-#define $loop ::luisa::compute::detail::LoopStmtBuilder{} % [&]() noexcept
-#define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} / [&]() noexcept { \
-    $if(!(__VA_ARGS__)) { $break; };                                               \
-} % [&]() noexcept
+#define $if(...)                                                                  \
+    ::luisa::compute::detail::IfStmtBuilder::create_with_comment(                 \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
+        __VA_ARGS__) %                                                            \
+        [&]() noexcept
+#define $else \
+    / [&]() noexcept
+#define $elif(...) \
+    *([&] { return __VA_ARGS__; }) % [&]() noexcept
 
-#define $autodiff ::luisa::compute::detail::AutoDiffStmtBuilder{} % [&]() noexcept
+#define $loop                                                                       \
+    ::luisa::compute::detail::LoopStmtBuilder::create_with_comment(                 \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
+        [&]() noexcept
+#define $while(...)                                                                 \
+    ::luisa::compute::detail::LoopStmtBuilder::create_with_comment(                 \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) / \
+        [&]() noexcept {                                                            \
+            $if (!(__VA_ARGS__)) { $break; };                                       \
+        } %                                                                         \
+        [&]() noexcept
 
-#define $switch(...) ::luisa::compute::detail::SwitchStmtBuilder{__VA_ARGS__} % [&]() noexcept
-#define $case(...) ::luisa::compute::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept
-#define $default ::luisa::compute::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
+#define $autodiff                                                                   \
+    ::luisa::compute::detail::AutoDiffStmtBuilder::create_with_comment(             \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
+        [&]() noexcept
 
-#define $for(x, ...)                                            \
-    for (auto x : ::luisa::compute::dynamic_range(__VA_ARGS__)) \
+#define $switch(...)                                                              \
+    ::luisa::compute::detail::SwitchStmtBuilder::create_with_comment(             \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
+        __VA_ARGS__) %                                                            \
+        [&]() noexcept
+#define $case(...)                                                                \
+    ::luisa::compute::detail::SwitchCaseStmtBuilder::create_with_comment(         \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
+        __VA_ARGS__) %                                                            \
+        [&]() noexcept
+#define $default                                                                    \
+    ::luisa::compute::detail::SwitchDefaultStmtBuilder::create_with_comment(        \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
+        [&]() noexcept
+
+#define $for(x, ...)                                                                   \
+    for (auto x : ::luisa::compute::dynamic_range_with_comment(                        \
+             ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
+             __VA_ARGS__))                                                             \
     ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
 
 #define $comment(...) \
     ::luisa::compute::comment(__VA_ARGS__)
-#define $comment_with_location(...) \
-    $comment(luisa::format(FMT_STRING("{} [{}:{}]"), std::string_view{__VA_ARGS__}, __FILE__, __LINE__))
+#define $comment_with_location(...)                                                                \
+    $comment(luisa::string{__VA_ARGS__}                                                            \
+                 .append(" [")                                                                     \
+                 .append(::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) \
+                 .append("]"))
 
 #endif
-

@@ -80,5 +80,6 @@ public:
     ~Device();
     void WaitFence(ID3D12Fence *fence, uint64 fenceIndex);
     static hlsl::ShaderCompiler *Compiler();
+    uint waveSize() const;
 };
 }// namespace lc::dx

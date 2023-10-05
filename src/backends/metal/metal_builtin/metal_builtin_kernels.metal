@@ -12,13 +12,15 @@ struct alignas(16) AccelInstance {
 
 struct alignas(16) AccelInstanceModification {
     uint index;
+    uint user_id;
     uint flags;
-    ulong primitive;
+    uint vis_mask;
     float4 affine[3];// row-major
+    ulong primitive;
 };
 
 static_assert(sizeof(AccelInstance) == 64u, "");
-static_assert(sizeof(AccelInstanceModification) == 64u, "");
+static_assert(sizeof(AccelInstanceModification) == 80u, "");
 
 [[kernel]] void update_accel_instances(device AccelInstance *__restrict__ instances,
                                        device const AccelInstanceModification *__restrict__ mods,
@@ -30,8 +32,8 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
         constexpr auto update_flag_opaque_on = 1u << 2u;
         constexpr auto update_flag_opaque_off = 1u << 3u;
         constexpr auto update_flag_visibility = 1u << 4u;
+        constexpr auto update_flag_user_id = 1u << 5u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
-        constexpr auto update_flag_vis_mask_offset = 24u;
 
         constexpr auto instance_option_disable_culling = 1u;
         constexpr auto instance_option_opaque = 4u;
@@ -39,12 +41,11 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
 
         auto m = mods[tid];
         auto instance = instances[m.index];
-        instance.intersection_function_offset = m.primitive;
         if (m.flags & update_flag_primitive) {
             instance.mesh_index = m.index;
         }
         if (m.flags & update_flag_visibility) {
-            instance.mask = (m.flags >> update_flag_vis_mask_offset) & 0xffu;
+            instance.mask = m.vis_mask;
         }
         if (m.flags & update_flag_opaque) {
             instance.options = (m.flags & update_flag_opaque_on) ?
@@ -64,6 +65,9 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
             instance.transform[9] = m.affine[0].w;
             instance.transform[10] = m.affine[1].w;
             instance.transform[11] = m.affine[2].w;
+        }
+        if (m.flags & update_flag_user_id) {
+            instance.intersection_function_offset = m.user_id;
         }
         instances[m.index] = instance;
     }
@@ -165,7 +169,6 @@ struct RasterData {
 }
 
 struct alignas(16) ICBHeader {
-    uint offset;
     uint count;
 };
 
@@ -176,7 +179,8 @@ struct alignas(16) ICBSlot {
 
 struct ICB {
     device const void *__restrict__ buffer;
-    ulong capacity;
+    uint offset;
+    uint capacity;
     command_buffer command_buffer;
     compute_pipeline_state pipeline_state;
 };
@@ -186,20 +190,22 @@ static_assert(sizeof(ICB) == 32u);
 [[kernel]] void prepare_indirect_dispatches(constant ICB &icb,
                                             constant void *__restrict__ kernel_args,
                                             uint tid [[thread_position_in_grid]]) {
-    if (tid < icb.capacity) {
-        compute_command cmd{icb.command_buffer, tid};
+    if (auto index = icb.offset + tid; index < icb.capacity) {
+        compute_command cmd{icb.command_buffer, index};
         cmd.reset();
         auto header = static_cast<device const ICBHeader *>(icb.buffer);
         if (tid < header->count) {
             auto slots = reinterpret_cast<device const ICBSlot *>(header + 1u);
-            auto slot = slots[tid];
+            auto slot = slots[index];
             auto block_size = slot.block_size;
             auto dispatch_size = slot.dispatch_size_and_kernel_id.xyz;
-            cmd.set_compute_pipeline_state(icb.pipeline_state);
-            cmd.set_kernel_buffer(kernel_args, 0u);
-            cmd.set_kernel_buffer(&(slots[tid].dispatch_size_and_kernel_id), 1u);
-            auto block_count = (dispatch_size + block_size - 1u) / block_size;
-            cmd.concurrent_dispatch_threadgroups(block_count, block_size);
+            if (all(dispatch_size > 0u)) {
+                cmd.set_compute_pipeline_state(icb.pipeline_state);
+                cmd.set_kernel_buffer(kernel_args, 0u);
+                cmd.set_kernel_buffer(&(slots[index].dispatch_size_and_kernel_id), 1u);
+                auto block_count = (dispatch_size + block_size - 1u) / block_size;
+                cmd.concurrent_dispatch_threadgroups(block_count, block_size);
+            }
         }
     }
 }

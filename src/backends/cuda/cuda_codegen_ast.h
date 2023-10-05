@@ -4,6 +4,8 @@
 #include <luisa/ast/statement.h>
 #include <luisa/ast/expression.h>
 
+#include "../common/string_scratch.h"
+
 namespace luisa::compute::cuda {
 
 class CUDAConstantPrinter;
@@ -21,7 +23,7 @@ public:
 private:
     StringScratch &_scratch;
     Function _function;
-    luisa::vector<Function> _generated_functions;
+    luisa::vector<uint64_t> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
     luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
     uint32_t _indent{0u};
@@ -47,6 +49,7 @@ private:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const TypeIDExpr *expr) override;
+    void visit(const StringIDExpr *expr) override;
     void visit(const BreakStmt *stmt) override;
     void visit(const ContinueStmt *stmt) override;
     void visit(const ReturnStmt *stmt) override;

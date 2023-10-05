@@ -1,6 +1,5 @@
 #pragma once
 
-#include <bit>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/memory.h>
 
@@ -43,9 +42,9 @@ private:
 public:
     BinaryBufferReader(const std::byte *bytes, size_t size) noexcept
         : _bytes{bytes}, _offset{0u}, _size{size} {}
-    BinaryBufferReader(luisa::span<const std::byte> bytes) noexcept
+    explicit BinaryBufferReader(luisa::span<const std::byte> bytes) noexcept
         : BinaryBufferReader{bytes.data(), bytes.size()} {}
-    BinaryBufferReader(const BinaryBuffer &buffer) noexcept
+    explicit BinaryBufferReader(const BinaryBuffer &buffer) noexcept
         : BinaryBufferReader{buffer.data(), buffer.size()} {}
     template<typename T>
     [[nodiscard]] auto read() noexcept {

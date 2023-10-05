@@ -3,7 +3,8 @@
 #include <pybind11/stl.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/raster/raster_shader.h>
-#include <luisa/ast/ast_evaluator.h>
+#include "ast_evaluator.h"
+#include <luisa/core/binary_file_stream.h>
 #include <luisa/vstl/common.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
@@ -16,7 +17,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/dispatch_buffer.h>
-
+#include <luisa/ast/callable_library.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -124,7 +125,7 @@ void export_runtime(py::module &m) {
             return accel.GetAccel().size();
         })
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
-        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             MeshUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -136,9 +137,9 @@ void export_runtime(py::module &m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            accel.emplace(cmd, transform, visibility_mask, opaque);
+            accel.emplace(cmd, transform, visibility_mask, opaque, user_id);
         })
-        .def("emplace_procedural", [](ManagedAccel &accel, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("emplace_procedural", [](ManagedAccel &accel, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             ProceduralUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -146,10 +147,10 @@ void export_runtime(py::module &m) {
             cmd.aabb_buffer = aabb_buffer;
             cmd.aabb_offset = aabb_offset * sizeof(AABB);
             cmd.aabb_size = aabb_count * sizeof(AABB);
-            accel.emplace(cmd, transform, visibility_mask, opaque);
+            accel.emplace(cmd, transform, visibility_mask, opaque, user_id);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
-        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             MeshUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -161,9 +162,9 @@ void export_runtime(py::module &m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            accel.set(index, cmd, transform, visibility_mask, opaque);
+            accel.set(index, cmd, transform, visibility_mask, opaque, user_id);
         })
-        .def("set_procedural", [](ManagedAccel &accel, size_t index, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+        .def("set_procedural", [](ManagedAccel &accel, size_t index, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque, uint user_id) {
             ProceduralUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
@@ -171,10 +172,11 @@ void export_runtime(py::module &m) {
             cmd.aabb_buffer = aabb_buffer;
             cmd.aabb_offset = aabb_offset * sizeof(AABB);
             cmd.aabb_size = aabb_count * sizeof(AABB);
-            accel.set(index, cmd, transform, visibility_mask, opaque);
+            accel.set(index, cmd, transform, visibility_mask, opaque, user_id);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
-        .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, int visibility_mask) { a.GetAccel().set_visibility_on_update(index, visibility_mask); });
+        .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, int visibility_mask) { a.GetAccel().set_visibility_on_update(index, visibility_mask); })
+        .def("set_user_id", [](ManagedAccel &a, size_t index, uint user_id) { a.GetAccel().set_instance_user_id_on_update(index, user_id); });
     py::class_<ManagedDevice>(m, "Device")
         .def(
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
@@ -438,6 +440,28 @@ void export_runtime(py::module &m) {
     py::class_<IntEval>(m, "IntEval")
         .def("value", [](IntEval &self) { return self.value; })
         .def("exist", [](IntEval &self) { return self.exist; });
+    py::class_<CallableLibrary>(m, "CallableLibrary")
+        .def(py::init<>())
+        .def("add_callable", &CallableLibrary::add_callable)
+        .def("serialize", [](CallableLibrary &self, luisa::string_view path) {
+            auto vec = self.serialize();
+            luisa::string path_str{path};
+            auto f = fopen(path_str.c_str(), "wb");
+            if (f) {
+                fwrite(vec.data(), vec.size(), 1, f);
+                LUISA_INFO("Save serialized callable with size: {} bytes.", vec.size());
+                fclose(f);
+            }
+        })
+        .def("load", [](CallableLibrary &self, luisa::string_view path) {
+            BinaryFileStream file_stream{luisa::string{path}};
+            luisa::vector<std::byte> vec;
+            if (file_stream.valid()) {
+                vec.push_back_uninitialized(file_stream.length());
+                file_stream.read(vec);
+            }
+            self.load(vec);
+        });
     py::class_<FunctionBuilder, luisa::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
@@ -470,6 +494,8 @@ void export_runtime(py::module &m) {
         .def("block_id", &FunctionBuilder::block_id, pyref)
         .def("dispatch_id", &FunctionBuilder::dispatch_id, pyref)
         .def("kernel_id", &FunctionBuilder::kernel_id, pyref)
+        .def("warp_lane_count", &FunctionBuilder::warp_lane_count, pyref)
+        .def("warp_lane_id", &FunctionBuilder::warp_lane_id, pyref)
         .def("object_id", &FunctionBuilder::object_id, pyref)
         .def("dispatch_size", &FunctionBuilder::dispatch_size, pyref)
 

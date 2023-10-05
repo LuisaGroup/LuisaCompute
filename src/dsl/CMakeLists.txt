@@ -18,6 +18,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             printer.cpp
             resource.cpp
             soa.cpp
+            sugar.cpp
             ${LUISA_COMPUTE_DSL_RTX_SOURCES}
             ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 

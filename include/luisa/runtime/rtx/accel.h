@@ -25,7 +25,6 @@ public:
 private:
     luisa::unordered_map<size_t, Modification> _modifications;
     size_t _mesh_size{};
-
 private:
     friend class Device;
     friend class Mesh;
@@ -35,10 +34,11 @@ private:
     void _emplace_back_handle(uint64_t mesh_handle,
                               float4x4 const &transform,
                               uint8_t visibility_mask,
-                              bool opaque) noexcept;
+                              bool opaque,
+                              uint user_id) noexcept;
     void _set_handle(size_t index, uint64_t mesh_handle,
                      float4x4 const &transform,
-                     uint8_t visibility_mask, bool opaque) noexcept;
+                     uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
     void _set_prim_handle(size_t index, uint64_t prim_handle) noexcept;
 
 public:
@@ -62,28 +62,33 @@ public:
     void emplace_back(const Mesh &mesh,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
-                      bool opaque = true) noexcept {
-        _emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque);
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        _emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
 
     void emplace_back(const ProceduralPrimitive &prim,
                       float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu) noexcept {
+                      uint8_t visibility_mask = 0xffu,
+                      uint user_id = 0) noexcept {
         _emplace_back_handle(prim.handle(), transform, visibility_mask,
-                             false /* procedural geometry is always non-opaque */);
+                             false /* procedural geometry is always non-opaque */,
+                             user_id);
     }
 
     void set(size_t index, const Mesh &mesh,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
-             bool opaque = true) noexcept {
-        _set_handle(index, mesh.handle(), transform, visibility_mask, opaque);
+             bool opaque = true,
+             uint user_id = 0) noexcept {
+        _set_handle(index, mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
 
     void set(size_t index, const ProceduralPrimitive &prim,
              float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu) noexcept {
-        _set_handle(index, prim.handle(), transform, visibility_mask, false);
+             uint8_t visibility_mask = 0xffu,
+             uint user_id = 0) noexcept {
+        _set_handle(index, prim.handle(), transform, visibility_mask, false, user_id);
     }
     void set_mesh(size_t index, const Mesh &mesh) noexcept {
         _set_prim_handle(index, mesh.handle());
@@ -95,6 +100,7 @@ public:
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept;
     void set_opaque_on_update(size_t index, bool opaque) noexcept;
+    void set_instance_user_id_on_update(size_t index, uint user_id) noexcept;
 
     // update top-level acceleration structure's instance data without build
     [[nodiscard]] luisa::unique_ptr<Command> update_instance_buffer() noexcept {

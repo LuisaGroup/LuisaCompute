@@ -102,6 +102,7 @@ scalar_dtypes = {int, float, bool, uint, ushort, half, short, long, ulong}
 vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4, short2, half2,
                  ushort2, short3, half3, ushort3, short4, half4, ushort4, long2, ulong2, long3, ulong3, long4, ulong4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
+integer_scalar_vector_dtypes = {int, int2, int3, int4, uint, uint2, uint3, uint4, short, short2, short3, short4, ushort, ushort2, ushort3, ushort4,long, long2, long3, long4, ulong, ulong2, ulong3, ulong4}
 
 scalar_and_vector_dtypes = {*scalar_dtypes, *vector_dtypes}
 vector_and_matrix_dtypes = {*vector_dtypes, *matrix_dtypes}
@@ -340,7 +341,7 @@ _implicit_map = {
 }
 
 
-def implicit_covertable(src, dst):
+def implicit_convertible(src, dst):
     return (src == dst) or (
             _implicit_map.get(src) is not None and \
             _implicit_map.get(src) is not None and \

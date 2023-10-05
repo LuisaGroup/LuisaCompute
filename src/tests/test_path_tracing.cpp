@@ -9,9 +9,11 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/rtx/accel.h>
-#include "common/cornell_box.h"
 #include <stb/stb_image_write.h>
 #include <luisa/gui/window.h>
+#include <luisa/ast/ast2json.h>
+
+#include "common/cornell_box.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"
@@ -87,7 +89,6 @@ int main(int argc, char *argv[]) {
         Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               //    << synchronize()
                << mesh.build();
     }
 
@@ -167,7 +168,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" ? 1u : 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -191,6 +192,7 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
                 // trace
                 Var<TriangleHit> hit = accel.trace_closest(ray);
+                reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
@@ -198,8 +200,8 @@ int main(int argc, char *argv[]) {
                 Float3 p2 = vertex_buffer->read(triangle.i2);
                 Float3 p = hit->interpolate(p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
-                Float cos_wi = dot(-ray->direction(), n);
-                $if (cos_wi < 1e-4f) { $break; };
+                Float cos_wo = dot(-ray->direction(), n);
+                $if (cos_wo < 1e-4f) { $break; };
 
                 // hit light
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -207,7 +209,7 @@ int main(int argc, char *argv[]) {
                         radiance += light_emission;
                     }
                     $else {
-                        Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                        Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
                         Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                         radiance += mis_weight * beta * light_emission;
                     };
@@ -239,10 +241,12 @@ int main(int argc, char *argv[]) {
                 Var<Onb> onb = make_onb(n);
                 Float ux = lcg(state);
                 Float uy = lcg(state);
-                Float3 new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
+                Float3 wi_local = cosine_sample_hemisphere(make_float2(ux, uy));
+                Float cos_wi = abs(wi_local.z);
+                Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
-                beta *= albedo;
                 pdf_bsdf = cos_wi * inv_pi;
+                beta *= albedo; // * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
@@ -289,7 +293,7 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
-    ShaderOption o{.enable_debug_info = true};
+    ShaderOption o{.enable_debug_info = false};
     o.name = "clear";
     Shader2D<Image<float>> clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";

@@ -213,8 +213,8 @@ int main(int argc, char *argv[]) {
                 auto p2 = vertex_buffer->read(triangle.i2);
                 auto p = hit->interpolate(p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
-                auto cos_wi = dot(-ray->direction(), n);
-                $if(cos_wi < 1e-4f) { $break; };
+                auto cos_wo = dot(-ray->direction(), n);
+                $if(cos_wo < 1e-4f) { $break; };
                 auto material = material_buffer->read(hit.inst);
 
                 // hit light
@@ -223,7 +223,7 @@ int main(int argc, char *argv[]) {
                         radiance += light_emission;
                     }
                     $else {
-                        auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                        auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
                         auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                         radiance += mis_weight * beta * light_emission;
                     };
@@ -251,13 +251,15 @@ int main(int argc, char *argv[]) {
                 };
 
                 // sample BSDF
-                auto onb = make_onb(n);
-                auto ux = lcg(state);
-                auto uy = lcg(state);
-                auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
+                Var<Onb> onb = make_onb(n);
+                Float ux = lcg(state);
+                Float uy = lcg(state);
+                Float3 wi_local = cosine_sample_hemisphere(make_float2(ux, uy));
+                Float cos_wi = abs(wi_local.z);
+                Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
-                beta *= material.albedo;
                 pdf_bsdf = cos_wi * inv_pi;
+                beta *= material.albedo; // * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);

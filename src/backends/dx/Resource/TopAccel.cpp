@@ -8,18 +8,6 @@
 
 namespace lc::dx {
 
-namespace detail {
-void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
-    float *x[3] = {inst.Transform[0],
-                   inst.Transform[1],
-                   inst.Transform[2]};
-    for (auto i : vstd::range(4))
-        for (auto j : vstd::range(3)) {
-            auto ptr = reinterpret_cast<float const *>(&tr.cols[i]);
-            x[j][i] = ptr[j];
-        }
-}
-}// namespace detail
 TopAccel::TopAccel(Device *device, AccelOption const &option)
     : Resource(device) {
     //TODO: allow_compact not supported
@@ -126,7 +114,15 @@ void TopAccel::PreProcessInst(
     allInstance.resize(size);
     setDesc.clear();
     vstd::push_back_all(setDesc, modifications);
-
+#ifndef NDEBUG
+    for (auto &&m : modifications) {
+        if (m.flags & m.flag_user_id) {
+            if (m.user_id >= (1u << 24u)) [[unlikely]] {
+                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
+            }
+        }
+    }
+#endif
     for (auto &&m : setDesc) {
         auto ite = setMap.find(m.index);
         bool updateMesh = (m.flags & m.flag_primitive);
@@ -185,6 +181,13 @@ size_t TopAccel::PreProcess(
         modifications.size()};
     for (auto &&m : mutable_mod) {
         auto ite = setMap.find(m.index);
+#ifndef NDEBUG
+        if (m.flags & m.flag_user_id) {
+            if (m.user_id >= (1u << 24u)) [[unlikely]] {
+                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
+            }
+        }
+#endif
         bool updateMesh = (m.flags & m.flag_primitive);
         if (ite != setMap.end()) {
             if (!updateMesh) {

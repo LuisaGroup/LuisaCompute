@@ -10,7 +10,7 @@ import ast
 from .dylibs import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
-from .types import dtype_of, to_lctype, implicit_covertable, basic_dtypes, uint
+from .types import dtype_of, to_lctype, implicit_convertible, basic_dtypes, uint
 from .astbuilder import VariableInfo
 import textwrap
 from pathlib import Path
@@ -55,7 +55,7 @@ def annotation_type_check(funcname, parameters, argtypes):
         if idx >= count:
             break
         anno = parameters[name].annotation
-        if anno != inspect._empty and not implicit_covertable(anno, argtypes[idx]):
+        if anno != inspect._empty and not implicit_convertible(anno, argtypes[idx]):
             hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
             raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
 
@@ -108,7 +108,7 @@ class FuncInstanceInfo:
 class CompileError(Exception):
     pass
 
-
+type_idx = 0
 class func:
     # creates a luisa function with given function
     # A luisa function can be run on accelarated device (CPU/GPU).
@@ -125,6 +125,7 @@ class func:
         self.lineno = frameinfo.lineno
 
     def save(self, argtypes: tuple, name=None, async_build: bool = True, print_cpp_header = False):
+        global type_idx
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
@@ -174,6 +175,7 @@ class func:
             shader_path = Path(name)
             shader_name = shader_path.name.split(".")[0]
             def get_value_type_name(dtype, r):
+                global type_idx
                 if dtype in basic_dtypes:
                     if dtype in {float, int, bool}:
                         return dtype.__name__, r
@@ -182,6 +184,7 @@ class func:
                     name = type_map.get(dtype)
                     if name == None:
                         name = "Arg" + str(type_idx)
+                        type_idx += 1
                         type_map[dtype] = name
                         r += f"struct {name} " + "{\n"
                         for idx, ele_type in dtype._py_args.items():
@@ -348,7 +351,7 @@ class func:
         return self.compiled_results[arg_features]
 
     # dispatch shader to stream
-    def __call__(self, *args, dispatch_size, stream=None, dispatch_buffer_offset:int=(2**64-1)):
+    def __call__(self, *args, dispatch_size, stream=None, dispatch_buffer_offset:int=0, max_dispatch_size:int=(2**32-1)):
         get_global_device()  # check device is initialized
         if stream is None:
             stream = globalvars.vars.stream
@@ -384,7 +387,7 @@ class func:
                 assert False
         # dispatch
         if is_buffer:
-            command.set_dispatch_buffer(dispatch_size.handle, dispatch_buffer_offset)
+            command.set_dispatch_buffer(dispatch_size.handle, dispatch_buffer_offset, max_dispatch_size)
         else:
             command.set_dispatch_size(*dispatch_size)
         stream.add(command.build())

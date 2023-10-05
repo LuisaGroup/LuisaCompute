@@ -66,14 +66,14 @@ class Accel:
         return Accel()
 
     def add(self, vertex_buffer, triangle_buffer, transform=float4x4(1), allow_compact: bool = True,
-            allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True):
+            allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id: int = 0):
         self._accel.emplace_back(vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(),
                                  triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact,
-                                 allow_update, visibility_mask, opaque)
+                                 allow_update, visibility_mask, opaque, user_id)
 
     def add_procedural(self, aabb_buffer, aabb_start_index: int = 0, aabb_count=None, transform=float4x4(1),
                        allow_compact: bool = True, allow_update: bool = False, visibility_mask: int = -1,
-                       opaque: bool = True):
+                       opaque: bool = True, user_id: int = 0):
         assert (aabb_buffer.stride == 24)
         var_aabb_count = None
         if aabb_count is None:
@@ -81,17 +81,17 @@ class Accel:
         else:
             var_aabb_count = aabb_count
         self._accel.emplace_procedural(aabb_buffer.handle, aabb_start_index, var_aabb_count, transform, allow_compact,
-                                       allow_update, visibility_mask, opaque)
+                                       allow_update, visibility_mask, opaque, user_id)
 
     def set(self, index, vertex_buffer, triangle_buffer, transform=float4x4(1), allow_compact: bool = True,
-            allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True):
+            allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id: int = 0):
         self._accel.set(index, vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(),
                         triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact, allow_update,
-                        visibility_mask, opaque)
+                        visibility_mask, opaque, user_id)
 
     def set_procedural(self, index: int, aabb_buffer, aabb_start_index: int = 0, aabb_count=None, transform=float4x4(1),
                        allow_compact: bool = True, allow_update: bool = False, visibility_mask: int = -1,
-                       opaque: bool = True):
+                       opaque: bool = True, user_id: int = 0):
         assert (aabb_buffer.stride == 24)
         var_aabb_count = None
         if aabb_count is None:
@@ -99,26 +99,26 @@ class Accel:
         else:
             var_aabb_count = aabb_count
         self._accel.set_procedural(index, aabb_buffer.handle, aabb_start_index, var_aabb_count, transform,
-                                   allow_compact, allow_update, visibility_mask, opaque)
+                                   allow_compact, allow_update, visibility_mask, opaque, user_id)
 
     def add_buffer_view(self, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer,
                         triangle_byteoffset, triangle_bytesize, transform=float4x4(1), allow_compact: bool = True,
-                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True):
+                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id:int = 0):
         assert (triangle_byteoffset & 15) == 0 and (vertex_byteoffset & 15) == 0
         assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
         assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
         self._accel.emplace_back(vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride,
                                  triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform,
-                                 allow_compact, allow_update, visibility_mask, opaque)
+                                 allow_compact, allow_update, visibility_mask, opaque, user_id)
 
     def set_buffer_view(self, index, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer,
                         triangle_byteoffset, triangle_bytesize, transform=float4x4(1), allow_compact: bool = True,
-                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True):
+                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id:int = 0):
         assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
         assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
         self._accel.set(index, vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride,
                         triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact,
-                        allow_update, visibility_mask, opaque)
+                        allow_update, visibility_mask, opaque, user_id)
 
     def pop(self):
         self._accel.pop_back()
@@ -131,6 +131,9 @@ class Accel:
 
     def set_visibility_on_update(self, index, visibility_mask: int):
         self._accel.set_visibility_on_update(index, visibility_mask)
+
+    def set_user_id(self, index, user_id: int):
+        self._accel.set_user_id(index, user_id)
 
     def update(self, sync=False, stream=None):
         if stream is None:
@@ -151,11 +154,23 @@ class Accel:
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest")
         expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST, [self.expr, ray.expr, vis_mask.expr])
         return TriangleHit, expr
+    
+    @BuiltinFuncBuilder
+    def trace_closest_cullback(self, ray, vis_mask):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest_cullback")
+        expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
+        return TriangleHit, expr
 
     @BuiltinFuncBuilder
     def trace_any(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any")
         expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY, [self.expr, ray.expr, vis_mask.expr])
+        return bool, expr
+    
+    @BuiltinFuncBuilder
+    def trace_any_cullback(self, ray, vis_mask):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any_cullback")
+        expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
         return bool, expr
 
     @BuiltinFuncBuilder
@@ -163,6 +178,12 @@ class Accel:
         check_exact_signature([uint], [index], "instance_transform")
         expr = lcapi.builder().call(to_lctype(float4x4), lcapi.CallOp.RAY_TRACING_INSTANCE_TRANSFORM, [self.expr, index.expr])
         return float4x4, expr
+    
+    @BuiltinFuncBuilder
+    def user_id(self, index):
+        check_exact_signature([uint], [index], "uesr_id")
+        expr = lcapi.builder().call(to_lctype(uint), lcapi.CallOp.RAY_TRACING_INSTANCE_USER_ID, [self.expr, index.expr])
+        return uint, expr
 
     @BuiltinFuncBuilder
     def set_instance_transform(self, index, transform):
@@ -181,6 +202,12 @@ class Accel:
     def set_instance_opacity(self, index, opacity):
         check_exact_signature([uint, bool], [index, opacity], "set_instance_opacity")
         expr = lcapi.builder().call(lcapi.CallOp.RAY_TRACING_SET_INSTANCE_OPACITY, [self.expr, index.expr, opacity.expr])
+        return None, expr
+    
+    @BuiltinFuncBuilder
+    def set_instance_user_id(self, index, opacity):
+        check_exact_signature([uint, uint], [index, opacity], "set_instance_opacity")
+        expr = lcapi.builder().call(lcapi.CallOp.RAY_TRACING_SET_INSTANCE_USER_ID, [self.expr, index.expr, opacity.expr])
         return None, expr
 
     @BuiltinFuncBuilder

@@ -6,7 +6,7 @@ fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     println!("cargo:rerun-if-changed=cpp.toml");
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-env-changed=LC_RS_DO_NOT_GENERATE_BINDINGS");
+    // println!("cargo:rerun-if-env-changed=LC_RS_DO_NOT_GENERATE_BINDINGS");
     match env::var("LC_RS_DO_NOT_GENERATE_BINDINGS") {
         Ok(s) => {
             if s == "1" {

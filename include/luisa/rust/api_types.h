@@ -133,11 +133,13 @@ typedef struct LCAccelBuildModificationFlags {
 #define LCAccelBuildModificationFlags_OPAQUE_ON (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 2) }
 #define LCAccelBuildModificationFlags_OPAQUE_OFF (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 3) }
 #define LCAccelBuildModificationFlags_VISIBILITY (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 4) }
+#define LCAccelBuildModificationFlags_USER_ID (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 5) }
 
 typedef struct LCAccelBuildModification {
     uint32_t index;
+    uint32_t user_id;
     struct LCAccelBuildModificationFlags flags;
-    uint8_t visibility;
+    uint32_t visibility;
     uint64_t mesh;
     float affine[12];
 } LCAccelBuildModification;
@@ -459,6 +461,8 @@ typedef struct LCDeviceInterface {
                                                    uint32_t,
                                                    uint32_t,
                                                    bool);
+    void *(*native_handle)(struct LCDevice);
+    uint32_t (*compute_warp_size)(struct LCDevice);
     void (*destroy_texture)(struct LCDevice, struct LCTexture);
     struct LCCreatedResourceInfo (*create_bindless_array)(struct LCDevice, size_t);
     void (*destroy_bindless_array)(struct LCDevice, struct LCBindlessArray);

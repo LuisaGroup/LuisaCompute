@@ -6,7 +6,7 @@
 using namespace metal;
 
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
-#define lc_assert(...) // TODO: implement assert?
+#define lc_assert(...)// TODO: implement assert?
 
 template<typename T = void>
 [[noreturn]] inline T lc_unreachable() {
@@ -63,6 +63,8 @@ template<typename... T>
         float4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
+using lc_byte = uchar;
+
 template<typename T>
 struct LCBuffer {
     device T *data;
@@ -90,6 +92,20 @@ inline void buffer_write(LCBuffer<T> buffer, I index, T value) {
 
 template<typename T>
 inline auto buffer_size(LCBuffer<T> buffer) {
+    return buffer.size / sizeof(T);
+}
+
+template<typename T>
+[[nodiscard]] auto byte_buffer_read(LCBuffer<const lc_byte> buffer, ulong index) {
+    return *reinterpret_cast<device const T *>(buffer.data + index);
+}
+
+template<typename T>
+inline void byte_buffer_write(LCBuffer<lc_byte> buffer, ulong index, T value) {
+    *reinterpret_cast<device T *>(buffer.data + index) = value;
+}
+
+inline ulong byte_buffer_size(LCBuffer<const lc_byte> buffer) {
     return buffer.size;
 }
 
@@ -115,10 +131,10 @@ struct vector_element {
 template<typename T>
 using vector_element_t = typename vector_element<T>::type;
 
-#define LC_VECTOR_REF_IMPL(T, N, addr_space)                                                                       \
+#define LC_VECTOR_REF_IMPL(T, N, addr_space)                                                   \
     [[nodiscard]] inline addr_space auto &vector_element_ref(addr_space T##N &v, uint index) { \
-        return *(reinterpret_cast<addr_space vector_element_t<T##N> *>(&v) + index);                               \
-    }                                                                                                              \
+        return *(reinterpret_cast<addr_space vector_element_t<T##N> *>(&v) + index);           \
+    }                                                                                          \
     [[nodiscard]] inline auto vector_element_ref(addr_space const T##N &v, uint index) { return v[index]; }
 
 #define LC_VECTOR_REF(T, N)               \
@@ -254,9 +270,9 @@ inline void block_barrier() {
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-#define LC_AS_ATOMIC(addr_space, type)                                            \
-    [[nodiscard]] inline auto as_atomic(addr_space type &a) { \
-        return reinterpret_cast<addr_space atomic_##type *>(&a);                  \
+#define LC_AS_ATOMIC(addr_space, type)                           \
+    [[nodiscard]] inline auto as_atomic(addr_space type &a) {    \
+        return reinterpret_cast<addr_space atomic_##type *>(&a); \
     }
 LC_AS_ATOMIC(device, int)
 LC_AS_ATOMIC(device, uint)
@@ -331,13 +347,13 @@ inline auto atomic_fetch_sub_explicit(threadgroup atomic_float *object, float op
     return atomic_fetch_add_explicit(object, -operand, memory_order_relaxed);
 }
 
-#define LC_ATOMIC_OP2(op, addr_space, type)                                         \
-    inline auto lc_atomic_##op(addr_space type &a, type x) { \
-        return atomic_##op##_explicit(as_atomic(a), x, memory_order_relaxed);       \
+#define LC_ATOMIC_OP2(op, addr_space, type)                                   \
+    inline auto lc_atomic_##op(addr_space type &a, type x) {                  \
+        return atomic_##op##_explicit(as_atomic(a), x, memory_order_relaxed); \
     }
-#define LC_ATOMIC_OP3(op, addr_space, type)                                                 \
-    inline auto lc_atomic_##op(addr_space type &a, type x, type y) { \
-        return atomic_##op##_explicit(as_atomic(a), x, y, memory_order_relaxed);            \
+#define LC_ATOMIC_OP3(op, addr_space, type)                                      \
+    inline auto lc_atomic_##op(addr_space type &a, type x, type y) {             \
+        return atomic_##op##_explicit(as_atomic(a), x, y, memory_order_relaxed); \
     }
 
 #define LC_ATOMIC_OP2_INT(op)           \
@@ -606,7 +622,7 @@ struct LCAccel {
     device LCInstance *__restrict__ instances;
 };
 
-[[nodiscard]] auto intersector_closest() {
+[[nodiscard]] inline auto intersector_closest() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
@@ -614,11 +630,47 @@ struct LCAccel {
     return i;
 }
 
-[[nodiscard]] auto intersector_any() {
+[[nodiscard]] inline auto intersector_any() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
     i.accept_any_intersection(true);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest_cull_front() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(false);
+    i.set_triangle_cull_mode(triangle_cull_mode::front);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_any_cull_front() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(true);
+    i.set_triangle_cull_mode(triangle_cull_mode::front);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest_cull_back() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(false);
+    i.set_triangle_cull_mode(triangle_cull_mode::back);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_any_cull_back() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(true);
+    i.set_triangle_cull_mode(triangle_cull_mode::back);
     return i;
 }
 
@@ -640,6 +692,36 @@ struct LCAccel {
 
 [[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
+    return isect.type != intersection_type::none;
+}
+
+[[nodiscard]] inline auto accel_trace_closest_cull_frontface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_closest_cull_front().intersect(make_ray(r), accel.handle, mask);
+    return isect.type == intersection_type::none ?
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
+}
+
+[[nodiscard]] inline auto accel_trace_any_cull_frontface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_any_cull_front().intersect(make_ray(r), accel.handle, mask);
+    return isect.type != intersection_type::none;
+}
+
+[[nodiscard]] inline auto accel_trace_closest_cull_backface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_closest_cull_back().intersect(make_ray(r), accel.handle, mask);
+    return isect.type == intersection_type::none ?
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
+}
+
+[[nodiscard]] inline auto accel_trace_any_cull_backface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_any_cull_back().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
 
@@ -665,6 +747,9 @@ void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_dat
     params.assume_geometry_type(has_procedural_branch ?
                                     geometry_type::triangle | geometry_type::bounding_box :
                                     geometry_type::triangle);
+    // face culling is removed
+    // if (q.cull_front) { params.set_triangle_cull_mode(triangle_cull_mode::front); }
+    // if (q.cull_back) { params.set_triangle_cull_mode(triangle_cull_mode::back); }
     i.reset(q.ray, q.accel, q.mask, params);
     q.i = &i;
 }
@@ -732,14 +817,21 @@ inline void ray_query_terminate(LCRayQuery q) {
     q.i->abort();
 }
 
-[[nodiscard]] inline auto
-accel_instance_transform(LCAccel accel, uint i) {
+[[nodiscard]] inline auto accel_instance_transform(LCAccel accel, uint i) {
     auto m = accel.instances[i].transform;
     return float4x4(
         m[0], m[1], m[2], 0.0f,
         m[3], m[4], m[5], 0.0f,
         m[6], m[7], m[8], 0.0f,
         m[9], m[10], m[11], 1.0f);
+}
+
+[[nodiscard]] inline auto accel_instance_user_id(LCAccel accel, uint i) {
+    return accel.instances[i].intersection_function_offset;
+}
+
+inline void accel_set_instance_user_id(LCAccel accel, uint i, uint user_id) {
+    accel.instances[i].intersection_function_offset = user_id;
 }
 
 inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {
@@ -988,7 +1080,6 @@ template<typename U, typename T>
 
 // indirect dispatch
 struct alignas(16) LCIndirectHeader {
-    uint offset;
     uint count;
 };
 
@@ -999,22 +1090,26 @@ struct alignas(16) LCIndirectSlot {
 
 struct LCIndirectDispatchBuffer {
     device void *__restrict__ buffer;
-    size_t capacity;
+    uint offset;
+    uint capacity;
 
     [[nodiscard]] auto header() const { return static_cast<device LCIndirectHeader *>(buffer); }
     [[nodiscard]] auto slots() const { return reinterpret_cast<device LCIndirectSlot *>(header() + 1u); }
 };
 
-void lc_indirect_dispatch_clear(LCIndirectDispatchBuffer buffer) {
-    *buffer.header() = {0u, 0u};
+void lc_indirect_dispatch_set_count(LCIndirectDispatchBuffer buffer, uint count) {
+    buffer.header()->count = count;
 }
 
-void lc_indirect_dispatch_emplace(LCIndirectDispatchBuffer buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id) {
-    auto count = reinterpret_cast<device atomic_uint *>(&(buffer.header()->count));
-    auto index = atomic_fetch_add_explicit(count, 1u, memory_order_relaxed);
+void lc_indirect_dispatch_set_kernel(LCIndirectDispatchBuffer buffer, uint index, uint3 block_size, uint3 dispatch_size, uint kernel_id) {
+    index += buffer.offset;
     if (index < buffer.capacity) {
         buffer.slots()[index] = {block_size, uint4(dispatch_size, kernel_id)};
     }
+}
+
+void lc_shader_execution_reorder(uint hint, uint hint_bits) {
+    // do nothing currently
 }
 
 template<typename T>
@@ -1052,4 +1147,318 @@ template<typename T>
         packed[i] = buffer_read(buffer, offset + i);
     }
     return lc_unpack<T>(packed);
+}
+
+// warp intrinsics
+[[nodiscard]] inline auto lc_warp_is_first_active_lane() {
+    return simd_is_first();
+}
+
+[[nodiscard]] inline auto lc_warp_first_active_lane() {
+    auto mask = static_cast<simd_vote::vote_t>(simd_active_threads_mask());
+    return static_cast<uint>(ctz(mask));
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(T x) {
+    return simd_broadcast_first(x);
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(bool x) {
+    return static_cast<bool>(simd_broadcast_first(static_cast<uint>(x)));
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(bool2 x) {
+    auto packed = static_cast<uint>(x.x) |
+                  (static_cast<uint>(x.y) << 1u);
+    auto xx = simd_broadcast_first(packed);
+    return bool2(xx & 1u, xx >> 1u);
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(bool3 x) {
+    auto packed = static_cast<uint>(x.x) |
+                  (static_cast<uint>(x.y) << 1u) |
+                  (static_cast<uint>(x.z) << 2u);
+    auto xx = simd_broadcast_first(packed);
+    return bool3(xx & 1u, (xx >> 1u) & 1u, (xx >> 2u) & 1u);
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(bool4 x) {
+    auto packed = static_cast<uint>(x.x) |
+                  (static_cast<uint>(x.y) << 1u) |
+                  (static_cast<uint>(x.z) << 2u) |
+                  (static_cast<uint>(x.w) << 3u);
+    auto xx = simd_broadcast_first(packed);
+    return bool4(xx & 1u, (xx >> 1u) & 1u, (xx >> 2u) & 1u, (xx >> 3u) & 1u);
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(float2x2 m) {
+    return float2x2(lc_warp_read_first_active_lane(m[0]),
+                    lc_warp_read_first_active_lane(m[1]));
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(float3x3 m) {
+    return float3x3(lc_warp_read_first_active_lane(m[0]),
+                    lc_warp_read_first_active_lane(m[1]),
+                    lc_warp_read_first_active_lane(m[2]));
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(float4x4 m) {
+    return float4x4(lc_warp_read_first_active_lane(m[0]),
+                    lc_warp_read_first_active_lane(m[1]),
+                    lc_warp_read_first_active_lane(m[2]),
+                    lc_warp_read_first_active_lane(m[3]));
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(ulong x) {
+    auto hi = simd_broadcast_first(static_cast<uint>(x >> 32u));
+    auto lo = simd_broadcast_first(static_cast<uint>(x));
+    return (static_cast<ulong>(hi) << 32u) | lo;
+}
+
+[[nodiscard]] inline auto lc_warp_read_first_active_lane(long x) {
+    return static_cast<long>(lc_warp_read_first_active_lane(static_cast<ulong>(x)));
+}
+
+#define LC_WARP_READ_FIRST_LANE_VECTOR2(T)                             \
+    [[nodiscard]] inline auto lc_warp_read_first_active_lane(T##2 x) { \
+        return T##2(lc_warp_read_first_active_lane(x.x),               \
+                    lc_warp_read_first_active_lane(x.y));              \
+    }
+
+#define LC_WARP_READ_FIRST_LANE_VECTOR3(T)                             \
+    [[nodiscard]] inline auto lc_warp_read_first_active_lane(T##3 x) { \
+        return T##3(lc_warp_read_first_active_lane(x.x),               \
+                    lc_warp_read_first_active_lane(x.y),               \
+                    lc_warp_read_first_active_lane(x.z));              \
+    }
+
+#define LC_WARP_READ_FIRST_LANE_VECTOR4(T)                             \
+    [[nodiscard]] inline auto lc_warp_read_first_active_lane(T##4 x) { \
+        return T##4(lc_warp_read_first_active_lane(x.x),               \
+                    lc_warp_read_first_active_lane(x.y),               \
+                    lc_warp_read_first_active_lane(x.z),               \
+                    lc_warp_read_first_active_lane(x.w));              \
+    }
+
+LC_WARP_READ_FIRST_LANE_VECTOR2(long)
+LC_WARP_READ_FIRST_LANE_VECTOR3(long)
+LC_WARP_READ_FIRST_LANE_VECTOR4(long)
+LC_WARP_READ_FIRST_LANE_VECTOR2(ulong)
+LC_WARP_READ_FIRST_LANE_VECTOR3(ulong)
+LC_WARP_READ_FIRST_LANE_VECTOR4(ulong)
+
+#undef LC_WARP_READ_FIRST_LANE_VECTOR2
+#undef LC_WARP_READ_FIRST_LANE_VECTOR3
+#undef LC_WARP_READ_FIRST_LANE_VECTOR4
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_read_lane(T x, uint index) {
+    return simd_shuffle(x, static_cast<ushort>(index));
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(bool x, uint index) {
+    return static_cast<bool>(simd_shuffle(static_cast<uint>(x), static_cast<ushort>(index)));
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(bool2 x, uint index) {
+    auto u = static_cast<uint>(x.x) |
+             (static_cast<uint>(x.y) << 1u);
+    auto uu = simd_shuffle(u, static_cast<ushort>(index));
+    return bool2(uu & 1u, (uu >> 1u) & 1u);
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(bool3 x, uint index) {
+    auto u = static_cast<uint>(x.x) |
+             (static_cast<uint>(x.y) << 1u) |
+             (static_cast<uint>(x.z) << 2u);
+    auto uu = simd_shuffle(u, static_cast<ushort>(index));
+    return bool3(uu & 1u, (uu >> 1u) & 1u, (uu >> 2u) & 1u);
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(bool4 x, uint index) {
+    auto u = static_cast<uint>(x.x) |
+             (static_cast<uint>(x.y) << 1u) |
+             (static_cast<uint>(x.z) << 2u) |
+             (static_cast<uint>(x.w) << 4u);
+    auto uu = simd_shuffle(u, static_cast<ushort>(index));
+    return bool4(uu & 1u, (uu >> 1u) & 1u, (uu >> 2u) & 1u, (uu >> 3u) & 1u);
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(float2x2 m, uint index) {
+    return float2x2(lc_warp_read_lane(m[0], index),
+                    lc_warp_read_lane(m[1], index));
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(float3x3 m, uint index) {
+    return float3x3(lc_warp_read_lane(m[0], index),
+                    lc_warp_read_lane(m[1], index),
+                    lc_warp_read_lane(m[2], index));
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(float4x4 m, uint index) {
+    return float4x4(lc_warp_read_lane(m[0], index),
+                    lc_warp_read_lane(m[1], index),
+                    lc_warp_read_lane(m[2], index),
+                    lc_warp_read_lane(m[3], index));
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(ulong x, uint index) {
+    auto hi = simd_shuffle(static_cast<uint>(x >> 32u), static_cast<ushort>(index));
+    auto lo = simd_shuffle(static_cast<uint>(x), static_cast<ushort>(index));
+    return (static_cast<ulong>(hi) << 32u) | lo;
+}
+
+[[nodiscard]] inline auto lc_warp_read_lane(long x, uint index) {
+    return static_cast<long>(lc_warp_read_lane(static_cast<ulong>(x), index));
+}
+
+#define LC_WARP_READ_LANE_VECTOR2(T)                                  \
+    [[nodiscard]] inline auto lc_warp_read_lane(T##2 x, uint index) { \
+        return T##2(lc_warp_read_lane(x.x, index),                    \
+                    lc_warp_read_lane(x.y, index));                   \
+    }
+
+#define LC_WARP_READ_LANE_VECTOR3(T)                                  \
+    [[nodiscard]] inline auto lc_warp_read_lane(T##3 x, uint index) { \
+        return T##3(lc_warp_read_lane(x.x, index),                    \
+                    lc_warp_read_lane(x.y, index),                    \
+                    lc_warp_read_lane(x.z, index));                   \
+    }
+
+#define LC_WARP_READ_LANE_VECTOR4(T)                                  \
+    [[nodiscard]] inline auto lc_warp_read_lane(T##4 x, uint index) { \
+        return T##4(lc_warp_read_lane(x.x, index),                    \
+                    lc_warp_read_lane(x.y, index),                    \
+                    lc_warp_read_lane(x.z, index),                    \
+                    lc_warp_read_lane(x.w, index));                   \
+    }
+
+LC_WARP_READ_LANE_VECTOR2(long)
+LC_WARP_READ_LANE_VECTOR3(long)
+LC_WARP_READ_LANE_VECTOR4(long)
+LC_WARP_READ_LANE_VECTOR2(ulong)
+LC_WARP_READ_LANE_VECTOR3(ulong)
+LC_WARP_READ_LANE_VECTOR4(ulong)
+
+#undef LC_WARP_READ_LANE_VECTOR2
+#undef LC_WARP_READ_LANE_VECTOR3
+#undef LC_WARP_READ_LANE_VECTOR4
+
+#define LC_WARP_ACTIVE_ALL_EQUAL_SCALAR(T)                    \
+    [[nodiscard]] inline auto lc_warp_active_all_equal(T x) { \
+        auto x0 = lc_warp_read_first_active_lane(x);          \
+        return simd_all(x == x0);                             \
+    }
+
+#define LC_WARP_ACTIVE_ALL_EQUAL_VECTOR2(T)                      \
+    [[nodiscard]] inline auto lc_warp_active_all_equal(T##2 x) { \
+        return bool2(lc_warp_active_all_equal(x.x),              \
+                     lc_warp_active_all_equal(x.y));             \
+    }
+
+#define LC_WARP_ACTIVE_ALL_EQUAL_VECTOR3(T)                      \
+    [[nodiscard]] inline auto lc_warp_active_all_equal(T##3 x) { \
+        return bool3(lc_warp_active_all_equal(x.x),              \
+                     lc_warp_active_all_equal(x.y),              \
+                     lc_warp_active_all_equal(x.z));             \
+    }
+
+#define LC_WARP_ACTIVE_ALL_EQUAL_VECTOR4(T)                      \
+    [[nodiscard]] inline auto lc_warp_active_all_equal(T##4 x) { \
+        return bool4(lc_warp_active_all_equal(x.x),              \
+                     lc_warp_active_all_equal(x.y),              \
+                     lc_warp_active_all_equal(x.z),              \
+                     lc_warp_active_all_equal(x.w));             \
+    }
+
+#define LC_WARP_ACTIVE_ALL_EQUAL(T)     \
+    LC_WARP_ACTIVE_ALL_EQUAL_SCALAR(T)  \
+    LC_WARP_ACTIVE_ALL_EQUAL_VECTOR2(T) \
+    LC_WARP_ACTIVE_ALL_EQUAL_VECTOR3(T) \
+    LC_WARP_ACTIVE_ALL_EQUAL_VECTOR4(T)
+
+LC_WARP_ACTIVE_ALL_EQUAL(bool)
+LC_WARP_ACTIVE_ALL_EQUAL(short)
+LC_WARP_ACTIVE_ALL_EQUAL(ushort)
+LC_WARP_ACTIVE_ALL_EQUAL(int)
+LC_WARP_ACTIVE_ALL_EQUAL(uint)
+LC_WARP_ACTIVE_ALL_EQUAL(long)
+LC_WARP_ACTIVE_ALL_EQUAL(ulong)
+LC_WARP_ACTIVE_ALL_EQUAL(half)
+LC_WARP_ACTIVE_ALL_EQUAL(float)
+
+#undef LC_WARP_ACTIVE_ALL_EQUAL
+#undef LC_WARP_ACTIVE_ALL_EQUAL_SCALAR
+#undef LC_WARP_ACTIVE_ALL_EQUAL_VECTOR2
+#undef LC_WARP_ACTIVE_ALL_EQUAL_VECTOR3
+#undef LC_WARP_ACTIVE_ALL_EQUAL_VECTOR4
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_bit_and(T x) {
+    return simd_and(x);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_bit_or(T x) {
+    return simd_or(x);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_bit_xor(T x) {
+    return simd_xor(x);
+}
+
+[[nodiscard]] inline auto lc_warp_active_count_bits(bool bit = true) {
+    auto mask = static_cast<simd_vote::vote_t>(simd_ballot(bit));
+    return popcount(mask);
+}
+
+[[nodiscard]] inline auto lc_warp_active_bit_mask(bool bit = true) {
+    auto mask = static_cast<simd_vote::vote_t>(simd_ballot(bit));
+    auto m0 = static_cast<uint>(mask);
+    auto m1 = static_cast<uint>(mask >> 32u);
+    return uint4(m0, m1, 0, 0);
+}
+
+[[nodiscard]] inline auto lc_warp_active_all(bool pred) {
+    return simd_all(pred);
+}
+
+[[nodiscard]] inline auto lc_warp_active_any(bool pred) {
+    return simd_any(pred);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_min(T x) {
+    return simd_min(x);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_max(T x) {
+    return simd_max(x);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_product(T x) {
+    return simd_product(x);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_active_sum(T x) {
+    return simd_sum(x);
+}
+
+[[nodiscard]] inline auto lc_warp_prefix_count_bits(bool bit = true) {
+    return simd_prefix_exclusive_sum(static_cast<ushort>(1u));// TODO: optimize this
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_prefix_sum(T x) {
+    return simd_prefix_exclusive_sum(x);
+}
+
+template<typename T>
+[[nodiscard]] inline auto lc_warp_prefix_product(T x) {
+    return simd_prefix_exclusive_product(x);
 }

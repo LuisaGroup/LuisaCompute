@@ -10,11 +10,14 @@ uint2 accelStructPtr;
 };
 struct InputInst{
 uint index;
+uint user_id;
 uint flags;
-uint2 mesh;
+uint vis_mask;
 float4 p0;
 float4 p1;
 float4 p2;
+uint2 mesh;
+uint2 _a1;
 };
 RWStructuredBuffer<MeshInst> _InstBuffer:register(u0);
 StructuredBuffer<InputInst> _SetBuffer:register(t0);
@@ -30,28 +33,29 @@ const uint flag_transform=1u << 1u;
 const uint flag_opaque_on = 1u << 2u;
 const uint flag_opaque_off = 1u << 3u;
 const uint flag_visibility = 1u << 4u;
+const uint flag_user_id = 1u << 5u;
 const uint flag_opaque = flag_opaque_on | flag_opaque_off;
 InputInst v=_SetBuffer[id];
-if(v.index >= count) return;
-MeshInst r=_InstBuffer[v.index];
+if(v.index>=count) return;
 if((v.flags&flag_transform)!=0){
-r.p0=v.p0;
-r.p1=v.p1;
-r.p2=v.p2;
+_InstBuffer[v.index].p0=v.p0;
+_InstBuffer[v.index].p1=v.p1;
+_InstBuffer[v.index].p2=v.p2;
 }
-r.InstanceID=v.index;
 if((v.flags&flag_visibility)!=0){
-r.InstanceMask=(v.flags >> 24);
+_InstBuffer[v.index].InstanceMask=v.vis_mask;
 }
-r.InstanceContributionToHitGroupIndex=0;
+if((v.flags&flag_user_id)!=0){
+_InstBuffer[v.index].InstanceID=v.user_id;
+}
+_InstBuffer[v.index].InstanceContributionToHitGroupIndex=0;
 if((v.flags&flag_opaque)!=0){
 if((v.flags&flag_opaque_on)!=0)
-r.Flags=4;
+_InstBuffer[v.index].Flags=4;
 else
-r.Flags=8;
+_InstBuffer[v.index].Flags=8;
 }
 if((v.flags&flag_mesh)!=0){
-r.accelStructPtr=v.mesh;
+_InstBuffer[v.index].accelStructPtr=v.mesh;
 }
-_InstBuffer[v.index]=r;
 }

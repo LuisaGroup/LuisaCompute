@@ -20,13 +20,14 @@ dispatch_buffer = IndirectDispatchBuffer(dispatch_count)
 @func
 def clear_indirect():
     set_block_size(1, 1, 1)
-    dispatch_buffer.clear()
+    dispatch_buffer.set_dispatch_count(16)
 
 
 @func
 def emplace_indirect():
     set_block_size(dispatch_count, 1, 1)
-    dispatch_buffer.dispatch_kernel(
+    dispatch_buffer.set_kernel(
+        dispatch_id().x,
         uint3(kernel_dispatch_size, 1, 1), uint3(dispatch_id().x, 1, 1), dispatch_id().x)
 
 

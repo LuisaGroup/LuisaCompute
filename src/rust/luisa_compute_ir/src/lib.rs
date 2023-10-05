@@ -9,6 +9,7 @@ mod display;
 pub mod serialize;
 pub mod transform;
 mod usage_detect;
+mod ast2ir;
 
 use ir::{ArrayType, Primitive, Type};
 
@@ -113,7 +114,7 @@ impl<K: Hash + Eq, V> NestedHashMap<K, V> {
     pub(crate) fn insert(&mut self, k: K, v: V) {
         unsafe {
             let inner = self.inner.as_ref() as *const _ as *mut NestedHashMapInner<K, V>;
-            let inner = &mut *inner;
+            let inner = inner.as_mut().unwrap();
             inner.map.insert(k, v);
         }
     }
@@ -186,6 +187,9 @@ impl<T> Pooled<T> {
         unsafe { &mut *self.ptr }
     }
     pub fn into_raw(self) -> *mut T {
+        self.ptr
+    }
+    pub fn as_ptr(&self) -> *const T {
         self.ptr
     }
 }

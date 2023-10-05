@@ -4,9 +4,8 @@ use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 use std::{
     env::{self, current_exe},
-    fs::{canonicalize, File},
+    fs::{canonicalize},
     io::Write,
-    mem::transmute,
     path::PathBuf,
     process::{Command, Stdio},
 };
@@ -35,9 +34,11 @@ pub(super) fn clang_args() -> Vec<&'static str> {
             if s == "full" {
                 args.push("-DLUISA_DEBUG");
                 args.push("-DLUISA_DEBUG_FULL");
+                args.push("-g");
             } else {
                 if s == "1" {
                     args.push("-DLUISA_DEBUG");
+                    args.push("-g");
                 }
                 args.push("-O3");
             }
@@ -45,6 +46,7 @@ pub(super) fn clang_args() -> Vec<&'static str> {
         Err(_) => {
             if cfg!(debug_assertions) {
                 args.push("-DLUISA_DEBUG");
+                args.push("-g");
             }
             args.push("-O3");
         }

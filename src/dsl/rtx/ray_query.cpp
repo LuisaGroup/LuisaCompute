@@ -58,9 +58,9 @@ template<bool terminate_on_first>
     auto builder = detail::FunctionBuilder::current();
     auto type = Type::of<RayQueryBase<terminate_on_first>>();
     auto local = builder->local(type);
-    auto op = terminate_on_first ?
-                  CallOp::RAY_TRACING_QUERY_ANY :
-                  CallOp::RAY_TRACING_QUERY_ALL;
+    CallOp op = terminate_on_first ?
+                    CallOp::RAY_TRACING_QUERY_ANY :
+                    CallOp::RAY_TRACING_QUERY_ALL;
     auto call = builder->call(type, op, {accel, ray, mask});
     builder->assign(local, call);
     return local;
@@ -134,4 +134,3 @@ template class RayQueryBase<true>;
 }// namespace detail
 
 }// namespace luisa::compute
-

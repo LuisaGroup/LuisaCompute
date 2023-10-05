@@ -67,7 +67,7 @@ public:
     template<typename T>
     void EmplaceData(T const &data) {
         size_t sz = argBuffer->size();
-        argBuffer->push_back_uninitialized(sz + sizeof(T));
+        argBuffer->push_back_uninitialized(sizeof(T));
         using PlaceHolder = eastl::aligned_storage_t<sizeof(T), 1>;
         *reinterpret_cast<PlaceHolder *>(argBuffer->data() + sz) =
             *reinterpret_cast<PlaceHolder const *>(&data);
@@ -76,7 +76,7 @@ public:
     void EmplaceData(T const *data, size_t size) {
         size_t sz = argBuffer->size();
         auto byteSize = size * sizeof(T);
-        argBuffer->resize_uninitialized(sz + byteSize);
+        argBuffer->push_back_uninitialized(byteSize);
         memcpy(argBuffer->data() + sz, data, byteSize);
     }
     struct Visitor {
@@ -490,7 +490,7 @@ public:
             auto buffer = reinterpret_cast<Buffer *>(t.handle);
             bindProps->emplace_back();
             BeforeDispatch();
-            bd->DispatchComputeIndirect(cs, *buffer, t.offset, *bindProps);
+            bd->DispatchComputeIndirect(cs, *buffer, t.offset, t.max_dispatch_size, *bindProps);
         } else {
             auto &&t = cmd->dispatch_size();
             // auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(16, 16);
@@ -722,24 +722,13 @@ public:
         auto alloc = bd->GetCB()->GetAlloc();
         {
             D3D12_VIEWPORT view;
-            uint2 size{0};
-            if (!rtvs.empty()) {
-                auto tex = reinterpret_cast<TextureBase *>(rtvs[0].handle);
-                size = {tex->Width(), tex->Height()};
-                size /= (1u << rtvs[0].level);
-                size = max(size, uint2(1));
-            } else if (dsv.handle != ~0ull) {
-                auto tex = reinterpret_cast<TextureBase *>(dsv.handle);
-                dsvFormat = DepthBuffer::GFXFormatToDepth(tex->Format());
-                size = {tex->Width(), tex->Height()};
-            }
             auto &&viewport = cmd->viewport();
             view.MinDepth = 0;
             view.MaxDepth = 1;
-            view.TopLeftX = size.x * viewport.start.x;
-            view.TopLeftY = size.y * viewport.start.y;
-            view.Width = size.x * viewport.size.x;
-            view.Height = size.y * viewport.size.y;
+            view.TopLeftX = viewport.start.x;
+            view.TopLeftY = viewport.start.y;
+            view.Width = viewport.size.x;
+            view.Height =viewport.size.y;
             cmdList->RSSetViewports(1, &view);
             RECT rect{
                 .left = static_cast<int>(view.TopLeftX + 0.4999f),
@@ -837,7 +826,7 @@ public:
                     } else {
                         auto bf = reinterpret_cast<Buffer *>(i.handle());
                         D3D12_INDEX_BUFFER_VIEW idx{
-                            .BufferLocation = bf->GetAddress() + i.offset(),
+                            .BufferLocation = bf->GetAddress() + i.offset_bytes(),
                             .SizeInBytes = static_cast<uint>(i.size_bytes()),
                             .Format = DXGI_FORMAT_R32_UINT};
                         cmdList->IASetIndexBuffer(&idx);

@@ -98,8 +98,19 @@ void *LCDevice::native_handle() const noexcept {
 }
 
 BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
-    BufferCreationInfo info;
-    Buffer *res;
+    BufferCreationInfo info{};
+    Buffer *res{};
+    if (element == Type::of<void>()) {
+        info.total_size_bytes = elem_count;
+        info.element_stride = 1u;
+        res = new DefaultBuffer(
+            &nativeDevice,
+            info.total_size_bytes,
+            nativeDevice.defaultAllocator.get());
+        info.handle = reinterpret_cast<uint64_t>(res);
+        info.native_handle = res->GetResource();
+        return info;
+    }
     if (element->is_custom()) {
         if (element == Type::of<IndirectKernelDispatch>()) {
             info.element_stride = ComputeShader::DispatchIndirectStride;
@@ -131,16 +142,7 @@ ResourceCreationInfo LCDevice::create_texture(
     uint height,
     uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
-    bool allowUAV = true;
-    switch (format) {
-        case PixelFormat::BC4UNorm:
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-            allowUAV = false;
-            break;
-        default: break;
-    }
+    bool allowUAV = !is_block_compressed(format);
     ResourceCreationInfo info;
     auto res = new RenderTexture(
         &nativeDevice,
@@ -617,16 +619,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
-    bool allowUAV = true;
-    switch (format) {
-        case PixelFormat::BC4UNorm:
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-            allowUAV = false;
-            break;
-        default: break;
-    }
+    bool allowUAV = !is_block_compressed(format);
     SparseTextureCreationInfo info;
     auto res = new SparseTexture(
         &nativeDevice,
@@ -739,9 +732,9 @@ void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
 }
-ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) noexcept {
+ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, true);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, !is_compressed_type);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);
@@ -753,6 +746,9 @@ void LCDevice::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(handle);
     nativeDevice.defaultAllocator->Release(heap->allocation);
     vengine_free(heap);
+}
+uint LCDevice::compute_warp_size() const noexcept {
+    return nativeDevice.waveSize();
 }
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);

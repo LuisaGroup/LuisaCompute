@@ -2,10 +2,12 @@
 namespace vstd {
 StackAllocator::StackAllocator(
     uint64 initCapacity,
-    StackAllocatorVisitor *visitor)
+    StackAllocatorVisitor *visitor,
+    double capaExpanRate)
     : visitor(visitor),
       capacity(initCapacity),
-      initCapacity(initCapacity) {
+      initCapacity(initCapacity),
+      capaExpanRate(capaExpanRate) {
 }
 StackAllocator::Chunk StackAllocator::allocate(uint64 targetSize) {
     for (auto &&i : allocatedBuffers) {
@@ -17,12 +19,13 @@ StackAllocator::Chunk StackAllocator::allocate(uint64 targetSize) {
         }
     }
     if (capacity < targetSize) {
-        capacity = std::max<uint64>(targetSize, capacity * 1.5);
+        capacity = std::max<uint64>(capacity, capacity * capaExpanRate);
     }
-    auto newHandle = visitor->allocate(capacity);
+    auto allocSize = std::max<uint64>(targetSize, capacity);
+    auto newHandle = visitor->allocate(allocSize);
     allocatedBuffers.push_back(Buffer{
         .handle = newHandle,
-        .fullSize = capacity,
+        .fullSize = allocSize,
         .position = targetSize});
     return {newHandle, 0};
 }
@@ -45,12 +48,13 @@ StackAllocator::Chunk StackAllocator::allocate(
         }
     }
     if (capacity < targetSize) {
-        capacity = std::max<uint64>(targetSize, capacity * 1.5);
+        capacity = std::max<uint64>(capacity, capacity * capaExpanRate);
     }
-    auto newHandle = visitor->allocate(capacity);
+    auto allocSize = std::max<uint64>(targetSize, capacity);
+    auto newHandle = visitor->allocate(allocSize);
     allocatedBuffers.push_back(Buffer{
         .handle = newHandle,
-        .fullSize = capacity,
+        .fullSize = allocSize,
         .position = targetSize});
     return {
         newHandle,
@@ -112,4 +116,3 @@ void VEngineMallocVisitor::deallocate(uint64 handle) {
     vengine_free(reinterpret_cast<void *>(handle));
 }
 }// namespace vstd
-

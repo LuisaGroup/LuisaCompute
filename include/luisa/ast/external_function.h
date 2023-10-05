@@ -9,7 +9,10 @@
 
 namespace luisa::compute {
 
+class CallableLibrary;
+
 class LC_AST_API ExternalFunction {
+    friend class CallableLibrary;
 
 private:
     luisa::string _name;

@@ -1,6 +1,6 @@
 pub mod convert;
 use crate::ir::{Binding, KernelModule, Primitive};
-use crate::CBoxedSlice;
+
 use serde::{Deserialize, Serialize};
 use half::f16;
 
@@ -141,6 +141,7 @@ pub enum SerializedInstruction {
     },
     AdScope {
         body: SerializedBlockRef,
+        forward:bool,
     },
     AdDetach(SerializedBlockRef),
     RayQuery {
@@ -154,6 +155,7 @@ pub enum SerializedInstruction {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum SerializedFunc {
+
     ZeroInitializer,
 
     Assume,
@@ -162,14 +164,19 @@ pub enum SerializedFunc {
 
     ThreadId,
     BlockId,
+    WarpSize,
+    WarpLaneId,
     DispatchId,
     DispatchSize,
 
     RequiresGradient,
-    Backward, // marks the beginning of backward pass
+    Backward,
+    // marks the beginning of backward pass
     Gradient,
-    GradientMarker, // marks a (node, gradient) tuple
-    AccGrad,        // grad (local), increment
+    GradientMarker,
+    // marks a (node, gradient) tuple
+    AccGrad,
+    // grad (local), increment
     Detach,
 
     // (handle, instance_id) -> Mat4
@@ -184,20 +191,27 @@ pub enum SerializedFunc {
     // (handle, Ray, mask) -> bool
     RayTracingTraceAny,
     RayTracingQueryAll,
-    RayTracingQueryAny,
+    // (ray, mask)-> rq
+    RayTracingQueryAny, // (ray, mask)-> rq
 
     RayQueryWorldSpaceRay,
+    // (rq) -> Ray
     RayQueryProceduralCandidateHit,
+    // (rq) -> ProceduralHit
     RayQueryTriangleCandidateHit,
+    // (rq) -> TriangleHit
     RayQueryCommittedHit,
+    // (rq) -> CommitedHit
     RayQueryCommitTriangle,
+    // (rq) -> ()
     RayQueryCommitProcedural,
-    RayQueryTerminate,
+    // (rq, f32) -> ()
+    RayQueryTerminate, // (rq) -> ()
 
     RasterDiscard,
 
-    IndirectClearDispatchBuffer,
-    IndirectEmplaceDispatchKernel,
+    IndirectDispatchSetCount,
+    IndirectDispatchSetKernel,
 
     /// When referencing a Local in Call, it is always interpreted as a load
     /// However, there are cases you want to do this explicitly
@@ -205,6 +219,7 @@ pub enum SerializedFunc {
 
     Cast,
     Bitcast,
+
     Pack,
     Unpack,
 
@@ -303,12 +318,13 @@ pub enum SerializedFunc {
     // Vector operations
     Cross,
     Dot,
-    // (a, b) => a * b^T
+    // outer_product(a, b) => a * b^T
     OuterProduct,
     Length,
     LengthSquared,
     Normalize,
     Faceforward,
+    // reflect(i, n) => i - 2 * dot(n, i) * n
     Reflect,
 
     // Matrix operations
@@ -316,25 +332,45 @@ pub enum SerializedFunc {
     Transpose,
     Inverse,
 
+    WarpIsFirstActiveLane,
+    WarpFirstActiveLane,
+    WarpActiveAllEqual,
+    WarpActiveBitAnd,
+    WarpActiveBitOr,
+    WarpActiveBitXor,
+    WarpActiveCountBits,
+    WarpActiveMax,
+    WarpActiveMin,
+    WarpActiveProduct,
+    WarpActiveSum,
+    WarpActiveAll,
+    WarpActiveAny,
+    WarpActiveBitMask,
+    WarpPrefixCountBits,
+    WarpPrefixSum,
+    WarpPrefixProduct,
+    WarpReadLaneAt,
+    WarpReadFirstLane,
+
     SynchronizeBlock,
 
-    /// (buffer/smem, index, desired) -> old: stores desired, returns old.
+    /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
     AtomicExchange,
-    /// (buffer/smem, index, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
+    /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
     AtomicCompareExchange,
-    /// (buffer/smem, index, val) -> old: stores (old + val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old + val), returns old.
     AtomicFetchAdd,
-    /// (buffer/smem, index, val) -> old: stores (old - val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old - val), returns old.
     AtomicFetchSub,
-    /// (buffer/smem, index, val) -> old: stores (old & val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old & val), returns old.
     AtomicFetchAnd,
-    /// (buffer/smem, index, val) -> old: stores (old | val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old | val), returns old.
     AtomicFetchOr,
-    /// (buffer/smem, index, val) -> old: stores (old ^ val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores (old ^ val), returns old.
     AtomicFetchXor,
-    /// (buffer/smem, index, val) -> old: stores min(old, val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores min(old, val), returns old.
     AtomicFetchMin,
-    /// (buffer/smem, index, val) -> old: stores max(old, val), returns old.
+    /// (buffer/smem, indices..., val) -> old: stores max(old, val), returns old.
     AtomicFetchMax,
     // memory access
     /// (buffer, index) -> value: reads the index-th element in buffer
@@ -385,7 +421,7 @@ pub enum SerializedFunc {
     BindlessTexture3dSizeLevel,
     /// (bindless_array, index: uint, element: uint) -> T
     BindlessBufferRead,
-    /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
+    /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
     BindlessBufferSize,
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
@@ -409,6 +445,8 @@ pub enum SerializedFunc {
     GetElementPtr,
     // (fields, ...) -> struct
     Struct,
+
+    // (fields, ...) -> array
     Array,
 
     // scalar -> matrix, all elements are set to the scalar
@@ -421,6 +459,8 @@ pub enum SerializedFunc {
     Mat4,
 
     Callable(SerializedCallableModuleRef),
+
+    ShaderExecutionReorder, // (uint hint, uint hint_bits): void
 }
 pub fn serialize_kernel_module_to_json(m: &KernelModule) -> serde_json::Value {
     let v = convert::serialize_kernel_module(m);

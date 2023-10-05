@@ -41,13 +41,18 @@
 #include "cuda_ext.h"
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
+#define LUISA_CUDA_KERNEL_DEBUG 1
+
+#ifndef NDEBUG
+#define LUISA_CUDA_DUMP_SOURCE 1
+#else
 static const bool LUISA_CUDA_DUMP_SOURCE = ([]{
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
     return std::string_view{env} == "1";
 })();
-#define LUISA_CUDA_KERNEL_DEBUG 1
+#endif
 
 namespace luisa::compute::cuda {
 
@@ -184,6 +189,14 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
         info.native_handle = reinterpret_cast<void *>(buffer->handle());
         info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
         info.total_size_bytes = buffer->size_bytes();
+    } else if (element == Type::of<void>()) {
+        info.element_stride = 1;
+        info.total_size_bytes = elem_count;
+        auto buffer = with_handle([size = info.total_size_bytes] {
+            return new_with_allocator<CUDABuffer>(size);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = reinterpret_cast<void *>(buffer->handle());
     } else {
         info.element_stride = CUDACompiler::type_size(element);
         info.total_size_bytes = info.element_stride * elem_count;
@@ -492,11 +505,11 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
             auto metadata = luisa::format("// METADATA: {}\n\n", serialize_cuda_shader_metadata(expected_metadata));
             luisa::span metadata_data{reinterpret_cast<const std::byte *>(metadata.data()), metadata.size()};
             if (uses_user_path) {
-                _io->write_shader_bytecode(name, ptx_data);
-                _io->write_shader_bytecode(metadata_name, metadata_data);
+                static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
+                static_cast<void>(_io->write_shader_bytecode(metadata_name, metadata_data));
             } else if (option.enable_cache) {
-                _io->write_shader_cache(name, ptx_data);
-                _io->write_shader_cache(metadata_name, metadata_data);
+                static_cast<void>(_io->write_shader_cache(name, ptx_data));
+                static_cast<void>(_io->write_shader_cache(metadata_name, metadata_data));
             }
         }
     }

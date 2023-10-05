@@ -1,5 +1,4 @@
 #include <iostream>
-
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
@@ -50,34 +49,36 @@ int main(int argc, char *argv[]) {
     auto resolution = make_uint2(1024u);
 
     //params
-    uint optix_examples = 0;//0:cornellbox pathtracing, 1:soane temporal example, 2:aovs example
+    uint optix_examples = 1;//0:cornellbox pathtracing, 1:soane temporal example, 2:aovs example
     //all for online cornell box
     bool seperate_usage = 1; //check the fullpipeline(denoise) or sperately call functions. the temporal denoise mode can only run when this is true
     bool temporal = 1;       // 1: add camera movement, 0: static camera and accumulate samples
     bool flow_validation = 0;// use when temporal on: 1: validation for the flow calculation, 0: normal
     auto channel_count = 4;  //processing buffer channel, for testing.
-    // TODO: do not hard code the path
-    luisa::string optix_path = "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.4.0";//your optix sdk path, for finding the examples
+    LUISA_INFO("{}",getenv("OPTIX_INCLUDE_DIR"));
+    luisa::filesystem::path optix= getenv("OPTIX_INCLUDE_DIR");
+    auto optix_path = optix.parent_path() / "SDK";//your optix sdk path, for finding the examples
 
     if (optix_examples) {
-        luisa::string path;
+        auto datapath = optix_path / "optixDenoiser" / "motiondata";
+        luisa::filesystem::path path;
         if (optix_examples == 1) {
-            luisa::string beauty = optix_path + "/SDK/optixDenoiser/motiondata/soane-Beauty-";
+            luisa::string beauty = "soane-Beauty-";
             luisa::string id = "001";
             luisa::string suffix = ".exr";
-            path = beauty + id + suffix;
+            path = datapath/(beauty + id + suffix);
         }
         if (optix_examples == 2) {
-            path = optix_path + "/SDK/optixDenoiser/data/beauty.exr";
+            path = optix_path / "optixDenoiser" / "data" / "beauty.exr";
         }
         std::ifstream str(path.c_str());
-        LUISA_ASSERT(static_cast<bool>(str), "{}: image does not exists.", path);
+        LUISA_ASSERT(static_cast<bool>(str), "{}: image does not exists.", path.string().c_str());
         auto image_width = 0;
         auto image_height = 0;
         auto image_channels = 0;
         float *beauty_file = nullptr;
         const char *err = nullptr;
-        LoadEXR(&beauty_file, &image_width, &image_height, path.c_str(), &err);
+        LoadEXR(&beauty_file, &image_width, &image_height, path.string().c_str(), &err);
         resolution.x = uint(image_width);
         resolution.y = uint(image_height);
     }
@@ -472,12 +473,12 @@ int main(int argc, char *argv[]) {
 
         auto image_width = 0;
         auto image_height = 0;
-
         if (optix_examples == 1) {
-            luisa::string beauty_path = optix_path + "/SDK/optixDenoiser/motiondata/soane-Beauty-";
-            luisa::string normal_path = optix_path + "/SDK/optixDenoiser/motiondata/soane-Normal-";
-            luisa::string albedo_path = optix_path + "/SDK/optixDenoiser/motiondata/soane-BSDF-";
-            luisa::string flow_path = optix_path + "/SDK/optixDenoiser/motiondata/soane-Flow-";
+            auto datapath = optix_path / "optixDenoiser" / "motiondata";
+            luisa::string beauty_path = "soane-Beauty-";
+            luisa::string normal_path = "soane-Normal-";
+            luisa::string albedo_path = "soane-BSDF-";
+            luisa::string flow_path = "soane-Flow-";
             luisa::string id = "000";
             luisa::string suffix = ".exr";
             DenoiserExt::DenoiserInput data;
@@ -495,10 +496,10 @@ int main(int argc, char *argv[]) {
                 float *albedo_file = nullptr;
                 float *flow_file = nullptr;
                 const char *err = nullptr;
-                LoadEXR(&beauty_file, &image_width, &image_height, (beauty_path + id + suffix).c_str(), &err);
-                LoadEXR(&normal_file, &image_width, &image_height, (normal_path + id + suffix).c_str(), &err);
-                LoadEXR(&albedo_file, &image_width, &image_height, (albedo_path + id + suffix).c_str(), &err);
-                LoadEXR(&flow_file, &image_width, &image_height, (flow_path + id + suffix).c_str(), &err);
+                LoadEXR(&beauty_file, &image_width, &image_height, (datapath / (beauty_path + id + suffix)).string().c_str(), &err);
+                LoadEXR(&normal_file, &image_width, &image_height, (datapath / (normal_path + id + suffix)).string().c_str(), &err);
+                LoadEXR(&albedo_file, &image_width, &image_height, (datapath / (albedo_path + id + suffix)).string().c_str(), &err);
+                LoadEXR(&flow_file, &image_width, &image_height, (datapath / (flow_path + id + suffix)).string().c_str(), &err);
                 cmd_list << hdr_image.copy_from(beauty_file)
                          << normal_image.copy_from(normal_file)
                          << albedo_image.copy_from(albedo_file)
@@ -538,13 +539,13 @@ int main(int argc, char *argv[]) {
                     &err);
             }
         } else if (optix_examples == 2) {
-
-            luisa::string beauty_path = optix_path + "/SDK/optixDenoiser/data/beauty.exr";
-            luisa::string normal_path = optix_path + "/SDK/optixDenoiser/data/normal.exr";
-            luisa::string albedo_path = optix_path + "/SDK/optixDenoiser/data/albedo.exr";
-            luisa::string glossy_path = optix_path + "/SDK/optixDenoiser/data/glossy.exr";
-            luisa::string diffuse_path = optix_path + "/SDK/optixDenoiser/data/diffuse.exr";
-            luisa::string specular_path = optix_path + "/SDK/optixDenoiser/data/specular.exr";
+            auto datapath= optix_path / "SDK" / "optixDenoiser" / "data";
+            auto beauty_path = optix_path / "beauty.exr";
+            auto normal_path = optix_path / "normal.exr";
+            auto albedo_path = optix_path / "albedo.exr";
+            auto glossy_path = optix_path / "glossy.exr";
+            auto diffuse_path = optix_path / "diffuse.exr";
+            auto specular_path = optix_path / "specular.exr";
             DenoiserExt::DenoiserInput data;
             DenoiserExt::DenoiserMode mode{.temporal = false};
             data.beauty = &hdr_buffer;
@@ -563,12 +564,12 @@ int main(int argc, char *argv[]) {
             float *diffuse_file = nullptr;
             float *specular_file = nullptr;
             const char *err = nullptr;
-            LoadEXR(&beauty_file, &image_width, &image_height, beauty_path.c_str(), &err);
-            LoadEXR(&normal_file, &image_width, &image_height, normal_path.c_str(), &err);
-            LoadEXR(&albedo_file, &image_width, &image_height, albedo_path.c_str(), &err);
-            LoadEXR(&glossy_file, &image_width, &image_height, glossy_path.c_str(), &err);
-            LoadEXR(&diffuse_file, &image_width, &image_height, diffuse_path.c_str(), &err);
-            LoadEXR(&specular_file, &image_width, &image_height, specular_path.c_str(), &err);
+            LoadEXR(&beauty_file, &image_width, &image_height, beauty_path.string().c_str(), &err);
+            LoadEXR(&normal_file, &image_width, &image_height, normal_path.string().c_str(), &err);
+            LoadEXR(&albedo_file, &image_width, &image_height, albedo_path.string().c_str(), &err);
+            LoadEXR(&glossy_file, &image_width, &image_height, glossy_path.string().c_str(), &err);
+            LoadEXR(&diffuse_file, &image_width, &image_height, diffuse_path.string().c_str(), &err);
+            LoadEXR(&specular_file, &image_width, &image_height, specular_path.string().c_str(), &err);
             cmd_list << hdr_image.copy_from(beauty_file)
                      << normal_image.copy_from(normal_file)
                      << albedo_image.copy_from(albedo_file)
@@ -632,7 +633,6 @@ int main(int argc, char *argv[]) {
                 "sum.exr",
                 &err);
         }
-
         denoiser_ext->destroy(stream);
 
         return 0;

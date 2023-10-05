@@ -38,7 +38,17 @@ NodeRef IrBuilder::generic_loop(const Pooled<BasicBlock> &prepare, const NodeRef
                                                     reinterpret_cast<const Pooled<raw::BasicBlock> &>(update));
     return NodeRef::from_raw(node);
 }
+NodeRef IrBuilder::loop(const Pooled<BasicBlock> &body, const NodeRef &cond) noexcept {
+    auto node = luisa_compute_ir_build_loop(&_inner,
+                                            reinterpret_cast<const Pooled<raw::BasicBlock> &>(body),
+                                            cond._inner);
+    return NodeRef::from_raw(node);
+}
 Pooled<BasicBlock> IrBuilder::finish(IrBuilder &&builder) noexcept {
     auto block = luisa_compute_ir_build_finish(builder._inner);
     return luisa::bit_cast<Pooled<BasicBlock>>(block);
+}
+
+void IrBuilder::set_insert_point(const NodeRef &node) noexcept {
+    raw::luisa_compute_ir_builder_set_insert_point(&_inner, node._inner);
 }

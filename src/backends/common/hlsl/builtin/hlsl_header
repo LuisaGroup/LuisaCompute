@@ -56,12 +56,12 @@ row_major float4x4 m;
 #define _bfwrite(bf,idx,value) bf[idx]=value
 #define _bfwriteVec3(bf,idx,value,type) bf[idx]=type##4(value,0)
 #define _bfwriteMat(bf,idx,value) bf[idx].m=value
-#define _bytebfread(bf,type,idx) bf.Load<type>(idx)
-#define _bytebfreadVec3(bf,type,idx) bf.Load<type##4>(idx).xyz
-#define _bytebfreadMat(bf,type,idx) bf.Load<type>(idx).m
+#define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
+#define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz
+#define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
 #define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
-#define _bytebfwriteVec3(bf,type,idx,value) bf.Store<type##4>(idx,type##4(value,0))
-#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.Store<type>(idx,_tempm);}
+#define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
+#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
 #define _Smptx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
 template<typename T>

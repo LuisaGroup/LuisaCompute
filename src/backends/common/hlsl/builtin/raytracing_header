@@ -1,5 +1,5 @@
-#define _CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
-#define _ANY_HIT_RAY_FLAG (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+#define _CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+#define _ANY_HIT_RAY_FLAG (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH|RAY_FLAG_SKIP_CLOSEST_HIT_SHADER|RAY_FLAG_FORCE_OPAQUE|RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
 typedef RayQuery<RAY_FLAG_NONE> _LC_RayQueryAll;
 typedef RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> _LC_RayQueryAny;
 template<typename T>
@@ -99,6 +99,11 @@ _Hit2 pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
 return pl;
+}
+template<typename Q>
+void _CommitProcedural(Q q,float dist){
+if(dist<q.CommittedRayT())
+q.CommitProceduralPrimitiveHit(dist);
 }
 template<typename T>
 bool _TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){

@@ -29,18 +29,18 @@ public:
     private:
         luisa::vector<void *> _temp;
         luisa::vector<api::Command> _api_commands;
-        CommandList _list;
+        CommandList::CallbackContainer _callbacks;
 
     public:
         CommandBuffer(luisa::vector<void *> temp,
                       luisa::vector<api::Command> api_commands,
-                      CommandList list) noexcept
+                      CommandList::CallbackContainer callbacks) noexcept
             : _temp{std::move(temp)},
               _api_commands{std::move(api_commands)},
-              _list{std::move(list)} {}
+              _callbacks{std::move(callbacks)} {}
 
         void on_completion() noexcept {
-            for (auto &&callback : _list.callbacks()) { callback(); }
+            for (auto &&callback : _callbacks) { callback(); }
             for (auto p : _temp) {
                 luisa::deallocate_with_allocator(
                     static_cast<std::byte *>(p));
@@ -49,7 +49,7 @@ public:
     };
 
 private:
-    luisa::vector<void *> _temp;
+    luisa::vector<void *> _temp;// TODO: maybe it's more efficient to pool the allocations?
     luisa::vector<api::Command> _converted;
 
 private:
@@ -91,9 +91,7 @@ public:
             .commands_count = _converted.size(),
         };
         auto ctx = luisa::new_with_allocator<CommandBuffer>(
-            std::move(_temp),
-            std::move(_converted),
-            std::move(list));
+            std::move(_temp), std::move(_converted), list.steal_callbacks());
         device.dispatch(
             device.device, stream, converted_list,
             [](uint8_t *ctx) noexcept {
@@ -148,7 +146,17 @@ public:
         LUISA_ASSERT(!command->is_indirect(),
                      "Indirect dispatch is not supported.");
         auto n = command->arguments().size();
-        auto args = _create_temporary<api::Argument>(n);
+        auto arg_buffer_size = sizeof(api::Argument) * n;
+        static_assert(sizeof(api::Argument) >= 16u);
+        for (auto &&arg : command->arguments()) {
+            if (arg.tag == Argument::Tag::UNIFORM) {
+                arg_buffer_size += luisa::align(arg.uniform.size, 16u);
+            }
+        }
+        auto temp = _create_temporary<std::byte>(arg_buffer_size);
+        auto args = reinterpret_cast<api::Argument *>(temp);
+        auto uniforms = reinterpret_cast<std::byte *>(args + n);
+        auto uniform_offset = static_cast<size_t>(0u);
         for (size_t i = 0; i < n; i++) {
             auto &&arg = command->arguments()[i];
             switch (arg.tag) {
@@ -169,10 +177,13 @@ public:
                 }
                 case Argument::Tag::UNIFORM: {
                     auto data = command->uniform(arg.uniform);
+                    auto u = uniforms + uniform_offset;
+                    uniform_offset += luisa::align(data.size_bytes(), 16u);
+                    memcpy(u, data.data(), data.size_bytes());
                     args[i].tag = api::Argument::Tag::UNIFORM;
                     args[i].UNIFORM._0 = api::UniformArgument{
-                        .data = reinterpret_cast<const uint8_t *>(data.data()),
-                        .size = data.size()};
+                        .data = reinterpret_cast<const uint8_t *>(u),
+                        .size = data.size_bytes()};
                     break;
                 }
                 case Argument::Tag::BINDLESS_ARRAY: {
@@ -271,7 +282,11 @@ public:
             }
             if (mod.flags & Mod::flag_visibility) {
                 m[i].flags.bits |= api::AccelBuildModificationFlags_VISIBILITY.bits;
-                m[i].visibility = mod.flags >> Mod::flag_vis_mask_offset;
+                m[i].visibility = mod.vis_mask;
+            }
+            if (mod.flags & Mod::flag_user_id) {
+                m[i].flags.bits |= api::AccelBuildModificationFlags_USER_ID.bits;
+                m[i].user_id = mod.user_id;
             }
         }
         api::Command converted{.tag = Tag::ACCEL_BUILD};
@@ -409,6 +424,10 @@ public:
 
     void *native_handle() const noexcept override {
         return (void *)device.device._0;
+    }
+
+    uint compute_warp_size() const noexcept override {
+        LUISA_NOT_IMPLEMENTED();
     }
 
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override {

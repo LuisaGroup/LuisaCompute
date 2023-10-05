@@ -8,6 +8,8 @@ const static inline size_t usize_MAX = (size_t)-1;
 
 #ifdef __cplusplus
 
+#include <luisa/core/stl/memory.h>
+
 namespace luisa::compute::ir {
 
 struct c_half {
@@ -20,7 +22,7 @@ using AtomicUsize = std::atomic<size_t>;
 struct CallableModuleRef;
 template<typename T>
 struct CArcSharedBlock {
-    T* ptr;
+    T *ptr;
     AtomicUsize ref_count;
     void (*destructor)(CArcSharedBlock<T> *);
 
@@ -37,11 +39,11 @@ template<typename T>
 struct CArc {
     CArcSharedBlock<T> *inner;
     CArc() = default;
-    CArc(CArcSharedBlock<T> *block) noexcept: inner{block} {}
+    CArc(CArcSharedBlock<T> *block) noexcept : inner{block} {}
     [[nodiscard]] bool is_null() const noexcept { return inner == nullptr; }
     [[nodiscard]] T *operator->() const noexcept { return inner->ptr; }
     [[nodiscard]] T &operator*() const noexcept { return *inner->ptr; }
-    [[nodiscard]] T* get() const noexcept { return this->inner->ptr; }
+    [[nodiscard]] T *get() const noexcept { return this->inner->ptr; }
     [[nodiscard]] CArc<T> clone() const noexcept {
         retain();
         return CArc<T>{this->inner};
@@ -59,13 +61,17 @@ struct CArc {
 
 template<typename T>
 struct CppOwnedCArc : CArc<T> {
-    CppOwnedCArc() : CArc<T>{nullptr} {}
-    CppOwnedCArc(CArc<T>&& other) noexcept : CArc<T>{other.inner} { other.inner = nullptr; }
-    explicit CppOwnedCArc(CArcSharedBlock<T> *inner) noexcept : CArc<T>{inner} {}
-    CppOwnedCArc(const CppOwnedCArc &other) noexcept : CArc<T>{other.inner} {
+    CppOwnedCArc() : CArc<T> { nullptr }
+    {}
+    CppOwnedCArc(CArc<T> &&other) noexcept : CArc<T> { other.inner }
+    { other.inner = nullptr; }
+    explicit CppOwnedCArc(CArcSharedBlock<T> *inner) noexcept : CArc<T> { inner }
+    {}
+    CppOwnedCArc(const CppOwnedCArc &other) noexcept : CArc<T> { other.inner }
+    {
         if (this->inner) this->retain();
     }
-    CppOwnedCArc &operator=(const CppOwnedCArc & other) noexcept {
+    CppOwnedCArc &operator=(const CppOwnedCArc &other) noexcept {
         if (this != &other) {
             if (this->inner) this->release();
             this->inner = other.inner;
@@ -73,7 +79,8 @@ struct CppOwnedCArc : CArc<T> {
         }
         return *this;
     }
-    CppOwnedCArc(CppOwnedCArc &&other) noexcept : CArc<T>{other.inner} { other.inner = nullptr; }
+    CppOwnedCArc(CppOwnedCArc &&other) noexcept : CArc<T> { other.inner }
+    { other.inner = nullptr; }
     CppOwnedCArc &operator=(CppOwnedCArc &&other) noexcept {
         if (this != &other) {
             if (this->inner) this->inner->release();
@@ -93,15 +100,40 @@ struct CppOwnedCArc : CArc<T> {
     ~CppOwnedCArc() {
         if (this->inner) this->release();
     }
-
 };
 template<typename T>
 struct Pooled {
-    T* get() const noexcept { return ptr; }
-    T* operator->() const noexcept { return ptr; }
-    T& operator*() const noexcept { return *ptr; }
+    T *get() const noexcept { return ptr; }
+    T *operator->() const noexcept { return ptr; }
+    T &operator*() const noexcept { return *ptr; }
     T *ptr;
 };
+
+// forward decl for CBoxedSlice
+template<typename T>
+struct CBoxedSlice;
+
+template<typename T>
+[[nodiscard]] inline auto create_boxed_slice(size_t n) noexcept -> CBoxedSlice<T> {
+    if (n == 0u) {
+        return {.ptr = nullptr,
+                .len = 0u,
+                .destructor = [](T *, size_t) noexcept {}};
+    }
+    return {.ptr = luisa::allocate_with_allocator<T>(n),
+            .len = n,
+            .destructor = [](T *ptr, size_t) noexcept {
+                luisa::deallocate_with_allocator(ptr);
+            }};
+}
+
+template<typename T>
+inline void destroy_boxed_slice(CBoxedSlice<T> slice) noexcept {
+    if (slice.ptr != nullptr && slice.len > 0u) {
+        slice.destructor(slice.ptr, slice.len);
+    }
+}
+
 }// namespace luisa::compute::ir
 
 #else
@@ -112,4 +144,3 @@ typedef struct VectorType VectorType;
 typedef struct Type Type;
 
 #endif
-

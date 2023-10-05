@@ -45,6 +45,7 @@ void CallExpr::_mark() const noexcept {
             case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
             case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID:
             case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
             case CallOp::RAY_QUERY_TERMINATE:
@@ -59,9 +60,8 @@ void CallExpr::_mark() const noexcept {
             case CallOp::ATOMIC_FETCH_XOR:
             case CallOp::ATOMIC_FETCH_MIN:
             case CallOp::ATOMIC_FETCH_MAX:
-            case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
             case CallOp::INDIRECT_SET_DISPATCH_KERNEL:
-            case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL:
+            case CallOp::INDIRECT_SET_DISPATCH_COUNT:
                 _arguments[0]->mark(Usage::WRITE);
                 for (auto i = 1u; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);
@@ -207,6 +207,10 @@ uint64_t TypeIDExpr::_compute_hash() const noexcept {
     return _data_type->hash();
 }
 
+uint64_t StringIDExpr::_compute_hash() const noexcept {
+    return hash_value(_data);
+}
+
 void ExprVisitor::visit(const CpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend.");
 }
@@ -214,4 +218,5 @@ void ExprVisitor::visit(const CpuCustomOpExpr *) {
 void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
+
 }// namespace luisa::compute

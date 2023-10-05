@@ -108,6 +108,12 @@ luisa::unique_ptr<Command> BindlessArray::update() noexcept {
 }
 
 BindlessArray::~BindlessArray() noexcept {
+    if (!_updates.empty()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Bindless array #{} destroyed with {} pending updates. "
+            "Did you forget to call update()?",
+            this->handle(), _updates.size());
+    }
     if (*this) {
         device()->destroy_bindless_array(handle());
     }

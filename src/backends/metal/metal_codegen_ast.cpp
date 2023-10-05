@@ -299,7 +299,11 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
         case Type::Tag::BUFFER:
             _scratch << "LCBuffer<";
             if (usage == Usage::NONE || usage == Usage::READ) { _scratch << "const "; }
-            _emit_type_name(type->element());
+            if (auto elem = type->element()) {
+                _emit_type_name(type->element());
+            } else {
+                _scratch << "lc_byte";
+            }
             _scratch << ">";
             break;
         case Type::Tag::TEXTURE: {
@@ -355,7 +359,9 @@ void MetalCodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ds"; break;
         case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
-        default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        case Variable::Tag::WARP_LANE_COUNT: _scratch << "ws"; break;
+        case Variable::Tag::WARP_LANE_ID: _scratch << "lid"; break;
+        case Variable::Tag::OBJECT_ID: LUISA_NOT_IMPLEMENTED();
     }
 }
 
@@ -393,7 +399,8 @@ void MetalCodegenAST::_emit_function() noexcept {
         _scratch << "void kernel_main_impl(\n"
                  << "    constant Arguments &args,\n"
                  << "    uint3 tid, uint3 bid, uint3 did,\n"
-                 << "    uint3 bs, uint3 ds, uint kid";
+                 << "    uint3 bs, uint ws, uint lid,\n"
+                 << "    uint3 ds, uint kid";
         for (auto s : _function.shared_variables()) {
             _scratch << ", threadgroup ";
             _emit_type_name(s.type());
@@ -525,10 +532,12 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
-                 << "    uint3 bs [[threads_per_threadgroup]]) {\n"
+                 << "    uint3 bs [[threads_per_threadgroup]],\n"
+                 << "    uint ws [[threads_per_simdgroup]],\n"
+                 << "    uint lid [[thread_index_in_simdgroup]]) {\n"
                  << "  auto ds = args.dispatch_size;\n";
         emit_shared_variable_decls();
-        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ds, 0u";
+        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ws, lid, ds, 0u";
         for (auto s : _function.shared_variables()) {
             _scratch << ", ";
             _emit_variable_name(s);
@@ -543,9 +552,11 @@ void MetalCodegenAST::_emit_function() noexcept {
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
-                 << "    uint3 bs [[threads_per_threadgroup]]) {\n";
+                 << "    uint3 bs [[threads_per_threadgroup]],\n"
+                 << "    uint ws [[threads_per_simdgroup]],\n"
+                 << "    uint lid [[thread_index_in_simdgroup]]) {\n";
         emit_shared_variable_decls();
-        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ds_kid.xyz, ds_kid.w";
+        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ws, lid, ds_kid.xyz, ds_kid.w";
         for (auto s : _function.shared_variables()) {
             _scratch << ", ";
             _emit_variable_name(s);
@@ -665,9 +676,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
     // collect functions
     luisa::vector<Function> functions;
     {
-        auto collect_functions = [&functions, collected = luisa::unordered_set<Function>{}](
+        auto collect_functions = [&functions, collected = luisa::unordered_set<uint64_t>{}](
                                      auto &&self, Function function) mutable noexcept -> void {
-            if (collected.emplace(function).second) {
+            if (collected.emplace(function.hash()).second) {
                 for (auto &&c : function.custom_callables()) { self(self, c->function()); }
                 functions.emplace_back(function);
             }
@@ -915,6 +926,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "buffer_size"; break;
+        case CallOp::BYTE_BUFFER_READ: _scratch << "byte_buffer_read"; break;
+        case CallOp::BYTE_BUFFER_WRITE: _scratch << "byte_buffer_write"; break;
+        case CallOp::BYTE_BUFFER_SIZE: _scratch << "byte_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SIZE: _scratch << "texture_size"; break;
@@ -940,7 +954,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
+        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
             _scratch << "bindless_byte_address_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
@@ -997,9 +1011,11 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             break;
         }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "accel_instance_transform"; break;
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "accel_instance_user_id"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "accel_set_instance_opacity"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << "accel_set_instance_user_id"; break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "accel_trace_closest"; break;
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "accel_trace_any"; break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "accel_query_all"; break;
@@ -1021,19 +1037,38 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
         case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
         case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
-        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("autodiff::backward() should have been lowered."); break;
         case CallOp::DETACH: {
             _scratch << "static_cast<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::RASTER_DISCARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_dispatch_clear"; break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_emplace"; break;
-        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DDX: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
-        case CallOp::DDY: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::RASTER_DISCARD: _scratch << "discard_fragment"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: _scratch << "lc_indirect_dispatch_set_count"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_set_kernel"; break;
+        case CallOp::DDX: _scratch << "dfdx"; break;
+        case CallOp::DDY: _scratch << "dfdy"; break;
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: _scratch << "lc_warp_is_first_active_lane";
+        case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane";
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: _scratch << "lc_warp_active_all_equal";
+        case CallOp::WARP_ACTIVE_BIT_AND: _scratch << "lc_warp_active_bit_and";
+        case CallOp::WARP_ACTIVE_BIT_OR: _scratch << "lc_warp_active_bit_or";
+        case CallOp::WARP_ACTIVE_BIT_XOR: _scratch << "lc_warp_active_bit_xor";
+        case CallOp::WARP_ACTIVE_COUNT_BITS: _scratch << "lc_warp_active_count_bits";
+        case CallOp::WARP_ACTIVE_MAX: _scratch << "lc_warp_active_max";
+        case CallOp::WARP_ACTIVE_MIN: _scratch << "lc_warp_active_min";
+        case CallOp::WARP_ACTIVE_PRODUCT: _scratch << "lc_warp_active_product";
+        case CallOp::WARP_ACTIVE_SUM: _scratch << "lc_warp_active_sum";
+        case CallOp::WARP_ACTIVE_ALL: _scratch << "lc_warp_active_all";
+        case CallOp::WARP_ACTIVE_ANY: _scratch << "lc_warp_active_any";
+        case CallOp::WARP_ACTIVE_BIT_MASK: _scratch << "lc_warp_active_bit_mask";
+        case CallOp::WARP_PREFIX_COUNT_BITS: _scratch << "lc_warp_prefix_count_bits";
+        case CallOp::WARP_PREFIX_SUM: _scratch << "lc_warp_prefix_sum";
+        case CallOp::WARP_PREFIX_PRODUCT: _scratch << "lc_warp_prefix_product";
+        case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane";
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane";
+        case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
@@ -1072,6 +1107,10 @@ void MetalCodegenAST::visit(const TypeIDExpr *expr) noexcept {
     _emit_type_name(expr->type());
     _scratch << ">(0ull)";
     // TODO: use expr->data_type() to generate correct type
+}
+
+void MetalCodegenAST::visit(const StringIDExpr *expr) noexcept {
+    LUISA_NOT_IMPLEMENTED();
 }
 
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {

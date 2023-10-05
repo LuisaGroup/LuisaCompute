@@ -29,6 +29,14 @@ Var<float4x4> AccelExprProxy::instance_transform(Expr<uint> instance_id) const n
     return Expr<Accel>{_accel}.instance_transform(instance_id);
 }
 
+Var<uint> AccelExprProxy::instance_user_id(Expr<int> instance_id) const noexcept {
+    return Expr<Accel>{_accel}.instance_user_id(instance_id);
+}
+
+Var<uint> AccelExprProxy::instance_user_id(Expr<uint> instance_id) const noexcept {
+    return Expr<Accel>{_accel}.instance_user_id(instance_id);
+}
+
 void AccelExprProxy::set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
     Expr<Accel>{_accel}.set_instance_transform(instance_id, mat);
 }
@@ -44,12 +52,21 @@ void AccelExprProxy::set_instance_visibility(Expr<int> instance_id, Expr<uint> v
 void AccelExprProxy::set_instance_visibility(Expr<uint> instance_id, Expr<uint> vis_mask) const noexcept {
     Expr<Accel>{_accel}.set_instance_visibility(instance_id, vis_mask);
 }
+
 void AccelExprProxy::set_instance_opaque(Expr<int> instance_id, Expr<bool> opaque) const noexcept {
     Expr<Accel>{_accel}.set_instance_opaque(instance_id, opaque);
 }
 
 void AccelExprProxy::set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept {
     Expr<Accel>{_accel}.set_instance_opaque(instance_id, opaque);
+}
+
+void AccelExprProxy::set_instance_user_id(Expr<int> instance_id, Expr<uint> id) const noexcept {
+    Expr<Accel>{_accel}.set_instance_user_id(instance_id, id);
+}
+
+void AccelExprProxy::set_instance_user_id(Expr<uint> instance_id, Expr<uint> id) const noexcept {
+    Expr<Accel>{_accel}.set_instance_user_id(instance_id, id);
 }
 
 }// namespace detail
@@ -90,10 +107,24 @@ Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noex
             {_expression, instance_id.expression()}));
 }
 
+Var<uint> Expr<Accel>::instance_user_id(Expr<uint> instance_id) const noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_USER_ID,
+            {_expression, instance_id.expression()}));
+}
+
 Var<float4x4> Expr<Accel>::instance_transform(Expr<int> instance_id) const noexcept {
     return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM,
+            {_expression, instance_id.expression()}));
+}
+
+Var<uint> Expr<Accel>::instance_user_id(Expr<int> instance_id) const noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_USER_ID,
             {_expression, instance_id.expression()}));
 }
 
@@ -132,6 +163,16 @@ void Expr<Accel>::set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque)
         CallOp::RAY_TRACING_SET_INSTANCE_OPACITY,
         {_expression, instance_id.expression(), opaque.expression()});
 }
+void Expr<Accel>::set_instance_user_id(Expr<int> instance_id, Expr<uint> id) const noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RAY_TRACING_SET_INSTANCE_USER_ID,
+        {_expression, instance_id.expression(), id.expression()});
+}
+
+void Expr<Accel>::set_instance_user_id(Expr<uint> instance_id, Expr<uint> id) const noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RAY_TRACING_SET_INSTANCE_USER_ID,
+        {_expression, instance_id.expression(), id.expression()});
+}
 
 }// namespace luisa::compute
-

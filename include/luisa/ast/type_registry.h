@@ -264,12 +264,6 @@ struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>>
 
     static_assert(alignof(S) >= 4u, "Structs must be aligned to at least 4 bytes.");
 
-    //    static_assert(((alignof(M) >= 4u) && ...));
-    //    static_assert((!is_bool_vector_v<M> && ...),
-    //                  "Boolean vectors are not allowed in DSL "
-    //                  "structures since their may have different "
-    //                  "layouts on different platforms.");
-
 private:
     [[nodiscard]] constexpr static auto _check() noexcept {
         constexpr auto count = sizeof...(M);

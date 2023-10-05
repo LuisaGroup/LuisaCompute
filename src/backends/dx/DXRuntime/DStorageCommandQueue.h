@@ -8,6 +8,8 @@
 #include <luisa/backends/ext/dstorage_ext_interface.h>
 
 namespace lc::dx {
+static constexpr size_t staging_buffer_size = 64ull * 1024ull * 1024ull;
+
 class LCEvent;
 class DStorageFileImpl : public vstd::IOperatorNewBase {
 public:

@@ -40,18 +40,11 @@ void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const &scene) noe
     }
 }
 namespace detail {
-void rastershader_check_func(Function func) noexcept {
-    for (auto &&i : func.arguments()) {
-        if ((static_cast<uint>(func.variable_usage(i.uid())) & static_cast<uint>(Usage::WRITE)) != 0) {
-            LUISA_ERROR("Rasterization may not support unordered access!");
-        }
-    }
-}
 bool rastershader_rettype_is_float4(Type const *t) noexcept {
     return (t->is_vector() && t->dimension() == 4 && t->element()->tag() == Type::Tag::FLOAT32);
 };
 void rastershader_check_vertex_func(Function func) noexcept {
-    rastershader_check_func(func);
+    // rastershader_check_func(func);
     auto ret_type = func.return_type();
 
     if (rastershader_rettype_is_float4(ret_type))
@@ -69,7 +62,7 @@ void rastershader_check_vertex_func(Function func) noexcept {
     LUISA_ERROR("First element of vertex shader's return type must be float4!");
 }
 void rastershader_check_pixel_func(Function func) noexcept {
-    rastershader_check_func(func);
+    // rastershader_check_func(func);
     auto ret_type = func.return_type();
     if (rastershader_rettype_is_float4(ret_type)) {
         return;

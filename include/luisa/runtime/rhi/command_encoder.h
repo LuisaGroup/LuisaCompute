@@ -63,7 +63,7 @@ private:
     size_t _rtv_count{};
     ShaderDispatchCommandBase::Argument::Texture _dsv_tex{};
     luisa::vector<RasterMesh> _scene;
-    Viewport _viewport{};
+    Viewport _viewport{0.f,0.f,0.f,0.f};
     luisa::span<const Function::Binding> _bindings;
     RasterState _raster_state;
 

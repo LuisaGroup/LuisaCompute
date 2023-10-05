@@ -22,8 +22,11 @@ CUDAIndirectDispatchBuffer::CUDAIndirectDispatchBuffer(size_t capacity) noexcept
       _capacity{capacity} {}
 
 CUDAIndirectDispatchBuffer::Binding
-CUDAIndirectDispatchBuffer::binding() const noexcept {
-    return {handle(), capacity()};
+CUDAIndirectDispatchBuffer::binding(size_t offset, size_t size) const noexcept {
+    size = std::min(size, std::numeric_limits<size_t>::max() - offset);// prevent overflow
+    return {handle(),
+            static_cast<uint>(offset),
+            static_cast<uint>(std::min(offset + size, capacity()))};
 }
 
 }// namespace luisa::compute::cuda

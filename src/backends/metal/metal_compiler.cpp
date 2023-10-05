@@ -132,9 +132,9 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
     // store the binary archive
     auto io = _device->io();
     if (is_aot) {
-        io->write_shader_bytecode(name, buffer);
+        static_cast<void>(io->write_shader_bytecode(name, buffer));
     } else {
-        io->write_shader_cache(name, buffer);
+        static_cast<void>(io->write_shader_cache(name, buffer));
     }
 }
 
