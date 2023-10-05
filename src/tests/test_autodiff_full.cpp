@@ -211,4 +211,15 @@ int main(int argc, char *argv[]) {
             return foo.v.x * foo.v.y + foo.v.z * foo.f;
         });
     }
+     {
+        test_ad_helper<3>("if", device, [](auto a, auto b, auto c) {
+            Var<Foo> foo{make_float3(a, b, c), a + b + c};
+            $if(foo.v.x > 3.0f) {
+                foo.v.x -= 1.0f;
+            }$else {
+                foo.v.x -= foo.f;
+            };
+            return foo.v.x * foo.v.y + foo.v.z * foo.f;
+        });
+    }
 }

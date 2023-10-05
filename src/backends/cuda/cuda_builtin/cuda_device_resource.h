@@ -31,7 +31,11 @@ template<typename T = void>
 #endif
 }
 
+#define STRINGIFY2(x) #x
+#define STRINGIFY(x) STRINGIFY2(x)
+
 #ifdef LUISA_DEBUG
+#if MIKE_HAS_FIXED_ASSERT
 #define lc_assert(x)                                    \
     do {                                                \
         if (!(x)) {                                     \
@@ -54,6 +58,28 @@ template<typename T = void>
             lc_trap();                                                   \
         }                                                                \
     } while (false)
+#else
+
+#define lc_assert(x)                                                                    \
+    do {                                                                                \
+        if (!(x)) {                                                                     \
+            printf("Assertion failed: " #x "[" __FILE__ ":" STRINGIFY(__LINE__) "]\n"); \
+            lc_trap();                                                                  \
+        }                                                                               \
+    } while (false)
+#define lc_check_in_bounds(size, max_size)                               \
+    do {                                                                 \
+        if (!((size) < (max_size))) {                                    \
+            printf("Out of bounds: !(%s: %llu < %s: %llu) [%s:%d:%s]\n", \
+                   #size, static_cast<size_t>(size),                     \
+                   #max_size, static_cast<size_t>(max_size),             \
+                   __FILE__, static_cast<int>(__LINE__),                 \
+                   __FUNCTION__);                                        \
+            lc_trap();                                                   \
+        }                                                                \
+    } while (false)
+#endif
+
 #else
 inline __device__ void lc_assert(bool) noexcept {}
 #endif
@@ -665,8 +691,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(char2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert < T, char(x);
-            result.y = lc_texel_read_convert < T, char(y);
+            result.x = lc_texel_read_convert<T, char>(x);
+            result.y = lc_texel_read_convert<T, char>(y);
             break;
         }
         case LCPixelStorage::BYTE4: {
@@ -749,7 +775,7 @@ template<typename T>
                 : "=r"(x)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
             break;
         }
         case LCPixelStorage::HALF2: {
@@ -758,8 +784,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
-            result.y = lc_texel_read_convert<T, lc_half>(y);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
             break;
         }
         case LCPixelStorage::HALF4: {
@@ -768,10 +794,10 @@ template<typename T>
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
-            result.y = lc_texel_read_convert<T, lc_half>(y);
-            result.z = lc_texel_read_convert<T, lc_half>(z);
-            result.w = lc_texel_read_convert<T, lc_half>(w);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
+            result.z = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(z)});
+            result.w = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(w)});
             break;
         }
         case LCPixelStorage::FLOAT1: {
@@ -1057,6 +1083,17 @@ template<typename T = unsigned char>
 }
 
 template<typename T>
+[[nodiscard]] inline __device__ T *lc_bindless_buffer(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
+    return buffer;
+}
+
+template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
@@ -1065,6 +1102,17 @@ template<typename T>
     lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
 #endif
     return buffer[i];
+}
+
+template<typename T>
+[[nodiscard]] inline __device__ void lc_bindless_buffer_write(LCBindlessArray array, lc_uint index, lc_ulong i, T value) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
+    buffer[i] = value;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_type(LCBindlessArray array, lc_uint index) noexcept {
@@ -2294,10 +2342,8 @@ template<typename T>
     }
 }
 
-using lc_byte = unsigned char;
-
 template<typename T>
-[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<const lc_byte> buffer, lc_ulong offset) noexcept {
+[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<const lc_ubyte> buffer, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
@@ -2308,7 +2354,7 @@ template<typename T>
 }
 
 template<typename T>
-__device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong offset, T value) noexcept {
+__device__ inline void lc_byte_buffer_write(LCBuffer<lc_ubyte> buffer, lc_ulong offset, T value) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG

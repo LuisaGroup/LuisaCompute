@@ -85,6 +85,31 @@ void CommandBufferBuilder::DispatchCompute(
     c->SetPipelineState(cs->Pso());
     c->Dispatch(dispId.x, dispId.y, dispId.z);
 }
+void CommandBufferBuilder::DispatchCompute(
+    ComputeShader const *cs,
+    vstd::span<const uint3> dispatchSizes,
+    uint constBindPos,
+    vstd::span<const BindProperty> resources) {
+    auto c = cb->cmdList.Get();
+    c->SetComputeRootSignature(cs->RootSig());
+    SetComputeResources(cs, resources);
+    c->SetPipelineState(cs->Pso());
+    auto calc = [](uint disp, uint thd) {
+        return (disp + thd - 1) / thd;
+    };
+    uint3 blk = cs->BlockSize();
+    uint kernelId = 0;
+    for (auto dispatchId : dispatchSizes) {
+        uint3 dispId = {
+            calc(dispatchId.x, blk.x),
+            calc(dispatchId.y, blk.y),
+            calc(dispatchId.z, blk.z)};
+        uint4 constValue{dispatchId.x, dispatchId.y, dispatchId.z, kernelId};
+        c->SetComputeRoot32BitConstants(constBindPos, 4, &constValue, 0);
+        ++kernelId;
+        c->Dispatch(dispId.x, dispId.y, dispId.z);
+    }
+}
 void CommandBufferBuilder::SetRasterShader(
     RasterShader const *s,
     ID3D12PipelineState *state,
@@ -146,19 +171,11 @@ void CommandBufferBuilder::CopyBuffer(
 }
 CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
     TextureBase *texture,
-    uint3 size,
-    uint targetMip) {
+    uint3 size) {
     if (Resource::IsBCtex(texture->Format())) {
         size.x /= 4;
         size.y /= 4;
     }
-    auto GetValue = [&](uint &v) {
-        auto mip_v = v >> targetMip;
-        v = std::max<uint>(1, mip_v);
-    };
-    GetValue(size.x);
-    GetValue(size.y);
-    GetValue(size.z);
     auto pureLineSize = size.x * Resource::GetTexturePixelSize(texture->Format());
     auto lineSize = CalcConstantBufferByteSize(pureLineSize);
     return {
@@ -174,13 +191,6 @@ void CommandBufferBuilder::CopyBufferTexture(
     uint3 size,
     uint targetMip,
     BufferTextureCopy ope) {
-
-    auto GetValue = [&](uint &v) {
-        v = std::max<uint>(1, v >> targetMip);
-    };
-    GetValue(size.x);
-    GetValue(size.y);
-    GetValue(size.z);
     auto c = cb->cmdList.Get();
     D3D12_TEXTURE_COPY_LOCATION sourceLocation;
     sourceLocation.pResource = buffer.buffer->GetResource();

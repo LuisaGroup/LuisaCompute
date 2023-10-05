@@ -4,7 +4,7 @@ return s[idx*3+1];
 }
 template<typename T>
 float4 _SampleTex2DLevel(StructuredBuffer<uint> arr,const T index,const float2 uv,const float level){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleLevel(samp,uv,level);
 }
@@ -14,34 +14,34 @@ return _SampleTex2DLevel(arr,index,uv,0);
 }
 template<typename T>
 float4 _SampleTex2DGrad(StructuredBuffer<uint> arr,const T index,const float2 uv,const float2 dx,const float2 dy){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy);
 }
 template<typename T>
 float4 _SampleTex2DGradLevel(StructuredBuffer<uint> arr,const T index,const float2 uv,const float2 dx,const float2 dy,const float minmip){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy,int2(0,0),minmip);
 }
 #ifdef PS
 template<typename T>
 float4 _SampleTex2DPixel(StructuredBuffer<uint> arr,const T index,const float2 uv){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].Sample(samp,uv);
 }
 #endif
 template<typename T>
 float4 _ReadTex2DLevel(StructuredBuffer<uint> arr,const T index,const uint2 coord,const uint level){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].Load(uint3(coord,level));
 }
 template<typename T>
 float4 _ReadTex2D(StructuredBuffer<uint> arr,const T index,const uint2 coord){return _ReadTex2DLevel(arr,index,coord,0);}
 template<typename T>
 uint2 _Tex2DSize(StructuredBuffer<uint> arr,const T index){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 uint2 s;
 uint mip;
 _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].GetDimensions(0,s.x,s.y,mip);
@@ -49,7 +49,7 @@ return s;
 }
 template<typename T>
 uint2 _Tex2DSizeLevel(StructuredBuffer<uint> arr,const T index,const uint level){
-T num=_ReadBdlsTex2DNum(arr,index);
+uint num=_ReadBdlsTex2DNum(arr,index);
 uint2 s;
 uint mip;
 _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].GetDimensions(level,s.x,s.y,mip);

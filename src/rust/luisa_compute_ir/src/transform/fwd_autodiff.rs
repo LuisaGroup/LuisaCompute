@@ -708,7 +708,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 
 impl Transform for FwdAutodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
-        log::debug!("FwdAutodiff transform");
+        // log::debug!("FwdAutodiff transform");
         // {
         //     println!("Before AD:");
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);

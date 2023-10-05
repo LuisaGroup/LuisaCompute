@@ -35,6 +35,11 @@ public:
         ComputeShader const *cs,
         uint3 dispatchId,
         vstd::span<const BindProperty> resources);
+    void DispatchCompute(
+        ComputeShader const *cs,
+        vstd::span<const uint3> dispatchSizes,
+        uint constBindPos,
+        vstd::span<const BindProperty> resources);
     void SetRasterShader(
         RasterShader const *s,
         ID3D12PipelineState *state,
@@ -89,8 +94,7 @@ public:
     };
     static CopyInfo GetCopyTextureBufferSize(
         TextureBase *texture,
-        uint3 size,
-        uint targetMip);
+        uint3 size);
     ~CommandBufferBuilder();
 };
 class CommandBuffer : public vstd::IOperatorNewBase {

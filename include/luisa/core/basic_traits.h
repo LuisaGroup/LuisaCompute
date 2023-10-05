@@ -31,6 +31,9 @@ template<typename T>
 using half = half_float::half;
 using namespace half_float::literal;
 
+using byte = int8_t;
+using ubyte = uint8_t;
+
 static_assert(sizeof(half) == 2u && alignof(half) == 2u,
               "half should be 16-bit sized and aligned.");
 

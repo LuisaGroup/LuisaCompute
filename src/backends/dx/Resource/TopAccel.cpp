@@ -282,11 +282,10 @@ void TopAccel::Build(
         properties[0] = cbuffer;
         properties[1] = setBuffer;
         properties[2] = BufferView(instBuffer.get());
-        //TODO
         builder.DispatchCompute(
             cs,
             uint3(size, 1, 1),
-            {properties, 3});
+            properties);
         setDesc.clear();
     }
     if (scratchBuffer) {

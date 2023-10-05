@@ -5,8 +5,7 @@ use bitflags::Flags;
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::ffi::CString;
+use std::collections::HashMap;
 use std::iter::zip;
 
 struct AST2IRCtx<'a> {
@@ -399,16 +398,18 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         if t_lhs.is_primitive() && t_rhs.is_primitive() {
             let score_scalar = |t: &CArc<Type>| match t.as_ref() {
                 Type::Primitive(s) => match s {
-                    Primitive::Bool => 0,
-                    Primitive::Int16 => 1,
-                    Primitive::Uint16 => 2,
-                    Primitive::Int32 => 3,
-                    Primitive::Uint32 => 4,
-                    Primitive::Int64 => 5,
-                    Primitive::Uint64 => 6,
-                    Primitive::Float16 => 7,
-                    Primitive::Float32 => 8,
-                    Primitive::Float64 => 9,
+                    Primitive::Bool => 10,
+                    Primitive::Int8 => 20,
+                    Primitive::Uint8 => 30,
+                    Primitive::Int16 => 40,
+                    Primitive::Uint16 => 50,
+                    Primitive::Int32 => 60,
+                    Primitive::Uint32 => 70,
+                    Primitive::Int64 => 80,
+                    Primitive::Uint64 => 90,
+                    Primitive::Float16 => 100,
+                    Primitive::Float32 => 110,
+                    Primitive::Float64 => 120,
                 },
                 _ => unreachable!("Invalid scalar type."),
             };
@@ -557,25 +558,25 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 assert_eq!(t.as_ref(), t_v.element().as_ref(), "Invalid swizzle type.");
                 if is_lval {
                     let i = builder.const_(Const::Uint32(indices[0]));
-                    builder.gep(v, &[i], t.clone())
+                    builder.gep_chained(v, &[i], t.clone())
                 } else {
                     builder.extract(v, indices[0] as usize, t.clone())
                 }
             } else {
                 assert!(!is_lval, "L-value cannot be a swizzle.");
+                let indices: Vec<_> = indices
+                    .iter()
+                    .map(|i| builder.const_(Const::Uint32(*i)))
+                    .collect();
+                assert!(
+                    indices.len() >= 1 && indices.len() <= 4,
+                    "Invalid swizzle length."
+                );
                 let t_elem = t_v.element();
                 let t_swizzle = Type::vector_of(t_elem.clone(), indices.len() as u32);
                 assert_eq!(t.as_ref(), t_swizzle.as_ref(), "Invalid swizzle type.");
-                let args: Vec<_> = indices
-                    .iter()
-                    .map(|i| builder.extract(v, *i as usize, t_elem.clone()))
-                    .collect();
-                match args.len() {
-                    2 => builder.call(Func::Vec2, args.as_slice(), t_swizzle),
-                    3 => builder.call(Func::Vec3, args.as_slice(), t_swizzle),
-                    4 => builder.call(Func::Vec4, args.as_slice(), t_swizzle),
-                    _ => unreachable!("Invalid swizzle length."),
-                }
+                let args = [&[v], indices.as_slice()].concat();
+                builder.call(Func::Permute, args.as_slice(), t_swizzle)
             }
         } else {
             // member access
@@ -594,7 +595,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             assert_eq!(t.as_ref(), t_elem.as_ref(), "Invalid member type.");
             if is_lval {
                 let i = builder.const_(Const::Uint32(i as u32));
-                builder.gep(v, &[i], t.clone())
+                builder.gep_chained(v, &[i], t.clone())
             } else {
                 builder.extract(v, i, t.clone())
             }
@@ -615,14 +616,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         assert_eq!(elem.as_ref(), t.as_ref(), "Invalid access type.");
         let (builder, ..) = self.unwrap_ctx();
         if is_lval {
-            builder.gep(range, &[index], elem)
+            builder.gep_chained(range, &[index], elem)
         } else {
             builder.extract_dynamic(range, index, elem)
         }
     }
 
     fn _convert_literal_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
-        let v = base64ct::Base64::decode_vec(j["value"].as_str().unwrap()).unwrap();
+        let v = Base64::decode_vec(j["value"].as_str().unwrap()).unwrap();
         let (builder, ..) = self.unwrap_ctx();
         match t.as_ref() {
             Type::Primitive(s) => match s {
@@ -632,6 +633,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         let b = std::mem::transmute(v[0]);
                         builder.const_(Const::Bool(b))
                     }
+                }
+                Primitive::Int8 => {
+                    assert_eq!(v.len(), 1, "Invalid int8 literal");
+                    builder.const_(Const::Int8(v[0] as i8))
+                }
+                Primitive::Uint8 => {
+                    assert_eq!(v.len(), 1, "Invalid uint8 literal.");
+                    builder.const_(Const::Uint8(v[0]))
                 }
                 Primitive::Int16 => {
                     assert_eq!(v.len(), 2, "Invalid int16 literal.");
@@ -708,7 +717,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         }
     }
 
-    fn _convert_ref_expr(&mut self, t: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
+    fn _convert_ref_expr(&mut self, _: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
         let v = self
             ._curr_ctx()
             .variables
@@ -964,37 +973,37 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 .map(|(arg, is_lval)| self._convert_expression(arg, *is_lval))
                 .collect()
         };
-        let mut check_is_ray_query = |node: NodeRef| {
+        let check_is_ray_query = |node: NodeRef| {
             let t = node.type_();
             assert!(
                 t.is_opaque("LC_RayQueryAll") || t.is_opaque("LC_RayQueryAny"),
                 "Invalid ray query type."
             );
         };
-        let mut check_is_accel = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_accel = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Accel => {}
             _ => panic!("Invalid accel type."),
         };
-        let mut check_is_buffer = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_buffer = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Buffer => {}
             _ => panic!("Invalid buffer type."),
         };
-        let mut check_is_texture = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_texture = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Texture2D => {}
             Instruction::Texture3D => {}
             _ => panic!("Invalid texture type."),
         };
-        let mut check_is_bindless = |node: NodeRef| match node.get().instruction.as_ref() {
+        let check_is_bindless = |node: NodeRef| match node.get().instruction.as_ref() {
             Instruction::Bindless => {}
             _ => panic!("Invalid bindless type."),
         };
-        let mut check_is_index = |t: &CArc<Type>| {
+        let check_is_index = |t: &CArc<Type>| {
             assert!(t.is_int() && t.is_primitive());
         };
-        let mut check_is_tex_int_coord = |t: &CArc<Type>| {
+        let check_is_tex_int_coord = |t: &CArc<Type>| {
             assert!(t.is_int() && t.is_vector() && (t.dimension() == 2 || t.dimension() == 3));
         };
-        let mut check_is_tex_float_coord = |t: &CArc<Type>| {
+        let check_is_tex_float_coord = |t: &CArc<Type>| {
             assert!(t.is_float() && t.is_vector() && (t.dimension() == 2 || t.dimension() == 3));
         };
         macro_rules! check_same_types {

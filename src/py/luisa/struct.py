@@ -88,6 +88,7 @@ class StructType:
         type_string = f'struct<{self.alignment},' + ','.join(
             [to_lctype(x).description() for x in self.membertype]) + '>'
         self.luisa_type = lcapi.Type.from_(type_string)
+        self.size_bytes = self.luisa_type.size()
 
     def __call__(self, **kwargs):
         # ensure order

@@ -320,13 +320,13 @@ impl LLVMPaths {
         match var("LUISA_LLVM_PATH") {
             Ok(s) => {
                 if !Path::new(&s).exists() {
-                    panic_abort!(
+                    panic!(
                         "LUISA_LLVM_PATH is set to {}, but the path does not exist",
                         s
                     );
                 }
                 if Path::new(&s).is_dir() {
-                    panic_abort!("LUISA_LLVM_PATH is set to {}, but the path is a directory. Should be path to library", s);
+                    panic!("LUISA_LLVM_PATH is set to {}, but the path is a directory. Should be path to library", s);
                 }
                 self.llvm = s;
             }
@@ -335,13 +335,13 @@ impl LLVMPaths {
         match var("LUISA_CLANG_PATH") {
             Ok(s) => {
                 if !Path::new(&s).exists() {
-                    panic_abort!(
+                    panic!(
                         "LUISA_CLANG_PATH is set to {}, but the path does not exist",
                         s
                     );
                 }
                 if Path::new(&s).is_dir() {
-                    panic_abort!("LUISA_CLANG_PATH is set to {}, but the path is a directory. Should be path to executable", s);
+                    panic!("LUISA_CLANG_PATH is set to {}, but the path is a directory. Should be path to executable", s);
                 }
                 self.clang = s;
             }
@@ -369,7 +369,7 @@ impl LLVMPaths {
                     match var("LUISA_CLANG_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++ executable")
+                            panic!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++ executable")
                         }
                     }
                 }),
@@ -385,7 +385,7 @@ impl LLVMPaths {
                             } else {
                                 "LLVM-C.dll"
                             };
-                            panic_abort!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of {}", libllvm);
+                            panic!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of {}", libllvm);
                         }
                     }
                 }),
@@ -464,18 +464,18 @@ impl LibLLVM {
             not(target_arch = "x86_64"),
             not(target_arch = "aarch64")
         )) {
-            panic_abort!("only x86_64 and aarch64 are supported");
+            panic!("only x86_64 and aarch64 are supported");
         }
         unsafe {
             let path = llvm_lib_path();
             let lib = libloading::Library::new(&path).unwrap_or_else(|e| {
-                panic_abort!("Failed to load LLVM: could not load {}, error: {}", path, e);
+                panic!("Failed to load LLVM: could not load {}, error: {}", path, e);
             });
             log::info!("Loading LLVM functions from {}", path);
             macro_rules! load {
                 ($name:expr) => {
                     lift(lib.get($name).unwrap_or_else(|e| {
-                        panic_abort!(
+                        panic!(
                             "Failed to load LLVM function {}: could not load {}, error: {}",
                             std::str::from_utf8($name).unwrap(),
                             path,
@@ -719,7 +719,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> Option<KernelFn>
             //     &mut msg as *mut *mut i8,
             // ) != 0
             // {
-            //     panic_abort!("LLVMParseIRInContext failed");
+            //     panic!("LLVMParseIRInContext failed");
             // }
             // let pass = CString::new("default<O3>").unwrap();
             // let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
@@ -946,6 +946,38 @@ impl Context {
                 panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
+            unsafe extern "C" fn lc_abort_and_print(ctx: *const c_void, msg: *const c_char) {
+                let _lk = ABORT_MUTEX.lock();
+                {
+                    let ctx = ctx as *const ShaderDispatchContext;
+                    let ctx = &*ctx;
+                    if ctx.terminated.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    loop {
+                        let current = ctx.terminated.load(Ordering::SeqCst);
+                        if current {
+                            return;
+                        }
+                        match ctx.terminated.compare_exchange(
+                            current,
+                            true,
+                            Ordering::SeqCst,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(false) => break,
+                            _ => return,
+                        }
+                    }
+                    let msg = CStr::from_ptr(msg).to_str().unwrap();
+                    eprintln!("{}", msg);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(file, "LuisaCompute CPU backend kernel aborted:\n{}", msg).unwrap();
+                }
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
+            }
+            add_symbol!(lc_abort_and_print, lc_abort_and_print);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
             //cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
             //log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
@@ -1020,7 +1052,7 @@ fn target_name() -> String {
     } else if cfg!(target_arch = "aarch64") {
         "arm64".to_string()
     } else {
-        panic_abort!("unsupported target")
+        panic!("unsupported target")
     }
 }
 
@@ -1100,10 +1132,10 @@ fn target_triple() -> String {
         } else if cfg!(target_arch = "aarch64") {
             "arm64-apple-darwin".to_string()
         } else {
-            panic_abort!("unsupported target")
+            panic!("unsupported target")
         }
     } else {
-        panic_abort!("unsupported target")
+        panic!("unsupported target")
     }
 }
 

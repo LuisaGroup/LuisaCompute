@@ -25,6 +25,8 @@ public:
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<int> instance_id) const noexcept;
     void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<int> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_opaque(Expr<int> instance_id, Expr<bool> opaque) const noexcept;
@@ -69,6 +71,8 @@ public:
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<int> instance_id) const noexcept;
     void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<int> instance_id, Expr<uint> vis_mask) const noexcept;
@@ -82,4 +86,3 @@ public:
 }// namespace detail
 
 }// namespace luisa::compute
-

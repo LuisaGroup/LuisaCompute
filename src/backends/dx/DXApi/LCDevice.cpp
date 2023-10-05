@@ -756,5 +756,11 @@ VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings)
 VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<LCDevice *>(device);
 }
-
+luisa::string LCDevice::query(luisa::string_view property) noexcept {
+    if (property == "device_name") {
+        return "dx";
+    }
+    LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
+    return {};
+}
 }// namespace lc::dx

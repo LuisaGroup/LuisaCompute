@@ -34,6 +34,15 @@ public:
     template<typename T>
         requires(std::is_same_v<T, RWResource> || std::is_base_of_v<RWResource, T>)
     static T *get(uint64_t handle) {
+        auto ptr = static_cast<T *>(_get(handle));
+        if(ptr == nullptr) [[unlikely]]{
+            LUISA_ERROR("Type {} instance not found.", typeid(T).name());
+        }
+        return ptr;
+    }
+    template<typename T>
+        requires(std::is_same_v<T, RWResource> || std::is_base_of_v<RWResource, T>)
+    static T *try_get(uint64_t handle) {
         return static_cast<T *>(_get(handle));
     }
 };

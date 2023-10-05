@@ -241,10 +241,6 @@ on_load(function(target)
 			tools = {"clang_cl", "cl"},
 			public = config_is_public
 		})
-		target:add("cxflags", "/Zc:preprocessor", {
-			tools = "cl",
-			public = config_is_public
-		});
 	else
 		target:set("runtimes", "MD", {
 			public = config_is_public
@@ -259,11 +255,11 @@ on_load(function(target)
 			tools = {"clang_cl", "cl"},
 			public = config_is_public
 		})
-		target:add("cxflags", "/Zc:preprocessor", {
-			tools = "cl",
-			public = config_is_public
-		})
 	end
+	target:add("cxflags", "/Zc:preprocessor", {
+		tools = "cl",
+		public = config_is_public
+	});
 	if _get_or("use_simd", false) then
 		if is_arch("arm64") then
 			target:add("vectorexts", "neon", {

@@ -491,17 +491,26 @@ public:
             bindProps->emplace_back();
             BeforeDispatch();
             bd->DispatchComputeIndirect(cs, *buffer, t.offset, t.max_dispatch_size, *bindProps);
+        } else if (cmd->is_multiple_dispatch()) {
+            size_t bindCount = bindProps->size();
+            bindProps->emplace_back();
+            BeforeDispatch();
+            auto sizes = cmd->dispatch_sizes();
+            bd->DispatchCompute(
+                cs,
+                sizes,
+                bindCount,
+                *bindProps);
         } else {
             auto &&t = cmd->dispatch_size();
-            // auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(16, 16);
-            // static_cast<UploadBuffer const *>(bfView.buffer)->CopyData(bfView.offset, {reinterpret_cast<uint8_t const *>(&t), 12});
-            bindProps->emplace_back(4, make_uint4(t, 1));
+            bindProps->emplace_back(4, make_uint4(t, 0));
             BeforeDispatch();
             bd->DispatchCompute(
                 cs,
                 t,
                 *bindProps);
         }
+
         /*switch (shader->GetTag()) {
             case Shader::Tag::ComputeShader: {
                 auto cs = static_cast<ComputeShader const *>(shader);
@@ -524,8 +533,7 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
-            cmd->size(),
-            cmd->level());
+            cmd->size());
         auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
         auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
         if (copyInfo.bufferSize == copyInfo.alignedBufferSize) {
@@ -576,8 +584,7 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
-            cmd->size(),
-            cmd->level());
+            cmd->size());
         auto alloc = bd->GetCB()->GetAlloc();
         auto bfView = alloc->GetTempReadbackBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
 
@@ -728,7 +735,7 @@ public:
             view.TopLeftX = viewport.start.x;
             view.TopLeftY = viewport.start.y;
             view.Width = viewport.size.x;
-            view.Height =viewport.size.y;
+            view.Height = viewport.size.y;
             cmdList->RSSetViewports(1, &view);
             RECT rect{
                 .left = static_cast<int>(view.TopLeftX + 0.4999f),

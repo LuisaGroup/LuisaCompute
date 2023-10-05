@@ -142,6 +142,10 @@ protected:
         _encoder.set_dispatch_size(dispatch_size);
         return std::move(_encoder);
     }
+    [[nodiscard]] auto _parallelize(luisa::span<const uint3> dispatch_sizes) noexcept {
+        _encoder.set_dispatch_sizes(dispatch_sizes);
+        return std::move(_encoder);
+    }
     [[nodiscard]] auto _parallelize(const IndirectDispatchBuffer &indirect_buffer,
                                     uint32_t offset = 0,
                                     uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) noexcept {
@@ -162,6 +166,9 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint size_x) && noexcept {
         return this->_parallelize(uint3{size_x, 1u, 1u}).build();
     }
+    [[nodiscard]] auto dispatch(luisa::span<const uint3> dispatch_sizes) && noexcept {
+        return this->_parallelize(dispatch_sizes).build();
+    }
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
@@ -179,6 +186,9 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint2 size) && noexcept {
         return this->_parallelize(uint3{size.x, size.y, 1u}).build();
     }
+    [[nodiscard]] auto dispatch(luisa::span<const uint3> dispatch_sizes) && noexcept {
+        return this->_parallelize(dispatch_sizes).build();
+    }
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
@@ -192,6 +202,9 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
         : ShaderInvokeBase{handle, arg_count, uniform_size} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) && noexcept {
         return this->_parallelize(uint3{size_x, size_y, size_z}).build();
+    }
+    [[nodiscard]] auto dispatch(luisa::span<const uint3> dispatch_sizes) && noexcept {
+        return this->_parallelize(dispatch_sizes).build();
     }
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
