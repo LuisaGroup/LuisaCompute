@@ -1712,7 +1712,12 @@ impl Backward {
                 if grad_type.is_none() {
                     return;
                 }
-                let out_grad = self.grad(node).unwrap();
+                
+                let out_grad = self.grad(node);
+                if out_grad.is_none() {
+                    return;
+                }
+                let out_grad = out_grad.unwrap();
                 let out_grad = if out_grad.is_local() {
                     builder.call(Func::Load, &[out_grad], out_grad.type_().clone())
                 } else {
@@ -1865,24 +1870,24 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     pools: pools.clone(),
                     flags: ModuleFlags::NONE,
                 };
-                {
-                    println!(
-                        "Before SSA:\n{}",
-                        ir::debug::dump_ir_human_readable(&Module {
-                            kind: ModuleKind::Block,
-                            entry: body.clone(),
-                            pools: pools.clone(),
-                            flags: ModuleFlags::NONE,
-                        })
-                    );
-                }
+                // {
+                //     println!(
+                //         "Before SSA:\n{}",
+                //         ir::debug::dump_ir_human_readable(&Module {
+                //             kind: ModuleKind::Block,
+                //             entry: body.clone(),
+                //             pools: pools.clone(),
+                //             flags: ModuleFlags::NONE,
+                //         })
+                //     );
+                // }
                 let ad_block = ToSSA.transform(ad_block);
-                {
-                    println!(
-                        "After SSA:\n{}",
-                        ir::debug::dump_ir_human_readable(&ad_block)
-                    );
-                }
+                // {
+                //     println!(
+                //         "After SSA:\n{}",
+                //         ir::debug::dump_ir_human_readable(&ad_block)
+                //     );
+                // }
                 let mut backward = None;
                 let mut gradient_marker = None;
                 for node in body.iter() {
@@ -2006,11 +2011,11 @@ impl Transform for Autodiff {
         }
         ad_transform_recursive(module.entry, &module.pools);
         module.flags.remove(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
-        // {
-        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
-        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
-        //     println!("After AD:\n{}", debug.to_str().unwrap());
-        // }
+        {
+            let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+            let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+            println!("After AD:\n{}", debug.to_str().unwrap());
+        }
         module
     }
 }

@@ -12,7 +12,7 @@ Remove all Instruction::Update nodes
 */
 pub struct ToSSA;
 struct ToSSAImpl {
-    entry: Pooled<BasicBlock>,
+    entry: IrBuilder,
     map_blocks: HashMap<*mut BasicBlock, *mut BasicBlock>,
     local_defs: HashSet<NodeRef>,
     map_immutables: HashMap<NodeRef, NodeRef>,
@@ -43,7 +43,7 @@ impl SSABlockRecord {
 impl ToSSAImpl {
     fn new(model: &Module) -> Self {
         Self {
-            entry: model.entry,
+            entry: IrBuilder::new(model.pools.clone()),
             map_blocks: HashMap::new(),
             local_defs: model.collect_nodes().into_iter().collect(),
             map_immutables: HashMap::new(),
@@ -100,9 +100,7 @@ impl ToSSAImpl {
                 // this outter variable is not previously seen
                 // we need to generate a load in the outmost scope
                 if record.stored.get(&var).is_none() {
-                    let mut tmp_builder = IrBuilder::new_without_bb(builder.pools.clone());
-                    tmp_builder.set_insert_point(self.entry.first);
-                    let val = tmp_builder.load(var);
+                    let val = self.entry.load(var);
                     record.stored.insert_at_top(var, val);
                 }
             }
@@ -161,9 +159,7 @@ impl ToSSAImpl {
                 // this outter variable is not previously seen
                 // we need to generate a load in the outmost scope
                 if record.stored.get(&var).is_none() {
-                    let mut tmp_builder = IrBuilder::new_without_bb(builder.pools.clone());
-                    tmp_builder.set_insert_point(self.entry.first);
-                    let val = tmp_builder.load(var);
+                    let val = self.entry.load(var);
                     record.stored.insert_at_top(var, val);
                 }
             }
@@ -438,8 +434,10 @@ impl Transform for ToSSA {
             IrBuilder::new(module.pools.clone()),
             &mut SSABlockRecord::new(),
         );
+        let body = imp.entry.finish();
+        body.merge(new_bb);
         let mut entry = module.entry;
-        *entry.get_mut() = *new_bb;
+        *entry.get_mut() = *body;
         Module {
             kind: module.kind,
             entry,
