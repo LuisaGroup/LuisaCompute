@@ -176,7 +176,7 @@ template<typename T>
 }
 
 template<typename T, typename Index>
-[[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
+[[nodiscard]] __device__ inline T lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
 #ifdef LUISA_DEBUG
     lc_check_in_bounds(index, lc_buffer_size(buffer));
@@ -1094,7 +1094,7 @@ template<typename T>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
+[[nodiscard]] inline __device__ T lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -1120,7 +1120,7 @@ template<typename T>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_byte_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
+[[nodiscard]] inline __device__ T lc_bindless_byte_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const char *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -2347,7 +2347,7 @@ template<typename T>
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1);
     lc_assert(address % alignof(T) == 0u && "unaligned access");
 #endif
     return *reinterpret_cast<T *>(address);
@@ -2358,7 +2358,7 @@ __device__ inline void lc_byte_buffer_write(LCBuffer<lc_ubyte> buffer, lc_ulong 
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1);
     lc_assert(address % alignof(T) == 0u && "unaligned access");
 #endif
     *reinterpret_cast<T *>(address) = value;
