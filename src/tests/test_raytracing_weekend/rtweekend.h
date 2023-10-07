@@ -6,6 +6,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/dsl/syntax.h>
 #include <stb/stb_image_write.h>
+#include <stb/stb_image.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
 
@@ -24,6 +25,11 @@ inline float random_float() {
 inline float random_float(float min, float max) {
     // Returns a random real in [min,max).
     return min + (max - min) * random_float();
+}
+
+inline int random_int(int min, int max) {
+    // Returns a random integer in [min,max].
+    return static_cast<int>(random_float(min, max + 1));
 }
 
 UInt tea(UInt v0, UInt v1) noexcept {
@@ -59,7 +65,7 @@ Float3 random_in_unit_sphere(UInt &seed) {
     Float3 p;
     $loop {
         p = random_float3(seed, -1.0f, 1.0f);
-        $if(length_squared(p) < 1.0f) { $break; };
+        $if (length_squared(p) < 1.0f) { $break; };
     };
     return p;
 }
@@ -74,7 +80,7 @@ Float3 random_in_unit_disk(UInt &seed) {
         Float x = frand(seed, -1, 1);
         Float y = frand(seed, -1, 1);
         p = make_float3(x, y, 0.0f);
-        $if(length_squared(p) < 1) { $break; };
+        $if (length_squared(p) < 1) { $break; };
     };
     return p;
 }
@@ -98,4 +104,3 @@ Float3 ray_refract(const Float3 &uv, const Float3 &n, Float etai_over_etat) {
 
 class material;
 vector<shared_ptr<material>> materials;
-
