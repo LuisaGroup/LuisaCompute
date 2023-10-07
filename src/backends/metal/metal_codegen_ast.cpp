@@ -948,6 +948,12 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
+        case CallOp::BINDLESS_BUFFER_WRITE: {
+            _scratch << "bindless_buffer_write<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::BINDLESS_BYTE_BUFFER_READ: {
             _scratch << "bindless_byte_address_buffer_read<";
             _emit_type_name(expr->type());

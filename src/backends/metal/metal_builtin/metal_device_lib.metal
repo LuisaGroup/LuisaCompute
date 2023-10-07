@@ -449,7 +449,7 @@ template<typename T>
 }
 
 struct alignas(16) LCBindlessItem {
-    device const void *buffer;
+    device void *buffer;
     ulong buffer_size : 48;
     uint sampler2d : 8;
     uint sampler3d : 8;
@@ -569,6 +569,11 @@ template<typename T>
     return static_cast<device const T *>(array.items[buffer_index].buffer)[i];
 }
 
+template<typename T>
+inline void bindless_buffer_write(LCBindlessArray array, uint buffer_index, uint i, T value) {
+    static_cast<device T *>(array.items[buffer_index].buffer)[i] = value;
+}
+
 [[nodiscard]] inline auto bindless_buffer_type(LCBindlessArray array, uint buffer_index) {
     return 0ull;// TODO
 }
@@ -576,6 +581,11 @@ template<typename T>
 template<typename T>
 [[nodiscard]] inline auto bindless_byte_address_buffer_read(LCBindlessArray array, uint buffer_index, uint offset) {
     return reinterpret_cast<device const T *>(static_cast<device const char *>(array.items[buffer_index].buffer) + offset);
+}
+
+template<typename T>
+inline void bindless_byte_address_buffer_write(LCBindlessArray array, uint buffer_index, uint offset, T value) {
+    *reinterpret_cast<device T *>(static_cast<device char *>(array.items[buffer_index].buffer) + offset) = value;
 }
 
 using namespace metal::raytracing;

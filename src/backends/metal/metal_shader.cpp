@@ -138,7 +138,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             case Argument::Tag::BINDLESS_ARRAY: {
                 auto array = reinterpret_cast<MetalBindlessArray *>(arg.bindless_array.handle);
-                if (usage != 0u) { array->mark_resource_usages(compute_encoder); }
+                if (usage != 0u) { array->mark_resource_usages(compute_encoder, usage); }
                 break;
             }
             case Argument::Tag::ACCEL: {

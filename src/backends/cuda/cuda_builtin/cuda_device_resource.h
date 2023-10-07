@@ -1061,7 +1061,7 @@ __device__ inline void lc_texture_write(LCTexture3D<T> tex, lc_int3 p, V value) 
 }
 
 struct alignas(16) LCBindlessSlot {
-    const void *__restrict__ buffer;
+    void *__restrict__ buffer;
     size_t buffer_size;
     cudaTextureObject_t tex2d;
     cudaTextureObject_t tex3d;
@@ -1128,6 +1128,17 @@ template<typename T>
     lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
 #endif
     return *reinterpret_cast<const T *>(buffer + offset);
+}
+
+template<typename T>
+inline __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint index, lc_ulong offset, T value) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const char *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+#endif
+    *reinterpret_cast<const T *>(buffer + offset) = value;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
