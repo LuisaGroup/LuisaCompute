@@ -36,6 +36,13 @@ Var<uint> AccelExprProxy::instance_user_id(Expr<int> instance_id) const noexcept
 Var<uint> AccelExprProxy::instance_user_id(Expr<uint> instance_id) const noexcept {
     return Expr<Accel>{_accel}.instance_user_id(instance_id);
 }
+Var<uint> AccelExprProxy::instance_visibility_mask(Expr<int> instance_id) const noexcept {
+    return Expr<Accel>{_accel}.instance_visibility_mask(instance_id);
+}
+
+Var<uint> AccelExprProxy::instance_visibility_mask(Expr<uint> instance_id) const noexcept {
+    return Expr<Accel>{_accel}.instance_visibility_mask(instance_id);
+}
 
 void AccelExprProxy::set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
     Expr<Accel>{_accel}.set_instance_transform(instance_id, mat);
@@ -114,6 +121,13 @@ Var<uint> Expr<Accel>::instance_user_id(Expr<uint> instance_id) const noexcept {
             {_expression, instance_id.expression()}));
 }
 
+Var<uint> Expr<Accel>::instance_visibility_mask(Expr<uint> instance_id) const noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK,
+            {_expression, instance_id.expression()}));
+}
+
 Var<float4x4> Expr<Accel>::instance_transform(Expr<int> instance_id) const noexcept {
     return def<float4x4>(
         detail::FunctionBuilder::current()->call(
@@ -125,6 +139,12 @@ Var<uint> Expr<Accel>::instance_user_id(Expr<int> instance_id) const noexcept {
     return def<uint>(
         detail::FunctionBuilder::current()->call(
             Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_USER_ID,
+            {_expression, instance_id.expression()}));
+}
+Var<uint> Expr<Accel>::instance_visibility_mask(Expr<int> instance_id) const noexcept {
+    return def<uint>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK,
             {_expression, instance_id.expression()}));
 }
 

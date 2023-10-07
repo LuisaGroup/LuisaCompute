@@ -99,6 +99,10 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
                     return ret;
                 }
                 if (ret != nullptr) {
+                    LUISA_ASSERT(ret->type() == type,
+                                 "Type mismatch: expected {}, got {} (op = {}).",
+                                 type->description(), ret->type()->description(),
+                                 to_underlying(node->instruction->call._0.tag));
                     auto local = _ctx->function_builder->local(type);
                     _ctx->function_builder->assign(local, ret);
                     _ctx->node_to_exprs.emplace(node, local);
@@ -261,7 +265,7 @@ ir2ast_convert_triangle_hit(FunctionBuilder *b, const Type *dst_ht, const Expres
         b->assign(ref, expr);
         expr = ref;
     }
-    auto bary = b->member(ft, expr, 2u);
+    auto bary = b->member(vt, expr, 2u);
     auto bary_x = b->access(ft, bary, b->literal(ut, 0u));
     auto bary_y = b->access(ft, bary, b->literal(ut, 1u));
     auto hit = b->local(dst_ht);
@@ -327,9 +331,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             call_op == CallOp::RAY_TRACING_TRACE_ANY ||
             call_op == CallOp::RAY_TRACING_QUERY_ALL ||
             call_op == CallOp::RAY_TRACING_QUERY_ANY) {
-            converted_args[1] = detail::ir2ast_convert_ray_ir_type_2_ast_type(
-                _ctx->function_builder.get(),
-                converted_args[1]);
+            // converted_args[1] = detail::ir2ast_convert_ray_ir_type_2_ast_type(
+            //     _ctx->function_builder.get(),
+            //     converted_args[1]);
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ANY) {
             auto type = Type::of<RayQueryAny>();
@@ -347,7 +351,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         if (call_op == CallOp::RAY_QUERY_WORLD_SPACE_RAY) {
             auto ray = _ctx->function_builder->call(Type::of<Ray>(), call_op, converted_args);
-            return detail::ir2ast_convert_ray_ast_type_2_ir_type(_ctx->function_builder.get(), ray);
+            return ray;//detail::ir2ast_convert_ray_ast_type_2_ir_type(_ctx->function_builder.get(), ray);
         }
         if (type == nullptr) {
             _ctx->function_builder->call(
@@ -591,7 +595,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Neg: return unary_op(UnaryOp::MINUS);
         case ir::Func::Tag::Not: return unary_op(UnaryOp::NOT);
         case ir::Func::Tag::BitNot: {
-            if (type->is_bool()) {
+            if (type->is_bool() || (type->is_vector() && type->element()->is_bool())) {
                 return unary_op(UnaryOp::NOT);
             } else {
                 return unary_op(UnaryOp::BIT_NOT);
@@ -711,6 +715,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(3, CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessByteBufferRead: return builtin_func(3, CallOp::BINDLESS_BYTE_BUFFER_READ);
         case ir::Func::Tag::BindlessBufferRead: return builtin_func(3, CallOp::BINDLESS_BUFFER_READ);
+        case ir::Func::Tag::BindlessBufferWrite: return builtin_func(4, CallOp::BINDLESS_BUFFER_WRITE);
         case ir::Func::Tag::BindlessBufferSize: return builtin_func(3, CallOp::BINDLESS_BUFFER_SIZE);
         case ir::Func::Tag::BindlessBufferType: return builtin_func(2, CallOp::BINDLESS_BUFFER_TYPE);
         case ir::Func::Tag::Vec: return make_vector(1);
@@ -734,42 +739,58 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             return _ctx->function_builder->call(type, op, luisa::span{reconstruct_args});
         }
         case ir::Func::Tag::InsertElement: {
-            // for Sturct, auto a = b; a.c = d; return a;
-            // for Vector/Matrix, auto a = b; a[i] = c; return a;
-            LUISA_ASSERT(args.size() == 3u, "`InsertElement` takes 3 arguments.");
-            auto self = ir::luisa_compute_ir_node_get(args[0]);
-            auto self_type = _convert_type(self->type_.get());
-            auto tmp = _ctx->function_builder->local(self_type);
-            _ctx->function_builder->assign(tmp, _convert_node(self));
-            auto new_value = _convert_node(args[1]);
-            if (self->type_->tag == ir::Type::Tag::Struct) {
-                auto member_index = constant_index(args[2]);
-                auto member_type = self_type->members()[member_index];
-                auto ref = _ctx->function_builder->member(member_type, tmp, member_index);
-                _ctx->function_builder->assign(ref, new_value);
-            } else {
-                auto index = _convert_node(args[2]);
-                auto inner_type = self_type->element();
-                auto ref = _ctx->function_builder->access(inner_type, tmp, index);
-                _ctx->function_builder->assign(ref, new_value);
+            // InsertElement(self, new_value, indices...)
+            // First we make a copy of self, then we assign the new value to the specified index.
+            LUISA_ASSERT(args.size() >= 3u, "`InsertElement` takes 3 arguments.");
+            auto old = _convert_node(args[0]);
+            auto copy = _ctx->function_builder->local(old->type());
+            _ctx->function_builder->assign(copy, old);
+            auto self = static_cast<const Expression *>(copy);
+            auto indices = args.subspan(2u);
+            for (auto i : indices) {
+                if (auto self_type = self->type(); self_type->is_structure()) {
+                    auto member_index = constant_index(i);
+                    auto member_type = self_type->members()[member_index];
+                    self = _ctx->function_builder->member(member_type, self, member_index);
+                } else if (self_type->is_array() || self_type->is_vector()) {
+                    auto index = _convert_node(i);
+                    auto inner_type = self_type->element();
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                } else {
+                    LUISA_ASSERT(self_type->is_matrix(), "Invalid type.");
+                    auto index = _convert_node(i);
+                    auto inner_type = Type::vector(self_type->element(), self_type->dimension());
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                }
             }
-            return tmp;
+            auto elem = _convert_node(args[1]);
+            LUISA_ASSERT(self->type() == elem->type(), "Type mismatch.");
+            _ctx->function_builder->assign(self, elem);
+            return copy;
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
-            LUISA_ASSERT(args.size() == 2u, "{} takes 2 arguments.", to_string(func.tag));
-            auto self = ir::luisa_compute_ir_node_get(args[0]);
-            auto self_type = _convert_type(self->type_.get());
-            if (self->type_->tag == ir::Type::Tag::Struct) {
-                auto member_index = constant_index(args[1]);
-                auto member_type = self_type->members()[member_index];
-                return _ctx->function_builder->member(member_type, _convert_node(self), member_index);
-            } else {
-                auto container = _convert_node(self);
-                auto index = _convert_node(args[1]);
-                auto inner_type = self_type->element();
-                return _ctx->function_builder->access(inner_type, container, index);
+            LUISA_ASSERT(args.size() >= 2u, "{} takes at least 2 arguments.", to_string(func.tag));
+            auto self = _convert_node(args[0]);
+            auto indices = args.subspan(1u);
+            for (auto i : indices) {
+                if (auto self_type = self->type(); self_type->is_structure()) {
+                    auto member_index = constant_index(i);
+                    auto member_type = self_type->members()[member_index];
+                    self = _ctx->function_builder->member(member_type, self, member_index);
+                } else if (self_type->is_vector() || self_type->is_array()) {
+                    auto index = _convert_node(i);
+                    auto inner_type = self_type->element();
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                } else {
+                    LUISA_ASSERT(self_type->is_matrix(), "Invalid type.");
+                    auto index = _convert_node(i);
+                    auto inner_type = Type::vector(self_type->element(), self_type->dimension());
+                    self = _ctx->function_builder->access(inner_type, self, index);
+                }
             }
+            LUISA_ASSERT(self->type() == type, "Type mismatch.");
+            return self;
         }
         case ir::Func::Tag::Struct: {
             auto alignment = node->type_->struct_._0.alignment;
@@ -793,7 +814,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             LUISA_ASSERT(type->is_array(), "Invalid array type.");
             auto element_type = type->element();
             auto array_instance = _ctx->function_builder->local(type);
-            LUISA_ASSERT(args.size() == type->count(), "Array type inconsistent with arguments.");
+            LUISA_ASSERT(args.size() == type->dimension(), "Array type inconsistent with arguments. Expected {}, found {}", type->count(), args.size());
             for (auto i = 0u; i < args.size(); i++) {
                 auto index = _ctx->function_builder->literal(Type::of<uint>(), i);
                 auto access = _ctx->function_builder->access(element_type, array_instance, index);
@@ -1012,15 +1033,11 @@ void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
 }
 void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
     auto comment_body = node->instruction->comment._0;
-    auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), comment_body.len};
+    auto len = comment_body.ptr[comment_body.len - 1] == 0 ?
+                   comment_body.len - 1 :
+                   comment_body.len;
+    auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), len};
     _ctx->function_builder->comment_(comment_content);
-}
-
-void IR2AST::_convert_instr_debug(const ir::Node *node) noexcept {
-    //    LUISA_WARNING_WITH_LOCATION("Instruction `Debug` is not implemented.");
-    //    auto debug_body = node->instruction->debug._0;
-    //    auto debug_content = luisa::string_view{reinterpret_cast<const char *>(debug_body.ptr), debug_body.len};
-    //    _ctx->function_builder->comment_(luisa::format("Debug: {}", debug_content));
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
@@ -1086,6 +1103,8 @@ const Type *IR2AST::_convert_primitive_type(const ir::Primitive &type) noexcept 
         case ir::Primitive::Bool: return Type::of<bool>();
         case ir::Primitive::Float16: return Type::of<half>();
         case ir::Primitive::Float32: return Type::of<float>();
+        case ir::Primitive::Int8: return Type::of<int8_t>();
+        case ir::Primitive::Uint8: return Type::of<uint8_t>();
         case ir::Primitive::Int16: return Type::of<short>();
         case ir::Primitive::Uint16: return Type::of<ushort>();
         case ir::Primitive::Int32: return Type::of<int>();
@@ -1179,6 +1198,11 @@ void IR2AST::_collect_phis(const ir::BasicBlock *bb) noexcept {
             }
             case ir::Instruction::Tag::AdDetach: {
                 _collect_phis(instr->ad_detach._0.get());
+                break;
+            }
+            case ir::Instruction::Tag::RayQuery: {
+                _collect_phis(instr->ray_query.on_triangle_hit.get());
+                _collect_phis(instr->ray_query.on_procedural_hit.get());
                 break;
             }
             default: break;
@@ -1363,7 +1387,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         }
         case ir::Instruction::Tag::Buffer: {
             const luisa::compute::Type *buffer_type = nullptr;
-            if (type == Type::of<void>()) {
+            if (type == Type::of<void>() || type == Type::of<ubyte>()) {
                 buffer_type = Type::of<ByteBuffer>();
             } else {
                 buffer_type = Type::buffer(type);
@@ -1382,7 +1406,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
     switch (captured.binding.tag) {
         case ir::Binding::Tag::Buffer: {
             const luisa::compute::Type *buffer_type = nullptr;
-            if (type == Type::of<void>()) {
+            if (type == Type::of<void>() || type == Type::of<ubyte>()) {
                 buffer_type = Type::of<ByteBuffer>();
             } else {
                 buffer_type = Type::buffer(type);

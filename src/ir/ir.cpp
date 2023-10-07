@@ -70,13 +70,24 @@ luisa::span<const SwitchCase> Instruction::Switch::cases() const noexcept {
 }
 
 const Pooled<BasicBlock> &Instruction::AdScope::body() const noexcept { return detail::from_inner_ref(_inner.body); }
+const bool &Instruction::AdScope::forward() const noexcept { return detail::from_inner_ref(_inner.forward); }
+const size_t &Instruction::AdScope::n_forward_grads() const noexcept { return detail::from_inner_ref(_inner.n_forward_grads); }
 const NodeRef &Instruction::RayQuery::ray_query() const noexcept { return detail::from_inner_ref(_inner.ray_query); }
 const Pooled<BasicBlock> &Instruction::RayQuery::on_triangle_hit() const noexcept { return detail::from_inner_ref(_inner.on_triangle_hit); }
 const Pooled<BasicBlock> &Instruction::RayQuery::on_procedural_hit() const noexcept { return detail::from_inner_ref(_inner.on_procedural_hit); }
+luisa::span<const uint8_t> Instruction::Print::fmt() const noexcept {
+    return {reinterpret_cast<const uint8_t *>(_inner.fmt.ptr), _inner.fmt.len};
+}
+
+luisa::span<const NodeRef> Instruction::Print::args() const noexcept {
+    return {reinterpret_cast<const NodeRef *>(_inner.args.ptr), _inner.args.len};
+}
+
 const NodeRef &BasicBlock::first() const noexcept { return detail::from_inner_ref(_inner.first); }
 const NodeRef &BasicBlock::last() const noexcept { return detail::from_inner_ref(_inner.last); }
 const ModuleKind &Module::kind() const noexcept { return detail::from_inner_ref(_inner.kind); }
 const Pooled<BasicBlock> &Module::entry() const noexcept { return detail::from_inner_ref(_inner.entry); }
+const ModuleFlags &Module::flags() const noexcept { return detail::from_inner_ref(_inner.flags); }
 const CArc<ModulePools> &Module::pools() const noexcept { return detail::from_inner_ref(_inner.pools); }
 const Module &CallableModule::module() const noexcept { return detail::from_inner_ref(_inner.module); }
 const CArc<Type> &CallableModule::ret_type() const noexcept { return detail::from_inner_ref(_inner.ret_type); }

@@ -123,25 +123,10 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
     exit(-1);
 }
 
-fn init() {
+fn init_logger() {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Trace))
         .unwrap();
-    // std::panic::set_hook(Box::new(move |panic_info| {});
-    // let default_hook = std::panic::take_hook();
-    // std::panic::set_hook(Box::new(move |panic_info| {
-    //     let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-    //         Some(*s)
-    //     } else {
-    //         None
-    //     };
-    //     if let Some(msg) = msg {
-    //         if msg.starts_with("##lc_kernel##") {
-    //             return;
-    //         }
-    //     }
-    //     abort();
-    // }));
 }
 
 extern "C" fn free_string(ptr: *mut c_char) {
@@ -152,11 +137,18 @@ extern "C" fn free_string(ptr: *mut c_char) {
     }
 }
 
+
+static INIT_COLOR_EYRE: std::sync::Once = std::sync::Once::new();
+fn init_color_eyre() {
+    INIT_COLOR_EYRE.call_once(|| {
+        color_eyre::install().unwrap();
+    });
+}
 static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
 
 extern "C" fn set_logger_callback(cb: unsafe extern "C" fn(api::LoggerMessage)) {
     INIT_LOGGER.call_once(|| {
-        init();
+        init_logger();
         unsafe {
             LOGGER_CALLBACK = Some(cb);
         }
@@ -238,6 +230,7 @@ unsafe extern "C" fn create_device(
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_lib_interface() -> api::LibInterface {
+    init_color_eyre();
     api::LibInterface {
         inner: std::ptr::null_mut(),
         set_logger_callback,

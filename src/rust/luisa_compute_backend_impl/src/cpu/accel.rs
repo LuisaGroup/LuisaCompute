@@ -356,7 +356,7 @@ impl AccelImpl {
         }
     }
     #[inline]
-    pub unsafe fn trace_closest(&self, ray: &defs::Ray, mask: u8) -> defs::Hit {
+    pub unsafe fn trace_closest(&self, ray: &defs::Ray, mask: u32) -> defs::Hit {
         let mut rayhit = sys::RTCRayHit {
             ray: sys::RTCRay {
                 org_x: ray.orig_x,
@@ -409,7 +409,7 @@ impl AccelImpl {
         }
     }
     #[inline]
-    pub unsafe fn trace_any(&self, ray: &defs::Ray, mask: u8) -> bool {
+    pub unsafe fn trace_any(&self, ray: &defs::Ray, mask: u32) -> bool {
         let mut ray = sys::RTCRay {
             org_x: ray.orig_x,
             org_y: ray.orig_y,
@@ -459,7 +459,7 @@ impl AccelImpl {
         instance.dirty = true;
     }
     #[inline]
-    pub unsafe fn set_instance_visibility(&self, id: u32, visibility: u8) {
+    pub unsafe fn set_instance_visibility(&self, id: u32, visibility: u32) {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
         instance.visible = visibility as u32;

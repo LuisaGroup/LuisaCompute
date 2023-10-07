@@ -47,7 +47,7 @@ void RWResource::set_usage(Stream *stream, RWResource *res, Usage usage, Range r
 }
 RWResource::~RWResource() {
     for (auto &&i : _info) {
-        auto ptr = RWResource::get<Stream>(i.first);
+        auto ptr = RWResource::try_get<Stream>(i.first);
         if (ptr && i.second.last_frame > ptr->synced_layer()) {
             LUISA_ERROR("Resource {} destroyed when {} is still using it.", get_name(), ptr->get_name());
         }

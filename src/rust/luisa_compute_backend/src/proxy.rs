@@ -16,65 +16,26 @@ use luisa_compute_ir::{
 use parking_lot::Mutex;
 use std::sync::Once;
 
-static INIT_CPP: Once = Once::new();
-static mut OLD_SIGABRT_HANDLER: libc::sighandler_t = 0;
-static CPP_MUTEX: Mutex<()> = Mutex::new(());
-
-fn restore_signal_handler() {
-    unsafe {
-        libc::signal(libc::SIGABRT, OLD_SIGABRT_HANDLER);
-        libc::signal(libc::SIGSEGV, OLD_SIGABRT_HANDLER);
-    }
-}
-
-pub(crate) fn _signal_handler(signal: libc::c_int) {
-    if signal == libc::SIGABRT {
-        restore_signal_handler();
-        panic!("std::abort() called inside LuisaCompute");
-    }
-    if signal == libc::SIGSEGV {
-        restore_signal_handler();
-        panic!("segfault inside LuisaCompute");
-    }
-    #[cfg(target_os = "linux")]
-    if signal == libc::SIGBUS {
-        restore_signal_handler();
-        panic!("bus error inside LuisaCompute");
-    }
-}
+// This is uselss, we should remove it
 #[macro_export]
 macro_rules! catch_abort {
     ($stmts:expr) => {
         unsafe {
-            #[cfg(debug_assertions)]
-            {
-                let _guard = CPP_MUTEX.lock();
-                OLD_SIGABRT_HANDLER =
-                    libc::signal(libc::SIGABRT, _signal_handler as libc::sighandler_t);
-                OLD_SIGABRT_HANDLER =
-                    libc::signal(libc::SIGSEGV, _signal_handler as libc::sighandler_t);
-                let ret = $stmts;
-                restore_signal_handler();
-                ret
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                let ret = $stmts;
-                ret
-            }
+            let ret = $stmts;
+            ret
         }
     };
-}
-
-pub fn init_cpp<P: AsRef<Path>>(_bin_path: P) {
-    INIT_CPP.call_once(|| unsafe {});
 }
 
 pub struct ProxyBackend {
     pub(crate) interface: Arc<Interface>,
     pub(crate) device: api::DeviceInterface,
 }
-
+impl Drop for ProxyBackend {
+    fn drop(&mut self) {
+        catch_abort!({ (self.device.destroy_device)(self.device) })
+    }
+}
 impl ProxyBackend {
     pub(crate) fn new(provider: &BackendProvider, device: &str, config: serde_json::Value) -> Self {
         let interface = &provider.interface;
@@ -228,6 +189,10 @@ impl Backend for ProxyBackend {
         kernel: &KernelModule,
         option: &api::ShaderOption,
     ) -> api::CreatedShaderInfo {
+        // let debug =
+        //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
+        // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        // println!("{}", debug.to_str().unwrap());
         catch_abort!({
             (self.device.create_shader)(
                 self.device.device,

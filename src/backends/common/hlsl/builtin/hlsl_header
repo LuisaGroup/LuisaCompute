@@ -41,8 +41,13 @@ float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
 struct _wbool3 {bool3 v; bool a;};
 struct _wfloat3 {float3 v; float a;};
+struct _wfloat16_t3 {float16_t3 v; float16_t a;};
 struct _wuint3 {uint3 v; uint a;};
+struct _wuint16_t3 {uint16_t3 v; uint16_t a;};
+struct _wuint64_t3 {uint64_t3 v; uint64_t a;};
 struct _wint3 {int3 v; int a;};
+struct _wint16_t3 {int16_t3 v; int16_t a;};
+struct _wint64_t3 {int64_t3 v; int64_t a;};
 struct _WrappedFloat2x2 {row_major float2x2 m;};
 struct _WrappedFloat3x3 {
 row_major float3x4 m;

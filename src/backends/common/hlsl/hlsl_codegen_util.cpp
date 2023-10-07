@@ -3,6 +3,7 @@
 #include "variant_util.h"
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/ast/function_builder.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <luisa/vstl/pdqsort.h>
@@ -96,6 +97,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
@@ -790,6 +792,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_SIZE: {
+            LUISA_ERROR_WITH_LOCATION("Buffer size is broken on dx!"sv);
             str << "_bfsize"sv;
         } break;
         case CallOp::BYTE_BUFFER_READ: {
@@ -1036,6 +1039,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
             str << "_InstId("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: {
+            str << "_InstVis("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1991,6 +2002,9 @@ CodegenResult CodegenUtility::RasterCodegen(
     if (v2pType->is_structure()) {
         size_t memberIdx = 0;
         for (auto &&i : v2pType->members()) {
+            if (v2pType->is_vector() && v2pType->dimension() == 3) [[unlikely]] {
+                LUISA_ERROR("Vector3 in vertex-to-pixel struct is not allowed.");
+            }
             GetTypeName(*i, codegenData, Usage::READ, false);
             codegenData << " v"sv << vstd::to_string(memberIdx);
             if (memberIdx == 0) {

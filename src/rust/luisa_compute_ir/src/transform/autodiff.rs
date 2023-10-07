@@ -1,6 +1,8 @@
 use indexmap::{IndexMap, IndexSet};
 
 use bitflags::Flags;
+use core::panic;
+use half::f16;
 use std::ops::Deref;
 use std::{
     cell::RefCell,
@@ -78,6 +80,8 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
         Type::Void | Type::UserData => None,
         Type::Primitive(p) => match p {
             crate::ir::Primitive::Bool => None,
+            crate::ir::Primitive::Int8 => None,
+            crate::ir::Primitive::Uint8 => None,
             crate::ir::Primitive::Int16 => None,
             crate::ir::Primitive::Uint16 => None,
             crate::ir::Primitive::Int32 => None,
@@ -394,8 +398,8 @@ impl<'a> StoreIntermediate<'a> {
                 }
             }
             Instruction::Phi(incomings) => {
-                for PhiIncoming { value, .. } in incomings.as_ref().iter() {
-                    if self.forward_reachable.contains(value) {
+                if self.backward_reachable.contains(&node) {
+                    for PhiIncoming { value, .. } in incomings.as_ref().iter() {
                         self.backward_reachable.insert(*value);
                     }
                 }
@@ -921,7 +925,7 @@ impl Backward {
     fn fp_constant(&mut self, t: CArc<Type>, x: f64, builder: &mut IrBuilder) -> NodeRef {
         return match t.deref() {
             Type::Primitive(p) => match p {
-                Primitive::Float16 => todo!(),
+                Primitive::Float16 => builder.const_(Const::Float16(f16::from_f64(x))),
                 Primitive::Float32 => builder.const_(Const::Float32(x as f32)),
                 Primitive::Float64 => builder.const_(Const::Float64(x)),
                 _ => panic!("fp_constant: invalid type: {:?}", t),
@@ -1114,7 +1118,7 @@ impl Backward {
         let instruction = &node.get().instruction;
         let type_ = &node.get().type_;
         let grad_type = grad_type_of(type_.clone());
-
+        // dbg!(node, instruction);
         match instruction.as_ref() {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless => {}
@@ -1158,6 +1162,12 @@ impl Backward {
                     .collect::<Vec<_>>();
                 let node = self.get_intermediate(node);
                 let out_grad = out_grad.unwrap();
+                let out_grad = if out_grad.is_lvalue() {
+                    builder.load(out_grad)
+                } else {
+                    out_grad
+                };
+
                 match func {
                     Func::Add => {
                         let (lhs_grad, rhs_grad) =
@@ -1613,26 +1623,25 @@ impl Backward {
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::ExtractElement => {
+                        let indices = original_args[1..].to_vec();
                         let v_grad = builder.const_(Const::Zero(args[0].type_().clone()));
-                        let v_grad = builder.call(
-                            Func::InsertElement,
-                            &[v_grad, out_grad, original_args[1]],
-                            v_grad.type_().clone(),
-                        );
+                        let mut call_args = vec![v_grad, out_grad];
+                        call_args.extend(indices);
+                        let v_grad =
+                            builder.call(Func::InsertElement, &call_args, v_grad.type_().clone());
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::InsertElement => {
                         let zero = builder.const_(Const::Zero(args[1].type_().clone()));
-                        let v_grad = builder.call(
-                            Func::InsertElement,
-                            &[out_grad, zero, original_args[2]],
-                            args[0].type_().clone(),
-                        );
-                        let x_grad = builder.call(
-                            Func::ExtractElement,
-                            &[out_grad, original_args[2]],
-                            args[1].type_().clone(),
-                        );
+                        let indices = original_args[2..].to_vec();
+                        let mut call_args = vec![out_grad, zero];
+                        call_args.extend(indices.clone());
+                        let v_grad =
+                            builder.call(Func::InsertElement, &call_args, args[0].type_().clone());
+                        call_args = vec![out_grad];
+                        call_args.extend(indices);
+                        let x_grad =
+                            builder.call(Func::ExtractElement, &call_args, args[1].type_().clone());
                         self.accumulate_grad(args[0], v_grad, builder);
                         self.accumulate_grad(args[1], x_grad, builder);
                     }
@@ -1692,6 +1701,9 @@ impl Backward {
                             self.accumulate_grad(*member, member_grad, builder);
                         }
                     }
+                    Func::Callable(_) => {
+                        panic!("Callable not supported yet! Please inline your callables manually.")
+                    }
                     _ => {}
                 }
             }
@@ -1699,7 +1711,17 @@ impl Backward {
                 if grad_type.is_none() {
                     return;
                 }
-                let out_grad = self.grad(node).unwrap();
+
+                let out_grad = self.grad(node);
+                if out_grad.is_none() {
+                    return;
+                }
+                let out_grad = out_grad.unwrap();
+                let out_grad = if out_grad.is_local() {
+                    builder.call(Func::Load, &[out_grad], out_grad.type_().clone())
+                } else {
+                    out_grad
+                };
                 for PhiIncoming { value, .. } in incomings.as_ref() {
                     self.accumulate_grad(*value, out_grad, builder);
                 }
@@ -1836,7 +1858,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
     while i < nodes.len() {
         let node = nodes[i];
         match node.get().instruction.as_ref() {
-            Instruction::AdScope { body, forward,.. } => {
+            Instruction::AdScope { body, forward, .. } => {
                 if *forward {
                     i += 1;
                     continue;
@@ -1979,7 +2001,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 }
 impl Transform for Autodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
-        log::debug!("Autodiff transform");
+        // log::debug!("Autodiff transform");
         // {
         //     println!("Before AD:");
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);

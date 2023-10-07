@@ -29,18 +29,18 @@ public:
     private:
         luisa::vector<void *> _temp;
         luisa::vector<api::Command> _api_commands;
-        CommandList _list;
+        CommandList::CallbackContainer _callbacks;
 
     public:
         CommandBuffer(luisa::vector<void *> temp,
                       luisa::vector<api::Command> api_commands,
-                      CommandList list) noexcept
+                      CommandList::CallbackContainer callbacks) noexcept
             : _temp{std::move(temp)},
               _api_commands{std::move(api_commands)},
-              _list{std::move(list)} {}
+              _callbacks{std::move(callbacks)} {}
 
         void on_completion() noexcept {
-            for (auto &&callback : _list.callbacks()) { callback(); }
+            for (auto &&callback : _callbacks) { callback(); }
             for (auto p : _temp) {
                 luisa::deallocate_with_allocator(
                     static_cast<std::byte *>(p));
@@ -49,7 +49,7 @@ public:
     };
 
 private:
-    luisa::vector<void *> _temp;
+    luisa::vector<void *> _temp;// TODO: maybe it's more efficient to pool the allocations?
     luisa::vector<api::Command> _converted;
 
 private:
@@ -91,9 +91,7 @@ public:
             .commands_count = _converted.size(),
         };
         auto ctx = luisa::new_with_allocator<CommandBuffer>(
-            std::move(_temp),
-            std::move(_converted),
-            std::move(list));
+            std::move(_temp), std::move(_converted), list.steal_callbacks());
         device.dispatch(
             device.device, stream, converted_list,
             [](uint8_t *ctx) noexcept {
@@ -179,10 +177,6 @@ public:
                 }
                 case Argument::Tag::UNIFORM: {
                     auto data = command->uniform(arg.uniform);
-//                    if (data.size_bytes() == 4u) {
-//                        auto time = *reinterpret_cast<const float *>(data.data());
-//                        LUISA_INFO("Time: {}", time);
-//                    }
                     auto u = uniforms + uniform_offset;
                     uniform_offset += luisa::align(data.size_bytes(), 16u);
                     memcpy(u, data.data(), data.size_bytes());

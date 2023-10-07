@@ -109,5 +109,6 @@ public:
         uint64_t stream_handle,
         luisa::vector<SparseUpdateTile> &&update_cmds) noexcept override;
     uint compute_warp_size() const noexcept override;
+    luisa::string query(luisa::string_view property) noexcept override;
 };
 }// namespace lc::dx

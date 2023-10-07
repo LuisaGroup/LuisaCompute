@@ -34,9 +34,46 @@ ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO
         func,
         {},
         {},
-        uint3(64, 1, 1),
+        uint3(256, 1, 1),
         62,
-        "set_accel1.dxil"sv,
+        "set_accel2.dxil"sv,
+        CacheType::Internal, true);
+}
+ComputeShader *BuiltinKernel::LoadBindlessSetKernel(Device *device, luisa::BinaryIO const *ctx) {
+    auto func = [&] {
+        hlsl::CodegenResult code;
+        code.useBufferBindless = false;
+        code.useTex2DBindless = false;
+        code.useTex3DBindless = false;
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload", ctx);
+        code.properties.resize(3);
+        auto &Global = code.properties[0];
+        Global.array_size = 1;
+        Global.register_index = 0;
+        Global.space_index = 0;
+        Global.type = hlsl::ShaderVariableType::ConstantBuffer;
+        auto &SetBuffer = code.properties[1];
+        SetBuffer.array_size = 1;
+        SetBuffer.register_index = 0;
+        SetBuffer.space_index = 0;
+        SetBuffer.type = hlsl::ShaderVariableType::StructuredBuffer;
+        auto &InstBuffer = code.properties[2];
+        InstBuffer.array_size = 1;
+        InstBuffer.register_index = 0;
+        InstBuffer.space_index = 0;
+        InstBuffer.type = hlsl::ShaderVariableType::RWStructuredBuffer;
+        return code;
+    };
+    return ComputeShader::CompileCompute(
+        device->fileIo,
+        device,
+        {},
+        func,
+        {},
+        {},
+        uint3(256, 1, 1),
+        62,
+        "load_bdls.dxil"sv,
         CacheType::Internal, true);
 }
 namespace detail {

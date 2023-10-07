@@ -32,33 +32,45 @@ class ContextImpl {
 
 public:
     std::filesystem::path runtime_directory;
-    luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
+    luisa::unordered_map<luisa::string, luisa::unique_ptr<BackendModule>> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
     ValidationLayer validation_layer;
     luisa::unordered_map<luisa::string, luisa::unique_ptr<std::filesystem::path>> runtime_subdir_paths;
     std::mutex runtime_subdir_mutex;
+    std::mutex module_mutex;
 
-    const BackendModule &create_module(const luisa::string &backend_name) noexcept {
-        auto create_new = [&]() {
-            if (std::find(installed_backends.cbegin(),
-                          installed_backends.cend(),
-                          backend_name) == installed_backends.cend()) {
-                LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
-            }
-            BackendModule m{
-                .module = DynamicModule::load(
-                    runtime_directory,
-                    luisa::format("lc-backend-{}", backend_name))};
-            LUISA_ASSERT(m.module, "Failed to load backend '{}'.", backend_name);
-            m.creator = m.module.function<Device::Creator>("create");
-            m.deleter = m.module.function<Device::Deleter>("destroy");
-            m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");
-            return m;
-        };
-        return loaded_backends
-            .try_emplace(backend_name, luisa::lazy_construct(std::move(create_new)))
-            .first->second;
+    [[nodiscard]] const BackendModule &load_backend(const luisa::string &backend_name) noexcept {
+        if (std::find(installed_backends.cbegin(),
+                      installed_backends.cend(),
+                      backend_name) == installed_backends.cend()) {
+            LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
+        }
+        std::scoped_lock lock{module_mutex};
+        if (auto iter = loaded_backends.find(backend_name);
+            iter != loaded_backends.cend()) { return *iter->second; }
+        BackendModule m{.module = DynamicModule::load(
+                            runtime_directory,
+                            luisa::format("lc-backend-{}", backend_name))};
+        LUISA_ASSERT(m.module, "Failed to load backend '{}'.", backend_name);
+        m.creator = m.module.function<Device::Creator>("create");
+        m.deleter = m.module.function<Device::Deleter>("destroy");
+        m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");
+        auto pm = loaded_backends
+                      .emplace(backend_name, luisa::make_unique<BackendModule>(std::move(m)))
+                      .first->second.get();
+        return *pm;
     }
+
+    [[nodiscard]] const ValidationLayer &load_validation_layer() noexcept {
+        std::scoped_lock lock{module_mutex};
+        if (!validation_layer.module) {
+            validation_layer.module = DynamicModule::load(runtime_directory, "lc-validation-layer");
+            validation_layer.creator = validation_layer.module.function<ValidationLayer::Creator>("create");
+            validation_layer.deleter = validation_layer.module.function<Device::Deleter>("destroy");
+        }
+        return validation_layer;
+    }
+
     explicit ContextImpl(luisa::string_view program_path) noexcept {
         std::filesystem::path program{program_path};
         {
@@ -111,10 +123,9 @@ Context::Context(string_view program_path) noexcept
     : _impl{luisa::make_shared<detail::ContextImpl>(program_path)} {}
 
 Device Context::create_device(luisa::string_view backend_name_in, const DeviceConfig *settings, bool enable_validation) noexcept {
-    auto impl = _impl.get();
     luisa::string backend_name{backend_name_in};
     for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
-    auto &&m = impl->create_module(backend_name);
+    auto &&m = _impl->load_backend(backend_name);
     auto interface = m.creator(Context{_impl}, settings);
     interface->_backend_name = std::move(backend_name);
     auto handle = Device::Handle{
@@ -123,14 +134,7 @@ Device Context::create_device(luisa::string_view backend_name_in, const DeviceCo
             deleter(p);
         }};
     if (enable_validation) {
-        auto &validation_layer = impl->validation_layer;
-        if (!validation_layer.module) {
-            validation_layer.module = DynamicModule::load(
-                impl->runtime_directory,
-                "lc-validation-layer");
-            validation_layer.creator = validation_layer.module.function<ValidationLayer::Creator>("create");
-            validation_layer.deleter = validation_layer.module.function<Device::Deleter>("destroy");
-        }
+        auto &validation_layer = _impl->load_validation_layer();
         auto layer_handle = Device::Handle{
             validation_layer.creator(Context{_impl}, std::move(handle)),
             [impl = _impl](auto layer) noexcept {
@@ -157,10 +161,9 @@ Device Context::create_default_device() noexcept {
 }
 
 luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view backend_name_in) const noexcept {
-    auto impl = _impl.get();
     luisa::string backend_name{backend_name_in};
     for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
-    auto &&m = impl->create_module(backend_name);
+    auto &&m = _impl->load_backend(backend_name);
     luisa::vector<luisa::string> names;
     m.backend_device_names(names);
     return names;

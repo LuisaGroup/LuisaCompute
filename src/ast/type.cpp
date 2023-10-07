@@ -122,6 +122,8 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
                      name != "int" &&
                      name != "uint" &&
                      name != "short" &&
+                     name != "byte" &&
+                     name != "ubyte" &&
                      name != "ushort" &&
                      name != "long" &&
                      name != "ulong" &&
@@ -247,6 +249,8 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->dimension = 1u;            \
     } else
     TRY_PARSE_SCALAR_TYPE(bool, BOOL, 1u)
+    TRY_PARSE_SCALAR_TYPE(byte, INT8, 1u)
+    TRY_PARSE_SCALAR_TYPE(ubyte, UINT8, 1u)
     TRY_PARSE_SCALAR_TYPE(short, INT16, 2u)
     TRY_PARSE_SCALAR_TYPE(ushort, UINT16, 2u)
     TRY_PARSE_SCALAR_TYPE(int, INT32, 4u)

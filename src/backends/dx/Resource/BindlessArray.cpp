@@ -32,11 +32,11 @@ BindlessArray::~BindlessArray() {
         ReturnTex(i.first.tex2D);
         ReturnTex(i.first.tex3D);
     }
-    for(auto&& i : freeQueue){
+    for (auto &&i : freeQueue) {
         device->globalHeap->ReturnIndex(i);
     }
 }
-void  BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue){
+void BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
         freeQueue.push_back(originValue & BindlessStruct::mask);
         originValue = BindlessStruct::n_pos;
@@ -147,22 +147,48 @@ void BindlessArray::PreProcessStates(
     if (mods.empty()) return;
     tracker.RecordState(
         &buffer,
-        D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 }
 void BindlessArray::UpdateStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
     vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
     std::lock_guard lck{mtx};
+    struct BindlessElement{
+        uint idx;
+        BindlessStruct e;   
+    };
     if (!mods.empty()) {
+        auto alloc = builder.GetCB()->GetAlloc();
+        auto tempBuffer = alloc->GetTempUploadBuffer(sizeof(BindlessElement) * mods.size(), 16);
+        auto ubuffer = static_cast<UploadBuffer const *>(tempBuffer.buffer);
+        auto offset = tempBuffer.offset;
         for (auto &&mod : mods) {
-            builder.Upload(
-                BufferView{
-                    &buffer,
-                    sizeof(BindlessStruct) * mod.slot,
-                    sizeof(BindlessStruct)},
-                &binded[mod.slot].first);
+            BindlessElement e;
+            e.idx = mod.slot;
+            e.e = binded[mod.slot].first;
+            ubuffer->CopyData(offset, {reinterpret_cast<uint8_t const *>(&e), sizeof(BindlessElement)});
+            offset += sizeof(BindlessElement);
         }
+        auto cs = device->setBindlessKernel.Get(device);
+        auto cbuffer = alloc->GetTempUploadBuffer(sizeof(uint), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        struct CBuffer {
+            uint dsp;
+        };
+        CBuffer cbValue;
+        cbValue.dsp = mods.size();
+        static_cast<UploadBuffer const *>(cbuffer.buffer)
+            ->CopyData(cbuffer.offset,
+                       {reinterpret_cast<uint8_t const *>(&cbValue), sizeof(CBuffer)});
+        BindProperty properties[3];
+        properties[0] = cbuffer;
+        properties[1] = tempBuffer;
+        properties[2] = BufferView(&buffer);
+        builder.DispatchCompute(
+            cs,
+            uint3(mods.size(), 1, 1),
+            properties);
+
         tracker.RecordState(
             &buffer,
             tracker.ReadState(ResourceReadUsage::Srv));

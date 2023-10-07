@@ -108,10 +108,6 @@ pub(super) struct StreamImpl {
     ctx: Arc<StreamContext>,
 }
 
-unsafe impl Send for StreamContext {}
-
-unsafe impl Sync for StreamContext {}
-
 impl StreamImpl {
     pub(super) fn new(shared_pool: Arc<rayon::ThreadPool>) -> Self {
         let ctx = Arc::new(StreamContext {
@@ -142,8 +138,8 @@ impl StreamImpl {
                         ctx.finished_count
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         guard = ctx.queue.lock();
+                        ctx.sync.notify_all();
                         if guard.is_empty() {
-                            ctx.sync.notify_one();
                             break;
                         }
                     }
@@ -158,10 +154,11 @@ impl StreamImpl {
     }
     pub(super) fn synchronize(&self) {
         let mut guard = self.ctx.queue.lock();
-        while self
+        let cur_work_count = self
             .ctx
             .work_count
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Relaxed);
+        while cur_work_count
             > self
                 .ctx
                 .finished_count
@@ -183,7 +180,7 @@ impl StreamImpl {
         self.ctx
             .work_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.ctx.new_work.notify_one();
+        self.ctx.new_work.notify_all();
     }
     pub(super) fn parallel_for(
         &self,
@@ -553,7 +550,7 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
 extern "C" fn trace_closest(
     accel: *const std::ffi::c_void,
     ray: &defs::Ray,
-    mask: u8,
+    mask: u32,
 ) -> defs::Hit {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
@@ -561,7 +558,7 @@ extern "C" fn trace_closest(
     }
 }
 
-extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u8) -> bool {
+extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u32) -> bool {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.trace_any(ray, mask)
@@ -617,7 +614,7 @@ extern "C" fn set_instance_transform(
 extern "C" fn set_instance_visibility(
     accel: *const std::ffi::c_void,
     instance_id: u32,
-    visible: u8,
+    visible: u32,
 ) {
     unsafe {
         let accel = &*(accel as *const AccelImpl);

@@ -1,15 +1,15 @@
 pub mod ffi;
 pub mod ir;
 pub use ffi::*;
-use serde::Serialize;
 use half::f16;
+use serde::Serialize;
 use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
+mod ast2ir;
 pub mod context;
 mod display;
 pub mod serialize;
 pub mod transform;
 mod usage_detect;
-mod ast2ir;
 
 use ir::{ArrayType, Primitive, Type};
 
@@ -20,6 +20,16 @@ pub trait TypeOf {
 impl TypeOf for bool {
     fn type_() -> CArc<Type> {
         context::register_type(Type::Primitive(Primitive::Bool))
+    }
+}
+impl TypeOf for i8 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Int8))
+    }
+}
+impl TypeOf for u8 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Uint8))
     }
 }
 impl TypeOf for u16 {
@@ -104,6 +114,17 @@ impl<K: Hash + Eq, V> NestedHashMapInner<K, V> {
             parent: Some(parent),
         }
     }
+    pub(crate) fn insert_at_top(&mut self, k: K, v: V) {
+        if let Some(p) = &self.parent {
+            let p = Rc::as_ptr(p) as *mut NestedHashMapInner<K, V>;
+            unsafe {
+                let p = p.as_mut().unwrap();
+                p.insert_at_top(k, v);
+            }
+        } else {
+            self.map.insert(k, v);
+        }
+    }
 }
 #[allow(dead_code)]
 pub(crate) struct NestedHashMap<K: Hash + Eq, V> {
@@ -114,8 +135,15 @@ impl<K: Hash + Eq, V> NestedHashMap<K, V> {
     pub(crate) fn insert(&mut self, k: K, v: V) {
         unsafe {
             let inner = self.inner.as_ref() as *const _ as *mut NestedHashMapInner<K, V>;
-            let inner = &mut *inner;
+            let inner = inner.as_mut().unwrap();
             inner.map.insert(k, v);
+        }
+    }
+    pub(crate) fn insert_at_top(&mut self, k: K, v: V) {
+        unsafe {
+            let inner = self.inner.as_ref() as *const _ as *mut NestedHashMapInner<K, V>;
+            let inner = inner.as_mut().unwrap();
+            inner.insert_at_top(k, v);
         }
     }
     pub(crate) fn get(&self, k: &K) -> Option<&V> {
@@ -142,7 +170,12 @@ pub(crate) struct NestedHashSet<K: Hash + Eq> {
 #[allow(dead_code)]
 impl<K: Hash + Eq> NestedHashSet<K> {
     pub(crate) fn insert(&mut self, k: K) {
-        let inner = Rc::get_mut(&mut self.inner).unwrap();
+        let inner = unsafe {
+            (Rc::as_ptr(&self.inner) as *const NestedHashMapInner<K, ()>
+                as *mut NestedHashMapInner<K, ()>)
+                .as_mut()
+                .unwrap()
+        };
         inner.map.insert(k, ());
     }
     pub(crate) fn contains(&self, k: &K) -> bool {
@@ -180,6 +213,14 @@ impl<T> Clone for Pooled<T> {
     }
 }
 impl<T> Pooled<T> {
+    pub fn null() -> Self {
+        Self {
+            ptr: std::ptr::null_mut(),
+        }
+    }
+    pub fn from_ptr(ptr: *mut T) -> Self {
+        Self { ptr }
+    }
     pub fn get(&self) -> &T {
         unsafe { &*self.ptr }
     }
