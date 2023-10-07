@@ -9,13 +9,11 @@ float4(v.p0.w,v.p1.w,v.p2.w,1));
 }
 template<typename T>
 uint _InstId(T instBuffer,uint index){
-_MeshInst v=instBuffer[index];
-return v.InstanceID;
+return instBuffer[index].InstanceID;
 }
 template<typename T>
 uint _InstVis(T instBuffer,uint index){
-_MeshInst v=instBuffer[index];
-return v.InstanceMask;
+return instBuffer[index].InstanceMask;
 }
 void _SetInstTransform(inout _MeshInst i,float4x4 mat){
 i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
