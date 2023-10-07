@@ -666,6 +666,13 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Cross: return builtin_func(2, CallOp::CROSS);
         case ir::Func::Tag::Dot: return builtin_func(2, CallOp::DOT);
         case ir::Func::Tag::OuterProduct: return builtin_func(2, CallOp::OUTER_PRODUCT);
+        case ir::Func::Tag::Distance: {
+            auto a = _convert_node(args[0]);
+            auto b = _convert_node(args[1]);
+            LUISA_ASSERT(a->type() == b->type(), "Distance takes two arguments of the same type.");
+            auto diff = _ctx->function_builder->binary(a->type(), BinaryOp::SUB, a, b);
+            return _ctx->function_builder->call(a->type(), CallOp::LENGTH, {diff});
+        }
         case ir::Func::Tag::Length: return builtin_func(1, CallOp::LENGTH);
         case ir::Func::Tag::LengthSquared: return builtin_func(1, CallOp::LENGTH_SQUARED);
         case ir::Func::Tag::Normalize: return builtin_func(1, CallOp::NORMALIZE);
