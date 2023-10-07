@@ -528,16 +528,16 @@ void MetalCodegenAST::_emit_function() noexcept {
         // direct dispatch
         _scratch << "[[kernel]] /* direct kernel dispatch entry */\n"
                  << "void kernel_main(\n"
-                 << "    constant ArgumentsWithDispatchSize &args,\n"
+                 << "    constant Arguments &args,\n"
+                 << "    constant uint3 &ds,\n"
                  << "    uint3 tid [[thread_position_in_threadgroup]],\n"
                  << "    uint3 bid [[threadgroup_position_in_grid]],\n"
                  << "    uint3 did [[thread_position_in_grid]],\n"
                  << "    uint3 bs [[threads_per_threadgroup]],\n"
                  << "    uint ws [[threads_per_simdgroup]],\n"
-                 << "    uint lid [[thread_index_in_simdgroup]]) {\n"
-                 << "  auto ds = args.dispatch_size;\n";
+                 << "    uint lid [[thread_index_in_simdgroup]]) {\n";
         emit_shared_variable_decls();
-        _scratch << "  kernel_main_impl(args.args, tid, bid, did, bs, ws, lid, ds, 0u";
+        _scratch << "  kernel_main_impl(args, tid, bid, did, bs, ws, lid, ds, 0u";
         for (auto s : _function.shared_variables()) {
             _scratch << ", ";
             _emit_variable_name(s);

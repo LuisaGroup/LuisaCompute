@@ -129,7 +129,11 @@ public:
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
 
 public:
-    using DispatchSize = luisa::variant<uint3, IndirectDispatchArg, luisa::vector<uint3>>;
+    using DispatchSize = luisa::variant<
+        uint3,              // single dispatch
+        IndirectDispatchArg,// indirect dispatch
+        luisa::vector<uint3>// batched dispatch
+        >;
 
 private:
     DispatchSize _dispatch_size;
@@ -143,9 +147,9 @@ public:
           ShaderDispatchCommandBase{shader_handle,
                                     std::move(argument_buffer),
                                     argument_count},
-          _dispatch_size{dispatch_size} {}
+          _dispatch_size{std::move(dispatch_size)} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
-    ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
+    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
     [[nodiscard]] auto is_multiple_dispatch() const noexcept { return luisa::holds_alternative<luisa::vector<uint3>>(_dispatch_size); }
     [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
     [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
@@ -520,7 +524,7 @@ public:
             primitive = handle;
             flags |= flag_primitive;
         }
-        void set_user_id(uint id) noexcept{
+        void set_user_id(uint id) noexcept {
             user_id = id;
             flags |= flag_user_id;
         }
