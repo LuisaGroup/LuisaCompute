@@ -286,6 +286,10 @@ impl KernelSerializer {
             Func::AccGrad => SerializedFunc::AccGrad,
             Func::Detach => SerializedFunc::Detach,
             Func::RayTracingInstanceTransform => SerializedFunc::RayTracingInstanceTransform,
+            Func::RayTracingInstanceUserId => SerializedFunc::RayTracingInstanceUserId,
+            Func::RayTracingInstanceVisibilityMask => {
+                SerializedFunc::RayTracingInstanceVisibilityMask
+            }
             Func::RayTracingSetInstanceTransform => SerializedFunc::RayTracingSetInstanceTransform,
             Func::RayTracingSetInstanceOpacity => SerializedFunc::RayTracingSetInstanceOpacity,
             Func::RayTracingSetInstanceVisibility => {

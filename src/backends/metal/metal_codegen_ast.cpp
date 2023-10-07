@@ -260,6 +260,8 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
         case Type::Tag::FLOAT16: _scratch << "half"; break;
         case Type::Tag::FLOAT32: _scratch << "float"; break;
         case Type::Tag::FLOAT64: _scratch << "double"; break;
+        case Type::Tag::INT8: _scratch << "char"; break;
+        case Type::Tag::UINT8: _scratch << "uchar"; break;
         case Type::Tag::INT16: _scratch << "short"; break;
         case Type::Tag::UINT16: _scratch << "ushort"; break;
         case Type::Tag::INT32: _scratch << "int"; break;
@@ -300,7 +302,7 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
             _scratch << "LCBuffer<";
             if (usage == Usage::NONE || usage == Usage::READ) { _scratch << "const "; }
             if (auto elem = type->element()) {
-                _emit_type_name(type->element());
+                _emit_type_name(elem);
             } else {
                 _scratch << "lc_byte";
             }
@@ -1012,8 +1014,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "accel_instance_transform"; break;
         case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "accel_instance_user_id"; break;
-        // TODO
-        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << "accel_instance_visibility_mask"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "accel_set_instance_opacity"; break;

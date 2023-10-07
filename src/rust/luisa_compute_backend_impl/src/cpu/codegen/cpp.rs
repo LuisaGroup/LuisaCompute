@@ -897,7 +897,7 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
-            Func::Texture2dSize=> {
+            Func::Texture2dSize => {
                 writeln!(
                     &mut self.body,
                     "const lc_uint2 {} = lc_texture2d_size(k_args, {});",
@@ -906,7 +906,7 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
-            Func::Texture3dSize=> {
+            Func::Texture3dSize => {
                 writeln!(
                     &mut self.body,
                     "const lc_uint3 {} = lc_texture3d_size(k_args, {});",
@@ -1002,12 +1002,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::ExtractElement => {
                 let indices = &args[1..];
                 let access_chain = self.access_chain(args_v[0].clone(), args[0], indices);
-                writeln!(
-                    self.body,
-                    "const {} {} = {};",
-                    node_ty_s, var, access_chain
-                )
-                .unwrap();
+                writeln!(self.body, "const {} {} = {};", node_ty_s, var, access_chain).unwrap();
                 true
             }
             Func::InsertElement => {
@@ -1326,6 +1321,24 @@ impl<'a> FunctionEmitter<'a> {
                     self.body,
                     "const {0} {1} = lc_accel_instance_transform({2}, {3});",
                     node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayTracingInstanceVisibilityMask => {
+                writeln!(
+                    self.body,
+                    "const {0} {1} = lc_accel_instance_visibility_mask({2}, {3});",
+                    node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayTracingSetInstanceUserId => {
+                writeln!(
+                    self.body,
+                    "lc_set_instance_user_id({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true

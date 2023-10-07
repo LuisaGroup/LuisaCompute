@@ -7,6 +7,7 @@ use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;
+use std::process::abort;
 
 struct AST2IRCtx<'a> {
     j: &'a JSON,
@@ -20,29 +21,24 @@ struct AST2IRCtx<'a> {
     has_autodiff: bool,
 }
 
-struct AST2IR<'a: 'b, 'b> {
-    j_functions: &'a JSON,
-    j_constants: &'a JSON,
-    j_types: &'a JSON,
-    functions: HashMap<usize, FunctionModule>,
-    constants: HashMap<usize, Const>,
+struct AST2IRType<'a> {
+    j: &'a JSON,
     types: HashMap<usize, CArc<Type>>,
-    ctx: Option<AST2IRCtx<'b>>,
-    pools: CArc<ModulePools>,
 }
 
-#[derive(Clone)]
-enum FunctionModule {
-    Kernel(CArc<KernelModule>),
-    Callable(CArc<CallableModule>),
-}
+impl<'a> AST2IRType<'a> {
+    fn new(j: &'a JSON) -> Self {
+        Self {
+            j,
+            types: HashMap::new(),
+        }
+    }
 
-impl<'a: 'b, 'b> AST2IR<'a, 'b> {
-    fn convert_type(&mut self, i: usize) -> CArc<Type> {
+    fn _convert_type(&mut self, i: usize) -> CArc<Type> {
         if let Some(t) = self.types.get(&i) {
             return t.clone();
         }
-        let j = &self.j_types[i];
+        let j = &self.j[i];
         let tag = if j.is_null() {
             "VOID"
         } else {
@@ -62,13 +58,13 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "FLOAT64" => <f64 as TypeOf>::type_(),
             "VECTOR" => {
                 let elem_index = j["element"].as_usize().unwrap();
-                let elem_type = self.convert_type(elem_index);
+                let elem_type = self._convert_type(elem_index);
                 let dim = j["dimension"].as_u32().unwrap();
                 Type::vector_of(elem_type, dim)
             }
             "MATRIX" => {
                 if let Some(elem) = j["element"].as_usize() {
-                    let elem = self.convert_type(elem);
+                    let elem = self._convert_type(elem);
                     assert!(
                         elem.is_float() && elem.is_primitive(),
                         "Matrix element type must be float scalars."
@@ -80,25 +76,25 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             }
             "ARRAY" => {
                 let elem_index = j["element"].as_usize().unwrap();
-                let elem_type = self.convert_type(elem_index);
+                let elem_type = self._convert_type(elem_index);
                 let dim = j["dimension"].as_u32().unwrap();
                 Type::array_of(elem_type, dim)
             }
             "STRUCTURE" => {
                 let members: Vec<_> = j["members"]
                     .members()
-                    .map(|m| self.convert_type(m.as_usize().unwrap()))
+                    .map(|m| self._convert_type(m.as_usize().unwrap()))
                     .collect();
                 let align = j["alignment"].as_u32().unwrap();
                 Type::struct_of(align, members)
             }
             "BUFFER" => {
                 let elem_index = j["element"].as_usize().unwrap();
-                self.convert_type(elem_index)
+                self._convert_type(elem_index)
             }
             "TEXTURE" => {
                 let elem_index = j["element"].as_usize().unwrap();
-                Type::vector_of(self.convert_type(elem_index), 4)
+                Type::vector_of(self._convert_type(elem_index), 4)
             }
             "BINDLESS_ARRAY" => Type::void(),
             "ACCEL" => Type::void(),
@@ -109,12 +105,38 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         t
     }
 
+    fn convert(&mut self, i: usize) -> CArc<Type> {
+        self._convert_type(i)
+    }
+}
+
+struct AST2IR<'a: 'b, 'b> {
+    j_functions: &'a JSON,
+    j_constants: &'a JSON,
+    functions: HashMap<usize, FunctionModule>,
+    constants: HashMap<usize, Const>,
+    types: AST2IRType<'a>,
+    ctx: Option<AST2IRCtx<'b>>,
+    pools: CArc<ModulePools>,
+}
+
+#[derive(Clone)]
+enum FunctionModule {
+    Kernel(CArc<KernelModule>),
+    Callable(CArc<CallableModule>),
+}
+
+impl<'a: 'b, 'b> AST2IR<'a, 'b> {
+    fn _convert_type(&mut self, i: usize) -> CArc<Type> {
+        self.types.convert(i)
+    }
+
     fn convert_constant(&mut self, i: usize) -> Const {
         if let Some(c) = self.constants.get(&i) {
             return c.clone();
         }
         let c = &self.j_constants[i];
-        let t = self.convert_type(c["type"].as_usize().unwrap());
+        let t = self._convert_type(c["type"].as_usize().unwrap());
         let raw = Base64::decode_vec(c["raw"].as_str().unwrap()).unwrap();
         let c = Const::Generic(CBoxedSlice::new(raw), t);
         self.constants.insert(i, c.clone());
@@ -155,12 +177,12 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let v_type = v["type"].as_usize().unwrap();
                 let v = match v_tag {
                     "LOCAL" => {
-                        let t = self.convert_type(v_type);
+                        let t = self._convert_type(v_type);
                         let (builder, _, _) = self.unwrap_ctx();
                         builder.local_zero_init(t)
                     }
                     "SHARED" => {
-                        let t = self.convert_type(v_type);
+                        let t = self._convert_type(v_type);
                         let node = new_node(
                             &self.pools,
                             Node::new(CArc::new(Instruction::Shared), t.clone()),
@@ -169,7 +191,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         node
                     }
                     "ARGUMENT" => {
-                        let t = self.convert_type(v_type);
+                        let t = self._convert_type(v_type);
                         let arg = if self._curr_ctx().j_tag == "KERNEL" {
                             Instruction::Uniform
                         } else {
@@ -181,7 +203,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         builder.local(arg)
                     }
                     "REFERENCE" => {
-                        let t = self.convert_type(v_type);
+                        let t = self._convert_type(v_type);
                         assert_eq!(
                             self._curr_ctx().j_tag,
                             "CALLABLE",
@@ -194,10 +216,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         arg
                     }
                     "BUFFER" => {
-                        let t = &self.j_types[v_type];
+                        let t = &self.types.j[v_type];
                         assert_eq!(t["tag"], "BUFFER", "Only buffer can be a buffer variable.");
                         let t = t["element"].as_usize().unwrap();
-                        let t = self.convert_type(t);
+                        let t = self._convert_type(t);
                         let arg = new_node(
                             &self.pools,
                             Node::new(CArc::new(Instruction::Buffer), t.clone()),
@@ -206,14 +228,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         arg
                     }
                     "TEXTURE" => {
-                        let t = &self.j_types[v_type];
+                        let t = &self.types.j[v_type];
                         assert_eq!(
                             t["tag"], "TEXTURE",
                             "Only texture can be a texture variable."
                         );
                         let dim = t["dimension"].as_u32().unwrap();
                         let t = t["element"].as_usize().unwrap();
-                        let t = Type::vector_of(self.convert_type(t), 4);
+                        let t = Type::vector_of(self._convert_type(t), 4);
                         let instr = match dim {
                             2 => Instruction::Texture2D,
                             3 => Instruction::Texture3D,
@@ -224,7 +246,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         arg
                     }
                     "BINDLESS_ARRAY" => {
-                        let t = &self.j_types[v_type];
+                        let t = &self.types.j[v_type];
                         assert_eq!(
                             t["tag"], "BINDLESS_ARRAY",
                             "Only bindless array can be a bindless array variable."
@@ -237,7 +259,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         arg
                     }
                     "ACCEL" => {
-                        let t = &self.j_types[v_type];
+                        let t = &self.types.j[v_type];
                         assert_eq!(t["tag"], "ACCEL", "Only accel can be a accel variable.");
                         let arg = new_node(
                             &self.pools,
@@ -848,7 +870,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "BYTE_BUFFER_WRITE" => Func::ByteBufferWrite,
             "BYTE_BUFFER_SIZE" => Func::ByteBufferSize,
             "TEXTURE_READ" | "TEXTURE_WRITE" | "TEXTURE_SIZE" => {
-                let tt = &self.j_types[args[0]["type"].as_usize().unwrap()];
+                let tt = &self.types.j[args[0]["type"].as_usize().unwrap()];
                 assert_eq!(tt["tag"], "TEXTURE");
                 let dim = tt["dimension"].as_u32().unwrap();
                 match (dim, f) {
@@ -878,6 +900,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "BINDLESS_TEXTURE2D_SIZE_LEVEL" => Func::BindlessTexture2dSizeLevel,
             "BINDLESS_TEXTURE3D_SIZE_LEVEL" => Func::BindlessTexture3dSizeLevel,
             "BINDLESS_BUFFER_READ" => Func::BindlessBufferRead,
+            "BINDLESS_BUFFER_WRITE" => Func::BindlessBufferWrite,
             "BINDLESS_BYTE_BUFFER_READ" => Func::BindlessByteBufferRead,
             "BINDLESS_BUFFER_SIZE" => Func::BindlessBufferSize,
             "BINDLESS_BUFFER_TYPE" => Func::BindlessBufferType,
@@ -924,6 +947,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "DETACH" => Func::Detach,
             "RAY_TRACING_INSTANCE_TRANSFORM" => Func::RayTracingInstanceTransform,
             "RAY_TRACING_INSTANCE_USER_ID" => Func::RayTracingSetInstanceUserId,
+            "RAY_TRACING_INSTANCE_VISIBILITY_MASK" => Func::RayTracingInstanceVisibilityMask,
             "RAY_TRACING_SET_INSTANCE_TRANSFORM" => Func::RayTracingSetInstanceTransform,
             "RAY_TRACING_SET_INSTANCE_VISIBILITY" => Func::RayTracingSetInstanceVisibility,
             "RAY_TRACING_SET_INSTANCE_OPACITY" => Func::RayTracingSetInstanceOpacity,
@@ -1327,6 +1351,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 check_is_index(args[2].type_());
                 args
             }
+            "BINDLESS_BUFFER_WRITE" | "BINDLESS_BYTE_BUFFER_WRITE" => {
+                let args = convert_args(&[false, false, false, false]);
+                check_is_bindless(args[0]);
+                check_is_index(args[1].type_());
+                check_is_index(args[2].type_());
+                check_same_types!(args[3].type_(), t);
+                args
+            }
             "BINDLESS_BUFFER_SIZE" => {
                 // (bindless_array, index: uint, stride: uint) -> size
                 let args = convert_args(&[false, false, false]);
@@ -1483,6 +1515,13 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 check_is_index(args[1].type_());
                 assert!(t.is_matrix() && t.is_float());
                 assert_eq!(t.dimension(), 4);
+                args
+            }
+            "RAY_TRACING_INSTANCE_VISIBILITY_MASK" => {
+                let args = convert_args(&[false, false]);
+                check_is_accel(args[0]);
+                check_is_index(args[1].type_());
+                assert!(t.is_int() && t.is_primitive());
                 args
             }
             "RAY_TRACING_INSTANCE_USER_ID" => {
@@ -1755,7 +1794,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             INVALID_REF
         } else {
             let tag = j["tag"].as_str().unwrap();
-            let t = self.convert_type(j["type"].as_usize().unwrap());
+            let t = self._convert_type(j["type"].as_usize().unwrap());
             match tag {
                 "UNARY" => {
                     assert!(!is_lval, "Unary expressions cannot be used as L-values.");
@@ -1911,11 +1950,12 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 });
                 let body = self._convert_scope(&j["body"], false);
                 let update = self._with_builder(|this| {
+                    let old = this._convert_expression(&j["variable"], false);
                     let var = this._convert_expression(&j["variable"], true);
                     let step = this._convert_expression(&j["step"], false);
                     let (builder, ..) = this.unwrap_ctx();
-                    let step = Self::_cast(builder, &var.type_(), step);
-                    let next = builder.call(Func::Add, &[var, step], var.type_().clone());
+                    let step = Self::_cast(builder, &old.type_(), step);
+                    let next = builder.call(Func::Add, &[old, step], old.type_().clone());
                     builder.update(var, next);
                 });
                 let (builder, ..) = self.unwrap_ctx();
@@ -2049,7 +2089,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 self._curr_ctx().arguments.get(&(a as u32)).unwrap().clone()
             })
             .collect();
-        let ret_type = self.convert_type(self._curr_ctx().j["return_type"].as_usize().unwrap());
+        let ret_type = self._convert_type(self._curr_ctx().j["return_type"].as_usize().unwrap());
         CallableModule {
             module,
             ret_type,
@@ -2074,7 +2114,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             variables: HashMap::new(),
             shared: Vec::new(),
             ret_type: if let Some(ret) = j["return_type"].as_usize() {
-                self.convert_type(ret)
+                self._convert_type(ret)
             } else {
                 Type::void()
             },
@@ -2099,10 +2139,9 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         let mut ast2ir = AST2IR {
             j_functions: &j["functions"],
             j_constants: &j["constants"],
-            j_types: &j["types"],
             functions: HashMap::new(),
             constants: HashMap::new(),
-            types: HashMap::new(),
+            types: AST2IRType::new(&j["types"]),
             ctx: None,
             pools: CArc::new(ModulePools::new()),
         };
@@ -2128,4 +2167,11 @@ pub fn convert_ast_to_ir_callable(data: String) -> CArc<CallableModule> {
         FunctionModule::Callable(c) => c,
         _ => panic!("Expected callable module."),
     }
+}
+
+pub fn convert_ast_to_ir_type(data: String) -> CArc<Type> {
+    let j: JSON = parse_json(data.as_str()).unwrap();
+    let mut t = AST2IRType::new(&j["types"]);
+    let root = j["root"].as_usize().unwrap();
+    t.convert(root)
 }

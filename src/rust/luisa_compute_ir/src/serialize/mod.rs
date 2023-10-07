@@ -183,6 +183,8 @@ pub enum SerializedFunc {
 
     // (handle, instance_id) -> Mat4
     RayTracingInstanceTransform,
+    RayTracingInstanceVisibilityMask,
+    RayTracingInstanceUserId,
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,

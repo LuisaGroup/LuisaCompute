@@ -452,6 +452,12 @@ impl AccelImpl {
         sys::rtcGetGeometryUserData(geometry) as u64 as u32
     }
     #[inline]
+    pub unsafe fn instance_visibility_mask(&self, id: u32) -> u32 {
+        let instance = self.instances[id as usize].read();
+        assert!(instance.valid());
+        instance.visible
+    }
+    #[inline]
     pub unsafe fn set_instance_transform(&self, id: u32, affine: [f32; 12]) {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());

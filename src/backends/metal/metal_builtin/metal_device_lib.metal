@@ -864,6 +864,10 @@ inline void accel_set_instance_visibility(LCAccel accel, uint i, uint mask) {
     accel.instances[i].mask = mask;
 }
 
+[[nodiscard]] inline auto accel_instance_visibility_mask(LCAccel accel, uint i) {
+    return accel.instances[i].mask;
+}
+
 inline void accel_set_instance_opacity(LCAccel accel, uint i, bool opaque) {
     auto instance_option_opaque = 4u;
     auto instance_option_non_opaque = 8u;
