@@ -389,12 +389,6 @@ void MetalCodegenAST::_emit_function() noexcept {
         }
         _scratch << "};\n\n";
 
-        // emit argument buffer with dispatch size
-        _scratch << "struct ArgumentsWithDispatchSize {\n"
-                 << "  alignas(16) Arguments args;\n"
-                 << "  alignas(16) uint3 dispatch_size;\n"
-                 << "};\n\n";
-
         // emit function signature and prelude
         _scratch << "void kernel_main_impl(\n"
                  << "    constant Arguments &args,\n"
