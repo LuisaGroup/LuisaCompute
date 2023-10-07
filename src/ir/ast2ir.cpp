@@ -1,12 +1,8 @@
-#include <fstream>
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/ast/ast2json.h>
-
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "misc-no-recursion"
 
 namespace luisa::compute {
 
@@ -58,5 +54,3 @@ ir::CArc<ir::Type> AST2IR::build_type(const Type *type) noexcept {
 }
 
 }// namespace luisa::compute
-
-#pragma clang diagnostic pop
