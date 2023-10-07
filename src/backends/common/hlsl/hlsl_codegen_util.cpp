@@ -1218,9 +1218,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;
-        case CallOp::PACK:
-        case CallOp::UNPACK:
-            LUISA_ERROR_WITH_LOCATION("Call-Op not implemented.");
+            // TODO: save save hlsl
+        case CallOp::PACK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_BUFFER_WRITE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::SHADER_EXECUTION_REORDER:
+            str << "(void)";
             break;
     }
     str << '(';
