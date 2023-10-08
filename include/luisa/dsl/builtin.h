@@ -1699,7 +1699,7 @@ void backward(T &&x, G &&grad) noexcept {
     auto b = detail::FunctionBuilder::current();
     auto expr_x = LUISA_EXPR(x);
     b->call(CallOp::GRADIENT_MARKER, {expr_x, LUISA_EXPR(grad)});
-    b->call(CallOp::BACKWARD, {expr_x});
+    b->call(CallOp::BACKWARD, {});
 }
 
 inline void discard() noexcept {

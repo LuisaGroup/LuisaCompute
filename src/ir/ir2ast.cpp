@@ -519,7 +519,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::GradientMarker: return builtin_func(2, CallOp::GRADIENT_MARKER);
         case ir::Func::Tag::AccGrad: return builtin_func(2, CallOp::ACCUMULATE_GRADIENT);
         case ir::Func::Tag::Detach: return builtin_func(1, CallOp::DETACH);
-        case ir::Func::Tag::Backward: return builtin_func(1, CallOp::BACKWARD);
+        case ir::Func::Tag::Backward: return builtin_func(0, CallOp::BACKWARD);
         case ir::Func::Tag::PropagateGrad: LUISA_NOT_IMPLEMENTED();// TODO
         case ir::Func::Tag::OutputGrad: LUISA_NOT_IMPLEMENTED();   // TODO
         case ir::Func::Tag::RayTracingInstanceTransform: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_TRANSFORM);
