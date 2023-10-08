@@ -797,6 +797,14 @@ private:
             ctx.j["return_type"] = _type_index(f.return_type());
         }
         ctx.j["body"] = _convert_stmt(f.body());
+        ctx.j["constants"] = [&] {
+            JSON::Array a;
+            a.reserve(f.constants().size());
+            for (auto &&c : f.constants()) {
+                a.emplace_back(_constant_index(c));
+            }
+            return a;
+        }();
         // pop the context and check the stack
         auto popped_ctx = std::exchange(_func_ctx, old_ctx);
         LUISA_ASSERT(popped_ctx == &ctx, "Function context stack corrupted.");

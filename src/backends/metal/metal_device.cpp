@@ -2,6 +2,9 @@
 #include <luisa/core/logging.h>
 
 #ifdef LUISA_ENABLE_IR
+#include <luisa/ir/ast2ir.h>
+#include <luisa/ir/ir2ast.h>
+#include <luisa/ir/transform.h>
 #include "metal_codegen_ir.h"
 #endif
 
@@ -344,6 +347,18 @@ void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swa
 }
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
+
+    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
+#ifdef LUISA_ENABLE_IR
+        auto ir = AST2IR::build_kernel(kernel);
+        transform_ir_kernel_module(ir->get(), std::array{luisa::string{"autodiff"}});
+        return create_shader(option, ir->get());
+#else
+        LUISA_ERROR_WITH_LOCATION("IR is not enabled in LuisaCompute. "
+                                  "AutoDiff support is not available.");
+#endif
+    }
+
     return with_autorelease_pool([=, this] {
         MetalShaderMetadata metadata{};
         metadata.block_size = kernel.block_size();

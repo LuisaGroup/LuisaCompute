@@ -1153,7 +1153,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_MARK_GRAD";
             break;
         case CallOp::ACCUMULATE_GRADIENT:
+            LUISA_ASSERT(args.size() == 2, "accumulate_gradient must have 2 arguments");
             str << "_accum_grad";
+            if (args[0]->type()->is_structure() || args[0]->type()->is_array()) {
+                str << luisa::format("_{:016X}", args[0]->type()->hash());
+            }
             break;
         case CallOp::DETACH:
             str << "_detach";
@@ -1785,6 +1789,25 @@ void CodegenUtility::PreprocessCodegenProperties(
     }
     GenerateBindless(properties, varData, internalDataPath, isSpirv, bind_count);
 }
+
+namespace detail {
+[[nodiscard]] static auto can_accum_grad(const Type *t) noexcept {
+    auto tt = t->tag();
+    if (tt == Type::Tag::FLOAT16 ||
+        tt == Type::Tag::FLOAT32 ||
+        tt == Type::Tag::FLOAT64 ||
+        tt == Type::Tag::STRUCTURE) {
+        return true;
+    }
+    if (tt == Type::Tag::ARRAY ||
+        tt == Type::Tag::VECTOR ||
+        tt == Type::Tag::MATRIX) {
+        return can_accum_grad(t->element());
+    }
+    return false;
+}
+}// namespace detail
+
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
         vstd::fixed_vector<StructGenerator *, 16> customStructVector;
@@ -1798,6 +1821,31 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
         for (auto v : customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
+            finalResult << "#ifdef _GRAD\n";
+            auto accum_grad = [&s = finalResult](luisa::string_view access, const Type *t) noexcept {
+                if (t->is_structure() || t->is_array()) {
+                    s << luisa::format("_accum_grad_{:016X}(x_grad{}, dx{});\n", t->hash(), access, access);
+                } else {
+                    s << luisa::format("_accum_grad(x_grad{}, dx{});\n", access, access);
+                }
+            };
+            if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
+                finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
+                                             t->hash(), v->GetStructName(), v->GetStructName());
+                if (t->is_structure()) {
+                    for (auto i = 0u; i < t->members().size(); i++) {
+                        if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
+                            accum_grad(luisa::format(".v{}", i), m);
+                        }
+                    }
+                } else if (detail::can_accum_grad(t->element())) {
+                    finalResult << luisa::format("for(uint i=0;i<{};++i){{", t->dimension());
+                    accum_grad(luisa::format("[i]"), t->element());
+                    finalResult << "}\n";
+                }
+                finalResult << "}\n";
+            }
+            finalResult << "#endif\n";
         }
     }
     for (auto &&kv : opt->sharedVariable) {

@@ -13,6 +13,7 @@ using luisa::compute::ir::Type;
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/ir/ast2ir.h>
+#include <luisa/ir/transform.h>
 #include <luisa/runtime/rtx/aabb.h>
 #include "rust_device_common.h"
 
@@ -522,6 +523,9 @@ public:
 
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override {
         auto shader = AST2IR::build_kernel(kernel);
+        if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
+            transform_ir_kernel_module(shader->get(), std::array{luisa::string{"autodiff"}});
+        }
         return create_shader(option, shader->get());
     }
 

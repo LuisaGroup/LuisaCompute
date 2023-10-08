@@ -1,3 +1,4 @@
+use crate::ir::debug::dump_ir_human_readable;
 use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
@@ -17,6 +18,7 @@ struct AST2IRCtx<'a> {
     builder: Option<IrBuilder>,
     arguments: HashMap<u32, NodeRef>,
     variables: HashMap<u32, NodeRef>,
+    constants: HashMap<u32, NodeRef>,
     shared: Vec<NodeRef>,
     has_autodiff: bool,
 }
@@ -166,6 +168,15 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             ..
         } = ctx;
         (builder.as_mut().unwrap(), arguments, variables)
+    }
+    fn convert_constants(&mut self) {
+        self._curr_ctx().j["constants"].members().for_each(|i| {
+            let i = i.as_usize().unwrap();
+            let c = self.convert_constant(i);
+            let (builder, ..) = self.unwrap_ctx();
+            let node = builder.const_(c);
+            self._curr_ctx_mut().constants.insert(i as u32, node);
+        })
     }
     fn convert_variables(&mut self) {
         self._curr_ctx()
@@ -769,10 +780,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
     }
 
     fn _convert_constant_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
-        let c = self.convert_constant(j["data"].as_usize().unwrap());
-        assert_eq!(c.type_().as_ref(), t.as_ref(), "Constant type mismatch.");
-        let (builder, ..) = self.unwrap_ctx();
-        builder.const_(c)
+        let ctx = self._curr_ctx();
+        ctx.constants
+            .get(&j["data"].as_u32().unwrap())
+            .unwrap()
+            .clone()
     }
 
     fn _convert_call_builtin(&mut self, t: &CArc<Type>, f: &str, args: &JSON) -> NodeRef {
@@ -2003,6 +2015,8 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         // push builder
         let builder = IrBuilder::new(self.pools.clone());
         let old_builder = self._curr_ctx_mut().builder.replace(builder);
+        // convert constants
+        self.convert_constants();
         // convert variables
         self.convert_variables();
         // convert body
@@ -2113,6 +2127,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             builder: None,
             arguments: HashMap::new(),
             variables: HashMap::new(),
+            constants: HashMap::new(),
             shared: Vec::new(),
             ret_type: if let Some(ret) = j["return_type"].as_usize() {
                 self._convert_type(ret)
