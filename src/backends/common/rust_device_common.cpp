@@ -524,7 +524,8 @@ public:
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override {
         auto shader = AST2IR::build_kernel(kernel);
         if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-            transform_ir_kernel_module(shader->get(), std::array{luisa::string{"autodiff"}});
+            shader->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
+            transform_ir_kernel_module_auto(shader->get());
         }
         return create_shader(option, shader->get());
     }

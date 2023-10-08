@@ -266,11 +266,6 @@ impl Backend for RustBackend {
         //     let debug = luisa_compute_ir::serialize::serialize_kernel_module_to_json_str(&kernel);
         //     println!("{}", debug);
         // }
-        // unsafe {
-        //     let kernel = kernel as *const _ as *mut ir::KernelModule;
-        //     let kernel = kernel.as_mut().unwrap();
-        //     kernel.module = luisa_compute_ir_transform_auto(kernel.module);
-        // }
         let tic = std::time::Instant::now();
         let mut gened = codegen::cpp::CpuCodeGen::run(&kernel);
         debug!(
