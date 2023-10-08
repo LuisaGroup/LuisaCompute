@@ -1996,9 +1996,9 @@ uint4 dsp_c;
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << incrementalFunc << codegenData;
     if (bind_count >= 64) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} excess 256 bytes not supported by hardware device.", bind_count * sizeof(uint));
+        LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     } else if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} is larger than 64 bytes, this may cause extra performance cost, try to use bindless instead.", bind_count * sizeof(uint));
+        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
     }
     return {
         std::move(finalResult),
@@ -2177,10 +2177,10 @@ uint iid:SV_INSTANCEID;
     CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << incrementalFunc << codegenData;
-    if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} is larger than 64 bytes, this may cause extra performance cost, try to use bindless instead.", bind_count * sizeof(uint));
-    } else if (bind_count >= 64) [[unlikely]] {
-        LUISA_ERROR("Arguments binding size: {} excess 256 bytes not supported by hardware device.", bind_count * sizeof(uint));
+    if (bind_count >= 64) [[unlikely]] {
+        LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
+    } else if (bind_count > 16) [[unlikely]] {
+        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
     }
     return {
         std::move(finalResult),
