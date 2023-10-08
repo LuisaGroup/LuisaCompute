@@ -113,7 +113,9 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     }
     if (ops.test(CallOp::GRADIENT) ||
         ops.test(CallOp::ACCUMULATE_GRADIENT) ||
-        ops.test(CallOp::REQUIRES_GRADIENT)) {
+        ops.test(CallOp::REQUIRES_GRADIENT) ||
+        ops.test(CallOp::GRADIENT_MARKER) ||
+        ops.test(CallOp::DETACH)) {
         builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);
     }
     if (ops.test(CallOp::REDUCE_MAX) ||
