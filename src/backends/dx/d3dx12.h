@@ -3253,7 +3253,7 @@ inline const char *d3d12_error_name(HRESULT hr) {
         HRESULT hr_ = (x);                                                        \
         if (hr_ != S_OK) {                                                        \
             LUISA_ERROR_WITH_LOCATION("D3D12 call '{}' failed with "              \
-                                      "error {} (code = {}).",                  \
+                                      "error {} (code = {}).",                    \
                                       #x, d3d12_error_name(hr_), (long long)hr_); \
             abort();                                                              \
         }                                                                         \
