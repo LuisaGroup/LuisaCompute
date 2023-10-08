@@ -94,6 +94,12 @@
 #define LC_BACKEND_API __declspec(dllimport)
 #endif
 
+#ifdef LC_CLANGCXX_EXPORT_DLL
+#define LC_CLANGCXX_API __declspec(dllexport)
+#else
+#define LC_CLANGCXX_API __declspec(dllimport)
+#endif
+
 #else
 #define LC_CORE_API
 #define LC_VSTL_API
