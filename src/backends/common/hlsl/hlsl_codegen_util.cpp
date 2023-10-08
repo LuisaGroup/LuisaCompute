@@ -111,9 +111,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
     }
-    if (ops.test(CallOp::ZERO) ||
-        ops.test(CallOp::ONE) ||
-        ops.test(CallOp::GRADIENT) ||
+    if (ops.test(CallOp::GRADIENT) ||
         ops.test(CallOp::ACCUMULATE_GRADIENT) ||
         ops.test(CallOp::REQUIRES_GRADIENT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);

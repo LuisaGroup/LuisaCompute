@@ -1854,10 +1854,11 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
             }
             Instruction::Buffer => {
+                let ty_s = self.type_gen.gen_c_type(node.type_());
                 writeln!(
                     &mut self.fwd_defs,
-                    "    const BufferView& {} = {}[{}].buffer._0;",
-                    arg_name, arg_array, index
+                    "    const BufferView& {} = {}[{}].buffer._0; // {}",
+                    arg_name, arg_array, index, ty_s
                 )
                 .unwrap();
             }
