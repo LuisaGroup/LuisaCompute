@@ -120,6 +120,7 @@ pub struct Accel {
     pub set_instance_user_id: extern "C" fn(*const c_void, u32, u32),
     pub instance_transform: extern "C" fn(*const c_void, u32) -> Mat4,
     pub instance_user_id: extern "C" fn(*const c_void, u32) -> u32,
+    pub instance_visibility_mask: extern "C" fn(*const c_void, u32) -> u32,
     pub ray_query: extern "C" fn(*const c_void, &mut RayQuery, OnHitCallback, OnHitCallback),
 }
 

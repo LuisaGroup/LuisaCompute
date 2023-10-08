@@ -281,6 +281,14 @@ inline lc_float4x4 lc_accel_instance_transform(const Accel &accel, lc_uint inst_
     return lc_bit_cast<lc_float4x4>(m4);
 }
 
+inline lc_uint lc_accel_instance_visibility_mask(const Accel &accel, lc_uint inst_id) noexcept {
+    return accel.instance_visibility_mask(accel.handle, inst_id);
+}
+
+inline lc_uint lc_accel_instance_user_id(const Accel &accel, lc_uint inst_id) noexcept {
+    return accel.instance_user_id(accel.handle, inst_id);
+}
+
 inline void lc_set_instance_visibility(const Accel &accel, lc_uint inst_id, lc_uint visible) noexcept {
     accel.set_instance_visibility(accel.handle, inst_id, visible);
 }

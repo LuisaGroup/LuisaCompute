@@ -34,7 +34,9 @@
 #include <DXApi/dml_ext.h>
 
 #ifdef LUISA_ENABLE_IR
+#include <luisa/ir/ast2ir.h>
 #include <luisa/ir/ir2ast.h>
+#include <luisa/ir/transform.h>
 #endif
 
 namespace lc::dx {
@@ -234,6 +236,19 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 }
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
+
+    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
+#ifdef LUISA_ENABLE_IR
+        auto ir = AST2IR::build_kernel(kernel);
+        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
+        transform_ir_kernel_module_auto(ir->get());
+        return create_shader(option, ir->get());
+#else
+        LUISA_ERROR_WITH_LOCATION("IR is not enabled in LuisaCompute. "
+                                  "AutoDiff support is not available.");
+#endif
+    }
+
     ShaderCreationInfo info;
     uint mask = 0;
     if (option.enable_fast_math) {

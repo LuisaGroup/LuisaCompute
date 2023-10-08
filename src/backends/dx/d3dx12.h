@@ -16,6 +16,7 @@
 #include <luisa/vstl/functional.h>
 #include <dxgi.h>
 #include <luisa/core/basic_types.h>
+#include <luisa/core/logging.h>
 #ifdef UNICODE
 using lcdx_pchar = LPCWSTR;
 #else
@@ -3248,15 +3249,15 @@ inline const char *d3d12_error_name(HRESULT hr) {
 }
 
 #ifndef ThrowIfFailed
-#define ThrowIfFailed(x)                                       \
-    do {                                                       \
-        HRESULT hr_ = (x);                                     \
-        if (hr_ != S_OK) {                                     \
-            printf("D3D12 call '%s' failed with "              \
-                   "error %s (code = %lld).\n",                \
-                   #x, d3d12_error_name(hr_), (long long)hr_); \
-            abort();                                           \
-        }                                                      \
+#define ThrowIfFailed(x)                                                          \
+    do {                                                                          \
+        HRESULT hr_ = (x);                                                        \
+        if (hr_ != S_OK) {                                                        \
+            LUISA_ERROR_WITH_LOCATION("D3D12 call '{}' failed with "              \
+                                      "error {} (code = {}).",                    \
+                                      #x, d3d12_error_name(hr_), (long long)hr_); \
+            abort();                                                              \
+        }                                                                         \
     } while (false)
 #endif
 #include <luisa/vstl/unique_ptr.h>

@@ -4,14 +4,18 @@
 
 namespace luisa {
 
+namespace detail {
+[[nodiscard]] LC_CORE_API size_t get_c_file_length(::FILE *file) noexcept;
+}// namespace detail
+
 class LC_CORE_API BinaryFileStream : public BinaryStream {
 
 private:
     ::FILE *_file{nullptr};
     size_t _length{0u};
     size_t _pos{0u};
+
 public:
-    static size_t seek_len(::FILE *file) noexcept;
     explicit BinaryFileStream(const luisa::string &path) noexcept;
     explicit BinaryFileStream(::FILE *file, size_t length) noexcept;
     ~BinaryFileStream() noexcept override;
@@ -28,4 +32,3 @@ public:
 };
 
 }// namespace luisa
-

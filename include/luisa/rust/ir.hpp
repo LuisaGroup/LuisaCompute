@@ -304,6 +304,7 @@ struct Func {
         AccGrad,
         Detach,
         RayTracingInstanceTransform,
+        RayTracingInstanceVisibilityMask,
         RayTracingInstanceUserId,
         RayTracingSetInstanceTransform,
         RayTracingSetInstanceOpacity,
@@ -852,6 +853,8 @@ void luisa_compute_ir_append_node(IrBuilder *builder, NodeRef node_ref);
 CArcSharedBlock<CallableModule> *luisa_compute_ir_ast_json_to_ir_callable(CBoxedSlice<uint8_t> j);
 
 CArcSharedBlock<KernelModule> *luisa_compute_ir_ast_json_to_ir_kernel(CBoxedSlice<uint8_t> j);
+
+CArcSharedBlock<Type> *luisa_compute_ir_ast_json_to_ir_type(CBoxedSlice<uint8_t> j);
 
 NodeRef luisa_compute_ir_build_call(IrBuilder *builder,
                                     Func func,

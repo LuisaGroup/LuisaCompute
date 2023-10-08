@@ -158,8 +158,9 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
 struct Foo {
     float3 v;
     float f;
+    uint z;
 };
-LUISA_STRUCT(Foo, v, f) {};
+LUISA_STRUCT(Foo, v, f, z) {};
 
 int main(int argc, char *argv[]) {
 
@@ -211,12 +212,26 @@ int main(int argc, char *argv[]) {
             return foo.v.x * foo.v.y + foo.v.z * foo.f;
         });
     }
-     {
+    {
         test_ad_helper<3>("if", device, [](auto a, auto b, auto c) {
             Var<Foo> foo{make_float3(a, b, c), a + b + c};
-            $if(foo.v.x > 3.0f) {
+            auto zero = def(0u);
+            $if (foo.v.x > 3.0f) {
+                foo.v[zero + 0u] -= 1.0f;
+            }
+            $else {
+                foo.v[zero + 0u] -= foo.f;
+            };
+            return foo.v.x * foo.v.y + foo.v.z * foo.f;
+        });
+    }
+    {
+        test_ad_helper<3>("if2", device, [](auto a, auto b, auto c) {
+            Var<Foo> foo{make_float3(a, b, c), a + b + c};
+            $if (foo.v.x > 3.0f) {
                 foo.v.x -= 1.0f;
-            }$else {
+            }
+            $else {
                 foo.v.x -= foo.f;
             };
             return foo.v.x * foo.v.y + foo.v.z * foo.f;

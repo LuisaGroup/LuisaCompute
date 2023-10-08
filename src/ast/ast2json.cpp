@@ -797,6 +797,14 @@ private:
             ctx.j["return_type"] = _type_index(f.return_type());
         }
         ctx.j["body"] = _convert_stmt(f.body());
+        ctx.j["constants"] = [&] {
+            JSON::Array a;
+            a.reserve(f.constants().size());
+            for (auto &&c : f.constants()) {
+                a.emplace_back(_constant_index(c));
+            }
+            return a;
+        }();
         // pop the context and check the stack
         auto popped_ctx = std::exchange(_func_ctx, old_ctx);
         LUISA_ASSERT(popped_ctx == &ctx, "Function context stack corrupted.");
@@ -999,10 +1007,21 @@ public:
         j["entry"] = entry;
         return j;
     }
+    [[nodiscard]] static JSON convert(const Type *type) noexcept {
+        AST2JSON converter;
+        auto t = converter._type_index(type);
+        auto j = std::move(converter._root);
+        j["root"] = t;
+        return j;
+    }
 };
 
 [[nodiscard]] LC_AST_API luisa::string to_json(Function f) noexcept {
     return AST2JSON::convert(f).dump();
+}
+
+[[nodiscard]] LC_AST_API luisa::string to_json(const Type *type) noexcept {
+    return AST2JSON::convert(type).dump();
 }
 
 }// namespace luisa::compute

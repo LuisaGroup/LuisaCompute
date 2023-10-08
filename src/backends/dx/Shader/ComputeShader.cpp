@@ -69,9 +69,12 @@ ComputeShader *ComputeShader::CompileCompute(
         }
 
         if (PRINT_CODE) {
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            fwrite(str.result.data(), str.result.size(), 1, f);
-            fclose(f);
+            auto md5_str = md5.to_string();
+            auto dump_file_name = vstd::string("hlsl_output_") + md5_str + ".hlsl";
+            if (auto f = fopen(dump_file_name.c_str(), "wb")) {
+                fwrite(str.result.data(), str.result.size(), 1, f);
+                fclose(f);
+            }
         }
         auto compResult = Device::Compiler()->compile_compute(
             str.result.view(),

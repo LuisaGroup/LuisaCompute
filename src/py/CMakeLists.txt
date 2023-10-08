@@ -27,8 +27,10 @@ endif ()
 target_link_libraries(lcapi PRIVATE luisa::compute)
 target_precompile_headers(lcapi PRIVATE pch.h)
 
-install(DIRECTORY luisa
-        DESTINATION ${SKBUILD_PLATLIB_DIR})
-install(TARGETS lcapi
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if (SKBUILD)
+    install(DIRECTORY luisa
+            DESTINATION ${SKBUILD_PLATLIB_DIR})
+    install(TARGETS lcapi
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif ()
