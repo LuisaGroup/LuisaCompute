@@ -1838,7 +1838,7 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
                     }
                 } else if (detail::can_accum_grad(t->element())) {
                     finalResult << luisa::format("for(uint i=0;i<{};++i){{", t->dimension());
-                    accum_grad(luisa::format("[i]"), t->element());
+                    accum_grad(luisa::format(".v[i]"), t->element());
                     finalResult << "}\n";
                 }
                 finalResult << "}\n";
