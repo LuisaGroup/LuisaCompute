@@ -999,10 +999,21 @@ public:
         j["entry"] = entry;
         return j;
     }
+    [[nodiscard]] static JSON convert(const Type *type) noexcept {
+        AST2JSON converter;
+        auto t = converter._type_index(type);
+        auto j = std::move(converter._root);
+        j["root"] = t;
+        return j;
+    }
 };
 
 [[nodiscard]] LC_AST_API luisa::string to_json(Function f) noexcept {
     return AST2JSON::convert(f).dump();
+}
+
+luisa::string compute::to_json(const Type *type) noexcept {
+    return AST2JSON::convert(type).dump();
 }
 
 }// namespace luisa::compute

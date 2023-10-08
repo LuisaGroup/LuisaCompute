@@ -138,7 +138,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             case Argument::Tag::BINDLESS_ARRAY: {
                 auto array = reinterpret_cast<MetalBindlessArray *>(arg.bindless_array.handle);
-                if (usage != 0u) { array->mark_resource_usages(compute_encoder); }
+                if (usage != 0u) { array->mark_resource_usages(compute_encoder, usage); }
                 break;
             }
             case Argument::Tag::ACCEL: {
@@ -227,19 +227,26 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             mark_usage(compute_encoder, arg);
         }
 
-        // encode dispatch size
-        auto dispatch_size = command->dispatch_size();
-        auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-        auto blocks = (dispatch_size + block_size - 1u) / block_size;
-        auto size = copy(&dispatch_size, sizeof(dispatch_size));
-
-        // set argument buffer
+        auto size = argument_offset;
         compute_encoder->setBytes(argument_buffer.data(), size, 0u);
 
-        // dispatch
-        compute_encoder->dispatchThreadgroups(
-            MTL::Size{blocks.x, blocks.y, blocks.z},
-            MTL::Size{block_size.x, block_size.y, block_size.z});
+        auto single_dispatch_size = make_uint3(0u);
+        luisa::span<const uint3> dispatch_sizes;
+        if (command->is_multiple_dispatch()) {
+            dispatch_sizes = command->dispatch_sizes();
+        } else {
+            single_dispatch_size = command->dispatch_size();
+            dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
+        }
+
+        for (auto dispatch_size : dispatch_sizes) {
+            compute_encoder->setBytes(&dispatch_size, sizeof(dispatch_size), 1u);
+            auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+            auto blocks = (dispatch_size + block_size - 1u) / block_size;
+            compute_encoder->dispatchThreadgroups(
+                MTL::Size{blocks.x, blocks.y, blocks.z},
+                MTL::Size{block_size.x, block_size.y, block_size.z});
+        }
         compute_encoder->endEncoding();
     }
 }

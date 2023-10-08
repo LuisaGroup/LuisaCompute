@@ -277,10 +277,11 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         // TODO: optimize this
         for (auto &&arg : _bound_arguments) { encode_argument(arg); }
         for (auto &&arg : command->arguments()) { encode_argument(arg); }
-        auto s = command->dispatch_size();
-        auto ds_and_kid = make_uint4(s, 0u);
-        auto ptr = allocate_argument(sizeof(ds_and_kid));
-        std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
+        auto ptr = allocate_argument(sizeof(uint4));
+        if (!command->is_indirect()) {
+            auto ds_and_kid = make_uint4(0u);
+            std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
+        }
         auto cuda_stream = encoder.stream()->handle();
         if (argument_buffer->is_pooled()) [[likely]] {
             // for (direct) dispatches, if the argument buffer
@@ -294,7 +295,12 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     indirect.offset, indirect.max_dispatch_size,
                                     indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
+            } else if (command->is_multiple_dispatch()) {
+                for (auto s : command->dispatch_sizes()) {
+                    _do_launch(cuda_stream, device_argument_buffer, s);
+                }
             } else {
+                auto s = command->dispatch_size();
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }
         } else {// otherwise, we need to copy the argument buffer to the device
@@ -310,7 +316,12 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     indirect.offset, indirect.max_dispatch_size,
                                     indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
+            } else if (command->is_multiple_dispatch()) {
+                for (auto s : command->dispatch_sizes()) {
+                    _do_launch(cuda_stream, device_argument_buffer, s);
+                }
             } else {
+                auto s = command->dispatch_size();
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }
             LUISA_CHECK_CUDA(cuMemFreeAsync(device_argument_buffer, cuda_stream));
