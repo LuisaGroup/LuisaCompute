@@ -1500,9 +1500,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 args
             }
             "BACKWARD" => {
-                let args = convert_args(&[false]);
-                assert!(t.is_void());
-                args
+                // let args = convert_args(&[false]);
+                // assert!(t.is_void());
+                // args
+                vec![]
             }
             "DETACH" => {
                 let args = convert_args(&[false]);

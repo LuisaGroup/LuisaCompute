@@ -10,6 +10,7 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
+static bool shown_buffer_warning = false;
 namespace lc::hlsl {
 #ifdef LUISA_ENABLE_IR
 static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
@@ -792,7 +793,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_SIZE: {
-            LUISA_ERROR_WITH_LOCATION("Buffer size is broken on dx!"sv);
+            if (!shown_buffer_warning) {
+                LUISA_WARNING_WITH_LOCATION("CallOp::BUFFER_SIZE is broken on dx!"sv);
+                shown_buffer_warning = true;
+            }
             str << "_bfsize"sv;
         } break;
         case CallOp::BYTE_BUFFER_READ: {
@@ -932,9 +936,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::ASSUME:
             return;
         case CallOp::UNREACHABLE: {
-            str << "("sv;
-            GetTypeName(*expr->type(), str, Usage::READ, true);
-            str << ")0"sv;
+            if (auto t = expr->type()) {
+                str << "("sv;
+                GetTypeName(*t, str, Usage::READ, true);
+                str << ")0"sv;
+            }
             return;
         }
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
@@ -1216,9 +1222,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;
-        case CallOp::PACK:
-        case CallOp::UNPACK:
-            LUISA_ERROR_WITH_LOCATION("Call-Op not implemented.");
+            // TODO: save save hlsl
+        case CallOp::PACK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_BUFFER_WRITE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::SHADER_EXECUTION_REORDER:
+            str << "(void)";
             break;
     }
     str << '(';

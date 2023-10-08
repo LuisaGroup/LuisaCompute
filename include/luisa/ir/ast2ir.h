@@ -15,12 +15,6 @@ class FunctionBuilder;
 }// namespace detail
 
 class LC_IR_API AST2IR {
-
-private:
-    luisa::unordered_map<uint64_t, ir::CArc<ir::Type>> _struct_types;// maps Type::hash() to ir::Type
-    
-private:
-    AST2IR() noexcept = default;
     
 public:
     [[nodiscard]] static luisa::shared_ptr<ir::CArc<ir::KernelModule>> build_kernel(Function function) noexcept;

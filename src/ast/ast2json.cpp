@@ -1012,7 +1012,7 @@ public:
     return AST2JSON::convert(f).dump();
 }
 
-luisa::string compute::to_json(const Type *type) noexcept {
+[[nodiscard]] LC_AST_API luisa::string to_json(const Type *type) noexcept {
     return AST2JSON::convert(type).dump();
 }
 
