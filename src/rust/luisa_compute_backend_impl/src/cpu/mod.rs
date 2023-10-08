@@ -16,7 +16,7 @@ use libc::c_void;
 use log::debug;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{context::type_hash, ir, CArc};
+use luisa_compute_ir::{context::type_hash, ir, CArc, transform::luisa_compute_ir_transform_auto};
 use parking_lot::{Condvar, Mutex, RwLock};
 mod codegen;
 use codegen::sha256_short;

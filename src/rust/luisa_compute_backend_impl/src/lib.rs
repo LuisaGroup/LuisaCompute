@@ -137,13 +137,6 @@ extern "C" fn free_string(ptr: *mut c_char) {
     }
 }
 
-
-static INIT_COLOR_EYRE: std::sync::Once = std::sync::Once::new();
-fn init_color_eyre() {
-    INIT_COLOR_EYRE.call_once(|| {
-        color_eyre::install().unwrap();
-    });
-}
 static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
 
 extern "C" fn set_logger_callback(cb: unsafe extern "C" fn(api::LoggerMessage)) {
@@ -230,7 +223,6 @@ unsafe extern "C" fn create_device(
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_lib_interface() -> api::LibInterface {
-    init_color_eyre();
     api::LibInterface {
         inner: std::ptr::null_mut(),
         set_logger_callback,

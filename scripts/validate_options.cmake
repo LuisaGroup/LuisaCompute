@@ -83,7 +83,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     option(LUISA_COMPUTE_DOWNLOAD_NVCOMP "Download the nvCOMP library for CUDA GPU decompression" OFF)
 endif ()
 
-if (SKBUILD)
+if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     find_package(Python3 COMPONENTS Interpreter Development.Module QUIET REQUIRED)
 endif ()
 

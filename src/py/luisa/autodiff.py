@@ -7,8 +7,10 @@ def autodiff():
 
 
 @BuiltinFuncBuilder
-def requires_grad(x):
-    return None, lcapi.builder().call(lcapi.CallOp.REQUIRES_GRADIENT, [x.expr])
+def requires_grad(*x):
+    for xi in x:
+        lcapi.builder().call(lcapi.CallOp.REQUIRES_GRADIENT, [xi.expr])
+    return None, None
 
 
 @BuiltinFuncBuilder
@@ -25,10 +27,15 @@ def zero(dtype):
 
 
 @BuiltinFuncBuilder
-def backward(x):
-    x_grad = lcapi.builder().call(to_lctype(x.dtype), lcapi.CallOp.ONE, [])
-    lcapi.builder().call(lcapi.CallOp.GRADIENT_MARKER, [x.expr, x_grad])
-    return None, lcapi.builder().call(lcapi.CallOp.BACKWARD, [])
+def backward(*x):
+    if len(x) == 1:
+        x_grad = lcapi.builder().call(to_lctype(x[0].dtype), lcapi.CallOp.ONE, [])
+    else:
+        assert len(x) == 2
+        x_grad = x[1].expr
+    x0 = x[0].expr
+    lcapi.builder().call(lcapi.CallOp.GRADIENT_MARKER, [x0, x_grad])
+    return None, lcapi.builder().call(lcapi.CallOp.BACKWARD, [x0])
 
 
 @BuiltinFuncBuilder

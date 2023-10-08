@@ -140,9 +140,6 @@ template<typename NextVar, typename... OtherVars, typename NextTag, typename... 
 
 class FunctionBuilder;
 
-[[nodiscard]] LC_DSL_API luisa::shared_ptr<const FunctionBuilder>
-transform_function(Function callable) noexcept;
-
 }// namespace detail
 
 template<typename T>
@@ -206,8 +203,9 @@ class Kernel {
 private:
     using SharedFunctionBuilder = luisa::shared_ptr<const detail::FunctionBuilder>;
     SharedFunctionBuilder _builder{nullptr};
+
     explicit Kernel(SharedFunctionBuilder builder) noexcept
-        : _builder{detail::transform_function(builder->function())} {}
+        : _builder{std::move(builder)} {}
 
 public:
     /**
@@ -223,7 +221,7 @@ public:
                  std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
     Kernel(Def &&def) noexcept {
         static_assert(std::is_invocable_r_v<void, Def, detail::prototype_to_creation_t<Args>...>);
-        auto ast = detail::FunctionBuilder::define_kernel([&def] {
+        _builder = detail::FunctionBuilder::define_kernel([&def] {
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
             []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                 using arg_tuple = std::tuple<Args...>;
@@ -236,7 +234,6 @@ public:
                                   std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
-        _builder = detail::transform_function(ast->function());
     }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
 };
@@ -361,7 +358,7 @@ public:
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
                  std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
     Callable(Def &&f) noexcept {
-        auto ast = detail::FunctionBuilder::define_callable([&f] {
+        _builder = detail::FunctionBuilder::define_callable([&f] {
             static_assert(std::is_invocable_v<Def, detail::prototype_to_creation_t<Args>...>);
             auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                 using arg_tuple = std::tuple<Args...>;
@@ -381,7 +378,6 @@ public:
                 detail::FunctionBuilder::current()->return_(ret.expression());
             }
         });
-        _builder = detail::transform_function(ast->function());
     }
 
     /// Get the underlying AST
