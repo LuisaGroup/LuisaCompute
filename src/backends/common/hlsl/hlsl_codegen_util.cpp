@@ -10,6 +10,7 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
+static bool shown_buffer_warning = false;
 namespace lc::hlsl {
 #ifdef LUISA_ENABLE_IR
 static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
@@ -792,7 +793,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_SIZE: {
-            LUISA_ERROR_WITH_LOCATION("Buffer size is broken on dx!"sv);
+            if (!shown_buffer_warning) {
+                LUISA_WARNING_WITH_LOCATION("CallOp::BUFFER_SIZE is broken on dx!"sv);
+                shown_buffer_warning = true;
+            }
             str << "_bfsize"sv;
         } break;
         case CallOp::BYTE_BUFFER_READ: {
