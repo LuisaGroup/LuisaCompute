@@ -266,6 +266,17 @@ impl<'a> StoreIntermediate<'a> {
         if self.intermediate.contains_key(&node) {
             return;
         }
+        if node.is_const() {
+            let inst = node.get().instruction.as_ref();
+            match inst {
+                Instruction::Const(c) => {
+                    let c = self.builder.const_(c.clone());
+                    self.intermediate.insert(node, c);
+                    return;
+                }
+                _ => unreachable!(),
+            }
+        }
         // {
         //     println!("create intermediate");
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&self.module);
@@ -1167,7 +1178,6 @@ impl Backward {
                 } else {
                     out_grad
                 };
-
                 match func {
                     Func::Add => {
                         let (lhs_grad, rhs_grad) =
@@ -1623,7 +1633,7 @@ impl Backward {
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::ExtractElement => {
-                        let indices = original_args[1..].to_vec();
+                        let indices = args[1..].to_vec();
                         let v_grad = builder.const_(Const::Zero(args[0].type_().clone()));
                         let mut call_args = vec![v_grad, out_grad];
                         call_args.extend(indices);
@@ -1633,7 +1643,7 @@ impl Backward {
                     }
                     Func::InsertElement => {
                         let zero = builder.const_(Const::Zero(args[1].type_().clone()));
-                        let indices = original_args[2..].to_vec();
+                        let indices = args[2..].to_vec();
                         let mut call_args = vec![out_grad, zero];
                         call_args.extend(indices.clone());
                         let v_grad =

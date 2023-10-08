@@ -240,7 +240,8 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
 #ifdef LUISA_ENABLE_IR
         auto ir = AST2IR::build_kernel(kernel);
-        transform_ir_kernel_module(ir->get(), std::array{luisa::string{"autodiff"}});
+        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
+        transform_ir_kernel_module_auto(ir->get());
         return create_shader(option, ir->get());
 #else
         LUISA_ERROR_WITH_LOCATION("IR is not enabled in LuisaCompute. "

@@ -25,4 +25,8 @@ void transform_ir_kernel_module(ir::KernelModule *m, luisa::span<const luisa::st
     compute::detail::perform_ir_transform(m, transforms);
 }
 
+void transform_ir_kernel_module_auto(ir::KernelModule *m) noexcept {
+    ir::luisa_compute_ir_transform_auto(m->module);
+}
+
 }// namespace luisa::compute
