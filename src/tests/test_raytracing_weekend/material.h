@@ -1,35 +1,40 @@
 #pragma once
 
 #include "rtweekend.h"
+#include "texture.h"
 
 class hit_record;
 
 class material {
 public:
+    virtual Float3 emitted(Float u, Float v, const Float3 &p) const {
+        return Float3(0, 0, 0);
+    }
     virtual Bool scatter(
         const ray &r_in, const hit_record &rec, Float3 &attenuation, ray &scattered, UInt &seed) const = 0;
 };
 
 class lambertian : public material {
 public:
-    lambertian(const float3 &a) : albedo(a) {}
+    lambertian(const float3 &a) : albedo(make_shared<solid_color>(a)) {}
+    lambertian(shared_ptr<texture> a) : albedo(a) {}
 
     virtual Bool scatter(
         const ray &r_in, const hit_record &rec, Float3 &attenuation, ray &scattered, UInt &seed) const override {
         Float3 scatter_direction = rec.normal + random_unit_vector(seed);
 
         // Catch degenerate scatter direction
-        $if(near_zero(scatter_direction)) {
+        $if (near_zero(scatter_direction)) {
             scatter_direction = rec.normal;
         };
 
-        scattered = ray(rec.p, scatter_direction);
-        attenuation = albedo;
+        scattered = ray(rec.p, scatter_direction, r_in.time());
+        attenuation = albedo->value(rec.u, rec.v, rec.p);
         return true;
     }
 
 public:
-    float3 albedo;
+    shared_ptr<texture> albedo;
 };
 
 class metal : public material {
@@ -39,7 +44,7 @@ public:
     virtual Bool scatter(
         const ray &r_in, const hit_record &rec, Float3 &attenuation, ray &scattered, UInt &seed) const override {
         Float3 reflected = ray_reflect(normalize(r_in.direction()), rec.normal);
-        scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(seed));
+        scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(seed), r_in.time());
         attenuation = albedo;
         return (dot(scattered.direction(), rec.normal) > 0);
     }
@@ -65,14 +70,14 @@ public:
         Bool cannot_refract = refraction_ratio * sin_theta > 1.0f;
         Float3 direction;
 
-        $if(cannot_refract | reflectance(cos_theta, refraction_ratio) > frand(seed)) {
+        $if (cannot_refract | reflectance(cos_theta, refraction_ratio) > frand(seed)) {
             direction = ray_reflect(unit_direction, rec.normal);
         }
         $else {
             direction = ray_refract(unit_direction, rec.normal, refraction_ratio);
         };
 
-        scattered = ray(rec.p, direction);
+        scattered = ray(rec.p, direction, r_in.time());
         return true;
     }
 
@@ -88,3 +93,36 @@ private:
     }
 };
 
+class diffuse_light : public material {
+public:
+    diffuse_light(shared_ptr<texture> a) : emit(a) {}
+    diffuse_light(float3 c) : emit(make_shared<solid_color>(c)) {}
+
+    virtual Bool scatter(
+        const ray &r_in, const hit_record &rec, Float3 &attenuation, ray &scattered, UInt &seed) const override {
+        return false;
+    }
+
+    virtual Float3 emitted(Float u, Float v, const Float3 &p) const override {
+        return emit->value(u, v, p);
+    }
+
+public:
+    shared_ptr<texture> emit;
+};
+
+class isotropic : public material {
+public:
+    isotropic(float3 c) : albedo(make_shared<solid_color>(c)) {}
+    isotropic(shared_ptr<texture> a) : albedo(a) {}
+
+    virtual Bool scatter(
+        const ray &r_in, const hit_record &rec, Float3 &attenuation, ray &scattered, UInt &seed) const override {
+        scattered = ray(rec.p, random_in_unit_sphere(seed), r_in.time());
+        attenuation = albedo->value(rec.u, rec.v, rec.p);
+        return true;
+    }
+
+public:
+    shared_ptr<texture> albedo;
+};

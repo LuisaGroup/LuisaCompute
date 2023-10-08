@@ -455,6 +455,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         switch (c.tag) {
             case ir::Const::Tag::Zero: return 0;
             case ir::Const::Tag::One: return 1;
+            case ir::Const::Tag::Int8: return c.int8._0;
+            case ir::Const::Tag::Uint8: return c.uint8._0;
             case ir::Const::Tag::Int16: return c.int16._0;
             case ir::Const::Tag::Uint16: return c.uint16._0;
             case ir::Const::Tag::Int32: return c.int32._0;
@@ -524,6 +526,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::OutputGrad: LUISA_NOT_IMPLEMENTED();   // TODO
         case ir::Func::Tag::RayTracingInstanceTransform: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_TRANSFORM);
         case ir::Func::Tag::RayTracingInstanceUserId: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_USER_ID);
+        case ir::Func::Tag::RayTracingInstanceVisibilityMask: return builtin_func(2, CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK);
         case ir::Func::Tag::RayTracingSetInstanceTransform: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM);
         case ir::Func::Tag::RayTracingSetInstanceVisibility: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY);
         case ir::Func::Tag::RayTracingSetInstanceOpacity: return builtin_func(3, CallOp::RAY_TRACING_SET_INSTANCE_OPACITY);
@@ -666,6 +669,13 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Cross: return builtin_func(2, CallOp::CROSS);
         case ir::Func::Tag::Dot: return builtin_func(2, CallOp::DOT);
         case ir::Func::Tag::OuterProduct: return builtin_func(2, CallOp::OUTER_PRODUCT);
+        case ir::Func::Tag::Distance: {
+            auto a = _convert_node(args[0]);
+            auto b = _convert_node(args[1]);
+            LUISA_ASSERT(a->type() == b->type(), "Distance takes two arguments of the same type.");
+            auto diff = _ctx->function_builder->binary(a->type(), BinaryOp::SUB, a, b);
+            return _ctx->function_builder->call(a->type(), CallOp::LENGTH, {diff});
+        }
         case ir::Func::Tag::Length: return builtin_func(1, CallOp::LENGTH);
         case ir::Func::Tag::LengthSquared: return builtin_func(1, CallOp::LENGTH_SQUARED);
         case ir::Func::Tag::Normalize: return builtin_func(1, CallOp::NORMALIZE);

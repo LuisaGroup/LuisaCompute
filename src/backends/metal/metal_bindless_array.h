@@ -41,7 +41,7 @@ public:
     ~MetalBindlessArray() noexcept;
     void set_name(luisa::string_view name) noexcept;
     void update(MetalCommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
-    void mark_resource_usages(MTL::ComputeCommandEncoder *encoder) noexcept;
+    void mark_resource_usages(MTL::ComputeCommandEncoder *encoder, MTL::ResourceUsage usage) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _array; }
     [[nodiscard]] auto binding() const noexcept { return Binding{_array->gpuAddress()}; }
 };

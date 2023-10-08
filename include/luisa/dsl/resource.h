@@ -288,6 +288,17 @@ public:
                 {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
 
+    /// write at index i
+    template<typename I, typename V>
+        requires is_integral_expr_v<I>
+    void write(I &&i, V &&value) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BINDLESS_BUFFER_WRITE,
+            {_array, _index,
+             detail::extract_expression(std::forward<I>(i)),
+             detail::extract_expression(std::forward<V>(value))});
+    }
+
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };

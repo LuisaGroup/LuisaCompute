@@ -437,7 +437,7 @@ impl StreamImpl {
 #[inline]
 pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
     match arg {
-        api::Argument::Buffer(buffer_arg) => {
+        Argument::Buffer(buffer_arg) => {
             let buffer = &*(buffer_arg.buffer.0 as *mut BufferImpl);
             let offset = buffer_arg.offset;
             let size = buffer_arg.size;
@@ -448,7 +448,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 ty: buffer.ty,
             })
         }
-        api::Argument::Texture(t) => {
+        Argument::Texture(t) => {
             let texture = &*(t.texture.0 as *mut TextureImpl);
             let level = t.level as usize;
             defs::KernelFnArg::Texture(
@@ -459,8 +459,8 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 level as u8,
             )
         }
-        api::Argument::Uniform(uniform) => defs::KernelFnArg::Uniform(uniform.data),
-        api::Argument::Accel(accel) => {
+        Argument::Uniform(uniform) => defs::KernelFnArg::Uniform(uniform.data),
+        Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
             defs::KernelFnArg::Accel(defs::Accel {
                 handle: accel as *const _ as *const std::ffi::c_void,
@@ -471,10 +471,11 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 set_instance_user_id,
                 instance_transform,
                 instance_user_id,
+                instance_visibility_mask,
                 ray_query,
             })
         }
-        api::Argument::BindlessArray(a) => {
+        Argument::BindlessArray(a) => {
             let a = &*(a.0 as *mut BindlessArrayImpl);
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
@@ -541,6 +542,7 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
                 set_instance_user_id,
                 instance_transform,
                 instance_user_id,
+                instance_visibility_mask,
                 ray_query,
             })
         }
@@ -633,6 +635,13 @@ extern "C" fn instance_user_id(accel: *const std::ffi::c_void, instance_id: u32)
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.instance_user_id(instance_id)
+    }
+}
+
+extern "C" fn instance_visibility_mask(accel: *const std::ffi::c_void, instance_id: u32) -> u32 {
+    unsafe {
+        let accel = &*(accel as *const AccelImpl);
+        accel.instance_visibility_mask(instance_id)
     }
 }
 

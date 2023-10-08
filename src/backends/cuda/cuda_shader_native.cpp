@@ -166,21 +166,30 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             0u, cuda_stream, arguments, nullptr));
     } else {
         // the last argument is the launch size
-        auto launch_size_and_kernel_id = make_uint4(command->dispatch_size(), 0u);
-        auto ptr = allocate_argument(sizeof(launch_size_and_kernel_id));
-        std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
-        // launch configuration
-        auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-        auto blocks = (command->dispatch_size() + block_size - 1u) / block_size;
-        auto arguments = static_cast<void *>(argument_buffer.data());
-        LUISA_CHECK_CUDA(cuLaunchKernel(
-            _function,
-            blocks.x, blocks.y, blocks.z,
-            block_size.x, block_size.y, block_size.z,
-            0u, cuda_stream,
-            &arguments, nullptr));
+        auto ptr = allocate_argument(sizeof(uint4));
+        auto single_dispatch_size = make_uint3(0u);
+        luisa::span<const uint3> dispatch_sizes;
+        if (command->is_multiple_dispatch()) {
+            dispatch_sizes = command->dispatch_sizes();
+        } else {
+            single_dispatch_size = command->dispatch_size();
+            dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
+        }
+        for (auto dispatch_size : dispatch_sizes) {
+            auto launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
+            std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
+            // launch configuration
+            auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+            auto blocks = (command->dispatch_size() + block_size - 1u) / block_size;
+            auto arguments = static_cast<void *>(argument_buffer.data());
+            LUISA_CHECK_CUDA(cuLaunchKernel(
+                _function,
+                blocks.x, blocks.y, blocks.z,
+                block_size.x, block_size.y, block_size.z,
+                0u, cuda_stream,
+                &arguments, nullptr));
+        }
     }
 }
 
 }// namespace luisa::compute::cuda
-

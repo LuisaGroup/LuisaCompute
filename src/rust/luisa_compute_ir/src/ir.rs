@@ -628,6 +628,7 @@ pub enum Func {
 
     // (handle, instance_id) -> Mat4
     RayTracingInstanceTransform,
+    RayTracingInstanceVisibilityMask,
     RayTracingInstanceUserId,
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
@@ -888,8 +889,9 @@ pub enum Func {
     BindlessBufferSize,
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
-    // (bindless_array, index: uint, element_bytes: uint) -> T
+    // (bindless_array, index: uint, offset_bytes: uint) -> T
     BindlessByteBufferRead,
+    // (bindless_array, index: uint, offset_bytes: uint, value: T) -> void
 
     // scalar -> vector, the resulting type is stored in node
     Vec,
@@ -2383,7 +2385,12 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
-    pub fn call_no_append(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
+    pub fn call_no_append(
+        &mut self,
+        func: Func,
+        args: &[NodeRef],
+        ret_type: CArc<Type>,
+    ) -> NodeRef {
         let node = Node::new(
             CArc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
             ret_type,
@@ -2929,6 +2936,15 @@ pub mod debug {
         let j = j.to_string();
         let callable = ast2ir::convert_ast_to_ir_callable(j);
         CArc::into_raw(callable)
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_ast_json_to_ir_type(
+        j: CBoxedSlice<u8>,
+    ) -> *mut CArcSharedBlock<Type> {
+        let j = j.to_string();
+        let ty = ast2ir::convert_ast_to_ir_type(j);
+        CArc::into_raw(ty)
     }
 }
 
