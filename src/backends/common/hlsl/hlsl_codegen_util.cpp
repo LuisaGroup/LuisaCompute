@@ -2226,7 +2226,7 @@ uint iid:SV_INSTANCEID;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     } else if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
+        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit unit (max 63 allowed). This may cause extra performance cost, try to use bindless instead.", bind_count);
     }
     return {
         std::move(finalResult),
