@@ -32,7 +32,7 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file
     auto idx = _lock(file_path, false);
     auto file = std::fopen(file_path.c_str(), "rb");
     if (file) {
-        auto length = BinaryFileStream::seek_len(file);
+        auto length = luisa::detail::get_c_file_length(file);
         if (length == 0) [[unlikely]] {
             _unlock(idx, false);
             return nullptr;
