@@ -127,6 +127,7 @@ class func:
     def save(self, argtypes: tuple, name=None, async_build: bool = True, print_cpp_header = False):
         global type_idx
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
+        uses_autodiff = "autodiff():" in "".join(self.sourcelines)
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
@@ -144,7 +145,7 @@ class func:
             top = globalvars.current_context
             globalvars.current_context = f
             try:
-                lcapi.begin_analyzer()
+                lcapi.begin_analyzer(not uses_autodiff)
                 astbuilder.build(self.tree.body[0])
             finally:
                 lcapi.end_analyzer()
@@ -289,6 +290,7 @@ class func:
         call_from_host = func_type == 0
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
+        uses_autodiff = "autodiff():" in "".join(self.sourcelines)
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
@@ -307,7 +309,7 @@ class func:
             top = globalvars.current_context
             globalvars.current_context = f
             try:
-                lcapi.begin_analyzer()
+                lcapi.begin_analyzer(not uses_autodiff)
                 astbuilder.build(self.tree.body[0])
             finally:
                 lcapi.end_analyzer()

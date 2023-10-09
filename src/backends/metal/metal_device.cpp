@@ -34,12 +34,14 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(ctx)},
       _io{nullptr},
       _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
-
-    auto device_index = config == nullptr ? 0u : config->device_index;
+    auto device_index = config == nullptr || config->device_index == std::numeric_limits<size_t>::max() ?
+                            0u :
+                            config->device_index;
     auto all_devices = MTL::CopyAllDevices();
     auto device_count = all_devices->count();
     LUISA_ASSERT(device_index < device_count,
-                 "Metal device index out of range.");
+                 "Metal device index out of range (required = {}, count = {}).",
+                 device_index, device_count);
     _handle = all_devices->object<MTL::Device>(device_index)->retain();
     all_devices->release();
 

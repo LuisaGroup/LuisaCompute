@@ -900,6 +900,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     if (device_count == 0) {
         LUISA_ERROR_WITH_LOCATION("No available device found for CUDA backend.");
     }
+    if (index == std::numeric_limits<size_t>::max()) { index = 0; }
     if (index >= device_count) {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid device index {} (device count = {}). Limiting to {}.",

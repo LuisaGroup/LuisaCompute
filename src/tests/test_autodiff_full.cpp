@@ -158,7 +158,7 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
 struct Foo {
     float3 v;
     float f;
-    uint z;
+    uint z[2];
 };
 LUISA_STRUCT(Foo, v, f, z) {};
 
