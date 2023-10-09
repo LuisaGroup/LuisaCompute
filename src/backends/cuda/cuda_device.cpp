@@ -42,7 +42,6 @@
 #include "cuda_dstorage.h"
 #include "cuda_ext.h"
 
-#define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_KERNEL_DEBUG 1
 
 #ifndef NDEBUG
@@ -55,7 +54,12 @@ static const bool LUISA_CUDA_DUMP_SOURCE = ([] {
     return std::string_view{env} == "1";
 })();
 #endif
-
+static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = ([] {
+    // read env LUISA_OPTIX_VALIDATION
+    auto env = std::getenv("LUISA_OPTIX_VALIDATION");
+    if (env == nullptr) return false;
+    return std::string_view{env} == "1";
+})();
 namespace luisa::compute::cuda {
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
@@ -960,10 +964,11 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     if (_optix_context == nullptr) [[unlikely]] {
         optix::DeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
-#if !defined(NDEBUG) && LUISA_CUDA_ENABLE_OPTIX_VALIDATION
-        // Disable due to too much overhead
-        optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
-#endif
+        if (LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
+            LUISA_WARNING("OptiX validation is enabled. This may cause significant performance degradation.");
+            // Disable due to too much overhead
+            optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+        }
         optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
             auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
             if (level >= 4) {

@@ -1939,7 +1939,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                             Instruction::Call(f, args) => {
                                 if *f == Func::Gradient {
                                     let grad = grads[&args[0]];
-                                    // assert!(grad.is_lvalue(), "{:?}", grad.get().instruction.as_ref());
+                                    assert!(grad.is_lvalue(), "{:?}. Please don't call grad(out).", grad.get().instruction.as_ref());
                                     *inst =
                                         Instruction::Call(Func::Load, CBoxedSlice::new(vec![grad]));
                                 }
