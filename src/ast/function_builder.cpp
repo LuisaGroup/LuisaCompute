@@ -57,6 +57,12 @@ FunctionBuilder *FunctionBuilder::current() noexcept {
     return _function_stack().back();
 }
 
+FunctionBuilder *FunctionBuilder::current_or_null() noexcept {
+    return _function_stack().empty() ?
+               nullptr :
+               _function_stack().back();
+}
+
 void FunctionBuilder::_append(const Statement *statement) noexcept {
     if (_scope_stack.empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Scope stack is empty.");
@@ -624,7 +630,7 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
             LUISA_ERROR("Function block size must be larger than 0, Current block size is: [{}, {}, {}].",
                         size.x, size.y, size.z);
         }
-        if(size.z > 64)[[unlikely]]{
+        if (size.z > 64) [[unlikely]] {
             LUISA_ERROR("Function block z-axis's size must be less or equal than 64, Current block size is: {}.",
                         size.z);
         }
