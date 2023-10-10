@@ -616,13 +616,18 @@ public:
 
     template<typename... Args>
     decltype(auto) operator()(Args &&...args) const noexcept {
-        if (!_comment.empty()) { detail::comment(_comment); }
         using Ret = decltype(_f(std::forward<Args>(args)...));
         if constexpr (std::is_same_v<Ret, void>) {
-            outline([&] { _f(std::forward<Args>(args)...); });
+            outline([&] {
+                if (!_comment.empty()) { detail::comment(_comment); }
+                _f(std::forward<Args>(args)...);
+            });
         } else {
             Ret ret;
-            outline([&] { ret = _f(std::forward<Args>(args)...); });
+            outline([&] {
+                if (!_comment.empty()) { detail::comment(_comment); }
+                ret = _f(std::forward<Args>(args)...);
+            });
             return ret;
         }
     }
