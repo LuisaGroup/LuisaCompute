@@ -738,7 +738,9 @@ static void check_expr_is_internalizable(const Expression *expr) noexcept {
     LUISA_ASSERT(on_callstack,
                  "Expression (type = {}, tag = {}) to be internalized "
                  "is not on the current call stack.",
-                 expr->type() ? "void" : expr->type()->description(),
+                 expr->type() == nullptr ?
+                     "void" :
+                     expr->type()->description(),
                  luisa::to_string(expr->tag()));
     // check if the expression can be internalized
     switch (expr->tag()) {

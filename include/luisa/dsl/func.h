@@ -568,4 +568,51 @@ Kernel3D(T &&) -> Kernel3D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
+namespace detail {
+
+struct CallableOutliner {
+    template<typename F>
+    void operator%(F &&body) && noexcept {
+        Callable{std::forward<F>(body)}();
+    }
+};
+
+}// namespace detail
+
+template<typename F>
+inline void outline(F &&f) noexcept {
+    Callable{std::forward<F>(f)}();
+}
+
+template<typename F>
+class Lambda {
+
+private:
+    luisa::function<F> _f;
+
+public:
+    template<typename Func>
+    Lambda(Func &&f) noexcept : _f(std::forward<Func>(f)) {}
+
+    Lambda(Lambda &&) noexcept = default;
+    Lambda(const Lambda &) noexcept = default;
+    Lambda &operator=(Lambda &&) noexcept = default;
+    Lambda &operator=(const Lambda &) noexcept = default;
+
+    template<typename... Args>
+    decltype(auto) operator()(Args &&...args) const noexcept {
+        using Ret = decltype(_f(std::forward<Args>(args)...));
+        if constexpr (std::is_same_v<Ret, void>) {
+            outline([&] { _f(std::forward<Args>(args)...); });
+        } else {
+            Ret ret;
+            outline([&] { ret = _f(std::forward<Args>(args)...); });
+            return ret;
+        }
+    }
+};
+
+template<typename F>
+Lambda(F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F>>>;
+
 }// namespace luisa::compute

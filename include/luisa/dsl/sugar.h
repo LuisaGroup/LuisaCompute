@@ -88,8 +88,11 @@ namespace luisa::compute::dsl_detail {
 #define $bindless ::luisa::compute::BindlessVar
 #define $accel ::luisa::compute::AccelVar
 
+#define $outline \
+    ::luisa::compute::detail::CallableOutliner{} % [&]() noexcept
+
 #define $lambda(...) \
-    (::luisa::compute::Callable{([&] __VA_ARGS__)})
+    (::luisa::compute::Lambda{([&] __VA_ARGS__)})
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()
@@ -141,7 +144,7 @@ namespace luisa::compute::dsl_detail {
     for (auto x : ::luisa::compute::dynamic_range_with_comment(                        \
              ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
              __VA_ARGS__))                                                             \
-    ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
+    ::luisa::compute::detail::StmtBodyInvoke{} % [&]() noexcept
 
 #define $comment(...) \
     ::luisa::compute::comment(__VA_ARGS__)
