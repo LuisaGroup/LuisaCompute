@@ -36,6 +36,13 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
             "Arguments and their bindings have different sizes ({} and {}).",
             f->_arguments.size(), f->_bound_arguments.size());
     }
+    // non-callables may not have internalizer arguments
+    if (f->tag() != Function::Tag::CALLABLE) {
+        LUISA_ASSERT(
+            f->_captured_external_variables.empty() &&
+                f->_internalizer_arguments.empty(),
+            "Non-callables may not have internalizer arguments.");
+    }
 
     // hash
     f->_compute_hash();
