@@ -167,8 +167,8 @@ public:
      * @return FunctionBuilder* 
      */
     [[nodiscard]] static FunctionBuilder *current() noexcept;
-
     [[nodiscard]] static FunctionBuilder *current_or_null() noexcept;
+    [[nodiscard]] static luisa::span<const FunctionBuilder *const> stack() noexcept;
 
     // interfaces for class Function
     /// Return a span of builtin variables.

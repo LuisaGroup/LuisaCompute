@@ -97,7 +97,6 @@ void CallableLibrary::ser_value(Variable const &t, luisa::vector<std::byte> &vec
 template<>
 Variable CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pack) noexcept {
     Variable v{};
-    v._builder = detail::callable_library_function_builder_deserialize_stack_top();
     v._type = deser_value<Type const *>(ptr, pack);
     v._uid = deser_value<uint32_t>(ptr, pack);
     v._tag = deser_value<Variable::Tag>(ptr, pack);
@@ -316,6 +315,7 @@ void CallableLibrary::ser_value(Expression const &t, luisa::vector<std::byte> &v
         case Expression::Tag::TYPE_ID:
             ser_value(*static_cast<TypeIDExpr const *>(&t), vec);
             break;
+        case Expression::Tag::STRING_ID:
         case Expression::Tag::CPUCUSTOM:
         case Expression::Tag::GPUCUSTOM:
             LUISA_ERROR("Un-supported.");
@@ -334,6 +334,7 @@ Expression const *CallableLibrary::deser_value(std::byte const *&ptr, DeserPacka
         deser_ptr<T *>(expr, ptr, pack);
         expr->_type = type;
         expr->_hash = hash;
+        expr->_builder = detail::callable_library_function_builder_deserialize_stack_top();
         expr->_hash_computed = true;
         expr->_tag = tag;
         pack.builder->_all_expressions.emplace_back(luisa::unique_ptr<Expression>(expr));

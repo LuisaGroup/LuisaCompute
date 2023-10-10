@@ -63,6 +63,10 @@ FunctionBuilder *FunctionBuilder::current_or_null() noexcept {
                _function_stack().back();
 }
 
+luisa::span<const FunctionBuilder *const> FunctionBuilder::stack() noexcept {
+    return _function_stack();
+}
+
 void FunctionBuilder::_append(const Statement *statement) noexcept {
     if (_scope_stack.empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Scope stack is empty.");
