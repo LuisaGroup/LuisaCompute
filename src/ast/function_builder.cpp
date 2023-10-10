@@ -730,6 +730,17 @@ void FunctionBuilder::sort_bindings() noexcept {
 }
 
 static void check_expr_is_internalizable(const Expression *expr) noexcept {
+    // check if the expression is on the current call stack
+    auto on_callstack = std::find(FunctionBuilder::stack().crbegin(),
+                                  FunctionBuilder::stack().crend(),
+                                  expr->builder()) !=
+                        FunctionBuilder::stack().crend();
+    LUISA_ASSERT(on_callstack,
+                 "Expression (type = {}, tag = {}) to be internalized "
+                 "is not on the current call stack.",
+                 expr->type() ? "void" : expr->type()->description(),
+                 luisa::to_string(expr->tag()));
+    // check if the expression can be internalized
     switch (expr->tag()) {
         case Expression::Tag::MEMBER: {
             auto e = static_cast<const MemberExpr *>(expr);
