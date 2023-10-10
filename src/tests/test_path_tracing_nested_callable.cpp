@@ -252,9 +252,12 @@ int main(int argc, char *argv[]) {
                     pdf_bsdf = cos_wi * inv_pi;
                     beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
                 });
-                Float ux = lcg();
-                Float uy = lcg();
-                sample_f(make_float2(ux, uy));
+
+                $lambda({
+                    Float ux = lcg();
+                    Float uy = lcg();
+                    sample_f(make_float2(ux, uy));
+                })();
 
                 // rr
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
