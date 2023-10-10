@@ -12,6 +12,7 @@
 #include <luisa/ast/external_function.h>
 static bool shown_buffer_warning = false;
 namespace lc::hlsl {
+static std::atomic_bool rootsig_exceed_warned = false;
 #ifdef LUISA_ENABLE_IR
 static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
     if (f.requires_autodiff())
@@ -2046,7 +2047,9 @@ uint4 dsp_c;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     } else if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units (max 63 allowed), this may cause extra performance cost, try to use bindless instead.", bind_count);
+        if (!rootsig_exceed_warned.exchange(true)) {
+            LUISA_WARNING("Arguments binding size exceeds 16 32-bit unit (max 64 allowed). This may cause extra performance cost, try to use bindless instead.");
+        }
     }
     return {
         std::move(finalResult),
@@ -2228,7 +2231,9 @@ uint iid:SV_INSTANCEID;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     } else if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit unit (max 63 allowed). This may cause extra performance cost, try to use bindless instead.", bind_count);
+        if (!rootsig_exceed_warned.exchange(true)) {
+            LUISA_WARNING("Arguments binding size exceeds 16 32-bit unit (max 64 allowed). This may cause extra performance cost, try to use bindless instead.");
+        }
     }
     return {
         std::move(finalResult),
