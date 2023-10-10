@@ -88,6 +88,9 @@ namespace luisa::compute::dsl_detail {
 #define $bindless ::luisa::compute::BindlessVar
 #define $accel ::luisa::compute::AccelVar
 
+#define $lambda(...) \
+    (::luisa::compute::Callable{([&] __VA_ARGS__)})
+
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()
 #define $return(...) ::luisa::compute::return_(__VA_ARGS__)
