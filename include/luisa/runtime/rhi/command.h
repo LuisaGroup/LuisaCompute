@@ -129,7 +129,11 @@ public:
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
 
 public:
-    using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
+    using DispatchSize = luisa::variant<
+        uint3,              // single dispatch
+        IndirectDispatchArg,// indirect dispatch
+        luisa::vector<uint3>// batched dispatch
+        >;
 
 private:
     DispatchSize _dispatch_size;
@@ -143,12 +147,14 @@ public:
           ShaderDispatchCommandBase{shader_handle,
                                     std::move(argument_buffer),
                                     argument_count},
-          _dispatch_size{dispatch_size} {}
+          _dispatch_size{std::move(dispatch_size)} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
-    ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
+    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
+    [[nodiscard]] auto is_multiple_dispatch() const noexcept { return luisa::holds_alternative<luisa::vector<uint3>>(_dispatch_size); }
     [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
     [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
     [[nodiscard]] auto indirect_dispatch() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
+    [[nodiscard]] luisa::span<const uint3> dispatch_sizes() const noexcept { return luisa::get<luisa::vector<uint3>>(_dispatch_size); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
@@ -471,20 +477,21 @@ public:
         static constexpr auto flag_transform = 1u << 1u;
         static constexpr auto flag_opaque_on = 1u << 2u;
         static constexpr auto flag_opaque_off = 1u << 3u;
-        static constexpr auto flag_visibility = 1u << 4u;
         static constexpr auto flag_opaque = flag_opaque_on | flag_opaque_off;
-        static constexpr auto flag_vis_mask_offset = 24u;
+        static constexpr auto flag_visibility = 1u << 4u;
+        static constexpr auto flag_user_id = 1u << 5u;
 
         // members
         uint index{};
+        uint user_id{};
         uint flags{};
-        uint64_t primitive{};
+        uint vis_mask{};
         float affine[12]{};
+        uint64_t primitive{};
 
         // ctor
         Modification() noexcept = default;
         explicit Modification(uint index) noexcept : index{index} {}
-
         // encode interfaces
         void set_transform(float4x4 m) noexcept {
             affine[0] = m[0][0];
@@ -506,8 +513,8 @@ public:
             flags |= flag_transform;
         }
         void set_visibility(uint8_t mask) noexcept {
-            flags &= (1u << flag_vis_mask_offset) - 1u;
-            flags |= (mask << flag_vis_mask_offset) | flag_visibility;
+            vis_mask = mask;
+            flags |= flag_visibility;
         }
         void set_opaque(bool opaque) noexcept {
             flags &= ~flag_opaque;// clear old visibility flags
@@ -516,6 +523,10 @@ public:
         void set_primitive(uint64_t handle) noexcept {
             primitive = handle;
             flags |= flag_primitive;
+        }
+        void set_user_id(uint id) noexcept {
+            user_id = id;
+            flags |= flag_user_id;
         }
     };
 
@@ -612,7 +623,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto steal_modifications() noexcept { return std::move(_modifications); }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
-    LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
 class CustomCommand : public Command {

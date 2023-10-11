@@ -34,9 +34,11 @@ pub(super) fn clang_args() -> Vec<&'static str> {
             if s == "full" {
                 args.push("-DLUISA_DEBUG");
                 args.push("-DLUISA_DEBUG_FULL");
+                args.push("-g");
             } else {
                 if s == "1" {
                     args.push("-DLUISA_DEBUG");
+                    args.push("-g");
                 }
                 args.push("-O3");
             }
@@ -44,6 +46,7 @@ pub(super) fn clang_args() -> Vec<&'static str> {
         Err(_) => {
             if cfg!(debug_assertions) {
                 args.push("-DLUISA_DEBUG");
+                args.push("-g");
             }
             args.push("-O3");
         }

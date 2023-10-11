@@ -1,4 +1,4 @@
-use std::collections::{HashSet};
+use std::collections::HashSet;
 
 use super::Transform;
 
@@ -12,6 +12,7 @@ Remove all Instruction::Update nodes
 */
 pub struct ToSSA;
 struct ToSSAImpl {
+    entry: IrBuilder,
     map_blocks: HashMap<*mut BasicBlock, *mut BasicBlock>,
     local_defs: HashSet<NodeRef>,
     map_immutables: HashMap<NodeRef, NodeRef>,
@@ -42,6 +43,7 @@ impl SSABlockRecord {
 impl ToSSAImpl {
     fn new(model: &Module) -> Self {
         Self {
+            entry: IrBuilder::new(model.pools.clone()),
             map_blocks: HashMap::new(),
             local_defs: model.collect_nodes().into_iter().collect(),
             map_immutables: HashMap::new(),
@@ -53,17 +55,31 @@ impl ToSSAImpl {
         builder: &mut IrBuilder,
         record: &mut SSABlockRecord,
     ) -> NodeRef {
-        if !self.local_defs.contains(&node) {
-            return builder.call(Func::Load, &[node], node.type_().clone());
-        }
-        if let Some((var, indices)) = node.access_chain() {
-            let mut cur = self.promote(var, builder, record);
-            for (t, i) in &indices {
-                let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::ExtractElement, &[cur, i], t.clone());
-                cur = el;
-            }
-            cur
+        // if !self.local_defs.contains(&node) {
+        //     return builder.call(Func::Load, &[node], node.type_().clone());
+        // }
+        if node.is_gep() {
+            let inst = node.get().instruction.as_ref();
+            let args = match inst {
+                Instruction::Call(f, args) => match f {
+                    Func::GetElementPtr => args,
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            let var = args[0];
+            let indices = &args[1..];
+            let indices = indices
+                .iter()
+                .map(|x| self.promote(*x, builder, record))
+                .collect::<Vec<_>>();
+            let promoted_var = self.promote(var, builder, record);
+            let args = vec![promoted_var]
+                .into_iter()
+                .chain(indices.into_iter())
+                .collect::<Vec<_>>();
+            let value = builder.call(Func::ExtractElement, &args, node.type_().clone());
+            value
         } else {
             self.promote(node, builder, record)
         }
@@ -75,34 +91,140 @@ impl ToSSAImpl {
         builder: &mut IrBuilder,
         record: &mut SSABlockRecord,
     ) {
-        if var.is_local() {
-            let value = self.promote(value, builder, record);
+        let value = self.promote(value, builder, record);
+        if var.is_local() || var.is_refernece_argument() {
             record.phis.insert(var);
+
+            if !self.local_defs.contains(&var) {
+                builder.update(var, value);
+                // this outter variable is not previously seen
+                // we need to generate a load in the outmost scope
+                if record.stored.get(&var).is_none() {
+                    let val = self.entry.load(var);
+                    record.stored.insert_at_top(var, val);
+                }
+            }
+
             record.stored.insert(var, value);
         } else {
             // the hardpart
-            let (var, indices) = var.access_chain().unwrap();
-            let var = self.promote(var, builder, record);
-            let mut st = vec![var];
-            let mut cur = var;
-            for (t, i) in &indices[..indices.len() - 1] {
-                let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::ExtractElement, &[cur, i], t.clone());
-                st.push(el);
-                cur = el;
-            }
-            let mut value = value;
-            for (t, i) in indices.iter().rev() {
-                let i = builder.const_(Const::Int32(*i as i32));
-                let el = builder.call(Func::InsertElement, &[cur, value, i], t.clone());
-                value = el;
-                cur = st.pop().unwrap();
-            }
+            let inst = var.get().instruction.as_ref();
+            let args = match inst {
+                Instruction::Call(f, args) => match f {
+                    Func::GetElementPtr => args,
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            let var = args[0];
+            let indices = &args[1..];
+            let indices = indices
+                .iter()
+                .map(|x| self.promote(*x, builder, record))
+                .collect::<Vec<_>>();
+            let promoted_var = self.promote(var, builder, record);
+            let args = vec![promoted_var, value]
+                .into_iter()
+                .chain(indices.into_iter())
+                .collect::<Vec<_>>();
+            let value = builder.call(Func::InsertElement, &args, promoted_var.type_().clone());
+            // let (var, indices) = var.access_chain().unwrap();
+            // // dbg!(var.type_(), &indices);
+            // let unpromoted_var = var;
+            // let var = self.promote(var, builder, record);
+            // let mut st = vec![var];
+            // let mut cur = var;
+            // for (t, i) in &indices[..indices.len() - 1] {
+            //     let i = builder.const_(Const::Int32(*i as i32));
+            //     let el = builder.call(Func::ExtractElement, &[cur, i], t.clone());
+            //     st.push(el);
+            //     cur = el;
+            // }
+            // let mut value = value;
+            // for (_, i) in indices.iter().rev() {
+            //     let i = builder.const_(Const::Int32(*i as i32));
+            //     let el = builder.call(Func::InsertElement, &[cur, value, i], cur.type_().clone());
+            //     value = el;
+            //     cur = st.pop().unwrap();
+            // }
+            // assert!(
+            //     context::is_type_equal(unpromoted_var.type_(), value.type_()),
+            //     "Type mismatch: {} vs {}",
+            //     unpromoted_var.type_(),
+            //     value.type_()
+            // );
             record.phis.insert(var);
-            record.stored.insert(var, cur);
+            if !self.local_defs.contains(&var) {
+                builder.update(var, value);
+                // this outter variable is not previously seen
+                // we need to generate a load in the outmost scope
+                if record.stored.get(&var).is_none() {
+                    let val = self.entry.load(var);
+                    record.stored.insert_at_top(var, val);
+                }
+            }
+
+            record.stored.insert(var, value);
+            assert_eq!(self.promote(var, builder, record), value);
         }
-        if !self.local_defs.contains(&var) {
-            builder.update(var, value);
+    }
+    fn promote_branches(
+        &mut self,
+        branches: &[Pooled<BasicBlock>],
+        builder: &mut IrBuilder,
+        record: &mut SSABlockRecord,
+    ) -> (Vec<SSABlockRecord>, Vec<Pooled<BasicBlock>>, Vec<NodeRef>) {
+        let mut new_branches = vec![];
+        let mut new_phis = IndexSet::new();
+        let mut records = vec![];
+        for branch in branches {
+            let mut new_record = SSABlockRecord::from_parent(record);
+            let new_branch = self.promote_bb(
+                *branch,
+                IrBuilder::new(builder.pools.clone()),
+                &mut new_record,
+            );
+
+            new_branches.push(new_branch);
+            new_phis = new_phis.union(&new_record.phis).cloned().collect();
+            records.push(new_record);
+        }
+        (records, new_branches, new_phis.into_iter().collect())
+    }
+
+    fn merge_incomings(
+        &mut self,
+        incoming_records: &[SSABlockRecord],
+        incoming_branches: &[Pooled<BasicBlock>],
+        phis: &[NodeRef],
+        builder: &mut IrBuilder,
+        record: &mut SSABlockRecord,
+    ) {
+        let mut new_phis = vec![];
+        for phi in phis {
+            let incomings = incoming_records
+                .iter()
+                .enumerate()
+                .map(|(i, x)| PhiIncoming {
+                    value: *x.stored.get(phi).unwrap(),
+                    block: incoming_branches[i],
+                })
+                .collect::<Vec<_>>();
+            if incomings.iter().all(|x| x.value == incomings[0].value) && incomings.len() > 1 {
+                continue;
+            }
+            let new_phi = builder.phi(&incomings, phi.get().type_.clone());
+            new_phis.push(new_phi);
+            if phi.is_lvalue() {
+                record.stored.insert(*phi, new_phi);
+            }
+            // if record.defined.contains(phi) {
+            self.map_immutables.insert(*phi, new_phi);
+            record.phis.insert(*phi);
+            // }
+        }
+        for phi in new_phis {
+            record.defined.insert(phi);
         }
     }
     fn promote(
@@ -132,16 +254,28 @@ impl ToSSAImpl {
             Instruction::Shared => return node,
             Instruction::Uniform => return node,
             Instruction::Local { init } => {
-                if !self.local_defs.contains(&node) {
-                    return node;
+                if !self.local_defs.contains(&node) && !record.stored.contains_key(&node) {
+                    let val = builder.load(node);
+                    record.stored.insert(node, val);
+                    return val;
                 }
                 let init = self.promote(*init, builder, record);
-                let var = builder.local(init);
                 record.defined.insert(node);
                 record.stored.insert(node, init);
-                return var;
+                return init;
             }
-            Instruction::Argument { .. } => todo!(),
+            Instruction::Argument { by_value } => {
+                if *by_value {
+                    return node;
+                }
+                assert!(!self.local_defs.contains(&node));
+                if !record.stored.contains_key(&node) {
+                    let val = builder.load(node);
+                    record.stored.insert(node, val);
+                    return node;
+                }
+                unreachable!();
+            }
             Instruction::UserData(_) => return node,
             Instruction::Invalid => return node,
             Instruction::Const(c) => {
@@ -156,7 +290,23 @@ impl ToSSAImpl {
             }
             Instruction::Call(func, args) => {
                 if *func == Func::Load {
-                    return self.load(args[0], builder, record);
+                    let v = self.load(args[0], builder, record);
+                    self.map_immutables.insert(node, v);
+                    return v;
+                }
+                if *func == Func::GetElementPtr {
+                    return INVALID_REF;
+                    // let v = self.load(args[0], builder, record);
+                    // // let idx = self.promote(args[1], builder, record);
+                    // let indices = args[1..]
+                    //     .iter()
+                    //     .map(|x| self.promote(*x, builder, record))
+                    //     .collect::<Vec<_>>();
+                    // let args = vec![v]
+                    //     .into_iter()
+                    //     .chain(indices.into_iter())
+                    //     .collect::<Vec<_>>();
+                    // return builder.call(Func::ExtractElement, &args, type_.clone());
                 }
                 let promoted_args = args
                     .as_ref()
@@ -197,49 +347,10 @@ impl ToSSAImpl {
                 false_branch,
             } => {
                 let cond = self.promote(*cond, builder, record);
-                let mut true_record = SSABlockRecord::from_parent(record);
-                let true_branch = self.promote_bb(
-                    *true_branch,
-                    IrBuilder::new(builder.pools.clone()),
-                    &mut true_record,
-                );
-                let mut false_record = SSABlockRecord::from_parent(record);
-                let false_branch = self.promote_bb(
-                    *false_branch,
-                    IrBuilder::new(builder.pools.clone()),
-                    &mut false_record,
-                );
-                let phis = true_record
-                    .phis
-                    .union(&false_record.phis)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                builder.if_(cond, true_branch, false_branch);
-                let mut new_phis = vec![];
-                for phi in &phis {
-                    let incomings = [
-                        PhiIncoming {
-                            value: *true_record.stored.get(phi).unwrap(),
-                            block: true_branch,
-                        },
-                        PhiIncoming {
-                            value: *false_record.stored.get(phi).unwrap(),
-                            block: false_branch,
-                        },
-                    ];
-                    if incomings[0].value == incomings[1].value {
-                        continue;
-                    }
-                    let new_phi = builder.phi(&incomings, phi.get().type_.clone());
-                    new_phis.push(new_phi);
-                    // if record.defined.contains(phi) {
-                    self.map_immutables.insert(*phi, new_phi);
-                    record.phis.insert(*phi);
-                    // }
-                }
-                for phi in new_phis {
-                    record.defined.insert(phi);
-                }
+                let (records, branches, phis) =
+                    self.promote_branches(&[*true_branch, *false_branch], builder, record);
+                builder.if_(cond, branches[0], branches[1]);
+                self.merge_incomings(&records, &branches, &phis, builder, record);
                 return INVALID_REF;
             }
             Instruction::Switch {
@@ -248,61 +359,32 @@ impl ToSSAImpl {
                 cases,
             } => {
                 let value = self.promote(*value, builder, record);
-                let mut default_record = SSABlockRecord::from_parent(record);
-                let default_branch = self.promote_bb(
-                    *default,
-                    IrBuilder::new(builder.pools.clone()),
-                    &mut default_record,
-                );
-                let mut processed_cases = vec![];
-                for case in cases.iter() {
-                    let mut record = SSABlockRecord::from_parent(record);
-                    let bb = self.promote_bb(
-                        case.block,
-                        IrBuilder::new(builder.pools.clone()),
-                        &mut record,
-                    );
-                    processed_cases.push((bb, record));
-                }
-                let mut phis = default_record.phis.clone();
-                for case in &processed_cases {
-                    phis = phis.union(&case.1.phis).cloned().collect();
-                }
+                let branches = cases
+                    .iter()
+                    .map(|x| x.block)
+                    .chain(std::iter::once(*default))
+                    .collect::<Vec<_>>();
+                let (incoming_records, incoming_branches, phis) =
+                    self.promote_branches(&branches, builder, record);
                 builder.switch(
                     value,
-                    &processed_cases
+                    &incoming_branches[0..incoming_branches.len() - 1]
                         .iter()
                         .enumerate()
                         .map(|(i, x)| SwitchCase {
                             value: cases[i].value,
-                            block: x.0,
+                            block: *x,
                         })
                         .collect::<Vec<_>>(),
-                    default_branch,
+                    *incoming_branches.last().unwrap(),
                 );
-                let mut new_phis = vec![];
-                for phi in &phis {
-                    let mut incomings = vec![];
-                    incomings.push(PhiIncoming {
-                        value: *default_record.stored.get(phi).unwrap(),
-                        block: default_branch,
-                    });
-                    for case in &processed_cases {
-                        incomings.push(PhiIncoming {
-                            value: *case.1.stored.get(phi).unwrap(),
-                            block: case.0,
-                        });
-                    }
-                    let new_phi = builder.phi(&incomings, phi.get().type_.clone());
-                    new_phis.push(new_phi);
-                    // if record.defined.contains(phi) {
-                    self.map_immutables.insert(*phi, new_phi);
-                    record.phis.insert(*phi);
-                    // }
-                }
-                for phi in new_phis {
-                    record.defined.insert(phi);
-                }
+                self.merge_incomings(
+                    &incoming_records,
+                    &incoming_branches,
+                    &phis,
+                    builder,
+                    record,
+                );
                 return INVALID_REF;
             }
             Instruction::Loop { body, cond } => {
@@ -321,6 +403,14 @@ impl ToSSAImpl {
             Instruction::Comment(_) => return node,
             Instruction::Return(_) => {
                 panic!("call LowerControlFlow before ToSSA");
+            }
+            Instruction::Print { fmt, args } => {
+                let args = args
+                    .iter()
+                    .map(|node| self.promote(*node, builder, record))
+                    .collect::<Vec<_>>();
+                builder.print(fmt.clone(), &args);
+                return INVALID_REF;
             }
         }
     }
@@ -347,12 +437,15 @@ impl Transform for ToSSA {
             IrBuilder::new(module.pools.clone()),
             &mut SSABlockRecord::new(),
         );
+        let body = imp.entry.finish();
+        body.merge(new_bb);
         let mut entry = module.entry;
-        *entry.get_mut() = *new_bb;
+        *entry.get_mut() = *body;
         Module {
             kind: module.kind,
             entry,
             pools: module.pools,
+            flags: module.flags,
         }
     }
 }

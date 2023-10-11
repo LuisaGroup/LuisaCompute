@@ -1,5 +1,5 @@
 set(LUISA_COMPUTE_AST_SOURCES
-        ast_evaluator.cpp
+        ast2json.cpp
         atomic_ref_node.cpp
         callable_library.cpp
         constant_data.cpp
@@ -14,6 +14,11 @@ set(LUISA_COMPUTE_AST_SOURCES
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_EXPORT_DLL=1)
+
+if (LUISA_COMPUTE_ENABLE_RUST)
+    target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_ENABLE_IR=1)
+endif()
+
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-ext)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")

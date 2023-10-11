@@ -61,7 +61,8 @@ include = [ "Buffer", "Context", "Device", "Event", "Stream", "Shader", "Swapcha
             "AccelUsageHint", "AccelBuildRequest", "AccelBuildModificationFlags", "AccelBuildModification", "PixelStorage",
             "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext", "KernelModule",
             "CreatedResourceInfo", "CreatedBufferInfo", "CreatedShaderInfo", "CreatedSwapchainInfo", "AccelOption", "ShaderOption", "StreamTag",
-            "DeviceInterface", "LoggerMessage","LibInterface"]
+            "DeviceInterface", "LoggerMessage","LibInterface",
+            "BinaryIo"]
 exclude = []
 # prefix = "CAPI_"
 item_types = []

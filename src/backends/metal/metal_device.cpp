@@ -2,6 +2,9 @@
 #include <luisa/core/logging.h>
 
 #ifdef LUISA_ENABLE_IR
+#include <luisa/ir/ast2ir.h>
+#include <luisa/ir/ir2ast.h>
+#include <luisa/ir/transform.h>
 #include "metal_codegen_ir.h"
 #endif
 
@@ -31,12 +34,14 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(ctx)},
       _io{nullptr},
       _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
-
-    auto device_index = config == nullptr ? 0u : config->device_index;
+    auto device_index = config == nullptr || config->device_index == std::numeric_limits<size_t>::max() ?
+                            0u :
+                            config->device_index;
     auto all_devices = MTL::CopyAllDevices();
     auto device_count = all_devices->count();
     LUISA_ASSERT(device_index < device_count,
-                 "Metal device index out of range.");
+                 "Metal device index out of range (required = {}, count = {}).",
+                 device_index, device_count);
     _handle = all_devices->object<MTL::Device>(device_index)->retain();
     all_devices->release();
 
@@ -214,6 +219,9 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element, size_t elem_c
             info.total_size_bytes = p->dispatch_buffer()->length();
             return info;
         }
+        if (element == Type::of<void>()) {
+            return create_device_buffer(_handle, 1u, elem_count);
+        }
         // normal buffer
         auto elem_size = MetalCodegenAST::type_size_bytes(element);
         return create_device_buffer(_handle, elem_size, elem_count);
@@ -341,6 +349,19 @@ void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swa
 }
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
+
+    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
+#ifdef LUISA_ENABLE_IR
+        auto ir = AST2IR::build_kernel(kernel);
+        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
+        transform_ir_kernel_module_auto(ir->get());
+        return create_shader(option, ir->get());
+#else
+        LUISA_ERROR_WITH_LOCATION("IR is not enabled in LuisaCompute. "
+                                  "AutoDiff support is not available.");
+#endif
+    }
+
     return with_autorelease_pool([=, this] {
         MetalShaderMetadata metadata{};
         metadata.block_size = kernel.block_size();

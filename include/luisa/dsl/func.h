@@ -9,6 +9,7 @@
 #include <luisa/dsl/arg.h>
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/resource.h>
+#include <luisa/dsl/stmt.h>
 
 namespace luisa::compute {
 
@@ -140,9 +141,6 @@ template<typename NextVar, typename... OtherVars, typename NextTag, typename... 
 
 class FunctionBuilder;
 
-[[nodiscard]] LC_DSL_API luisa::shared_ptr<const FunctionBuilder>
-transform_function(Function callable) noexcept;
-
 }// namespace detail
 
 template<typename T>
@@ -206,8 +204,9 @@ class Kernel {
 private:
     using SharedFunctionBuilder = luisa::shared_ptr<const detail::FunctionBuilder>;
     SharedFunctionBuilder _builder{nullptr};
+
     explicit Kernel(SharedFunctionBuilder builder) noexcept
-        : _builder{detail::transform_function(builder->function())} {}
+        : _builder{std::move(builder)} {}
 
 public:
     /**
@@ -223,7 +222,7 @@ public:
                  std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
     Kernel(Def &&def) noexcept {
         static_assert(std::is_invocable_r_v<void, Def, detail::prototype_to_creation_t<Args>...>);
-        auto ast = detail::FunctionBuilder::define_kernel([&def] {
+        _builder = detail::FunctionBuilder::define_kernel([&def] {
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
             []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                 using arg_tuple = std::tuple<Args...>;
@@ -236,7 +235,6 @@ public:
                                   std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
             }(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
-        _builder = detail::transform_function(ast->function());
     }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
 };
@@ -361,7 +359,7 @@ public:
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
                  std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
     Callable(Def &&f) noexcept {
-        auto ast = detail::FunctionBuilder::define_callable([&f] {
+        _builder = detail::FunctionBuilder::define_callable([&f] {
             static_assert(std::is_invocable_v<Def, detail::prototype_to_creation_t<Args>...>);
             auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                 using arg_tuple = std::tuple<Args...>;
@@ -381,7 +379,6 @@ public:
                 detail::FunctionBuilder::current()->return_(ret.expression());
             }
         });
-        _builder = detail::transform_function(ast->function());
     }
 
     /// Get the underlying AST
@@ -571,5 +568,75 @@ Kernel3D(T &&) -> Kernel3D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
+
+namespace detail {
+
+struct CallableOutliner {
+    template<typename F>
+    void operator%(F &&body) && noexcept {
+        Callable{std::forward<F>(body)}();
+    }
+};
+
+}// namespace detail
+
+template<typename F>
+inline void outline(F &&f) noexcept {
+    Callable{std::forward<F>(f)}();
+}
+
+namespace detail {
+template<typename S>
+[[nodiscard]] inline auto outliner_with_comment(S &&s) noexcept {
+    comment(std::forward<S>(s));
+    return CallableOutliner{};
+}
+}// namespace detail
+
+template<typename F>
+class Lambda {
+
+private:
+    luisa::string _comment;
+    luisa::function<F> _f;
+
+public:
+    template<typename Func>
+    Lambda(Func &&f) noexcept : _f(std::forward<Func>(f)) {}
+
+    template<typename S, typename Func>
+    Lambda(S &&s, Func &&f) noexcept
+        : _comment{std::forward<S>(s)},
+          _f{std::forward<Func>(f)} {}
+
+    Lambda(Lambda &&) noexcept = default;
+    Lambda(const Lambda &) noexcept = default;
+    Lambda &operator=(Lambda &&) noexcept = default;
+    Lambda &operator=(const Lambda &) noexcept = default;
+
+    template<typename... Args>
+    decltype(auto) operator()(Args &&...args) const noexcept {
+        using Ret = decltype(_f(std::forward<Args>(args)...));
+        if constexpr (std::is_same_v<Ret, void>) {
+            outline([&] {
+                if (!_comment.empty()) { detail::comment(_comment); }
+                _f(std::forward<Args>(args)...);
+            });
+        } else {
+            Ret ret;
+            outline([&] {
+                if (!_comment.empty()) { detail::comment(_comment); }
+                ret = _f(std::forward<Args>(args)...);
+            });
+            return ret;
+        }
+    }
+};
+
+template<typename F>
+Lambda(F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F>>>;
+
+template<typename S, typename F>
+Lambda(S &&, F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F>>>;
 
 }// namespace luisa::compute

@@ -29,8 +29,13 @@ impl Drop for TextureImpl {
 }
 
 impl TextureImpl {
-    pub(super) fn new(dimension: u8, size: [u32; 3], storage: PixelStorage,
-                      levels: u8, _allow_simultaneous_access: bool) -> Self {
+    pub(super) fn new(
+        dimension: u8,
+        size: [u32; 3],
+        storage: PixelStorage,
+        levels: u8,
+        _allow_simultaneous_access: bool,
+    ) -> Self {
         let pixel_size = storage.size();
         let pixel_stride_shift = match pixel_size {
             1 => 0,
@@ -175,6 +180,7 @@ impl TextureView {
     }
     #[inline]
     pub(crate) fn copy_to_vec_par_2d(&self) -> Vec<u8> {
+        // dbg!(self);
         unsafe {
             let mut data: Vec<u8> = Vec::with_capacity(self.unpadded_data_size());
             let data_ptr = data.as_mut_ptr() as u64;
@@ -231,6 +237,15 @@ impl TextureView {
                 }
             }
         }
+    }
+    #[inline]
+    pub(crate) fn copy_to_vec_2d(&self) -> Vec<u8> {
+        let mut data: Vec<u8> = Vec::with_capacity(self.unpadded_data_size());
+        unsafe {
+            data.set_len(self.unpadded_data_size());
+            self.copy_to_2d(data.as_mut_ptr());
+        }
+        data
     }
     #[inline]
     pub(crate) fn copy_to_3d(&self, mut data: *mut u8) {

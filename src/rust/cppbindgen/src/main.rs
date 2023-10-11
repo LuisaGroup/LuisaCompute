@@ -35,13 +35,13 @@ fn gen_span(class: &str, out_name: &str, fname: &str, ty_s: &str) -> (String, St
         "luisa::span<const {}> {}::{}() const noexcept {{",
         ty_s, class, out_name
     )
-        .unwrap();
+    .unwrap();
     writeln!(
         def,
         "    return {{reinterpret_cast<const {1} *>(_inner.{0}.ptr), _inner.{0}.len}};",
         fname, ty_s
     )
-        .unwrap();
+    .unwrap();
     writeln!(def, "}}").unwrap();
     let decl = format!(
         "    [[nodiscard]] luisa::span<const {}> {}() const noexcept;",
@@ -80,26 +80,15 @@ fn unwrap_generic_param(ty: &syn::Type) -> String {
     let ty_s = ty.to_token_stream().to_string();
     let i = ty_s.find('<').unwrap();
     let j = ty_s.rfind('>').unwrap();
-    ty_s[i + 1..j]
+    let t = ty_s[i + 1..j]
         .trim()
         .to_string()
         .replace(" < ", "<")
-        .replace(" >", ">")
+        .replace(" >", ">");
+    convert_primitive_type_name(t.as_str())
 }
 
-fn gen_type(ty: &syn::Type) -> String {
-    if let syn::Type::Array(a) = ty {
-        return format!(
-            "std::array<{}, {}>",
-            gen_type(&a.elem),
-            a.len.to_token_stream().to_string()
-        );
-    }
-    let ty_s = ty
-        .to_token_stream()
-        .to_string()
-        .replace(" < ", "<")
-        .replace(" >", ">");
+fn convert_primitive_type_name(ty_s: &str) -> String {
     if ty_s == "bool" {
         return "bool".to_string();
     }
@@ -139,8 +128,25 @@ fn gen_type(ty: &syn::Type) -> String {
     if ty_s == "u64" {
         return "uint64_t".to_string();
     }
+    ty_s.to_string()
+}
 
-    ty_s
+fn gen_type(ty: &syn::Type) -> String {
+    if let syn::Type::Array(a) = ty {
+        return format!(
+            "std::array<{}, {}>",
+            gen_type(&a.elem),
+            a.len.to_token_stream().to_string()
+        );
+    }
+    let ty_s = ty
+        .to_token_stream()
+        .to_string()
+        .replace(" < ", "<")
+        .replace(" >", ">")
+        .trim()
+        .to_string();
+    convert_primitive_type_name(ty_s.as_str())
 }
 
 fn gen_field(class: &str, out_name: &str, fname: &str, field: &syn::Field) -> (String, String) {
@@ -182,13 +188,28 @@ fn gen_struct_binding(
         return Ok(());
     }
     writeln!(fwd, "class {};", name)?;
-    writeln!(h, "class LC_IR_API {}{} {{", name, if name.ends_with("Ref") { "" } else { " : concepts::Noncopyable" })?;
+    writeln!(
+        h,
+        "class LC_IR_API {}{} {{",
+        name,
+        if name.ends_with("Ref") {
+            ""
+        } else {
+            " : concepts::Noncopyable"
+        }
+    )?;
     writeln!(h, "    raw::{} _inner{{}};\n", name)?;
     writeln!(h, "public:")?;
     writeln!(h, "    friend class IrBuilder;")?;
     if !name.ends_with("Ref") {
-        writeln!(h, "    [[nodiscard]] auto raw() noexcept {{ return &_inner; }}")?;
-        writeln!(h, "    [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}")?;
+        writeln!(
+            h,
+            "    [[nodiscard]] auto raw() noexcept {{ return &_inner; }}"
+        )?;
+        writeln!(
+            h,
+            "    [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}"
+        )?;
     }
     let is_tuple = item.fields.iter().all(|f| match &f.ident {
         Some(_) => false,
@@ -315,14 +336,21 @@ fn gen_enum_binding(
                 "    class LC_IR_API {} : Marker, concepts::Noncopyable {{",
                 variant_name
             )?;
-            writeln!(h, "        raw::{}::{}_Body _inner{{}};", name, variant_name)?;
+            writeln!(
+                h,
+                "        raw::{}::{}_Body _inner{{}};",
+                name, variant_name
+            )?;
             writeln!(h, "    public:")?;
             writeln!(
                 h,
                 "        static constexpr Tag tag() noexcept {{ return raw::{}::Tag::{}; }}",
                 name, variant_name
             )?;
-            writeln!(h, "        [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}")?;
+            writeln!(
+                h,
+                "        [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}"
+            )?;
             match &variant.fields {
                 syn::Fields::Named(ref fields) => {
                     for field in &fields.named {
@@ -362,8 +390,14 @@ fn gen_enum_binding(
         }
     }
     writeln!(h, "public:")?;
-    writeln!(h, "    [[nodiscard]] auto tag() const noexcept {{ return _inner.tag; }}")?;
-    writeln!(h, "    [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}")?;
+    writeln!(
+        h,
+        "    [[nodiscard]] auto tag() const noexcept {{ return _inner.tag; }}"
+    )?;
+    writeln!(
+        h,
+        "    [[nodiscard]] auto raw() const noexcept {{ return &_inner; }}"
+    )?;
     writeln!(
         h,
         "    template<class T>\n    [[nodiscard]] bool isa() const noexcept {{"
@@ -463,6 +497,7 @@ using raw::Pooled;
 using raw::ModulePools;
 using raw::CallableModuleRef;
 using raw::CpuCustomOp;
+using raw::ModuleFlags;
 
 namespace detail {
 template<class T>

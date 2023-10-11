@@ -15,16 +15,27 @@ inline __device__ void lc_assume(bool) noexcept {}
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 #endif
 
+[[noreturn]] inline void lc_trap() noexcept { asm("trap;"); }
+
 template<typename T = void>
-[[noreturn]] inline __device__ T lc_unreachable() noexcept {
-#if LC_NVRTC_VERSION < 110300
-    asm("trap;");
+[[noreturn]] inline __device__ T lc_unreachable(
+    const char *file, int line,
+    const char *user_msg = nullptr) noexcept {
+#if LC_NVRTC_VERSION < 110300 || defined(LUISA_DEBUG)
+    printf("Unreachable code reached: %s. [%s:%d]\n",
+           user_msg ? user_msg : "no user-specified message",
+           file, line);
+    lc_trap();
 #else
     __builtin_unreachable();
 #endif
 }
 
+#define STRINGIFY2(x) #x
+#define STRINGIFY(x) STRINGIFY2(x)
+
 #ifdef LUISA_DEBUG
+#if MIKE_HAS_FIXED_ASSERT
 #define lc_assert(x)                                    \
     do {                                                \
         if (!(x)) {                                     \
@@ -33,7 +44,7 @@ template<typename T = void>
                    __FILE__,                            \
                    static_cast<int>(__LINE__),          \
                    __FUNCTION__);                       \
-            asm("trap;");                               \
+            lc_trap();                                  \
         }                                               \
     } while (false)
 #define lc_check_in_bounds(size, max_size)                               \
@@ -44,8 +55,31 @@ template<typename T = void>
                    #max_size, static_cast<size_t>(max_size),             \
                    __FILE__, static_cast<int>(__LINE__),                 \
                    __FUNCTION__);                                        \
+            lc_trap();                                                   \
         }                                                                \
     } while (false)
+#else
+
+#define lc_assert(x)                                                                    \
+    do {                                                                                \
+        if (!(x)) {                                                                     \
+            printf("Assertion failed: " #x "[" __FILE__ ":" STRINGIFY(__LINE__) "]\n"); \
+            lc_trap();                                                                  \
+        }                                                                               \
+    } while (false)
+#define lc_check_in_bounds(size, max_size)                               \
+    do {                                                                 \
+        if (!((size) < (max_size))) {                                    \
+            printf("Out of bounds: !(%s: %llu < %s: %llu) [%s:%d:%s]\n", \
+                   #size, static_cast<size_t>(size),                     \
+                   #max_size, static_cast<size_t>(max_size),             \
+                   __FILE__, static_cast<int>(__LINE__),                 \
+                   __FUNCTION__);                                        \
+            lc_trap();                                                   \
+        }                                                                \
+    } while (false)
+#endif
+
 #else
 inline __device__ void lc_assert(bool) noexcept {}
 #endif
@@ -142,7 +176,7 @@ template<typename T>
 }
 
 template<typename T, typename Index>
-[[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
+[[nodiscard]] __device__ inline T lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
 #ifdef LUISA_DEBUG
     lc_check_in_bounds(index, lc_buffer_size(buffer));
@@ -657,8 +691,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(char2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert < T, char(x);
-            result.y = lc_texel_read_convert < T, char(y);
+            result.x = lc_texel_read_convert<T, char>(x);
+            result.y = lc_texel_read_convert<T, char>(y);
             break;
         }
         case LCPixelStorage::BYTE4: {
@@ -741,7 +775,7 @@ template<typename T>
                 : "=r"(x)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
             break;
         }
         case LCPixelStorage::HALF2: {
@@ -750,8 +784,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
-            result.y = lc_texel_read_convert<T, lc_half>(y);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
             break;
         }
         case LCPixelStorage::HALF4: {
@@ -760,10 +794,10 @@ template<typename T>
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(x);
-            result.y = lc_texel_read_convert<T, lc_half>(y);
-            result.z = lc_texel_read_convert<T, lc_half>(z);
-            result.w = lc_texel_read_convert<T, lc_half>(w);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
+            result.z = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(z)});
+            result.w = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(w)});
             break;
         }
         case LCPixelStorage::FLOAT1: {
@@ -1027,7 +1061,7 @@ __device__ inline void lc_texture_write(LCTexture3D<T> tex, lc_int3 p, V value) 
 }
 
 struct alignas(16) LCBindlessSlot {
-    const void *__restrict__ buffer;
+    void *__restrict__ buffer;
     size_t buffer_size;
     cudaTextureObject_t tex2d;
     cudaTextureObject_t tex3d;
@@ -1049,7 +1083,18 @@ template<typename T = unsigned char>
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
+[[nodiscard]] inline __device__ T *lc_bindless_buffer(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
+    return buffer;
+}
+
+template<typename T>
+[[nodiscard]] inline __device__ T lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -1059,12 +1104,23 @@ template<typename T>
     return buffer[i];
 }
 
+template<typename T>
+[[nodiscard]] inline __device__ void lc_bindless_buffer_write(LCBindlessArray array, lc_uint index, lc_ulong i, T value) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(i, lc_bindless_buffer_size<T>(array, index));
+#endif
+    buffer[i] = value;
+}
+
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_type(LCBindlessArray array, lc_uint index) noexcept {
     return 0ull;// TODO
 }
 
 template<typename T>
-[[nodiscard]] inline __device__ auto lc_bindless_byte_address_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
+[[nodiscard]] inline __device__ T lc_bindless_byte_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const char *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
@@ -1072,6 +1128,17 @@ template<typename T>
     lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
 #endif
     return *reinterpret_cast<const T *>(buffer + offset);
+}
+
+template<typename T>
+inline __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint index, lc_ulong offset, T value) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const char *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+#endif
+    *reinterpret_cast<const T *>(buffer + offset) = value;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
@@ -1249,8 +1316,10 @@ struct LCCommittedHit {
     lc_uint m3;  // hit type
     lc_float m4; // t_hit
 };
+
 static_assert(sizeof(LCCommittedHit) == 24u, "LCCommittedHit size mismatch");
 static_assert(alignof(LCCommittedHit) == 8u, "LCCommittedHit align mismatch");
+
 enum LCInstanceFlags : lc_uint {
     LC_INSTANCE_FLAG_NONE = 0u,
     LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
@@ -1261,7 +1330,7 @@ enum LCInstanceFlags : lc_uint {
 
 struct alignas(16) LCAccelInstance {
     lc_array<lc_float4, 3> m;
-    lc_uint instance_id;
+    lc_uint user_id;
     lc_uint sbt_offset;
     lc_uint mask;
     lc_uint flags;
@@ -1281,6 +1350,11 @@ struct alignas(16u) LCAccel {
         m[0].y, m[1].y, m[2].y, 0.0f,
         m[0].z, m[1].z, m[2].z, 0.0f,
         m[0].w, m[1].w, m[2].w, 1.0f);
+}
+
+[[nodiscard]] __device__ inline auto lc_accel_instance_user_id(LCAccel accel, lc_uint instance_id) noexcept {
+    lc_assume(__isGlobal(accel.instances));
+    return accel.instances[instance_id].user_id;
 }
 
 __device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {
@@ -1318,6 +1392,11 @@ __device__ inline void lc_accel_set_instance_opacity(LCAccel accel, lc_uint inde
                           LC_INSTANCE_FLAG_ENFORCE_ANYHIT;
         accel.instances[index].flags = flags;
     }
+}
+
+__device__ inline void lc_accel_set_instance_user_id(LCAccel accel, lc_uint index, lc_uint user_id) noexcept {
+    lc_assume(__isGlobal(accel.instances));
+    accel.instances[index].user_id = user_id;
 }
 
 __device__ inline float atomicCAS(float *a, float cmp, float v) noexcept {
@@ -1523,8 +1602,9 @@ enum LCRayFlags : lc_uint {
     LC_RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7u,
 };
 
-template<lc_uint flags, lc_uint payload_type, lc_uint reg_count = 0u>
-inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
+template<lc_uint payload_type, lc_uint reg_count = 0u>
+inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
+                            LCRay ray, lc_uint mask,
                             lc_uint r0 = lc_undef(),
                             lc_uint r1 = lc_undef()) noexcept {
     static_assert(reg_count <= 2u, "Register count must be less than 2.");
@@ -1564,11 +1644,10 @@ inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u));
 }
 
-[[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+template<lc_uint flags>
+[[nodiscard]] inline auto lc_accel_trace_closest_impl(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     // traverse
-    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_TRACE>(accel, ray, mask);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE>(flags, accel, ray, mask);
     // decode the hit
     auto hit = [] {
         auto inst = lc_hit_object_instance_index();
@@ -1582,16 +1661,57 @@ inline void lc_ray_traverse(LCAccel accel, LCRay ray, lc_uint mask,
     return hit;
 }
 
-[[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
-                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+template<lc_uint flags>
+[[nodiscard]] inline auto lc_accel_trace_any_impl(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     // traverse
-    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_TRACE>(accel, ray, mask);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE>(flags, accel, ray, mask);
     // decode if hit
     auto is_hit = lc_hit_object_is_hit();
     lc_hit_object_reset();
     return is_hit;
+}
+
+[[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+    return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
+}
+
+[[nodiscard]] inline auto lc_accel_trace_closest_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
+    return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
+}
+
+[[nodiscard]] inline auto lc_accel_trace_closest_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
+    return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
+}
+
+[[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+    return lc_accel_trace_any_impl<flags>(accel, ray, mask);
+}
+
+[[nodiscard]] inline auto lc_accel_trace_any_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
+    return lc_accel_trace_any_impl<flags>(accel, ray, mask);
+}
+
+[[nodiscard]] inline auto lc_accel_trace_any_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
+    return lc_accel_trace_any_impl<flags>(accel, ray, mask);
 }
 
 [[nodiscard]] inline auto lc_dispatch_id() noexcept {
@@ -1655,16 +1775,16 @@ enum LCHitTypePrefix : lc_uint {
     LC_HIT_TYPE_PREFIX_MASK = 0xfu << 28u,
 };
 
-template<bool terminate_on_first>
 struct LCRayQuery {
     LCAccel accel;
     LCRay ray;
     lc_uint mask;
+    lc_uint flags;
     LCCommittedHit hit;
 };
 
-using LCRayQueryAll = LCRayQuery<false>;
-using LCRayQueryAny = LCRayQuery<true>;
+using LCRayQueryAll = LCRayQuery;
+using LCRayQueryAny = LCRayQuery;
 
 [[nodiscard]] inline auto lc_ray_query_decode_hit() noexcept {
     auto hit = [] {// found closest hit
@@ -1686,30 +1806,53 @@ using LCRayQueryAny = LCRayQuery<true>;
     return hit;
 }
 
-template<bool terminate_on_first>
-inline void lc_ray_query_trace(LCRayQuery<terminate_on_first> &q, lc_uint impl_tag, void *ctx) noexcept {
-    constexpr auto flags = terminate_on_first ?
-                               LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                                   LC_RAY_FLAG_DISABLE_CLOSESTHIT :
-                               LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+inline void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
     auto r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
     auto r1 = static_cast<lc_uint>(p_ctx);
     // traverse
-    lc_ray_traverse<flags, LC_PAYLOAD_TYPE_RAY_QUERY, 2u>(q.accel, q.ray, q.mask, r0, r1);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_QUERY, 2u>(q.flags, q.accel, q.ray, q.mask, r0, r1);
     q.hit = lc_ray_query_decode_hit();
 }
 
 [[nodiscard]] inline auto lc_accel_query_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    return LCRayQueryAll{accel, ray, mask, LCCommittedHit{}};
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+    return LCRayQueryAll{accel, ray, mask, flags, LCCommittedHit{}};
 }
 
 [[nodiscard]] inline auto lc_accel_query_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    return LCRayQueryAny{accel, ray, mask, LCCommittedHit{}};
+    constexpr auto flags = LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
+    return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
 }
 
-template<bool terminate_on_first>
-[[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery<terminate_on_first> q) noexcept {
+[[nodiscard]] inline auto lc_accel_query_all_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
+    return LCRayQueryAll{accel, ray, mask, flags, LCCommittedHit{}};
+}
+
+[[nodiscard]] inline auto lc_accel_query_any_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
+    return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
+}
+
+[[nodiscard]] inline auto lc_accel_query_all_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
+    return LCRayQueryAll{accel, ray, mask, flags, LCCommittedHit{}};
+}
+
+[[nodiscard]] inline auto lc_accel_query_any_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    constexpr auto flags = LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
+                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
+    return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
+}
+
+[[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery q) noexcept {
     return q.hit;
 }
 
@@ -1988,7 +2131,7 @@ extern "C" __global__ void __intersection__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 31
         case 31u: r = lc_ray_query_procedural_intersection_31(ctx); break;
 #endif
-        default: lc_unreachable();
+        default: lc_unreachable(__FILE__, __LINE__);
     }
     if (r.committed) {
         lc_ray_query_report_intersection(
@@ -2110,7 +2253,7 @@ extern "C" __global__ void __anyhit__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 31
             case 31u: r = lc_ray_query_triangle_intersection_31(ctx); break;
 #endif
-            default: lc_unreachable();
+            default: lc_unreachable(__FILE__, __LINE__);
         }
         // ignore the intersection if not committed
         if (!r.committed) { lc_ray_query_ignore_intersection(); }
@@ -2210,25 +2353,23 @@ template<typename T>
     }
 }
 
-using lc_byte = unsigned char;
-
 template<typename T>
-[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<const lc_byte> buffer, lc_ulong offset) noexcept {
+[[nodiscard]] __device__ inline T lc_byte_buffer_read(LCBuffer<const lc_ubyte> buffer, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1);
     lc_assert(address % alignof(T) == 0u && "unaligned access");
 #endif
     return *reinterpret_cast<T *>(address);
 }
 
 template<typename T>
-__device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong offset, T value) noexcept {
+__device__ inline void lc_byte_buffer_write(LCBuffer<lc_ubyte> buffer, lc_ulong offset, T value) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer));
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1);
     lc_assert(address % alignof(T) == 0u && "unaligned access");
 #endif
     *reinterpret_cast<T *>(address) = value;
@@ -2261,6 +2402,7 @@ __device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong o
     return lc_warp_first_active_lane() == lc_warp_lane_id();
 }
 
+#if __CUDA_ARCH__ >= 700
 #define LC_WARP_ALL_EQ_SCALAR(T)                                                  \
     [[nodiscard]] __device__ inline auto lc_warp_active_all_equal(T x) noexcept { \
         auto mask = LC_WARP_ACTIVE_MASK;                                          \
@@ -2268,6 +2410,15 @@ __device__ inline void lc_byte_buffer_write(LCBuffer<lc_byte> buffer, lc_ulong o
         __match_all_sync(mask, x, &pred);                                         \
         return pred != 0;                                                         \
     }
+#else
+#define LC_WARP_ALL_EQ_SCALAR(T)                                                  \
+    [[nodiscard]] __device__ inline auto lc_warp_active_all_equal(T x) noexcept { \
+        auto mask = LC_WARP_ACTIVE_MASK;                                          \
+        auto first = __ffs(mask) - 1u;                                            \
+        auto x0 = __shfl_sync(mask, x, first);                                    \
+        return static_cast<bool>(__all_sync(mask, x == x0));                      \
+    }
+#endif
 
 #define LC_WARP_ALL_EQ_VECTOR2(T)                                                    \
     [[nodiscard]] __device__ inline auto lc_warp_active_all_equal(T##2 v) noexcept { \
@@ -2313,11 +2464,68 @@ LC_WARP_ALL_EQ(lc_float)
 #undef LC_WARP_ALL_EQ_VECTOR4
 #undef LC_WARP_ALL_EQ
 
-#define LC_WARP_REDUCE_BIT(op, T)                                                        \
-    [[nodiscard]] __device__ inline auto lc_warp_active_bit_##op(lc_##T x) noexcept {    \
-        return static_cast<lc_##T>(__reduce_##op##_sync(LC_WARP_ACTIVE_MASK,             \
-                                                        static_cast<lc_uint>(x)));       \
-    }                                                                                    \
+template<typename T, typename F>
+[[nodiscard]] __device__ inline auto lc_warp_active_reduce_impl(T x, F f) noexcept {
+    auto mask = LC_WARP_ACTIVE_MASK;
+    auto lane = lc_warp_lane_id();
+    if (auto y = __shfl_xor_sync(mask, x, 0x10u); mask & (1u << (lane ^ 0x10u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x08u); mask & (1u << (lane ^ 0x08u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x04u); mask & (1u << (lane ^ 0x04u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x02u); mask & (1u << (lane ^ 0x02u))) { x = f(x, y); }
+    if (auto y = __shfl_xor_sync(mask, x, 0x01u); mask & (1u << (lane ^ 0x01u))) { x = f(x, y); }
+    return x;
+}
+
+template<typename T>
+[[nodiscard]] __device__ constexpr T lc_bit_and(T x, T y) noexcept { return x & y; }
+
+template<typename T>
+[[nodiscard]] __device__ constexpr T lc_bit_or(T x, T y) noexcept { return x | y; }
+
+template<typename T>
+[[nodiscard]] __device__ constexpr T lc_bit_xor(T x, T y) noexcept { return x ^ y; }
+
+#define LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(op, T)                                     \
+    [[nodiscard]] __device__ inline auto lc_warp_active_bit_##op(lc_##T x) noexcept { \
+        return static_cast<lc_##T>(lc_warp_active_reduce_impl(                        \
+            x, [](lc_##T a, lc_##T b) noexcept { return lc_bit_##op(a, b); }));       \
+    }
+
+#if __CUDA_ARCH__ >= 800
+#define LC_WARP_REDUCE_BIT_SCALAR(op, T)                                              \
+    [[nodiscard]] __device__ inline auto lc_warp_active_bit_##op(lc_##T x) noexcept { \
+        return static_cast<lc_##T>(__reduce_##op##_sync(LC_WARP_ACTIVE_MASK,          \
+                                                        static_cast<lc_uint>(x)));    \
+    }
+#else
+#define LC_WARP_REDUCE_BIT_SCALAR(op, T) LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(op, T)
+#endif
+
+LC_WARP_REDUCE_BIT_SCALAR(and, uint)
+LC_WARP_REDUCE_BIT_SCALAR(or, uint)
+LC_WARP_REDUCE_BIT_SCALAR(xor, uint)
+LC_WARP_REDUCE_BIT_SCALAR(and, int)
+LC_WARP_REDUCE_BIT_SCALAR(or, int)
+LC_WARP_REDUCE_BIT_SCALAR(xor, int)
+
+LC_WARP_REDUCE_BIT_SCALAR(and, ushort)
+LC_WARP_REDUCE_BIT_SCALAR(or, ushort)
+LC_WARP_REDUCE_BIT_SCALAR(xor, ushort)
+LC_WARP_REDUCE_BIT_SCALAR(and, short)
+LC_WARP_REDUCE_BIT_SCALAR(or, short)
+LC_WARP_REDUCE_BIT_SCALAR(xor, short)
+
+LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(and, ulong)
+LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(or, ulong)
+LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(xor, ulong)
+LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(and, long)
+LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(or, long)
+LC_WARP_REDUCE_BIT_SCALAR_FALLBACK(xor, long)
+
+#undef LC_WARP_REDUCE_BIT_SCALAR_FALLBACK
+#undef LC_WARP_REDUCE_BIT_SCALAR
+
+#define LC_WARP_REDUCE_BIT_VECTOR(op, T)                                                 \
     [[nodiscard]] __device__ inline auto lc_warp_active_bit_##op(lc_##T##2 v) noexcept { \
         return lc_make_##T##2(lc_warp_active_bit_##op(v.x),                              \
                               lc_warp_active_bit_##op(v.y));                             \
@@ -2334,15 +2542,14 @@ LC_WARP_ALL_EQ(lc_float)
                               lc_warp_active_bit_##op(v.w));                             \
     }
 
-LC_WARP_REDUCE_BIT(and, uint)
-LC_WARP_REDUCE_BIT(or, uint)
-LC_WARP_REDUCE_BIT(xor, uint)
+LC_WARP_REDUCE_BIT_VECTOR(and, uint)
+LC_WARP_REDUCE_BIT_VECTOR(or, uint)
+LC_WARP_REDUCE_BIT_VECTOR(xor, uint)
+LC_WARP_REDUCE_BIT_VECTOR(and, int)
+LC_WARP_REDUCE_BIT_VECTOR(or, int)
+LC_WARP_REDUCE_BIT_VECTOR(xor, int)
 
-LC_WARP_REDUCE_BIT(and, int)
-LC_WARP_REDUCE_BIT(or, int)
-LC_WARP_REDUCE_BIT(xor, int)
-
-#undef LC_WARP_REDUCE_BIT
+#undef LC_WARP_REDUCE_BIT_VECTOR
 
 [[nodiscard]] __device__ inline auto lc_warp_active_bit_mask(bool pred) noexcept {
     return lc_make_uint4(__ballot_sync(LC_WARP_ACTIVE_MASK, pred), 0u, 0u, 0u);
@@ -2443,6 +2650,29 @@ template<typename T>
     return lc_warp_read_lane(x, lc_warp_first_active_lane());
 }
 
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_min_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return min(a, b); });
+}
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_max_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return max(a, b); });
+}
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_sum_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a + b; });
+}
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_warp_active_product_impl(T x) noexcept {
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a * b; });
+}
+
+#define LC_WARP_ACTIVE_REDUCE_SCALAR(op, T)                                       \
+    [[nodiscard]] __device__ inline auto lc_warp_active_##op(lc_##T x) noexcept { \
+        return lc_warp_active_##op##_impl<lc_##T>(x);                             \
+    }
+
+#if __CUDA_ARCH__ >= 800
 [[nodiscard]] __device__ inline auto lc_warp_active_min(lc_uint x) noexcept {
     return __reduce_min_sync(LC_WARP_ACTIVE_MASK, x);
 }
@@ -2479,38 +2709,20 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_warp_active_sum(lc_short x) noexcept {
     return static_cast<lc_short>(__reduce_add_sync(LC_WARP_ACTIVE_MASK, static_cast<lc_int>(x)));
 }
-template<typename T, typename F>
-[[nodiscard]] __device__ inline auto lc_warp_active_reduce_impl(T x, F f) noexcept {
-    auto mask = LC_WARP_ACTIVE_MASK;
-    auto lane = lc_warp_lane_id();
-    if (auto y = __shfl_xor_sync(mask, x, 0x10u); mask & (1u << (lane ^ 0x10u))) { x = f(x, y); }
-    if (auto y = __shfl_xor_sync(mask, x, 0x08u); mask & (1u << (lane ^ 0x08u))) { x = f(x, y); }
-    if (auto y = __shfl_xor_sync(mask, x, 0x04u); mask & (1u << (lane ^ 0x04u))) { x = f(x, y); }
-    if (auto y = __shfl_xor_sync(mask, x, 0x02u); mask & (1u << (lane ^ 0x02u))) { x = f(x, y); }
-    if (auto y = __shfl_xor_sync(mask, x, 0x01u); mask & (1u << (lane ^ 0x01u))) { x = f(x, y); }
-    return x;
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_min_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return min(a, b); });
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_max_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return max(a, b); });
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_sum_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a + b; });
-}
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_warp_active_product_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return a * b; });
-}
-
-#define LC_WARP_ACTIVE_REDUCE_SCALAR(op, T)                                       \
-    [[nodiscard]] __device__ inline auto lc_warp_active_##op(lc_##T x) noexcept { \
-        return lc_warp_active_##op##_impl<lc_##T>(x);                             \
-    }
+#else
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, uint)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, uint)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, uint)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, int)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, int)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, int)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, ushort)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, ushort)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, ushort)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, short)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, short)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, short)
+#endif
 
 LC_WARP_ACTIVE_REDUCE_SCALAR(product, uint)
 LC_WARP_ACTIVE_REDUCE_SCALAR(product, int)

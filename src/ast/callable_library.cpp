@@ -4,6 +4,30 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+[[nodiscard]] inline auto &callable_library_function_builder_deserialize_stack() noexcept {
+    static thread_local luisa::vector<FunctionBuilder *> stack;
+    return stack;
+}
+
+[[nodiscard]] inline auto callable_library_function_builder_deserialize_stack_top() noexcept {
+    LUISA_ASSERT(!callable_library_function_builder_deserialize_stack().empty(), "Empty stack.");
+    return callable_library_function_builder_deserialize_stack().back();
+}
+
+inline void callable_library_function_builder_deserialize_stack_push(FunctionBuilder *builder) noexcept {
+    callable_library_function_builder_deserialize_stack().push_back(builder);
+}
+
+inline auto callable_library_function_builder_deserialize_stack_pop() noexcept {
+    auto top = callable_library_function_builder_deserialize_stack_top();
+    callable_library_function_builder_deserialize_stack().pop_back();
+    return top;
+}
+
+}// namespace detail
+
 template<typename T>
 void CallableLibrary::ser_value(T const &t, luisa::vector<std::byte> &vec) noexcept {
     static_assert(std::is_trivially_destructible_v<T> && !std::is_pointer_v<T>);
@@ -291,6 +315,7 @@ void CallableLibrary::ser_value(Expression const &t, luisa::vector<std::byte> &v
         case Expression::Tag::TYPE_ID:
             ser_value(*static_cast<TypeIDExpr const *>(&t), vec);
             break;
+        case Expression::Tag::STRING_ID:
         case Expression::Tag::CPUCUSTOM:
         case Expression::Tag::GPUCUSTOM:
             LUISA_ERROR("Un-supported.");
@@ -309,6 +334,7 @@ Expression const *CallableLibrary::deser_value(std::byte const *&ptr, DeserPacka
         deser_ptr<T *>(expr, ptr, pack);
         expr->_type = type;
         expr->_hash = hash;
+        expr->_builder = detail::callable_library_function_builder_deserialize_stack_top();
         expr->_hash_computed = true;
         expr->_tag = tag;
         pack.builder->_all_expressions.emplace_back(luisa::unique_ptr<Expression>(expr));
@@ -658,6 +684,7 @@ void CallableLibrary::deser_ptr(Statement *obj, std::byte const *&ptr, DeserPack
 }
 
 void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder, std::byte const *&ptr, DeserPackage &pack) noexcept {
+    detail::callable_library_function_builder_deserialize_stack_push(&builder);
     using namespace detail;
     using namespace std::string_view_literals;
     builder._return_type = deser_value<Type const *>(ptr, pack);
@@ -701,6 +728,8 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     builder._tag = deser_value<Function::Tag>(ptr, pack);
     builder._requires_atomic_float = deser_value<bool>(ptr, pack);
     deser_ptr<Statement *>(&builder._body, ptr, pack);
+    auto popped = callable_library_function_builder_deserialize_stack_pop();
+    LUISA_ASSERT(popped == &builder, "Illegal function builder stack.");
 }
 void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &builder, luisa::vector<std::byte> &vec) noexcept {
     using namespace detail;

@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
         for (UInt i : dynamic_range(64)) {
             Var p = ro + rd * t;
             d = map(p, time) * 0.5f;
-            if_(d<0.02f | d> 100.0f, [] { break_(); });
+            if_(d < 0.02f | d > 100.0f, [] { break_(); });
             col += palette(length(p) * 0.1f) / (400.0f * d);
             t += d;
         }
@@ -94,19 +94,17 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         window.size(),
-        true, false, 2)};
+        false, true, 2)};
     Image<float> device_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
 
     stream << clear(device_image).dispatch(width, height);
 
-    
     Clock clock;
     while (!window.should_close()) {
+        window.poll_events();
         float time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
                << swap_chain.present(device_image);
-        window.poll_events();
     }
     stream << synchronize();
 }
-

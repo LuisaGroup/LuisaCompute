@@ -1,7 +1,8 @@
 #pragma once
 
-#include <luisa/ast/ast_evaluator.h>
+#include <luisa/ast/ast2json.h>
 #include <luisa/ast/atomic_ref_node.h>
+#include <luisa/ast/callable_library.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/external_function.h>
@@ -44,6 +45,7 @@
 #include <luisa/dsl/atomic.h>
 #include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/builtin.h>
+#include <luisa/dsl/callable_library.h>
 #include <luisa/dsl/constant.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/expr.h>

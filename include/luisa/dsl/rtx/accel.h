@@ -23,12 +23,18 @@ public:
     [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<int> instance_id) const noexcept;
     void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<int> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_opaque(Expr<int> instance_id, Expr<bool> opaque) const noexcept;
+    void set_instance_user_id(Expr<int> instance_id, Expr<uint> id) const noexcept;
     void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<uint> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept;
+    void set_instance_user_id(Expr<uint> instance_id, Expr<uint> id) const noexcept;
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
@@ -57,21 +63,26 @@ public:
     LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(AccelExprProxy)
 
 public:
-    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
-    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
-    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
+    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<uint> instance_visibility_mask(Expr<int> instance_id) const noexcept;
     void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<int> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_visibility(Expr<uint> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_opaque(Expr<int> instance_id, Expr<bool> opaque) const noexcept;
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept;
+    void set_instance_user_id(Expr<int> instance_id, Expr<uint> id) const noexcept;
+    void set_instance_user_id(Expr<uint> instance_id, Expr<uint> id) const noexcept;
 };
 
 }// namespace detail
 
 }// namespace luisa::compute
-

@@ -195,7 +195,7 @@ int main(int argc, char *argv[]) {
         return valid;
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" ? 4u : 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -234,9 +234,10 @@ int main(int argc, char *argv[]) {
                 Float3 p2 = vertex_buffer->read(triangle.i2);
                 Float3 p = hit->interpolate(p0, p1, p2);
                 p = (m * make_float4(p, 1.f)).xyz();
-                Float3 n = normalize(cross(p1 - p0, p2 - p0));
-                n = (m * make_float4(n, 0.f)).xyz();
-                Float cos_wi = abs(dot(-ray->direction(), n));
+                Float3 ng = normalize(cross(p1 - p0, p2 - p0));
+                ng = (m * make_float4(ng, 0.f)).xyz();
+                Float3 ns = faceforward(ng, ray->direction(), ng);
+                Float cos_wo = dot(-ray->direction(), ns);
                 Var<Material> material = material_buffer->read(hit.inst);
 
                 // hit light
@@ -246,7 +247,7 @@ int main(int argc, char *argv[]) {
                             radiance += light_emission;
                         }
                         $else {
-                            Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                            Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
                             Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                             radiance += mis_weight * beta * light_emission;
                         };
@@ -258,11 +259,11 @@ int main(int argc, char *argv[]) {
                 Float ux_light = lcg(state);
                 Float uy_light = lcg(state);
                 Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
-                Float3 pp = offset_ray_origin(p, n);
+                Float3 pp = offset_ray_origin(p, ng);
                 Float3 pp_light = offset_ray_origin(p_light, light_normal);
                 Float d_light = distance(pp, pp_light);
                 Float3 wi_light = normalize(pp_light - pp);
-                Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
+                Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, ng), wi_light, 0.f, d_light);
                 Bool occluded = !accel.query_any(shadow_ray)
                                      .on_triangle_candidate([&](auto &c) noexcept {
                                          $if(filter_triangle_hit(c.hit())) {
@@ -272,7 +273,7 @@ int main(int argc, char *argv[]) {
                                      })
                                      .trace()
                                      ->miss();
-                Float cos_wi_light = dot(wi_light, n);
+                Float cos_wi_light = dot(wi_light, ns);
                 Float cos_light = -dot(light_normal, wi_light);
                 $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
@@ -283,13 +284,15 @@ int main(int argc, char *argv[]) {
                 };
 
                 // sample BSDF
-                Var<Onb> onb = make_onb(n);
+                Var<Onb> onb = make_onb(ns);
                 Float ux = lcg(state);
                 Float uy = lcg(state);
-                Float3 new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
+                Float3 wi_local = cosine_sample_hemisphere(make_float2(ux, uy));
+                Float cos_wi = abs(wi_local.z);
+                Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
-                beta *= material.albedo;
                 pdf_bsdf = cos_wi * inv_pi;
+                beta *= material.albedo; // * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);

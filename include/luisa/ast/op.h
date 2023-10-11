@@ -4,6 +4,7 @@
 
 #include <luisa/core/stl/iterator.h>
 #include <luisa/core/basic_types.h>
+#include <luisa/core/magic_enum.h>
 
 namespace luisa::compute {
 
@@ -95,28 +96,28 @@ enum struct CallOp : uint32_t {
     MIN,// (vecN)
     MAX,// (vecN)
 
-    CLZ,     // (int/uint)
-    CTZ,     // (int/uint)
-    POPCOUNT,// (int/uint)
-    REVERSE, // (int/uint)
+    CLZ,     // (uintN)
+    CTZ,     // (uintN)
+    POPCOUNT,// (uintN)
+    REVERSE, // (uintN)
 
     ISINF,// (floatN)
     ISNAN,// (floatN)
 
-    ACOS, // (float)
-    ACOSH,// (float)
-    ASIN, // (float)
-    ASINH,// (float)
-    ATAN, // (float)
-    ATAN2,// (float)
-    ATANH,// (float)
+    ACOS, // (floatN)
+    ACOSH,// (floatN)
+    ASIN, // (floatN)
+    ASINH,// (floatN)
+    ATAN, // (floatN)
+    ATAN2,// (floatN)
+    ATANH,// (floatN)
 
-    COS, // (float)
-    COSH,// (float)
-    SIN, // (float)
-    SINH,// (float)
-    TAN, // (float)
-    TANH,// (float)
+    COS, // (floatN)
+    COSH,// (floatN)
+    SIN, // (floatN)
+    SINH,// (floatN)
+    TAN, // (floatN)
+    TANH,// (floatN)
 
     EXP,  // (floatN)
     EXP2, // (floatN)
@@ -135,8 +136,8 @@ enum struct CallOp : uint32_t {
     TRUNC,// (floatN)
     ROUND,// (floatN)
 
-    FMA,     // (a, b): return a * b + c
-    COPYSIGN,// (float, float)
+    FMA,     // (a: floatN, b: floatN, c: floatN): return a * b + c
+    COPYSIGN,// (floatN, floatN)
 
     CROSS,         // (floatN, floatN)
     DOT,           // (floatN, floatN)
@@ -198,11 +199,12 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE2D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint2
     BINDLESS_TEXTURE3D_SIZE_LEVEL,       // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,             // (bindless_array, index: uint, elem_index: uint): expr->type()
-    BINDLESS_BYTE_ADDRESS_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
-    BINDLESS_BUFFER_SIZE,             // (bindless_array, index: uint, stride: uint) -> size
-    BINDLESS_BUFFER_TYPE,             // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
-                                      // could be compared with the value of a TypeIDExpr to examine the type of the buffer
+    BINDLESS_BUFFER_READ,     // (bindless_array, index: uint, elem_index: uint): expr->type()
+    BINDLESS_BUFFER_WRITE,    // (bindless_array, index: uint, elem_index: uint, value: expr): void
+    BINDLESS_BYTE_BUFFER_READ,// (bindless_array, index: uint, offset_bytes: uint): expr->type()
+    BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size
+    BINDLESS_BUFFER_TYPE,     // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
+                              // could be compared with the value of a TypeIDExpr to examine the type of the buffer
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)
@@ -264,14 +266,18 @@ enum struct CallOp : uint32_t {
     DETACH,             // (expr) -> expr
 
     // ray tracing
-    RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
-    RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
-    RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
-    RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
-    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
-    RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY,              // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_INSTANCE_TRANSFORM,      // (Accel, uint)
+    RAY_TRACING_INSTANCE_USER_ID,        // (Accel, uint)
+    RAY_TRACING_INSTANCE_VISIBILITY_MASK,// (Accel, uint)
+    RAY_TRACING_SET_INSTANCE_TRANSFORM,  // (Accel, uint, float4x4)
+    RAY_TRACING_SET_INSTANCE_VISIBILITY, // (Accel, uint, uint)
+    RAY_TRACING_SET_INSTANCE_OPACITY,    // (Accel, uint, bool)
+    RAY_TRACING_SET_INSTANCE_USER_ID,    // (Accel, uint, uint)
+
+    RAY_TRACING_TRACE_CLOSEST,// (Accel, ray, mask: uint): TriangleHit
+    RAY_TRACING_TRACE_ANY,    // (Accel, ray, mask: uint): bool
+    RAY_TRACING_QUERY_ALL,    // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY,    // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
@@ -312,8 +318,8 @@ enum struct CallOp : uint32_t {
     WARP_READ_FIRST_ACTIVE_LANE,// (type: scalar/vector/matrix): type (read this variable's value at the first lane)
 
     // indirect
-    INDIRECT_SET_DISPATCH_KERNEL,    // (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
-    INDIRECT_SET_DISPATCH_COUNT,    // (Buffer, uint count)
+    INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
+    INDIRECT_SET_DISPATCH_COUNT, // (Buffer, uint count)
 
     // SER
     SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
@@ -414,3 +420,5 @@ public:
 };
 
 }// namespace luisa::compute
+
+LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, SHADER_EXECUTION_REORDER)

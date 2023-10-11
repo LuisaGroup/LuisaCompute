@@ -60,14 +60,16 @@ size_t pagesize() noexcept {
     return page_size;
 }
 namespace win_detail {
+
 template<typename PathChar>
-void set_dll_directory(PathChar const *path) noexcept {
+void set_dll_directory(const PathChar *path) noexcept {
     if constexpr (sizeof(PathChar) == 1) {
         SetDllDirectoryA(path);
     } else {
         SetDllDirectoryW(path);
     }
 }
+
 }// namespace win_detail
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     bool has_parent_path = path.has_parent_path();
@@ -95,7 +97,6 @@ void dynamic_module_destroy(void *handle) noexcept {
 void *dynamic_module_find_symbol(void *handle, luisa::string_view name_view) noexcept {
     static thread_local luisa::string name;
     name = name_view;
-    LUISA_VERBOSE_WITH_LOCATION("Loading dynamic symbol: {}.", name);
     auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str());
     if (symbol == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",

@@ -16,11 +16,11 @@ public:
         bool kernel_pred = false;//using kernel prediction model, automatically use this for aov model
         bool temporal = false;   //temporal denoise mode
         bool alphamode = false;  //alpha channel denoiser mode
-        bool upscale = false;    //upscaling. currently not supported
-        //int aov_refract_id = -1;//aov channel index
-        //int aov_specular_id = -1;
-        //int aov_reflection_id = -1;
-        //int aov_diffuse_id = -1;
+        bool upscale = false;    //upscaling
+        int aov_refract_id = -1;//aov channel index
+        int aov_specular_id = -1;
+        int aov_reflection_id = -1;
+        int aov_diffuse_id = -1;
     } _mode;
 
     struct DenoiserInput {
@@ -28,7 +28,7 @@ public:
         const Buffer<float> *normal = nullptr;
         const Buffer<float> *albedo = nullptr;
         const Buffer<float> *flow = nullptr;     //all 0 for the first frame (if is used)
-        const Buffer<float> *flowtrust = nullptr;//currently not supported
+        const Buffer<float> *flowtrust = nullptr;
         Buffer<float> **aovs = nullptr;
         uint aov_size = 0;
     };

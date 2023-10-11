@@ -449,7 +449,7 @@ template<typename T>
 }
 
 struct alignas(16) LCBindlessItem {
-    device const void *buffer;
+    device void *buffer;
     ulong buffer_size : 48;
     uint sampler2d : 8;
     uint sampler3d : 8;
@@ -569,6 +569,11 @@ template<typename T>
     return static_cast<device const T *>(array.items[buffer_index].buffer)[i];
 }
 
+template<typename T>
+inline void bindless_buffer_write(LCBindlessArray array, uint buffer_index, uint i, T value) {
+    static_cast<device T *>(array.items[buffer_index].buffer)[i] = value;
+}
+
 [[nodiscard]] inline auto bindless_buffer_type(LCBindlessArray array, uint buffer_index) {
     return 0ull;// TODO
 }
@@ -576,6 +581,11 @@ template<typename T>
 template<typename T>
 [[nodiscard]] inline auto bindless_byte_address_buffer_read(LCBindlessArray array, uint buffer_index, uint offset) {
     return reinterpret_cast<device const T *>(static_cast<device const char *>(array.items[buffer_index].buffer) + offset);
+}
+
+template<typename T>
+inline void bindless_byte_address_buffer_write(LCBindlessArray array, uint buffer_index, uint offset, T value) {
+    *reinterpret_cast<device T *>(static_cast<device char *>(array.items[buffer_index].buffer) + offset) = value;
 }
 
 using namespace metal::raytracing;
@@ -622,7 +632,7 @@ struct LCAccel {
     device LCInstance *__restrict__ instances;
 };
 
-[[nodiscard]] auto intersector_closest() {
+[[nodiscard]] inline auto intersector_closest() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
@@ -630,11 +640,47 @@ struct LCAccel {
     return i;
 }
 
-[[nodiscard]] auto intersector_any() {
+[[nodiscard]] inline auto intersector_any() {
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
     i.force_opacity(forced_opacity::opaque);
     i.accept_any_intersection(true);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest_cull_front() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(false);
+    i.set_triangle_cull_mode(triangle_cull_mode::front);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_any_cull_front() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(true);
+    i.set_triangle_cull_mode(triangle_cull_mode::front);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest_cull_back() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(false);
+    i.set_triangle_cull_mode(triangle_cull_mode::back);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_any_cull_back() {
+    intersector<triangle_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle);
+    i.force_opacity(forced_opacity::opaque);
+    i.accept_any_intersection(true);
+    i.set_triangle_cull_mode(triangle_cull_mode::back);
     return i;
 }
 
@@ -656,6 +702,36 @@ struct LCAccel {
 
 [[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
+    return isect.type != intersection_type::none;
+}
+
+[[nodiscard]] inline auto accel_trace_closest_cull_frontface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_closest_cull_front().intersect(make_ray(r), accel.handle, mask);
+    return isect.type == intersection_type::none ?
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
+}
+
+[[nodiscard]] inline auto accel_trace_any_cull_frontface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_any_cull_front().intersect(make_ray(r), accel.handle, mask);
+    return isect.type != intersection_type::none;
+}
+
+[[nodiscard]] inline auto accel_trace_closest_cull_backface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_closest_cull_back().intersect(make_ray(r), accel.handle, mask);
+    return isect.type == intersection_type::none ?
+               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.triangle_barycentric_coord,
+                             isect.distance};
+}
+
+[[nodiscard]] inline auto accel_trace_any_cull_backface(LCAccel accel, LCRay r, uint mask) {
+    auto isect = intersector_any_cull_back().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
 
@@ -681,6 +757,9 @@ void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_dat
     params.assume_geometry_type(has_procedural_branch ?
                                     geometry_type::triangle | geometry_type::bounding_box :
                                     geometry_type::triangle);
+    // face culling is removed
+    // if (q.cull_front) { params.set_triangle_cull_mode(triangle_cull_mode::front); }
+    // if (q.cull_back) { params.set_triangle_cull_mode(triangle_cull_mode::back); }
     i.reset(q.ray, q.accel, q.mask, params);
     q.i = &i;
 }
@@ -748,14 +827,21 @@ inline void ray_query_terminate(LCRayQuery q) {
     q.i->abort();
 }
 
-[[nodiscard]] inline auto
-accel_instance_transform(LCAccel accel, uint i) {
+[[nodiscard]] inline auto accel_instance_transform(LCAccel accel, uint i) {
     auto m = accel.instances[i].transform;
     return float4x4(
         m[0], m[1], m[2], 0.0f,
         m[3], m[4], m[5], 0.0f,
         m[6], m[7], m[8], 0.0f,
         m[9], m[10], m[11], 1.0f);
+}
+
+[[nodiscard]] inline auto accel_instance_user_id(LCAccel accel, uint i) {
+    return accel.instances[i].intersection_function_offset;
+}
+
+inline void accel_set_instance_user_id(LCAccel accel, uint i, uint user_id) {
+    accel.instances[i].intersection_function_offset = user_id;
 }
 
 inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {
@@ -776,6 +862,10 @@ inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {
 
 inline void accel_set_instance_visibility(LCAccel accel, uint i, uint mask) {
     accel.instances[i].mask = mask;
+}
+
+[[nodiscard]] inline auto accel_instance_visibility_mask(LCAccel accel, uint i) {
+    return accel.instances[i].mask;
 }
 
 inline void accel_set_instance_opacity(LCAccel accel, uint i, bool opaque) {

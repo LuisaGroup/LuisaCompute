@@ -8,6 +8,7 @@ use std::env::{current_exe, var};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Deref;
+use std::ptr::null;
 use std::sync::atomic::Ordering;
 use std::{
     cell::RefCell,
@@ -15,7 +16,6 @@ use std::{
     ffi::{CStr, CString},
     path::Path,
 };
-use std::ptr::null;
 
 enum LLVMContext {}
 
@@ -65,7 +65,7 @@ type LLVMOrcExecutorAddress = u64;
 type LLVMOrcDumpObjectsRef = *mut LLVMOrcOpaqueDumpObjects;
 type LLVMOrcObjectTransformLayerRef = *mut LLVMOrcOpaqueObjectTransformLayer;
 type LLVMOrcObjectTransformLayerTransformFunction =
-extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
+    extern "C" fn(Ctx: *mut c_void, ObjInOut: *mut LLVMMemoryBufferRef) -> LLVMErrorRef;
 type LLVMPassManagerRef = *mut LLVMPassManager;
 type LLVMPassBuilderOptionsRef = *mut LLVMOpaquePassBuilderOptions;
 type LLVMTargetMachineRef = *mut LLVMOpaqueTargetMachine;
@@ -209,9 +209,9 @@ struct LibLLVM {
     LLVMDisposeModule: Symbol<'static, unsafe extern "C" fn(M: LLVMModuleRef)>,
     LLVMDisposeMemoryBuffer: Symbol<'static, unsafe extern "C" fn(MemBuf: LLVMMemoryBufferRef)>,
     LLVMOrcCreateNewThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMOrcThreadSafeContextRef>,
     LLVMOrcThreadSafeContextGetContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef) -> LLVMContextRef>,
     LLVMOrcCreateNewThreadSafeModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -220,9 +220,9 @@ struct LibLLVM {
         ) -> LLVMOrcThreadSafeModuleRef,
     >,
     LLVMOrcDisposeThreadSafeModule:
-    Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSM: LLVMOrcThreadSafeModuleRef)>,
     LLVMOrcDisposeThreadSafeContext:
-    Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
+        Symbol<'static, unsafe extern "C" fn(TSCtx: LLVMOrcThreadSafeContextRef)>,
     LLVMOrcCreateLLJIT: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -232,7 +232,7 @@ struct LibLLVM {
     >,
     LLVMOrcDisposeLLJIT: Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMErrorRef>,
     LLVMOrcLLJITGetMainJITDylib:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcJITDylibRef>,
     LLVMOrcLLJITAddLLVMIRModule: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -267,7 +267,7 @@ struct LibLLVM {
         ),
     >,
     LLVMOrcLLJITGetObjTransformLayer:
-    Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
+        Symbol<'static, unsafe extern "C" fn(J: LLVMOrcLLJITRef) -> LLVMOrcObjectTransformLayerRef>,
     LLVMOrcDumpObjects_CallOperator: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -277,7 +277,7 @@ struct LibLLVM {
     >,
 
     LLVMGetTargetFromName:
-    Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
+        Symbol<'static, unsafe extern "C" fn(Name: *const c_char) -> LLVMTargetRef>,
     LLVMCreateTargetMachine: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -300,9 +300,9 @@ struct LibLLVM {
         ) -> LLVMErrorRef,
     >,
     LLVMCreatePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
+        Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
     LLVMDisposePassBuilderOptions:
-    Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
+        Symbol<'static, unsafe extern "C" fn(Options: LLVMPassBuilderOptionsRef)>,
     // LLVMCreatePassBuilderOptions:
     //     Symbol<'static, unsafe extern "C" fn() -> LLVMPassBuilderOptionsRef>,
 }
@@ -320,13 +320,13 @@ impl LLVMPaths {
         match var("LUISA_LLVM_PATH") {
             Ok(s) => {
                 if !Path::new(&s).exists() {
-                    panic_abort!(
+                    panic!(
                         "LUISA_LLVM_PATH is set to {}, but the path does not exist",
                         s
                     );
                 }
                 if Path::new(&s).is_dir() {
-                    panic_abort!("LUISA_LLVM_PATH is set to {}, but the path is a directory. Should be path to library", s);
+                    panic!("LUISA_LLVM_PATH is set to {}, but the path is a directory. Should be path to library", s);
                 }
                 self.llvm = s;
             }
@@ -335,13 +335,13 @@ impl LLVMPaths {
         match var("LUISA_CLANG_PATH") {
             Ok(s) => {
                 if !Path::new(&s).exists() {
-                    panic_abort!(
+                    panic!(
                         "LUISA_CLANG_PATH is set to {}, but the path does not exist",
                         s
                     );
                 }
                 if Path::new(&s).is_dir() {
-                    panic_abort!("LUISA_CLANG_PATH is set to {}, but the path is a directory. Should be path to executable", s);
+                    panic!("LUISA_CLANG_PATH is set to {}, but the path is a directory. Should be path to executable", s);
                 }
                 self.clang = s;
             }
@@ -369,7 +369,7 @@ impl LLVMPaths {
                     match var("LUISA_CLANG_PATH") {
                         Ok(s) => s,
                         Err(_) => {
-                            panic_abort!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++ executable")
+                            panic!("Could not find clang. Please set LUISA_CLANG_PATH to the path of clang++ executable")
                         }
                     }
                 }),
@@ -385,7 +385,7 @@ impl LLVMPaths {
                             } else {
                                 "LLVM-C.dll"
                             };
-                            panic_abort!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of {}", libllvm);
+                            panic!("Could not find LLVM. Please set LUISA_LLVM_PATH to the path of {}", libllvm);
                         }
                     }
                 }),
@@ -464,18 +464,18 @@ impl LibLLVM {
             not(target_arch = "x86_64"),
             not(target_arch = "aarch64")
         )) {
-            panic_abort!("only x86_64 and aarch64 are supported");
+            panic!("only x86_64 and aarch64 are supported");
         }
         unsafe {
             let path = llvm_lib_path();
             let lib = libloading::Library::new(&path).unwrap_or_else(|e| {
-                panic_abort!("Failed to load LLVM: could not load {}, error: {}", path, e);
+                panic!("Failed to load LLVM: could not load {}, error: {}", path, e);
             });
             log::info!("Loading LLVM functions from {}", path);
             macro_rules! load {
                 ($name:expr) => {
                     lift(lib.get($name).unwrap_or_else(|e| {
-                        panic_abort!(
+                        panic!(
                             "Failed to load LLVM function {}: could not load {}, error: {}",
                             std::str::from_utf8($name).unwrap(),
                             path,
@@ -500,7 +500,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetInfo = lift(
@@ -511,7 +511,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMC = lift(
@@ -522,7 +522,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeTargetMCA = lift(
@@ -533,7 +533,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMInitializeNativeAsmPrinter = lift(
@@ -544,7 +544,7 @@ impl LibLLVM {
                 } else {
                     unreachable!()
                 })
-                    .unwrap(),
+                .unwrap(),
             );
 
             let LLVMContextDispose = load!(b"LLVMContextDispose");
@@ -658,7 +658,9 @@ unsafe extern "C" fn llvm_orc_registerEHFrameSectionWrapper(_: LLVMExecutorAddrR
 }
 
 #[no_mangle]
-unsafe extern "C" fn llvm_orc_deregisterEHFrameSectionWrapper(_: LLVMExecutorAddrRange) -> LLVMError {
+unsafe extern "C" fn llvm_orc_deregisterEHFrameSectionWrapper(
+    _: LLVMExecutorAddrRange,
+) -> LLVMError {
     LLVMError { payload: null() }
 }
 
@@ -717,7 +719,7 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> Option<KernelFn>
             //     &mut msg as *mut *mut i8,
             // ) != 0
             // {
-            //     panic_abort!("LLVMParseIRInContext failed");
+            //     panic!("LLVMParseIRInContext failed");
             // }
             // let pass = CString::new("default<O3>").unwrap();
             // let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
@@ -873,9 +875,17 @@ impl Context {
                     let shader = &*shader;
 
                     eprintln!("{}", shader.messages[msg as usize]);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(
+                        file,
+                        "LuisaCompute CPU backend kernel aborted:\n{}",
+                        shader.messages[msg as usize]
+                    )
+                    .unwrap();
                 }
 
-                panic!("kernel execution aborted");
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort, lc_abort);
             add_symbol!(__stack_chk_fail, libc::abort);
@@ -914,6 +924,7 @@ impl Context {
                         }
                     }
                     let msg = CStr::from_ptr(msg).to_str().unwrap().to_string();
+                    dbg!(msg.len());
                     let idx = msg.find("{}").unwrap();
                     let mut display = String::new();
                     display.push_str(&msg[..idx]);
@@ -923,10 +934,50 @@ impl Context {
                     display.push_str(&format!("{}", j));
                     display.push_str(&msg[idx + 2 + idx2 + 2..]);
                     eprintln!("{}", display);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(
+                        file,
+                        "LuisaCompute CPU backend kernel aborted:\n{}",
+                        display
+                    )
+                    .unwrap();
                 }
-                panic!("kernel execution aborted");
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
             }
             add_symbol!(lc_abort_and_print_sll, lc_abort_and_print_sll);
+            unsafe extern "C" fn lc_abort_and_print(ctx: *const c_void, msg: *const c_char) {
+                let _lk = ABORT_MUTEX.lock();
+                {
+                    let ctx = ctx as *const ShaderDispatchContext;
+                    let ctx = &*ctx;
+                    if ctx.terminated.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    loop {
+                        let current = ctx.terminated.load(Ordering::SeqCst);
+                        if current {
+                            return;
+                        }
+                        match ctx.terminated.compare_exchange(
+                            current,
+                            true,
+                            Ordering::SeqCst,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(false) => break,
+                            _ => return,
+                        }
+                    }
+                    let msg = CStr::from_ptr(msg).to_str().unwrap();
+                    eprintln!("{}", msg);
+                    use std::io::Write;
+                    let mut file = std::fs::File::create("luisa-compute-abort.txt").unwrap();
+                    writeln!(file, "LuisaCompute CPU backend kernel aborted:\n{}", msg).unwrap();
+                }
+                panic_abort!("kernel execution aborted. see `luisa-compute-abort.txt` for details");
+            }
+            add_symbol!(lc_abort_and_print, lc_abort_and_print);
             // min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
             //cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
             //log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
@@ -1001,7 +1052,7 @@ fn target_name() -> String {
     } else if cfg!(target_arch = "aarch64") {
         "arm64".to_string()
     } else {
-        panic_abort!("unsupported target")
+        panic!("unsupported target")
     }
 }
 
@@ -1015,10 +1066,10 @@ fn cpu_features() -> Vec<String> {
 fn cpu_features() -> Vec<String> {
     let mut features = vec![];
     if is_x86_feature_detected!("aes") { features.push("aes"); }
-    if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
-    if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
-    if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
-    if is_x86_feature_detected!("tsc") { features.push("tsc"); }
+    // if is_x86_feature_detected!("pclmulqdq") { features.push("pclmulqdq"); }
+    // if is_x86_feature_detected!("rdrand") { features.push("rdrand"); }
+    // if is_x86_feature_detected!("rdseed") { features.push("rdseed"); }
+    // if is_x86_feature_detected!("tsc") { features.push("tsc"); }
     if is_x86_feature_detected!("mmx") { features.push("mmx"); }
     if is_x86_feature_detected!("sse") { features.push("sse"); }
     if is_x86_feature_detected!("sse2") { features.push("sse2"); }
@@ -1050,9 +1101,9 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("avx512vp2intersect") { features.push("avx512vp2intersect"); }
     if is_x86_feature_detected!("f16c") { features.push("f16c"); }
     if is_x86_feature_detected!("fma") { features.push("fma"); }
-    if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
+    // if is_x86_feature_detected!("bmi1") { features.push("bmi1"); }
     if is_x86_feature_detected!("bmi2") { features.push("bmi2"); }
-    if is_x86_feature_detected!("abm") { features.push("abm"); }
+    // if is_x86_feature_detected!("abm") { features.push("abm"); }
     if is_x86_feature_detected!("lzcnt") { features.push("lzcnt"); }
     if is_x86_feature_detected!("tbm") { features.push("tbm"); }
     if is_x86_feature_detected!("popcnt") { features.push("popcnt"); }
@@ -1061,7 +1112,7 @@ fn cpu_features() -> Vec<String> {
     if is_x86_feature_detected!("xsaveopt") { features.push("xsaveopt"); }
     if is_x86_feature_detected!("xsaves") { features.push("xsaves"); }
     if is_x86_feature_detected!("xsavec") { features.push("xsavec"); }
-    if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
+    // if is_x86_feature_detected!("cmpxchg16b") { features.push("cmpxchg16b"); }
     if is_x86_feature_detected!("adx") { features.push("adx"); }
     if is_x86_feature_detected!("rtm") { features.push("rtm"); }
     // this breaks msvc shipped with vs2019
@@ -1081,10 +1132,10 @@ fn target_triple() -> String {
         } else if cfg!(target_arch = "aarch64") {
             "arm64-apple-darwin".to_string()
         } else {
-            panic_abort!("unsupported target")
+            panic!("unsupported target")
         }
     } else {
-        panic_abort!("unsupported target")
+        panic!("unsupported target")
     }
 }
 

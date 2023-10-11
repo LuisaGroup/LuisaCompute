@@ -24,7 +24,12 @@ luisa_compute_api_types = { path = "../luisa_compute_api_types" }
 luisa_compute_cpu_kernel_defs = { path = "../luisa_compute_cpu_kernel_defs" }
 luisa_compute_ir = { path = "../luisa_compute_ir" }
 bumpalo = "3.12.1"
-half = { version = "2.3.1", features = ["std", "serde", "num-traits", "zerocopy"] }
+half = { version = "2.3.1", features = [
+    "std",
+    "serde",
+    "num-traits",
+    "zerocopy",
+] }
 
 [features]
 default = ["cpu"]

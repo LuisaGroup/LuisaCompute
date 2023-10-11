@@ -1,6 +1,6 @@
 // A Rust implementation of LuisaCompute backend.
 #![allow(non_snake_case)]
-use std::{sync::Arc};
+use std::sync::{atomic::AtomicBool, Arc};
 
 use self::{
     accel::{AccelImpl, GeometryImpl},
@@ -16,8 +16,8 @@ use libc::c_void;
 use log::debug;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{context::type_hash, ir, CArc};
-use parking_lot::RwLock;
+use luisa_compute_ir::{context::type_hash, ir, CArc, transform::luisa_compute_ir_transform_auto};
+use parking_lot::{Condvar, Mutex, RwLock};
 mod codegen;
 use codegen::sha256_short;
 mod accel;
@@ -51,8 +51,17 @@ impl Backend for RustBackend {
         ty: &CArc<ir::Type>,
         count: usize,
     ) -> luisa_compute_api_types::CreatedBufferInfo {
-        let size_bytes = ty.size() * count;
-        let buffer = Box::new(BufferImpl::new(size_bytes, ty.alignment(), type_hash(&ty)));
+        let size_bytes = if ty == &ir::Type::void() {
+            count
+        } else {
+            ty.size() * count
+        };
+        let alignment = if ty == &ir::Type::void() {
+            16
+        } else {
+            ty.alignment()
+        };
+        let buffer = Box::new(BufferImpl::new(size_bytes, alignment, type_hash(&ty)));
         let data = buffer.data;
         let ptr = Box::into_raw(buffer);
         CreatedBufferInfo {
@@ -220,18 +229,28 @@ impl Backend for RustBackend {
             assert_eq!(storage, img.storage);
 
             let present = ctx.cpu_swapchain_present;
+            let present_completed = Arc::new(AtomicBool::new(false));
             stream.enqueue(
-                move || {
-                    let pixels = img.view(0).copy_to_vec_par_2d();
-
-                    present(
-                        swapchain_handle.0 as *mut c_void,
-                        pixels.as_ptr() as *const c_void,
-                        pixels.len() as u64,
-                    );
+                {
+                    let present_completed = present_completed.clone();
+                    move || {
+                        let pixels = img.view(0).copy_to_vec_par_2d();
+                        present(
+                            swapchain_handle.0 as *mut c_void,
+                            pixels.as_ptr() as *const c_void,
+                            pixels.len() as u64,
+                        );
+                        present_completed.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
                 },
                 (empty_callback, std::ptr::null_mut()),
-            )
+            );
+            loop {
+                if present_completed.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::yield_now();
+            }
         }
     }
     fn create_shader(

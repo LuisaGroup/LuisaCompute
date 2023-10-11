@@ -7,12 +7,15 @@
  *   4. Transform the call nodes to pass the reference arguments by value and copy the return value to the reference arguments.
  */
 
+use crate::context::register_type;
+use crate::ir::{
+    duplicate_callable, new_node, BasicBlock, CallableModule, CallableModuleRef, Const, Func,
+    Instruction, IrBuilder, Module, ModulePools, Node, NodeRef, StructType, Type, INVALID_REF,
+};
+use crate::transform::Transform;
+use crate::{CArc, CBoxedSlice, Pooled};
 use std::cmp::max;
 use std::collections::HashMap;
-use crate::{CArc, CBoxedSlice, Pooled};
-use crate::context::register_type;
-use crate::ir::{BasicBlock, CallableModule, CallableModuleRef, Const, duplicate_callable, Func, Instruction, INVALID_REF, IrBuilder, Module, ModulePools, new_node, Node, NodeRef, StructType, Type};
-use crate::transform::Transform;
 
 pub struct Ref2Ret;
 
@@ -65,8 +68,10 @@ impl Ref2RetImpl {
             match node.get().instruction.get_mut().unwrap() {
                 Instruction::Argument { by_value, .. } => {
                     if !*by_value {
-                        let new_arg = Node::new(CArc::new(Instruction::Argument { by_value: true }),
-                                                node.get().type_.clone());
+                        let new_arg = Node::new(
+                            CArc::new(Instruction::Argument { by_value: true }),
+                            node.get().type_.clone(),
+                        );
                         let new_arg = new_node(&module.pools, new_arg);
                         new_args.push(new_arg);
                         ref_args.push(node.clone());
@@ -133,7 +138,8 @@ impl Ref2RetImpl {
         let copy = duplicate_callable(&module);
         if Self::is_transform_needed(copy.as_ref()) {
             if copy.ret_type.is_void() {
-                let has_return = match copy.module.entry.last.get().prev.get().instruction.as_ref() {
+                let has_return = match copy.module.entry.last.get().prev.get().instruction.as_ref()
+                {
                     Instruction::Return(_) => true,
                     _ => false,
                 };
@@ -148,18 +154,24 @@ impl Ref2RetImpl {
             self.transform_block(&copy.module.entry);
             let ctx = self.current.take().unwrap();
             self.current = old_ctx;
-            self.processed.insert(module.as_ptr(), Ref2RetMetadata {
-                module: copy.clone(),
-                ref_arg_indices: Some(ctx.ref_arg_indices),
-            });
+            self.processed.insert(
+                module.as_ptr(),
+                Ref2RetMetadata {
+                    module: copy.clone(),
+                    ref_arg_indices: Some(ctx.ref_arg_indices),
+                },
+            );
         } else {
             let old_ctx = self.current.take();
             self.transform_block(&copy.module.entry);
             self.current = old_ctx;
-            self.processed.insert(module.as_ptr(), Ref2RetMetadata {
-                module: copy.clone(),
-                ref_arg_indices: None,
-            });
+            self.processed.insert(
+                module.as_ptr(),
+                Ref2RetMetadata {
+                    module: copy.clone(),
+                    ref_arg_indices: None,
+                },
+            );
         };
     }
 
@@ -182,17 +194,24 @@ impl Ref2RetImpl {
                 Instruction::Call(_, _) => self.transform_call(node),
                 Instruction::Phi(_) => {}
                 Instruction::Return(_) => self.transform_return(node),
-                Instruction::Loop { body, .. } => {
-                    self.transform_block(body)
-                }
-                Instruction::GenericLoop { prepare, body, update, .. } => {
+                Instruction::Loop { body, .. } => self.transform_block(body),
+                Instruction::GenericLoop {
+                    prepare,
+                    body,
+                    update,
+                    ..
+                } => {
                     self.transform_block(prepare);
                     self.transform_block(body);
                     self.transform_block(update);
                 }
                 Instruction::Break => {}
                 Instruction::Continue => {}
-                Instruction::If { true_branch, false_branch, .. } => {
+                Instruction::If {
+                    true_branch,
+                    false_branch,
+                    ..
+                } => {
                     self.transform_block(true_branch);
                     self.transform_block(false_branch);
                 }
@@ -202,17 +221,18 @@ impl Ref2RetImpl {
                     }
                     self.transform_block(default);
                 }
-                Instruction::AdScope { body } => {
-                    self.transform_block(body)
-                }
-                Instruction::RayQuery { on_triangle_hit, on_procedural_hit, .. } => {
+                Instruction::AdScope { body, .. } => self.transform_block(body),
+                Instruction::RayQuery {
+                    on_triangle_hit,
+                    on_procedural_hit,
+                    ..
+                } => {
                     self.transform_block(on_triangle_hit);
                     self.transform_block(on_procedural_hit);
                 }
-                Instruction::AdDetach(body) => {
-                    self.transform_block(body)
-                }
+                Instruction::AdDetach(body) => self.transform_block(body),
                 Instruction::Comment(_) => {}
+                Instruction::Print { .. } => {todo!()}
             }
         }
     }
@@ -245,9 +265,10 @@ impl Ref2RetImpl {
                             }
                             // call the transformed callable and get the packed return values
                             let packed = builder.call(
-                                Func::Callable(CallableModuleRef(transformed_callable.clone())),// the transformed callable
+                                Func::Callable(CallableModuleRef(transformed_callable.clone())), // the transformed callable
                                 args.to_vec().as_slice(),
-                                transformed_ret_type.clone());
+                                transformed_ret_type.clone(),
+                            );
                             // unpack the return values and update the reference arguments
                             for (ret_idx, arg_idx) in ref_args.iter().enumerate() {
                                 let type_ = ret_struct.fields.get(ret_idx).unwrap().clone();
@@ -257,7 +278,7 @@ impl Ref2RetImpl {
                             // update the original return value if any
                             if node.type_().is_void() {
                                 assert_eq!(ret_struct.fields.len(), ref_args.len());
-                                node.remove();// remove the original call node if no return
+                                node.remove(); // remove the original call node if no return
                             } else {
                                 // extract the old return value
                                 assert_eq!(ret_struct.fields.len(), ref_args.len() + 1);
@@ -287,16 +308,16 @@ impl Ref2RetImpl {
                     builder.set_insert_point(node.get().prev);
                     // the reference arguments are now stored in local variables,
                     // so we need to load them
-                    let mut args: Vec<_> = ctx.ref_args.iter().map(
-                        |arg| builder.load(arg.clone())).collect();
+                    let mut args: Vec<_> = ctx
+                        .ref_args
+                        .iter()
+                        .map(|arg| builder.load(arg.clone()))
+                        .collect();
                     // if the node returns a valid value, add it to the return args
                     if value.valid() {
                         args.push(value.clone());
                     }
-                    let value = builder.call(
-                        Func::Struct,
-                        args.as_slice(),
-                        ctx.ret_type.clone());
+                    let value = builder.call(Func::Struct, args.as_slice(), ctx.ret_type.clone());
                     builder.return_(value);
                     // remove the original return node
                     node.remove();

@@ -1,5 +1,7 @@
-extern "C" [[noreturn]] void lc_abort(const void *, int msg) noexcept;
-extern "C" [[noreturn]] void lc_abort_and_print_sll(const void *, const char *, unsigned int, unsigned int) noexcept;
+
+extern "C" [[noreturn]] void lc_abort_and_print_sll(const void *, const char *, unsigned int, unsigned int) noexcept
+;extern "C" [[noreturn]] void lc_abort(const void *, int msg) noexcept;
+extern "C" [[noreturn]] void lc_abort_and_print(const void *, const char *) noexcept;
 inline float rsqrtf(float x) { return 1.0f / sqrtf(x); }
 inline float exp10f(float x) { return powf(10.0f, x); }
 inline int __clz (unsigned int x) {
@@ -38,6 +40,7 @@ inline int __float_as_int(float x) {
     return u.i;
 }
 
+#define inf __builtin_inf()
 
 #define __device__
 #define lc_assert(cond, msg)  do { if (!(cond)) { lc_abort(k_args->internal_data, msg); } } while (false)

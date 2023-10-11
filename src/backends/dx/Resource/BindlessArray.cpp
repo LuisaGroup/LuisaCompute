@@ -22,14 +22,32 @@ BindlessArray::~BindlessArray() {
             device->globalHeap->ReturnIndex(i);
         }
     };
+    auto ReturnTex = [&](auto &&i) {
+        if (i != BindlessStruct::n_pos) {
+            device->globalHeap->ReturnIndex(i & BindlessStruct::mask);
+        }
+    };
     for (auto &&i : binded) {
         Return(i.first.buffer);
-        Return(i.first.tex2D);
-        Return(i.first.tex3D);
+        ReturnTex(i.first.tex2D);
+        ReturnTex(i.first.tex3D);
     }
-    for(auto&& i : freeQueue){
+    for (auto &&i : freeQueue) {
         device->globalHeap->ReturnIndex(i);
     }
+}
+void BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue) {
+    if (originValue != BindlessStruct::n_pos) {
+        freeQueue.push_back(originValue & BindlessStruct::mask);
+        originValue = BindlessStruct::n_pos;
+        // device->globalHeap->ReturnIndex(originValue);
+        auto &&v = index.value();
+        v--;
+        if (v == 0) {
+            ptrMap.remove(index);
+        }
+    }
+    index = {};
 }
 void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
     if (originValue != BindlessStruct::n_pos) {
@@ -54,9 +72,9 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
     if (mods.empty()) return;
     auto EmplaceTex = [&]<bool isTex2D>(BindlessStruct &bindGrp, MapIndicies &indices, uint64_t handle, TextureBase const *tex, Sampler const &samp) {
         if constexpr (isTex2D)
-            TryReturnIndex(indices.tex2D, bindGrp.tex2D);
+            TryReturnIndexTex(indices.tex2D, bindGrp.tex2D);
         else
-            TryReturnIndex(indices.tex3D, bindGrp.tex3D);
+            TryReturnIndexTex(indices.tex3D, bindGrp.tex3D);
         auto texIdx = device->globalHeap->AllocateIndex();
         device->globalHeap->CreateSRV(
             tex->GetResource(),
@@ -103,7 +121,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         }
         switch (mod.tex2d.op) {
             case Ope::REMOVE:
-                TryReturnIndex(indices.tex2D, bindGrp.tex2D);
+                TryReturnIndexTex(indices.tex2D, bindGrp.tex2D);
                 break;
             case Ope::EMPLACE:
                 EmplaceTex.operator()<true>(bindGrp, indices, mod.tex2d.handle, reinterpret_cast<TextureBase *>(mod.tex2d.handle), mod.tex2d.sampler);
@@ -112,7 +130,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
         }
         switch (mod.tex3d.op) {
             case Ope::REMOVE:
-                TryReturnIndex(indices.tex3D, bindGrp.tex3D);
+                TryReturnIndexTex(indices.tex3D, bindGrp.tex3D);
                 break;
             case Ope::EMPLACE:
                 EmplaceTex.operator()<false>(bindGrp, indices, mod.tex3d.handle, reinterpret_cast<TextureBase *>(mod.tex3d.handle), mod.tex3d.sampler);
@@ -129,22 +147,48 @@ void BindlessArray::PreProcessStates(
     if (mods.empty()) return;
     tracker.RecordState(
         &buffer,
-        D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 }
 void BindlessArray::UpdateStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
     vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
     std::lock_guard lck{mtx};
+    struct BindlessElement{
+        uint idx;
+        BindlessStruct e;   
+    };
     if (!mods.empty()) {
+        auto alloc = builder.GetCB()->GetAlloc();
+        auto tempBuffer = alloc->GetTempUploadBuffer(sizeof(BindlessElement) * mods.size(), 16);
+        auto ubuffer = static_cast<UploadBuffer const *>(tempBuffer.buffer);
+        auto offset = tempBuffer.offset;
         for (auto &&mod : mods) {
-            builder.Upload(
-                BufferView{
-                    &buffer,
-                    sizeof(BindlessStruct) * mod.slot,
-                    sizeof(BindlessStruct)},
-                &binded[mod.slot].first);
+            BindlessElement e;
+            e.idx = mod.slot;
+            e.e = binded[mod.slot].first;
+            ubuffer->CopyData(offset, {reinterpret_cast<uint8_t const *>(&e), sizeof(BindlessElement)});
+            offset += sizeof(BindlessElement);
         }
+        auto cs = device->setBindlessKernel.Get(device);
+        auto cbuffer = alloc->GetTempUploadBuffer(sizeof(uint), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        struct CBuffer {
+            uint dsp;
+        };
+        CBuffer cbValue;
+        cbValue.dsp = mods.size();
+        static_cast<UploadBuffer const *>(cbuffer.buffer)
+            ->CopyData(cbuffer.offset,
+                       {reinterpret_cast<uint8_t const *>(&cbValue), sizeof(CBuffer)});
+        BindProperty properties[3];
+        properties[0] = cbuffer;
+        properties[1] = tempBuffer;
+        properties[2] = BufferView(&buffer);
+        builder.DispatchCompute(
+            cs,
+            uint3(mods.size(), 1, 1),
+            properties);
+
         tracker.RecordState(
             &buffer,
             tracker.ReadState(ResourceReadUsage::Srv));

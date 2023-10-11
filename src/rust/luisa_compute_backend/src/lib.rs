@@ -1,4 +1,4 @@
-use std::ffi::{CStr};
+use std::ffi::CStr;
 
 use std::{
     path::{Path, PathBuf},
@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::proxy::ProxyBackend;
-use api::{PixelFormat};
+use api::PixelFormat;
 use libc::{c_char, c_void};
 
 use luisa_compute_api_types as api;
@@ -39,12 +39,18 @@ impl Interface {
         })
     }
 }
-
 struct BackendProvider {
     pub(crate) context: api::Context,
     pub(crate) interface: Arc<Interface>,
 }
 
+impl Drop for BackendProvider {
+    fn drop(&mut self) {
+        unsafe {
+            (self.interface.inner.destroy_context)(self.context);
+        }
+    }
+}
 impl BackendProvider {
     unsafe fn new(path: &PathBuf) -> std::result::Result<Self, libloading::Error> {
         let interface = Interface::new(path.as_ref())
@@ -286,8 +292,15 @@ pub extern "C" fn create_texture<B: Backend>(
     allow_simultaneous_access: bool,
 ) -> api::CreatedResourceInfo {
     let backend: &B = get_backend(backend);
-    backend.create_texture(format, dimension, width, height, depth,
-                           mipmap_levels, allow_simultaneous_access)
+    backend.create_texture(
+        format,
+        dimension,
+        width,
+        height,
+        depth,
+        mipmap_levels,
+        allow_simultaneous_access,
+    )
 }
 //
 
@@ -386,11 +399,7 @@ extern "C" fn wait_event<B: Backend>(
     backend.wait_event(event, stream, value)
 }
 
-extern "C" fn synchronize_event<B: Backend>(
-    backend: api::Device,
-    event: api::Event,
-    value: u64,
-) {
+extern "C" fn synchronize_event<B: Backend>(backend: api::Device, event: api::Event, value: u64) {
     let backend: &B = get_backend(backend);
     backend.synchronize_event(event, value)
 }

@@ -90,16 +90,16 @@ template<typename T>
 concept vector4 = is_vector4_v<T>;
 
 template<typename T>
-concept bool_vector = is_bool_vector_v<T>;
+concept bool_vector = is_boolean_vector_v<T>;
 
 template<typename T>
-concept float_vector = is_float_vector_v<T>;
+concept float_vector = is_floating_point_vector_v<T>;
 
 template<typename T>
-concept int_vector = is_int_vector_v<T>;
+concept int_vector = is_signed_integral_vector_v<T>;
 
 template<typename T>
-concept uint_vector = is_uint_vector_v<T>;
+concept uint_vector = is_unsigned_integral_vector_v<T>;
 
 template<typename T>
 concept matrix = is_matrix_v<T>;

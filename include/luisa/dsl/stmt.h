@@ -8,6 +8,12 @@ namespace luisa::compute {
 
 namespace detail {
 
+/// Add comment
+template<typename S>
+inline void comment(S &&s) noexcept {
+    detail::FunctionBuilder::current()->comment_(luisa::string{std::forward<S>(s)});
+}
+
 /// Build if statement
 class IfStmtBuilder {
 
@@ -18,6 +24,12 @@ public:
     /// Construct if statement with condition expression
     explicit IfStmtBuilder(Expr<bool> condition) noexcept
         : _stmt{FunctionBuilder::current()->if_(condition.expression())} {}
+
+    template<typename S>
+    [[nodiscard]] static auto create_with_comment(S &&s, Expr<bool> cond) noexcept {
+        luisa::compute::detail::comment(std::forward<S>(s));
+        return IfStmtBuilder{cond};
+    }
 
     /// Add statement to false branch. f is a function.
     template<typename False>
@@ -56,6 +68,12 @@ private:
 public:
     LoopStmtBuilder() noexcept : _stmt{FunctionBuilder::current()->loop_()} {}
 
+    template<typename S>
+    [[nodiscard]] static auto create_with_comment(S &&s) noexcept {
+        luisa::compute::detail::comment(std::forward<S>(s));
+        return LoopStmtBuilder{};
+    }
+
     /// Add body statement. body is a function. Return this.
     template<typename Body>
     auto operator/(Body &&body) && noexcept {
@@ -81,6 +99,12 @@ public:
     AutoDiffStmtBuilder() noexcept
         : _stmt{FunctionBuilder::current()->autodiff_()} {}
 
+    template<typename S>
+    [[nodiscard]] static auto create_with_comment(S &&s) noexcept {
+        luisa::compute::detail::comment(std::forward<S>(s));
+        return AutoDiffStmtBuilder{};
+    }
+
     /// Add body statement
     template<typename Body>
     void operator%(Body &&body) && noexcept {
@@ -101,6 +125,12 @@ public:
     explicit SwitchCaseStmtBuilder(T c) noexcept
         : _stmt{FunctionBuilder::current()->case_(extract_expression(c))} {}
 
+    template<concepts::integral T, typename S>
+    [[nodiscard]] static auto create_with_comment(S &&s, T c) noexcept {
+        luisa::compute::detail::comment(std::forward<S>(s));
+        return SwitchCaseStmtBuilder{c};
+    }
+
     /// Add body of case statement. Will automatically add break at the end.
     template<typename Body>
     void operator%(Body &&body) && noexcept {
@@ -120,6 +150,12 @@ private:
 public:
     SwitchDefaultStmtBuilder() noexcept
         : _stmt{FunctionBuilder::current()->default_()} {}
+
+    template<typename S>
+    [[nodiscard]] static auto create_with_comment(S &&s) noexcept {
+        luisa::compute::detail::comment(std::forward<S>(s));
+        return SwitchDefaultStmtBuilder{};
+    }
 
     /// Add body of default statement. Will automatically add break at the end.
     template<typename Body>
@@ -145,6 +181,13 @@ public:
         : _stmt{FunctionBuilder::current()->switch_(
               extract_expression(std::forward<T>(cond)))} {}
 
+    template<typename T, typename S>
+        requires is_integral_expr_v<T>
+    [[nodiscard]] static auto create_with_comment(S &&s, T &&cond) noexcept {
+        luisa::compute::detail::comment(std::forward<S>(s));
+        return SwitchStmtBuilder{std::forward<T>(cond)};
+    }
+
     /// Add case statement. Return this
     template<typename T, typename Body>
     auto case_(T &&case_cond, Body &&case_body) && noexcept {
@@ -169,8 +212,8 @@ public:
     }
 };
 
-/// Invoke for statement body
-struct ForStmtBodyInvoke {
+/// Invoke statement body
+struct StmtBodyInvoke {
     template<typename F>
     void operator%(F &&body) && noexcept {
         luisa::invoke(std::forward<F>(body));
@@ -338,6 +381,12 @@ template<typename Tb, typename Te, typename Ts>
     return detail::ForRange<T, true>{std::forward<Tb>(begin), e, s};
 }
 
+template<typename S, typename... Args>
+[[nodiscard]] inline auto dynamic_range_with_comment(S &&s, Args &&...args) noexcept {
+    luisa::compute::detail::comment(std::forward<S>(s));
+    return dynamic_range(std::forward<Args>(args)...);
+}
+
 /// for(auto i: dynamic_range(n)) body(i);
 template<typename N, typename Body>
 inline void loop(N &&n, Body &&body) noexcept {
@@ -401,12 +450,6 @@ inline void match(AllTags &&tags, Tag &&tag, IndexedCase &&indexed_case) noexcep
 template<typename T, typename Tag, typename IndexedCase>
 inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexed_case) noexcept {
     match(tags, std::forward<Tag>(tag), std::forward<IndexedCase>(indexed_case), [] {});
-}
-
-/// Add comment
-template<typename S>
-inline void comment(S &&s) noexcept {
-    detail::FunctionBuilder::current()->comment_(luisa::string{std::forward<S>(s)});
 }
 
 template<typename T>

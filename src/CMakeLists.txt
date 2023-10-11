@@ -82,7 +82,7 @@ install(TARGETS compute
         EXPORT LuisaComputeTargets
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
 
-if (SKBUILD)
+if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(py)
 endif ()
 

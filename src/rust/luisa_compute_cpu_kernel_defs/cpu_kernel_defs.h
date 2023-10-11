@@ -40,7 +40,7 @@ struct ProceduralHit {
 struct alignas(16) RayQuery {
     CommitedHit hit;
     Ray ray;
-    uint8_t mask;
+    uint32_t mask;
     float cur_committed_ray_t;
     TriangleHit cur_triangle_hit;
     ProceduralHit cur_procedural_hit;
@@ -55,11 +55,14 @@ using OnHitCallback = void(*)(RayQuery*);
 
 struct Accel {
     const void *handle;
-    Hit (*trace_closest)(const void*, const Ray*, uint8_t);
-    bool (*trace_any)(const void*, const Ray*, uint8_t);
-    void (*set_instance_visibility)(const void*, uint32_t, uint8_t);
+    Hit (*trace_closest)(const void*, const Ray*, uint32_t);
+    bool (*trace_any)(const void*, const Ray*, uint32_t);
+    void (*set_instance_visibility)(const void*, uint32_t, uint32_t);
     void (*set_instance_transform)(const void*, uint32_t, const Mat4*);
+    void (*set_instance_user_id)(const void*, uint32_t, uint32_t);
     Mat4 (*instance_transform)(const void*, uint32_t);
+    uint32_t (*instance_user_id)(const void*, uint32_t);
+    uint32_t (*instance_visibility_mask)(const void*, uint32_t);
     void (*ray_query)(const void*, RayQuery*, OnHitCallback, OnHitCallback);
 };
 

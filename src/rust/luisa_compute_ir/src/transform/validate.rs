@@ -78,6 +78,8 @@ impl Validator {
                     Const::Zero(t) => t.clone(),
                     Const::One(t) => t.clone(),
                     Const::Bool(_) => <bool as TypeOf>::type_(),
+                    Const::Int8(_) => <i8 as TypeOf>::type_(),
+                    Const::Uint8(_) => <u8 as TypeOf>::type_(),
                     Const::Int16(_) => <i16 as TypeOf>::type_(),
                     Const::Uint16(_) => <u16 as TypeOf>::type_(),
                     Const::Int32(_) => <i32 as TypeOf>::type_(),

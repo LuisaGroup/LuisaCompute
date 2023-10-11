@@ -1,6 +1,54 @@
 from os.path import realpath, dirname
 from sys import argv
 
+HALF_IMPL = '''
+struct lc_half {
+private:
+    union U { __fp16 h; lc_ushort bits; };
+public:
+    lc_ushort bits;
+    inline constexpr lc_half() noexcept : bits{0} {}
+    [[nodiscard]] static inline constexpr auto from_bits(lc_ushort bits) noexcept {
+        lc_half h;
+        h.bits = bits;
+        return h;
+    }
+    inline constexpr lc_half(float x) noexcept {
+        U u;
+        u.h = x;
+        bits = u.bits;
+    }
+    template<typename T>
+    inline constexpr operator T() const noexcept {
+        U u;
+        u.bits = bits;
+        return static_cast<T>(static_cast<float>(u.h));
+    }
+    inline constexpr auto operator-() const noexcept { return from_bits(bits ^ 0x8000u); }
+    inline constexpr auto operator+() const noexcept { return *this; }
+    inline constexpr auto operator!() const noexcept { return bits == 0u || bits == 0x8000u; }
+#define IMPL_HALF_BINOP(op)                                         \
+    inline constexpr auto operator op(lc_half rhs) const noexcept { \
+        U u_lhs; u_lhs.bits = bits;                                 \
+        U u_rhs; u_rhs.bits = rhs.bits;                             \
+        return lc_half{lc_float(u_lhs.h op u_rhs.h)};               \
+    }
+    IMPL_HALF_BINOP(+)
+    IMPL_HALF_BINOP(-)
+    IMPL_HALF_BINOP(*)
+    IMPL_HALF_BINOP(/)
+#undef IMPL_HALF_BINOP
+#define IMPL_HALF_CMP(op) inline constexpr auto operator op(lc_half rhs) const noexcept { return float(*this) op float(rhs); }
+    IMPL_HALF_CMP(==)
+    IMPL_HALF_CMP(!=)
+    IMPL_HALF_CMP(<)
+    IMPL_HALF_CMP(<=)
+    IMPL_HALF_CMP(>)
+    IMPL_HALF_CMP(>=)
+
+};
+static_assert(sizeof(lc_half) == 2);
+'''
 if __name__ == "__main__":
     if len(argv) < 2:
         print("usage: python generate_device_library.py <output_file>")
@@ -8,14 +56,15 @@ if __name__ == "__main__":
     output_file_name = argv[1]
     with open(f"{output_file_name}", "w") as file:
         # scalar types
-        scalar_types = ["short", "ushort", "int",
+        scalar_types = ["byte", "ubyte", "short", "ushort", "int",
                         "uint", "float", "bool", "long", "ulong"]
-        native_types = ["short", "unsigned short", "int", "unsigned int",
+        native_types = ["char", "unsigned char", "short", "unsigned short", "int", "unsigned int",
                         "float", "bool", "long long", "unsigned long long"]
         for t, native_t in zip(scalar_types, native_types):
             print(f"using lc_{t} = {native_t};", file=file)
         print(file=file)
-
+        if 'cpu' in output_file_name:
+            print(HALF_IMPL, file=file)
         # vector types
         vector_alignments = {2: 8, 3: 16, 4: 16}
         for type in scalar_types:
@@ -164,15 +213,15 @@ if __name__ == "__main__":
 
         # assign operators
         for op in ["+=", "-=", "*=", "/="]:
-            for type in ["short", "ushort", "int", "uint", "long", "ulong", "float"]:
+            for type in ["byte", "ubyte", "short", "ushort", "int", "uint", "long", "ulong", "float"]:
                 gen_assign_op(type, op)
             print(file=file)
         for op in ["%=", "<<=", ">>="]:
-            for type in ["short", "ushort", "int", "uint", "long", "ulong", ]:
+            for type in ["byte", "ubyte","short", "ushort", "int", "uint", "long", "ulong", ]:
                 gen_assign_op(type, op)
             print(file=file)
         for op in ["|=", "&=", "^="]:
-            for type in ["short", "ushort", "int", "uint", "long", "ulong", "bool"]:
+            for type in ["byte", "ubyte","short", "ushort", "int", "uint", "long", "ulong", "bool"]:
                 gen_assign_op(type, op)
             print(file=file)
 
@@ -780,6 +829,8 @@ public:
                 f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{ *dst += lc_remove_nan(grad); }}",
                 file=file)
         non_differentiable_types = [
+            'lc_byte2', 'lc_byte3', 'lc_byte4',
+            'lc_ubyte2', 'lc_ubyte3', 'lc_ubyte4',
             "lc_short", "lc_ushort", "lc_int", "lc_uint", "lc_long", "lc_ulong", "lc_bool",
             "lc_short2", "lc_short3", "lc_short4",
             "lc_ushort2", "lc_ushort3", "lc_ushort4",
@@ -809,6 +860,10 @@ template<class T> using element_type = typename element_type_<T>::type;
             gen_element_type(vt, 'lc_short')
         for vt in ['lc_ushort2', 'lc_ushort3', 'lc_ushort4']:
             gen_element_type(vt, 'lc_ushort')
+        for vt in ['lc_byte2', 'lc_byte3', 'lc_byte4']:
+            gen_element_type(vt, 'lc_byte')
+        for vt in ['lc_ubyte2', 'lc_ubyte3', 'lc_ubyte4']:
+            gen_element_type(vt, 'lc_ubyte')
         for vt in ['lc_int2', 'lc_int3', 'lc_int4']:
             gen_element_type(vt, 'lc_int')
         for vt in ['lc_uint2', 'lc_uint3', 'lc_uint4']:

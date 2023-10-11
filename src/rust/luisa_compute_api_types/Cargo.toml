@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitflags = {version = "2.2.1", features = ["serde"]}
+bitflags = {version = "2.2.3", features = ["serde"]}
 serde = {version = "1.0", features = ["derive"]}
 
 [build-dependencies]

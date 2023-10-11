@@ -28,6 +28,12 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
             Primitive::Bool => {
                 format!("bool({})", if data[0] == 0 { "false" } else { "true" })
             }
+            Primitive::Int8 => {
+                format!("int8_t({})", data[0] as i8)
+            }
+            Primitive::Uint8 => {
+                format!("uint8_t({})", data[0])
+            }
             Primitive::Int16 => {
                 format!("int16_t({})", i16::from_le_bytes([data[0], data[1]]))
             }
@@ -98,6 +104,28 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                             .join(", ")
                     )
                 }
+                Primitive::Int8 => {
+                    format!(
+                        "lc_char{}({})",
+                        len,
+                        data.chunks(1)
+                            .take(len as usize)
+                            .map(|x| format!("{}", x[0] as i8))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+                Primitive::Uint8 => {
+                    format!(
+                        "lc_uchar{}({})",
+                        len,
+                        data.chunks(1)
+                            .take(len as usize)
+                            .map(|x| format!("{}", x[0]))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
                 Primitive::Int16 => {
                     format!(
                         "lc_short{}({})",
@@ -144,7 +172,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                 }
                 Primitive::Int64 => {
                     format!(
-                        "lc_longlong{}({})",
+                        "lc_long{}({})",
                         len,
                         data.chunks(8)
                             .take(len as usize)
@@ -160,7 +188,7 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
                 }
                 Primitive::Uint64 => {
                     format!(
-                        "lc_ulonglong{}({})",
+                        "lc_ulong{}({})",
                         len,
                         data.chunks(8)
                             .take(len as usize)

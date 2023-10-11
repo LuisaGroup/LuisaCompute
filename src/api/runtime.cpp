@@ -206,12 +206,12 @@ private:
                     aabb_count * sizeof(AABB));
             }
             case LC_COMMAND_ACCEL_BUILD: {
-                auto [accel, request, instance_count, api_modifications, modifications_count, update_instance_buffer_only] = cmd.accel_build;
+                auto b = cmd.accel_build;
                 auto modifications = luisa::vector<AccelBuildCommand::Modification>{};
-                modifications.reserve(modifications_count);
-                for (auto i = 0u; i < modifications_count; i++) {
-                    auto [index, flags, visibility, mesh, affine] = api_modifications[i];
-                    AccelBuildCommand::Modification modification{index};
+                modifications.reserve(b.modifications_count);
+                for (auto i = 0u; i < b.modifications_count; i++) {
+                    auto m = b.modifications[i];
+                    AccelBuildCommand::Modification modification{m.index};
 #define LUISA_DEPARANTHESES_IMPL(...) __VA_ARGS__
 #define LUISA_DEPARANTHESES(...) LUISA_DEPARANTHESES_IMPL __VA_ARGS__
                     constexpr auto flag_primitive = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_PRIMITIVE);
@@ -219,35 +219,41 @@ private:
                     constexpr auto flag_opaque_on = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_ON);
                     constexpr auto flag_opaque_off = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_OPAQUE_OFF);
                     constexpr auto flag_visibility = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_VISIBILITY);
+                    constexpr auto flag_user_id = LUISA_DEPARANTHESES(LCAccelBuildModificationFlags_USER_ID);
 #undef LUISA_DEPARANTHESES
 #undef LUISA_DEPARANTHESES_IMPL
-                    if (flags.bits & flag_primitive.bits) {
-                        modification.set_primitive(mesh);
+                    if (m.flags.bits & flag_primitive.bits) {
+                        modification.set_primitive(m.mesh);
                     }
-                    if (flags.bits & flag_transform.bits) {
-                        modification.set_transform_data(affine);
+                    if (m.flags.bits & flag_transform.bits) {
+                        modification.set_transform_data(m.affine);
                     }
-                    if (flags.bits & flag_opaque_on.bits) {
+                    if (m.flags.bits & flag_opaque_on.bits) {
                         modification.set_opaque(true);
-                    } else if (flags.bits & flag_opaque_off.bits) {
+                    } else if (m.flags.bits & flag_opaque_off.bits) {
                         modification.set_opaque(false);
                     }
-                    if (flags.bits & flag_visibility.bits) {
-                        modification.set_visibility(visibility);
+                    if (m.flags.bits & flag_visibility.bits) {
+                        modification.set_visibility(m.visibility);
+                    }
+                    if (m.flags.bits & flag_user_id.bits) {
+                        modification.set_user_id(m.user_id);
                     }
                     modifications.emplace_back(modification);
                 }
-                LUISA_ASSERT(modifications_count == modifications.size(),
+                LUISA_ASSERT(b.modifications_count == modifications.size(),
                              "modifications size mismatch");
                 return luisa::make_unique<AccelBuildCommand>(
-                    accel._0,
-                    instance_count,
-                    convert_accel_request(request),
+                    b.accel._0,
+                    b.instance_count,
+                    convert_accel_request(b.request),
                     std::move(modifications),
-                    update_instance_buffer_only);
+                    b.update_instance_buffer_only);
             }
             default:
-                LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
+                LUISA_ERROR_WITH_LOCATION(
+                    "unimplemented command {}",
+                    luisa::to_underlying(cmd.tag));
         }
     }
 
@@ -626,7 +632,7 @@ LUISA_EXPORT_API void luisa_compute_device_interface_destroy(LCDeviceInterface d
 }
 
 LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCContext ctx, const char *name, const char *config) {
-    LCDeviceInterface interface {};
+    LCDeviceInterface interface{};
     auto device = luisa_compute_device_create(ctx, name, config);
     interface.device = device;
     interface.destroy_device = luisa_compute_device_interface_destroy;
@@ -669,7 +675,7 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
 }
 
 LUISA_EXPORT_API LCLibInterface luisa_compute_lib_interface() {
-    LCLibInterface interface {};
+    LCLibInterface interface{};
     interface.inner = nullptr;
     interface.set_logger_callback = luisa_compute_set_logger_callback;
     interface.create_context = luisa_compute_context_create;

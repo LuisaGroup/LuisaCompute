@@ -2,6 +2,7 @@
 
 #include <type_traits>
 
+#include <luisa/core/basic_traits.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/optional.h>
 
@@ -19,3 +20,14 @@ template<typename T>
 }
 
 }// namespace luisa
+
+#define LUISA_MAGIC_ENUM_RANGE(E, E_MIN, E_MAX)                                        \
+    namespace magic_enum::customize {                                                  \
+    template<>                                                                         \
+    struct enum_range<E> {                                                             \
+        static_assert(::luisa::to_underlying(E::E_MIN) == static_cast<int>(E::E_MIN)); \
+        static_assert(::luisa::to_underlying(E::E_MAX) == static_cast<int>(E::E_MAX)); \
+        static constexpr int min = static_cast<int>(E::E_MIN);                         \
+        static constexpr int max = static_cast<int>(E::E_MAX);                         \
+    };                                                                                 \
+    }

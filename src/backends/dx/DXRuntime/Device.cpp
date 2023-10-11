@@ -57,7 +57,8 @@ hlsl::ShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
 Device::Device(Context &&ctx, DeviceConfig const *settings)
-    : setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
+    : setBindlessKernel(BuiltinKernel::LoadBindlessSetKernel),
+      setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
       bc6TryModeG10(BuiltinKernel::LoadBC6TryModeG10CSKernel),
       bc6TryModeLE10(BuiltinKernel::LoadBC6TryModeLE10CSKernel),
       bc6EncodeBlock(BuiltinKernel::LoadBC6EncodeBlockCSKernel),
@@ -66,7 +67,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
       bc7TryMode02(BuiltinKernel::LoadBC7TryMode02CSKernel),
       bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel) {
     using Microsoft::WRL::ComPtr;
-    size_t index = 0;
+    size_t index{std::numeric_limits<size_t>::max()};
     bool useRuntime = true;
     {
         std::lock_guard lck(gDxcMutex);
@@ -166,7 +167,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             new DescriptorHeap(
                 this,
                 D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                262144,
+                524288,
                 true));
         samplerHeap = vstd::create_unique(
             new DescriptorHeap(

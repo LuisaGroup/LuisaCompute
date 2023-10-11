@@ -10,7 +10,7 @@ import ast
 from .dylibs import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
-from .types import dtype_of, to_lctype, implicit_covertable, basic_dtypes, uint
+from .types import dtype_of, to_lctype, implicit_convertible, basic_dtypes, uint
 from .astbuilder import VariableInfo
 import textwrap
 from pathlib import Path
@@ -55,7 +55,7 @@ def annotation_type_check(funcname, parameters, argtypes):
         if idx >= count:
             break
         anno = parameters[name].annotation
-        if anno != inspect._empty and not implicit_covertable(anno, argtypes[idx]):
+        if anno != inspect._empty and not implicit_convertible(anno, argtypes[idx]):
             hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
             raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
 
@@ -127,6 +127,7 @@ class func:
     def save(self, argtypes: tuple, name=None, async_build: bool = True, print_cpp_header = False):
         global type_idx
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
+        uses_autodiff = "autodiff():" in "".join(self.sourcelines)
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
@@ -144,7 +145,7 @@ class func:
             top = globalvars.current_context
             globalvars.current_context = f
             try:
-                lcapi.begin_analyzer()
+                lcapi.begin_analyzer(not uses_autodiff)
                 astbuilder.build(self.tree.body[0])
             finally:
                 lcapi.end_analyzer()
@@ -289,6 +290,7 @@ class func:
         call_from_host = func_type == 0
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
+        uses_autodiff = "autodiff():" in "".join(self.sourcelines)
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
@@ -307,7 +309,7 @@ class func:
             top = globalvars.current_context
             globalvars.current_context = f
             try:
-                lcapi.begin_analyzer()
+                lcapi.begin_analyzer(not uses_autodiff)
                 astbuilder.build(self.tree.body[0])
             finally:
                 lcapi.end_analyzer()

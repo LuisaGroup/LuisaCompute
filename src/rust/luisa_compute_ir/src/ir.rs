@@ -1,9 +1,11 @@
+use half::f16;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
-use half::f16;
 
+use crate::ast2ir;
 use crate::usage_detect::detect_usage;
 use crate::*;
+use bitflags::bitflags;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
@@ -15,6 +17,8 @@ use std::ops::Deref;
 #[derive(Serialize, Deserialize)]
 pub enum Primitive {
     Bool,
+    Int8,
+    Uint8,
     Int16,
     Uint16,
     Int32,
@@ -33,6 +37,8 @@ impl std::fmt::Display for Primitive {
             "{}",
             match self {
                 Self::Bool => "bool",
+                Self::Int8 => "i8",
+                Self::Uint8 => "u8",
                 Self::Int16 => "i16",
                 Self::Uint16 => "u16",
                 Self::Int32 => "i32",
@@ -74,6 +80,8 @@ impl VectorElementType {
     }
     pub fn is_int(&self) -> bool {
         match self {
+            VectorElementType::Scalar(Primitive::Int8) => true,
+            VectorElementType::Scalar(Primitive::Uint8) => true,
             VectorElementType::Scalar(Primitive::Int16) => true,
             VectorElementType::Scalar(Primitive::Uint16) => true,
             VectorElementType::Scalar(Primitive::Int32) => true,
@@ -208,6 +216,8 @@ impl Primitive {
     pub fn size(&self) -> usize {
         match self {
             Primitive::Bool => 1,
+            Primitive::Int8 => 1,
+            Primitive::Uint8 => 1,
             Primitive::Int16 => 2,
             Primitive::Uint16 => 2,
             Primitive::Int32 => 4,
@@ -243,7 +253,9 @@ impl VectorType {
         match self.element {
             VectorElementType::Scalar(prim) => {
                 let elem_align = prim.size();
-                let aligned_dim = if self.length == 3 { 4 } else {
+                let aligned_dim = if self.length == 3 {
+                    4
+                } else {
                     assert!(self.length >= 2 && self.length <= 4);
                     self.length
                 };
@@ -391,6 +403,13 @@ impl Type {
             length,
         }))
     }
+    pub fn vector_of(element: CArc<Type>, length: u32) -> CArc<Type> {
+        match element.as_ref() {
+            Type::Primitive(v) => Self::vector(*v, length),
+            Type::Vector(v) => Self::vector_vector(CArc::new(v.clone()), length),
+            _ => panic!("Cannot create vector of non-primitive type"),
+        }
+    }
     pub fn matrix(element: Primitive, dimension: u32) -> CArc<Type> {
         context::register_type(Type::Matrix(MatrixType {
             element: VectorElementType::Scalar(element),
@@ -403,6 +422,41 @@ impl Type {
             dimension,
         }))
     }
+    pub fn matrix_of(element: CArc<Type>, dimension: u32) -> CArc<Type> {
+        match element.as_ref() {
+            Type::Primitive(v) => Self::matrix(*v, dimension),
+            Type::Vector(v) => Self::matrix_vector(CArc::new(v.clone()), dimension),
+            _ => panic!("Cannot create matrix of non-primitive type"),
+        }
+    }
+    pub fn array_of(element: CArc<Type>, length: u32) -> CArc<Type> {
+        context::register_type(Type::Array(ArrayType {
+            element,
+            length: length as usize,
+        }))
+    }
+    pub fn struct_of(alignment: u32, members: Vec<CArc<Type>>) -> CArc<Type> {
+        let mut size = 0;
+        let mut align = 0;
+        for member in members.iter() {
+            let a = member.alignment();
+            size = (size + a - 1) / a * a;
+            size += member.size();
+            align = std::cmp::max(align, a);
+        }
+        assert!(
+            align <= alignment as usize,
+            "Struct alignment must be at least as \
+                large as the largest member alignment."
+        );
+        align = alignment as usize;
+        size = (size + align - 1) / align * align;
+        context::register_type(Type::Struct(StructType {
+            fields: CBoxedSlice::new(members),
+            alignment: align,
+            size,
+        }))
+    }
     pub fn is_void(&self) -> bool {
         match self {
             Type::Void => true,
@@ -411,7 +465,7 @@ impl Type {
     }
     pub fn is_opaque(&self, name: &str) -> bool {
         match self {
-            Type::Opaque(name_) => name_.to_string().as_str() == name,
+            Type::Opaque(name_) => name.is_empty() || name_.to_string().as_str() == name,
             _ => false,
         }
     }
@@ -452,13 +506,48 @@ impl Type {
     pub fn is_int(&self) -> bool {
         match self {
             Type::Primitive(p) => match p {
-                Primitive::Int16 | Primitive::Uint16 |
-                Primitive::Int32 | Primitive::Uint32 |
-                Primitive::Int64 | Primitive::Uint64 => true,
+                Primitive::Int8
+                | Primitive::Uint8
+                | Primitive::Int16
+                | Primitive::Uint16
+                | Primitive::Int32
+                | Primitive::Uint32
+                | Primitive::Int64
+                | Primitive::Uint64 => true,
                 _ => false,
             },
             Type::Vector(v) => v.element.is_int(),
             Type::Matrix(m) => m.element.is_int(),
+            _ => false,
+        }
+    }
+    pub fn is_unsigned(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Uint8 | Primitive::Uint16 | Primitive::Uint32 | Primitive::Uint64 => {
+                    true
+                }
+                _ => false,
+            },
+            Type::Vector(v) => v.element.to_type().is_unsigned(),
+            Type::Matrix(m) => m.element.to_type().is_unsigned(),
+            _ => false,
+        }
+    }
+    pub fn is_signed(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Int8
+                | Primitive::Int16
+                | Primitive::Int32
+                | Primitive::Int64
+                | Primitive::Float16
+                | Primitive::Float32
+                | Primitive::Float64 => true,
+                _ => false,
+            },
+            Type::Vector(v) => v.element.to_type().is_signed(),
+            Type::Matrix(m) => m.element.to_type().is_signed(),
             _ => false,
         }
     }
@@ -504,7 +593,6 @@ impl Node {
     }
 }
 
-
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize)]
 #[repr(C)]
 pub enum Func {
@@ -521,6 +609,13 @@ pub enum Func {
     DispatchId,
     DispatchSize,
 
+    // Forward AD
+    /// (input, grads, ...) -> ()
+    PropagateGrad,
+    /// (var, idx) -> dvar/dinput_{idx}
+    OutputGrad,
+
+    // Reverse AD
     RequiresGradient,
     Backward,
     // marks the beginning of backward pass
@@ -533,9 +628,12 @@ pub enum Func {
 
     // (handle, instance_id) -> Mat4
     RayTracingInstanceTransform,
+    RayTracingInstanceVisibilityMask,
+    RayTracingInstanceUserId,
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,
+    RayTracingSetInstanceUserId,
     // (handle, Ray, mask) -> Hit
     // struct Ray alignas(16) { float origin[3], tmin; float direction[3], tmax; };
     // struct Hit alignas(16) { uint inst; uint prim; float u; float v; };
@@ -676,6 +774,7 @@ pub enum Func {
     LengthSquared,
     Normalize,
     Faceforward,
+    Distance,
     // reflect(i, n) => i - 2 * dot(n, i) * n
     Reflect,
 
@@ -705,7 +804,8 @@ pub enum Func {
     WarpReadFirstLane,
 
     SynchronizeBlock,
-
+    /// (buffer/smem, indices...): do not appear in the final IR, but will be lowered to an Atomic* instruction
+    AtomicRef,
     /// (buffer/smem, indices..., desired) -> old: stores desired, returns old.
     AtomicExchange,
     /// (buffer/smem, indices..., expected, desired) -> old: stores (old == expected ? desired : old), returns old.
@@ -731,14 +831,24 @@ pub enum Func {
     BufferWrite,
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
+    /// (buffer, index_bytes) -> value
+    ByteBufferRead,
+    /// (buffer, index_bytes, value) -> void
+    ByteBufferWrite,
+    /// buffer -> size in bytes
+    ByteBufferSize,
     /// (texture, coord) -> value
     Texture2dRead,
     /// (texture, coord, value) -> void
     Texture2dWrite,
+    /// (texture) -> uint2
+    Texture2dSize,
     /// (texture, coord) -> value
     Texture3dRead,
     /// (texture, coord, value) -> void
     Texture3dWrite,
+    /// (texture) -> uint3
+    Texture3dSize,
     ///(bindless_array, index: uint, uv: float2) -> float4
     BindlessTexture2dSample,
     ///(bindless_array, index: uint, uv: float2, level: float) -> float4
@@ -773,10 +883,15 @@ pub enum Func {
     BindlessTexture3dSizeLevel,
     /// (bindless_array, index: uint, element: uint) -> T
     BindlessBufferRead,
+    /// (bindless_array, index: uint, element: uint, value: T) -> void
+    BindlessBufferWrite,
     /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
     BindlessBufferSize,
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
+    // (bindless_array, index: uint, offset_bytes: uint) -> T
+    BindlessByteBufferRead,
+    // (bindless_array, index: uint, offset_bytes: uint, value: T) -> void
 
     // scalar -> vector, the resulting type is stored in node
     Vec,
@@ -789,11 +904,11 @@ pub enum Func {
 
     // (vector, indices,...) -> vector
     Permute,
-    // (vector, scalar, index) -> vector
+    // (vector, scalar, indices...) -> vector
     InsertElement,
-    // (vector, index) -> scalar
+    // (vector, indices...) -> scalar
     ExtractElement,
-    //(struct, index) -> value; the value can be passed to an Update instruction
+    //(struct, indices, ...) -> value; the value can be passed to an Update instruction
     GetElementPtr,
     // (fields, ...) -> struct
     Struct,
@@ -827,6 +942,8 @@ pub enum Const {
     Zero(CArc<Type>),
     One(CArc<Type>),
     Bool(bool),
+    Int8(i8),
+    Uint8(u8),
     Int16(i16),
     Uint16(u16),
     Int32(i32),
@@ -845,6 +962,8 @@ impl std::fmt::Display for Const {
             Const::Zero(t) => write!(f, "0_{}", t),
             Const::One(t) => write!(f, "1_{}", t),
             Const::Bool(b) => write!(f, "{}", b),
+            Const::Int8(i) => write!(f, "{}", i),
+            Const::Uint8(u) => write!(f, "{}", u),
             Const::Int16(i) => write!(f, "{}", i),
             Const::Uint16(u) => write!(f, "{}", u),
             Const::Int32(i) => write!(f, "{}", i),
@@ -862,6 +981,8 @@ impl std::fmt::Display for Const {
 impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
+            Const::Int8(v) => *v as i32,
+            Const::Uint8(v) => *v as i32,
             Const::Int16(v) => *v as i32,
             Const::Uint16(v) => *v as i32,
             Const::Int32(v) => *v,
@@ -903,6 +1024,8 @@ impl Const {
             Const::Zero(ty) => ty.clone(),
             Const::One(ty) => ty.clone(),
             Const::Bool(_) => <bool as TypeOf>::type_(),
+            Const::Int8(_) => <i8 as TypeOf>::type_(),
+            Const::Uint8(_) => <u8 as TypeOf>::type_(),
             Const::Int16(_) => <i16 as TypeOf>::type_(),
             Const::Uint16(_) => <u16 as TypeOf>::type_(),
             Const::Int32(_) => <i32 as TypeOf>::type_(),
@@ -1064,11 +1187,17 @@ pub enum Instruction {
     },
     AdScope {
         body: Pooled<BasicBlock>,
+        forward: bool,
+        n_forward_grads: usize,
     },
     RayQuery {
         ray_query: NodeRef,
         on_triangle_hit: Pooled<BasicBlock>,
         on_procedural_hit: Pooled<BasicBlock>,
+    },
+    Print {
+        fmt: CBoxedSlice<u8>,
+        args: CBoxedSlice<NodeRef>,
     },
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
@@ -1160,6 +1289,14 @@ impl_userdata!(bool);
 pub struct BasicBlock {
     pub(crate) first: NodeRef,
     pub(crate) last: NodeRef,
+}
+impl BasicBlock {
+    pub fn first(&self) -> NodeRef {
+        self.first
+    }
+    pub fn last(&self) -> NodeRef {
+        self.last
+    }
 }
 
 #[derive(Serialize)]
@@ -1275,21 +1412,29 @@ impl BasicBlock {
     /// split the block into two at @at
     /// @at is not transfered into the other block
     pub fn split(&self, at: NodeRef, pools: &CArc<ModulePools>) -> Pooled<BasicBlock> {
+        #[cfg(debug_assertions)]
+        {
+            let nodes = self.nodes();
+            assert!(nodes.contains(&at));
+        }
         let new_bb_start = at.get().next;
         let second_last = self.last.get().prev;
         let new_bb = pools.bb_pool.alloc(BasicBlock::new(pools));
-        new_bb.first.update(|first| {
-            first.next = new_bb_start;
-        });
-        new_bb.last.update(|last| {
-            last.prev = second_last;
-        });
-        second_last.update(|node| {
-            node.next = new_bb.last;
-        });
-        new_bb_start.update(|node| {
-            node.prev = new_bb.first;
-        });
+        if new_bb_start != self.last {
+            new_bb.first.update(|first| {
+                first.next = new_bb_start;
+            });
+            new_bb.last.update(|last| {
+                last.prev = second_last;
+            });
+            second_last.update(|node| {
+                node.next = new_bb.last;
+            });
+            new_bb_start.update(|node| {
+                node.prev = new_bb.first;
+            });
+        }
+
         at.update(|at| {
             at.next = self.last;
         });
@@ -1349,6 +1494,12 @@ impl NodeRef {
             _ => false,
         }
     }
+    pub fn is_atomic_ref(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Call(Func::AtomicRef, _) => true,
+            _ => false,
+        }
+    }
     pub fn is_argument(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Argument { .. } => true,
@@ -1364,6 +1515,12 @@ impl NodeRef {
     pub fn is_refernece_argument(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Argument { by_value } => !*by_value,
+            _ => false,
+        }
+    }
+    pub fn is_gep(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Call(Func::GetElementPtr, _) => true,
             _ => false,
         }
     }
@@ -1454,7 +1611,8 @@ impl NodeRef {
     pub fn is_lvalue(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Local { .. } => true,
-            Instruction::Argument { by_value, .. } => !by_value,
+            Instruction::Argument { by_value } => !by_value,
+            Instruction::Shared => true,
             Instruction::Call(f, _) => *f == Func::GetElementPtr,
             _ => false,
         }
@@ -1468,12 +1626,22 @@ pub enum ModuleKind {
     Function,
     Kernel,
 }
-
+bitflags! {
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct ModuleFlags : u32 {
+        const NONE = 0;
+        const REQUIRES_REV_AD_TRANSFORM = 1;
+        const REQUIRES_FWD_AD_TRANSFORM = 2;
+    }
+}
 #[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct Module {
     pub kind: ModuleKind,
     pub entry: Pooled<BasicBlock>,
+    pub flags: ModuleFlags,
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
@@ -1593,16 +1761,6 @@ pub struct BlockModule {
 
 unsafe impl Send for BlockModule {}
 
-impl Module {
-    pub fn from_fragment(entry: Pooled<BasicBlock>, pools: CArc<ModulePools>) -> Self {
-        Self {
-            kind: ModuleKind::Block,
-            entry,
-            pools,
-        }
-    }
-}
-
 struct NodeCollector {
     nodes: Vec<NodeRef>,
     unique: HashSet<NodeRef>,
@@ -1628,7 +1786,7 @@ impl NodeCollector {
         self.nodes.push(node_ref);
         let inst = node_ref.get().instruction.as_ref();
         match inst {
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, .. } => {
                 self.visit_block(*body);
             }
             Instruction::If {
@@ -1722,7 +1880,8 @@ impl ModuleDuplicator {
             }
         });
         let dup_callable = CArc::new(dup_callable);
-        self.callables.insert(callable.as_ptr(), dup_callable.clone());
+        self.callables
+            .insert(callable.as_ptr(), dup_callable.clone());
         dup_callable
     }
 
@@ -1738,44 +1897,68 @@ impl ModuleDuplicator {
             Instruction::Shared => instr.clone(),
             Instruction::Uniform => instr.clone(),
             Instruction::Argument { .. } => CArc::new(instr.as_ref().clone()),
-            _ => unreachable!("invalid argument type")
+            _ => unreachable!("invalid argument type"),
         };
         let dup_node = Node::new(dup_instr, node.type_.clone());
         let dup_node_ref = new_node(pools, dup_node);
         // add to node map
-        self.current.as_mut().unwrap().nodes.insert(node_ref, dup_node_ref);
+        self.current
+            .as_mut()
+            .unwrap()
+            .nodes
+            .insert(node_ref, dup_node_ref);
         dup_node_ref
     }
 
-    fn duplicate_args(&mut self, pools: &CArc<ModulePools>, args: &CBoxedSlice<NodeRef>) -> CBoxedSlice<NodeRef> {
-        let dup_args: Vec<_> = args.iter().map(|arg| {
-            self.duplicate_arg(pools, arg.clone())
-        }).collect();
+    fn duplicate_args(
+        &mut self,
+        pools: &CArc<ModulePools>,
+        args: &CBoxedSlice<NodeRef>,
+    ) -> CBoxedSlice<NodeRef> {
+        let dup_args: Vec<_> = args
+            .iter()
+            .map(|arg| self.duplicate_arg(pools, arg.clone()))
+            .collect();
         CBoxedSlice::new(dup_args)
     }
 
-    fn duplicate_captures(&mut self, pools: &CArc<ModulePools>, captures: &CBoxedSlice<Capture>) -> CBoxedSlice<Capture> {
-        let dup_captures: Vec<_> = captures.iter().map(|capture| {
-            Capture {
+    fn duplicate_captures(
+        &mut self,
+        pools: &CArc<ModulePools>,
+        captures: &CBoxedSlice<Capture>,
+    ) -> CBoxedSlice<Capture> {
+        let dup_captures: Vec<_> = captures
+            .iter()
+            .map(|capture| Capture {
                 node: self.duplicate_arg(pools, capture.node.clone()),
                 binding: capture.binding.clone(),
-            }
-        }).collect();
+            })
+            .collect();
         CBoxedSlice::new(dup_captures)
     }
 
-    fn duplicate_shared(&mut self, pools: &CArc<ModulePools>, shared: &CBoxedSlice<NodeRef>) -> CBoxedSlice<NodeRef> {
-        let dup_shared: Vec<_> = shared.iter().map(|node| {
-            self.duplicate_arg(pools, node.clone())
-        }).collect();
+    fn duplicate_shared(
+        &mut self,
+        pools: &CArc<ModulePools>,
+        shared: &CBoxedSlice<NodeRef>,
+    ) -> CBoxedSlice<NodeRef> {
+        let dup_shared: Vec<_> = shared
+            .iter()
+            .map(|node| self.duplicate_arg(pools, node.clone()))
+            .collect();
         CBoxedSlice::new(dup_shared)
     }
 
     fn duplicate_node(&mut self, builder: &mut IrBuilder, node_ref: NodeRef) -> NodeRef {
-        if !node_ref.valid() { return INVALID_REF; }
+        if !node_ref.valid() {
+            return INVALID_REF;
+        }
         let node = node_ref.get();
-        assert!(!self.current.as_ref().unwrap().nodes.contains_key(&node_ref),
-                "Node {:?} has already been duplicated", node);
+        assert!(
+            !self.current.as_ref().unwrap().nodes.contains_key(&node_ref),
+            "Node {:?} has already been duplicated",
+            node
+        );
         let dup_node = match node.instruction.as_ref() {
             Instruction::Buffer => unreachable!("Buffer should be handled by duplicate_args"),
             Instruction::Bindless => unreachable!("Bindless should be handled by duplicate_args"),
@@ -1784,13 +1967,17 @@ impl ModuleDuplicator {
             Instruction::Accel => unreachable!("Accel should be handled by duplicate_args"),
             Instruction::Shared => unreachable!("Shared should be handled by duplicate_shared"),
             Instruction::Uniform => unreachable!("Uniform should be handled by duplicate_args"),
-            Instruction::Argument { .. } => unreachable!("Argument should be handled by duplicate_args"),
+            Instruction::Argument { .. } => {
+                unreachable!("Argument should be handled by duplicate_args")
+            }
             Instruction::Local { init } => {
                 let dup_init = self.find_duplicated_node(*init);
                 builder.local(dup_init)
             }
             Instruction::UserData(data) => builder.userdata(data.clone()),
-            Instruction::Invalid => unreachable!("Invalid node should not appear in non-sentinel nodes"),
+            Instruction::Invalid => {
+                unreachable!("Invalid node should not appear in non-sentinel nodes")
+            }
             Instruction::Const(const_) => builder.const_(const_.clone()),
             Instruction::Update { var, value } => {
                 let dup_var = self.find_duplicated_node(*var);
@@ -1803,20 +1990,26 @@ impl ModuleDuplicator {
                         let dup_callable = self.duplicate_callable(&callable.0);
                         Func::Callable(CallableModuleRef(dup_callable))
                     }
-                    _ => func.clone()
+                    _ => func.clone(),
                 };
-                let dup_args: Vec<_> = args.iter().map(|arg| self.find_duplicated_node(*arg)).collect();
+                let dup_args: Vec<_> = args
+                    .iter()
+                    .map(|arg| self.find_duplicated_node(*arg))
+                    .collect();
                 builder.call(dup_func, dup_args.as_slice(), node.type_.clone())
             }
             Instruction::Phi(incomings) => {
-                let dup_incomings: Vec<_> = incomings.iter().map(|incoming| {
-                    let dup_block = self.find_duplicated_block(&incoming.block);
-                    let dup_value = self.find_duplicated_node(incoming.value);
-                    PhiIncoming {
-                        value: dup_value,
-                        block: dup_block,
-                    }
-                }).collect();
+                let dup_incomings: Vec<_> = incomings
+                    .iter()
+                    .map(|incoming| {
+                        let dup_block = self.find_duplicated_block(&incoming.block);
+                        let dup_value = self.find_duplicated_node(incoming.value);
+                        PhiIncoming {
+                            value: dup_value,
+                            block: dup_block,
+                        }
+                    })
+                    .collect();
                 builder.phi(dup_incomings.as_slice(), node.type_.clone())
             }
             Instruction::Return(value) => {
@@ -1828,7 +2021,12 @@ impl ModuleDuplicator {
                 let dup_cond = self.find_duplicated_node(*cond);
                 builder.loop_(dup_body, dup_cond)
             }
-            Instruction::GenericLoop { prepare, cond, body, update } => {
+            Instruction::GenericLoop {
+                prepare,
+                cond,
+                body,
+                update,
+            } => {
                 let dup_prepare = self.duplicate_block(&builder.pools, prepare);
                 let dup_body = self.duplicate_block(&builder.pools, body);
                 let dup_update = self.duplicate_block(&builder.pools, update);
@@ -1837,42 +2035,81 @@ impl ModuleDuplicator {
             }
             Instruction::Break => builder.break_(),
             Instruction::Continue => builder.continue_(),
-            Instruction::If { cond, true_branch, false_branch } => {
+            Instruction::If {
+                cond,
+                true_branch,
+                false_branch,
+            } => {
                 let dup_cond = self.find_duplicated_node(*cond);
                 let dup_true_branch = self.duplicate_block(&builder.pools, true_branch);
                 let dup_false_branch = self.duplicate_block(&builder.pools, false_branch);
                 builder.if_(dup_cond, dup_true_branch, dup_false_branch)
             }
-            Instruction::Switch { value, cases, default } => {
+            Instruction::Switch {
+                value,
+                cases,
+                default,
+            } => {
                 let dup_value = self.find_duplicated_node(*value);
-                let dup_cases: Vec<_> = cases.iter().map(|case| {
-                    let dup_block = self.duplicate_block(&builder.pools, &case.block);
-                    SwitchCase {
-                        value: case.value,
-                        block: dup_block,
-                    }
-                }).collect();
+                let dup_cases: Vec<_> = cases
+                    .iter()
+                    .map(|case| {
+                        let dup_block = self.duplicate_block(&builder.pools, &case.block);
+                        SwitchCase {
+                            value: case.value,
+                            block: dup_block,
+                        }
+                    })
+                    .collect();
                 let dup_default = self.duplicate_block(&builder.pools, default);
                 builder.switch(dup_value, dup_cases.as_slice(), dup_default)
             }
-            Instruction::AdScope { body } => {
+            Instruction::AdScope {
+                body,
+                forward,
+                n_forward_grads,
+            } => {
                 let dup_body = self.duplicate_block(&builder.pools, body);
-                builder.ad_scope(dup_body)
+                if *forward {
+                    builder.fwd_ad_scope(dup_body, *n_forward_grads)
+                } else {
+                    builder.ad_scope(dup_body)
+                }
             }
-            Instruction::RayQuery { ray_query, on_triangle_hit, on_procedural_hit } => {
+            Instruction::RayQuery {
+                ray_query,
+                on_triangle_hit,
+                on_procedural_hit,
+            } => {
                 let dup_ray_query = self.find_duplicated_node(*ray_query);
                 let dup_on_triangle_hit = self.duplicate_block(&builder.pools, on_triangle_hit);
                 let dup_on_procedural_hit = self.duplicate_block(&builder.pools, on_procedural_hit);
-                builder.ray_query(dup_ray_query, dup_on_triangle_hit, dup_on_procedural_hit, node.type_.clone())
+                builder.ray_query(
+                    dup_ray_query,
+                    dup_on_triangle_hit,
+                    dup_on_procedural_hit,
+                    node.type_.clone(),
+                )
             }
             Instruction::AdDetach(body) => {
                 let dup_body = self.duplicate_block(&builder.pools, body);
                 builder.ad_detach(dup_body)
             }
             Instruction::Comment(msg) => builder.comment(msg.clone()),
+            Instruction::Print { fmt, args } => {
+                let args = args
+                    .iter()
+                    .map(|x| self.find_duplicated_node(*x))
+                    .collect::<Vec<_>>();
+                builder.print(fmt.clone(), &args)
+            }
         };
         // insert the duplicated node into the map
-        self.current.as_mut().unwrap().nodes.insert(node_ref, dup_node);
+        self.current
+            .as_mut()
+            .unwrap()
+            .nodes
+            .insert(node_ref, dup_node);
         dup_node
     }
 
@@ -1882,19 +2119,39 @@ impl ModuleDuplicator {
     }
 
     fn find_duplicated_node(&self, node: NodeRef) -> NodeRef {
-        if !node.valid() { return INVALID_REF; }
+        if !node.valid() {
+            return INVALID_REF;
+        }
         let ctx = self.current.as_ref().unwrap();
         ctx.nodes.get(&node).unwrap().clone()
     }
 
-    fn duplicate_block(&mut self, pools: &CArc<ModulePools>, bb: &Pooled<BasicBlock>) -> Pooled<BasicBlock> {
-        assert!(!self.current.as_ref().unwrap().blocks.contains_key(&bb.as_ptr()),
-                "Basic block {:?} has already been duplicated", bb);
+    fn duplicate_block(
+        &mut self,
+        pools: &CArc<ModulePools>,
+        bb: &Pooled<BasicBlock>,
+    ) -> Pooled<BasicBlock> {
+        assert!(
+            !self
+                .current
+                .as_ref()
+                .unwrap()
+                .blocks
+                .contains_key(&bb.as_ptr()),
+            "Basic block {:?} has already been duplicated",
+            bb
+        );
         let mut builder = IrBuilder::new(pools.clone());
-        bb.iter().for_each(|node| { self.duplicate_node(&mut builder, node); });
+        bb.iter().for_each(|node| {
+            self.duplicate_node(&mut builder, node);
+        });
         let dup_bb = builder.finish();
         // insert the duplicated block into the map
-        self.current.as_mut().unwrap().blocks.insert(bb.as_ptr(), dup_bb.clone());
+        self.current
+            .as_mut()
+            .unwrap()
+            .blocks
+            .insert(bb.as_ptr(), dup_bb.clone());
         dup_bb
     }
 
@@ -1922,6 +2179,7 @@ impl ModuleDuplicator {
             kind: module.kind,
             entry: dup_entry,
             pools: module.pools.clone(),
+            flags: module.flags,
         }
     }
 }
@@ -1947,6 +2205,13 @@ impl IrBuilder {
     pub fn pools(&self) -> &CArc<ModulePools> {
         &self.pools
     }
+    pub fn new_without_bb(pools: CArc<ModulePools>) -> Self {
+        Self {
+            bb: Pooled::null(),
+            insert_point: INVALID_REF,
+            pools,
+        }
+    }
     pub fn new(pools: CArc<ModulePools>) -> Self {
         let bb = pools.bb_pool.alloc(BasicBlock::new(&pools));
         let insert_point = bb.first;
@@ -1956,8 +2221,21 @@ impl IrBuilder {
             pools,
         }
     }
+    pub fn bb(&self) -> Pooled<BasicBlock> {
+        self.bb
+    }
     pub fn set_insert_point(&mut self, node: NodeRef) {
+        assert!(node.valid());
         self.insert_point = node;
+    }
+    pub fn set_insert_point_to_end(&mut self) {
+        assert!(!self.bb.as_ptr().is_null());
+        while self.insert_point.get().next != self.bb.last {
+            self.insert_point = self.insert_point.get().next;
+        }
+    }
+    pub fn get_insert_point(&self) -> NodeRef {
+        self.insert_point
     }
     pub fn append(&mut self, node: NodeRef) {
         self.insert_point.insert_after_self(node);
@@ -1971,6 +2249,20 @@ impl IrBuilder {
         let new_node = new_node(
             &self.pools,
             Node::new(CArc::new(Instruction::Comment(msg)), Type::void()),
+        );
+        self.append(new_node);
+        new_node
+    }
+    pub fn print(&mut self, fmt: CBoxedSlice<u8>, args: &[NodeRef]) -> NodeRef {
+        let new_node = new_node(
+            &self.pools,
+            Node::new(
+                CArc::new(Instruction::Print {
+                    fmt,
+                    args: CBoxedSlice::new(args.to_vec()),
+                }),
+                Type::void(),
+            ),
         );
         self.append(new_node);
         new_node
@@ -2020,18 +2312,20 @@ impl IrBuilder {
         let node = node.get();
         let new_node = new_node(
             &self.pools,
-            Node::new(CArc::new(node.instruction.as_ref().clone()), node.type_.clone()),
+            Node::new(
+                CArc::new(node.instruction.as_ref().clone()),
+                node.type_.clone(),
+            ),
         );
         self.append(new_node);
         new_node
     }
     pub fn load(&mut self, var: NodeRef) -> NodeRef {
-        assert!(var.is_lvalue());
+        assert!(var.is_lvalue(), "{:?}", var.get().instruction.as_ref());
         let node = Node::new(
-            CArc::new(Instruction::Call(
-                Func::Load,
-                CBoxedSlice::new(vec![var]))),
-            var.type_().clone());
+            CArc::new(Instruction::Call(Func::Load, CBoxedSlice::new(vec![var]))),
+            var.type_().clone(),
+        );
         let node = new_node(&self.pools, node);
         self.append(node.clone());
         node
@@ -2055,16 +2349,32 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
-    pub fn store(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
-        assert!(var.is_lvalue());
-        let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
-        let node = new_node(&self.pools, node);
-        self.append(node);
-        node
-    }
     pub fn extract(&mut self, node: NodeRef, index: usize, ret_type: CArc<Type>) -> NodeRef {
+        match node.type_().as_ref() {
+            Type::Vector(vt) => assert_eq!(vt.element.to_type(), ret_type),
+            Type::Matrix(mt) => assert_eq!(mt.column(), ret_type),
+            Type::Struct(st) => assert_eq!(st.fields[index], ret_type),
+            Type::Array(at) => assert_eq!(at.element, ret_type),
+            Type::Opaque(_) => {}
+            _ => panic!("Invalid type for extract"),
+        }
         let c = self.const_(Const::Int32(index as i32));
         self.call(Func::ExtractElement, &[node, c], ret_type)
+    }
+    pub fn extract_dynamic(
+        &mut self,
+        node: NodeRef,
+        index: NodeRef,
+        ret_type: CArc<Type>,
+    ) -> NodeRef {
+        match node.type_().as_ref() {
+            Type::Vector(vt) => assert_eq!(vt.element.to_type(), ret_type),
+            Type::Matrix(mt) => assert_eq!(mt.column(), ret_type),
+            Type::Array(at) => assert_eq!(at.element, ret_type),
+            Type::Opaque(_) => {}
+            _ => panic!("Invalid type for extract with dynamic index"),
+        }
+        self.call(Func::ExtractElement, &[node, index], ret_type)
     }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
         let node = Node::new(
@@ -2075,13 +2385,69 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
+    pub fn call_no_append(
+        &mut self,
+        func: Func,
+        args: &[NodeRef],
+        ret_type: CArc<Type>,
+    ) -> NodeRef {
+        let node = Node::new(
+            CArc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
+            ret_type,
+        );
+        let node = new_node(&self.pools, node);
+        node
+    }
     pub fn cast(&mut self, node: NodeRef, t: CArc<Type>) -> NodeRef {
         self.call(Func::Cast, &[node], t)
     }
     pub fn bitcast(&mut self, node: NodeRef, t: CArc<Type>) -> NodeRef {
         self.call(Func::Bitcast, &[node], t)
     }
+    pub fn gep(&mut self, this: NodeRef, indices: &[NodeRef], t: CArc<Type>) -> NodeRef {
+        assert!(this.is_lvalue());
+        let mut e = Some(this.type_().clone());
+        indices.iter().for_each(|i| {
+            if let Some(ee) = &e {
+                e = match ee.as_ref() {
+                    Type::Vector(vt) => Some(vt.element.to_type()),
+                    Type::Matrix(mt) => Some(mt.column()),
+                    Type::Array(at) => Some(at.element.clone()),
+                    Type::Struct(st) => Some(st.fields[i.get_i32() as usize].clone()),
+                    Type::Opaque(_) => None,
+                    _ => panic!(
+                        "Invalid type {:?} for GEP with dynamic indices",
+                        this.type_()
+                    ),
+                };
+            };
+        });
+        if let Some(e) = e {
+            assert_eq!(e, t);
+        }
+        self.call(Func::GetElementPtr, &[&[this], indices].concat(), t)
+    }
+    // append the indices to this if it's a gep; otherwise behave like gep
+    pub fn gep_chained(&mut self, this: NodeRef, indices: &[NodeRef], t: CArc<Type>) -> NodeRef {
+        match this.get().instruction.as_ref() {
+            Instruction::Call(func, args) => match func {
+                Func::GetElementPtr => {
+                    let this = args[0];
+                    let indices = [&args[1..], indices].concat();
+                    self.gep(this, &indices, t)
+                }
+                _ => self.gep(this, indices, t),
+            },
+            _ => self.gep(this, indices, t),
+        }
+    }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) -> NodeRef {
+        assert!(
+            context::is_type_equal(var.type_(), value.type_()),
+            "type mismatch {} {}",
+            var.type_(),
+            value.type_()
+        );
         match var.get().instruction.as_ref() {
             Instruction::Local { .. } => {}
             Instruction::Argument { by_value } => {
@@ -2176,7 +2542,27 @@ impl IrBuilder {
         node
     }
     pub fn ad_scope(&mut self, body: Pooled<BasicBlock>) -> NodeRef {
-        let node = Node::new(CArc::new(Instruction::AdScope { body }), Type::void());
+        let node = Node::new(
+            CArc::new(Instruction::AdScope {
+                body,
+                forward: false,
+                n_forward_grads: 0,
+            }),
+            Type::void(),
+        );
+        let node = new_node(&self.pools, node);
+        self.append(node);
+        node
+    }
+    pub fn fwd_ad_scope(&mut self, body: Pooled<BasicBlock>, n_grads: usize) -> NodeRef {
+        let node = Node::new(
+            CArc::new(Instruction::AdScope {
+                body,
+                forward: true,
+                n_forward_grads: n_grads,
+            }),
+            Type::void(),
+        );
         let node = new_node(&self.pools, node);
         self.append(node);
         node
@@ -2283,7 +2669,7 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
                         "Requested resource {} not exist in usage map",
                         captured.node.0
                     )
-                        .as_str(),
+                    .as_str(),
                 )
                 .to_u8(),
         );
@@ -2467,7 +2853,9 @@ pub extern "C" fn luisa_compute_ir_new_instruction(
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_callable_module(m: CallableModule) -> *mut CArcSharedBlock<CallableModule> {
+pub extern "C" fn luisa_compute_ir_new_callable_module(
+    m: CallableModule,
+) -> *mut CArcSharedBlock<CallableModule> {
     CArc::into_raw(CArc::new(m))
 }
 
@@ -2490,6 +2878,8 @@ pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBl
     CArc::into_raw(context::register_type(ty.clone()))
 }
 
+// #[no_mangle]
+// pub extern "C"
 pub mod debug {
     use crate::display::DisplayIR;
     use std::ffi::CString;
@@ -2528,6 +2918,33 @@ pub mod debug {
         let s = d.display_ir(module);
         let cstring = CString::new(s).unwrap();
         CBoxedSlice::new(cstring.as_bytes().to_vec())
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_ast_json_to_ir_kernel(
+        j: CBoxedSlice<u8>,
+    ) -> *mut CArcSharedBlock<KernelModule> {
+        let j = j.to_string();
+        let kernel = ast2ir::convert_ast_to_ir_kernel(j);
+        CArc::into_raw(kernel)
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_ast_json_to_ir_callable(
+        j: CBoxedSlice<u8>,
+    ) -> *mut CArcSharedBlock<CallableModule> {
+        let j = j.to_string();
+        let callable = ast2ir::convert_ast_to_ir_callable(j);
+        CArc::into_raw(callable)
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_ast_json_to_ir_type(
+        j: CBoxedSlice<u8>,
+    ) -> *mut CArcSharedBlock<Type> {
+        let j = j.to_string();
+        let ty = ast2ir::convert_ast_to_ir_type(j);
+        CArc::into_raw(ty)
     }
 }
 

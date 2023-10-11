@@ -3,12 +3,13 @@ pub mod canonicalize_control_flow;
 pub mod ssa;
 // pub mod validate;
 pub mod vectorize;
-pub mod eval;
+// pub mod eval;
+pub mod fwd_autodiff;
 pub mod ref2ret;
-
 pub mod reg2mem;
 
-use crate::ir;
+use crate::ir::{self, ModuleFlags};
+use bitflags::Flags;
 
 pub trait Transform {
     fn transform(&self, module: ir::Module) -> ir::Module;
@@ -56,7 +57,7 @@ pub extern "C" fn luisa_compute_ir_transform_pipeline_add_transform(
             let transform = ssa::ToSSA;
             unsafe { (*pipeline).add_transform(Box::new(transform)) };
         }
-        "canonicalize_control_flow"=>{
+        "canonicalize_control_flow" => {
             let transform = canonicalize_control_flow::CanonicalizeControlFlow;
             unsafe { (*pipeline).add_transform(Box::new(transform)) };
         }
@@ -92,4 +93,18 @@ pub extern "C" fn luisa_compute_ir_transform_pipeline_destroy(pipeline: *mut Tra
     unsafe {
         std::mem::drop(Box::from_raw(pipeline));
     }
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_transform_auto(module: ir::Module) -> ir::Module {
+    let flags = module.flags;
+    // dbg!(flags);
+    let mut pipeline = TransformPipeline::new();
+    if flags.contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM) {
+        pipeline.add_transform(Box::new(autodiff::Autodiff));
+    }
+    if flags.contains(ModuleFlags::REQUIRES_FWD_AD_TRANSFORM) {
+        pipeline.add_transform(Box::new(fwd_autodiff::FwdAutodiff));
+    }
+    pipeline.transform(module)
 }

@@ -85,6 +85,14 @@ private:
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
     luisa::vector<Binding> _bound_arguments;
+    luisa::unordered_map<
+        const Expression * /* external */,
+        const Expression * /* internal */>
+        _captured_external_variables;
+    luisa::unordered_map<
+        Variable /* argument */,
+        const Expression * /* captured */>
+        _internalizer_arguments;
     luisa::vector<luisa::shared_ptr<const ExternalFunction>> _used_external_functions;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Variable> _local_variables;
@@ -103,7 +111,7 @@ private:
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
-
+    [[nodiscard]] const Expression *_internalize(const Expression *expr) noexcept;
     void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const RefExpr *_builtin(Type const *type, Variable::Tag tag) noexcept;
@@ -167,6 +175,8 @@ public:
      * @return FunctionBuilder* 
      */
     [[nodiscard]] static FunctionBuilder *current() noexcept;
+    [[nodiscard]] static FunctionBuilder *current_or_null() noexcept;
+    [[nodiscard]] static luisa::span<const FunctionBuilder *const> stack() noexcept;
 
     // interfaces for class Function
     /// Return a span of builtin variables.
@@ -301,6 +311,10 @@ public:
     [[nodiscard]] const Expression *swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept;
     /// Create access expression
     [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
+    /// Create string ID expression
+    [[nodiscard]] const StringIDExpr *string_id(luisa::string s) noexcept;
+    /// Create type ID expression
+    [[nodiscard]] const TypeIDExpr *type_id(const Type *payload) noexcept;
     /// Create cast expression
     [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
     /// Create call expression

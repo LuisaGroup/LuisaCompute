@@ -1,5 +1,6 @@
 #include <array>
 
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
 
@@ -26,8 +27,12 @@ inline auto to_string(T x) noexcept {
 
 }// namespace detail
 
-StringScratch::StringScratch(size_t reserved_size) noexcept { _buffer.reserve(reserved_size); }
-StringScratch::StringScratch() noexcept : StringScratch{4_k} {}
+StringScratch::StringScratch(size_t reserved_size) noexcept {
+    _buffer.reserve(luisa::align(reserved_size, 256u) -
+                    1u /* count for the trailing zero */);
+}
+
+StringScratch::StringScratch() noexcept : StringScratch{std::min<size_t>(luisa::pagesize(), 4_k)} {}
 StringScratch &StringScratch::operator<<(std::string_view s) noexcept { return _buffer.append(s), *this; }
 StringScratch &StringScratch::operator<<(const char *s) noexcept { return *this << std::string_view{s}; }
 StringScratch &StringScratch::operator<<(const std::string &s) noexcept { return *this << std::string_view{s}; }
@@ -47,4 +52,3 @@ void StringScratch::clear() noexcept { _buffer.clear(); }
 char StringScratch::back() const noexcept { return _buffer.back(); }
 
 }// namespace luisa::compute
-

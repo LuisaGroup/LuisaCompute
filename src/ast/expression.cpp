@@ -1,10 +1,13 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
-#include <luisa/ast/statement.h>
 #include <luisa/ast/function_builder.h>
 
 namespace luisa::compute {
+
+Expression::Expression(Expression::Tag tag, const Type *type) noexcept
+    : _type{type}, _tag{tag},
+      _builder{detail::FunctionBuilder::current()} {}
 
 void Expression::mark(Usage usage) const noexcept {
     if (auto a = to_underlying(_usage), u = a | to_underlying(usage); a != u) {
@@ -40,11 +43,13 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         switch (_op) {
             case CallOp::BUFFER_WRITE:
+            case CallOp::BINDLESS_BUFFER_WRITE:
             case CallOp::BYTE_BUFFER_WRITE:
             case CallOp::TEXTURE_WRITE:
             case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
             case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID:
             case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
             case CallOp::RAY_QUERY_TERMINATE:
@@ -206,6 +211,10 @@ uint64_t TypeIDExpr::_compute_hash() const noexcept {
     return _data_type->hash();
 }
 
+uint64_t StringIDExpr::_compute_hash() const noexcept {
+    return hash_value(_data);
+}
+
 void ExprVisitor::visit(const CpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend.");
 }
@@ -213,4 +222,5 @@ void ExprVisitor::visit(const CpuCustomOpExpr *) {
 void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
+
 }// namespace luisa::compute

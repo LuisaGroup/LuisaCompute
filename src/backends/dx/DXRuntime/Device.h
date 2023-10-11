@@ -56,6 +56,7 @@ public:
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
     vstd::optional<HDR> hdr;
+    LazyLoadShader setBindlessKernel;
     LazyLoadShader setAccelKernel;
 
     LazyLoadShader bc6TryModeG10;
