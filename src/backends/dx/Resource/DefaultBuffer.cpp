@@ -4,7 +4,8 @@ DefaultBuffer::DefaultBuffer(
     Device *device,
     uint64 byteSize,
     GpuAllocator *allocator,
-    D3D12_RESOURCE_STATES initState)
+    D3D12_RESOURCE_STATES initState,
+    bool shared_adaptor)
     : Buffer(device),
       allocHandle(allocator),
       byteSize(byteSize),
@@ -13,7 +14,8 @@ DefaultBuffer::DefaultBuffer(
         ID3D12Heap *heap;
         uint64 offset;
         allocHandle.allocateHandle = allocHandle.allocator->AllocateBufferHeap(
-            device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset);
+            device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, 0,
+            shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE);
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap, offset,
@@ -26,7 +28,7 @@ DefaultBuffer::DefaultBuffer(
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         ThrowIfFailed(device->device->CreateCommittedResource(
             &prop,
-            D3D12_HEAP_FLAG_NONE,
+            shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE,
             &buffer,
             initState,
             nullptr,

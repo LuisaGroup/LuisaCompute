@@ -164,6 +164,11 @@ class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
     Device &_device;
 
 public:
+    BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+    ResourceCreationInfo create_interop_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels, bool simultaneous_access) noexcept override;
     uint64_t cuda_buffer(uint64_t dx_buffer) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;

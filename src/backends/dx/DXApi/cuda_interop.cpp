@@ -6,6 +6,10 @@
 #include <Resource/TextureBase.h>
 #include <DXApi/LCEvent.h>
 #include <aclapi.h>
+#include <Resource/DefaultBuffer.h>
+#include <Resource/RenderTexture.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <Shader/ComputeShader.h>
 #else
 #include <luisa/core/logging.h>
 #endif
@@ -120,6 +124,65 @@ uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event_handle) noexcept {
     assert(cudaImportExternalSemaphore(&externalSemaphre, &externalSemaphoreHandleDesc));
     // TODO: need cuda event here
     return reinterpret_cast<uint64_t>(externalSemaphre);
+}
+BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element, size_t elem_count) noexcept {
+    BufferCreationInfo info{};
+    Buffer *res{};
+    if (element == Type::of<void>()) {
+        info.total_size_bytes = elem_count;
+        info.element_stride = 1u;
+        res = new DefaultBuffer(
+            &_device,
+            info.total_size_bytes,
+            _device.defaultAllocator.get(),
+            D3D12_RESOURCE_STATE_COMMON, true);
+        info.handle = reinterpret_cast<uint64_t>(res);
+        info.native_handle = res->GetResource();
+        return info;
+    }
+    if (element->is_custom()) {
+        if (element == Type::of<IndirectKernelDispatch>()) {
+            info.element_stride = ComputeShader::DispatchIndirectStride;
+            info.total_size_bytes = 4 + info.element_stride * elem_count;
+            res = static_cast<Buffer *>(new DefaultBuffer(&_device, info.total_size_bytes, _device.defaultAllocator.get()));
+        } else {
+            LUISA_ERROR("Un-known custom type in dx-backend.");
+        }
+    } else {
+        info.total_size_bytes = element->size() * elem_count;
+        res = static_cast<Buffer *>(
+            new DefaultBuffer(
+                &_device,
+                info.total_size_bytes,
+                _device.defaultAllocator.get(),
+                D3D12_RESOURCE_STATE_COMMON, true));
+        info.element_stride = element->size();
+    }
+    info.handle = reinterpret_cast<uint64>(res);
+    info.native_handle = res->GetResource();
+    return info;
+}
+ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    bool allowUAV = !is_block_compressed(format);
+    ResourceCreationInfo info;
+    auto res = new RenderTexture(
+        &_device,
+        width,
+        height,
+        TextureBase::ToGFXFormat(format),
+        (TextureDimension)dimension,
+        depth,
+        mipmap_levels,
+        allowUAV,
+        simultaneous_access,
+        _device.defaultAllocator.get(),
+        true);
+    info.handle = reinterpret_cast<uint64>(res);
+    info.native_handle = res->GetResource();
+    return info;
 }
 #else
 #define LUISA_UNIMPL_ERROR LUISA_ERROR("Method unimplemented.")

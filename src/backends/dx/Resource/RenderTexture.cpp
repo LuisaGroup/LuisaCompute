@@ -11,7 +11,8 @@ RenderTexture::RenderTexture(
     uint mip,
     bool allowUav,
     bool allowSimul,
-    GpuAllocator *allocator)
+    GpuAllocator *allocator,
+    bool shared_adaptor)
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
       allocHandle(allocator) {
     auto texDesc = GetResourceDescBase(allowUav, allowSimul);
@@ -20,7 +21,7 @@ RenderTexture::RenderTexture(
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
         ThrowIfFailed(device->device->CreateCommittedResource(
             propPtr,
-            D3D12_HEAP_FLAG_NONE,
+            shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE,
             &texDesc,
             GetInitState(),
             nullptr,
@@ -36,7 +37,9 @@ RenderTexture::RenderTexture(
             byteSize,
             &heap,
             &offset,
-            allowUav);
+            allowUav,
+            0, 
+            shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE);
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap,
             offset,
