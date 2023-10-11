@@ -701,5 +701,56 @@ pub struct DeviceInterface {
     pub destroy_accel: unsafe extern "C" fn(Device, Accel),
     pub query: unsafe extern "C" fn(Device, *const c_char) -> *mut c_char,
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct StringView {
+    pub data: *const c_char,
+    pub size: usize,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct StringViewMut {
+    pub data: *mut c_char,
+    pub size: usize,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct BinaryIo {
+    pub dtor: unsafe extern "C" fn(*mut BinaryIo),
 
+    pub read_shader_bytecode: unsafe extern "C" fn(*mut BinaryIo, name: StringView) -> ByteStream,
+    pub read_shader_cache: unsafe extern "C" fn(*mut BinaryIo, name: StringView) -> ByteStream,
+    pub read_internal_shader_cache:
+        unsafe extern "C" fn(*mut BinaryIo, name: StringView) -> ByteStream,
+
+    pub write_shader_byte_code: unsafe extern "C" fn(
+        *mut BinaryIo,
+        name: StringView,
+        data: *const u8,
+        size: usize,
+        out_path: StringViewMut,
+    ),
+    pub write_shader_cache: unsafe extern "C" fn(
+        *mut BinaryIo,
+        name: StringView,
+        data: *const u8,
+        size: usize,
+        out_path: StringViewMut,
+    ),
+    pub write_internal_shader_cache: unsafe extern "C" fn(
+        *mut BinaryIo,
+        name: StringView,
+        data: *const u8,
+        size: usize,
+        out_path: StringViewMut,
+    ),
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ByteStream {
+    pub dtor: unsafe extern "C" fn(*mut ByteStream),
+    pub length: unsafe extern "C" fn(*mut ByteStream) -> usize,
+    pub pos: unsafe extern "C" fn(*mut ByteStream) -> usize,
+    pub read: unsafe extern "C" fn(*mut ByteStream, *mut u8, usize) -> usize,
+}
 pub fn __dummy() {}

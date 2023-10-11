@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, Index};
 use std::sync::atomic::AtomicUsize;
 
-use serde::{Serialize};
+use serde::Serialize;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -224,9 +224,7 @@ impl<T> CArc<T> {
         if self.is_null() {
             return None;
         }
-        unsafe {
-            Some(&mut *(*self.inner).ptr)
-        }
+        unsafe { Some(&mut *(*self.inner).ptr) }
     }
 }
 impl<T> std::ops::Deref for CArc<T> {
@@ -369,7 +367,11 @@ impl<T> Deref for CBoxedSlice<T> {
 }
 impl<T> Drop for CBoxedSlice<T> {
     fn drop(&mut self) {
-        unsafe { if let Some(dtor) = self.destructor { dtor(self.ptr, self.len) }}
+        unsafe {
+            if let Some(dtor) = self.destructor {
+                dtor(self.ptr, self.len)
+            }
+        }
     }
 }
 impl<T: Debug> Debug for CBoxedSlice<T> {
