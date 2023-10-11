@@ -11,6 +11,7 @@ protected:
     ~DxCudaInterop() noexcept = default;
 
 public:
+    static constexpr luisa::string_view name = "DxCudaInterop";
     [[nodiscard]] virtual BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept = 0;
     [[nodiscard]] virtual ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,

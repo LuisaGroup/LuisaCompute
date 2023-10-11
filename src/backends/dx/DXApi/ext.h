@@ -161,20 +161,20 @@ public:
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
-    LCDevice&_device;
+    LCDevice &_device;
 
 public:
+    DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {}
     BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels, bool simultaneous_access) noexcept override;
-    void cuda_buffer(uint64_t dx_buffer, uint64_t* cuda_ptr, uint64_t* cuda_handle) noexcept override;
+    void cuda_buffer(uint64_t dx_buffer, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
-    virtual DeviceInterface* device() override;
-    void unmap(void* cuda_ptr, void* cuda_handle) noexcept override;
-
+    virtual DeviceInterface *device() override;
+    void unmap(void *cuda_ptr, void *cuda_handle) noexcept override;
 };
 
 class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
