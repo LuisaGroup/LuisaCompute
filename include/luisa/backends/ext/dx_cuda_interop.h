@@ -4,7 +4,7 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/volume.h>
-
+#include <luisa/backends/ext/native_resource_ext.hpp>
 namespace luisa::compute {
 class DxCudaInterop : public DeviceExtension {
 protected:
@@ -16,13 +16,15 @@ public:
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels, bool simultaneous_access) noexcept = 0;
-    virtual uint64_t cuda_buffer(uint64_t dx_buffer_handle) noexcept = 0;
+    virtual void cuda_buffer(uint64_t dx_buffer_handle, uint64_t* cuda_ptr, uint64_t* cuda_handle) noexcept = 0;
     virtual uint64_t cuda_texture(uint64_t dx_texture_handle) noexcept = 0;
     virtual uint64_t cuda_event(uint64_t dx_event_handle) noexcept = 0;
+    virtual void unmap(void* cuda_ptr, void* cuda_handle) = 0;
     template<typename T>
     Buffer<T> create_buffer(Device const &device, size_t elem_count) noexcept {
         return Buffer<T>{device.impl(), create_interop_buffer(Type::of<T>(), elem_count)};
     }
+    virtual DeviceInterface *device() = 0;
     template<typename T>
     Image<T> create_image(Device const &device, PixelStorage pixel, uint width, uint height, uint mip_levels = 1u, bool simultaneous_access = false) noexcept {
         return Image<T>{

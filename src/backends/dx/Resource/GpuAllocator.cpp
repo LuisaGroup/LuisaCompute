@@ -72,7 +72,8 @@ uint64 GpuAllocator::AllocateBufferHeap(
 }
 void GpuAllocator::Release(uint64 alloc) {
     using namespace D3D12MA;
-    reinterpret_cast<Allocation *>(alloc)->Release();
+    if (alloc)
+        reinterpret_cast<Allocation*>(alloc)->Release();
 }
 GpuAllocator::GpuAllocator(Device *device) {
     using namespace D3D12MA;
