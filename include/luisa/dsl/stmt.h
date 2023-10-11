@@ -212,8 +212,8 @@ public:
     }
 };
 
-/// Invoke for statement body
-struct ForStmtBodyInvoke {
+/// Invoke statement body
+struct StmtBodyInvoke {
     template<typename F>
     void operator%(F &&body) && noexcept {
         luisa::invoke(std::forward<F>(body));
@@ -382,7 +382,7 @@ template<typename Tb, typename Te, typename Ts>
 }
 
 template<typename S, typename... Args>
-[[nodiscard]] inline auto dynamic_range_with_comment(S &&s, Args &&... args) noexcept {
+[[nodiscard]] inline auto dynamic_range_with_comment(S &&s, Args &&...args) noexcept {
     luisa::compute::detail::comment(std::forward<S>(s));
     return dynamic_range(std::forward<Args>(args)...);
 }
