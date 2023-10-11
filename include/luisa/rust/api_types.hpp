@@ -579,4 +579,43 @@ struct LibInterface {
     void (*free_string)(char*);
 };
 
+struct ByteStream {
+    void (*dtor)(ByteStream*);
+    size_t (*length)(ByteStream*);
+    size_t (*pos)(ByteStream*);
+    size_t (*read)(ByteStream*, uint8_t*, size_t);
+};
+
+struct StringView {
+    const char *data;
+    size_t size;
+};
+
+struct StringViewMut {
+    char *data;
+    size_t size;
+};
+
+struct BinaryIo {
+    void (*dtor)(BinaryIo*);
+    ByteStream (*read_shader_bytecode)(BinaryIo*, StringView name);
+    ByteStream (*read_shader_cache)(BinaryIo*, StringView name);
+    ByteStream (*read_internal_shader_cache)(BinaryIo*, StringView name);
+    void (*write_shader_byte_code)(BinaryIo*,
+                                   StringView name,
+                                   const uint8_t *data,
+                                   size_t size,
+                                   StringViewMut out_path);
+    void (*write_shader_cache)(BinaryIo*,
+                               StringView name,
+                               const uint8_t *data,
+                               size_t size,
+                               StringViewMut out_path);
+    void (*write_internal_shader_cache)(BinaryIo*,
+                                        StringView name,
+                                        const uint8_t *data,
+                                        size_t size,
+                                        StringViewMut out_path);
+};
+
 } // namespace luisa::compute::api
