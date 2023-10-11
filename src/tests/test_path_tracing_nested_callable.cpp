@@ -22,12 +22,9 @@ using namespace luisa;
 using namespace luisa::compute;
 
 struct Onb {
-    float3 tangent;
-    float3 binormal;
-    float3 normal;
-};
-
-LUISA_STRUCT(Onb, tangent, binormal, normal) {
+    Float3 tangent;
+    Float3 binormal;
+    Float3 normal;
     [[nodiscard]] Float3 to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }
@@ -133,13 +130,13 @@ int main(int argc, char *argv[]) {
         seed_image.write(p, make_uint4(state));
     };
 
-    Callable make_onb = [](const Float3 &normal) noexcept {
+    Lambda make_onb = [](const Float3 &normal) noexcept {
         Float3 binormal = normalize(ite(
             abs(normal.x) > abs(normal.z),
             make_float3(-normal.y, normal.x, 0.0f),
             make_float3(0.0f, -normal.z, normal.y)));
         Float3 tangent = normalize(cross(binormal, normal));
-        return def<Onb>(tangent, binormal, normal);
+        return Onb{tangent, binormal, normal};
     };
 
     Callable generate_ray = [](Float2 p) noexcept {
@@ -244,10 +241,10 @@ int main(int argc, char *argv[]) {
 
                 // sample BSDF
                 auto sample_f = $lambda((Float2 u) {
-                    Var<Onb> onb = make_onb(n);
+                    Onb onb = make_onb(n);
                     Float3 wi_local = cosine_sample_hemisphere(make_float2(u.x, u.y));
                     Float cos_wi = abs(wi_local.z);
-                    Float3 new_direction = onb->to_world(wi_local);
+                    Float3 new_direction = onb.to_world(wi_local);
                     ray = make_ray(pp, new_direction);
                     pdf_bsdf = cos_wi * inv_pi;
                     beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
