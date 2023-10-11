@@ -85,6 +85,15 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         [](DeviceExtension *ext) {
             delete static_cast<DxDirectMLExt *>(ext);
         });
+
+    exts.try_emplace(
+        DxCudaInterop::name,
+        [](LCDevice* device) -> DeviceExtension* {
+        return new DxCudaInteropImpl(*device);
+        },
+        [](DeviceExtension* ext) {
+            delete static_cast<DxCudaInteropImpl*>(ext);
+        });
 }
 LCDevice::~LCDevice() {
 }
