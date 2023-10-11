@@ -577,7 +577,7 @@ impl Default for BindlessArrayUpdateTexture {
     }
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default)]
 pub struct BindlessArrayUpdateModification {
     pub slot: usize,
     pub buffer: BindlessArrayUpdateBuffer,
