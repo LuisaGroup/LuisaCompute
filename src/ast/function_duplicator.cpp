@@ -31,9 +31,7 @@ private:
 private:
     void _dup_function(const FunctionBuilder &f) noexcept {
         auto fb = FunctionBuilder::current();
-        if (f.tag() == Function::Tag::KERNEL) {
-            fb->set_block_size(f.block_size());
-        }
+        if (f.tag() == Function::Tag::KERNEL) { fb->set_block_size(f.block_size()); }
         auto dup_arg = [this, fb](Variable original) noexcept {
             auto dup = [&] {
                 switch (original.tag()) {
@@ -54,16 +52,16 @@ private:
                 auto &&a = f.arguments()[i];
                 auto &&b = f.bound_arguments()[i];
                 auto copy = luisa::visit(
-                    [&](auto binding) noexcept -> const RefExpr * {
-                        using T = std::remove_cvref_t<decltype(binding)>;
+                    [&](auto &&bb) noexcept -> const RefExpr * {
+                        using T = std::remove_cvref_t<decltype(bb)>;
                         if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                            return fb->buffer_binding(a.type(), binding.handle, binding.offset, binding.size);
+                            return fb->buffer_binding(a.type(), bb.handle, bb.offset, bb.size);
                         } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                            return fb->texture_binding(a.type(), binding.handle, binding.level);
+                            return fb->texture_binding(a.type(), bb.handle, bb.level);
                         } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                            return fb->bindless_array_binding(binding.handle);
+                            return fb->bindless_array_binding(bb.handle);
                         } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                            return fb->accel_binding(binding.handle);
+                            return fb->accel_binding(bb.handle);
                         } else {
                             LUISA_ERROR_WITH_LOCATION("Unbound captured argument.");
                         }
