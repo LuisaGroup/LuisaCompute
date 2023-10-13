@@ -4,7 +4,6 @@ members = [
     "luisa_compute_api_types",
     "luisa_compute_cpu_kernel_defs",
     "luisa_compute_backend",
-    "luisa_compute_backend_impl",
-    "cppbindgen"
+    "luisa_compute_backend_impl"
 ]
 resolver = "2"
