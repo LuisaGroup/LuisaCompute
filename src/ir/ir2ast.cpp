@@ -10,7 +10,6 @@
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/rust/ir.hpp>
 #include <luisa/ir/ir2ast.h>
-#include <luisa/ir/ir.h>
 
 namespace luisa::compute {
 

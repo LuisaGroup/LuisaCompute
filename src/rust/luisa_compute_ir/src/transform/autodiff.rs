@@ -1,6 +1,5 @@
 use indexmap::{IndexMap, IndexSet};
 
-use bitflags::Flags;
 use core::panic;
 use half::f16;
 use std::ops::Deref;
@@ -11,17 +10,16 @@ use std::{
 
 use crate::context::is_type_equal;
 use crate::ir::{
-    new_node, CallableModuleRef, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming,
-    Primitive, SwitchCase,
+    new_node, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming, Primitive, SwitchCase,
 };
 use crate::transform::ssa::ToSSA;
 use crate::{
-    context, ir,
+    context,
     ir::{
         ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
         StructType, Type, VectorElementType, VectorType,
     },
-    CBoxedSlice, TypeOf,
+    CBoxedSlice,
 };
 use crate::{CArc, Pooled};
 
@@ -1939,7 +1937,11 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                             Instruction::Call(f, args) => {
                                 if *f == Func::Gradient {
                                     let grad = grads[&args[0]];
-                                    assert!(grad.is_lvalue(), "{:?}. Please don't call grad(out).", grad.get().instruction.as_ref());
+                                    assert!(
+                                        grad.is_lvalue(),
+                                        "{:?}. Please don't call grad(out).",
+                                        grad.get().instruction.as_ref()
+                                    );
                                     *inst =
                                         Instruction::Call(Func::Load, CBoxedSlice::new(vec![grad]));
                                 }

@@ -1,14 +1,12 @@
-use crate::ir::debug::dump_ir_human_readable;
 use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
-use bitflags::Flags;
+
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;
-use std::process::abort;
 
 struct AST2IRCtx<'a> {
     j: &'a JSON,
@@ -779,7 +777,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         }
     }
 
-    fn _convert_constant_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+    fn _convert_constant_expr(&mut self, _t: &CArc<Type>, j: &JSON) -> NodeRef {
         let ctx = self._curr_ctx();
         ctx.constants
             .get(&j["data"].as_u32().unwrap())
