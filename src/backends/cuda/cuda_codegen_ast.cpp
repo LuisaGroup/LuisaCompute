@@ -1654,11 +1654,12 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             break;
         }
         case Variable::Tag::REFERENCE:
-            if (readonly || force_const) {
+            if(force_const) {
                 _scratch << "const ";
                 _emit_type_name(v.type());
                 _scratch << " ";
-            } else {
+            }
+            else {
                 _emit_type_name(v.type());
                 _scratch << " &";
             }
