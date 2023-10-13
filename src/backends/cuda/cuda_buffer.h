@@ -8,7 +8,8 @@ class CUDABufferBase {
 
 private:
     CUdeviceptr _handle;
-    size_t _size_bytes;
+    size_t _size_bytes : 63;
+    size_t _host_memory : 1;
 
 public:
     explicit CUDABufferBase(size_t size_bytes) noexcept;
@@ -67,4 +68,3 @@ public:
 };
 
 }// namespace luisa::compute::cuda
-

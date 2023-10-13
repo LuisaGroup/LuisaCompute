@@ -12,6 +12,7 @@ namespace luisa::compute {
 class CallableLibrary;
 
 class LC_AST_API ExternalFunction {
+
     friend class CallableLibrary;
 
 private:
@@ -35,6 +36,7 @@ public:
     [[nodiscard]] auto return_type() const noexcept { return _return_type; }
     [[nodiscard]] auto argument_types() const noexcept { return luisa::span{_argument_types}; }
     [[nodiscard]] auto argument_usages() const noexcept { return luisa::span{_argument_usages}; }
+    [[nodiscard]] auto operator==(const ExternalFunction &rhs) const noexcept { return hash() == rhs.hash(); }
 };
 
 }// namespace luisa::compute

@@ -25,6 +25,8 @@ class CallableLibrary;
 
 namespace luisa::compute::detail {
 
+class FunctionDuplicator;
+
 /**
  * @brief %Function builder.
  * 
@@ -34,6 +36,7 @@ class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<Functio
 
     friend class luisa::compute::CallableLibrary;
     friend class lc::validation::Device;
+    friend class FunctionDuplicator;
 
 public:
     /**
@@ -154,6 +157,9 @@ private:
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
 
+    /// Duplicate the function if necessary, e.g., when some outlined functions leak local variables.
+    [[nodiscard]] luisa::shared_ptr<const FunctionBuilder> _duplicate_if_necessary() const noexcept;
+
 public:
     /**
      * @brief Construct a new %Function Builder object
@@ -230,7 +236,8 @@ public:
     /// Define a kernel function with given definition
     template<typename Def>
     static auto define_kernel(Def &&def) {
-        return _define(Function::Tag::KERNEL, std::forward<Def>(def));
+        auto k = _define(Function::Tag::KERNEL, std::forward<Def>(def));
+        return k->_duplicate_if_necessary();
     }
 
     /// Define a callable function with given definition
@@ -405,11 +412,14 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
-    /// separate arguments and bindings, make command need no bindings info, only work with kernel.
+    /// Separate arguments and bindings, make command need no bindings info, only work with kernel.
     void sort_bindings() noexcept;
 
     /// Return a Function object constructed from this
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
+
+    /// Duplicate the function builder, also perform certain simplifications and canonicalizations.
+    [[nodiscard]] luisa::shared_ptr<const FunctionBuilder> duplicate() const noexcept;
 };
 
 }// namespace luisa::compute::detail

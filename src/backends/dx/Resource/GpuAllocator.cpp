@@ -29,14 +29,15 @@ uint64 GpuAllocator::AllocateTextureHeap(
     size_t sizeBytes,
     ID3D12Heap **heap, uint64_t *offset,
     bool isRenderTexture,
-    uint64 custom_pool) {
+    uint64 custom_pool,
+    D3D12_HEAP_FLAGS extra_flags) {
     using namespace D3D12MA;
     D3D12_HEAP_FLAGS heapFlag =
         isRenderTexture ? D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES : D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
     ALLOCATION_DESC desc;
     desc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
-    desc.ExtraHeapFlags = heapFlag;
+    desc.ExtraHeapFlags = heapFlag | extra_flags;
     desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -48,15 +49,17 @@ uint64 GpuAllocator::AllocateTextureHeap(
     return reinterpret_cast<uint64>(alloc);
 }
 uint64 GpuAllocator::AllocateBufferHeap(
-    Device *device, uint64_t targetSizeInBytes,
+    Device *device,
+    uint64_t targetSizeInBytes,
     D3D12_HEAP_TYPE heapType, ID3D12Heap **heap,
     uint64_t *offset,
-    uint64 custom_pool) {
+    uint64 custom_pool,
+    D3D12_HEAP_FLAGS extra_flags) {
     using namespace D3D12MA;
     ALLOCATION_DESC desc;
     desc.HeapType = heapType;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
-    desc.ExtraHeapFlags = D3D12_HEAP_FLAGS::D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    desc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | extra_flags;
     desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;

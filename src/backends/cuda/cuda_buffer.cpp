@@ -4,12 +4,28 @@
 namespace luisa::compute::cuda {
 
 CUDABufferBase::CUDABufferBase(size_t size_bytes) noexcept
-    : _handle{}, _size_bytes{size_bytes} {
-    LUISA_CHECK_CUDA(cuMemAlloc(&_handle, size_bytes));
+    : _handle{}, _size_bytes{size_bytes}, _host_memory{false} {
+    if (auto ret = cuMemAlloc(&_handle, size_bytes);
+        ret == CUDA_ERROR_OUT_OF_MEMORY) {
+        LUISA_WARNING(
+            "CUDA allocation out of device memory. Falling back to host memory.\n"
+            "         THIS MAY CAUSE SIGNIFICANT PERFORMANCE DEGRADATION\n"
+            "    PLEASE CONSIDER REDUCING THE WORKING SET OF YOUR APPLICATION");
+        void *host_ptr = nullptr;
+        LUISA_CHECK_CUDA(cuMemAllocHost(&host_ptr, size_bytes));
+        _handle = reinterpret_cast<CUdeviceptr>(host_ptr);
+        _host_memory = true;
+    } else {
+        LUISA_CHECK_CUDA(ret);
+    }
 }
 
 CUDABufferBase::~CUDABufferBase() noexcept {
-    LUISA_CHECK_CUDA(cuMemFree(_handle));
+    if (_host_memory) {
+        LUISA_CHECK_CUDA(cuMemFreeHost(reinterpret_cast<void *>(_handle)));
+    } else {
+        LUISA_CHECK_CUDA(cuMemFree(_handle));
+    }
 }
 
 CUDABuffer::Binding CUDABuffer::binding(size_t offset, size_t size) const noexcept {

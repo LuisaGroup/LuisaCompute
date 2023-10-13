@@ -21,7 +21,8 @@ public:
 		Device* device,
 		uint64 byteSize,
 		GpuAllocator* allocator = nullptr,
-		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON);
+		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON,
+		bool shared_adaptor = false);
 	~DefaultBuffer();
 	D3D12_RESOURCE_STATES GetInitState() const override {
 		return initState;

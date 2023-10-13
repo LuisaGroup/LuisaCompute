@@ -17,13 +17,15 @@ public:
         uint64_t targetSizeInBytes,
         D3D12_HEAP_TYPE heapType,
         ID3D12Heap **heap, uint64_t *offset,
-        uint64 custom_pool = 0);
+        uint64 custom_pool = 0,
+        D3D12_HEAP_FLAGS extra_flags = D3D12_HEAP_FLAG_NONE);
     uint64 AllocateTextureHeap(
         Device *device,
         size_t sizeBytes,
         ID3D12Heap **heap, uint64_t *offset,
         bool isRenderTexture,
-        uint64 custom_pool = 0);
+        uint64 custom_pool = 0,
+        D3D12_HEAP_FLAGS extra_flags = D3D12_HEAP_FLAG_NONE);
     uint64 CreatePool(D3D12_HEAP_TYPE heap_type);
     void DestroyPool(uint64 pool);
     void Release(uint64 handle);
