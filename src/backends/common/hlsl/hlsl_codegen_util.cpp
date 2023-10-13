@@ -429,9 +429,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &funcDec
             for (auto &&i : func.arguments()) {
                 Usage usage = func.variable_usage(i.uid());
                 if (i.tag() == Variable::Tag::REFERENCE) {
-                    if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) != 0) {
-                        data += "inout "sv;
-                    }
+                    if (usage != Usage::NONE) { data += "inout "sv; }
                 }
                 RegistStructType(i.type());
 
