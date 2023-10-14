@@ -6,6 +6,89 @@
 #include <luisa/core/logging.h>
 namespace luisa::compute::detail {
 
+class LocalVariableLeakDetector {
+
+public:
+    class Node {
+
+    private:
+        luisa::unordered_set<const FunctionBuilder *> _calls;
+        luisa::unordered_set<const Expression *> _def_leaks;
+        luisa::unordered_set<const Expression *> _use_leaks;
+
+    public:
+        void call(const FunctionBuilder *f) noexcept { _calls.emplace(f); }
+        void def_leak(const Expression *e) noexcept { _def_leaks.emplace(e); }
+        void use_leak(const Expression *e) noexcept { _use_leaks.emplace(e); }
+        [[nodiscard]] auto &calls() const noexcept { return _calls; }
+        [[nodiscard]] auto &def_leaks() const noexcept { return _def_leaks; }
+        [[nodiscard]] auto &use_leaks() const noexcept { return _use_leaks; }
+    };
+
+    class Graph {
+
+    private:
+        luisa::unordered_map<const FunctionBuilder *, luisa::unique_ptr<Node>> _nodes;
+
+    private:
+        void _build(const FunctionBuilder *f, Node *node) noexcept {
+            traverse_expressions<true>(
+                f->body(),
+                [node, f](const Expression *expr) noexcept {
+                    if (expr->builder() != f) { node->use_leak(expr); }
+                    if (expr->tag() == Expression::Tag::CALL) {
+                        auto call = static_cast<const CallExpr *>(expr);
+                        if (call->is_custom()) { node->call(call->custom().builder()); }
+                    }
+                },
+                [](auto) noexcept {},
+                [](auto) noexcept {});
+        }
+
+        [[nodiscard]] Node *_node(const FunctionBuilder *f) noexcept {
+            if (auto iter = _nodes.find(f); iter != _nodes.end()) {
+                return iter->second.get();
+            }
+            auto node = luisa::make_unique<Node>();
+            auto p_node = node.get();
+            _nodes.emplace(f, std::move(node));
+            _build(f, p_node);
+            return p_node;
+        }
+
+        void _mark_def_leaks(luisa::unordered_set<const Node *> &visited,
+                             Node *node) noexcept {
+            if (!visited.emplace(node).second) { return; }
+            for (auto l : node->use_leaks()) {
+                auto called = _node(l->builder());
+                called->def_leak(l);
+                _mark_def_leaks(visited, called);
+            }
+        }
+
+    public:
+        [[nodiscard]] static luisa::unique_ptr<Graph> build(const FunctionBuilder *f) noexcept {
+            auto g = luisa::make_unique<Graph>();
+            static_cast<void>(g->_node(f));
+            luisa::unordered_set<const Node *> visited;
+            g->_mark_def_leaks(visited, g->_node(f));
+            return g;
+        }
+    };
+
+private:
+    luisa::unordered_map<
+        const FunctionBuilder *,
+        luisa::unordered_set<const Expression *>>
+        _hoisted;
+
+private:
+    [[nodiscard]] auto _build_graph() noexcept {
+    }
+
+public:
+};
+
 class FunctionDuplicator {
 
 private:

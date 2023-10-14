@@ -812,11 +812,27 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
             return mark_internalizer_argument(reference(external->type()));
         };
         switch (external->tag()) {
-            case Expression::Tag::MEMBER:
+            case Expression::Tag::MEMBER: {
+                if (expr_is_lvalue_local_variable(external)) {
+                    auto expr = static_cast<const MemberExpr *>(external);
+                    auto self = _internalize(expr->self());
+                    if (expr->is_swizzle()) {
+                        LUISA_ASSERT(expr->swizzle_size() == 1u,
+                                     "Cannot internalize r-value swizzle.");
+                        return swizzle(expr->type(), self, 1u, expr->swizzle_code());
+                    }
+                    return member(expr->type(), self, expr->member_index());
+                }
+                return internalize_rvalue();
+            }
             case Expression::Tag::ACCESS: {
-                return expr_is_lvalue_local_variable(external) ?
-                           internalize_lvalue() :
-                           internalize_rvalue();
+                if (expr_is_lvalue_local_variable(external)) {
+                    auto expr = static_cast<const AccessExpr *>(external);
+                    auto range = _internalize(expr->range());
+                    auto index = _internalize(expr->index());
+                    return access(expr->type(), range, index);
+                }
+                return internalize_rvalue();
             }
             case Expression::Tag::LITERAL: {
                 auto expr = static_cast<const LiteralExpr *>(external);
