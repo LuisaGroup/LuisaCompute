@@ -1,9 +1,6 @@
 #![allow(unused_unsafe)]
 
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{Backend, BackendProvider, Interface};
 use api::StreamTag;
@@ -13,8 +10,6 @@ use luisa_compute_ir::{
     ir::{KernelModule, Type},
     CArc,
 };
-use parking_lot::Mutex;
-use std::sync::Once;
 
 // This is uselss, we should remove it
 #[macro_export]
