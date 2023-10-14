@@ -4,90 +4,8 @@
 
 #include <luisa/ast/function_builder.h>
 #include <luisa/core/logging.h>
+
 namespace luisa::compute::detail {
-
-class LocalVariableLeakDetector {
-
-public:
-    class Node {
-
-    private:
-        luisa::unordered_set<const FunctionBuilder *> _calls;
-        luisa::unordered_set<const Expression *> _def_leaks;
-        luisa::unordered_set<const Expression *> _use_leaks;
-
-    public:
-        void call(const FunctionBuilder *f) noexcept { _calls.emplace(f); }
-        void def_leak(const Expression *e) noexcept { _def_leaks.emplace(e); }
-        void use_leak(const Expression *e) noexcept { _use_leaks.emplace(e); }
-        [[nodiscard]] auto &calls() const noexcept { return _calls; }
-        [[nodiscard]] auto &def_leaks() const noexcept { return _def_leaks; }
-        [[nodiscard]] auto &use_leaks() const noexcept { return _use_leaks; }
-    };
-
-    class Graph {
-
-    private:
-        luisa::unordered_map<const FunctionBuilder *, luisa::unique_ptr<Node>> _nodes;
-
-    private:
-        void _build(const FunctionBuilder *f, Node *node) noexcept {
-            traverse_expressions<true>(
-                f->body(),
-                [node, f](const Expression *expr) noexcept {
-                    if (expr->builder() != f) { node->use_leak(expr); }
-                    if (expr->tag() == Expression::Tag::CALL) {
-                        auto call = static_cast<const CallExpr *>(expr);
-                        if (call->is_custom()) { node->call(call->custom().builder()); }
-                    }
-                },
-                [](auto) noexcept {},
-                [](auto) noexcept {});
-        }
-
-        [[nodiscard]] Node *_node(const FunctionBuilder *f) noexcept {
-            if (auto iter = _nodes.find(f); iter != _nodes.end()) {
-                return iter->second.get();
-            }
-            auto node = luisa::make_unique<Node>();
-            auto p_node = node.get();
-            _nodes.emplace(f, std::move(node));
-            _build(f, p_node);
-            return p_node;
-        }
-
-        void _mark_def_leaks(luisa::unordered_set<const Node *> &visited,
-                             Node *node) noexcept {
-            if (!visited.emplace(node).second) { return; }
-            for (auto l : node->use_leaks()) {
-                auto called = _node(l->builder());
-                called->def_leak(l);
-                _mark_def_leaks(visited, called);
-            }
-        }
-
-    public:
-        [[nodiscard]] static luisa::unique_ptr<Graph> build(const FunctionBuilder *f) noexcept {
-            auto g = luisa::make_unique<Graph>();
-            static_cast<void>(g->_node(f));
-            luisa::unordered_set<const Node *> visited;
-            g->_mark_def_leaks(visited, g->_node(f));
-            return g;
-        }
-    };
-
-private:
-    luisa::unordered_map<
-        const FunctionBuilder *,
-        luisa::unordered_set<const Expression *>>
-        _hoisted;
-
-private:
-    [[nodiscard]] auto _build_graph() noexcept {
-    }
-
-public:
-};
 
 class FunctionDuplicator {
 
@@ -110,11 +28,62 @@ private:
         luisa::shared_ptr<const FunctionBuilder> /* copy */>
         _duplicated;
     luisa::vector<DupCtx *> _contexts;
+    luisa::unordered_map<
+        const Expression * /* leaked */,
+        const Expression * /* hoisted */>
+        _hoisted;
+
+private:
+    void _collect_leaked_variables(luisa::unordered_set<const Expression *> &collected,
+                                   luisa::unordered_set<const FunctionBuilder *> &visited,
+                                   const FunctionBuilder &f) noexcept {
+        if (!visited.emplace(&f).second) { return; }
+        traverse_expressions<true>(
+            f.body(),
+            [&](const Expression *e) noexcept {
+                if (e->builder() != &f) {
+                    collected.emplace(e);
+                }
+                if (e->tag() == Expression::Tag::CALL) {
+                    auto call = static_cast<const CallExpr *>(e);
+                    if (call->is_custom()) {
+                        _collect_leaked_variables(collected, visited, *call->custom().builder());
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+    }
+    void _hoist_leaked_variables(const luisa::unordered_set<const Expression *> &leaked) noexcept {
+        auto fb = FunctionBuilder::current();
+        for (auto e : leaked) {
+            LUISA_ASSERT(e->tag() == Expression::Tag::REF,
+                         "Leaked expression should be a reference.");
+            auto ref = static_cast<const RefExpr *>(e);
+            switch (auto vt = ref->variable().tag()) {
+                case Variable::Tag::LOCAL: [[fallthrough]];
+                case Variable::Tag::REFERENCE: {
+                    _hoisted.emplace(e, fb->local(e->type()));
+                    break;
+                }
+                default: LUISA_ERROR_WITH_LOCATION(
+                    "Leaked variable should be either "
+                    "local or reference (received {}).",
+                    luisa::to_string(vt));
+            }
+        }
+    }
 
 private:
     void _dup_function(const FunctionBuilder &f) noexcept {
         auto fb = FunctionBuilder::current();
-        if (f.tag() == Function::Tag::KERNEL) { fb->set_block_size(f.block_size()); }
+        if (f.tag() == Function::Tag::KERNEL) {
+            fb->set_block_size(f.block_size());
+            luisa::unordered_set<const Expression *> collected;
+            luisa::unordered_set<const FunctionBuilder *> visited;
+            _collect_leaked_variables(collected, visited, f);
+            _hoist_leaked_variables(collected);
+        }
         auto dup_arg = [this, fb](Variable original) noexcept {
             auto dup = [&] {
                 switch (original.tag()) {
@@ -177,6 +146,9 @@ private:
         }
         auto copy = static_cast<const Expression *>(nullptr);
         auto fb = FunctionBuilder::current();
+        if (auto iter = _hoisted.find(original); iter != _hoisted.end()) {
+            original = fb->_internalize(iter->second);
+        }
         switch (original->tag()) {
             case Expression::Tag::UNARY: {
                 auto e = static_cast<const UnaryExpr *>(original);
@@ -215,11 +187,15 @@ private:
                 break;
             }
             case Expression::Tag::REF: {
-                auto e = static_cast<const RefExpr *>(original);
-                auto iter = _contexts.back()->var_map.find(e->variable().uid());
-                LUISA_ASSERT(iter != _contexts.back()->var_map.end(),
-                             "Variable not found in context.");
-                copy = iter->second;
+                if (original->builder() == fb) {
+                    copy = original;
+                } else {
+                    auto e = static_cast<const RefExpr *>(original);
+                    auto iter = _contexts.back()->var_map.find(e->variable().uid());
+                    LUISA_ASSERT(iter != _contexts.back()->var_map.end(),
+                                 "Variable not found in context.");
+                    copy = iter->second;
+                }
                 break;
             }
             case Expression::Tag::CONSTANT: {
@@ -429,7 +405,25 @@ luisa::shared_ptr<const FunctionBuilder> FunctionBuilder::duplicate() const noex
 }
 
 luisa::shared_ptr<const FunctionBuilder> FunctionBuilder::_duplicate_if_necessary() const noexcept {
-    return shared_from_this();// TODO
+    auto check = [](auto &&check, auto f) noexcept -> bool {
+        auto necessary = false;
+        traverse_expressions<true>(
+            f->body(),
+            [&](const Expression *e) noexcept {
+                necessary |= e->builder() != f;
+                if (e->tag() == Expression::Tag::CALL) {
+                    auto call = static_cast<const CallExpr *>(e);
+                    if (call->is_custom()) {
+                        necessary |= check(check, call->custom().builder());
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+        return necessary;
+    };
+    if (check(check, this)) { return duplicate(); }
+    return shared_from_this();
 }
 
 }// namespace luisa::compute::detail
