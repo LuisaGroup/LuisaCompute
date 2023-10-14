@@ -214,9 +214,8 @@ DeviceInterface *DxCudaInteropImpl::device() {
 }
 #else
 #define LUISA_UNIMPL_ERROR LUISA_ERROR("Method unimplemented.")
-uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer) noexcept {
+void DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept {
     LUISA_UNIMPL_ERROR;
-    return invalid_resource_handle;
 }
 uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture) noexcept {
     LUISA_UNIMPL_ERROR;
@@ -225,6 +224,21 @@ uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture) noexcept {
 uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event) noexcept {
     LUISA_UNIMPL_ERROR;
     return invalid_resource_handle;
+}
+BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element, size_t elem_count) noexcept {
+    LUISA_UNIMPL_ERROR;
+}
+ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    LUISA_UNIMPL_ERROR;
+}
+DeviceInterface *DxCudaInteropImpl::device() {
+    LUISA_UNIMPL_ERROR;
+}
+void DxCudaInteropImpl::unmap(void *cuda_ptr, void *cuda_handle) noexcept {
+    LUISA_UNIMPL_ERROR;
 }
 #undef LUISA_UNIMPL_ERROR
 #endif
