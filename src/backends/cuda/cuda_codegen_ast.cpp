@@ -1657,7 +1657,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             if(force_const) {
                 _scratch << "const ";
                 _emit_type_name(v.type());
-                _scratch << " ";
+                _scratch << " &";
             }
             else {
                 _emit_type_name(v.type());

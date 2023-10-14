@@ -435,17 +435,20 @@ void MetalCodegenAST::_emit_function() noexcept {
         auto emitted_texture_count = 0u;
         if (!_function.arguments().empty()) {
             for (auto arg : _function.arguments()) {
-                auto is_mut_ref = arg.is_reference() &&
-                                  (to_underlying(_function.variable_usage(arg.uid())) &
-                                   to_underlying(Usage::WRITE));
-                if (is_mut_ref) { _scratch << "thread "; }
+                auto is_ref = arg.is_reference();
+                auto is_mut = to_underlying(_function.variable_usage(arg.uid())) &
+                              to_underlying(Usage::WRITE);
+                if (is_ref) {
+                    _scratch << "thread ";
+                    if (!is_mut) { _scratch << "const "; }
+                }
                 if (arg.type()->is_texture()) {
                     _scratch << "T" << emitted_texture_count++;
                 } else {
                     _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
                 }
                 _scratch << " ";
-                if (is_mut_ref) { _scratch << "&"; }
+                if (is_ref) { _scratch << "&"; }
                 _emit_variable_name(arg);
                 _scratch << ", ";
             }

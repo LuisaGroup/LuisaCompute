@@ -83,8 +83,8 @@
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ir/fwd.h>
-#include <luisa/ir/ir.h>
 #include <luisa/ir/ir2ast.h>
+#include <luisa/ir/transform.h>
 #endif
 
 #include <luisa/osl/hint.h>
