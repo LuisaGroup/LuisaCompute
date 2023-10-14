@@ -3,7 +3,7 @@
 //
 
 #include <luisa/ast/function_builder.h>
-
+#include <luisa/core/logging.h>
 namespace luisa::compute::detail {
 
 class FunctionDuplicator {
