@@ -452,7 +452,7 @@ impl<'a> FunctionEmitter<'a> {
                         }
                     }
                     _ => {
-                        unreachable!()
+                        unreachable!("{:?}", arg.get().instruction.as_ref());
                     }
                 }
                 callable_emitter
