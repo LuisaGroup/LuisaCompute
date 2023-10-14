@@ -730,18 +730,6 @@ void FunctionBuilder::sort_bindings() noexcept {
 }
 
 static void check_expr_is_internalizable(const Expression *expr) noexcept {
-    // check if the expression is on the current call stack
-    auto on_callstack = std::find(FunctionBuilder::stack().crbegin(),
-                                  FunctionBuilder::stack().crend(),
-                                  expr->builder()) !=
-                        FunctionBuilder::stack().crend();
-    LUISA_ASSERT(on_callstack,
-                 "Expression (type = {}, tag = {}) to be internalized "
-                 "is not on the current call stack.",
-                 expr->type() == nullptr ?
-                     "void" :
-                     expr->type()->description(),
-                 luisa::to_string(expr->tag()));
     // check if the expression can be internalized
     switch (expr->tag()) {
         case Expression::Tag::MEMBER: {
@@ -801,22 +789,52 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
     // internalize
     check_expr_is_internalizable(expr);
     auto internalized = [this, external = expr]() noexcept -> const Expression * {
-        auto mark_internalizer_argument = [this, external](auto expr) noexcept {
+        auto mark_internalizer_argument = [this, external](auto expr) noexcept -> const Expression * {
             _internalizer_arguments.emplace(expr->variable(), external);
             return expr;
         };
         auto internalize_rvalue = [this, external, mark_internalizer_argument] {
+            auto src = std::find(stack().crbegin(), stack().crend(), external->builder());
+            LUISA_ASSERT(src != stack().crend(),
+                         "Cannot internalize r-value expression "
+                         "that is not on the stack.");
             return mark_internalizer_argument(argument(external->type()));
         };
         auto internalize_lvalue = [this, external, mark_internalizer_argument] {
+            auto src = std::find(stack().crbegin(), stack().crend(), external->builder());
+            auto on_stack = src != stack().crend();
+            // if the external expression is not on the stack, we defer
+            // the internalization until the full kernel is encoded
+            if (!on_stack) {
+                LUISA_ASSERT(external->tag() == Expression::Tag::REF,
+                             "Cannot internalize non-reference "
+                             "expression that is not on the stack.");
+                return external;
+            }
             return mark_internalizer_argument(reference(external->type()));
         };
         switch (external->tag()) {
-            case Expression::Tag::MEMBER:
+            case Expression::Tag::MEMBER: {
+                if (expr_is_lvalue_local_variable(external)) {
+                    auto expr = static_cast<const MemberExpr *>(external);
+                    auto self = _internalize(expr->self());
+                    if (expr->is_swizzle()) {
+                        LUISA_ASSERT(expr->swizzle_size() == 1u,
+                                     "Cannot internalize r-value swizzle.");
+                        return swizzle(expr->type(), self, 1u, expr->swizzle_code());
+                    }
+                    return member(expr->type(), self, expr->member_index());
+                }
+                return internalize_rvalue();
+            }
             case Expression::Tag::ACCESS: {
-                return expr_is_lvalue_local_variable(external) ?
-                           internalize_lvalue() :
-                           internalize_rvalue();
+                if (expr_is_lvalue_local_variable(external)) {
+                    auto expr = static_cast<const AccessExpr *>(external);
+                    auto range = _internalize(expr->range());
+                    auto index = _internalize(expr->index());
+                    return access(expr->type(), range, index);
+                }
+                return internalize_rvalue();
             }
             case Expression::Tag::LITERAL: {
                 auto expr = static_cast<const LiteralExpr *>(external);

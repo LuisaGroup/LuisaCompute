@@ -31,8 +31,9 @@ uint64_t Expression::hash() const noexcept {
 }
 
 void RefExpr::_mark(Usage usage) const noexcept {
-    detail::FunctionBuilder::current()->mark_variable_usage(
-        _variable.uid(), usage);
+    if (auto fb = detail::FunctionBuilder::current(); fb == builder()) {
+        fb->mark_variable_usage(_variable.uid(), usage);
+    }
 }
 
 uint64_t RefExpr::_compute_hash() const noexcept {

@@ -2,6 +2,7 @@
 
 #include <type_traits>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/device.h>
@@ -615,7 +616,7 @@ public:
     Lambda &operator=(const Lambda &) noexcept = default;
 
     template<typename... Args>
-    decltype(auto) operator()(Args &&...args) const noexcept {
+    auto operator()(Args &&...args) const noexcept {
         using Ret = decltype(_f(std::forward<Args>(args)...));
         if constexpr (std::is_same_v<Ret, void>) {
             outline([&] {
@@ -623,12 +624,12 @@ public:
                 _f(std::forward<Args>(args)...);
             });
         } else {
-            Ret ret;
+            luisa::optional<Ret> ret;
             outline([&] {
                 if (!_comment.empty()) { detail::comment(_comment); }
-                ret = _f(std::forward<Args>(args)...);
+                ret.emplace(_f(std::forward<Args>(args)...));
             });
-            return ret;
+            return std::move(ret).value();
         }
     }
 };
