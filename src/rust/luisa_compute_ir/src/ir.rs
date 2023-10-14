@@ -1041,9 +1041,20 @@ impl Const {
 }
 
 /// cbindgen:derive-eq
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, PartialOrd, Ord)]
 #[repr(C)]
 pub struct NodeRef(pub usize);
+
+impl Debug for NodeRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "NodeRef({}, inst={:?})",
+            self.0,
+            self.get().instruction.as_ref()
+        )
+    }
+}
 
 #[repr(C)]
 #[derive(Debug)]
