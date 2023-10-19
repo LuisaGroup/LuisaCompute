@@ -663,8 +663,6 @@ pub enum Func {
     IndirectDispatchSetCount,
     IndirectDispatchSetKernel,
 
-    /// When referencing a Local in Call, it is always interpreted as a load
-    /// However, there are cases you want to do this explicitly
     Load,
 
     Cast,
@@ -935,7 +933,11 @@ pub enum Func {
     Unknown0,
     Unknown1,
 }
-
+impl Func {
+    pub fn discriminant(&self) -> u32 {
+        unsafe { *<*const _>::from(self).cast::<u32>() }
+    }
+}
 #[derive(Clone, Debug, Serialize)]
 #[repr(C)]
 pub enum Const {
@@ -1561,23 +1563,18 @@ impl NodeRef {
     pub fn update<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
         f(self.get_mut())
     }
-    pub fn access_chain(&self) -> Option<(NodeRef, Vec<(CArc<Type>, usize)>)> {
+    pub fn access_chain(&self) -> (NodeRef, Vec<usize>) {
         match self.get().instruction.as_ref() {
             Instruction::Call(f, args) => {
                 if *f == Func::GetElementPtr {
                     let var = args[0];
-                    let idx = args[1].get_i32() as usize;
-                    if let Some((parent, mut indices)) = var.access_chain() {
-                        indices.push((self.type_().clone(), idx));
-                        return Some((parent, indices));
-                    }
-                    Some((var, vec![(self.type_().clone(), idx)]))
-                } else {
-                    None
+                    let indices = args[1..].iter().map(|i| i.get_i32() as usize).collect();
+                    return (var, indices);
                 }
             }
-            _ => None,
+            _ => {}
         }
+        (*self, vec![])
     }
     pub fn type_(&self) -> &CArc<Type> {
         &self.get().type_

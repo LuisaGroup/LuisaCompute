@@ -7,9 +7,10 @@ pub mod vectorize;
 pub mod fwd_autodiff;
 pub mod ref2ret;
 pub mod reg2mem;
+pub mod dce;
 
 use crate::ir::{self, ModuleFlags};
-use bitflags::Flags;
+
 
 pub trait Transform {
     fn transform(&self, module: ir::Module) -> ir::Module;

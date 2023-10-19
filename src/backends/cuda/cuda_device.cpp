@@ -622,6 +622,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG
         nvrtc_options.emplace_back("-DLUISA_DEBUG=1");
 #endif
+    } else if (LUISA_CUDA_DUMP_SOURCE) {
+        nvrtc_options.emplace_back("-lineinfo");
     }
     if (option.enable_fast_math) {
         nvrtc_options.emplace_back("-use_fast_math");
