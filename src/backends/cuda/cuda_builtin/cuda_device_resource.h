@@ -1,7 +1,10 @@
 #pragma once
 
+[[nodiscard]] __device__ constexpr auto lc_infinity_half() noexcept { return __ushort_as_half((unsigned short)0x7c00u); }
 [[nodiscard]] __device__ constexpr auto lc_infinity_float() noexcept { return __int_as_float(0x7f800000u); }
 [[nodiscard]] __device__ constexpr auto lc_infinity_double() noexcept { return __longlong_as_double(0x7ff0000000000000ull); }
+
+__constant__ auto LC_INF_H = lc_infinity_half();
 
 #if LC_NVRTC_VERSION < 110200
 #define LC_CONSTANT const
