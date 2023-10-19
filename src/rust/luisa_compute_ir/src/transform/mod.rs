@@ -8,6 +8,7 @@ pub mod fwd_autodiff;
 pub mod ref2ret;
 pub mod reg2mem;
 pub mod dce;
+pub mod inliner;
 
 use crate::ir::{self, ModuleFlags};
 

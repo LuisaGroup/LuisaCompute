@@ -12,6 +12,7 @@ use crate::context::is_type_equal;
 use crate::ir::{
     new_node, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming, Primitive, SwitchCase,
 };
+use crate::transform::inliner;
 use crate::transform::ssa::ToSSA;
 use crate::{
     context,
@@ -1887,7 +1888,21 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 //         })
                 //     );
                 // }
+                {
+                    let nodes = ad_block.collect_nodes();
+                    for n in nodes {
+                        let inst = n.get().instruction.as_ref();
+                        match inst {
+                            Instruction::Call(f, _) => match f {
+                                Func::Callable(_) => inliner::inline_callable(&ad_block, n),
+                                _ => {}
+                            },
+                            _ => {}
+                        }
+                    }
+                }
                 let ad_block = ToSSA.transform(ad_block);
+               
                 // {
                 //     println!(
                 //         "After SSA:\n{}",

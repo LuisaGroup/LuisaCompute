@@ -1841,25 +1841,25 @@ impl Module {
     }
 }
 
-struct ModuleDuplicatorCtx {
-    nodes: HashMap<NodeRef, NodeRef>,
-    blocks: HashMap<*const BasicBlock, Pooled<BasicBlock>>,
+pub struct ModuleDuplicatorCtx {
+    pub nodes: HashMap<NodeRef, NodeRef>,
+    pub blocks: HashMap<*const BasicBlock, Pooled<BasicBlock>>,
 }
 
-struct ModuleDuplicator {
-    callables: HashMap<*const CallableModule, CArc<CallableModule>>,
-    current: Option<ModuleDuplicatorCtx>,
+pub struct ModuleDuplicator {
+    pub callables: HashMap<*const CallableModule, CArc<CallableModule>>,
+    pub current: Option<ModuleDuplicatorCtx>,
 }
 
 impl ModuleDuplicator {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             callables: HashMap::new(),
             current: None,
         }
     }
 
-    fn with_context<T, F: FnOnce(&mut Self) -> T>(&mut self, f: F) -> T {
+    pub fn with_context<T, F: FnOnce(&mut Self) -> T>(&mut self, f: F) -> T {
         let ctx = ModuleDuplicatorCtx {
             nodes: HashMap::new(),
             blocks: HashMap::new(),
@@ -1870,7 +1870,7 @@ impl ModuleDuplicator {
         ret
     }
 
-    fn duplicate_callable(&mut self, callable: &CArc<CallableModule>) -> CArc<CallableModule> {
+    pub fn duplicate_callable(&mut self, callable: &CArc<CallableModule>) -> CArc<CallableModule> {
         if let Some(copy) = self.callables.get(&callable.as_ptr()) {
             return copy.clone();
         }
@@ -1893,7 +1893,7 @@ impl ModuleDuplicator {
         dup_callable
     }
 
-    fn duplicate_arg(&mut self, pools: &CArc<ModulePools>, node_ref: NodeRef) -> NodeRef {
+    pub fn duplicate_arg(&mut self, pools: &CArc<ModulePools>, node_ref: NodeRef) -> NodeRef {
         let node = node_ref.get();
         let instr = &node.instruction;
         let dup_instr = match instr.as_ref() {
@@ -1918,7 +1918,7 @@ impl ModuleDuplicator {
         dup_node_ref
     }
 
-    fn duplicate_args(
+    pub fn duplicate_args(
         &mut self,
         pools: &CArc<ModulePools>,
         args: &CBoxedSlice<NodeRef>,
@@ -1930,7 +1930,7 @@ impl ModuleDuplicator {
         CBoxedSlice::new(dup_args)
     }
 
-    fn duplicate_captures(
+    pub fn duplicate_captures(
         &mut self,
         pools: &CArc<ModulePools>,
         captures: &CBoxedSlice<Capture>,
@@ -1945,7 +1945,7 @@ impl ModuleDuplicator {
         CBoxedSlice::new(dup_captures)
     }
 
-    fn duplicate_shared(
+    pub fn duplicate_shared(
         &mut self,
         pools: &CArc<ModulePools>,
         shared: &CBoxedSlice<NodeRef>,
@@ -1957,7 +1957,7 @@ impl ModuleDuplicator {
         CBoxedSlice::new(dup_shared)
     }
 
-    fn duplicate_node(&mut self, builder: &mut IrBuilder, node_ref: NodeRef) -> NodeRef {
+    pub fn duplicate_node(&mut self, builder: &mut IrBuilder, node_ref: NodeRef) -> NodeRef {
         if !node_ref.valid() {
             return INVALID_REF;
         }
@@ -2121,12 +2121,12 @@ impl ModuleDuplicator {
         dup_node
     }
 
-    fn find_duplicated_block(&self, bb: &Pooled<BasicBlock>) -> Pooled<BasicBlock> {
+    pub fn find_duplicated_block(&self, bb: &Pooled<BasicBlock>) -> Pooled<BasicBlock> {
         let ctx = self.current.as_ref().unwrap();
         ctx.blocks.get(&bb.as_ptr()).unwrap().clone()
     }
 
-    fn find_duplicated_node(&self, node: NodeRef) -> NodeRef {
+    pub fn find_duplicated_node(&self, node: NodeRef) -> NodeRef {
         if !node.valid() {
             return INVALID_REF;
         }
@@ -2134,7 +2134,7 @@ impl ModuleDuplicator {
         ctx.nodes.get(&node).unwrap().clone()
     }
 
-    fn duplicate_block(
+    pub fn duplicate_block(
         &mut self,
         pools: &CArc<ModulePools>,
         bb: &Pooled<BasicBlock>,
@@ -2163,7 +2163,7 @@ impl ModuleDuplicator {
         dup_bb
     }
 
-    fn duplicate_kernel(&mut self, kernel: &KernelModule) -> KernelModule {
+    pub fn duplicate_kernel(&mut self, kernel: &KernelModule) -> KernelModule {
         self.with_context(|this| {
             let dup_args = this.duplicate_args(&kernel.pools, &kernel.args);
             let dup_captures = this.duplicate_captures(&kernel.pools, &kernel.captures);
@@ -2181,7 +2181,7 @@ impl ModuleDuplicator {
         })
     }
 
-    fn duplicate_module(&mut self, module: &Module) -> Module {
+    pub fn duplicate_module(&mut self, module: &Module) -> Module {
         let dup_entry = self.duplicate_block(&module.pools, &module.entry);
         Module {
             kind: module.kind,
