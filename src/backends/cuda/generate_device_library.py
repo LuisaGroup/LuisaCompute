@@ -49,6 +49,7 @@ public:
 };
 static_assert(sizeof(lc_half) == 2);
 '''
+
 if __name__ == "__main__":
     if len(argv) < 2:
         print("usage: python generate_device_library.py <output_file>")
@@ -217,11 +218,11 @@ if __name__ == "__main__":
                 gen_assign_op(type, op)
             print(file=file)
         for op in ["%=", "<<=", ">>="]:
-            for type in ["byte", "ubyte","short", "ushort", "int", "uint", "long", "ulong", ]:
+            for type in ["byte", "ubyte", "short", "ushort", "int", "uint", "long", "ulong", ]:
                 gen_assign_op(type, op)
             print(file=file)
         for op in ["|=", "&=", "^="]:
-            for type in ["byte", "ubyte","short", "ushort", "int", "uint", "long", "ulong", "bool"]:
+            for type in ["byte", "ubyte", "short", "ushort", "int", "uint", "long", "ulong", "bool"]:
                 gen_assign_op(type, op)
             print(file=file)
 
