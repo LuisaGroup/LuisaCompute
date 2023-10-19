@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{ir::*, CBoxedSlice, CArc};
+use crate::{ir::*, CArc, CBoxedSlice};
 
-pub fn inline_callable(caller: &Module, call: NodeRef) {
+pub fn inline_callable(caller: &Module, call: NodeRef, recursive: bool) {
     let inst = call.get().instruction.as_ref();
 
     let (f, args) = match inst {
@@ -36,6 +36,25 @@ pub fn inline_callable(caller: &Module, call: NodeRef) {
         }
         this.duplicate_block(&caller.pools, &f.module.entry)
     });
+    if recursive {
+        let inlined = Module {
+            pools: caller.pools.clone(),
+            kind: ModuleKind::Block,
+            entry: inlined_block,
+            flags: ModuleFlags::empty(),
+        };
+        let nodes = inlined.collect_nodes();
+        for n in nodes {
+            let inst = n.get().instruction.as_ref();
+            match inst {
+                Instruction::Call(f, _) => match f {
+                    Func::Callable(_) => inline_callable(&inlined, n, true),
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+    }
     if call.type_().is_void() {
         let prev = call.get().prev;
         let next = call.get().next;

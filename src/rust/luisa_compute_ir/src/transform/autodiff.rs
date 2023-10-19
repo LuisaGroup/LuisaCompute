@@ -1894,7 +1894,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                         let inst = n.get().instruction.as_ref();
                         match inst {
                             Instruction::Call(f, _) => match f {
-                                Func::Callable(_) => inliner::inline_callable(&ad_block, n),
+                                Func::Callable(_) => inliner::inline_callable(&ad_block, n, true),
                                 _ => {}
                             },
                             _ => {}
