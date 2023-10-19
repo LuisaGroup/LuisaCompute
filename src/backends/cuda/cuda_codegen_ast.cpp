@@ -1532,15 +1532,20 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
         type != _committed_hit_type &&
         type != _ray_query_all_type &&
         type != _ray_query_any_type) {
-        _scratch << "struct alignas(" << type->alignment() << ") ";
-        _emit_type_name(type);
-        _scratch << " {\n";
-        for (auto i = 0u; i < type->members().size(); i++) {
-            _scratch << "  ";
-            _emit_type_name(type->members()[i]);
-            _scratch << " m" << i << "{};\n";
-        }
-        _scratch << "};\n\n";
+
+        auto emit_decl = [type, this](bool hack_float_to_int) noexcept {
+            _scratch << "struct alignas(" << type->alignment() << ") ";
+            _emit_type_name(type, hack_float_to_int);
+            _scratch << " {\n";
+            for (auto i = 0u; i < type->members().size(); i++) {
+                _scratch << "  ";
+                _emit_type_name(type->members()[i], hack_float_to_int);
+                _scratch << " m" << i << "{};\n";
+            }
+            _scratch << "};\n\n";
+        };
+        emit_decl(false);
+        emit_decl(true);
     }
     if (type->is_structure()) {
         // lc_zero and lc_one
@@ -1574,16 +1579,16 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
     }
 }
 
-void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
+void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) noexcept {
     if (type == nullptr) {
         _scratch << "void";
         return;
     }
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
-        case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
-        case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
-        case Type::Tag::FLOAT64: _scratch << "lc_double"; break;
+        case Type::Tag::FLOAT16: _scratch << (hack_float_to_int ? "lc_ushort" : "lc_half"); break;
+        case Type::Tag::FLOAT32: _scratch << (hack_float_to_int ? "lc_uint" : "lc_float"); break;
+        case Type::Tag::FLOAT64: _scratch << (hack_float_to_int ? "lc_ulong" : "lc_double"); break;
         case Type::Tag::INT8: _scratch << "lc_byte"; break;
         case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
@@ -1593,18 +1598,26 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::INT64: _scratch << "lc_long"; break;
         case Type::Tag::UINT64: _scratch << "lc_ulong"; break;
         case Type::Tag::VECTOR:
-            _emit_type_name(type->element());
+            _emit_type_name(type->element(), hack_float_to_int);
             _scratch << type->dimension();
             break;
         case Type::Tag::MATRIX:
-            _scratch << "lc_float"
-                     << type->dimension()
-                     << "x"
-                     << type->dimension();
+            if (hack_float_to_int) {
+                _scratch << "lc_array<lc_uint"
+                         << type->dimension()
+                         << ", "
+                         << type->dimension()
+                         << ">";
+            } else {
+                _scratch << "lc_float"
+                         << type->dimension()
+                         << "x"
+                         << type->dimension();
+            }
             break;
         case Type::Tag::ARRAY:
             _scratch << "lc_array<";
-            _emit_type_name(type->element());
+            _emit_type_name(type->element(), hack_float_to_int);
             _scratch << ", ";
             _scratch << type->dimension() << ">";
             break;
@@ -1619,6 +1632,7 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCCommittedHit";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
+                if (hack_float_to_int) { _scratch << "_int"; }
             }
             break;
         }
@@ -1721,6 +1735,7 @@ void CUDACodegenAST::_emit_statements(luisa::span<const Statement *const> stmts)
     }
 }
 
+// TODO: This would have trouble with infinities and NaNs
 class CUDAConstantPrinter final : public ConstantDecoder {
 
 private:
@@ -1739,24 +1754,18 @@ protected:
     void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("lc_long({})", x); }
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("lc_ulong({})", x); }
     void _decode_half(half x) noexcept override {
-        LUISA_NOT_IMPLEMENTED();
+        _codegen->_scratch << luisa::format("lc_ushort({})", luisa::bit_cast<ushort>(x));
     }
     void _decode_float(float x) noexcept override {
-        _codegen->_scratch << "lc_float(";
-        detail::LiteralPrinter p{_codegen->_scratch};
-        p(x);
-        _codegen->_scratch << ")";
+        _codegen->_scratch << luisa::format("lc_uint({})", luisa::bit_cast<uint>(x));
     }
     void _decode_double(double x) noexcept override {
-        _codegen->_scratch << "lc_double(";
-        detail::LiteralPrinter p{_codegen->_scratch};
-        p(x);
-        _codegen->_scratch << ")";
+        _codegen->_scratch << luisa::format("lc_ulong({})", luisa::bit_cast<ulong>(x));
     }
     void _vector_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1767,7 +1776,7 @@ protected:
     void _matrix_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1778,7 +1787,7 @@ protected:
     void _struct_separator(const Type *type, uint index) noexcept override {
         auto n = type->members().size();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1789,7 +1798,7 @@ protected:
     void _array_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1805,7 +1814,6 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
                               _generated_constants.cend(), c.hash());
         iter != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.hash());
-
     _scratch << "__constant__ LC_CONSTANT auto c"
              << hash_to_string(c.hash())
              << " = ";
@@ -1815,7 +1823,9 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
 }
 
 void CUDACodegenAST::visit(const ConstantExpr *expr) {
-    _scratch << "c" << hash_to_string(expr->data().hash());
+    _scratch << "(*reinterpret_cast<const ";
+    _emit_type_name(expr->type());
+    _scratch << " *>(&c" << hash_to_string(expr->data().hash()) << "))";
 }
 
 void CUDACodegenAST::visit(const ForStmt *stmt) {
