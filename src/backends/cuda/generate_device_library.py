@@ -384,8 +384,7 @@ struct lc_float{i}x{i} {{
         generate_vector_call("trunc", "truncf", "f", ["x"])
         generate_vector_call("trunc", "htrunc", "h", ["x"])
 
-        generate_vector_call("round", "roundf", "f", ["x"])
-        generate_vector_call("round", "__half2short_rz", "h", ["x"])
+        generate_vector_call("round", "roundf", "hf", ["x"])
 
         generate_vector_call("fma", "fmaf", "f", ["x", "y", "z"])
         generate_vector_call("fma", "__hfma", "h", ["x", "y", "z"])

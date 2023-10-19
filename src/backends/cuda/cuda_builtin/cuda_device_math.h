@@ -3055,15 +3055,14 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_half3 lc_trunc(lc_half3 x) noexcept { return lc_make_half3(htrunc(x.x), htrunc(x.y), htrunc(x.z)); }
 [[nodiscard]] __device__ inline lc_half4 lc_trunc(lc_half4 x) noexcept { return lc_make_half4(htrunc(x.x), htrunc(x.y), htrunc(x.z), htrunc(x.w)); }
 
+[[nodiscard]] __device__ inline lc_half lc_round(lc_half x) noexcept { return roundf(x); }
+[[nodiscard]] __device__ inline lc_half2 lc_round(lc_half2 x) noexcept { return lc_make_half2(roundf(x.x), roundf(x.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_round(lc_half3 x) noexcept { return lc_make_half3(roundf(x.x), roundf(x.y), roundf(x.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_round(lc_half4 x) noexcept { return lc_make_half4(roundf(x.x), roundf(x.y), roundf(x.z), roundf(x.w)); }
 [[nodiscard]] __device__ inline lc_float lc_round(lc_float x) noexcept { return roundf(x); }
 [[nodiscard]] __device__ inline lc_float2 lc_round(lc_float2 x) noexcept { return lc_make_float2(roundf(x.x), roundf(x.y)); }
 [[nodiscard]] __device__ inline lc_float3 lc_round(lc_float3 x) noexcept { return lc_make_float3(roundf(x.x), roundf(x.y), roundf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_round(lc_float4 x) noexcept { return lc_make_float4(roundf(x.x), roundf(x.y), roundf(x.z), roundf(x.w)); }
-
-[[nodiscard]] __device__ inline lc_half lc_round(lc_half x) noexcept { return __half2short_rz(x); }
-[[nodiscard]] __device__ inline lc_half2 lc_round(lc_half2 x) noexcept { return lc_make_half2(__half2short_rz(x.x), __half2short_rz(x.y)); }
-[[nodiscard]] __device__ inline lc_half3 lc_round(lc_half3 x) noexcept { return lc_make_half3(__half2short_rz(x.x), __half2short_rz(x.y), __half2short_rz(x.z)); }
-[[nodiscard]] __device__ inline lc_half4 lc_round(lc_half4 x) noexcept { return lc_make_half4(__half2short_rz(x.x), __half2short_rz(x.y), __half2short_rz(x.z), __half2short_rz(x.w)); }
 
 [[nodiscard]] __device__ inline lc_float lc_fma(lc_float x, lc_float y, lc_float z) noexcept { return fmaf(x, y, z); }
 [[nodiscard]] __device__ inline lc_float2 lc_fma(lc_float2 x, lc_float2 y, lc_float2 z) noexcept { return lc_make_float2(fmaf(x.x, y.x, z.x), fmaf(x.y, y.y, z.y)); }
