@@ -247,7 +247,7 @@ __device__ inline __half atomicAdd(__half *const address, const __half val);
 struct alignas(2) __half {
 
 protected:
-    unsigned short __x;
+    unsigned short __x{};
 
 public:
     __half() = default;
@@ -424,8 +424,8 @@ __device__ inline bool operator>=(const __half &lh, const __half &rh) { return _
 __device__ inline bool operator<=(const __half &lh, const __half &rh) { return __hle(lh, rh); }
 
 struct alignas(4) __half2 {
-    __half x;
-    __half y;
+    __half x{};
+    __half y{};
 
 public:
     __half2() = default;
@@ -2275,6 +2275,24 @@ __device__ inline __half2 atomicAdd(__half2 *const address, const __half2 val) {
         } while (assumed != old);
         return *(__half2 *)&old;
     }
+}
+__device__ inline __half __hfma(const __half a, const __half b, const __half c) {
+    __half val;
+    asm("{fma.rn.f16 %0,%1,%2,%3;\n}"
+        : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
+        : "h"(*(reinterpret_cast<const unsigned short *>(&(a)))),
+          "h"(*(reinterpret_cast<const unsigned short *>(&(b)))),
+          "h"(*(reinterpret_cast<const unsigned short *>(&(c)))));
+    return val;
+}
+__device__ inline __half _hfma_sat(const __half a, const __half b, const __half c) {
+    __half val;
+    asm("{fma.rn.sat.f16 %0,%1,%2,%3;\n}"
+        : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
+        : "h"(*(reinterpret_cast<const unsigned short *>(&(a)))),
+          "h"(*(reinterpret_cast<const unsigned short *>(&(b)))),
+          "h"(*(reinterpret_cast<const unsigned short *>(&(c)))));
+    return val;
 }
 
 using half = __half;
