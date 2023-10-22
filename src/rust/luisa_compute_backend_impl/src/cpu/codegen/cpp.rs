@@ -421,7 +421,7 @@ impl<'a> FunctionEmitter<'a> {
         let fid = CArc::as_ptr(&f.0) as u64;
         if !self.globals.generated_callables.contains_key(&fid) {
             let mut callable_emitter = FunctionEmitter::new(&mut self.globals, &self.type_gen);
-
+            callable_emitter.indent = 2;
             let mut params = vec![];
             for (i, arg) in f.0.args.iter().enumerate() {
                 let mut param = String::new();
@@ -469,7 +469,7 @@ impl<'a> FunctionEmitter<'a> {
                 callable_emitter.globals.generated_callables.len()
             );
             let source = format!(
-                "[=]({}) -> {} {{\n{}\n{};}}",
+                "[=]({}) -> {} {{\n{}\n{}    }}",
                 params.join(","),
                 ret_type,
                 callable_emitter.fwd_defs,
@@ -484,11 +484,10 @@ impl<'a> FunctionEmitter<'a> {
                     .insert(source.clone(), fname.clone());
                 writeln!(
                     &mut self.globals.callable_def,
-                    "const auto {} = {};\n",
+                    "    const auto {} = {};\n",
                     fname, source
                 )
                 .unwrap();
-                self.write_ident();
             }
         }
         let fname = &self.globals.generated_callables[&fid];
@@ -1786,9 +1785,161 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "/* {} */", comment.to_string()).unwrap();
             }
             Instruction::Print { fmt, args } => {
-                todo!()
+                self.print_impl(fmt.to_string(), args.as_ref());
             }
         }
+    }
+    fn print_impl(&mut self, fmt_s: String, args: &[NodeRef]) {
+        let mut printf_fmt = String::new();
+        let fmt = fmt_s.chars().collect::<Vec<_>>();
+        let mut printf_args = String::new();
+        let mut i = 0;
+        let mut arg_i = 0;
+        while i <= fmt.len() {
+            if fmt[i] != '{' && fmt[i] != '}' {
+                printf_fmt.push(fmt[i]);
+                i += 1;
+            } else {
+                if i + 1 >= fmt.len() {
+                    panic!("invalid format string: {}", fmt_s);
+                }
+                if fmt[i] == fmt[i + 1] {
+                    printf_fmt.push(fmt[i]);
+                    i += 2;
+                } else {
+                    assert!(
+                        fmt[i] == '{' && fmt[i + 1] == '}',
+                        "invalid format string: {}",
+                        fmt_s
+                    );
+                    match args[arg_i].type_().as_ref() {
+                        Type::Primitive(p) => match p {
+                            Primitive::Bool => {
+                                printf_fmt.push_str("%s");
+                                write!(
+                                    printf_args,
+                                    ",{} ? \"true\" : \"false\"",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int8 => {
+                                printf_fmt.push_str("%d");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_int>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint8 => {
+                                printf_fmt.push_str("%u");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_uint>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int16 => {
+                                printf_fmt.push_str("%d");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_int>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint16 => {
+                                printf_fmt.push_str("%u");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_uint>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int32 => {
+                                printf_fmt.push_str("%d");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_int>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint32 => {
+                                printf_fmt.push_str("%u");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_uint>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int64 => {
+                                printf_fmt.push_str("%lld");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_long>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint64 => {
+                                printf_fmt.push_str("%llu");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_ulong>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Float16 => {
+                                printf_fmt.push_str("%f");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<float>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Float32 => {
+                                printf_fmt.push_str("%f");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<float>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Float64 => {
+                                printf_fmt.push_str("%f");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<double>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                        },
+                        _ => {
+                            panic!("frontend should lower print to primitive types")
+                        }
+                    }
+                    arg_i += 1;
+                    i += 2;
+                }
+            }
+        }
+        self.write_ident();
+        writeln!(
+            &mut self.body,
+            "lc_printf(\"{}\"{});",
+            printf_fmt.escape_default(),
+            printf_args
+        )
+        .unwrap();
     }
     fn gen_block_(&mut self, block: Pooled<ir::BasicBlock>) {
         for n in block.iter() {

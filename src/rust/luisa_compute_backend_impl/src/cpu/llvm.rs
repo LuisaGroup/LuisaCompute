@@ -1016,6 +1016,7 @@ impl Context {
             add_symbol!(rsqrtf, rsqrtf);
             add_symbol!(sincosf, sincos_);
             add_symbol!(__sincosf_stret, sincos_stret);
+            add_symbol!(lc_printf, libc::printf);
         }
         let work_dir = CString::new("").unwrap();
         let ident = CString::new("").unwrap();
