@@ -10,6 +10,31 @@ using lc_bool = bool;
 using lc_long = long long;
 using lc_ulong = unsigned long long;
 
+[[nodiscard]] __device__ inline bool isinf_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return u == 0x7f800000u | u == 0xff800000u;
+}
+[[nodiscard]] __device__ inline bool isnan_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
+}
+[[nodiscard]] __device__ inline lc_float powi_impl(lc_float x, lc_int y) noexcept {
+    lc_float r = 1.0f;
+    auto is_y_neg = y < 0;
+    auto y_abs = is_y_neg ? -y : y;
+    #pragma unroll
+    while (y_abs) {
+        if (y_abs & 1) r *= x;
+        x *= x;
+        y_abs >>= 1;
+    }
+    return is_y_neg ? 1.0f / r : r;
+}
+[[nodiscard]] __device__ inline lc_float powf_impl(lc_float x, lc_float y) noexcept {
+    auto y_int = static_cast<lc_int>(y);
+    return y_int == y ? powi_impl(x, y_int) : powf(x, y);
+}
+
 struct alignas(2) lc_byte2 {
     lc_byte x, y;
     __device__ inline constexpr lc_byte2() noexcept
@@ -2752,15 +2777,6 @@ struct lc_float4x4 {
 [[nodiscard]] __device__ inline constexpr auto lc_make_float4x4(lc_float3x3 m) noexcept { return lc_float4x4{lc_make_float4(m[0], 0.0f), lc_make_float4(m[1], 0.0f), lc_make_float4(m[2], 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 1.0f)}; }
 [[nodiscard]] __device__ inline constexpr auto lc_make_float4x4(lc_float4x4 m) noexcept { return m; }
 
-[[nodiscard]] __device__ inline bool isinf_impl(lc_float x) noexcept {
-    auto u = __float_as_int(x);
-    return u == 0x7f800000u | u == 0xff800000u;
-}
-[[nodiscard]] __device__ inline bool isnan_impl(lc_float x) noexcept {
-    auto u = __float_as_int(x);
-    return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
-}
-
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_select(T f, T t, bool p) noexcept { return p ? t : f; }
 [[nodiscard]] __device__ inline auto lc_select(lc_short2 f, lc_short2 t, lc_bool2 p) noexcept { return lc_make_short2(lc_select<lc_short>(f.x, t.x, p.x), lc_select<lc_short>(f.y, t.y, p.y)); }
@@ -2996,14 +3012,23 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_log10(lc_float3 x) noexcept { return lc_make_float3(log10f(x.x), log10f(x.y), log10f(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_log10(lc_float4 x) noexcept { return lc_make_float4(log10f(x.x), log10f(x.y), log10f(x.z), log10f(x.w)); }
 
-[[nodiscard]] __device__ inline lc_half lc_pow(lc_half x, lc_half a) noexcept { return powf(x, a); }
-[[nodiscard]] __device__ inline lc_half2 lc_pow(lc_half2 x, lc_half2 a) noexcept { return lc_make_half2(powf(x.x, a.x), powf(x.y, a.y)); }
-[[nodiscard]] __device__ inline lc_half3 lc_pow(lc_half3 x, lc_half3 a) noexcept { return lc_make_half3(powf(x.x, a.x), powf(x.y, a.y), powf(x.z, a.z)); }
-[[nodiscard]] __device__ inline lc_half4 lc_pow(lc_half4 x, lc_half4 a) noexcept { return lc_make_half4(powf(x.x, a.x), powf(x.y, a.y), powf(x.z, a.z), powf(x.w, a.w)); }
-[[nodiscard]] __device__ inline lc_float lc_pow(lc_float x, lc_float a) noexcept { return powf(x, a); }
-[[nodiscard]] __device__ inline lc_float2 lc_pow(lc_float2 x, lc_float2 a) noexcept { return lc_make_float2(powf(x.x, a.x), powf(x.y, a.y)); }
-[[nodiscard]] __device__ inline lc_float3 lc_pow(lc_float3 x, lc_float3 a) noexcept { return lc_make_float3(powf(x.x, a.x), powf(x.y, a.y), powf(x.z, a.z)); }
-[[nodiscard]] __device__ inline lc_float4 lc_pow(lc_float4 x, lc_float4 a) noexcept { return lc_make_float4(powf(x.x, a.x), powf(x.y, a.y), powf(x.z, a.z), powf(x.w, a.w)); }
+[[nodiscard]] __device__ inline lc_half lc_pow(lc_half x, lc_half a) noexcept { return powf_impl(x, a); }
+[[nodiscard]] __device__ inline lc_half2 lc_pow(lc_half2 x, lc_half2 a) noexcept { return lc_make_half2(powf_impl(x.x, a.x), powf_impl(x.y, a.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_pow(lc_half3 x, lc_half3 a) noexcept { return lc_make_half3(powf_impl(x.x, a.x), powf_impl(x.y, a.y), powf_impl(x.z, a.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_pow(lc_half4 x, lc_half4 a) noexcept { return lc_make_half4(powf_impl(x.x, a.x), powf_impl(x.y, a.y), powf_impl(x.z, a.z), powf_impl(x.w, a.w)); }
+[[nodiscard]] __device__ inline lc_float lc_pow(lc_float x, lc_float a) noexcept { return powf_impl(x, a); }
+[[nodiscard]] __device__ inline lc_float2 lc_pow(lc_float2 x, lc_float2 a) noexcept { return lc_make_float2(powf_impl(x.x, a.x), powf_impl(x.y, a.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_pow(lc_float3 x, lc_float3 a) noexcept { return lc_make_float3(powf_impl(x.x, a.x), powf_impl(x.y, a.y), powf_impl(x.z, a.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_pow(lc_float4 x, lc_float4 a) noexcept { return lc_make_float4(powf_impl(x.x, a.x), powf_impl(x.y, a.y), powf_impl(x.z, a.z), powf_impl(x.w, a.w)); }
+
+[[nodiscard]] __device__ inline lc_half lc_powi(lc_half x, lc_half a) noexcept { return powi_impl(x, a); }
+[[nodiscard]] __device__ inline lc_half2 lc_powi(lc_half2 x, lc_half2 a) noexcept { return lc_make_half2(powi_impl(x.x, a.x), powi_impl(x.y, a.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_powi(lc_half3 x, lc_half3 a) noexcept { return lc_make_half3(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_powi(lc_half4 x, lc_half4 a) noexcept { return lc_make_half4(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z), powi_impl(x.w, a.w)); }
+[[nodiscard]] __device__ inline lc_float lc_powi(lc_float x, lc_float a) noexcept { return powi_impl(x, a); }
+[[nodiscard]] __device__ inline lc_float2 lc_powi(lc_float2 x, lc_float2 a) noexcept { return lc_make_float2(powi_impl(x.x, a.x), powi_impl(x.y, a.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_powi(lc_float3 x, lc_float3 a) noexcept { return lc_make_float3(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_powi(lc_float4 x, lc_float4 a) noexcept { return lc_make_float4(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z), powi_impl(x.w, a.w)); }
 
 [[nodiscard]] __device__ inline lc_float lc_sqrt(lc_float x) noexcept { return sqrtf(x); }
 [[nodiscard]] __device__ inline lc_float2 lc_sqrt(lc_float2 x) noexcept { return lc_make_float2(sqrtf(x.x), sqrtf(x.y)); }
