@@ -283,8 +283,13 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         // TODO: optimize this
         for (auto &&arg : _bound_arguments) { encode_argument(arg); }
         for (auto &&arg : command->arguments()) { encode_argument(arg); }
-        // TODO: printer
-        if (printer()) { LUISA_NOT_IMPLEMENTED(); }
+        // printer
+        if (printer()) {
+            auto b = printer()->encode(encoder);
+            auto ptr = allocate_argument(sizeof(b));
+            std::memcpy(ptr, &b, sizeof(b));
+        }
+        // dispatch size and kernel id
         auto ptr = allocate_argument(sizeof(uint4));
         if (!command->is_indirect()) {
             auto ds_and_kid = make_uint4(0u);

@@ -1,31 +1,45 @@
 #pragma once
 
+#include <cuda.h>
 #include <luisa/ast/type.h>
 
 namespace luisa::compute::cuda {
 
+class CUDACommandEncoder;
+
 class CUDAShaderPrinter {
+
+private:
+    static constexpr auto print_buffer_capacity = 1_M;// 1MB
+    static constexpr auto print_buffer_content_capacity = print_buffer_capacity - sizeof(size_t);
 
 public:
     struct Binding {
-        // TODO
+        size_t capacity;
+        CUdeviceptr content;
     };
 
+    class Callback;
+    class Formatter;
+
 private:
+    luisa::vector<luisa::unique_ptr<Formatter>> _formatters;
+
+private:
+    void _do_print(const void *data) const noexcept;
 
 public:
-    [[nodiscard]] static auto create(luisa::span<const std::pair<luisa::string, const Type *>> arg_types) noexcept {
-        if (arg_types.empty()) { return luisa::unique_ptr<CUDAShaderPrinter>{}; }
-        return luisa::make_unique<CUDAShaderPrinter>();// TODO
-    }
-    [[nodiscard]] static auto create(luisa::span<const std::pair<luisa::string, luisa::string>> arg_types) noexcept {
-        luisa::vector<std::pair<luisa::string, const Type *>> types;
-        types.reserve(arg_types.size());
-        for (auto &&[name, type] : arg_types) {
-            types.emplace_back(name, Type::from(type));
-        }
-        return create(types);
-    }
+    explicit CUDAShaderPrinter(luisa::vector<luisa::unique_ptr<Formatter>> &&formatters) noexcept;
+    ~CUDAShaderPrinter() noexcept;
+
+    [[nodiscard]] static luisa::unique_ptr<CUDAShaderPrinter>
+    create(luisa::span<const std::pair<luisa::string, const Type *>> arg_types) noexcept;
+
+    [[nodiscard]] static luisa::unique_ptr<CUDAShaderPrinter>
+    create(luisa::span<const std::pair<luisa::string, luisa::string>> arg_types) noexcept;
+
+public:
+    [[nodiscard]] Binding encode(CUDACommandEncoder &encoder) const noexcept;
 };
 
 }// namespace luisa::compute::cuda

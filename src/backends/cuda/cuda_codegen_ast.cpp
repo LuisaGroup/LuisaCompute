@@ -1581,9 +1581,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
 
     // generate print args
     for (auto t : sorted) {
-        _scratch << "struct LCPrintArgs_" << hash_to_string(t->hash()) << " {\n"
-                 << "  lc_uint size;\n"
-                 << "  lc_uint fmt;\n";
+        _scratch << "struct LCPrintArgs_" << hash_to_string(t->hash()) << " {\n";
         for (auto i = 0u; i < t->members().size(); i++) {
             _scratch << "  ";
             _emit_type_name(t->members()[i]);
