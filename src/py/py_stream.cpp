@@ -1,7 +1,5 @@
 #include "py_stream.h"
 #include <luisa/runtime/command_list.h>
-#include "ref_counter.h"
-
 namespace luisa::compute {
 
 PyStream::PyStream(Device &device, bool support_window) noexcept
@@ -14,9 +12,7 @@ PyStream::Data::Data(Device &device, bool support_window) noexcept
 
 PyStream::~PyStream() noexcept {
     if (!_data) return;
-    if (!_data->buffer.empty()) [[unlikely]] {
-        _data->stream << _data->buffer.commit();
-    }
+    execute();
     _data->stream.synchronize();
 }
 
@@ -51,4 +47,3 @@ PyStream::PyStream(PyStream &&s) noexcept
     : _data(std::move(s._data)) {}
 
 }// namespace luisa::compute
-
