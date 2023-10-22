@@ -22,7 +22,7 @@ using lc_ulong = unsigned long long;
     lc_float r = 1.0f;
     auto is_y_neg = y < 0;
     auto y_abs = is_y_neg ? -y : y;
-    #pragma unroll
+
     while (y_abs) {
         if (y_abs & 1) r *= x;
         x *= x;

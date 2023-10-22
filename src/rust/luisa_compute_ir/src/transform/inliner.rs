@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{ir::*, CArc, CBoxedSlice};
 
 pub fn inline_callable(caller: &Module, call: NodeRef, recursive: bool) {
