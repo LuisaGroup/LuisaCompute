@@ -18,6 +18,9 @@ CUDABufferBase::CUDABufferBase(size_t size_bytes) noexcept
     } else {
         LUISA_CHECK_CUDA(ret);
     }
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Allocated CUDA buffer: {} bytes @ {}",
+        size_bytes, reinterpret_cast<void *>(_handle));
 }
 
 CUDABufferBase::~CUDABufferBase() noexcept {
@@ -26,6 +29,10 @@ CUDABufferBase::~CUDABufferBase() noexcept {
     } else {
         LUISA_CHECK_CUDA(cuMemFree(_handle));
     }
+    auto size = _size_bytes;
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Freed CUDA buffer: {} bytes @ {}",
+        size, reinterpret_cast<void *>(_handle));
 }
 
 CUDABuffer::Binding CUDABuffer::binding(size_t offset, size_t size) const noexcept {
@@ -46,4 +53,3 @@ CUDAIndirectDispatchBuffer::binding(size_t offset, size_t size) const noexcept {
 }
 
 }// namespace luisa::compute::cuda
-
