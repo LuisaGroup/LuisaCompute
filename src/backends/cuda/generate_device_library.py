@@ -51,7 +51,7 @@ static_assert(sizeof(lc_half) == 2);
 [[nodiscard]] inline lc_short __half_as_short(lc_half x) noexcept { 
     return x.bits;
 }
-[[nodiscard]] lc_half __short_as_half(lc_short x) noexcept {
+[[nodiscard]] inline lc_half __short_as_half(lc_short x) noexcept {
     return lc_half::from_bits(x);
 }
 [[nodiscard]] inline lc_half __hmax(lc_half x, lc_half y) noexcept { return lc_half{lc_float(x) > lc_float(y) ? x : y}; }
