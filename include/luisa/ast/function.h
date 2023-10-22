@@ -154,6 +154,8 @@ public:
     [[nodiscard]] bool requires_atomic_float() const noexcept;
     /// Return whether the function requires automatic differentiation
     [[nodiscard]] bool requires_autodiff() const noexcept;
+    /// Return whether the function requires printing
+    [[nodiscard]] bool requires_printing() const noexcept;
     /// Return function builder
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     /// Return shared pointer to function builder

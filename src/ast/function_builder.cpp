@@ -639,6 +639,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         // propagate used builtin/custom callables and constants
         _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
         _requires_atomic_float |= f->_requires_atomic_float;
+        _requires_printing |= f->_requires_printing;
     }
     if (type == nullptr) {
         _void_expr(expr);
@@ -674,6 +675,7 @@ void FunctionBuilder::print_(luisa::string_view format,
     _create_and_append_statement<PrintStmt>(
         luisa::string{format},
         std::move(internalized_args));
+    _requires_printing = true;
 }
 
 void FunctionBuilder::set_block_size(uint3 size) noexcept {
@@ -714,6 +716,10 @@ bool FunctionBuilder::requires_atomic_float() const noexcept {
 
 bool FunctionBuilder::requires_autodiff() const noexcept {
     return _propagated_builtin_callables.uses_autodiff();
+}
+
+bool FunctionBuilder::requires_printing() const noexcept {
+    return _requires_printing;
 }
 
 void FunctionBuilder::sort_bindings() noexcept {

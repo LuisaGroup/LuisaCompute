@@ -110,6 +110,7 @@ private:
     Tag _tag;
     bool _hash_computed{false};
     bool _requires_atomic_float{false};
+    bool _requires_printing{false};
 
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
@@ -231,6 +232,8 @@ public:
     [[nodiscard]] bool requires_atomic_float() const noexcept;
     /// Return if uses automatic differentiation.
     [[nodiscard]] bool requires_autodiff() const noexcept;
+    /// Return if uses printing.
+    [[nodiscard]] bool requires_printing() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition

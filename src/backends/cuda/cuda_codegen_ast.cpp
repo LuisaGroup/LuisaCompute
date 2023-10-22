@@ -1041,6 +1041,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             arg->accept(*this);
             _scratch << ", ";
         }
+        if (op == CallOp::CUSTOM && _requires_printing && !_requires_optix) {
+            _scratch << "print_buffer, ";
+            trailing_comma = true;
+        }
         if (trailing_comma) {
             _scratch.pop_back();
             _scratch.pop_back();
@@ -1225,6 +1229,10 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
 void CUDACodegenAST::emit(Function f,
                           luisa::string_view device_lib,
                           luisa::string_view native_include) {
+
+    _requires_printing = f.requires_printing();
+    _requires_optix = f.requires_raytracing();
+
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
@@ -1275,6 +1283,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << "\n  alignas(16) ";
             _emit_variable_decl(f, arg, !arg.type()->is_buffer());
             _scratch << "{};";
+        }
+        if (_requires_printing) {
+            _scratch << "\n  alignas(16) LCPrintBuffer print_buffer{};";
         }
         _scratch << "\n  alignas(16) lc_uint4 ls_kid;";
         _scratch << "\n};\n\n";
@@ -1347,6 +1358,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << " = params.";
             _emit_variable_name(arg);
             _scratch << ";";
+            if (_requires_printing) {
+                _scratch << "\n  const auto &print_buffer = params.print_buffer;";
+            }
         }
         for (auto i = 0u; i < f.bound_arguments().size(); i++) {
             auto binding = f.bound_arguments()[i];
@@ -1364,6 +1378,11 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << "\n    ";
             _emit_variable_decl(f, arg, false);
             _scratch << ",";
+            any_arg = true;
+        }
+        // we have to pass the print buffer to all callables
+        if (!_requires_optix && _requires_printing) {
+            _scratch << "\n    LCPrintBuffer print_buffer,";
             any_arg = true;
         }
         if (any_arg) { _scratch.pop_back(); }
@@ -1508,8 +1527,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     // process types in topological order
     types.clear();
     auto emit = [&](auto &&self, auto type) noexcept -> void {
-        if (type == Type::of<void>())
-            return;
+        if (type == Type::of<void>()) { return; }
         if (types.emplace(type).second) {
             if (type->is_array() || type->is_buffer()) {
                 self(self, type->element());
@@ -1522,6 +1540,57 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
         }
     };
     for (auto t : sorted) { emit(emit, t); }
+
+    // collect print args
+    visited.clear();
+    auto collect_print_args = [this, &visited](auto &&self, Function f) noexcept {
+        if (!visited.emplace(f).second) { return; }
+        for (auto &&c : f.custom_callables()) {
+            self(self, Function{c.get()});
+        }
+        traverse_expressions<false>(
+            f.body(),
+            [](auto) noexcept {},
+            [this](auto stmt) noexcept {
+                if (stmt->tag() == Statement::Tag::PRINT) {
+                    auto p = static_cast<const PrintStmt *>(stmt);
+                    luisa::vector<const Type *> args;
+                    args.reserve(p->arguments().size() + 2u);
+                    args.emplace_back(Type::of<uint>());// arg size
+                    args.emplace_back(Type::of<uint>());// fmt id
+                    for (auto arg : p->arguments()) {
+                        args.emplace_back(arg->type());
+                    }
+                    auto s = Type::structure(args);
+                    this->_print_stmt_types.emplace(p, s);
+                }
+            },
+            [](auto) noexcept {});
+    };
+    collect_print_args(collect_print_args, kernel);
+
+    // sort print args by name so the generated
+    // source is identical across runs
+    sorted.clear();
+    sorted.reserve(_print_stmt_types.size());
+    for (auto [_, s] : _print_stmt_types) { sorted.emplace_back(s); }
+    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+        return a->hash() < b->hash();
+    });
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+
+    // generate print args
+    for (auto t : sorted) {
+        _scratch << "struct LCPrintArgs_" << hash_to_string(t->hash()) << " {\n"
+                 << "  lc_uint size;\n"
+                 << "  lc_uint fmt;\n";
+        for (auto i = 0u; i < t->members().size(); i++) {
+            _scratch << "  ";
+            _emit_type_name(t->members()[i]);
+            _scratch << " m" << i << ";\n";
+        }
+        _scratch << "};\n\n";
+    }
 }
 
 void CUDACodegenAST::visit(const Type *type) noexcept {
@@ -1886,6 +1955,31 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
         _emit_variable_name(v);
         _scratch << ");";
     }
+}
+
+void CUDACodegenAST::visit(const PrintStmt *stmt) {
+    //_scratch << "struct LCPrintArgs_" << hash_to_string(t->hash())
+    auto iter = _print_stmt_types.find(stmt);
+    LUISA_ASSERT(iter != _print_stmt_types.end(),
+                 "Print statement type not found.");
+    auto t = iter->second;
+    auto fmt_id = [this, fmt = stmt->format(), t] {
+        for (auto i = 0u; i < _print_formats.size(); i++) {
+            if (auto &&[ff, tt] = _print_formats[i];
+                ff == fmt && tt == t) { return i; }
+        }
+        auto index = static_cast<uint>(_print_formats.size());
+        _print_formats.emplace_back(fmt, t);
+        return index;
+    }();
+    _scratch << "lc_print_impl(LC_PRINT_BUFFER, LCPrintArgs_"
+             << hash_to_string(t->hash())
+             << "{" << t->size() << "u, " << fmt_id << "u";
+    for (auto a : stmt->arguments()) {
+        _scratch << ", ";
+        a->accept(*this);
+    }
+    _scratch << "});";
 }
 
 void CUDACodegenAST::visit(const CpuCustomOpExpr *expr) {
