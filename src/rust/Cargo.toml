@@ -7,3 +7,7 @@ members = [
     "luisa_compute_backend_impl"
 ]
 resolver = "2"
+
+[profile.dev]
+panic = 'abort'
+incremental = true

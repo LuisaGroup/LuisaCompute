@@ -9,17 +9,21 @@
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
 #include "cuda_shader_native.h"
+#include "cuda_shader_printer.h"
 
 namespace luisa::compute::cuda {
 
 CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
                                    const char *ptx, size_t ptx_size,
-                                   const char *entry, uint3 block_size,
-                                   luisa::vector<Usage> argument_usages,
+                                   const char *entry,
+                                   const CUDAShaderMetadata &metadata,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : CUDAShader{std::move(argument_usages)},
+    : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
+                 metadata.argument_usages},
       _entry{entry},
-      _block_size{block_size.x, block_size.y, block_size.z},
+      _block_size{metadata.block_size.x,
+                  metadata.block_size.y,
+                  metadata.block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 
     auto load_ptx = [&](const char *ptx, size_t ptx_size) noexcept {
@@ -148,6 +152,12 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
     };
     for (auto &&arg : _bound_arguments) { encode_argument(arg); }
     for (auto &&arg : command->arguments()) { encode_argument(arg); }
+    // printer
+    if (printer()) {
+        auto b = printer()->encode(encoder);
+        auto ptr = allocate_argument(sizeof(b));
+        std::memcpy(ptr, &b, sizeof(b));
+    }
     // launch
     auto cuda_stream = encoder.stream()->handle();
     if (command->is_indirect()) {

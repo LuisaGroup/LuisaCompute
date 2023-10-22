@@ -2005,6 +2005,15 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let (builder, ..) = self.unwrap_ctx();
                 builder.ad_scope(body)
             }
+            "PRINT" => {
+                let fmt = j["format"].as_str().unwrap().to_string();
+                let args: Vec<_> = j["arguments"]
+                    .members()
+                    .map(|a| self._convert_expression(a, false))
+                    .collect();
+                let (builder, ..) = self.unwrap_ctx();
+                builder.print(fmt.into(), args.as_slice())
+            }
             _ => panic!("Invalid statement tag: {}", tag),
         }
     }

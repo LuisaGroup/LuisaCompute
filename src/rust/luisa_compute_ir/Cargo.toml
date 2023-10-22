@@ -25,9 +25,7 @@ log = "0.4"
 cbindgen = "0.24.3"
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib", "staticlib"]
 name = "luisa_compute_ir"
 
-[profile.dev]
-panic = 'abort'
-incremental = true
+

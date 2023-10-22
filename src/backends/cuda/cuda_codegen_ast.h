@@ -26,8 +26,12 @@ private:
     luisa::vector<uint64_t> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
     luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
+    luisa::unordered_map<const PrintStmt *, const Type *> _print_stmt_types;
+    luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
     uint32_t _indent{0u};
     bool _allow_indirect_dispatch;
+    bool _requires_printing{false};
+    bool _requires_optix{false};
 
 private:
     const Type *_ray_type;
@@ -66,6 +70,7 @@ private:
     void visit(const CommentStmt *stmt) override;
     void visit(const RayQueryStmt *stmt) override;
     void visit(const AutoDiffStmt *stmt) override;
+    void visit(const PrintStmt *stmt) override;
     void visit(const CpuCustomOpExpr *expr) override;
     void visit(const GpuCustomOpExpr *expr) override;
 
@@ -88,7 +93,9 @@ public:
     void emit(Function f,
               luisa::string_view device_lib,
               luisa::string_view native_include);
+
+public:
+    [[nodiscard]] auto print_formats() const noexcept { return luisa::span{_print_formats}; }
 };
 
 }// namespace luisa::compute::cuda
-

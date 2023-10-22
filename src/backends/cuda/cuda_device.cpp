@@ -444,9 +444,14 @@ template<bool allow_update_expected_metadata>
         if (expected_metadata.checksum == 0u) { expected_metadata.checksum = metadata->checksum; }
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::UNKNOWN) { expected_metadata.kind = metadata->kind; }
         expected_metadata.enable_debug = metadata->enable_debug;
+        expected_metadata.requires_trace_closest = metadata->requires_trace_closest;
+        expected_metadata.requires_trace_any = metadata->requires_trace_any;
+        expected_metadata.requires_ray_query = metadata->requires_ray_query;
+        expected_metadata.requires_printing = metadata->requires_printing;
         if (all(expected_metadata.block_size == 0u)) { expected_metadata.block_size = metadata->block_size; }
         if (expected_metadata.argument_types.empty()) { expected_metadata.argument_types = metadata->argument_types; }
         if (expected_metadata.argument_usages.empty()) { expected_metadata.argument_usages = metadata->argument_usages; }
+        if (expected_metadata.format_types.empty()) { expected_metadata.format_types = metadata->format_types; }
     }
     // examine the metadata
     if (*metadata != expected_metadata) {
@@ -533,9 +538,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
         }
         return new_with_allocator<CUDAShaderNative>(
             this, ptx.data(), ptx.size(), "kernel_main",
-            expected_metadata.block_size,
-            expected_metadata.argument_usages,
-            std::move(bound_arguments));
+            expected_metadata, std::move(bound_arguments));
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -561,6 +564,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     }
 
     // codegen
+
     Clock clk;
     StringScratch scratch;
     CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
@@ -647,6 +651,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST),
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+        .requires_printing = kernel.requires_printing(),
         .block_size = kernel.block_size(),
         .argument_types = [kernel] {
             luisa::vector<luisa::string> types;
@@ -660,6 +665,13 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             std::transform(kernel.arguments().cbegin(), kernel.arguments().cend(), std::back_inserter(usages),
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
+        .format_types = [fmt = codegen.print_formats()] {
+            luisa::vector<std::pair<luisa::string, luisa::string>> t;
+            t.reserve(fmt.size());
+            for (auto &&[name, type] : fmt) {
+                t.emplace_back(name, type->description());
+            }
+            return t; }(),
     };
     return _create_shader(option.name, scratch.string(),
                           option, nvrtc_options,
@@ -724,8 +736,8 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
                 "__raygen__main", metadata);
         }
         return new_with_allocator<CUDAShaderNative>(
-            this, ptx.data(), ptx.size(), "kernel_main",
-            metadata.block_size, metadata.argument_usages);
+            this, ptx.data(), ptx.size(),
+            "kernel_main", metadata);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));

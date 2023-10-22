@@ -118,5 +118,9 @@ bool Function::requires_autodiff() const noexcept {
     return _builder->requires_autodiff();
 }
 
+bool Function::requires_printing() const noexcept {
+    return _builder->requires_printing();
+}
+
 }// namespace luisa::compute
 

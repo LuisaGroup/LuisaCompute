@@ -13,6 +13,20 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<typename T>
+    requires(sizeof(T) == 1u)
+[[nodiscard]] inline auto ir_slice_to_string(ir::CBoxedSlice<T> slice) noexcept {
+    if (slice.ptr == nullptr || slice.len == 0u) { return luisa::string_view{}; }
+    auto p = reinterpret_cast<const char *>(slice.ptr);
+    return p[slice.len - 1] == '\0' ?
+               luisa::string_view{p, slice.len - 1} :
+               luisa::string_view{p, slice.len};
+}
+
+}// namespace detail
+
 void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
     auto node_ref = block->first;
     while (node_ref != ir::INVALID_REF) {
@@ -43,7 +57,7 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
             case ir::Instruction::Tag::RayQuery: _convert_instr_ray_query(node); break;
             case ir::Instruction::Tag::Comment: _convert_instr_comment(node); break;
-            case ir::Instruction::Tag::Print: LUISA_NOT_IMPLEMENTED();// TODO: print
+            case ir::Instruction::Tag::Print: _convert_instr_print(node); break;
             case ir::Instruction::Tag::Buffer: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Buffer' in function body."); break;
             case ir::Instruction::Tag::Bindless: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Bindless' in function body."); break;
             case ir::Instruction::Tag::Texture2D: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Texture2D' in function body."); break;
@@ -116,7 +130,9 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
             }
             default: break;
         }
-        LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid node type: {}.",
+            to_string(node->instruction->tag));
     }();
     return expr;
 }
@@ -385,8 +401,12 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
     auto make_vector = [&](size_t length) -> const Expression * {
         LUISA_ASSERT(args.size() == length, "`MakeVec` takes {} argument(s), got {}.", length, args.size());
         auto inner_type = ir::luisa_compute_ir_node_get(args[0])->type_.get();
-        LUISA_ASSERT(inner_type->tag == ir::Type::Tag::Primitive, "`MakeVec` supports primitive type only, got {}.", to_string(inner_type->tag));
-        LUISA_ASSERT(type->is_vector(), "`MakeVec` must return a vector, got {}.", type->description());
+        LUISA_ASSERT(inner_type->tag == ir::Type::Tag::Primitive,
+                     "`MakeVec` supports primitive type only, got {}.",
+                     to_string(inner_type->tag));
+        LUISA_ASSERT(type->is_vector(),
+                     "`MakeVec` must return a vector, got {}.",
+                     type->description());
 
         auto converted_args = luisa::vector<const Expression *>{};
         for (const auto &arg : args) {
@@ -464,7 +484,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             case ir::Const::Tag::Uint64: return c.uint64._0;
             case ir::Const::Tag::Generic: {
                 auto t = node->type_.get();
-                LUISA_ASSERT(t->tag == ir::Type::Tag::Primitive, "Invalid index type: {}.", to_string(t->tag));
+                LUISA_ASSERT(t->tag == ir::Type::Tag::Primitive,
+                             "Invalid index type: {}.",
+                             to_string(t->tag));
                 auto do_cast = [&c]<typename T>() noexcept {
                     T x{};
                     std::memcpy(&x, c.generic._0.ptr, sizeof(T));
@@ -779,7 +801,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
-            LUISA_ASSERT(args.size() >= 2u, "{} takes at least 2 arguments.", to_string(func.tag));
+            LUISA_ASSERT(args.size() >= 2u,
+                         "{} takes at least 2 arguments.",
+                         to_string(func.tag));
             auto self = _convert_node(args[0]);
             auto indices = args.subspan(1u);
             for (auto i : indices) {
@@ -1045,8 +1069,20 @@ void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
     auto len = comment_body.ptr[comment_body.len - 1] == 0 ?
                    comment_body.len - 1 :
                    comment_body.len;
-    auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), len};
-    _ctx->function_builder->comment_(comment_content);
+    auto comment_content = detail::ir_slice_to_string(comment_body);
+    _ctx->function_builder->comment_(luisa::string{comment_content});
+}
+
+void IR2AST::_convert_instr_print(const ir::Node *node) noexcept {
+    auto fmt = detail::ir_slice_to_string(node->instruction->print.fmt);
+    auto args = luisa::span{node->instruction->print.args.ptr,
+                            node->instruction->print.args.len};
+    luisa::vector<const Expression *> converted_args;
+    converted_args.reserve(args.size());
+    for (auto arg : args) {
+        converted_args.push_back(_convert_node(arg));
+    }
+    _ctx->function_builder->print_(fmt, converted_args);
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
@@ -1153,7 +1189,7 @@ const Type *IR2AST::_convert_type(const ir::Type *type) noexcept {
             return Type::structure(struct_type.alignment, fields);
         }
         case ir::Type::Tag::Opaque: {
-            auto opaque_type = luisa::string_view((const char *)type->opaque._0.ptr);
+            auto opaque_type = detail::ir_slice_to_string(type->opaque._0);
             return Type::custom(opaque_type);
         }
         case ir::Type::Tag::UserData: {
@@ -1405,7 +1441,9 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         }
         case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
         case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
-        default: LUISA_ERROR_WITH_LOCATION("Invalid argument type: {}.", to_string(node->instruction->tag));
+        default: LUISA_ERROR_WITH_LOCATION(
+            "Invalid argument type: {}.",
+            to_string(node->instruction->tag));
     }
 }
 
@@ -1436,16 +1474,19 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 switch (node->instruction->tag) {
                     case ir::Instruction::Tag::Texture2D: return 2u;
                     case ir::Instruction::Tag::Texture3D: return 3u;
-                    default: LUISA_ERROR_WITH_LOCATION("Binding tag {} inconsistent with instruction tag {}.",
-                                                       to_string(captured.binding.tag),
-                                                       to_string(node->instruction->tag));
+                    default: LUISA_ERROR_WITH_LOCATION(
+                        "Binding tag {} inconsistent with instruction tag {}.",
+                        to_string(captured.binding.tag),
+                        to_string(node->instruction->tag));
                 }
             }();
             auto texture_type = Type::texture(type, dimension);
             auto &&[handle, level] = captured.binding.texture._0;
             return _ctx->function_builder->texture_binding(texture_type, handle, level);
         }
-        default: LUISA_ERROR_WITH_LOCATION("Invalid binding tag {}.", to_string(captured.binding.tag));
+        default: LUISA_ERROR_WITH_LOCATION(
+            "Invalid binding tag {}.",
+            to_string(captured.binding.tag));
     }
 }
 

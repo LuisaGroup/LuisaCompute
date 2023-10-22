@@ -10,7 +10,7 @@ namespace luisa::compute::cuda {
 
 struct CUDAShaderMetadata {
 
-    enum struct Kind : uint32_t {
+    enum struct Kind : uint8_t {
         UNKNOWN,
         COMPUTE,
         RAY_TRACING,
@@ -22,9 +22,11 @@ struct CUDAShaderMetadata {
     bool requires_trace_closest;
     bool requires_trace_any;
     bool requires_ray_query;
+    bool requires_printing;
     uint3 block_size;
     luisa::vector<luisa::string> argument_types;
     luisa::vector<Usage> argument_usages;
+    luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
 
     [[nodiscard]] auto operator==(const CUDAShaderMetadata &rhs) const noexcept {
         return checksum == rhs.checksum &&
@@ -33,9 +35,11 @@ struct CUDAShaderMetadata {
                requires_trace_closest == rhs.requires_trace_closest &&
                requires_trace_any == rhs.requires_trace_any &&
                requires_ray_query == rhs.requires_ray_query &&
+               requires_printing == rhs.requires_printing &&
                all(block_size == rhs.block_size) &&
                argument_types == rhs.argument_types &&
-               argument_usages == rhs.argument_usages;
+               argument_usages == rhs.argument_usages &&
+               format_types == rhs.format_types;
     }
 };
 

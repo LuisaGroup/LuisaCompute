@@ -446,4 +446,3 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
 }
 
 }// namespace luisa::compute::cuda
-

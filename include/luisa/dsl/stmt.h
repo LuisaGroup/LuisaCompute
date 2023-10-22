@@ -462,6 +462,14 @@ inline void return_() noexcept {
     detail::FunctionBuilder::current()->return_();
 }
 
+template<typename FMT, typename... Args>
+inline void device_print(FMT &&fmt, Args &&...args) noexcept {
+    detail::FunctionBuilder::current()->print_(
+        luisa::string_view{std::forward<FMT>(fmt)},
+        std::array<const Expression *, sizeof...(args)>{
+            detail::extract_expression(std::forward<Args>(args))...});
+}
+
 }// namespace dsl
 
 }// namespace luisa::compute

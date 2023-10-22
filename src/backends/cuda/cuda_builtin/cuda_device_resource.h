@@ -2868,3 +2868,29 @@ LC_WARP_PREFIX_REDUCE(half)
 #undef LC_WARP_PREFIX_REDUCE_VECTOR3
 #undef LC_WARP_PREFIX_REDUCE_VECTOR4
 #undef LC_WARP_PREFIX_REDUCE
+
+struct LCPrintBufferContent {
+    lc_ulong size;
+    lc_ubyte data[1];
+};
+
+struct LCPrintBuffer {
+    lc_ulong capacity;
+    LCPrintBufferContent *__restrict__ content;
+};
+
+#ifdef LUISA_ENABLE_OPTIX
+#define LC_PRINT_BUFFER (params.print_buffer)
+#else
+#define LC_PRINT_BUFFER (print_buffer)
+#endif
+
+template<typename T>
+__device__ inline void lc_print_impl(LCPrintBuffer buffer, T value) noexcept {
+    if (buffer.capacity == 0u || buffer.content == nullptr) { return; }
+    auto offset = atomicAdd(&buffer.content->size, sizeof(T));
+    if (offset + sizeof(T) <= buffer.capacity) {
+        auto ptr = buffer.content->data + offset;
+        memcpy(ptr, &value, sizeof(T));
+    }
+}
