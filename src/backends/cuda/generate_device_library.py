@@ -48,6 +48,25 @@ public:
 
 };
 static_assert(sizeof(lc_half) == 2);
+[[nodiscard]] inline lc_short __half_as_short(lc_half x) noexcept { 
+    return x.bits;
+}
+[[nodiscard]] lc_half __short_as_half(lc_short x) noexcept {
+    return lc_half::from_bits(x);
+}
+[[nodiscard]] inline lc_half __hmax(lc_half x, lc_half y) noexcept { return lc_half{lc_float(x) > lc_float(y) ? x : y}; }
+[[nodiscard]] inline lc_half __hmin(lc_half x, lc_half y) noexcept { return lc_half{lc_float(x) < lc_float(y) ? x : y}; }
+[[nodiscard]] inline lc_half __habs(lc_half x) noexcept { return lc_half{lc_float(x) < 0.0f ? -x : x}; }
+[[nodiscard]] inline lc_half hexp2(lc_half x) noexcept { return lc_half{exp2f(lc_float(x))}; }
+[[nodiscard]] inline lc_half hceil(lc_half x) noexcept { return lc_half{ceilf(lc_float(x))}; }
+[[nodiscard]] inline lc_half hfloor(lc_half x) noexcept { return lc_half{floorf(lc_float(x))}; }
+[[nodiscard]] inline lc_half htrunc(lc_half x) noexcept { return lc_half{truncf(lc_float(x))}; }
+[[nodiscard]] inline lc_half hround(lc_half x) noexcept { return lc_half{roundf(lc_float(x))}; }
+[[nodiscard]] inline lc_half hsqrt(lc_half x) noexcept { return lc_half{sqrtf(lc_float(x))}; }
+[[nodiscard]] inline lc_half hrsqrt(lc_half x) noexcept { return lc_half{rsqrtf(lc_float(x))}; }
+[[nodiscard]] inline lc_half __hfma(lc_half x, lc_half y, lc_half z) noexcept { return lc_half{fmaf(lc_float(x), lc_float(y), lc_float(z))}; }
+[[nodiscard]] inline bool __hisnan(lc_half x) noexcept { return isnan_impl(lc_float(x)); }
+[[nodiscard]] inline bool __hisinf(lc_half x) noexcept { return isinf_impl(lc_float(x)); }
 '''
 
 if __name__ == "__main__":
@@ -55,6 +74,7 @@ if __name__ == "__main__":
         print("usage: python generate_device_library.py <output_file>")
         exit(1)
     output_file_name = argv[1]
+    is_cpu = 'cpu' in output_file_name
     with open(f"{output_file_name}", "w") as file:
         # scalar types
         scalar_types = ["byte", "ubyte", "short", "ushort", "int",
@@ -75,9 +95,39 @@ if __name__ == "__main__":
             "ulong": 8,
         }
         for t, native_t in zip(scalar_types, native_types):
+            if t == 'half' and is_cpu:
+                continue
             print(f"using lc_{t} = {native_t};", file=file)
         print(file=file)
-        if 'cpu' in output_file_name:
+        print('''[[nodiscard]] __device__ inline bool isinf_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return u == 0x7f800000u | u == 0xff800000u;
+}
+[[nodiscard]] __device__ inline bool isnan_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
+}
+[[nodiscard]] __device__ inline lc_float powi_impl(lc_float x, lc_int y) noexcept {
+    lc_float r = 1.0f;
+    auto is_y_neg = y < 0;
+    auto y_abs = is_y_neg ? -y : y;
+    #pragma unroll
+    while (y_abs) {
+        if (y_abs & 1) r *= x;
+        x *= x;
+        y_abs >>= 1;
+    }
+    return is_y_neg ? 1.0f / r : r;
+}
+[[nodiscard]] __device__ inline lc_float powf_impl(lc_float x, lc_float y) noexcept {
+    auto is_y_int = static_cast<lc_int>(y) == y;
+    if (is_y_int) {
+        return powi_impl(x, static_cast<lc_int>(y));
+    }
+    return exp2f(y * log2f(x));
+}
+''', file=file)
+        if is_cpu:
             print(HALF_IMPL, file=file)
         # vector types
         for type in scalar_types:
@@ -278,16 +328,6 @@ struct lc_float{i}x{i} {{
                     file=file)
         print(file=file)
 
-        print('''[[nodiscard]] __device__ inline bool isinf_impl(lc_float x) noexcept {
-    auto u = __float_as_int(x);
-    return u == 0x7f800000u | u == 0xff800000u;
-}
-[[nodiscard]] __device__ inline bool isnan_impl(lc_float x) noexcept {
-    auto u = __float_as_int(x);
-    return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
-}
-''', file=file)
-
 
         def generate_vector_call(name, c, types, args):
             types = [{
@@ -367,7 +407,8 @@ struct lc_float{i}x{i} {{
         generate_vector_call("log", "logf", "hf", ["x"])
         generate_vector_call("log2", "log2f", "hf", ["x"])
         generate_vector_call("log10", "log10f", "hf", ["x"])
-        generate_vector_call("pow", "powf", "hf", ["x", "a"])
+        generate_vector_call("pow", "powf_impl", "hf", ["x", "a"])
+        generate_vector_call("powi", "powi_impl", "hf", ["x", "a"])
 
         generate_vector_call("sqrt", "sqrtf", "f", ["x"])
         generate_vector_call("sqrt", "hsqrt", "h", ["x"])

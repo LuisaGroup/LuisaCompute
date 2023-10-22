@@ -62,7 +62,7 @@ pub(super) fn clang_args() -> Vec<&'static str> {
     } else {
         panic_abort!("unsupported target architecture");
     }
-    // args.push("-ffast-math");
+    args.push("-ffast-math");
     args.push("-fno-rtti");
     args.push("-fno-exceptions");
     args.push("-fno-stack-protector");
