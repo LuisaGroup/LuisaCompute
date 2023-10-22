@@ -47,6 +47,7 @@ add_subdirectory(tensor)
 add_subdirectory(osl)
 add_subdirectory(gui)
 add_subdirectory(backends)
+add_subdirectory(ir_v2)
 
 add_library(compute INTERFACE)
 
