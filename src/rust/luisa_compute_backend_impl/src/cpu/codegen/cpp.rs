@@ -575,7 +575,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Log => Some("lc_log"),
             Func::Log2 => Some("lc_log2"),
             Func::Log10 => Some("lc_log10"),
-            Func::Powi => Some("lc_lc_powi"),
+            Func::Powi => Some("lc_pow"), // TODO: powi
             Func::Powf => Some("lc_pow"),
 
             Func::Sqrt => Some("lc_sqrt"),
