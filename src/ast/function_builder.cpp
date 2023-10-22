@@ -666,6 +666,16 @@ void FunctionBuilder::comment_(luisa::string comment) noexcept {
     _create_and_append_statement<CommentStmt>(std::move(comment));
 }
 
+void FunctionBuilder::print_(luisa::string_view format,
+                             luisa::span<const Expression *const> args) noexcept {
+    CallExpr::ArgumentList internalized_args;
+    internalized_args.reserve(args.size());
+    for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
+    _create_and_append_statement<PrintStmt>(
+        luisa::string{format},
+        std::move(internalized_args));
+}
+
 void FunctionBuilder::set_block_size(uint3 size) noexcept {
     if (_tag == Tag::KERNEL) {
         auto kernel_size = size.x * size.y * size.z;

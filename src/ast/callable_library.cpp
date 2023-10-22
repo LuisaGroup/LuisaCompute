@@ -521,6 +521,26 @@ void CallableLibrary::deser_ptr(AssignStmt *obj, std::byte const *&ptr, DeserPac
     obj->_rhs = deser_value<Expression const *>(ptr, pack);
 }
 
+// print stmt
+template<>
+void CallableLibrary::ser_value(PrintStmt const &t, luisa::vector<std::byte> &vec) noexcept {
+    ser_value(t._format, vec);
+    ser_value(t._args.size(), vec);
+    for (auto &&i : t._args) {
+        ser_value(*i, vec);
+    }
+}
+template<>
+void CallableLibrary::deser_ptr(PrintStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
+    obj->_format = deser_value<luisa::string>(ptr, pack);
+    auto size = deser_value<size_t>(ptr, pack);
+    obj->_args.reserve(size);
+    for (auto i = 0u; i < size; i++) {
+        obj->_args.emplace_back(
+            deser_value<const Expression *>(ptr, pack));
+    }
+}
+
 template<>
 void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &vec) noexcept {
     using namespace std::string_view_literals;
@@ -565,6 +585,9 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
             break;
         case Statement::Tag::AUTO_DIFF:
             ser_value(*static_cast<AutoDiffStmt const *>(&t), vec);
+            break;
+        case Statement::Tag::PRINT:
+            ser_value(*static_cast<PrintStmt const *>(&t), vec);
             break;
         default:
             break;
@@ -618,6 +641,8 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
             return create_stmt.template operator()<RayQueryStmt>();
         case Statement::Tag::AUTO_DIFF:
             return create_stmt.template operator()<AutoDiffStmt>();
+        case Statement::Tag::PRINT:
+            return create_stmt.template operator()<PrintStmt>();
         default:
             return nullptr;
     }
@@ -679,6 +704,9 @@ void CallableLibrary::deser_ptr(Statement *obj, std::byte const *&ptr, DeserPack
             break;
         case Statement::Tag::AUTO_DIFF:
             create_stmt.template operator()<AutoDiffStmt>();
+            break;
+        case Statement::Tag::PRINT:
+            create_stmt.template operator()<PrintStmt>();
             break;
     }
 }

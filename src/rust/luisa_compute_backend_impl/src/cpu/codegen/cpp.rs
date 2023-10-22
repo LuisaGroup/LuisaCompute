@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    ffi::CString,
 };
 
 use indexmap::{IndexMap, IndexSet};

@@ -369,6 +369,14 @@ private:
                 _dup_scope(s->body(), ad->body());
                 break;
             }
+            case Statement::Tag::PRINT: {
+                auto s = static_cast<const PrintStmt *>(stmt);
+                luisa::vector<const Expression *> args;
+                args.reserve(s->arguments().size());
+                for (auto arg : s->arguments()) { args.emplace_back(_dup_expr(arg)); }
+                fb->print_(s->format(), args);
+                break;
+            }
         }
     }
 
