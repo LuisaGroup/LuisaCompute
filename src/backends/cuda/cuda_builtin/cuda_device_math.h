@@ -31,11 +31,8 @@ using lc_ulong = unsigned long long;
     return is_y_neg ? 1.0f / r : r;
 }
 [[nodiscard]] __device__ inline lc_float powf_impl(lc_float x, lc_float y) noexcept {
-    auto is_y_int = static_cast<lc_int>(y) == y;
-    if (is_y_int) {
-        return powi_impl(x, static_cast<lc_int>(y));
-    }
-    return exp2f(y * log2f(x));
+    auto y_int = static_cast<lc_int>(y);
+    return y_int == y ? powi_impl(x, y_int) : powf(x, y);
 }
 
 struct alignas(2) lc_byte2 {
