@@ -1,4 +1,6 @@
 #pragma once
+
+#include <type_traits>
 #include <luisa/ir_v2/ir_v2_fwd.h>
 
 #ifndef LC_IR_API

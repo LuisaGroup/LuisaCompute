@@ -4,7 +4,9 @@
 #pragma warning(disable : 4190)
 #endif
 
+#include <cstddef>
 #include <cstdint>
+
 namespace luisa::compute {
 class Type;
 }// namespace luisa::compute

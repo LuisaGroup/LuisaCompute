@@ -53,6 +53,7 @@ public:
                 queue.push_back(u);
             }
         }
+        return false;
     }
 };
 }// namespace luisa::compute::ir_v2
