@@ -1,6 +1,12 @@
 #pragma once
 
 #include <type_traits>
+#include <array>
+
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/string.h>
+
 #include <luisa/ir_v2/ir_v2_fwd.h>
 
 #ifndef LC_IR_API
@@ -10,6 +16,7 @@
 #define LC_IR_API __declspec(dllimport)
 #endif
 #endif
+
 namespace luisa::compute::ir_v2 {
 template<class T>
 struct Slice {
