@@ -39,22 +39,28 @@ public:
         Type::Tag, luisa::string>;
 
 private:
-    size_t _size;
+    size_t _size{};
     luisa::vector<size_t> _offsets;
     luisa::vector<Primitive> _primitives;
 
 public:
-    Formatter(luisa::string_view fmt, const Type *arg_pack) noexcept
-        : _size{arg_pack->size()} {
+    Formatter(luisa::string_view fmt, const Type *arg_pack) noexcept {
         LUISA_ASSERT(arg_pack->members().size() >= 2u &&
                          arg_pack->members()[0] == Type::of<uint>() &&
                          arg_pack->members()[1] == Type::of<uint>(),
                      "Invalid argument pack for shader printer.");
         // TODO: parse the fmt string
-        auto offset = static_cast<size_t>(0u);
+        auto offset = static_cast<size_t>(8u);
         auto args = arg_pack->members().subspan(2u);
         luisa::string s;
         luisa::string f;
+        auto commit_s = [this, &s] {
+            if (!s.empty()) {
+                _offsets.push_back(0u);
+                _primitives.emplace_back(s);
+                s.clear();
+            }
+        };
         while (!fmt.empty()) {
             auto c = fmt.front();
             fmt.remove_prefix(1u);
@@ -66,23 +72,82 @@ public:
                     s.push_back('{');
                 } else {
                     f.push_back('{');
-                    if (!s.empty()) {
-                        _offsets.push_back(offset);
-                        _primitives.emplace_back(s);
-                        s.clear();
-                    }
+                    commit_s();
                 }
             } else if (c == '}') {
                 if (!f.empty()) {// end of format group
                     f.push_back('}');
-                    // TODO: check format
+                    LUISA_ASSERT(f == "{}", "Unsupported format string '{}'.", f);// TODO: support more formats?
                     LUISA_ASSERT(!args.empty(), "Not enough arguments for shader printer.");
                     auto arg = args.front();
                     args = args.subspan(1u);
+                    auto encode = [this, &s, &commit_s](auto &&self, size_t offset, const Type *arg) noexcept -> void {
+                        if (arg->is_scalar()) {
+                            _offsets.push_back(offset);
+                            _primitives.emplace_back(arg->tag());
+                        } else if (arg->is_vector()) {
+                            s.push_back('(');
+                            commit_s();
+                            for (auto i = 0u; i < arg->dimension(); i++) {
+                                self(self, offset, arg->element());
+                                if (i + 1u < arg->dimension()) {
+                                    s.append(", ");
+                                    commit_s();
+                                }
+                                offset += arg->element()->size();
+                            }
+                            s.push_back(')');
+                            commit_s();
+                        } else if (arg->is_array()) {
+                            s.push_back('[');
+                            commit_s();
+                            for (auto i = 0u; i < arg->dimension(); i++) {
+                                self(self, offset, arg->element());
+                                if (i + 1u < arg->dimension()) {
+                                    s.append(", ");
+                                    commit_s();
+                                }
+                                offset += arg->element()->size();
+                            }
+                            s.push_back(']');
+                            commit_s();
+                        } else if (arg->is_matrix()) {
+                            s.push_back('(');
+                            commit_s();
+                            auto column = Type::vector(arg->element(), arg->dimension());
+                            for (auto i = 0u; i < arg->dimension(); i++) {
+                                self(self, offset, column);
+                                if (i + 1u < arg->dimension()) {
+                                    s.append(", ");
+                                    commit_s();
+                                }
+                                offset += column->size();
+                            }
+                            s.push_back(')');
+                            commit_s();
+                        } else if (arg->is_structure()) {
+                            s.push_back('{');
+                            commit_s();
+                            for (auto i = 0u; i < arg->members().size(); i++) {
+                                auto member = arg->members()[i];
+                                offset = luisa::align(offset, member->alignment());
+                                self(self, offset, member);
+                                if (i + 1u < arg->members().size()) {
+                                    s.append(", ");
+                                    commit_s();
+                                }
+                                offset += member->size();
+                            }
+                            s.push_back('}');
+                            commit_s();
+                        } else {
+                            LUISA_ERROR_WITH_LOCATION(
+                                "Invalid argument type '{}' for printing.",
+                                arg->description());
+                        }
+                    };
                     offset = luisa::align(offset, arg->alignment());
-                    LUISA_ASSERT(arg->is_scalar(), "TODO");
-                    _offsets.push_back(offset);
-                    _primitives.emplace_back(arg->tag());
+                    encode(encode, offset, arg);
                     offset += arg->size();
                     f.clear();
                 } else {// not in a format group, only escape is allowed
@@ -106,11 +171,35 @@ public:
             LUISA_WARNING_WITH_LOCATION(
                 "Too many arguments for shader printer. Ignored.");
         }
-        if (!s.empty()) {
-            _offsets.push_back(offset);
-            _primitives.emplace_back(s);
-        }
+        commit_s();
         _size = luisa::align(offset, arg_pack->alignment());
+        LUISA_ASSERT(_size == arg_pack->size(), "Invalid argument pack for shader printer.");
+        // optimize the format
+        luisa::vector<Primitive> primitives;
+        luisa::vector<size_t> offsets;
+        primitives.reserve(_primitives.size());
+        offsets.reserve(_offsets.size());
+        for (auto i = 0u; i < _primitives.size(); i++) {
+            luisa::visit(
+                [&](auto &&p) noexcept {
+                    using T = std::decay_t<decltype(p)>;
+                    if constexpr (std::is_same_v<T, Type::Tag>) {
+                        primitives.emplace_back(p);
+                        offsets.emplace_back(_offsets[i]);
+                    } else {
+                        static_assert(std::is_same_v<T, luisa::string>);
+                        if (primitives.empty() || !luisa::holds_alternative<luisa::string>(primitives.back())) {
+                            primitives.emplace_back(p);
+                            offsets.emplace_back(_offsets[i]);
+                        } else {
+                            luisa::get<luisa::string>(primitives.back()).append(p);
+                        }
+                    }
+                },
+                _primitives[i]);
+        }
+        _primitives = std::move(primitives);
+        _offsets = std::move(offsets);
     }
     ~Formatter() noexcept = default;
 
@@ -198,6 +287,7 @@ void CUDAShaderPrinter::_do_print(const void *data) const noexcept {
     };
     auto *head = reinterpret_cast<const Head *>(data);
     if (head->size == 0u) { return; }
+    LUISA_INFO("[DEVICE] Printing {} byte(s)...", head->size);
     auto offset = static_cast<size_t>(0u);
     luisa::string scratch;
     scratch.reserve(128_k);
@@ -208,13 +298,14 @@ void CUDAShaderPrinter::_do_print(const void *data) const noexcept {
             const std::byte data[];
         };
         static_assert(sizeof(Item) == 8u);
-        auto *item = reinterpret_cast<const Item *>(head->content + offset);
+        auto content = head->content + offset;
+        auto *item = reinterpret_cast<const Item *>(content);
         if (auto item_end = offset + item->size;
             item_end > head->size ||
             item_end > print_buffer_content_capacity) { break; }
         if (item->fmt < _formatters.size()) {
             scratch.clear();
-            luisa::span payload{item->data, item->size - sizeof(Item)};
+            luisa::span payload{content, item->size};
             if ((*_formatters[item->fmt])(scratch, payload)) {
                 LUISA_INFO("[DEVICE] {}", scratch);// TODO: use a standalone sink?
             } else {
