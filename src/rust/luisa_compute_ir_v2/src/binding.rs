@@ -1333,6 +1333,16 @@ pub struct Mat4 {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct BindlessAtomicExchange {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct BindlessAtomicCompareExchange {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchAdd {
     _unused: [u8; 0],
 }
@@ -1583,16 +1593,18 @@ pub enum FuncTag {
     MAT2 = 196,
     MAT3 = 197,
     MAT4 = 198,
-    BINDLESS_ATOMIC_FETCH_ADD = 199,
-    BINDLESS_ATOMIC_FETCH_SUB = 200,
-    BINDLESS_ATOMIC_FETCH_AND = 201,
-    BINDLESS_ATOMIC_FETCH_OR = 202,
-    BINDLESS_ATOMIC_FETCH_XOR = 203,
-    BINDLESS_ATOMIC_FETCH_MIN = 204,
-    BINDLESS_ATOMIC_FETCH_MAX = 205,
-    CALLABLE = 206,
-    CPU_EXT = 207,
-    SHADER_EXECUTION_REORDER = 208,
+    BINDLESS_ATOMIC_EXCHANGE = 199,
+    BINDLESS_ATOMIC_COMPARE_EXCHANGE = 200,
+    BINDLESS_ATOMIC_FETCH_ADD = 201,
+    BINDLESS_ATOMIC_FETCH_SUB = 202,
+    BINDLESS_ATOMIC_FETCH_AND = 203,
+    BINDLESS_ATOMIC_FETCH_OR = 204,
+    BINDLESS_ATOMIC_FETCH_XOR = 205,
+    BINDLESS_ATOMIC_FETCH_MIN = 206,
+    BINDLESS_ATOMIC_FETCH_MAX = 207,
+    CALLABLE = 208,
+    CPU_EXT = 209,
+    SHADER_EXECUTION_REORDER = 210,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -1763,906 +1775,3432 @@ pub struct Slice<T> {
     pub len: usize,
     pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
 }
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Zero(self_: *mut Func) -> *mut Zero;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_One(self_: *mut Func) -> *mut One;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Assume(self_: *mut Func) -> *mut Assume;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Unreachable(self_: *mut Func) -> *mut Unreachable;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ThreadId(self_: *mut Func) -> *mut ThreadId;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BlockId(self_: *mut Func) -> *mut BlockId;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpSize(self_: *mut Func) -> *mut WarpSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpLaneId(self_: *mut Func) -> *mut WarpLaneId;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_DispatchId(self_: *mut Func) -> *mut DispatchId;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_DispatchSize(self_: *mut Func) -> *mut DispatchSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_PropagateGradient(self_: *mut Func) -> *mut PropagateGradient;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_OutputGradient(self_: *mut Func) -> *mut OutputGradient;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RequiresGradient(self_: *mut Func) -> *mut RequiresGradient;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Backward(self_: *mut Func) -> *mut Backward;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Gradient(self_: *mut Func) -> *mut Gradient;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AccGrad(self_: *mut Func) -> *mut AccGrad;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Detach(self_: *mut Func) -> *mut Detach;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingInstanceTransform(
-        self_: *mut Func,
-    ) -> *mut RayTracingInstanceTransform;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingInstanceVisibilityMask(
-        self_: *mut Func,
-    ) -> *mut RayTracingInstanceVisibilityMask;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingInstanceUserId(
-        self_: *mut Func,
-    ) -> *mut RayTracingInstanceUserId;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingSetInstanceTransform(
-        self_: *mut Func,
-    ) -> *mut RayTracingSetInstanceTransform;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingSetInstanceOpacity(
-        self_: *mut Func,
-    ) -> *mut RayTracingSetInstanceOpacity;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingSetInstanceVisibility(
-        self_: *mut Func,
-    ) -> *mut RayTracingSetInstanceVisibility;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingSetInstanceUserId(
-        self_: *mut Func,
-    ) -> *mut RayTracingSetInstanceUserId;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingTraceClosest(self_: *mut Func)
-        -> *mut RayTracingTraceClosest;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingTraceAny(self_: *mut Func) -> *mut RayTracingTraceAny;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingQueryAll(self_: *mut Func) -> *mut RayTracingQueryAll;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayTracingQueryAny(self_: *mut Func) -> *mut RayTracingQueryAny;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryWorldSpaceRay(self_: *mut Func) -> *mut RayQueryWorldSpaceRay;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryProceduralCandidateHit(
-        self_: *mut Func,
-    ) -> *mut RayQueryProceduralCandidateHit;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryTriangleCandidateHit(
-        self_: *mut Func,
-    ) -> *mut RayQueryTriangleCandidateHit;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryCommittedHit(self_: *mut Func) -> *mut RayQueryCommittedHit;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryCommitTriangle(self_: *mut Func)
-        -> *mut RayQueryCommitTriangle;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryCommitdProcedural(
-        self_: *mut Func,
-    ) -> *mut RayQueryCommitdProcedural;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RayQueryTerminate(self_: *mut Func) -> *mut RayQueryTerminate;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Load(self_: *mut Func) -> *mut Load;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Store(self_: *mut Func) -> *mut Store;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Cast(self_: *mut Func) -> *mut Cast;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BitCast(self_: *mut Func) -> *mut BitCast;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Add(self_: *mut Func) -> *mut Add;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Sub(self_: *mut Func) -> *mut Sub;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Mul(self_: *mut Func) -> *mut Mul;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Div(self_: *mut Func) -> *mut Div;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Rem(self_: *mut Func) -> *mut Rem;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BitAnd(self_: *mut Func) -> *mut BitAnd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BitOr(self_: *mut Func) -> *mut BitOr;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BitXor(self_: *mut Func) -> *mut BitXor;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Shl(self_: *mut Func) -> *mut Shl;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Shr(self_: *mut Func) -> *mut Shr;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RotRight(self_: *mut Func) -> *mut RotRight;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_RotLeft(self_: *mut Func) -> *mut RotLeft;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Eq(self_: *mut Func) -> *mut Eq;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Ne(self_: *mut Func) -> *mut Ne;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Lt(self_: *mut Func) -> *mut Lt;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Le(self_: *mut Func) -> *mut Le;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Gt(self_: *mut Func) -> *mut Gt;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Ge(self_: *mut Func) -> *mut Ge;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_MatCompMul(self_: *mut Func) -> *mut MatCompMul;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Neg(self_: *mut Func) -> *mut Neg;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Not(self_: *mut Func) -> *mut Not;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BitNot(self_: *mut Func) -> *mut BitNot;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_All(self_: *mut Func) -> *mut All;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Any(self_: *mut Func) -> *mut Any;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Select(self_: *mut Func) -> *mut Select;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Clamp(self_: *mut Func) -> *mut Clamp;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Lerp(self_: *mut Func) -> *mut Lerp;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Step(self_: *mut Func) -> *mut Step;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Saturate(self_: *mut Func) -> *mut Saturate;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_SmoothStep(self_: *mut Func) -> *mut SmoothStep;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Abs(self_: *mut Func) -> *mut Abs;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Min(self_: *mut Func) -> *mut Min;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Max(self_: *mut Func) -> *mut Max;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ReduceSum(self_: *mut Func) -> *mut ReduceSum;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ReduceProd(self_: *mut Func) -> *mut ReduceProd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ReduceMin(self_: *mut Func) -> *mut ReduceMin;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ReduceMax(self_: *mut Func) -> *mut ReduceMax;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Clz(self_: *mut Func) -> *mut Clz;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Ctz(self_: *mut Func) -> *mut Ctz;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_PopCount(self_: *mut Func) -> *mut PopCount;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Reverse(self_: *mut Func) -> *mut Reverse;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_IsInf(self_: *mut Func) -> *mut IsInf;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_IsNan(self_: *mut Func) -> *mut IsNan;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Acos(self_: *mut Func) -> *mut Acos;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Acosh(self_: *mut Func) -> *mut Acosh;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Asin(self_: *mut Func) -> *mut Asin;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Asinh(self_: *mut Func) -> *mut Asinh;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Atan(self_: *mut Func) -> *mut Atan;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Atan2(self_: *mut Func) -> *mut Atan2;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Atanh(self_: *mut Func) -> *mut Atanh;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Cos(self_: *mut Func) -> *mut Cos;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Cosh(self_: *mut Func) -> *mut Cosh;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Sin(self_: *mut Func) -> *mut Sin;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Sinh(self_: *mut Func) -> *mut Sinh;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Tan(self_: *mut Func) -> *mut Tan;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Tanh(self_: *mut Func) -> *mut Tanh;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Exp(self_: *mut Func) -> *mut Exp;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Exp2(self_: *mut Func) -> *mut Exp2;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Exp10(self_: *mut Func) -> *mut Exp10;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Log(self_: *mut Func) -> *mut Log;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Log2(self_: *mut Func) -> *mut Log2;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Log10(self_: *mut Func) -> *mut Log10;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Powi(self_: *mut Func) -> *mut Powi;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Powf(self_: *mut Func) -> *mut Powf;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Sqrt(self_: *mut Func) -> *mut Sqrt;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Rsqrt(self_: *mut Func) -> *mut Rsqrt;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Ceil(self_: *mut Func) -> *mut Ceil;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Floor(self_: *mut Func) -> *mut Floor;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Fract(self_: *mut Func) -> *mut Fract;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Trunc(self_: *mut Func) -> *mut Trunc;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Round(self_: *mut Func) -> *mut Round;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Fma(self_: *mut Func) -> *mut Fma;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Copysign(self_: *mut Func) -> *mut Copysign;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Cross(self_: *mut Func) -> *mut Cross;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Dot(self_: *mut Func) -> *mut Dot;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_OuterProduct(self_: *mut Func) -> *mut OuterProduct;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Length(self_: *mut Func) -> *mut Length;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_LengthSquared(self_: *mut Func) -> *mut LengthSquared;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Normalize(self_: *mut Func) -> *mut Normalize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Faceforward(self_: *mut Func) -> *mut Faceforward;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Distance(self_: *mut Func) -> *mut Distance;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Reflect(self_: *mut Func) -> *mut Reflect;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Determinant(self_: *mut Func) -> *mut Determinant;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Transpose(self_: *mut Func) -> *mut Transpose;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Inverse(self_: *mut Func) -> *mut Inverse;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpIsFirstActiveLane(self_: *mut Func) -> *mut WarpIsFirstActiveLane;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpFirstActiveLane(self_: *mut Func) -> *mut WarpFirstActiveLane;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveAllEqual(self_: *mut Func) -> *mut WarpActiveAllEqual;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveBitAnd(self_: *mut Func) -> *mut WarpActiveBitAnd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveBitOr(self_: *mut Func) -> *mut WarpActiveBitOr;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveBitXor(self_: *mut Func) -> *mut WarpActiveBitXor;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveCountBits(self_: *mut Func) -> *mut WarpActiveCountBits;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveMax(self_: *mut Func) -> *mut WarpActiveMax;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveMin(self_: *mut Func) -> *mut WarpActiveMin;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveProduct(self_: *mut Func) -> *mut WarpActiveProduct;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveSum(self_: *mut Func) -> *mut WarpActiveSum;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveAll(self_: *mut Func) -> *mut WarpActiveAll;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveAny(self_: *mut Func) -> *mut WarpActiveAny;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpActiveBitMask(self_: *mut Func) -> *mut WarpActiveBitMask;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpPrefixCountBits(self_: *mut Func) -> *mut WarpPrefixCountBits;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpPrefixSum(self_: *mut Func) -> *mut WarpPrefixSum;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpPrefixProduct(self_: *mut Func) -> *mut WarpPrefixProduct;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpReadLaneAt(self_: *mut Func) -> *mut WarpReadLaneAt;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_WarpReadFirstLane(self_: *mut Func) -> *mut WarpReadFirstLane;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_SynchronizeBlock(self_: *mut Func) -> *mut SynchronizeBlock;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicExchange(self_: *mut Func) -> *mut AtomicExchange;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicCompareExchange(self_: *mut Func) -> *mut AtomicCompareExchange;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchAdd(self_: *mut Func) -> *mut AtomicFetchAdd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchSub(self_: *mut Func) -> *mut AtomicFetchSub;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchAnd(self_: *mut Func) -> *mut AtomicFetchAnd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchOr(self_: *mut Func) -> *mut AtomicFetchOr;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchXor(self_: *mut Func) -> *mut AtomicFetchXor;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchMin(self_: *mut Func) -> *mut AtomicFetchMin;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_AtomicFetchMax(self_: *mut Func) -> *mut AtomicFetchMax;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BufferWrite(self_: *mut Func) -> *mut BufferWrite;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BufferRead(self_: *mut Func) -> *mut BufferRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BufferSize(self_: *mut Func) -> *mut BufferSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ByteBufferWrite(self_: *mut Func) -> *mut ByteBufferWrite;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ByteBufferRead(self_: *mut Func) -> *mut ByteBufferRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ByteBufferSize(self_: *mut Func) -> *mut ByteBufferSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Texture2dRead(self_: *mut Func) -> *mut Texture2dRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Texture2dWrite(self_: *mut Func) -> *mut Texture2dWrite;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Texture2dSize(self_: *mut Func) -> *mut Texture2dSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Texture3dRead(self_: *mut Func) -> *mut Texture3dRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Texture3dWrite(self_: *mut Func) -> *mut Texture3dWrite;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Texture3dSize(self_: *mut Func) -> *mut Texture3dSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dSample(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture2dSample;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dSampleLevel(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture2dSampleLevel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dSampleGrad(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture2dSampleGrad;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dSampleGradLevel(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture2dSampleGradLevel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dRead(self_: *mut Func) -> *mut BindlessTexture2dRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dSize(self_: *mut Func) -> *mut BindlessTexture2dSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture2dSizeLevel(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture2dSizeLevel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dSample(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture3dSample;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dSampleLevel(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture3dSampleLevel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dSampleGrad(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture3dSampleGrad;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dSampleGradLevel(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture3dSampleGradLevel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dRead(self_: *mut Func) -> *mut BindlessTexture3dRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dSize(self_: *mut Func) -> *mut BindlessTexture3dSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessTexture3dSizeLevel(
-        self_: *mut Func,
-    ) -> *mut BindlessTexture3dSizeLevel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessBufferWrite(self_: *mut Func) -> *mut BindlessBufferWrite;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessBufferRead(self_: *mut Func) -> *mut BindlessBufferRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessBufferSize(self_: *mut Func) -> *mut BindlessBufferSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessByteBufferWrite(
-        self_: *mut Func,
-    ) -> *mut BindlessByteBufferWrite;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessByteBufferRead(self_: *mut Func)
-        -> *mut BindlessByteBufferRead;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessByteBufferSize(self_: *mut Func)
-        -> *mut BindlessByteBufferSize;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Vec(self_: *mut Func) -> *mut Vec;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Vec2(self_: *mut Func) -> *mut Vec2;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Vec3(self_: *mut Func) -> *mut Vec3;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Vec4(self_: *mut Func) -> *mut Vec4;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Permute(self_: *mut Func) -> *mut Permute;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_GetElementPtr(self_: *mut Func) -> *mut GetElementPtr;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ExtractElement(self_: *mut Func) -> *mut ExtractElement;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_InsertElement(self_: *mut Func) -> *mut InsertElement;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Array(self_: *mut Func) -> *mut Array;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Struct(self_: *mut Func) -> *mut Struct;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_MatFull(self_: *mut Func) -> *mut MatFull;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Mat2(self_: *mut Func) -> *mut Mat2;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Mat3(self_: *mut Func) -> *mut Mat3;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Mat4(self_: *mut Func) -> *mut Mat4;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchAdd(self_: *mut Func)
-        -> *mut BindlessAtomicFetchAdd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchSub(self_: *mut Func)
-        -> *mut BindlessAtomicFetchSub;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchAnd(self_: *mut Func)
-        -> *mut BindlessAtomicFetchAnd;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchOr(self_: *mut Func) -> *mut BindlessAtomicFetchOr;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchXor(self_: *mut Func)
-        -> *mut BindlessAtomicFetchXor;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchMin(self_: *mut Func)
-        -> *mut BindlessAtomicFetchMin;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_BindlessAtomicFetchMax(self_: *mut Func)
-        -> *mut BindlessAtomicFetchMax;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_Callable(self_: *mut Func) -> *mut Callable;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_CpuExt(self_: *mut Func) -> *mut CpuExt;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_as_ShaderExecutionReorder(self_: *mut Func)
-        -> *mut ShaderExecutionReorder;
-}
-extern "C" {
-    pub fn lc_ir_v2_Func_tag(self_: *mut Func) -> FuncTag;
-}
-extern "C" {
-    pub fn lc_ir_v2_Assume_msg(self_: *mut Assume, out: *mut Slice<::std::os::raw::c_char>);
-}
-extern "C" {
-    pub fn lc_ir_v2_Unreachable_msg(
-        self_: *mut Unreachable,
-        out: *mut Slice<::std::os::raw::c_char>,
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct IrV2BindingTable {
+    pub Func_as_Zero: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Zero>,
+    pub Func_as_One: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut One>,
+    pub Func_as_Assume:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Assume>,
+    pub Func_as_Unreachable:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Unreachable>,
+    pub Func_as_ThreadId:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ThreadId>,
+    pub Func_as_BlockId:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BlockId>,
+    pub Func_as_WarpSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpSize>,
+    pub Func_as_WarpLaneId:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpLaneId>,
+    pub Func_as_DispatchId:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut DispatchId>,
+    pub Func_as_DispatchSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut DispatchSize>,
+    pub Func_as_PropagateGradient:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut PropagateGradient>,
+    pub Func_as_OutputGradient:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut OutputGradient>,
+    pub Func_as_RequiresGradient:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RequiresGradient>,
+    pub Func_as_Backward:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Backward>,
+    pub Func_as_Gradient:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Gradient>,
+    pub Func_as_AccGrad:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AccGrad>,
+    pub Func_as_Detach:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Detach>,
+    pub Func_as_RayTracingInstanceTransform: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingInstanceTransform,
+    >,
+    pub Func_as_RayTracingInstanceVisibilityMask: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingInstanceVisibilityMask,
+    >,
+    pub Func_as_RayTracingInstanceUserId: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingInstanceUserId,
+    >,
+    pub Func_as_RayTracingSetInstanceTransform: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingSetInstanceTransform,
+    >,
+    pub Func_as_RayTracingSetInstanceOpacity: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingSetInstanceOpacity,
+    >,
+    pub Func_as_RayTracingSetInstanceVisibility: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingSetInstanceVisibility,
+    >,
+    pub Func_as_RayTracingSetInstanceUserId: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingSetInstanceUserId,
+    >,
+    pub Func_as_RayTracingTraceClosest: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingTraceClosest,
+    >,
+    pub Func_as_RayTracingTraceAny:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingTraceAny>,
+    pub Func_as_RayTracingQueryAll:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingQueryAll>,
+    pub Func_as_RayTracingQueryAny:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayTracingQueryAny>,
+    pub Func_as_RayQueryWorldSpaceRay:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryWorldSpaceRay>,
+    pub Func_as_RayQueryProceduralCandidateHit: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryProceduralCandidateHit,
+    >,
+    pub Func_as_RayQueryTriangleCandidateHit: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryTriangleCandidateHit,
+    >,
+    pub Func_as_RayQueryCommittedHit:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryCommittedHit>,
+    pub Func_as_RayQueryCommitTriangle: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryCommitTriangle,
+    >,
+    pub Func_as_RayQueryCommitdProcedural: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryCommitdProcedural,
+    >,
+    pub Func_as_RayQueryTerminate:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryTerminate>,
+    pub Func_as_Load: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Load>,
+    pub Func_as_Store: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Store>,
+    pub Func_as_Cast: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Cast>,
+    pub Func_as_BitCast:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BitCast>,
+    pub Func_as_Add: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Add>,
+    pub Func_as_Sub: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Sub>,
+    pub Func_as_Mul: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Mul>,
+    pub Func_as_Div: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Div>,
+    pub Func_as_Rem: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Rem>,
+    pub Func_as_BitAnd:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BitAnd>,
+    pub Func_as_BitOr: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BitOr>,
+    pub Func_as_BitXor:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BitXor>,
+    pub Func_as_Shl: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Shl>,
+    pub Func_as_Shr: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Shr>,
+    pub Func_as_RotRight:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RotRight>,
+    pub Func_as_RotLeft:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RotLeft>,
+    pub Func_as_Eq: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Eq>,
+    pub Func_as_Ne: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Ne>,
+    pub Func_as_Lt: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Lt>,
+    pub Func_as_Le: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Le>,
+    pub Func_as_Gt: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Gt>,
+    pub Func_as_Ge: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Ge>,
+    pub Func_as_MatCompMul:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut MatCompMul>,
+    pub Func_as_Neg: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Neg>,
+    pub Func_as_Not: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Not>,
+    pub Func_as_BitNot:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BitNot>,
+    pub Func_as_All: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut All>,
+    pub Func_as_Any: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Any>,
+    pub Func_as_Select:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Select>,
+    pub Func_as_Clamp: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Clamp>,
+    pub Func_as_Lerp: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Lerp>,
+    pub Func_as_Step: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Step>,
+    pub Func_as_Saturate:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Saturate>,
+    pub Func_as_SmoothStep:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut SmoothStep>,
+    pub Func_as_Abs: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Abs>,
+    pub Func_as_Min: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Min>,
+    pub Func_as_Max: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Max>,
+    pub Func_as_ReduceSum:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ReduceSum>,
+    pub Func_as_ReduceProd:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ReduceProd>,
+    pub Func_as_ReduceMin:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ReduceMin>,
+    pub Func_as_ReduceMax:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ReduceMax>,
+    pub Func_as_Clz: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Clz>,
+    pub Func_as_Ctz: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Ctz>,
+    pub Func_as_PopCount:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut PopCount>,
+    pub Func_as_Reverse:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Reverse>,
+    pub Func_as_IsInf: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut IsInf>,
+    pub Func_as_IsNan: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut IsNan>,
+    pub Func_as_Acos: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Acos>,
+    pub Func_as_Acosh: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Acosh>,
+    pub Func_as_Asin: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Asin>,
+    pub Func_as_Asinh: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Asinh>,
+    pub Func_as_Atan: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Atan>,
+    pub Func_as_Atan2: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Atan2>,
+    pub Func_as_Atanh: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Atanh>,
+    pub Func_as_Cos: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Cos>,
+    pub Func_as_Cosh: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Cosh>,
+    pub Func_as_Sin: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Sin>,
+    pub Func_as_Sinh: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Sinh>,
+    pub Func_as_Tan: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Tan>,
+    pub Func_as_Tanh: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Tanh>,
+    pub Func_as_Exp: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Exp>,
+    pub Func_as_Exp2: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Exp2>,
+    pub Func_as_Exp10: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Exp10>,
+    pub Func_as_Log: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Log>,
+    pub Func_as_Log2: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Log2>,
+    pub Func_as_Log10: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Log10>,
+    pub Func_as_Powi: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Powi>,
+    pub Func_as_Powf: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Powf>,
+    pub Func_as_Sqrt: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Sqrt>,
+    pub Func_as_Rsqrt: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Rsqrt>,
+    pub Func_as_Ceil: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Ceil>,
+    pub Func_as_Floor: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Floor>,
+    pub Func_as_Fract: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Fract>,
+    pub Func_as_Trunc: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Trunc>,
+    pub Func_as_Round: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Round>,
+    pub Func_as_Fma: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Fma>,
+    pub Func_as_Copysign:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Copysign>,
+    pub Func_as_Cross: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Cross>,
+    pub Func_as_Dot: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Dot>,
+    pub Func_as_OuterProduct:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut OuterProduct>,
+    pub Func_as_Length:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Length>,
+    pub Func_as_LengthSquared:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut LengthSquared>,
+    pub Func_as_Normalize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Normalize>,
+    pub Func_as_Faceforward:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Faceforward>,
+    pub Func_as_Distance:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Distance>,
+    pub Func_as_Reflect:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Reflect>,
+    pub Func_as_Determinant:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Determinant>,
+    pub Func_as_Transpose:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Transpose>,
+    pub Func_as_Inverse:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Inverse>,
+    pub Func_as_WarpIsFirstActiveLane:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpIsFirstActiveLane>,
+    pub Func_as_WarpFirstActiveLane:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpFirstActiveLane>,
+    pub Func_as_WarpActiveAllEqual:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveAllEqual>,
+    pub Func_as_WarpActiveBitAnd:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveBitAnd>,
+    pub Func_as_WarpActiveBitOr:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveBitOr>,
+    pub Func_as_WarpActiveBitXor:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveBitXor>,
+    pub Func_as_WarpActiveCountBits:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveCountBits>,
+    pub Func_as_WarpActiveMax:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveMax>,
+    pub Func_as_WarpActiveMin:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveMin>,
+    pub Func_as_WarpActiveProduct:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveProduct>,
+    pub Func_as_WarpActiveSum:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveSum>,
+    pub Func_as_WarpActiveAll:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveAll>,
+    pub Func_as_WarpActiveAny:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveAny>,
+    pub Func_as_WarpActiveBitMask:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpActiveBitMask>,
+    pub Func_as_WarpPrefixCountBits:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpPrefixCountBits>,
+    pub Func_as_WarpPrefixSum:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpPrefixSum>,
+    pub Func_as_WarpPrefixProduct:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpPrefixProduct>,
+    pub Func_as_WarpReadLaneAt:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpReadLaneAt>,
+    pub Func_as_WarpReadFirstLane:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut WarpReadFirstLane>,
+    pub Func_as_SynchronizeBlock:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut SynchronizeBlock>,
+    pub Func_as_AtomicExchange:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicExchange>,
+    pub Func_as_AtomicCompareExchange:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicCompareExchange>,
+    pub Func_as_AtomicFetchAdd:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchAdd>,
+    pub Func_as_AtomicFetchSub:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchSub>,
+    pub Func_as_AtomicFetchAnd:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchAnd>,
+    pub Func_as_AtomicFetchOr:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchOr>,
+    pub Func_as_AtomicFetchXor:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchXor>,
+    pub Func_as_AtomicFetchMin:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchMin>,
+    pub Func_as_AtomicFetchMax:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut AtomicFetchMax>,
+    pub Func_as_BufferWrite:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BufferWrite>,
+    pub Func_as_BufferRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BufferRead>,
+    pub Func_as_BufferSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BufferSize>,
+    pub Func_as_ByteBufferWrite:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ByteBufferWrite>,
+    pub Func_as_ByteBufferRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ByteBufferRead>,
+    pub Func_as_ByteBufferSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ByteBufferSize>,
+    pub Func_as_Texture2dRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Texture2dRead>,
+    pub Func_as_Texture2dWrite:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Texture2dWrite>,
+    pub Func_as_Texture2dSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Texture2dSize>,
+    pub Func_as_Texture3dRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Texture3dRead>,
+    pub Func_as_Texture3dWrite:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Texture3dWrite>,
+    pub Func_as_Texture3dSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Texture3dSize>,
+    pub Func_as_BindlessTexture2dSample: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dSample,
+    >,
+    pub Func_as_BindlessTexture2dSampleLevel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dSampleLevel,
+    >,
+    pub Func_as_BindlessTexture2dSampleGrad: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dSampleGrad,
+    >,
+    pub Func_as_BindlessTexture2dSampleGradLevel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dSampleGradLevel,
+    >,
+    pub Func_as_BindlessTexture2dRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dRead>,
+    pub Func_as_BindlessTexture2dSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dSize>,
+    pub Func_as_BindlessTexture2dSizeLevel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture2dSizeLevel,
+    >,
+    pub Func_as_BindlessTexture3dSample: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dSample,
+    >,
+    pub Func_as_BindlessTexture3dSampleLevel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dSampleLevel,
+    >,
+    pub Func_as_BindlessTexture3dSampleGrad: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dSampleGrad,
+    >,
+    pub Func_as_BindlessTexture3dSampleGradLevel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dSampleGradLevel,
+    >,
+    pub Func_as_BindlessTexture3dRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dRead>,
+    pub Func_as_BindlessTexture3dSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dSize>,
+    pub Func_as_BindlessTexture3dSizeLevel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessTexture3dSizeLevel,
+    >,
+    pub Func_as_BindlessBufferWrite:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessBufferWrite>,
+    pub Func_as_BindlessBufferRead:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessBufferRead>,
+    pub Func_as_BindlessBufferSize:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessBufferSize>,
+    pub Func_as_BindlessByteBufferWrite: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessByteBufferWrite,
+    >,
+    pub Func_as_BindlessByteBufferRead: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessByteBufferRead,
+    >,
+    pub Func_as_BindlessByteBufferSize: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessByteBufferSize,
+    >,
+    pub Func_as_Vec: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Vec>,
+    pub Func_as_Vec2: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Vec2>,
+    pub Func_as_Vec3: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Vec3>,
+    pub Func_as_Vec4: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Vec4>,
+    pub Func_as_Permute:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Permute>,
+    pub Func_as_GetElementPtr:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut GetElementPtr>,
+    pub Func_as_ExtractElement:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut ExtractElement>,
+    pub Func_as_InsertElement:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut InsertElement>,
+    pub Func_as_Array: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Array>,
+    pub Func_as_Struct:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Struct>,
+    pub Func_as_MatFull:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut MatFull>,
+    pub Func_as_Mat2: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Mat2>,
+    pub Func_as_Mat3: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Mat3>,
+    pub Func_as_Mat4: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Mat4>,
+    pub Func_as_BindlessAtomicExchange: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicExchange,
+    >,
+    pub Func_as_BindlessAtomicCompareExchange: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicCompareExchange,
+    >,
+    pub Func_as_BindlessAtomicFetchAdd: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchAdd,
+    >,
+    pub Func_as_BindlessAtomicFetchSub: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchSub,
+    >,
+    pub Func_as_BindlessAtomicFetchAnd: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchAnd,
+    >,
+    pub Func_as_BindlessAtomicFetchOr:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchOr>,
+    pub Func_as_BindlessAtomicFetchXor: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchXor,
+    >,
+    pub Func_as_BindlessAtomicFetchMin: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchMin,
+    >,
+    pub Func_as_BindlessAtomicFetchMax: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut BindlessAtomicFetchMax,
+    >,
+    pub Func_as_Callable:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Callable>,
+    pub Func_as_CpuExt:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut CpuExt>,
+    pub Func_as_ShaderExecutionReorder: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Func) -> *mut ShaderExecutionReorder,
+    >,
+    pub Func_tag: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> FuncTag>,
+    pub Assume_msg: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Assume) -> Slice<::std::os::raw::c_char>,
+    >,
+    pub Unreachable_msg: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Unreachable) -> Slice<::std::os::raw::c_char>,
+    >,
+    pub BindlessAtomicExchange_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicExchange) -> *const Type,
+    >,
+    pub BindlessAtomicCompareExchange_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicCompareExchange) -> *const Type,
+    >,
+    pub BindlessAtomicFetchAdd_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchAdd) -> *const Type,
+    >,
+    pub BindlessAtomicFetchSub_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchSub) -> *const Type,
+    >,
+    pub BindlessAtomicFetchAnd_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchAnd) -> *const Type,
+    >,
+    pub BindlessAtomicFetchOr_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchOr) -> *const Type,
+    >,
+    pub BindlessAtomicFetchXor_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchXor) -> *const Type,
+    >,
+    pub BindlessAtomicFetchMin_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchMin) -> *const Type,
+    >,
+    pub BindlessAtomicFetchMax_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchMax) -> *const Type,
+    >,
+    pub Callable_module:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Callable) -> *mut CallableModule>,
+    pub CpuExt_f: ::std::option::Option<unsafe extern "C" fn(self_: *mut CpuExt) -> CpuExternFn>,
+    pub Instruction_as_Buffer:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Buffer>,
+    pub Instruction_as_Texture2d:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Texture2d>,
+    pub Instruction_as_Texture3d:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Texture3d>,
+    pub Instruction_as_BindlessArray:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut BindlessArray>,
+    pub Instruction_as_Accel:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Accel>,
+    pub Instruction_as_Shared:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Shared>,
+    pub Instruction_as_Uniform:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Uniform>,
+    pub Instruction_as_Argument:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Argument>,
+    pub Instruction_as_Const:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Const>,
+    pub Instruction_as_Call:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Call>,
+    pub Instruction_as_Phi:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Phi>,
+    pub Instruction_as_BasicBlockSentinel: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Instruction) -> *mut BasicBlockSentinel,
+    >,
+    pub Instruction_as_If:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut If>,
+    pub Instruction_as_GenericLoop:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut GenericLoop>,
+    pub Instruction_as_Switch:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Switch>,
+    pub Instruction_as_Local:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Local>,
+    pub Instruction_as_Break:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Break>,
+    pub Instruction_as_Continue:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Continue>,
+    pub Instruction_as_Return:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Return>,
+    pub Instruction_as_Print:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Print>,
+    pub Instruction_tag:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> InstructionTag>,
+    pub Argument_by_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Argument) -> bool>,
+    pub Const_ty: ::std::option::Option<unsafe extern "C" fn(self_: *mut Const) -> *const Type>,
+    pub Const_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Const) -> Slice<u8>>,
+    pub Call_func: ::std::option::Option<unsafe extern "C" fn(self_: *mut Call) -> *const Func>,
+    pub Call_args:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Call) -> Slice<*mut Node>>,
+    pub Phi_incomings:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Phi) -> Slice<PhiIncoming>>,
+    pub If_cond: ::std::option::Option<unsafe extern "C" fn(self_: *mut If) -> *mut Node>,
+    pub If_true_branch:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut If) -> *mut BasicBlock>,
+    pub If_false_branch:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut If) -> *mut BasicBlock>,
+    pub GenericLoop_prepare:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut BasicBlock>,
+    pub GenericLoop_cond:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut Node>,
+    pub GenericLoop_body:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut BasicBlock>,
+    pub GenericLoop_update:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut BasicBlock>,
+    pub Switch_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch) -> *mut Node>,
+    pub Switch_cases:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch) -> Slice<SwitchCase>>,
+    pub Switch_default_:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch) -> *mut BasicBlock>,
+    pub Local_init: ::std::option::Option<unsafe extern "C" fn(self_: *mut Local) -> *mut Node>,
+    pub Return_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Return) -> *mut Node>,
+    pub Print_fmt: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Print) -> Slice<::std::os::raw::c_char>,
+    >,
+    pub Print_args:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Print) -> Slice<*mut Node>>,
+    pub Binding_as_BufferBinding:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Binding) -> *mut BufferBinding>,
+    pub Binding_as_TextureBinding:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Binding) -> *mut TextureBinding>,
+    pub Binding_as_BindlessArrayBinding: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Binding) -> *mut BindlessArrayBinding,
+    >,
+    pub Binding_as_AccelBinding:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Binding) -> *mut AccelBinding>,
+    pub Binding_tag: ::std::option::Option<unsafe extern "C" fn(self_: *mut Binding) -> BindingTag>,
+    pub BufferBinding_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
+    pub BufferBinding_offset:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
+    pub BufferBinding_size:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
+    pub TextureBinding_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut TextureBinding) -> u64>,
+    pub TextureBinding_level:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut TextureBinding) -> u64>,
+    pub BindlessArrayBinding_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BindlessArrayBinding) -> u64>,
+    pub AccelBinding_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut AccelBinding) -> u64>,
+}
+#[test]
+fn bindgen_test_layout_IrV2BindingTable() {
+    const UNINIT: ::std::mem::MaybeUninit<IrV2BindingTable> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<IrV2BindingTable>(),
+        2224usize,
+        concat!("Size of: ", stringify!(IrV2BindingTable))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<IrV2BindingTable>(),
+        8usize,
+        concat!("Alignment of ", stringify!(IrV2BindingTable))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Zero) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Zero)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_One) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_One)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Assume) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Assume)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Unreachable) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Unreachable)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ThreadId) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ThreadId)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BlockId) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BlockId)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpSize) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpSize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpLaneId) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpLaneId)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_DispatchId) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_DispatchId)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_DispatchSize) as usize - ptr as usize },
+        72usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_DispatchSize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_PropagateGradient) as usize - ptr as usize },
+        80usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_PropagateGradient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_OutputGradient) as usize - ptr as usize },
+        88usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_OutputGradient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RequiresGradient) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RequiresGradient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Backward) as usize - ptr as usize },
+        104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Backward)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Gradient) as usize - ptr as usize },
+        112usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Gradient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AccGrad) as usize - ptr as usize },
+        120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AccGrad)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Detach) as usize - ptr as usize },
+        128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Detach)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingInstanceTransform) as usize - ptr as usize
+        },
+        136usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingInstanceTransform)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingInstanceVisibilityMask) as usize
+                - ptr as usize
+        },
+        144usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingInstanceVisibilityMask)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingInstanceUserId) as usize - ptr as usize
+        },
+        152usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingInstanceUserId)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingSetInstanceTransform) as usize
+                - ptr as usize
+        },
+        160usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingSetInstanceTransform)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingSetInstanceOpacity) as usize
+                - ptr as usize
+        },
+        168usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingSetInstanceOpacity)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingSetInstanceVisibility) as usize
+                - ptr as usize
+        },
+        176usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingSetInstanceVisibility)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingSetInstanceUserId) as usize - ptr as usize
+        },
+        184usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingSetInstanceUserId)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayTracingTraceClosest) as usize - ptr as usize
+        },
+        192usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingTraceClosest)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RayTracingTraceAny) as usize - ptr as usize },
+        200usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingTraceAny)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RayTracingQueryAll) as usize - ptr as usize },
+        208usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingQueryAll)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RayTracingQueryAny) as usize - ptr as usize },
+        216usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayTracingQueryAny)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayQueryWorldSpaceRay) as usize - ptr as usize
+        },
+        224usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryWorldSpaceRay)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayQueryProceduralCandidateHit) as usize
+                - ptr as usize
+        },
+        232usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryProceduralCandidateHit)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayQueryTriangleCandidateHit) as usize
+                - ptr as usize
+        },
+        240usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryTriangleCandidateHit)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayQueryCommittedHit) as usize - ptr as usize
+        },
+        248usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryCommittedHit)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayQueryCommitTriangle) as usize - ptr as usize
+        },
+        256usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryCommitTriangle)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_RayQueryCommitdProcedural) as usize - ptr as usize
+        },
+        264usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryCommitdProcedural)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RayQueryTerminate) as usize - ptr as usize },
+        272usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RayQueryTerminate)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Load) as usize - ptr as usize },
+        280usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Load)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Store) as usize - ptr as usize },
+        288usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Store)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cast) as usize - ptr as usize },
+        296usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Cast)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitCast) as usize - ptr as usize },
+        304usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BitCast)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Add) as usize - ptr as usize },
+        312usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Add)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sub) as usize - ptr as usize },
+        320usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Sub)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mul) as usize - ptr as usize },
+        328usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Mul)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Div) as usize - ptr as usize },
+        336usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Div)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Rem) as usize - ptr as usize },
+        344usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Rem)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitAnd) as usize - ptr as usize },
+        352usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BitAnd)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitOr) as usize - ptr as usize },
+        360usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BitOr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitXor) as usize - ptr as usize },
+        368usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BitXor)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Shl) as usize - ptr as usize },
+        376usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Shl)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Shr) as usize - ptr as usize },
+        384usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Shr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RotRight) as usize - ptr as usize },
+        392usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RotRight)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RotLeft) as usize - ptr as usize },
+        400usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_RotLeft)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Eq) as usize - ptr as usize },
+        408usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Eq)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ne) as usize - ptr as usize },
+        416usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Ne)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Lt) as usize - ptr as usize },
+        424usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Lt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Le) as usize - ptr as usize },
+        432usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Le)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Gt) as usize - ptr as usize },
+        440usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Gt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ge) as usize - ptr as usize },
+        448usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Ge)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_MatCompMul) as usize - ptr as usize },
+        456usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_MatCompMul)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Neg) as usize - ptr as usize },
+        464usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Neg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Not) as usize - ptr as usize },
+        472usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Not)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitNot) as usize - ptr as usize },
+        480usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BitNot)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_All) as usize - ptr as usize },
+        488usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_All)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Any) as usize - ptr as usize },
+        496usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Any)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Select) as usize - ptr as usize },
+        504usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Select)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Clamp) as usize - ptr as usize },
+        512usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Clamp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Lerp) as usize - ptr as usize },
+        520usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Lerp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Step) as usize - ptr as usize },
+        528usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Step)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Saturate) as usize - ptr as usize },
+        536usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Saturate)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_SmoothStep) as usize - ptr as usize },
+        544usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_SmoothStep)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Abs) as usize - ptr as usize },
+        552usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Abs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Min) as usize - ptr as usize },
+        560usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Min)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Max) as usize - ptr as usize },
+        568usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Max)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceSum) as usize - ptr as usize },
+        576usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ReduceSum)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceProd) as usize - ptr as usize },
+        584usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ReduceProd)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceMin) as usize - ptr as usize },
+        592usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ReduceMin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceMax) as usize - ptr as usize },
+        600usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ReduceMax)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Clz) as usize - ptr as usize },
+        608usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Clz)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ctz) as usize - ptr as usize },
+        616usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Ctz)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_PopCount) as usize - ptr as usize },
+        624usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_PopCount)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Reverse) as usize - ptr as usize },
+        632usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Reverse)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_IsInf) as usize - ptr as usize },
+        640usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_IsInf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_IsNan) as usize - ptr as usize },
+        648usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_IsNan)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Acos) as usize - ptr as usize },
+        656usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Acos)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Acosh) as usize - ptr as usize },
+        664usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Acosh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Asin) as usize - ptr as usize },
+        672usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Asin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Asinh) as usize - ptr as usize },
+        680usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Asinh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Atan) as usize - ptr as usize },
+        688usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Atan)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Atan2) as usize - ptr as usize },
+        696usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Atan2)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Atanh) as usize - ptr as usize },
+        704usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Atanh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cos) as usize - ptr as usize },
+        712usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Cos)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cosh) as usize - ptr as usize },
+        720usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Cosh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sin) as usize - ptr as usize },
+        728usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Sin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sinh) as usize - ptr as usize },
+        736usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Sinh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Tan) as usize - ptr as usize },
+        744usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Tan)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Tanh) as usize - ptr as usize },
+        752usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Tanh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Exp) as usize - ptr as usize },
+        760usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Exp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Exp2) as usize - ptr as usize },
+        768usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Exp2)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Exp10) as usize - ptr as usize },
+        776usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Exp10)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Log) as usize - ptr as usize },
+        784usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Log)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Log2) as usize - ptr as usize },
+        792usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Log2)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Log10) as usize - ptr as usize },
+        800usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Log10)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Powi) as usize - ptr as usize },
+        808usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Powi)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Powf) as usize - ptr as usize },
+        816usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Powf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sqrt) as usize - ptr as usize },
+        824usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Sqrt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Rsqrt) as usize - ptr as usize },
+        832usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Rsqrt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ceil) as usize - ptr as usize },
+        840usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Ceil)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Floor) as usize - ptr as usize },
+        848usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Floor)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Fract) as usize - ptr as usize },
+        856usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Fract)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Trunc) as usize - ptr as usize },
+        864usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Trunc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Round) as usize - ptr as usize },
+        872usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Round)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Fma) as usize - ptr as usize },
+        880usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Fma)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Copysign) as usize - ptr as usize },
+        888usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Copysign)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cross) as usize - ptr as usize },
+        896usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Cross)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Dot) as usize - ptr as usize },
+        904usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Dot)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_OuterProduct) as usize - ptr as usize },
+        912usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_OuterProduct)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Length) as usize - ptr as usize },
+        920usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Length)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_LengthSquared) as usize - ptr as usize },
+        928usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_LengthSquared)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Normalize) as usize - ptr as usize },
+        936usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Normalize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Faceforward) as usize - ptr as usize },
+        944usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Faceforward)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Distance) as usize - ptr as usize },
+        952usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Distance)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Reflect) as usize - ptr as usize },
+        960usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Reflect)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Determinant) as usize - ptr as usize },
+        968usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Determinant)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Transpose) as usize - ptr as usize },
+        976usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Transpose)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Inverse) as usize - ptr as usize },
+        984usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Inverse)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_WarpIsFirstActiveLane) as usize - ptr as usize
+        },
+        992usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpIsFirstActiveLane)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpFirstActiveLane) as usize - ptr as usize },
+        1000usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpFirstActiveLane)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveAllEqual) as usize - ptr as usize },
+        1008usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveAllEqual)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitAnd) as usize - ptr as usize },
+        1016usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveBitAnd)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitOr) as usize - ptr as usize },
+        1024usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveBitOr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitXor) as usize - ptr as usize },
+        1032usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveBitXor)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveCountBits) as usize - ptr as usize },
+        1040usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveCountBits)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveMax) as usize - ptr as usize },
+        1048usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveMax)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveMin) as usize - ptr as usize },
+        1056usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveMin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveProduct) as usize - ptr as usize },
+        1064usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveProduct)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveSum) as usize - ptr as usize },
+        1072usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveSum)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveAll) as usize - ptr as usize },
+        1080usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveAll)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveAny) as usize - ptr as usize },
+        1088usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveAny)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitMask) as usize - ptr as usize },
+        1096usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpActiveBitMask)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpPrefixCountBits) as usize - ptr as usize },
+        1104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpPrefixCountBits)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpPrefixSum) as usize - ptr as usize },
+        1112usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpPrefixSum)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpPrefixProduct) as usize - ptr as usize },
+        1120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpPrefixProduct)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpReadLaneAt) as usize - ptr as usize },
+        1128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpReadLaneAt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpReadFirstLane) as usize - ptr as usize },
+        1136usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_WarpReadFirstLane)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_SynchronizeBlock) as usize - ptr as usize },
+        1144usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_SynchronizeBlock)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicExchange) as usize - ptr as usize },
+        1152usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicExchange)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_AtomicCompareExchange) as usize - ptr as usize
+        },
+        1160usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicCompareExchange)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchAdd) as usize - ptr as usize },
+        1168usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchAdd)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchSub) as usize - ptr as usize },
+        1176usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchSub)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchAnd) as usize - ptr as usize },
+        1184usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchAnd)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchOr) as usize - ptr as usize },
+        1192usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchOr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchXor) as usize - ptr as usize },
+        1200usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchXor)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchMin) as usize - ptr as usize },
+        1208usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchMin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchMax) as usize - ptr as usize },
+        1216usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_AtomicFetchMax)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BufferWrite) as usize - ptr as usize },
+        1224usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BufferWrite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BufferRead) as usize - ptr as usize },
+        1232usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BufferRead)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BufferSize) as usize - ptr as usize },
+        1240usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BufferSize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ByteBufferWrite) as usize - ptr as usize },
+        1248usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ByteBufferWrite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ByteBufferRead) as usize - ptr as usize },
+        1256usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ByteBufferRead)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ByteBufferSize) as usize - ptr as usize },
+        1264usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ByteBufferSize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture2dRead) as usize - ptr as usize },
+        1272usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Texture2dRead)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture2dWrite) as usize - ptr as usize },
+        1280usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Texture2dWrite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture2dSize) as usize - ptr as usize },
+        1288usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Texture2dSize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture3dRead) as usize - ptr as usize },
+        1296usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Texture3dRead)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture3dWrite) as usize - ptr as usize },
+        1304usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Texture3dWrite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture3dSize) as usize - ptr as usize },
+        1312usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Texture3dSize)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSample) as usize - ptr as usize
+        },
+        1320usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dSample)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSampleLevel) as usize
+                - ptr as usize
+        },
+        1328usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dSampleLevel)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSampleGrad) as usize - ptr as usize
+        },
+        1336usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dSampleGrad)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSampleGradLevel) as usize
+                - ptr as usize
+        },
+        1344usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dSampleGradLevel)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dRead) as usize - ptr as usize
+        },
+        1352usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dRead)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSize) as usize - ptr as usize
+        },
+        1360usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dSize)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSizeLevel) as usize - ptr as usize
+        },
+        1368usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture2dSizeLevel)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSample) as usize - ptr as usize
+        },
+        1376usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dSample)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSampleLevel) as usize
+                - ptr as usize
+        },
+        1384usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dSampleLevel)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSampleGrad) as usize - ptr as usize
+        },
+        1392usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dSampleGrad)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSampleGradLevel) as usize
+                - ptr as usize
+        },
+        1400usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dSampleGradLevel)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dRead) as usize - ptr as usize
+        },
+        1408usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dRead)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSize) as usize - ptr as usize
+        },
+        1416usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dSize)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSizeLevel) as usize - ptr as usize
+        },
+        1424usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessTexture3dSizeLevel)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BindlessBufferWrite) as usize - ptr as usize },
+        1432usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessBufferWrite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BindlessBufferRead) as usize - ptr as usize },
+        1440usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessBufferRead)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BindlessBufferSize) as usize - ptr as usize },
+        1448usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessBufferSize)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessByteBufferWrite) as usize - ptr as usize
+        },
+        1456usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessByteBufferWrite)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessByteBufferRead) as usize - ptr as usize
+        },
+        1464usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessByteBufferRead)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessByteBufferSize) as usize - ptr as usize
+        },
+        1472usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessByteBufferSize)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec) as usize - ptr as usize },
+        1480usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Vec)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec2) as usize - ptr as usize },
+        1488usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Vec2)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec3) as usize - ptr as usize },
+        1496usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Vec3)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec4) as usize - ptr as usize },
+        1504usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Vec4)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Permute) as usize - ptr as usize },
+        1512usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Permute)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_GetElementPtr) as usize - ptr as usize },
+        1520usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_GetElementPtr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ExtractElement) as usize - ptr as usize },
+        1528usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ExtractElement)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_InsertElement) as usize - ptr as usize },
+        1536usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_InsertElement)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Array) as usize - ptr as usize },
+        1544usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Array)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Struct) as usize - ptr as usize },
+        1552usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Struct)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_MatFull) as usize - ptr as usize },
+        1560usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_MatFull)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mat2) as usize - ptr as usize },
+        1568usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Mat2)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mat3) as usize - ptr as usize },
+        1576usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Mat3)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mat4) as usize - ptr as usize },
+        1584usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Mat4)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicExchange) as usize - ptr as usize
+        },
+        1592usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicExchange)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicCompareExchange) as usize
+                - ptr as usize
+        },
+        1600usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicCompareExchange)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchAdd) as usize - ptr as usize
+        },
+        1608usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchAdd)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchSub) as usize - ptr as usize
+        },
+        1616usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchSub)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchAnd) as usize - ptr as usize
+        },
+        1624usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchAnd)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchOr) as usize - ptr as usize
+        },
+        1632usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchOr)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchXor) as usize - ptr as usize
+        },
+        1640usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchXor)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchMin) as usize - ptr as usize
+        },
+        1648usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchMin)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchMax) as usize - ptr as usize
+        },
+        1656usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_BindlessAtomicFetchMax)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Callable) as usize - ptr as usize },
+        1664usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_Callable)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_CpuExt) as usize - ptr as usize },
+        1672usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_CpuExt)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Func_as_ShaderExecutionReorder) as usize - ptr as usize
+        },
+        1680usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_as_ShaderExecutionReorder)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Func_tag) as usize - ptr as usize },
+        1688usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Func_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Assume_msg) as usize - ptr as usize },
+        1696usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Assume_msg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Unreachable_msg) as usize - ptr as usize },
+        1704usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Unreachable_msg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicExchange_ty) as usize - ptr as usize },
+        1712usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicExchange_ty)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicCompareExchange_ty) as usize - ptr as usize
+        },
+        1720usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicCompareExchange_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchAdd_ty) as usize - ptr as usize },
+        1728usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchAdd_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchSub_ty) as usize - ptr as usize },
+        1736usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchSub_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchAnd_ty) as usize - ptr as usize },
+        1744usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchAnd_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchOr_ty) as usize - ptr as usize },
+        1752usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchOr_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchXor_ty) as usize - ptr as usize },
+        1760usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchXor_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchMin_ty) as usize - ptr as usize },
+        1768usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchMin_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchMax_ty) as usize - ptr as usize },
+        1776usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchMax_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Callable_module) as usize - ptr as usize },
+        1784usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Callable_module)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).CpuExt_f) as usize - ptr as usize },
+        1792usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(CpuExt_f)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Buffer) as usize - ptr as usize },
+        1800usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Buffer)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Texture2d) as usize - ptr as usize },
+        1808usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Texture2d)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Texture3d) as usize - ptr as usize },
+        1816usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Texture3d)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Instruction_as_BindlessArray) as usize - ptr as usize
+        },
+        1824usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_BindlessArray)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Accel) as usize - ptr as usize },
+        1832usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Accel)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Shared) as usize - ptr as usize },
+        1840usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Shared)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Uniform) as usize - ptr as usize },
+        1848usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Uniform)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Argument) as usize - ptr as usize },
+        1856usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Argument)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Const) as usize - ptr as usize },
+        1864usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Const)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Call) as usize - ptr as usize },
+        1872usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Call)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Phi) as usize - ptr as usize },
+        1880usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Phi)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Instruction_as_BasicBlockSentinel) as usize - ptr as usize
+        },
+        1888usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_BasicBlockSentinel)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_If) as usize - ptr as usize },
+        1896usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_If)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_GenericLoop) as usize - ptr as usize },
+        1904usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_GenericLoop)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Switch) as usize - ptr as usize },
+        1912usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Switch)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Local) as usize - ptr as usize },
+        1920usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Local)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Break) as usize - ptr as usize },
+        1928usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Break)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Continue) as usize - ptr as usize },
+        1936usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Continue)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Return) as usize - ptr as usize },
+        1944usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Return)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Print) as usize - ptr as usize },
+        1952usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Print)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_tag) as usize - ptr as usize },
+        1960usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Argument_by_value) as usize - ptr as usize },
+        1968usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Argument_by_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Const_ty) as usize - ptr as usize },
+        1976usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Const_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Const_value) as usize - ptr as usize },
+        1984usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Const_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Call_func) as usize - ptr as usize },
+        1992usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Call_func)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Call_args) as usize - ptr as usize },
+        2000usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Call_args)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Phi_incomings) as usize - ptr as usize },
+        2008usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Phi_incomings)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).If_cond) as usize - ptr as usize },
+        2016usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(If_cond)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).If_true_branch) as usize - ptr as usize },
+        2024usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(If_true_branch)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).If_false_branch) as usize - ptr as usize },
+        2032usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(If_false_branch)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_prepare) as usize - ptr as usize },
+        2040usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_prepare)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_cond) as usize - ptr as usize },
+        2048usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_cond)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_body) as usize - ptr as usize },
+        2056usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_body)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_update) as usize - ptr as usize },
+        2064usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_update)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Switch_value) as usize - ptr as usize },
+        2072usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Switch_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Switch_cases) as usize - ptr as usize },
+        2080usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Switch_cases)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Switch_default_) as usize - ptr as usize },
+        2088usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Switch_default_)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Local_init) as usize - ptr as usize },
+        2096usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Local_init)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Return_value) as usize - ptr as usize },
+        2104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Return_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Print_fmt) as usize - ptr as usize },
+        2112usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Print_fmt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Print_args) as usize - ptr as usize },
+        2120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Print_args)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Binding_as_BufferBinding) as usize - ptr as usize },
+        2128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Binding_as_BufferBinding)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Binding_as_TextureBinding) as usize - ptr as usize },
+        2136usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Binding_as_TextureBinding)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).Binding_as_BindlessArrayBinding) as usize - ptr as usize
+        },
+        2144usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Binding_as_BindlessArrayBinding)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Binding_as_AccelBinding) as usize - ptr as usize },
+        2152usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Binding_as_AccelBinding)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Binding_tag) as usize - ptr as usize },
+        2160usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Binding_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_handle) as usize - ptr as usize },
+        2168usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BufferBinding_handle)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_offset) as usize - ptr as usize },
+        2176usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BufferBinding_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_size) as usize - ptr as usize },
+        2184usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BufferBinding_size)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).TextureBinding_handle) as usize - ptr as usize },
+        2192usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(TextureBinding_handle)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).TextureBinding_level) as usize - ptr as usize },
+        2200usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(TextureBinding_level)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessArrayBinding_handle) as usize - ptr as usize },
+        2208usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessArrayBinding_handle)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).AccelBinding_handle) as usize - ptr as usize },
+        2216usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(AccelBinding_handle)
+        )
     );
 }
 extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchAdd_ty(
-        self_: *mut BindlessAtomicFetchAdd,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchSub_ty(
-        self_: *mut BindlessAtomicFetchSub,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchAnd_ty(
-        self_: *mut BindlessAtomicFetchAnd,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchOr_ty(
-        self_: *mut BindlessAtomicFetchOr,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchXor_ty(
-        self_: *mut BindlessAtomicFetchXor,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchMin_ty(
-        self_: *mut BindlessAtomicFetchMin,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessAtomicFetchMax_ty(
-        self_: *mut BindlessAtomicFetchMax,
-        out: *mut *const Type,
-    );
-}
-extern "C" {
-    pub fn lc_ir_v2_Callable_module(self_: *mut Callable, out: *mut *mut CallableModule);
-}
-extern "C" {
-    pub fn lc_ir_v2_CpuExt_f(self_: *mut CpuExt, out: *mut CpuExternFn);
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Buffer(self_: *mut Instruction) -> *mut Buffer;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Texture2d(self_: *mut Instruction) -> *mut Texture2d;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Texture3d(self_: *mut Instruction) -> *mut Texture3d;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_BindlessArray(self_: *mut Instruction) -> *mut BindlessArray;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Accel(self_: *mut Instruction) -> *mut Accel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Shared(self_: *mut Instruction) -> *mut Shared;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Uniform(self_: *mut Instruction) -> *mut Uniform;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Argument(self_: *mut Instruction) -> *mut Argument;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Const(self_: *mut Instruction) -> *mut Const;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Call(self_: *mut Instruction) -> *mut Call;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Phi(self_: *mut Instruction) -> *mut Phi;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_BasicBlockSentinel(
-        self_: *mut Instruction,
-    ) -> *mut BasicBlockSentinel;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_If(self_: *mut Instruction) -> *mut If;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_GenericLoop(self_: *mut Instruction) -> *mut GenericLoop;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Switch(self_: *mut Instruction) -> *mut Switch;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Local(self_: *mut Instruction) -> *mut Local;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Break(self_: *mut Instruction) -> *mut Break;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Continue(self_: *mut Instruction) -> *mut Continue;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Return(self_: *mut Instruction) -> *mut Return;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_as_Print(self_: *mut Instruction) -> *mut Print;
-}
-extern "C" {
-    pub fn lc_ir_v2_Instruction_tag(self_: *mut Instruction) -> InstructionTag;
-}
-extern "C" {
-    pub fn lc_ir_v2_Argument_by_value(self_: *mut Argument, out: *mut bool);
-}
-extern "C" {
-    pub fn lc_ir_v2_Const_ty(self_: *mut Const, out: *mut *const Type);
-}
-extern "C" {
-    pub fn lc_ir_v2_Const_value(self_: *mut Const, out: *mut Slice<u8>);
-}
-extern "C" {
-    pub fn lc_ir_v2_Call_func(self_: *mut Call, out: *mut *const Func);
-}
-extern "C" {
-    pub fn lc_ir_v2_Call_args(self_: *mut Call, out: *mut Slice<*mut Node>);
-}
-extern "C" {
-    pub fn lc_ir_v2_Phi_incomings(self_: *mut Phi, out: *mut Slice<PhiIncoming>);
-}
-extern "C" {
-    pub fn lc_ir_v2_If_cond(self_: *mut If, out: *mut *mut Node);
-}
-extern "C" {
-    pub fn lc_ir_v2_If_true_branch(self_: *mut If, out: *mut *mut BasicBlock);
-}
-extern "C" {
-    pub fn lc_ir_v2_If_false_branch(self_: *mut If, out: *mut *mut BasicBlock);
-}
-extern "C" {
-    pub fn lc_ir_v2_GenericLoop_prepare(self_: *mut GenericLoop, out: *mut *mut BasicBlock);
-}
-extern "C" {
-    pub fn lc_ir_v2_GenericLoop_cond(self_: *mut GenericLoop, out: *mut *mut Node);
-}
-extern "C" {
-    pub fn lc_ir_v2_GenericLoop_body(self_: *mut GenericLoop, out: *mut *mut BasicBlock);
-}
-extern "C" {
-    pub fn lc_ir_v2_GenericLoop_update(self_: *mut GenericLoop, out: *mut *mut BasicBlock);
-}
-extern "C" {
-    pub fn lc_ir_v2_Switch_value(self_: *mut Switch, out: *mut *mut Node);
-}
-extern "C" {
-    pub fn lc_ir_v2_Switch_cases(self_: *mut Switch, out: *mut Slice<SwitchCase>);
-}
-extern "C" {
-    pub fn lc_ir_v2_Switch_default_(self_: *mut Switch, out: *mut *mut BasicBlock);
-}
-extern "C" {
-    pub fn lc_ir_v2_Local_init(self_: *mut Local, out: *mut *mut Node);
-}
-extern "C" {
-    pub fn lc_ir_v2_Return_value(self_: *mut Return, out: *mut *mut Node);
-}
-extern "C" {
-    pub fn lc_ir_v2_Print_fmt(self_: *mut Print, out: *mut Slice<::std::os::raw::c_char>);
-}
-extern "C" {
-    pub fn lc_ir_v2_Print_args(self_: *mut Print, out: *mut Slice<*mut Node>);
-}
-extern "C" {
-    pub fn lc_ir_v2_Binding_as_BufferBinding(self_: *mut Binding) -> *mut BufferBinding;
-}
-extern "C" {
-    pub fn lc_ir_v2_Binding_as_TextureBinding(self_: *mut Binding) -> *mut TextureBinding;
-}
-extern "C" {
-    pub fn lc_ir_v2_Binding_as_BindlessArrayBinding(
-        self_: *mut Binding,
-    ) -> *mut BindlessArrayBinding;
-}
-extern "C" {
-    pub fn lc_ir_v2_Binding_as_AccelBinding(self_: *mut Binding) -> *mut AccelBinding;
-}
-extern "C" {
-    pub fn lc_ir_v2_Binding_tag(self_: *mut Binding) -> BindingTag;
-}
-extern "C" {
-    pub fn lc_ir_v2_BufferBinding_handle(self_: *mut BufferBinding, out: *mut u64);
-}
-extern "C" {
-    pub fn lc_ir_v2_BufferBinding_offset(self_: *mut BufferBinding, out: *mut u64);
-}
-extern "C" {
-    pub fn lc_ir_v2_BufferBinding_size(self_: *mut BufferBinding, out: *mut u64);
-}
-extern "C" {
-    pub fn lc_ir_v2_TextureBinding_handle(self_: *mut TextureBinding, out: *mut u64);
-}
-extern "C" {
-    pub fn lc_ir_v2_TextureBinding_level(self_: *mut TextureBinding, out: *mut u64);
-}
-extern "C" {
-    pub fn lc_ir_v2_BindlessArrayBinding_handle(self_: *mut BindlessArrayBinding, out: *mut u64);
-}
-extern "C" {
-    pub fn lc_ir_v2_AccelBinding_handle(self_: *mut AccelBinding, out: *mut u64);
+    pub fn lc_ir_v2_binding_table() -> IrV2BindingTable;
 }

@@ -23,6 +23,7 @@ indexmap = "2.0.0"
 luisa_compute_api_types = { path = "../luisa_compute_api_types" }
 luisa_compute_cpu_kernel_defs = { path = "../luisa_compute_cpu_kernel_defs" }
 luisa_compute_ir = { path = "../luisa_compute_ir" }
+luisa_compute_ir_v2 = { path = "../luisa_compute_ir_v2" }
 bumpalo = "3.12.1"
 half = { version = "2.3.1", features = [
     "std",

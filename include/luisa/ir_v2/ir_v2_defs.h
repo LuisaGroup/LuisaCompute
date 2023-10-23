@@ -2813,6 +2813,36 @@ public:
         return false;
     }
 };
+struct LC_IR_API BindlessAtomicExchange : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_ATOMIC_EXCHANGE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    const Type *ty;
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API BindlessAtomicCompareExchange : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_ATOMIC_COMPARE_EXCHANGE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    const Type *ty;
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
 struct LC_IR_API BindlessAtomicFetchAdd : public Func {
 public:
     using Func::Tag;

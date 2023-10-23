@@ -5,6 +5,7 @@ cpp_def = open('ir_v2_defs.h', 'w')
 fwd_file = open('ir_v2_fwd.h', 'w')
 c_def = open('ir_v2_api.h', 'w')
 c_api_impl = open('../../../src/ir_v2/ir_v2_api.cpp', 'w')
+func_table = []
 
 MAP_FFI_TYPE = {
     'bool': 'bool',
@@ -120,15 +121,16 @@ class Item:
     def gen_c_api(self):
         # get xx_field() -> xx
         for f in self.fields:
-            print('extern "C" LC_IR_API void lc_ir_v2_{}_{}({} *self, {} *out);'.format(
-                self.name, f[1], self.name, MAP_FFI_TYPE[f[0]]), file=c_def)
-            print('extern "C" LC_IR_API void lc_ir_v2_{}_{}({} *self, {} *out) {{'.format(
-                self.name, f[1], self.name, MAP_FFI_TYPE[f[0]]), file=c_api_impl)
+            fname = f'{self.name}_{f[1]}'
+            fsig = f'{MAP_FFI_TYPE[f[0]]} (*{fname})({self.name} *self)'
+            func_table.append((fname, fsig))
+            print(
+                f'static {MAP_FFI_TYPE[f[0]]} {fname}({self.name} *self) {{', file=c_api_impl)
             if 'shared_ptr' in f[0]:
                 print(
-                    '    *out = self->{}.get();'.format(f[1]), file=c_api_impl)
+                    '    return self->{}.get();'.format(f[1]), file=c_api_impl)
             else:
-                print('    *out = self->{};'.format(f[1]), file=c_api_impl)
+                print('    return self->{};'.format(f[1]), file=c_api_impl)
             print('}', file=c_api_impl)
 
 
@@ -204,18 +206,26 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
             to_screaming_snake_case(variant.name)), file=fwd_file)
     print('    };', file=fwd_file)
     for variant in variants:
-        print('extern "C" LC_IR_API {1} * lc_ir_v2_{0}_as_{1}({0} *self);'.format(
-            adt, variant.name), file=c_def)
-        print('extern "C" LC_IR_API {1} * lc_ir_v2_{0}_as_{1}({0} *self) {{'.format(
-            adt, variant.name), file=c_api_impl)
+        # print('extern "C" LC_IR_API {1} * lc_ir_v2_{0}_as_{1}({0} *self);'.format(
+        #     adt, variant.name), file=c_def)
+        # print('extern "C" LC_IR_API {1} * lc_ir_v2_{0}_as_{1}({0} *self) {{'.format(
+        #     adt, variant.name), file=c_api_impl)
+        # print('    return self->as<{0}>();'.format(variant.name),
+        #       file=c_api_impl)
+        # print('}', file=c_api_impl)
+        fname = f'{adt}_as_{variant.name}'
+        fsig = f'{variant.name} *(*{fname})({adt} *self)'
+        func_table.append((fname, fsig))
+        print(f'static {variant.name} *{fname}({adt} *self) {{',
+              file=c_api_impl)
         print('    return self->as<{0}>();'.format(variant.name),
               file=c_api_impl)
         print('}', file=c_api_impl)
 
-    print('extern "C" LC_IR_API {0}Tag lc_ir_v2_{0}_tag({0} *self);'.format(
-        adt), file=c_def)
-    print('extern "C" LC_IR_API {0}Tag lc_ir_v2_{0}_tag({0} *self) {{'.format(
-        adt), file=c_api_impl)
+    fname = f'{adt}_tag'
+    fsig = f'{adt}Tag (*{fname})({adt} *self)'
+    func_table.append((fname, fsig))
+    print(f'static {adt}Tag {fname}({adt} *self) {{', file=c_api_impl)
     print('    return self->tag();', file=c_api_impl)
     print('}', file=c_api_impl)
     for variant in variants:
@@ -533,13 +543,18 @@ funcs = [
     Func('Mat3', []),
     Func('Mat4', []),
 
+    Func('BindlessAtomicExchange', [
+        ('const Type*', 'ty')], side_effects=True),
+    Func('BindlessAtomicCompareExchange', [
+        ('const Type*', 'ty')], side_effects=True),
     Func('BindlessAtomicFetchAdd', [
          ('const Type*', 'ty')], side_effects=True),
     Func('BindlessAtomicFetchSub', [
          ('const Type*', 'ty')], side_effects=True),
     Func('BindlessAtomicFetchAnd', [
          ('const Type*', 'ty')], side_effects=True),
-    Func('BindlessAtomicFetchOr', [('const Type*', 'ty')], side_effects=True),
+    Func('BindlessAtomicFetchOr', [
+        ('const Type*', 'ty')], side_effects=True),
     Func('BindlessAtomicFetchXor', [
          ('const Type*', 'ty')], side_effects=True),
     Func('BindlessAtomicFetchMin', [
@@ -598,6 +613,27 @@ bindings = [
     ]),
 ]
 gen_adt('Binding', '', bindings)
+
+
+# generate binding table
+print('struct IrV2BindingTable {', file=c_def)
+for f in func_table:
+    fname, fsig = f
+    print('    {};'.format(fsig), file=c_def)
+print('};', file=c_def)
+print('extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table();', file=c_def)
+
+# generate binding table impl
+print(
+    'extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {', file=c_api_impl)
+print('    return {', file=c_api_impl)
+for f in func_table:
+    fname, fsig = f
+    print('        {},'.format(fname), file=c_api_impl)
+print('    };', file=c_api_impl)
+print('}', file=c_api_impl)
+
+
 print('}', file=cpp_def)
 print('}', file=fwd_file)
 print('}', file=c_def)

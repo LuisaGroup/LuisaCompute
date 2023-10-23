@@ -231,6 +231,8 @@ struct MatFull;
 struct Mat2;
 struct Mat3;
 struct Mat4;
+struct BindlessAtomicExchange;
+struct BindlessAtomicCompareExchange;
 struct BindlessAtomicFetchAdd;
 struct BindlessAtomicFetchSub;
 struct BindlessAtomicFetchAnd;
@@ -441,6 +443,8 @@ enum class FuncTag : unsigned int {
     MAT2,
     MAT3,
     MAT4,
+    BINDLESS_ATOMIC_EXCHANGE,
+    BINDLESS_ATOMIC_COMPARE_EXCHANGE,
     BINDLESS_ATOMIC_FETCH_ADD,
     BINDLESS_ATOMIC_FETCH_SUB,
     BINDLESS_ATOMIC_FETCH_AND,
