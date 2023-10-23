@@ -166,14 +166,15 @@ public:
                 }
             }
         }
+        commit_s();
         LUISA_ASSERT(f.empty(), "Invalid format string.");
         if (!args.empty()) {
             LUISA_WARNING_WITH_LOCATION(
                 "Too many arguments for shader printer. Ignored.");
         }
-        commit_s();
         _size = luisa::align(offset, arg_pack->alignment());
-        LUISA_ASSERT(_size == arg_pack->size(), "Invalid argument pack for shader printer.");
+        LUISA_ASSERT(_size <= arg_pack->size(),
+                     "Invalid argument pack for shader printer.");
         // optimize the format
         luisa::vector<Primitive> primitives;
         luisa::vector<size_t> offsets;
@@ -293,7 +294,6 @@ void CUDAShaderPrinter::_do_print(const void *data) const noexcept {
     };
     auto *head = reinterpret_cast<const Head *>(data);
     if (head->size == 0u) { return; }
-    LUISA_INFO("[DEVICE] Printing {} byte(s)...", head->size);
     auto offset = static_cast<size_t>(0u);
     luisa::string scratch;
     scratch.reserve(128_k);
