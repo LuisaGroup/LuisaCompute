@@ -8,11 +8,13 @@ class CUDABufferBase {
 
 private:
     CUdeviceptr _handle;
-    size_t _size_bytes : 63;
+    size_t _size_bytes : 62;
     size_t _host_memory : 1;
+    size_t _external_memory : 1;
 
 public:
     explicit CUDABufferBase(size_t size_bytes) noexcept;
+    CUDABufferBase(CUdeviceptr external_ptr, size_t size_bytes) noexcept;
     virtual ~CUDABufferBase() noexcept;
     CUDABufferBase(CUDABufferBase &&) = delete;
     CUDABufferBase(const CUDABufferBase &) = delete;

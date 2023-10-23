@@ -4,7 +4,8 @@
 namespace luisa::compute::cuda {
 
 CUDABufferBase::CUDABufferBase(size_t size_bytes) noexcept
-    : _handle{}, _size_bytes{size_bytes}, _host_memory{false} {
+    : _handle{}, _size_bytes{size_bytes},
+      _host_memory{false}, _external_memory{false} {
     if (auto ret = cuMemAlloc(&_handle, size_bytes);
         ret == CUDA_ERROR_OUT_OF_MEMORY) {
         LUISA_WARNING(
@@ -24,6 +25,8 @@ CUDABufferBase::CUDABufferBase(size_t size_bytes) noexcept
 }
 
 CUDABufferBase::~CUDABufferBase() noexcept {
+    // we do not own external memory so do not free it
+    if (_external_memory) { return; }
     if (_host_memory) {
         LUISA_CHECK_CUDA(cuMemFreeHost(reinterpret_cast<void *>(_handle)));
     } else {
@@ -34,6 +37,10 @@ CUDABufferBase::~CUDABufferBase() noexcept {
         "Freed CUDA buffer: {} bytes @ {}",
         size, reinterpret_cast<void *>(_handle));
 }
+
+CUDABufferBase::CUDABufferBase(CUdeviceptr external_ptr, size_t size_bytes) noexcept
+    : _handle{external_ptr}, _size_bytes{size_bytes},
+      _host_memory{false}, _external_memory{true} {}
 
 CUDABuffer::Binding CUDABuffer::binding(size_t offset, size_t size) const noexcept {
     LUISA_ASSERT(offset + size <= size_bytes(), "CUDABuffer::binding() out of range.");
