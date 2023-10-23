@@ -1,6 +1,15 @@
 #include <luisa/ir_v2/ir_v2.h>
 
 namespace luisa::compute::ir_v2 {
+bool Node::is_lvalue() const noexcept {
+    if (this->is_local()) return true;
+    if (this->is_gep()) return true;
+    if (this->is_argument()) {
+        auto arg = this->inst->as<Argument>();
+        return !arg->by_value;
+    }
+    return false;
+}
 BasicBlock::BasicBlock(Pool &pool) noexcept {
     _first = pool.alloc<Node>();
     _last = pool.alloc<Node>();

@@ -30,6 +30,13 @@ struct Slice {
     constexpr Slice(luisa::string &str) noexcept : data(str.data()), len(str.size()) {
         static_assert(std::is_same_v<T, char> || std::is_same_v<T, const char>);
     }
+    luisa::vector<T> to_vector() const noexcept {
+        return luisa::vector<T>(data, data + len);
+    }
+    luisa::string to_string() const noexcept {
+        static_assert(std::is_same_v<T, char> || std::is_same_v<T, const char>);
+        return luisa::string(data, len);
+    }
 #endif
 };
 }// namespace luisa::compute::ir_v2
@@ -248,18 +255,31 @@ struct IrV2BindingTable {
     ShaderExecutionReorder *(*Func_as_ShaderExecutionReorder)(Func *self);
     FuncTag (*Func_tag)(Func *self);
     Slice<const char> (*Assume_msg)(Assume *self);
+    void (*Assume_set_msg)(Assume *self, Slice<const char> value);
     Slice<const char> (*Unreachable_msg)(Unreachable *self);
+    void (*Unreachable_set_msg)(Unreachable *self, Slice<const char> value);
     const Type *(*BindlessAtomicExchange_ty)(BindlessAtomicExchange *self);
+    void (*BindlessAtomicExchange_set_ty)(BindlessAtomicExchange *self, const Type *value);
     const Type *(*BindlessAtomicCompareExchange_ty)(BindlessAtomicCompareExchange *self);
+    void (*BindlessAtomicCompareExchange_set_ty)(BindlessAtomicCompareExchange *self, const Type *value);
     const Type *(*BindlessAtomicFetchAdd_ty)(BindlessAtomicFetchAdd *self);
+    void (*BindlessAtomicFetchAdd_set_ty)(BindlessAtomicFetchAdd *self, const Type *value);
     const Type *(*BindlessAtomicFetchSub_ty)(BindlessAtomicFetchSub *self);
+    void (*BindlessAtomicFetchSub_set_ty)(BindlessAtomicFetchSub *self, const Type *value);
     const Type *(*BindlessAtomicFetchAnd_ty)(BindlessAtomicFetchAnd *self);
+    void (*BindlessAtomicFetchAnd_set_ty)(BindlessAtomicFetchAnd *self, const Type *value);
     const Type *(*BindlessAtomicFetchOr_ty)(BindlessAtomicFetchOr *self);
+    void (*BindlessAtomicFetchOr_set_ty)(BindlessAtomicFetchOr *self, const Type *value);
     const Type *(*BindlessAtomicFetchXor_ty)(BindlessAtomicFetchXor *self);
+    void (*BindlessAtomicFetchXor_set_ty)(BindlessAtomicFetchXor *self, const Type *value);
     const Type *(*BindlessAtomicFetchMin_ty)(BindlessAtomicFetchMin *self);
+    void (*BindlessAtomicFetchMin_set_ty)(BindlessAtomicFetchMin *self, const Type *value);
     const Type *(*BindlessAtomicFetchMax_ty)(BindlessAtomicFetchMax *self);
+    void (*BindlessAtomicFetchMax_set_ty)(BindlessAtomicFetchMax *self, const Type *value);
     CallableModule *(*Callable_module)(Callable *self);
+    void (*Callable_set_module)(Callable *self, CallableModule *value);
     CpuExternFn (*CpuExt_f)(CpuExt *self);
+    void (*CpuExt_set_f)(CpuExt *self, CpuExternFn value);
     Buffer *(*Instruction_as_Buffer)(Instruction *self);
     Texture2d *(*Instruction_as_Texture2d)(Instruction *self);
     Texture3d *(*Instruction_as_Texture3d)(Instruction *self);
@@ -286,32 +306,59 @@ struct IrV2BindingTable {
     FwdAutodiff *(*Instruction_as_FwdAutodiff)(Instruction *self);
     InstructionTag (*Instruction_tag)(Instruction *self);
     bool (*Argument_by_value)(Argument *self);
+    void (*Argument_set_by_value)(Argument *self, bool value);
     const Type *(*Constant_ty)(Constant *self);
     Slice<uint8_t> (*Constant_value)(Constant *self);
+    void (*Constant_set_ty)(Constant *self, const Type *value);
+    void (*Constant_set_value)(Constant *self, Slice<uint8_t> value);
     const Func *(*Call_func)(Call *self);
     Slice<Node *> (*Call_args)(Call *self);
+    void (*Call_set_func)(Call *self, const Func *value);
+    void (*Call_set_args)(Call *self, Slice<Node *> value);
     Slice<PhiIncoming> (*Phi_incomings)(Phi *self);
+    void (*Phi_set_incomings)(Phi *self, Slice<PhiIncoming> value);
     Node *(*If_cond)(If *self);
     BasicBlock *(*If_true_branch)(If *self);
     BasicBlock *(*If_false_branch)(If *self);
+    void (*If_set_cond)(If *self, Node *value);
+    void (*If_set_true_branch)(If *self, BasicBlock *value);
+    void (*If_set_false_branch)(If *self, BasicBlock *value);
     BasicBlock *(*GenericLoop_prepare)(GenericLoop *self);
     Node *(*GenericLoop_cond)(GenericLoop *self);
     BasicBlock *(*GenericLoop_body)(GenericLoop *self);
     BasicBlock *(*GenericLoop_update)(GenericLoop *self);
+    void (*GenericLoop_set_prepare)(GenericLoop *self, BasicBlock *value);
+    void (*GenericLoop_set_cond)(GenericLoop *self, Node *value);
+    void (*GenericLoop_set_body)(GenericLoop *self, BasicBlock *value);
+    void (*GenericLoop_set_update)(GenericLoop *self, BasicBlock *value);
     Node *(*Switch_value)(Switch *self);
     Slice<SwitchCase> (*Switch_cases)(Switch *self);
     BasicBlock *(*Switch_default_)(Switch *self);
+    void (*Switch_set_value)(Switch *self, Node *value);
+    void (*Switch_set_cases)(Switch *self, Slice<SwitchCase> value);
+    void (*Switch_set_default_)(Switch *self, BasicBlock *value);
     Node *(*Local_init)(Local *self);
+    void (*Local_set_init)(Local *self, Node *value);
     Node *(*Return_value)(Return *self);
+    void (*Return_set_value)(Return *self, Node *value);
     Slice<const char> (*Print_fmt)(Print *self);
     Slice<Node *> (*Print_args)(Print *self);
+    void (*Print_set_fmt)(Print *self, Slice<const char> value);
+    void (*Print_set_args)(Print *self, Slice<Node *> value);
     Node *(*Update_var)(Update *self);
     Node *(*Update_value)(Update *self);
+    void (*Update_set_var)(Update *self, Node *value);
+    void (*Update_set_value)(Update *self, Node *value);
     Node *(*RayQuery_query)(RayQuery *self);
     BasicBlock *(*RayQuery_on_triangle_hit)(RayQuery *self);
     BasicBlock *(*RayQuery_on_procedural_hit)(RayQuery *self);
+    void (*RayQuery_set_query)(RayQuery *self, Node *value);
+    void (*RayQuery_set_on_triangle_hit)(RayQuery *self, BasicBlock *value);
+    void (*RayQuery_set_on_procedural_hit)(RayQuery *self, BasicBlock *value);
     BasicBlock *(*RevAutodiff_body)(RevAutodiff *self);
+    void (*RevAutodiff_set_body)(RevAutodiff *self, BasicBlock *value);
     BasicBlock *(*FwdAutodiff_body)(FwdAutodiff *self);
+    void (*FwdAutodiff_set_body)(FwdAutodiff *self, BasicBlock *value);
     BufferBinding *(*Binding_as_BufferBinding)(Binding *self);
     TextureBinding *(*Binding_as_TextureBinding)(Binding *self);
     BindlessArrayBinding *(*Binding_as_BindlessArrayBinding)(Binding *self);
@@ -320,10 +367,17 @@ struct IrV2BindingTable {
     uint64_t (*BufferBinding_handle)(BufferBinding *self);
     uint64_t (*BufferBinding_offset)(BufferBinding *self);
     uint64_t (*BufferBinding_size)(BufferBinding *self);
+    void (*BufferBinding_set_handle)(BufferBinding *self, uint64_t value);
+    void (*BufferBinding_set_offset)(BufferBinding *self, uint64_t value);
+    void (*BufferBinding_set_size)(BufferBinding *self, uint64_t value);
     uint64_t (*TextureBinding_handle)(TextureBinding *self);
     uint64_t (*TextureBinding_level)(TextureBinding *self);
+    void (*TextureBinding_set_handle)(TextureBinding *self, uint64_t value);
+    void (*TextureBinding_set_level)(TextureBinding *self, uint64_t value);
     uint64_t (*BindlessArrayBinding_handle)(BindlessArrayBinding *self);
+    void (*BindlessArrayBinding_set_handle)(BindlessArrayBinding *self, uint64_t value);
     uint64_t (*AccelBinding_handle)(AccelBinding *self);
+    void (*AccelBinding_set_handle)(AccelBinding *self, uint64_t value);
 };
 extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table();
 }// namespace luisa::compute::ir_v2

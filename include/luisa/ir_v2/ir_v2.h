@@ -72,6 +72,10 @@ struct LC_IR_API Node {
         _check();
         return inst->isa<Local>();
     }
+    bool is_argument() const noexcept {
+        _check();
+        return inst->isa<Argument>();
+    }
     bool is_gep() const noexcept {
         _check();
         if (auto call = inst->as<Call>()) {
@@ -79,6 +83,7 @@ struct LC_IR_API Node {
         }
         return false;
     }
+    bool is_lvalue() const noexcept;
 private:
     void _check() const noexcept {
         LUISA_ASSERT(scope != nullptr, "bad node");
@@ -238,10 +243,36 @@ public:
         auto cont = _pool->alloc<Continue>();
         return append(_pool->alloc<Node>(cont, Type::of<void>()));
     }
+    Node *rev_autodiff(BasicBlock *body) noexcept {
+        auto rev = _pool->alloc<RevAutodiff>(body);
+        return append(_pool->alloc<Node>(rev, Type::of<void>()));
+    }
+    Node *forward_autodiff(BasicBlock *body) noexcept {
+        auto fwd = _pool->alloc<FwdAutodiff>(body);
+        return append(_pool->alloc<Node>(fwd, Type::of<void>()));
+    }
+    Node *update(Node *var, Node *value) noexcept {
+        LUISA_ASSERT(var->is_lvalue(), "bad update");
+        auto update = _pool->alloc<Update>(var, value);
+        return append(_pool->alloc<Node>(update, Type::of<void>()));
+    }
+    Node *local(Node *init) noexcept {
+        auto local = _pool->alloc<Local>(init);
+        return append(_pool->alloc<Node>(local, Type::of<void>()));
+    }
+    Node *zero(const Type *ty) noexcept {
+        return this->call<Zero>({}, ty);
+    }
+    Node *one(const Type *ty) noexcept {
+        return this->call<One>({}, ty);
+    }
+    Node *local_zeroed(const Type *ty) noexcept {
+        return this->local(this->zero(ty));
+    }
 };
 class UseDefAnalysis;
 
-struct Module {
+struct Module : luisa::enable_shared_from_this<Module> {
 public:
     enum class Kind {
         CALLABLE,
@@ -279,5 +310,6 @@ class Transform {
 };
 
 void validate(Module &module) noexcept;
+void normalize(Module &module) noexcept;
 
 }// namespace luisa::compute::ir_v2

@@ -636,41 +636,80 @@ static FuncTag Func_tag(Func *self) {
 static Slice<const char> Assume_msg(Assume *self) {
     return self->msg;
 }
+static void Assume_set_msg(Assume *self, Slice<const char> value) {
+    self->msg = value.to_string();
+}
 static Slice<const char> Unreachable_msg(Unreachable *self) {
     return self->msg;
+}
+static void Unreachable_set_msg(Unreachable *self, Slice<const char> value) {
+    self->msg = value.to_string();
 }
 static const Type *BindlessAtomicExchange_ty(BindlessAtomicExchange *self) {
     return self->ty;
 }
+static void BindlessAtomicExchange_set_ty(BindlessAtomicExchange *self, const Type *value) {
+    self->ty = value;
+}
 static const Type *BindlessAtomicCompareExchange_ty(BindlessAtomicCompareExchange *self) {
     return self->ty;
+}
+static void BindlessAtomicCompareExchange_set_ty(BindlessAtomicCompareExchange *self, const Type *value) {
+    self->ty = value;
 }
 static const Type *BindlessAtomicFetchAdd_ty(BindlessAtomicFetchAdd *self) {
     return self->ty;
 }
+static void BindlessAtomicFetchAdd_set_ty(BindlessAtomicFetchAdd *self, const Type *value) {
+    self->ty = value;
+}
 static const Type *BindlessAtomicFetchSub_ty(BindlessAtomicFetchSub *self) {
     return self->ty;
+}
+static void BindlessAtomicFetchSub_set_ty(BindlessAtomicFetchSub *self, const Type *value) {
+    self->ty = value;
 }
 static const Type *BindlessAtomicFetchAnd_ty(BindlessAtomicFetchAnd *self) {
     return self->ty;
 }
+static void BindlessAtomicFetchAnd_set_ty(BindlessAtomicFetchAnd *self, const Type *value) {
+    self->ty = value;
+}
 static const Type *BindlessAtomicFetchOr_ty(BindlessAtomicFetchOr *self) {
     return self->ty;
+}
+static void BindlessAtomicFetchOr_set_ty(BindlessAtomicFetchOr *self, const Type *value) {
+    self->ty = value;
 }
 static const Type *BindlessAtomicFetchXor_ty(BindlessAtomicFetchXor *self) {
     return self->ty;
 }
+static void BindlessAtomicFetchXor_set_ty(BindlessAtomicFetchXor *self, const Type *value) {
+    self->ty = value;
+}
 static const Type *BindlessAtomicFetchMin_ty(BindlessAtomicFetchMin *self) {
     return self->ty;
+}
+static void BindlessAtomicFetchMin_set_ty(BindlessAtomicFetchMin *self, const Type *value) {
+    self->ty = value;
 }
 static const Type *BindlessAtomicFetchMax_ty(BindlessAtomicFetchMax *self) {
     return self->ty;
 }
+static void BindlessAtomicFetchMax_set_ty(BindlessAtomicFetchMax *self, const Type *value) {
+    self->ty = value;
+}
 static CallableModule *Callable_module(Callable *self) {
     return self->module.get();
 }
+static void Callable_set_module(Callable *self, CallableModule *value) {
+    self->module = luisa::static_pointer_cast<std::decay_t<decltype(self->module)>::element_type>(value->shared_from_this());
+}
 static CpuExternFn CpuExt_f(CpuExt *self) {
     return self->f;
+}
+static void CpuExt_set_f(CpuExt *self, CpuExternFn value) {
+    self->f = value;
 }
 static Buffer *Instruction_as_Buffer(Instruction *self) {
     return self->as<Buffer>();
@@ -750,11 +789,20 @@ static InstructionTag Instruction_tag(Instruction *self) {
 static bool Argument_by_value(Argument *self) {
     return self->by_value;
 }
+static void Argument_set_by_value(Argument *self, bool value) {
+    self->by_value = value;
+}
 static const Type *Constant_ty(Constant *self) {
     return self->ty;
 }
 static Slice<uint8_t> Constant_value(Constant *self) {
     return self->value;
+}
+static void Constant_set_ty(Constant *self, const Type *value) {
+    self->ty = value;
+}
+static void Constant_set_value(Constant *self, Slice<uint8_t> value) {
+    self->value = value.to_vector();
 }
 static const Func *Call_func(Call *self) {
     return self->func;
@@ -762,8 +810,17 @@ static const Func *Call_func(Call *self) {
 static Slice<Node *> Call_args(Call *self) {
     return self->args;
 }
+static void Call_set_func(Call *self, const Func *value) {
+    self->func = value;
+}
+static void Call_set_args(Call *self, Slice<Node *> value) {
+    self->args = value.to_vector();
+}
 static Slice<PhiIncoming> Phi_incomings(Phi *self) {
     return self->incomings;
+}
+static void Phi_set_incomings(Phi *self, Slice<PhiIncoming> value) {
+    self->incomings = value.to_vector();
 }
 static Node *If_cond(If *self) {
     return self->cond;
@@ -773,6 +830,15 @@ static BasicBlock *If_true_branch(If *self) {
 }
 static BasicBlock *If_false_branch(If *self) {
     return self->false_branch;
+}
+static void If_set_cond(If *self, Node *value) {
+    self->cond = value;
+}
+static void If_set_true_branch(If *self, BasicBlock *value) {
+    self->true_branch = value;
+}
+static void If_set_false_branch(If *self, BasicBlock *value) {
+    self->false_branch = value;
 }
 static BasicBlock *GenericLoop_prepare(GenericLoop *self) {
     return self->prepare;
@@ -786,6 +852,18 @@ static BasicBlock *GenericLoop_body(GenericLoop *self) {
 static BasicBlock *GenericLoop_update(GenericLoop *self) {
     return self->update;
 }
+static void GenericLoop_set_prepare(GenericLoop *self, BasicBlock *value) {
+    self->prepare = value;
+}
+static void GenericLoop_set_cond(GenericLoop *self, Node *value) {
+    self->cond = value;
+}
+static void GenericLoop_set_body(GenericLoop *self, BasicBlock *value) {
+    self->body = value;
+}
+static void GenericLoop_set_update(GenericLoop *self, BasicBlock *value) {
+    self->update = value;
+}
 static Node *Switch_value(Switch *self) {
     return self->value;
 }
@@ -795,11 +873,26 @@ static Slice<SwitchCase> Switch_cases(Switch *self) {
 static BasicBlock *Switch_default_(Switch *self) {
     return self->default_;
 }
+static void Switch_set_value(Switch *self, Node *value) {
+    self->value = value;
+}
+static void Switch_set_cases(Switch *self, Slice<SwitchCase> value) {
+    self->cases = value.to_vector();
+}
+static void Switch_set_default_(Switch *self, BasicBlock *value) {
+    self->default_ = value;
+}
 static Node *Local_init(Local *self) {
     return self->init;
 }
+static void Local_set_init(Local *self, Node *value) {
+    self->init = value;
+}
 static Node *Return_value(Return *self) {
     return self->value;
+}
+static void Return_set_value(Return *self, Node *value) {
+    self->value = value;
 }
 static Slice<const char> Print_fmt(Print *self) {
     return self->fmt;
@@ -807,11 +900,23 @@ static Slice<const char> Print_fmt(Print *self) {
 static Slice<Node *> Print_args(Print *self) {
     return self->args;
 }
+static void Print_set_fmt(Print *self, Slice<const char> value) {
+    self->fmt = value.to_string();
+}
+static void Print_set_args(Print *self, Slice<Node *> value) {
+    self->args = value.to_vector();
+}
 static Node *Update_var(Update *self) {
     return self->var;
 }
 static Node *Update_value(Update *self) {
     return self->value;
+}
+static void Update_set_var(Update *self, Node *value) {
+    self->var = value;
+}
+static void Update_set_value(Update *self, Node *value) {
+    self->value = value;
 }
 static Node *RayQuery_query(RayQuery *self) {
     return self->query;
@@ -822,11 +927,26 @@ static BasicBlock *RayQuery_on_triangle_hit(RayQuery *self) {
 static BasicBlock *RayQuery_on_procedural_hit(RayQuery *self) {
     return self->on_procedural_hit;
 }
+static void RayQuery_set_query(RayQuery *self, Node *value) {
+    self->query = value;
+}
+static void RayQuery_set_on_triangle_hit(RayQuery *self, BasicBlock *value) {
+    self->on_triangle_hit = value;
+}
+static void RayQuery_set_on_procedural_hit(RayQuery *self, BasicBlock *value) {
+    self->on_procedural_hit = value;
+}
 static BasicBlock *RevAutodiff_body(RevAutodiff *self) {
     return self->body;
 }
+static void RevAutodiff_set_body(RevAutodiff *self, BasicBlock *value) {
+    self->body = value;
+}
 static BasicBlock *FwdAutodiff_body(FwdAutodiff *self) {
     return self->body;
+}
+static void FwdAutodiff_set_body(FwdAutodiff *self, BasicBlock *value) {
+    self->body = value;
 }
 static BufferBinding *Binding_as_BufferBinding(Binding *self) {
     return self->as<BufferBinding>();
@@ -852,17 +972,38 @@ static uint64_t BufferBinding_offset(BufferBinding *self) {
 static uint64_t BufferBinding_size(BufferBinding *self) {
     return self->size;
 }
+static void BufferBinding_set_handle(BufferBinding *self, uint64_t value) {
+    self->handle = value;
+}
+static void BufferBinding_set_offset(BufferBinding *self, uint64_t value) {
+    self->offset = value;
+}
+static void BufferBinding_set_size(BufferBinding *self, uint64_t value) {
+    self->size = value;
+}
 static uint64_t TextureBinding_handle(TextureBinding *self) {
     return self->handle;
 }
 static uint64_t TextureBinding_level(TextureBinding *self) {
     return self->level;
 }
+static void TextureBinding_set_handle(TextureBinding *self, uint64_t value) {
+    self->handle = value;
+}
+static void TextureBinding_set_level(TextureBinding *self, uint64_t value) {
+    self->level = value;
+}
 static uint64_t BindlessArrayBinding_handle(BindlessArrayBinding *self) {
     return self->handle;
 }
+static void BindlessArrayBinding_set_handle(BindlessArrayBinding *self, uint64_t value) {
+    self->handle = value;
+}
 static uint64_t AccelBinding_handle(AccelBinding *self) {
     return self->handle;
+}
+static void AccelBinding_set_handle(AccelBinding *self, uint64_t value) {
+    self->handle = value;
 }
 extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
     return {
@@ -1078,18 +1219,31 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Func_as_ShaderExecutionReorder,
         Func_tag,
         Assume_msg,
+        Assume_set_msg,
         Unreachable_msg,
+        Unreachable_set_msg,
         BindlessAtomicExchange_ty,
+        BindlessAtomicExchange_set_ty,
         BindlessAtomicCompareExchange_ty,
+        BindlessAtomicCompareExchange_set_ty,
         BindlessAtomicFetchAdd_ty,
+        BindlessAtomicFetchAdd_set_ty,
         BindlessAtomicFetchSub_ty,
+        BindlessAtomicFetchSub_set_ty,
         BindlessAtomicFetchAnd_ty,
+        BindlessAtomicFetchAnd_set_ty,
         BindlessAtomicFetchOr_ty,
+        BindlessAtomicFetchOr_set_ty,
         BindlessAtomicFetchXor_ty,
+        BindlessAtomicFetchXor_set_ty,
         BindlessAtomicFetchMin_ty,
+        BindlessAtomicFetchMin_set_ty,
         BindlessAtomicFetchMax_ty,
+        BindlessAtomicFetchMax_set_ty,
         Callable_module,
+        Callable_set_module,
         CpuExt_f,
+        CpuExt_set_f,
         Instruction_as_Buffer,
         Instruction_as_Texture2d,
         Instruction_as_Texture3d,
@@ -1116,32 +1270,59 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Instruction_as_FwdAutodiff,
         Instruction_tag,
         Argument_by_value,
+        Argument_set_by_value,
         Constant_ty,
         Constant_value,
+        Constant_set_ty,
+        Constant_set_value,
         Call_func,
         Call_args,
+        Call_set_func,
+        Call_set_args,
         Phi_incomings,
+        Phi_set_incomings,
         If_cond,
         If_true_branch,
         If_false_branch,
+        If_set_cond,
+        If_set_true_branch,
+        If_set_false_branch,
         GenericLoop_prepare,
         GenericLoop_cond,
         GenericLoop_body,
         GenericLoop_update,
+        GenericLoop_set_prepare,
+        GenericLoop_set_cond,
+        GenericLoop_set_body,
+        GenericLoop_set_update,
         Switch_value,
         Switch_cases,
         Switch_default_,
+        Switch_set_value,
+        Switch_set_cases,
+        Switch_set_default_,
         Local_init,
+        Local_set_init,
         Return_value,
+        Return_set_value,
         Print_fmt,
         Print_args,
+        Print_set_fmt,
+        Print_set_args,
         Update_var,
         Update_value,
+        Update_set_var,
+        Update_set_value,
         RayQuery_query,
         RayQuery_on_triangle_hit,
         RayQuery_on_procedural_hit,
+        RayQuery_set_query,
+        RayQuery_set_on_triangle_hit,
+        RayQuery_set_on_procedural_hit,
         RevAutodiff_body,
+        RevAutodiff_set_body,
         FwdAutodiff_body,
+        FwdAutodiff_set_body,
         Binding_as_BufferBinding,
         Binding_as_TextureBinding,
         Binding_as_BindlessArrayBinding,
@@ -1150,10 +1331,17 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         BufferBinding_handle,
         BufferBinding_offset,
         BufferBinding_size,
+        BufferBinding_set_handle,
+        BufferBinding_set_offset,
+        BufferBinding_set_size,
         TextureBinding_handle,
         TextureBinding_level,
+        TextureBinding_set_handle,
+        TextureBinding_set_level,
         BindlessArrayBinding_handle,
+        BindlessArrayBinding_set_handle,
         AccelBinding_handle,
+        AccelBinding_set_handle,
     };
 }
 }// namespace luisa::compute::ir_v2

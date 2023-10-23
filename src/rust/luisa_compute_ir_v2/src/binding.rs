@@ -187,8 +187,8 @@ pub struct KernelModule {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct PhiIncoming {
-    pub block: *const BasicBlock,
-    pub value: *const Node,
+    pub block: *mut BasicBlock,
+    pub value: *mut Node,
 }
 #[test]
 fn bindgen_test_layout_PhiIncoming() {
@@ -229,7 +229,7 @@ fn bindgen_test_layout_PhiIncoming() {
 #[derive(Debug, Copy, Clone)]
 pub struct SwitchCase {
     pub value: i32,
-    pub block: *const BasicBlock,
+    pub block: *mut BasicBlock,
 }
 #[test]
 fn bindgen_test_layout_SwitchCase() {
@@ -514,11 +514,6 @@ pub struct RayQueryTerminate {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Load {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct Store {
     _unused: [u8; 0],
 }
 #[repr(C)]
@@ -1430,181 +1425,180 @@ pub enum FuncTag {
     RAY_QUERY_COMMITD_PROCEDURAL = 33,
     RAY_QUERY_TERMINATE = 34,
     LOAD = 35,
-    STORE = 36,
-    CAST = 37,
-    BIT_CAST = 38,
-    ADD = 39,
-    SUB = 40,
-    MUL = 41,
-    DIV = 42,
-    REM = 43,
-    BIT_AND = 44,
-    BIT_OR = 45,
-    BIT_XOR = 46,
-    SHL = 47,
-    SHR = 48,
-    ROT_RIGHT = 49,
-    ROT_LEFT = 50,
-    EQ = 51,
-    NE = 52,
-    LT = 53,
-    LE = 54,
-    GT = 55,
-    GE = 56,
-    MAT_COMP_MUL = 57,
-    NEG = 58,
-    NOT = 59,
-    BIT_NOT = 60,
-    ALL = 61,
-    ANY = 62,
-    SELECT = 63,
-    CLAMP = 64,
-    LERP = 65,
-    STEP = 66,
-    SATURATE = 67,
-    SMOOTH_STEP = 68,
-    ABS = 69,
-    MIN = 70,
-    MAX = 71,
-    REDUCE_SUM = 72,
-    REDUCE_PROD = 73,
-    REDUCE_MIN = 74,
-    REDUCE_MAX = 75,
-    CLZ = 76,
-    CTZ = 77,
-    POP_COUNT = 78,
-    REVERSE = 79,
-    IS_INF = 80,
-    IS_NAN = 81,
-    ACOS = 82,
-    ACOSH = 83,
-    ASIN = 84,
-    ASINH = 85,
-    ATAN = 86,
-    ATAN2 = 87,
-    ATANH = 88,
-    COS = 89,
-    COSH = 90,
-    SIN = 91,
-    SINH = 92,
-    TAN = 93,
-    TANH = 94,
-    EXP = 95,
-    EXP2 = 96,
-    EXP10 = 97,
-    LOG = 98,
-    LOG2 = 99,
-    LOG10 = 100,
-    POWI = 101,
-    POWF = 102,
-    SQRT = 103,
-    RSQRT = 104,
-    CEIL = 105,
-    FLOOR = 106,
-    FRACT = 107,
-    TRUNC = 108,
-    ROUND = 109,
-    FMA = 110,
-    COPYSIGN = 111,
-    CROSS = 112,
-    DOT = 113,
-    OUTER_PRODUCT = 114,
-    LENGTH = 115,
-    LENGTH_SQUARED = 116,
-    NORMALIZE = 117,
-    FACEFORWARD = 118,
-    DISTANCE = 119,
-    REFLECT = 120,
-    DETERMINANT = 121,
-    TRANSPOSE = 122,
-    INVERSE = 123,
-    WARP_IS_FIRST_ACTIVE_LANE = 124,
-    WARP_FIRST_ACTIVE_LANE = 125,
-    WARP_ACTIVE_ALL_EQUAL = 126,
-    WARP_ACTIVE_BIT_AND = 127,
-    WARP_ACTIVE_BIT_OR = 128,
-    WARP_ACTIVE_BIT_XOR = 129,
-    WARP_ACTIVE_COUNT_BITS = 130,
-    WARP_ACTIVE_MAX = 131,
-    WARP_ACTIVE_MIN = 132,
-    WARP_ACTIVE_PRODUCT = 133,
-    WARP_ACTIVE_SUM = 134,
-    WARP_ACTIVE_ALL = 135,
-    WARP_ACTIVE_ANY = 136,
-    WARP_ACTIVE_BIT_MASK = 137,
-    WARP_PREFIX_COUNT_BITS = 138,
-    WARP_PREFIX_SUM = 139,
-    WARP_PREFIX_PRODUCT = 140,
-    WARP_READ_LANE_AT = 141,
-    WARP_READ_FIRST_LANE = 142,
-    SYNCHRONIZE_BLOCK = 143,
-    ATOMIC_EXCHANGE = 144,
-    ATOMIC_COMPARE_EXCHANGE = 145,
-    ATOMIC_FETCH_ADD = 146,
-    ATOMIC_FETCH_SUB = 147,
-    ATOMIC_FETCH_AND = 148,
-    ATOMIC_FETCH_OR = 149,
-    ATOMIC_FETCH_XOR = 150,
-    ATOMIC_FETCH_MIN = 151,
-    ATOMIC_FETCH_MAX = 152,
-    BUFFER_WRITE = 153,
-    BUFFER_READ = 154,
-    BUFFER_SIZE = 155,
-    BYTE_BUFFER_WRITE = 156,
-    BYTE_BUFFER_READ = 157,
-    BYTE_BUFFER_SIZE = 158,
-    TEXTURE2D_READ = 159,
-    TEXTURE2D_WRITE = 160,
-    TEXTURE2D_SIZE = 161,
-    TEXTURE3D_READ = 162,
-    TEXTURE3D_WRITE = 163,
-    TEXTURE3D_SIZE = 164,
-    BINDLESS_TEXTURE2D_SAMPLE = 165,
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL = 166,
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD = 167,
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL = 168,
-    BINDLESS_TEXTURE2D_READ = 169,
-    BINDLESS_TEXTURE2D_SIZE = 170,
-    BINDLESS_TEXTURE2D_SIZE_LEVEL = 171,
-    BINDLESS_TEXTURE3D_SAMPLE = 172,
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL = 173,
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD = 174,
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL = 175,
-    BINDLESS_TEXTURE3D_READ = 176,
-    BINDLESS_TEXTURE3D_SIZE = 177,
-    BINDLESS_TEXTURE3D_SIZE_LEVEL = 178,
-    BINDLESS_BUFFER_WRITE = 179,
-    BINDLESS_BUFFER_READ = 180,
-    BINDLESS_BUFFER_SIZE = 181,
-    BINDLESS_BYTE_BUFFER_WRITE = 182,
-    BINDLESS_BYTE_BUFFER_READ = 183,
-    BINDLESS_BYTE_BUFFER_SIZE = 184,
-    VEC = 185,
-    VEC2 = 186,
-    VEC3 = 187,
-    VEC4 = 188,
-    PERMUTE = 189,
-    GET_ELEMENT_PTR = 190,
-    EXTRACT_ELEMENT = 191,
-    INSERT_ELEMENT = 192,
-    ARRAY = 193,
-    STRUCT = 194,
-    MAT_FULL = 195,
-    MAT2 = 196,
-    MAT3 = 197,
-    MAT4 = 198,
-    BINDLESS_ATOMIC_EXCHANGE = 199,
-    BINDLESS_ATOMIC_COMPARE_EXCHANGE = 200,
-    BINDLESS_ATOMIC_FETCH_ADD = 201,
-    BINDLESS_ATOMIC_FETCH_SUB = 202,
-    BINDLESS_ATOMIC_FETCH_AND = 203,
-    BINDLESS_ATOMIC_FETCH_OR = 204,
-    BINDLESS_ATOMIC_FETCH_XOR = 205,
-    BINDLESS_ATOMIC_FETCH_MIN = 206,
-    BINDLESS_ATOMIC_FETCH_MAX = 207,
-    CALLABLE = 208,
-    CPU_EXT = 209,
-    SHADER_EXECUTION_REORDER = 210,
+    CAST = 36,
+    BIT_CAST = 37,
+    ADD = 38,
+    SUB = 39,
+    MUL = 40,
+    DIV = 41,
+    REM = 42,
+    BIT_AND = 43,
+    BIT_OR = 44,
+    BIT_XOR = 45,
+    SHL = 46,
+    SHR = 47,
+    ROT_RIGHT = 48,
+    ROT_LEFT = 49,
+    EQ = 50,
+    NE = 51,
+    LT = 52,
+    LE = 53,
+    GT = 54,
+    GE = 55,
+    MAT_COMP_MUL = 56,
+    NEG = 57,
+    NOT = 58,
+    BIT_NOT = 59,
+    ALL = 60,
+    ANY = 61,
+    SELECT = 62,
+    CLAMP = 63,
+    LERP = 64,
+    STEP = 65,
+    SATURATE = 66,
+    SMOOTH_STEP = 67,
+    ABS = 68,
+    MIN = 69,
+    MAX = 70,
+    REDUCE_SUM = 71,
+    REDUCE_PROD = 72,
+    REDUCE_MIN = 73,
+    REDUCE_MAX = 74,
+    CLZ = 75,
+    CTZ = 76,
+    POP_COUNT = 77,
+    REVERSE = 78,
+    IS_INF = 79,
+    IS_NAN = 80,
+    ACOS = 81,
+    ACOSH = 82,
+    ASIN = 83,
+    ASINH = 84,
+    ATAN = 85,
+    ATAN2 = 86,
+    ATANH = 87,
+    COS = 88,
+    COSH = 89,
+    SIN = 90,
+    SINH = 91,
+    TAN = 92,
+    TANH = 93,
+    EXP = 94,
+    EXP2 = 95,
+    EXP10 = 96,
+    LOG = 97,
+    LOG2 = 98,
+    LOG10 = 99,
+    POWI = 100,
+    POWF = 101,
+    SQRT = 102,
+    RSQRT = 103,
+    CEIL = 104,
+    FLOOR = 105,
+    FRACT = 106,
+    TRUNC = 107,
+    ROUND = 108,
+    FMA = 109,
+    COPYSIGN = 110,
+    CROSS = 111,
+    DOT = 112,
+    OUTER_PRODUCT = 113,
+    LENGTH = 114,
+    LENGTH_SQUARED = 115,
+    NORMALIZE = 116,
+    FACEFORWARD = 117,
+    DISTANCE = 118,
+    REFLECT = 119,
+    DETERMINANT = 120,
+    TRANSPOSE = 121,
+    INVERSE = 122,
+    WARP_IS_FIRST_ACTIVE_LANE = 123,
+    WARP_FIRST_ACTIVE_LANE = 124,
+    WARP_ACTIVE_ALL_EQUAL = 125,
+    WARP_ACTIVE_BIT_AND = 126,
+    WARP_ACTIVE_BIT_OR = 127,
+    WARP_ACTIVE_BIT_XOR = 128,
+    WARP_ACTIVE_COUNT_BITS = 129,
+    WARP_ACTIVE_MAX = 130,
+    WARP_ACTIVE_MIN = 131,
+    WARP_ACTIVE_PRODUCT = 132,
+    WARP_ACTIVE_SUM = 133,
+    WARP_ACTIVE_ALL = 134,
+    WARP_ACTIVE_ANY = 135,
+    WARP_ACTIVE_BIT_MASK = 136,
+    WARP_PREFIX_COUNT_BITS = 137,
+    WARP_PREFIX_SUM = 138,
+    WARP_PREFIX_PRODUCT = 139,
+    WARP_READ_LANE_AT = 140,
+    WARP_READ_FIRST_LANE = 141,
+    SYNCHRONIZE_BLOCK = 142,
+    ATOMIC_EXCHANGE = 143,
+    ATOMIC_COMPARE_EXCHANGE = 144,
+    ATOMIC_FETCH_ADD = 145,
+    ATOMIC_FETCH_SUB = 146,
+    ATOMIC_FETCH_AND = 147,
+    ATOMIC_FETCH_OR = 148,
+    ATOMIC_FETCH_XOR = 149,
+    ATOMIC_FETCH_MIN = 150,
+    ATOMIC_FETCH_MAX = 151,
+    BUFFER_WRITE = 152,
+    BUFFER_READ = 153,
+    BUFFER_SIZE = 154,
+    BYTE_BUFFER_WRITE = 155,
+    BYTE_BUFFER_READ = 156,
+    BYTE_BUFFER_SIZE = 157,
+    TEXTURE2D_READ = 158,
+    TEXTURE2D_WRITE = 159,
+    TEXTURE2D_SIZE = 160,
+    TEXTURE3D_READ = 161,
+    TEXTURE3D_WRITE = 162,
+    TEXTURE3D_SIZE = 163,
+    BINDLESS_TEXTURE2D_SAMPLE = 164,
+    BINDLESS_TEXTURE2D_SAMPLE_LEVEL = 165,
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD = 166,
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL = 167,
+    BINDLESS_TEXTURE2D_READ = 168,
+    BINDLESS_TEXTURE2D_SIZE = 169,
+    BINDLESS_TEXTURE2D_SIZE_LEVEL = 170,
+    BINDLESS_TEXTURE3D_SAMPLE = 171,
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL = 172,
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD = 173,
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL = 174,
+    BINDLESS_TEXTURE3D_READ = 175,
+    BINDLESS_TEXTURE3D_SIZE = 176,
+    BINDLESS_TEXTURE3D_SIZE_LEVEL = 177,
+    BINDLESS_BUFFER_WRITE = 178,
+    BINDLESS_BUFFER_READ = 179,
+    BINDLESS_BUFFER_SIZE = 180,
+    BINDLESS_BYTE_BUFFER_WRITE = 181,
+    BINDLESS_BYTE_BUFFER_READ = 182,
+    BINDLESS_BYTE_BUFFER_SIZE = 183,
+    VEC = 184,
+    VEC2 = 185,
+    VEC3 = 186,
+    VEC4 = 187,
+    PERMUTE = 188,
+    GET_ELEMENT_PTR = 189,
+    EXTRACT_ELEMENT = 190,
+    INSERT_ELEMENT = 191,
+    ARRAY = 192,
+    STRUCT = 193,
+    MAT_FULL = 194,
+    MAT2 = 195,
+    MAT3 = 196,
+    MAT4 = 197,
+    BINDLESS_ATOMIC_EXCHANGE = 198,
+    BINDLESS_ATOMIC_COMPARE_EXCHANGE = 199,
+    BINDLESS_ATOMIC_FETCH_ADD = 200,
+    BINDLESS_ATOMIC_FETCH_SUB = 201,
+    BINDLESS_ATOMIC_FETCH_AND = 202,
+    BINDLESS_ATOMIC_FETCH_OR = 203,
+    BINDLESS_ATOMIC_FETCH_XOR = 204,
+    BINDLESS_ATOMIC_FETCH_MIN = 205,
+    BINDLESS_ATOMIC_FETCH_MAX = 206,
+    CALLABLE = 207,
+    CPU_EXT = 208,
+    SHADER_EXECUTION_REORDER = 209,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -1653,7 +1647,7 @@ pub struct Argument {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct Const {
+pub struct Constant {
     _unused: [u8; 0],
 }
 #[repr(C)]
@@ -1711,6 +1705,26 @@ pub struct Return {
 pub struct Print {
     _unused: [u8; 0],
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct Update {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RayQuery {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RevAutodiff {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct FwdAutodiff {
+    _unused: [u8; 0],
+}
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum InstructionTag {
@@ -1722,7 +1736,7 @@ pub enum InstructionTag {
     SHARED = 5,
     UNIFORM = 6,
     ARGUMENT = 7,
-    CONST = 8,
+    CONSTANT = 8,
     CALL = 9,
     PHI = 10,
     BASIC_BLOCK_SENTINEL = 11,
@@ -1734,6 +1748,10 @@ pub enum InstructionTag {
     CONTINUE = 17,
     RETURN = 18,
     PRINT = 19,
+    UPDATE = 20,
+    RAY_QUERY = 21,
+    REV_AUTODIFF = 22,
+    FWD_AUTODIFF = 23,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -1859,7 +1877,6 @@ pub struct IrV2BindingTable {
     pub Func_as_RayQueryTerminate:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut RayQueryTerminate>,
     pub Func_as_Load: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Load>,
-    pub Func_as_Store: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Store>,
     pub Func_as_Cast: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut Cast>,
     pub Func_as_BitCast:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> *mut BitCast>,
@@ -2166,39 +2183,77 @@ pub struct IrV2BindingTable {
     pub Assume_msg: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut Assume) -> Slice<::std::os::raw::c_char>,
     >,
+    pub Assume_set_msg: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Assume, value: Slice<::std::os::raw::c_char>),
+    >,
     pub Unreachable_msg: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut Unreachable) -> Slice<::std::os::raw::c_char>,
+    >,
+    pub Unreachable_set_msg: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Unreachable, value: Slice<::std::os::raw::c_char>),
     >,
     pub BindlessAtomicExchange_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicExchange) -> *const Type,
     >,
+    pub BindlessAtomicExchange_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicExchange, value: *const Type),
+    >,
     pub BindlessAtomicCompareExchange_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicCompareExchange) -> *const Type,
+    >,
+    pub BindlessAtomicCompareExchange_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicCompareExchange, value: *const Type),
     >,
     pub BindlessAtomicFetchAdd_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchAdd) -> *const Type,
     >,
+    pub BindlessAtomicFetchAdd_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchAdd, value: *const Type),
+    >,
     pub BindlessAtomicFetchSub_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchSub) -> *const Type,
+    >,
+    pub BindlessAtomicFetchSub_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchSub, value: *const Type),
     >,
     pub BindlessAtomicFetchAnd_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchAnd) -> *const Type,
     >,
+    pub BindlessAtomicFetchAnd_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchAnd, value: *const Type),
+    >,
     pub BindlessAtomicFetchOr_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchOr) -> *const Type,
+    >,
+    pub BindlessAtomicFetchOr_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchOr, value: *const Type),
     >,
     pub BindlessAtomicFetchXor_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchXor) -> *const Type,
     >,
+    pub BindlessAtomicFetchXor_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchXor, value: *const Type),
+    >,
     pub BindlessAtomicFetchMin_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchMin) -> *const Type,
+    >,
+    pub BindlessAtomicFetchMin_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchMin, value: *const Type),
     >,
     pub BindlessAtomicFetchMax_ty: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut BindlessAtomicFetchMax) -> *const Type,
     >,
+    pub BindlessAtomicFetchMax_set_ty: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut BindlessAtomicFetchMax, value: *const Type),
+    >,
     pub Callable_module:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Callable) -> *mut CallableModule>,
+    pub Callable_set_module: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Callable, value: *mut CallableModule),
+    >,
     pub CpuExt_f: ::std::option::Option<unsafe extern "C" fn(self_: *mut CpuExt) -> CpuExternFn>,
+    pub CpuExt_set_f:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut CpuExt, value: CpuExternFn)>,
     pub Instruction_as_Buffer:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Buffer>,
     pub Instruction_as_Texture2d:
@@ -2215,8 +2270,8 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Uniform>,
     pub Instruction_as_Argument:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Argument>,
-    pub Instruction_as_Const:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Const>,
+    pub Instruction_as_Constant:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Constant>,
     pub Instruction_as_Call:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Call>,
     pub Instruction_as_Phi:
@@ -2240,22 +2295,49 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Return>,
     pub Instruction_as_Print:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Print>,
+    pub Instruction_as_Update:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut Update>,
+    pub Instruction_as_RayQuery:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut RayQuery>,
+    pub Instruction_as_RevAutodiff:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut RevAutodiff>,
+    pub Instruction_as_FwdAutodiff:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> *mut FwdAutodiff>,
     pub Instruction_tag:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> InstructionTag>,
     pub Argument_by_value:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Argument) -> bool>,
-    pub Const_ty: ::std::option::Option<unsafe extern "C" fn(self_: *mut Const) -> *const Type>,
-    pub Const_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Const) -> Slice<u8>>,
+    pub Argument_set_by_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Argument, value: bool)>,
+    pub Constant_ty:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Constant) -> *const Type>,
+    pub Constant_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Constant) -> Slice<u8>>,
+    pub Constant_set_ty:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Constant, value: *const Type)>,
+    pub Constant_set_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Constant, value: Slice<u8>)>,
     pub Call_func: ::std::option::Option<unsafe extern "C" fn(self_: *mut Call) -> *const Func>,
     pub Call_args:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Call) -> Slice<*mut Node>>,
+    pub Call_set_func:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Call, value: *const Func)>,
+    pub Call_set_args:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Call, value: Slice<*mut Node>)>,
     pub Phi_incomings:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Phi) -> Slice<PhiIncoming>>,
+    pub Phi_set_incomings:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Phi, value: Slice<PhiIncoming>)>,
     pub If_cond: ::std::option::Option<unsafe extern "C" fn(self_: *mut If) -> *mut Node>,
     pub If_true_branch:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut If) -> *mut BasicBlock>,
     pub If_false_branch:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut If) -> *mut BasicBlock>,
+    pub If_set_cond: ::std::option::Option<unsafe extern "C" fn(self_: *mut If, value: *mut Node)>,
+    pub If_set_true_branch:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut If, value: *mut BasicBlock)>,
+    pub If_set_false_branch:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut If, value: *mut BasicBlock)>,
     pub GenericLoop_prepare:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut BasicBlock>,
     pub GenericLoop_cond:
@@ -2264,18 +2346,72 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut BasicBlock>,
     pub GenericLoop_update:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop) -> *mut BasicBlock>,
+    pub GenericLoop_set_prepare: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GenericLoop, value: *mut BasicBlock),
+    >,
+    pub GenericLoop_set_cond:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoop, value: *mut Node)>,
+    pub GenericLoop_set_body: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GenericLoop, value: *mut BasicBlock),
+    >,
+    pub GenericLoop_set_update: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GenericLoop, value: *mut BasicBlock),
+    >,
     pub Switch_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch) -> *mut Node>,
     pub Switch_cases:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch) -> Slice<SwitchCase>>,
     pub Switch_default_:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch) -> *mut BasicBlock>,
+    pub Switch_set_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch, value: *mut Node)>,
+    pub Switch_set_cases:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch, value: Slice<SwitchCase>)>,
+    pub Switch_set_default_:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Switch, value: *mut BasicBlock)>,
     pub Local_init: ::std::option::Option<unsafe extern "C" fn(self_: *mut Local) -> *mut Node>,
+    pub Local_set_init:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Local, value: *mut Node)>,
     pub Return_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Return) -> *mut Node>,
+    pub Return_set_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Return, value: *mut Node)>,
     pub Print_fmt: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut Print) -> Slice<::std::os::raw::c_char>,
     >,
     pub Print_args:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Print) -> Slice<*mut Node>>,
+    pub Print_set_fmt: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut Print, value: Slice<::std::os::raw::c_char>),
+    >,
+    pub Print_set_args:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Print, value: Slice<*mut Node>)>,
+    pub Update_var: ::std::option::Option<unsafe extern "C" fn(self_: *mut Update) -> *mut Node>,
+    pub Update_value: ::std::option::Option<unsafe extern "C" fn(self_: *mut Update) -> *mut Node>,
+    pub Update_set_var:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Update, value: *mut Node)>,
+    pub Update_set_value:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut Update, value: *mut Node)>,
+    pub RayQuery_query:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQuery) -> *mut Node>,
+    pub RayQuery_on_triangle_hit:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQuery) -> *mut BasicBlock>,
+    pub RayQuery_on_procedural_hit:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQuery) -> *mut BasicBlock>,
+    pub RayQuery_set_query:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQuery, value: *mut Node)>,
+    pub RayQuery_set_on_triangle_hit:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQuery, value: *mut BasicBlock)>,
+    pub RayQuery_set_on_procedural_hit:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQuery, value: *mut BasicBlock)>,
+    pub RevAutodiff_body:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RevAutodiff) -> *mut BasicBlock>,
+    pub RevAutodiff_set_body: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut RevAutodiff, value: *mut BasicBlock),
+    >,
+    pub FwdAutodiff_body:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut FwdAutodiff) -> *mut BasicBlock>,
+    pub FwdAutodiff_set_body: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut FwdAutodiff, value: *mut BasicBlock),
+    >,
     pub Binding_as_BufferBinding:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut Binding) -> *mut BufferBinding>,
     pub Binding_as_TextureBinding:
@@ -2292,14 +2428,28 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
     pub BufferBinding_size:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
+    pub BufferBinding_set_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding, value: u64)>,
+    pub BufferBinding_set_offset:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding, value: u64)>,
+    pub BufferBinding_set_size:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding, value: u64)>,
     pub TextureBinding_handle:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut TextureBinding) -> u64>,
     pub TextureBinding_level:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut TextureBinding) -> u64>,
+    pub TextureBinding_set_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut TextureBinding, value: u64)>,
+    pub TextureBinding_set_level:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut TextureBinding, value: u64)>,
     pub BindlessArrayBinding_handle:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut BindlessArrayBinding) -> u64>,
+    pub BindlessArrayBinding_set_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut BindlessArrayBinding, value: u64)>,
     pub AccelBinding_handle:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut AccelBinding) -> u64>,
+    pub AccelBinding_set_handle:
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut AccelBinding, value: u64)>,
 }
 #[test]
 fn bindgen_test_layout_IrV2BindingTable() {
@@ -2307,7 +2457,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<IrV2BindingTable>(),
-        2224usize,
+        2680usize,
         concat!("Size of: ", stringify!(IrV2BindingTable))
     );
     assert_eq!(
@@ -2710,18 +2860,8 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Store) as usize - ptr as usize },
-        288usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(IrV2BindingTable),
-            "::",
-            stringify!(Func_as_Store)
-        )
-    );
-    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cast) as usize - ptr as usize },
-        296usize,
+        288usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2731,7 +2871,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitCast) as usize - ptr as usize },
-        304usize,
+        296usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2741,7 +2881,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Add) as usize - ptr as usize },
-        312usize,
+        304usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2751,7 +2891,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sub) as usize - ptr as usize },
-        320usize,
+        312usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2761,7 +2901,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mul) as usize - ptr as usize },
-        328usize,
+        320usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2771,7 +2911,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Div) as usize - ptr as usize },
-        336usize,
+        328usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2781,7 +2921,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Rem) as usize - ptr as usize },
-        344usize,
+        336usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2791,7 +2931,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitAnd) as usize - ptr as usize },
-        352usize,
+        344usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2801,7 +2941,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitOr) as usize - ptr as usize },
-        360usize,
+        352usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2811,7 +2951,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitXor) as usize - ptr as usize },
-        368usize,
+        360usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2821,7 +2961,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Shl) as usize - ptr as usize },
-        376usize,
+        368usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2831,7 +2971,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Shr) as usize - ptr as usize },
-        384usize,
+        376usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2841,7 +2981,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RotRight) as usize - ptr as usize },
-        392usize,
+        384usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2851,7 +2991,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_RotLeft) as usize - ptr as usize },
-        400usize,
+        392usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2861,7 +3001,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Eq) as usize - ptr as usize },
-        408usize,
+        400usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2871,7 +3011,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ne) as usize - ptr as usize },
-        416usize,
+        408usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2881,7 +3021,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Lt) as usize - ptr as usize },
-        424usize,
+        416usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2891,7 +3031,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Le) as usize - ptr as usize },
-        432usize,
+        424usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2901,7 +3041,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Gt) as usize - ptr as usize },
-        440usize,
+        432usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2911,7 +3051,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ge) as usize - ptr as usize },
-        448usize,
+        440usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2921,7 +3061,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_MatCompMul) as usize - ptr as usize },
-        456usize,
+        448usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2931,7 +3071,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Neg) as usize - ptr as usize },
-        464usize,
+        456usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2941,7 +3081,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Not) as usize - ptr as usize },
-        472usize,
+        464usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2951,7 +3091,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BitNot) as usize - ptr as usize },
-        480usize,
+        472usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2961,7 +3101,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_All) as usize - ptr as usize },
-        488usize,
+        480usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2971,7 +3111,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Any) as usize - ptr as usize },
-        496usize,
+        488usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2981,7 +3121,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Select) as usize - ptr as usize },
-        504usize,
+        496usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -2991,7 +3131,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Clamp) as usize - ptr as usize },
-        512usize,
+        504usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3001,7 +3141,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Lerp) as usize - ptr as usize },
-        520usize,
+        512usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3011,7 +3151,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Step) as usize - ptr as usize },
-        528usize,
+        520usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3021,7 +3161,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Saturate) as usize - ptr as usize },
-        536usize,
+        528usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3031,7 +3171,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_SmoothStep) as usize - ptr as usize },
-        544usize,
+        536usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3041,7 +3181,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Abs) as usize - ptr as usize },
-        552usize,
+        544usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3051,7 +3191,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Min) as usize - ptr as usize },
-        560usize,
+        552usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3061,7 +3201,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Max) as usize - ptr as usize },
-        568usize,
+        560usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3071,7 +3211,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceSum) as usize - ptr as usize },
-        576usize,
+        568usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3081,7 +3221,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceProd) as usize - ptr as usize },
-        584usize,
+        576usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3091,7 +3231,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceMin) as usize - ptr as usize },
-        592usize,
+        584usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3101,7 +3241,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ReduceMax) as usize - ptr as usize },
-        600usize,
+        592usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3111,7 +3251,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Clz) as usize - ptr as usize },
-        608usize,
+        600usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3121,7 +3261,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ctz) as usize - ptr as usize },
-        616usize,
+        608usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3131,7 +3271,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_PopCount) as usize - ptr as usize },
-        624usize,
+        616usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3141,7 +3281,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Reverse) as usize - ptr as usize },
-        632usize,
+        624usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3151,7 +3291,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_IsInf) as usize - ptr as usize },
-        640usize,
+        632usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3161,7 +3301,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_IsNan) as usize - ptr as usize },
-        648usize,
+        640usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3171,7 +3311,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Acos) as usize - ptr as usize },
-        656usize,
+        648usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3181,7 +3321,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Acosh) as usize - ptr as usize },
-        664usize,
+        656usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3191,7 +3331,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Asin) as usize - ptr as usize },
-        672usize,
+        664usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3201,7 +3341,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Asinh) as usize - ptr as usize },
-        680usize,
+        672usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3211,7 +3351,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Atan) as usize - ptr as usize },
-        688usize,
+        680usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3221,7 +3361,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Atan2) as usize - ptr as usize },
-        696usize,
+        688usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3231,7 +3371,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Atanh) as usize - ptr as usize },
-        704usize,
+        696usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3241,7 +3381,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cos) as usize - ptr as usize },
-        712usize,
+        704usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3251,7 +3391,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cosh) as usize - ptr as usize },
-        720usize,
+        712usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3261,7 +3401,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sin) as usize - ptr as usize },
-        728usize,
+        720usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3271,7 +3411,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sinh) as usize - ptr as usize },
-        736usize,
+        728usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3281,7 +3421,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Tan) as usize - ptr as usize },
-        744usize,
+        736usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3291,7 +3431,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Tanh) as usize - ptr as usize },
-        752usize,
+        744usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3301,7 +3441,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Exp) as usize - ptr as usize },
-        760usize,
+        752usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3311,7 +3451,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Exp2) as usize - ptr as usize },
-        768usize,
+        760usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3321,7 +3461,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Exp10) as usize - ptr as usize },
-        776usize,
+        768usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3331,7 +3471,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Log) as usize - ptr as usize },
-        784usize,
+        776usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3341,7 +3481,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Log2) as usize - ptr as usize },
-        792usize,
+        784usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3351,7 +3491,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Log10) as usize - ptr as usize },
-        800usize,
+        792usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3361,7 +3501,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Powi) as usize - ptr as usize },
-        808usize,
+        800usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3371,7 +3511,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Powf) as usize - ptr as usize },
-        816usize,
+        808usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3381,7 +3521,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Sqrt) as usize - ptr as usize },
-        824usize,
+        816usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3391,7 +3531,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Rsqrt) as usize - ptr as usize },
-        832usize,
+        824usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3401,7 +3541,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Ceil) as usize - ptr as usize },
-        840usize,
+        832usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3411,7 +3551,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Floor) as usize - ptr as usize },
-        848usize,
+        840usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3421,7 +3561,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Fract) as usize - ptr as usize },
-        856usize,
+        848usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3431,7 +3571,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Trunc) as usize - ptr as usize },
-        864usize,
+        856usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3441,7 +3581,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Round) as usize - ptr as usize },
-        872usize,
+        864usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3451,7 +3591,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Fma) as usize - ptr as usize },
-        880usize,
+        872usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3461,7 +3601,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Copysign) as usize - ptr as usize },
-        888usize,
+        880usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3471,7 +3611,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Cross) as usize - ptr as usize },
-        896usize,
+        888usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3481,7 +3621,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Dot) as usize - ptr as usize },
-        904usize,
+        896usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3491,7 +3631,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_OuterProduct) as usize - ptr as usize },
-        912usize,
+        904usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3501,7 +3641,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Length) as usize - ptr as usize },
-        920usize,
+        912usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3511,7 +3651,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_LengthSquared) as usize - ptr as usize },
-        928usize,
+        920usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3521,7 +3661,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Normalize) as usize - ptr as usize },
-        936usize,
+        928usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3531,7 +3671,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Faceforward) as usize - ptr as usize },
-        944usize,
+        936usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3541,7 +3681,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Distance) as usize - ptr as usize },
-        952usize,
+        944usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3551,7 +3691,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Reflect) as usize - ptr as usize },
-        960usize,
+        952usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3561,7 +3701,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Determinant) as usize - ptr as usize },
-        968usize,
+        960usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3571,7 +3711,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Transpose) as usize - ptr as usize },
-        976usize,
+        968usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3581,7 +3721,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Inverse) as usize - ptr as usize },
-        984usize,
+        976usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3593,7 +3733,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_WarpIsFirstActiveLane) as usize - ptr as usize
         },
-        992usize,
+        984usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3603,7 +3743,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpFirstActiveLane) as usize - ptr as usize },
-        1000usize,
+        992usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3613,7 +3753,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveAllEqual) as usize - ptr as usize },
-        1008usize,
+        1000usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3623,7 +3763,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitAnd) as usize - ptr as usize },
-        1016usize,
+        1008usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3633,7 +3773,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitOr) as usize - ptr as usize },
-        1024usize,
+        1016usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3643,7 +3783,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitXor) as usize - ptr as usize },
-        1032usize,
+        1024usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3653,7 +3793,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveCountBits) as usize - ptr as usize },
-        1040usize,
+        1032usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3663,7 +3803,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveMax) as usize - ptr as usize },
-        1048usize,
+        1040usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3673,7 +3813,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveMin) as usize - ptr as usize },
-        1056usize,
+        1048usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3683,7 +3823,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveProduct) as usize - ptr as usize },
-        1064usize,
+        1056usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3693,7 +3833,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveSum) as usize - ptr as usize },
-        1072usize,
+        1064usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3703,7 +3843,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveAll) as usize - ptr as usize },
-        1080usize,
+        1072usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3713,7 +3853,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveAny) as usize - ptr as usize },
-        1088usize,
+        1080usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3723,7 +3863,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpActiveBitMask) as usize - ptr as usize },
-        1096usize,
+        1088usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3733,7 +3873,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpPrefixCountBits) as usize - ptr as usize },
-        1104usize,
+        1096usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3743,7 +3883,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpPrefixSum) as usize - ptr as usize },
-        1112usize,
+        1104usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3753,7 +3893,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpPrefixProduct) as usize - ptr as usize },
-        1120usize,
+        1112usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3763,7 +3903,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpReadLaneAt) as usize - ptr as usize },
-        1128usize,
+        1120usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3773,7 +3913,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_WarpReadFirstLane) as usize - ptr as usize },
-        1136usize,
+        1128usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3783,7 +3923,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_SynchronizeBlock) as usize - ptr as usize },
-        1144usize,
+        1136usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3793,7 +3933,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicExchange) as usize - ptr as usize },
-        1152usize,
+        1144usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3805,7 +3945,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_AtomicCompareExchange) as usize - ptr as usize
         },
-        1160usize,
+        1152usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3815,7 +3955,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchAdd) as usize - ptr as usize },
-        1168usize,
+        1160usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3825,7 +3965,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchSub) as usize - ptr as usize },
-        1176usize,
+        1168usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3835,7 +3975,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchAnd) as usize - ptr as usize },
-        1184usize,
+        1176usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3845,7 +3985,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchOr) as usize - ptr as usize },
-        1192usize,
+        1184usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3855,7 +3995,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchXor) as usize - ptr as usize },
-        1200usize,
+        1192usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3865,7 +4005,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchMin) as usize - ptr as usize },
-        1208usize,
+        1200usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3875,7 +4015,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_AtomicFetchMax) as usize - ptr as usize },
-        1216usize,
+        1208usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3885,7 +4025,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BufferWrite) as usize - ptr as usize },
-        1224usize,
+        1216usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3895,7 +4035,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BufferRead) as usize - ptr as usize },
-        1232usize,
+        1224usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3905,7 +4045,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BufferSize) as usize - ptr as usize },
-        1240usize,
+        1232usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3915,7 +4055,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ByteBufferWrite) as usize - ptr as usize },
-        1248usize,
+        1240usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3925,7 +4065,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ByteBufferRead) as usize - ptr as usize },
-        1256usize,
+        1248usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3935,7 +4075,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ByteBufferSize) as usize - ptr as usize },
-        1264usize,
+        1256usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3945,7 +4085,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture2dRead) as usize - ptr as usize },
-        1272usize,
+        1264usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3955,7 +4095,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture2dWrite) as usize - ptr as usize },
-        1280usize,
+        1272usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3965,7 +4105,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture2dSize) as usize - ptr as usize },
-        1288usize,
+        1280usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3975,7 +4115,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture3dRead) as usize - ptr as usize },
-        1296usize,
+        1288usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3985,7 +4125,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture3dWrite) as usize - ptr as usize },
-        1304usize,
+        1296usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3995,7 +4135,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Texture3dSize) as usize - ptr as usize },
-        1312usize,
+        1304usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4007,7 +4147,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSample) as usize - ptr as usize
         },
-        1320usize,
+        1312usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4020,7 +4160,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSampleLevel) as usize
                 - ptr as usize
         },
-        1328usize,
+        1320usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4032,7 +4172,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSampleGrad) as usize - ptr as usize
         },
-        1336usize,
+        1328usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4045,7 +4185,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSampleGradLevel) as usize
                 - ptr as usize
         },
-        1344usize,
+        1336usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4057,7 +4197,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dRead) as usize - ptr as usize
         },
-        1352usize,
+        1344usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4069,7 +4209,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSize) as usize - ptr as usize
         },
-        1360usize,
+        1352usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4081,7 +4221,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture2dSizeLevel) as usize - ptr as usize
         },
-        1368usize,
+        1360usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4093,7 +4233,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSample) as usize - ptr as usize
         },
-        1376usize,
+        1368usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4106,7 +4246,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSampleLevel) as usize
                 - ptr as usize
         },
-        1384usize,
+        1376usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4118,7 +4258,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSampleGrad) as usize - ptr as usize
         },
-        1392usize,
+        1384usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4131,7 +4271,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSampleGradLevel) as usize
                 - ptr as usize
         },
-        1400usize,
+        1392usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4143,7 +4283,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dRead) as usize - ptr as usize
         },
-        1408usize,
+        1400usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4155,7 +4295,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSize) as usize - ptr as usize
         },
-        1416usize,
+        1408usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4167,7 +4307,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessTexture3dSizeLevel) as usize - ptr as usize
         },
-        1424usize,
+        1416usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4177,7 +4317,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BindlessBufferWrite) as usize - ptr as usize },
-        1432usize,
+        1424usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4187,7 +4327,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BindlessBufferRead) as usize - ptr as usize },
-        1440usize,
+        1432usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4197,7 +4337,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_BindlessBufferSize) as usize - ptr as usize },
-        1448usize,
+        1440usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4209,7 +4349,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessByteBufferWrite) as usize - ptr as usize
         },
-        1456usize,
+        1448usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4221,7 +4361,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessByteBufferRead) as usize - ptr as usize
         },
-        1464usize,
+        1456usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4233,7 +4373,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessByteBufferSize) as usize - ptr as usize
         },
-        1472usize,
+        1464usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4243,7 +4383,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec) as usize - ptr as usize },
-        1480usize,
+        1472usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4253,7 +4393,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec2) as usize - ptr as usize },
-        1488usize,
+        1480usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4263,7 +4403,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec3) as usize - ptr as usize },
-        1496usize,
+        1488usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4273,7 +4413,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Vec4) as usize - ptr as usize },
-        1504usize,
+        1496usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4283,7 +4423,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Permute) as usize - ptr as usize },
-        1512usize,
+        1504usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4293,7 +4433,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_GetElementPtr) as usize - ptr as usize },
-        1520usize,
+        1512usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4303,7 +4443,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_ExtractElement) as usize - ptr as usize },
-        1528usize,
+        1520usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4313,7 +4453,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_InsertElement) as usize - ptr as usize },
-        1536usize,
+        1528usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4323,7 +4463,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Array) as usize - ptr as usize },
-        1544usize,
+        1536usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4333,7 +4473,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Struct) as usize - ptr as usize },
-        1552usize,
+        1544usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4343,7 +4483,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_MatFull) as usize - ptr as usize },
-        1560usize,
+        1552usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4353,7 +4493,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mat2) as usize - ptr as usize },
-        1568usize,
+        1560usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4363,7 +4503,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mat3) as usize - ptr as usize },
-        1576usize,
+        1568usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4373,7 +4513,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Mat4) as usize - ptr as usize },
-        1584usize,
+        1576usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4385,7 +4525,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicExchange) as usize - ptr as usize
         },
-        1592usize,
+        1584usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4398,7 +4538,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicCompareExchange) as usize
                 - ptr as usize
         },
-        1600usize,
+        1592usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4410,7 +4550,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchAdd) as usize - ptr as usize
         },
-        1608usize,
+        1600usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4422,7 +4562,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchSub) as usize - ptr as usize
         },
-        1616usize,
+        1608usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4434,7 +4574,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchAnd) as usize - ptr as usize
         },
-        1624usize,
+        1616usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4446,7 +4586,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchOr) as usize - ptr as usize
         },
-        1632usize,
+        1624usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4458,7 +4598,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchXor) as usize - ptr as usize
         },
-        1640usize,
+        1632usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4470,7 +4610,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchMin) as usize - ptr as usize
         },
-        1648usize,
+        1640usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4482,7 +4622,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_BindlessAtomicFetchMax) as usize - ptr as usize
         },
-        1656usize,
+        1648usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4492,7 +4632,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_Callable) as usize - ptr as usize },
-        1664usize,
+        1656usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4502,7 +4642,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_as_CpuExt) as usize - ptr as usize },
-        1672usize,
+        1664usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4514,7 +4654,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Func_as_ShaderExecutionReorder) as usize - ptr as usize
         },
-        1680usize,
+        1672usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4524,7 +4664,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Func_tag) as usize - ptr as usize },
-        1688usize,
+        1680usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4534,12 +4674,22 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Assume_msg) as usize - ptr as usize },
-        1696usize,
+        1688usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
             "::",
             stringify!(Assume_msg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Assume_set_msg) as usize - ptr as usize },
+        1696usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Assume_set_msg)
         )
     );
     assert_eq!(
@@ -4553,8 +4703,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicExchange_ty) as usize - ptr as usize },
+        unsafe { ::std::ptr::addr_of!((*ptr).Unreachable_set_msg) as usize - ptr as usize },
         1712usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Unreachable_set_msg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicExchange_ty) as usize - ptr as usize },
+        1720usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4564,9 +4724,21 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicExchange_set_ty) as usize - ptr as usize
+        },
+        1728usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicExchange_set_ty)
+        )
+    );
+    assert_eq!(
+        unsafe {
             ::std::ptr::addr_of!((*ptr).BindlessAtomicCompareExchange_ty) as usize - ptr as usize
         },
-        1720usize,
+        1736usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4575,8 +4747,21 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicCompareExchange_set_ty) as usize
+                - ptr as usize
+        },
+        1744usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicCompareExchange_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchAdd_ty) as usize - ptr as usize },
-        1728usize,
+        1752usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4585,8 +4770,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchAdd_set_ty) as usize - ptr as usize
+        },
+        1760usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchAdd_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchSub_ty) as usize - ptr as usize },
-        1736usize,
+        1768usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4595,8 +4792,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchSub_set_ty) as usize - ptr as usize
+        },
+        1776usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchSub_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchAnd_ty) as usize - ptr as usize },
-        1744usize,
+        1784usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4605,8 +4814,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchAnd_set_ty) as usize - ptr as usize
+        },
+        1792usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchAnd_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchOr_ty) as usize - ptr as usize },
-        1752usize,
+        1800usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4615,8 +4836,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchOr_set_ty) as usize - ptr as usize
+        },
+        1808usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchOr_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchXor_ty) as usize - ptr as usize },
-        1760usize,
+        1816usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4625,8 +4858,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchXor_set_ty) as usize - ptr as usize
+        },
+        1824usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchXor_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchMin_ty) as usize - ptr as usize },
-        1768usize,
+        1832usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4635,8 +4880,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchMin_set_ty) as usize - ptr as usize
+        },
+        1840usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchMin_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchMax_ty) as usize - ptr as usize },
-        1776usize,
+        1848usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4645,8 +4902,20 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessAtomicFetchMax_set_ty) as usize - ptr as usize
+        },
+        1856usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessAtomicFetchMax_set_ty)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Callable_module) as usize - ptr as usize },
-        1784usize,
+        1864usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4655,8 +4924,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Callable_set_module) as usize - ptr as usize },
+        1872usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Callable_set_module)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).CpuExt_f) as usize - ptr as usize },
-        1792usize,
+        1880usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4665,8 +4944,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).CpuExt_set_f) as usize - ptr as usize },
+        1888usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(CpuExt_set_f)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Buffer) as usize - ptr as usize },
-        1800usize,
+        1896usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4676,7 +4965,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Texture2d) as usize - ptr as usize },
-        1808usize,
+        1904usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4686,7 +4975,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Texture3d) as usize - ptr as usize },
-        1816usize,
+        1912usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4698,7 +4987,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Instruction_as_BindlessArray) as usize - ptr as usize
         },
-        1824usize,
+        1920usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4708,7 +4997,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Accel) as usize - ptr as usize },
-        1832usize,
+        1928usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4718,7 +5007,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Shared) as usize - ptr as usize },
-        1840usize,
+        1936usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4728,7 +5017,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Uniform) as usize - ptr as usize },
-        1848usize,
+        1944usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4738,7 +5027,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Argument) as usize - ptr as usize },
-        1856usize,
+        1952usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4747,18 +5036,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Const) as usize - ptr as usize },
-        1864usize,
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Constant) as usize - ptr as usize },
+        1960usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
             "::",
-            stringify!(Instruction_as_Const)
+            stringify!(Instruction_as_Constant)
         )
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Call) as usize - ptr as usize },
-        1872usize,
+        1968usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4768,7 +5057,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Phi) as usize - ptr as usize },
-        1880usize,
+        1976usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4780,7 +5069,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Instruction_as_BasicBlockSentinel) as usize - ptr as usize
         },
-        1888usize,
+        1984usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4790,7 +5079,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_If) as usize - ptr as usize },
-        1896usize,
+        1992usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4800,7 +5089,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_GenericLoop) as usize - ptr as usize },
-        1904usize,
+        2000usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4810,7 +5099,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Switch) as usize - ptr as usize },
-        1912usize,
+        2008usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4820,7 +5109,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Local) as usize - ptr as usize },
-        1920usize,
+        2016usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4830,7 +5119,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Break) as usize - ptr as usize },
-        1928usize,
+        2024usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4840,7 +5129,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Continue) as usize - ptr as usize },
-        1936usize,
+        2032usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4850,7 +5139,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Return) as usize - ptr as usize },
-        1944usize,
+        2040usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4860,7 +5149,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Print) as usize - ptr as usize },
-        1952usize,
+        2048usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4869,8 +5158,48 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_Update) as usize - ptr as usize },
+        2056usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_Update)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_RayQuery) as usize - ptr as usize },
+        2064usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_RayQuery)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_RevAutodiff) as usize - ptr as usize },
+        2072usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_RevAutodiff)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Instruction_as_FwdAutodiff) as usize - ptr as usize },
+        2080usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Instruction_as_FwdAutodiff)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Instruction_tag) as usize - ptr as usize },
-        1960usize,
+        2088usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4880,7 +5209,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Argument_by_value) as usize - ptr as usize },
-        1968usize,
+        2096usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4889,28 +5218,58 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).Const_ty) as usize - ptr as usize },
-        1976usize,
+        unsafe { ::std::ptr::addr_of!((*ptr).Argument_set_by_value) as usize - ptr as usize },
+        2104usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
             "::",
-            stringify!(Const_ty)
+            stringify!(Argument_set_by_value)
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).Const_value) as usize - ptr as usize },
-        1984usize,
+        unsafe { ::std::ptr::addr_of!((*ptr).Constant_ty) as usize - ptr as usize },
+        2112usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
             "::",
-            stringify!(Const_value)
+            stringify!(Constant_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Constant_value) as usize - ptr as usize },
+        2120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Constant_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Constant_set_ty) as usize - ptr as usize },
+        2128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Constant_set_ty)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Constant_set_value) as usize - ptr as usize },
+        2136usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Constant_set_value)
         )
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Call_func) as usize - ptr as usize },
-        1992usize,
+        2144usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4920,7 +5279,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Call_args) as usize - ptr as usize },
-        2000usize,
+        2152usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4929,8 +5288,28 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Call_set_func) as usize - ptr as usize },
+        2160usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Call_set_func)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Call_set_args) as usize - ptr as usize },
+        2168usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Call_set_args)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Phi_incomings) as usize - ptr as usize },
-        2008usize,
+        2176usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4939,8 +5318,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Phi_set_incomings) as usize - ptr as usize },
+        2184usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Phi_set_incomings)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).If_cond) as usize - ptr as usize },
-        2016usize,
+        2192usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4950,7 +5339,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).If_true_branch) as usize - ptr as usize },
-        2024usize,
+        2200usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4960,7 +5349,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).If_false_branch) as usize - ptr as usize },
-        2032usize,
+        2208usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4969,8 +5358,38 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).If_set_cond) as usize - ptr as usize },
+        2216usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(If_set_cond)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).If_set_true_branch) as usize - ptr as usize },
+        2224usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(If_set_true_branch)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).If_set_false_branch) as usize - ptr as usize },
+        2232usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(If_set_false_branch)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_prepare) as usize - ptr as usize },
-        2040usize,
+        2240usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4980,7 +5399,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_cond) as usize - ptr as usize },
-        2048usize,
+        2248usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -4990,7 +5409,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_body) as usize - ptr as usize },
-        2056usize,
+        2256usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5000,7 +5419,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_update) as usize - ptr as usize },
-        2064usize,
+        2264usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5009,8 +5428,48 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_set_prepare) as usize - ptr as usize },
+        2272usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_set_prepare)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_set_cond) as usize - ptr as usize },
+        2280usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_set_cond)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_set_body) as usize - ptr as usize },
+        2288usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_set_body)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GenericLoop_set_update) as usize - ptr as usize },
+        2296usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(GenericLoop_set_update)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Switch_value) as usize - ptr as usize },
-        2072usize,
+        2304usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5020,7 +5479,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Switch_cases) as usize - ptr as usize },
-        2080usize,
+        2312usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5030,7 +5489,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Switch_default_) as usize - ptr as usize },
-        2088usize,
+        2320usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5039,8 +5498,38 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Switch_set_value) as usize - ptr as usize },
+        2328usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Switch_set_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Switch_set_cases) as usize - ptr as usize },
+        2336usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Switch_set_cases)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Switch_set_default_) as usize - ptr as usize },
+        2344usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Switch_set_default_)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Local_init) as usize - ptr as usize },
-        2096usize,
+        2352usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5049,8 +5538,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Local_set_init) as usize - ptr as usize },
+        2360usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Local_set_init)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Return_value) as usize - ptr as usize },
-        2104usize,
+        2368usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5059,8 +5558,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Return_set_value) as usize - ptr as usize },
+        2376usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Return_set_value)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Print_fmt) as usize - ptr as usize },
-        2112usize,
+        2384usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5070,7 +5579,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Print_args) as usize - ptr as usize },
-        2120usize,
+        2392usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5079,8 +5588,172 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Print_set_fmt) as usize - ptr as usize },
+        2400usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Print_set_fmt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Print_set_args) as usize - ptr as usize },
+        2408usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Print_set_args)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Update_var) as usize - ptr as usize },
+        2416usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Update_var)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Update_value) as usize - ptr as usize },
+        2424usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Update_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Update_set_var) as usize - ptr as usize },
+        2432usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Update_set_var)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).Update_set_value) as usize - ptr as usize },
+        2440usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(Update_set_value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RayQuery_query) as usize - ptr as usize },
+        2448usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RayQuery_query)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RayQuery_on_triangle_hit) as usize - ptr as usize },
+        2456usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RayQuery_on_triangle_hit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RayQuery_on_procedural_hit) as usize - ptr as usize },
+        2464usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RayQuery_on_procedural_hit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RayQuery_set_query) as usize - ptr as usize },
+        2472usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RayQuery_set_query)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).RayQuery_set_on_triangle_hit) as usize - ptr as usize
+        },
+        2480usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RayQuery_set_on_triangle_hit)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).RayQuery_set_on_procedural_hit) as usize - ptr as usize
+        },
+        2488usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RayQuery_set_on_procedural_hit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RevAutodiff_body) as usize - ptr as usize },
+        2496usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RevAutodiff_body)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RevAutodiff_set_body) as usize - ptr as usize },
+        2504usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(RevAutodiff_set_body)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).FwdAutodiff_body) as usize - ptr as usize },
+        2512usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(FwdAutodiff_body)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).FwdAutodiff_set_body) as usize - ptr as usize },
+        2520usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(FwdAutodiff_set_body)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Binding_as_BufferBinding) as usize - ptr as usize },
-        2128usize,
+        2528usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5090,7 +5763,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Binding_as_TextureBinding) as usize - ptr as usize },
-        2136usize,
+        2536usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5102,7 +5775,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
         unsafe {
             ::std::ptr::addr_of!((*ptr).Binding_as_BindlessArrayBinding) as usize - ptr as usize
         },
-        2144usize,
+        2544usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5112,7 +5785,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Binding_as_AccelBinding) as usize - ptr as usize },
-        2152usize,
+        2552usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5122,7 +5795,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).Binding_tag) as usize - ptr as usize },
-        2160usize,
+        2560usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5132,7 +5805,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_handle) as usize - ptr as usize },
-        2168usize,
+        2568usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5142,7 +5815,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_offset) as usize - ptr as usize },
-        2176usize,
+        2576usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5152,7 +5825,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_size) as usize - ptr as usize },
-        2184usize,
+        2584usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5161,8 +5834,38 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_set_handle) as usize - ptr as usize },
+        2592usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BufferBinding_set_handle)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_set_offset) as usize - ptr as usize },
+        2600usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BufferBinding_set_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).BufferBinding_set_size) as usize - ptr as usize },
+        2608usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BufferBinding_set_size)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).TextureBinding_handle) as usize - ptr as usize },
-        2192usize,
+        2616usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5172,7 +5875,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).TextureBinding_level) as usize - ptr as usize },
-        2200usize,
+        2624usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5181,8 +5884,28 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).TextureBinding_set_handle) as usize - ptr as usize },
+        2632usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(TextureBinding_set_handle)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).TextureBinding_set_level) as usize - ptr as usize },
+        2640usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(TextureBinding_set_level)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).BindlessArrayBinding_handle) as usize - ptr as usize },
-        2208usize,
+        2648usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -5191,13 +5914,35 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).BindlessArrayBinding_set_handle) as usize - ptr as usize
+        },
+        2656usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(BindlessArrayBinding_set_handle)
+        )
+    );
+    assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).AccelBinding_handle) as usize - ptr as usize },
-        2216usize,
+        2664usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
             "::",
             stringify!(AccelBinding_handle)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).AccelBinding_set_handle) as usize - ptr as usize },
+        2672usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(AccelBinding_set_handle)
         )
     );
 }

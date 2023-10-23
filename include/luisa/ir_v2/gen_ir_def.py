@@ -92,6 +92,10 @@ struct Slice {
     luisa::vector<T> to_vector() const noexcept {
         return luisa::vector<T>(data, data + len);
     }
+    luisa::string to_string() const noexcept {
+        static_assert(std::is_same_v<T, char> || std::is_same_v<T, const char>);
+        return luisa::string(data, len);
+    }
 #endif 
 };    
 }
@@ -135,7 +139,7 @@ class Item:
             else:
                 print('    return self->{};'.format(f[1]), file=c_api_impl)
             print('}', file=c_api_impl)
-        
+
         # set xx_field(xx)
         for f in self.fields:
             fname = f'{self.name}_set_{f[1]}'
@@ -143,7 +147,18 @@ class Item:
             func_table.append((fname, fsig))
             print(
                 f'static void {fname}({self.name} *self, {MAP_FFI_TYPE[f[0]]} value) {{', file=c_api_impl)
-            
+            if 'shared_ptr' in f[0]:
+                print(
+                    '    self->{0} = luisa::static_pointer_cast<std::decay_t<decltype(self->{0})>::element_type>(value->shared_from_this());'.format(f[1]), file=c_api_impl)
+            elif f[0].startswith('luisa::vector'):
+                print(
+                    '    self->{} = value.to_vector();'.format(f[1]), file=c_api_impl)
+            elif f[0].startswith('luisa::string'):
+                print(
+                    '    self->{} = value.to_string();'.format(f[1]), file=c_api_impl)
+            else:
+                print('    self->{} = value;'.format(f[1]), file=c_api_impl)
+            print('}', file=c_api_impl)
 
 
 class Instruction(Item):
