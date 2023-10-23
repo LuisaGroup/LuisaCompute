@@ -124,6 +124,20 @@ class Item:
         out = 'public:\n'
         for field in self.fields:
             out += '    {} {};\n'.format(field[0], field[1])
+
+        out += f'    {self.name}() = default;\n'
+        if len(self.fields) > 0:
+            out += f'    {self.name}('
+            for i, field in enumerate(self.fields):
+                if i != 0:
+                    out += ', '
+                out += f'{field[0]} {field[1]}'
+            out += ') : '
+            for i, field in enumerate(self.fields):
+                if i != 0:
+                    out += ', '
+                out += f'{field[1]}({field[1]})'
+            out += ' {}\n'
         out += self.cpp_src
         return out
 
@@ -162,6 +176,26 @@ class Item:
                 print('    self->{} = value;'.format(f[1]), file=c_api_impl)
             print('}', file=c_api_impl)
 
+        # gen ctor
+        fname = f'{self.name}_new'
+
+        fsig = f'{self.name} *(*{fname})(Pool *pool'
+        for f in self.fields:
+            fsig += f', {MAP_FFI_TYPE[f[0]]} {f[1]}'
+        fsig += ')'
+        func_table.append((fname, fsig))
+        print(f'static {self.name} *{fname}(Pool *pool', end='',
+              file=c_api_impl)
+        for f in self.fields:
+            print(f', {MAP_FFI_TYPE[f[0]]} {f[1]}', end='', file=c_api_impl)
+        print(') {', file=c_api_impl)
+        print('   auto obj = pool->template alloc<{}>();'.format(self.name),
+              file=c_api_impl)
+        for f in self.fields:
+            print(f'    {self.name}_set_{f[1]}(obj, {f[1]});', file=c_api_impl)
+        print('    return obj;', file=c_api_impl)
+        print('}', file=c_api_impl)
+
 
 class Instruction(Item):
     def __init__(self, name, fields=None, cpp_src=None, **kwargs) -> None:
@@ -171,24 +205,6 @@ class Instruction(Item):
         self.name += 'Inst'
         if cpp_src is not None:
             self.cpp_src = cpp_src
-
-    def gen(self):
-        out = super().gen()
-        # gen ctor
-        out += f'    {self.name}() = default;\n'
-        if len(self.fields) > 0:
-            out += f'    {self.name}('
-            for i, field in enumerate(self.fields):
-                if i != 0:
-                    out += ', '
-                out += f'{field[0]} {field[1]}'
-            out += ') : '
-            for i, field in enumerate(self.fields):
-                if i != 0:
-                    out += ', '
-                out += f'{field[1]}({field[1]})'
-            out += ' {}\n'
-        return out
 
 
 class Func(Item):

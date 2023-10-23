@@ -633,11 +633,24 @@ static ShaderExecutionReorderFn *Func_as_ShaderExecutionReorderFn(Func *self) {
 static FuncTag Func_tag(Func *self) {
     return self->tag();
 }
+static ZeroFn *ZeroFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ZeroFn>();
+    return obj;
+}
+static OneFn *OneFn_new(Pool *pool) {
+    auto obj = pool->template alloc<OneFn>();
+    return obj;
+}
 static Slice<const char> AssumeFn_msg(AssumeFn *self) {
     return self->msg;
 }
 static void AssumeFn_set_msg(AssumeFn *self, Slice<const char> value) {
     self->msg = value.to_string();
+}
+static AssumeFn *AssumeFn_new(Pool *pool, Slice<const char> msg) {
+    auto obj = pool->template alloc<AssumeFn>();
+    AssumeFn_set_msg(obj, msg);
+    return obj;
 }
 static Slice<const char> UnreachableFn_msg(UnreachableFn *self) {
     return self->msg;
@@ -645,11 +658,797 @@ static Slice<const char> UnreachableFn_msg(UnreachableFn *self) {
 static void UnreachableFn_set_msg(UnreachableFn *self, Slice<const char> value) {
     self->msg = value.to_string();
 }
+static UnreachableFn *UnreachableFn_new(Pool *pool, Slice<const char> msg) {
+    auto obj = pool->template alloc<UnreachableFn>();
+    UnreachableFn_set_msg(obj, msg);
+    return obj;
+}
+static ThreadIdFn *ThreadIdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ThreadIdFn>();
+    return obj;
+}
+static BlockIdFn *BlockIdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BlockIdFn>();
+    return obj;
+}
+static WarpSizeFn *WarpSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpSizeFn>();
+    return obj;
+}
+static WarpLaneIdFn *WarpLaneIdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpLaneIdFn>();
+    return obj;
+}
+static DispatchIdFn *DispatchIdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DispatchIdFn>();
+    return obj;
+}
+static DispatchSizeFn *DispatchSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DispatchSizeFn>();
+    return obj;
+}
+static PropagateGradientFn *PropagateGradientFn_new(Pool *pool) {
+    auto obj = pool->template alloc<PropagateGradientFn>();
+    return obj;
+}
+static OutputGradientFn *OutputGradientFn_new(Pool *pool) {
+    auto obj = pool->template alloc<OutputGradientFn>();
+    return obj;
+}
+static RequiresGradientFn *RequiresGradientFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RequiresGradientFn>();
+    return obj;
+}
+static BackwardFn *BackwardFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BackwardFn>();
+    return obj;
+}
+static GradientFn *GradientFn_new(Pool *pool) {
+    auto obj = pool->template alloc<GradientFn>();
+    return obj;
+}
+static AccGradFn *AccGradFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AccGradFn>();
+    return obj;
+}
+static DetachFn *DetachFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DetachFn>();
+    return obj;
+}
+static RayTracingInstanceTransformFn *RayTracingInstanceTransformFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingInstanceTransformFn>();
+    return obj;
+}
+static RayTracingInstanceVisibilityMaskFn *RayTracingInstanceVisibilityMaskFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingInstanceVisibilityMaskFn>();
+    return obj;
+}
+static RayTracingInstanceUserIdFn *RayTracingInstanceUserIdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingInstanceUserIdFn>();
+    return obj;
+}
+static RayTracingSetInstanceTransformFn *RayTracingSetInstanceTransformFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingSetInstanceTransformFn>();
+    return obj;
+}
+static RayTracingSetInstanceOpacityFn *RayTracingSetInstanceOpacityFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingSetInstanceOpacityFn>();
+    return obj;
+}
+static RayTracingSetInstanceVisibilityFn *RayTracingSetInstanceVisibilityFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingSetInstanceVisibilityFn>();
+    return obj;
+}
+static RayTracingSetInstanceUserIdFn *RayTracingSetInstanceUserIdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingSetInstanceUserIdFn>();
+    return obj;
+}
+static RayTracingTraceClosestFn *RayTracingTraceClosestFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingTraceClosestFn>();
+    return obj;
+}
+static RayTracingTraceAnyFn *RayTracingTraceAnyFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingTraceAnyFn>();
+    return obj;
+}
+static RayTracingQueryAllFn *RayTracingQueryAllFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingQueryAllFn>();
+    return obj;
+}
+static RayTracingQueryAnyFn *RayTracingQueryAnyFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayTracingQueryAnyFn>();
+    return obj;
+}
+static RayQueryWorldSpaceRayFn *RayQueryWorldSpaceRayFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryWorldSpaceRayFn>();
+    return obj;
+}
+static RayQueryProceduralCandidateHitFn *RayQueryProceduralCandidateHitFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryProceduralCandidateHitFn>();
+    return obj;
+}
+static RayQueryTriangleCandidateHitFn *RayQueryTriangleCandidateHitFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryTriangleCandidateHitFn>();
+    return obj;
+}
+static RayQueryCommittedHitFn *RayQueryCommittedHitFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryCommittedHitFn>();
+    return obj;
+}
+static RayQueryCommitTriangleFn *RayQueryCommitTriangleFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryCommitTriangleFn>();
+    return obj;
+}
+static RayQueryCommitdProceduralFn *RayQueryCommitdProceduralFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryCommitdProceduralFn>();
+    return obj;
+}
+static RayQueryTerminateFn *RayQueryTerminateFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RayQueryTerminateFn>();
+    return obj;
+}
+static LoadFn *LoadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LoadFn>();
+    return obj;
+}
+static CastFn *CastFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CastFn>();
+    return obj;
+}
+static BitCastFn *BitCastFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BitCastFn>();
+    return obj;
+}
+static AddFn *AddFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AddFn>();
+    return obj;
+}
+static SubFn *SubFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SubFn>();
+    return obj;
+}
+static MulFn *MulFn_new(Pool *pool) {
+    auto obj = pool->template alloc<MulFn>();
+    return obj;
+}
+static DivFn *DivFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DivFn>();
+    return obj;
+}
+static RemFn *RemFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RemFn>();
+    return obj;
+}
+static BitAndFn *BitAndFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BitAndFn>();
+    return obj;
+}
+static BitOrFn *BitOrFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BitOrFn>();
+    return obj;
+}
+static BitXorFn *BitXorFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BitXorFn>();
+    return obj;
+}
+static ShlFn *ShlFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ShlFn>();
+    return obj;
+}
+static ShrFn *ShrFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ShrFn>();
+    return obj;
+}
+static RotRightFn *RotRightFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RotRightFn>();
+    return obj;
+}
+static RotLeftFn *RotLeftFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RotLeftFn>();
+    return obj;
+}
+static EqFn *EqFn_new(Pool *pool) {
+    auto obj = pool->template alloc<EqFn>();
+    return obj;
+}
+static NeFn *NeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<NeFn>();
+    return obj;
+}
+static LtFn *LtFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LtFn>();
+    return obj;
+}
+static LeFn *LeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LeFn>();
+    return obj;
+}
+static GtFn *GtFn_new(Pool *pool) {
+    auto obj = pool->template alloc<GtFn>();
+    return obj;
+}
+static GeFn *GeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<GeFn>();
+    return obj;
+}
+static MatCompMulFn *MatCompMulFn_new(Pool *pool) {
+    auto obj = pool->template alloc<MatCompMulFn>();
+    return obj;
+}
+static NegFn *NegFn_new(Pool *pool) {
+    auto obj = pool->template alloc<NegFn>();
+    return obj;
+}
+static NotFn *NotFn_new(Pool *pool) {
+    auto obj = pool->template alloc<NotFn>();
+    return obj;
+}
+static BitNotFn *BitNotFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BitNotFn>();
+    return obj;
+}
+static AllFn *AllFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AllFn>();
+    return obj;
+}
+static AnyFn *AnyFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AnyFn>();
+    return obj;
+}
+static SelectFn *SelectFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SelectFn>();
+    return obj;
+}
+static ClampFn *ClampFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ClampFn>();
+    return obj;
+}
+static LerpFn *LerpFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LerpFn>();
+    return obj;
+}
+static StepFn *StepFn_new(Pool *pool) {
+    auto obj = pool->template alloc<StepFn>();
+    return obj;
+}
+static SaturateFn *SaturateFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SaturateFn>();
+    return obj;
+}
+static SmoothStepFn *SmoothStepFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SmoothStepFn>();
+    return obj;
+}
+static AbsFn *AbsFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AbsFn>();
+    return obj;
+}
+static MinFn *MinFn_new(Pool *pool) {
+    auto obj = pool->template alloc<MinFn>();
+    return obj;
+}
+static MaxFn *MaxFn_new(Pool *pool) {
+    auto obj = pool->template alloc<MaxFn>();
+    return obj;
+}
+static ReduceSumFn *ReduceSumFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ReduceSumFn>();
+    return obj;
+}
+static ReduceProdFn *ReduceProdFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ReduceProdFn>();
+    return obj;
+}
+static ReduceMinFn *ReduceMinFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ReduceMinFn>();
+    return obj;
+}
+static ReduceMaxFn *ReduceMaxFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ReduceMaxFn>();
+    return obj;
+}
+static ClzFn *ClzFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ClzFn>();
+    return obj;
+}
+static CtzFn *CtzFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CtzFn>();
+    return obj;
+}
+static PopCountFn *PopCountFn_new(Pool *pool) {
+    auto obj = pool->template alloc<PopCountFn>();
+    return obj;
+}
+static ReverseFn *ReverseFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ReverseFn>();
+    return obj;
+}
+static IsInfFn *IsInfFn_new(Pool *pool) {
+    auto obj = pool->template alloc<IsInfFn>();
+    return obj;
+}
+static IsNanFn *IsNanFn_new(Pool *pool) {
+    auto obj = pool->template alloc<IsNanFn>();
+    return obj;
+}
+static AcosFn *AcosFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AcosFn>();
+    return obj;
+}
+static AcoshFn *AcoshFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AcoshFn>();
+    return obj;
+}
+static AsinFn *AsinFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AsinFn>();
+    return obj;
+}
+static AsinhFn *AsinhFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AsinhFn>();
+    return obj;
+}
+static AtanFn *AtanFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtanFn>();
+    return obj;
+}
+static Atan2Fn *Atan2Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Atan2Fn>();
+    return obj;
+}
+static AtanhFn *AtanhFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtanhFn>();
+    return obj;
+}
+static CosFn *CosFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CosFn>();
+    return obj;
+}
+static CoshFn *CoshFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CoshFn>();
+    return obj;
+}
+static SinFn *SinFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SinFn>();
+    return obj;
+}
+static SinhFn *SinhFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SinhFn>();
+    return obj;
+}
+static TanFn *TanFn_new(Pool *pool) {
+    auto obj = pool->template alloc<TanFn>();
+    return obj;
+}
+static TanhFn *TanhFn_new(Pool *pool) {
+    auto obj = pool->template alloc<TanhFn>();
+    return obj;
+}
+static ExpFn *ExpFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ExpFn>();
+    return obj;
+}
+static Exp2Fn *Exp2Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Exp2Fn>();
+    return obj;
+}
+static Exp10Fn *Exp10Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Exp10Fn>();
+    return obj;
+}
+static LogFn *LogFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LogFn>();
+    return obj;
+}
+static Log2Fn *Log2Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Log2Fn>();
+    return obj;
+}
+static Log10Fn *Log10Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Log10Fn>();
+    return obj;
+}
+static PowiFn *PowiFn_new(Pool *pool) {
+    auto obj = pool->template alloc<PowiFn>();
+    return obj;
+}
+static PowfFn *PowfFn_new(Pool *pool) {
+    auto obj = pool->template alloc<PowfFn>();
+    return obj;
+}
+static SqrtFn *SqrtFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SqrtFn>();
+    return obj;
+}
+static RsqrtFn *RsqrtFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RsqrtFn>();
+    return obj;
+}
+static CeilFn *CeilFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CeilFn>();
+    return obj;
+}
+static FloorFn *FloorFn_new(Pool *pool) {
+    auto obj = pool->template alloc<FloorFn>();
+    return obj;
+}
+static FractFn *FractFn_new(Pool *pool) {
+    auto obj = pool->template alloc<FractFn>();
+    return obj;
+}
+static TruncFn *TruncFn_new(Pool *pool) {
+    auto obj = pool->template alloc<TruncFn>();
+    return obj;
+}
+static RoundFn *RoundFn_new(Pool *pool) {
+    auto obj = pool->template alloc<RoundFn>();
+    return obj;
+}
+static FmaFn *FmaFn_new(Pool *pool) {
+    auto obj = pool->template alloc<FmaFn>();
+    return obj;
+}
+static CopysignFn *CopysignFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CopysignFn>();
+    return obj;
+}
+static CrossFn *CrossFn_new(Pool *pool) {
+    auto obj = pool->template alloc<CrossFn>();
+    return obj;
+}
+static DotFn *DotFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DotFn>();
+    return obj;
+}
+static OuterProductFn *OuterProductFn_new(Pool *pool) {
+    auto obj = pool->template alloc<OuterProductFn>();
+    return obj;
+}
+static LengthFn *LengthFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LengthFn>();
+    return obj;
+}
+static LengthSquaredFn *LengthSquaredFn_new(Pool *pool) {
+    auto obj = pool->template alloc<LengthSquaredFn>();
+    return obj;
+}
+static NormalizeFn *NormalizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<NormalizeFn>();
+    return obj;
+}
+static FaceforwardFn *FaceforwardFn_new(Pool *pool) {
+    auto obj = pool->template alloc<FaceforwardFn>();
+    return obj;
+}
+static DistanceFn *DistanceFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DistanceFn>();
+    return obj;
+}
+static ReflectFn *ReflectFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ReflectFn>();
+    return obj;
+}
+static DeterminantFn *DeterminantFn_new(Pool *pool) {
+    auto obj = pool->template alloc<DeterminantFn>();
+    return obj;
+}
+static TransposeFn *TransposeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<TransposeFn>();
+    return obj;
+}
+static InverseFn *InverseFn_new(Pool *pool) {
+    auto obj = pool->template alloc<InverseFn>();
+    return obj;
+}
+static WarpIsFirstActiveLaneFn *WarpIsFirstActiveLaneFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpIsFirstActiveLaneFn>();
+    return obj;
+}
+static WarpFirstActiveLaneFn *WarpFirstActiveLaneFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpFirstActiveLaneFn>();
+    return obj;
+}
+static WarpActiveAllEqualFn *WarpActiveAllEqualFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveAllEqualFn>();
+    return obj;
+}
+static WarpActiveBitAndFn *WarpActiveBitAndFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveBitAndFn>();
+    return obj;
+}
+static WarpActiveBitOrFn *WarpActiveBitOrFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveBitOrFn>();
+    return obj;
+}
+static WarpActiveBitXorFn *WarpActiveBitXorFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveBitXorFn>();
+    return obj;
+}
+static WarpActiveCountBitsFn *WarpActiveCountBitsFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveCountBitsFn>();
+    return obj;
+}
+static WarpActiveMaxFn *WarpActiveMaxFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveMaxFn>();
+    return obj;
+}
+static WarpActiveMinFn *WarpActiveMinFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveMinFn>();
+    return obj;
+}
+static WarpActiveProductFn *WarpActiveProductFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveProductFn>();
+    return obj;
+}
+static WarpActiveSumFn *WarpActiveSumFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveSumFn>();
+    return obj;
+}
+static WarpActiveAllFn *WarpActiveAllFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveAllFn>();
+    return obj;
+}
+static WarpActiveAnyFn *WarpActiveAnyFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveAnyFn>();
+    return obj;
+}
+static WarpActiveBitMaskFn *WarpActiveBitMaskFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpActiveBitMaskFn>();
+    return obj;
+}
+static WarpPrefixCountBitsFn *WarpPrefixCountBitsFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpPrefixCountBitsFn>();
+    return obj;
+}
+static WarpPrefixSumFn *WarpPrefixSumFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpPrefixSumFn>();
+    return obj;
+}
+static WarpPrefixProductFn *WarpPrefixProductFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpPrefixProductFn>();
+    return obj;
+}
+static WarpReadLaneAtFn *WarpReadLaneAtFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpReadLaneAtFn>();
+    return obj;
+}
+static WarpReadFirstLaneFn *WarpReadFirstLaneFn_new(Pool *pool) {
+    auto obj = pool->template alloc<WarpReadFirstLaneFn>();
+    return obj;
+}
+static SynchronizeBlockFn *SynchronizeBlockFn_new(Pool *pool) {
+    auto obj = pool->template alloc<SynchronizeBlockFn>();
+    return obj;
+}
+static AtomicExchangeFn *AtomicExchangeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicExchangeFn>();
+    return obj;
+}
+static AtomicCompareExchangeFn *AtomicCompareExchangeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicCompareExchangeFn>();
+    return obj;
+}
+static AtomicFetchAddFn *AtomicFetchAddFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchAddFn>();
+    return obj;
+}
+static AtomicFetchSubFn *AtomicFetchSubFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchSubFn>();
+    return obj;
+}
+static AtomicFetchAndFn *AtomicFetchAndFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchAndFn>();
+    return obj;
+}
+static AtomicFetchOrFn *AtomicFetchOrFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchOrFn>();
+    return obj;
+}
+static AtomicFetchXorFn *AtomicFetchXorFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchXorFn>();
+    return obj;
+}
+static AtomicFetchMinFn *AtomicFetchMinFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchMinFn>();
+    return obj;
+}
+static AtomicFetchMaxFn *AtomicFetchMaxFn_new(Pool *pool) {
+    auto obj = pool->template alloc<AtomicFetchMaxFn>();
+    return obj;
+}
+static BufferWriteFn *BufferWriteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BufferWriteFn>();
+    return obj;
+}
+static BufferReadFn *BufferReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BufferReadFn>();
+    return obj;
+}
+static BufferSizeFn *BufferSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BufferSizeFn>();
+    return obj;
+}
+static ByteBufferWriteFn *ByteBufferWriteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ByteBufferWriteFn>();
+    return obj;
+}
+static ByteBufferReadFn *ByteBufferReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ByteBufferReadFn>();
+    return obj;
+}
+static ByteBufferSizeFn *ByteBufferSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ByteBufferSizeFn>();
+    return obj;
+}
+static Texture2dReadFn *Texture2dReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture2dReadFn>();
+    return obj;
+}
+static Texture2dWriteFn *Texture2dWriteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture2dWriteFn>();
+    return obj;
+}
+static Texture2dSizeFn *Texture2dSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture2dSizeFn>();
+    return obj;
+}
+static Texture3dReadFn *Texture3dReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture3dReadFn>();
+    return obj;
+}
+static Texture3dWriteFn *Texture3dWriteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture3dWriteFn>();
+    return obj;
+}
+static Texture3dSizeFn *Texture3dSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture3dSizeFn>();
+    return obj;
+}
+static BindlessTexture2dSampleFn *BindlessTexture2dSampleFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dSampleFn>();
+    return obj;
+}
+static BindlessTexture2dSampleLevelFn *BindlessTexture2dSampleLevelFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dSampleLevelFn>();
+    return obj;
+}
+static BindlessTexture2dSampleGradFn *BindlessTexture2dSampleGradFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dSampleGradFn>();
+    return obj;
+}
+static BindlessTexture2dSampleGradLevelFn *BindlessTexture2dSampleGradLevelFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dSampleGradLevelFn>();
+    return obj;
+}
+static BindlessTexture2dReadFn *BindlessTexture2dReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dReadFn>();
+    return obj;
+}
+static BindlessTexture2dSizeFn *BindlessTexture2dSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dSizeFn>();
+    return obj;
+}
+static BindlessTexture2dSizeLevelFn *BindlessTexture2dSizeLevelFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture2dSizeLevelFn>();
+    return obj;
+}
+static BindlessTexture3dSampleFn *BindlessTexture3dSampleFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dSampleFn>();
+    return obj;
+}
+static BindlessTexture3dSampleLevelFn *BindlessTexture3dSampleLevelFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dSampleLevelFn>();
+    return obj;
+}
+static BindlessTexture3dSampleGradFn *BindlessTexture3dSampleGradFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dSampleGradFn>();
+    return obj;
+}
+static BindlessTexture3dSampleGradLevelFn *BindlessTexture3dSampleGradLevelFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dSampleGradLevelFn>();
+    return obj;
+}
+static BindlessTexture3dReadFn *BindlessTexture3dReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dReadFn>();
+    return obj;
+}
+static BindlessTexture3dSizeFn *BindlessTexture3dSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dSizeFn>();
+    return obj;
+}
+static BindlessTexture3dSizeLevelFn *BindlessTexture3dSizeLevelFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessTexture3dSizeLevelFn>();
+    return obj;
+}
+static BindlessBufferWriteFn *BindlessBufferWriteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessBufferWriteFn>();
+    return obj;
+}
+static BindlessBufferReadFn *BindlessBufferReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessBufferReadFn>();
+    return obj;
+}
+static BindlessBufferSizeFn *BindlessBufferSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessBufferSizeFn>();
+    return obj;
+}
+static BindlessByteBufferWriteFn *BindlessByteBufferWriteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessByteBufferWriteFn>();
+    return obj;
+}
+static BindlessByteBufferReadFn *BindlessByteBufferReadFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessByteBufferReadFn>();
+    return obj;
+}
+static BindlessByteBufferSizeFn *BindlessByteBufferSizeFn_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessByteBufferSizeFn>();
+    return obj;
+}
+static VecFn *VecFn_new(Pool *pool) {
+    auto obj = pool->template alloc<VecFn>();
+    return obj;
+}
+static Vec2Fn *Vec2Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Vec2Fn>();
+    return obj;
+}
+static Vec3Fn *Vec3Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Vec3Fn>();
+    return obj;
+}
+static Vec4Fn *Vec4Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Vec4Fn>();
+    return obj;
+}
+static PermuteFn *PermuteFn_new(Pool *pool) {
+    auto obj = pool->template alloc<PermuteFn>();
+    return obj;
+}
+static GetElementPtrFn *GetElementPtrFn_new(Pool *pool) {
+    auto obj = pool->template alloc<GetElementPtrFn>();
+    return obj;
+}
+static ExtractElementFn *ExtractElementFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ExtractElementFn>();
+    return obj;
+}
+static InsertElementFn *InsertElementFn_new(Pool *pool) {
+    auto obj = pool->template alloc<InsertElementFn>();
+    return obj;
+}
+static ArrayFn *ArrayFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ArrayFn>();
+    return obj;
+}
+static StructFn *StructFn_new(Pool *pool) {
+    auto obj = pool->template alloc<StructFn>();
+    return obj;
+}
+static MatFullFn *MatFullFn_new(Pool *pool) {
+    auto obj = pool->template alloc<MatFullFn>();
+    return obj;
+}
+static Mat2Fn *Mat2Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Mat2Fn>();
+    return obj;
+}
+static Mat3Fn *Mat3Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Mat3Fn>();
+    return obj;
+}
+static Mat4Fn *Mat4Fn_new(Pool *pool) {
+    auto obj = pool->template alloc<Mat4Fn>();
+    return obj;
+}
 static const Type *BindlessAtomicExchangeFn_ty(BindlessAtomicExchangeFn *self) {
     return self->ty;
 }
 static void BindlessAtomicExchangeFn_set_ty(BindlessAtomicExchangeFn *self, const Type *value) {
     self->ty = value;
+}
+static BindlessAtomicExchangeFn *BindlessAtomicExchangeFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicExchangeFn>();
+    BindlessAtomicExchangeFn_set_ty(obj, ty);
+    return obj;
 }
 static const Type *BindlessAtomicCompareExchangeFn_ty(BindlessAtomicCompareExchangeFn *self) {
     return self->ty;
@@ -657,11 +1456,21 @@ static const Type *BindlessAtomicCompareExchangeFn_ty(BindlessAtomicCompareExcha
 static void BindlessAtomicCompareExchangeFn_set_ty(BindlessAtomicCompareExchangeFn *self, const Type *value) {
     self->ty = value;
 }
+static BindlessAtomicCompareExchangeFn *BindlessAtomicCompareExchangeFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicCompareExchangeFn>();
+    BindlessAtomicCompareExchangeFn_set_ty(obj, ty);
+    return obj;
+}
 static const Type *BindlessAtomicFetchAddFn_ty(BindlessAtomicFetchAddFn *self) {
     return self->ty;
 }
 static void BindlessAtomicFetchAddFn_set_ty(BindlessAtomicFetchAddFn *self, const Type *value) {
     self->ty = value;
+}
+static BindlessAtomicFetchAddFn *BindlessAtomicFetchAddFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchAddFn>();
+    BindlessAtomicFetchAddFn_set_ty(obj, ty);
+    return obj;
 }
 static const Type *BindlessAtomicFetchSubFn_ty(BindlessAtomicFetchSubFn *self) {
     return self->ty;
@@ -669,11 +1478,21 @@ static const Type *BindlessAtomicFetchSubFn_ty(BindlessAtomicFetchSubFn *self) {
 static void BindlessAtomicFetchSubFn_set_ty(BindlessAtomicFetchSubFn *self, const Type *value) {
     self->ty = value;
 }
+static BindlessAtomicFetchSubFn *BindlessAtomicFetchSubFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchSubFn>();
+    BindlessAtomicFetchSubFn_set_ty(obj, ty);
+    return obj;
+}
 static const Type *BindlessAtomicFetchAndFn_ty(BindlessAtomicFetchAndFn *self) {
     return self->ty;
 }
 static void BindlessAtomicFetchAndFn_set_ty(BindlessAtomicFetchAndFn *self, const Type *value) {
     self->ty = value;
+}
+static BindlessAtomicFetchAndFn *BindlessAtomicFetchAndFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchAndFn>();
+    BindlessAtomicFetchAndFn_set_ty(obj, ty);
+    return obj;
 }
 static const Type *BindlessAtomicFetchOrFn_ty(BindlessAtomicFetchOrFn *self) {
     return self->ty;
@@ -681,11 +1500,21 @@ static const Type *BindlessAtomicFetchOrFn_ty(BindlessAtomicFetchOrFn *self) {
 static void BindlessAtomicFetchOrFn_set_ty(BindlessAtomicFetchOrFn *self, const Type *value) {
     self->ty = value;
 }
+static BindlessAtomicFetchOrFn *BindlessAtomicFetchOrFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchOrFn>();
+    BindlessAtomicFetchOrFn_set_ty(obj, ty);
+    return obj;
+}
 static const Type *BindlessAtomicFetchXorFn_ty(BindlessAtomicFetchXorFn *self) {
     return self->ty;
 }
 static void BindlessAtomicFetchXorFn_set_ty(BindlessAtomicFetchXorFn *self, const Type *value) {
     self->ty = value;
+}
+static BindlessAtomicFetchXorFn *BindlessAtomicFetchXorFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchXorFn>();
+    BindlessAtomicFetchXorFn_set_ty(obj, ty);
+    return obj;
 }
 static const Type *BindlessAtomicFetchMinFn_ty(BindlessAtomicFetchMinFn *self) {
     return self->ty;
@@ -693,11 +1522,21 @@ static const Type *BindlessAtomicFetchMinFn_ty(BindlessAtomicFetchMinFn *self) {
 static void BindlessAtomicFetchMinFn_set_ty(BindlessAtomicFetchMinFn *self, const Type *value) {
     self->ty = value;
 }
+static BindlessAtomicFetchMinFn *BindlessAtomicFetchMinFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchMinFn>();
+    BindlessAtomicFetchMinFn_set_ty(obj, ty);
+    return obj;
+}
 static const Type *BindlessAtomicFetchMaxFn_ty(BindlessAtomicFetchMaxFn *self) {
     return self->ty;
 }
 static void BindlessAtomicFetchMaxFn_set_ty(BindlessAtomicFetchMaxFn *self, const Type *value) {
     self->ty = value;
+}
+static BindlessAtomicFetchMaxFn *BindlessAtomicFetchMaxFn_new(Pool *pool, const Type *ty) {
+    auto obj = pool->template alloc<BindlessAtomicFetchMaxFn>();
+    BindlessAtomicFetchMaxFn_set_ty(obj, ty);
+    return obj;
 }
 static CallableModule *CallableFn_module(CallableFn *self) {
     return self->module.get();
@@ -705,11 +1544,25 @@ static CallableModule *CallableFn_module(CallableFn *self) {
 static void CallableFn_set_module(CallableFn *self, CallableModule *value) {
     self->module = luisa::static_pointer_cast<std::decay_t<decltype(self->module)>::element_type>(value->shared_from_this());
 }
+static CallableFn *CallableFn_new(Pool *pool, CallableModule *module) {
+    auto obj = pool->template alloc<CallableFn>();
+    CallableFn_set_module(obj, module);
+    return obj;
+}
 static CpuExternFn CpuExtFn_f(CpuExtFn *self) {
     return self->f;
 }
 static void CpuExtFn_set_f(CpuExtFn *self, CpuExternFn value) {
     self->f = value;
+}
+static CpuExtFn *CpuExtFn_new(Pool *pool, CpuExternFn f) {
+    auto obj = pool->template alloc<CpuExtFn>();
+    CpuExtFn_set_f(obj, f);
+    return obj;
+}
+static ShaderExecutionReorderFn *ShaderExecutionReorderFn_new(Pool *pool) {
+    auto obj = pool->template alloc<ShaderExecutionReorderFn>();
+    return obj;
 }
 static BufferInst *Instruction_as_BufferInst(Instruction *self) {
     return self->as<BufferInst>();
@@ -786,11 +1639,44 @@ static FwdAutodiffInst *Instruction_as_FwdAutodiffInst(Instruction *self) {
 static InstructionTag Instruction_tag(Instruction *self) {
     return self->tag();
 }
+static BufferInst *BufferInst_new(Pool *pool) {
+    auto obj = pool->template alloc<BufferInst>();
+    return obj;
+}
+static Texture2dInst *Texture2dInst_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture2dInst>();
+    return obj;
+}
+static Texture3dInst *Texture3dInst_new(Pool *pool) {
+    auto obj = pool->template alloc<Texture3dInst>();
+    return obj;
+}
+static BindlessArrayInst *BindlessArrayInst_new(Pool *pool) {
+    auto obj = pool->template alloc<BindlessArrayInst>();
+    return obj;
+}
+static AccelInst *AccelInst_new(Pool *pool) {
+    auto obj = pool->template alloc<AccelInst>();
+    return obj;
+}
+static SharedInst *SharedInst_new(Pool *pool) {
+    auto obj = pool->template alloc<SharedInst>();
+    return obj;
+}
+static UniformInst *UniformInst_new(Pool *pool) {
+    auto obj = pool->template alloc<UniformInst>();
+    return obj;
+}
 static bool ArgumentInst_by_value(ArgumentInst *self) {
     return self->by_value;
 }
 static void ArgumentInst_set_by_value(ArgumentInst *self, bool value) {
     self->by_value = value;
+}
+static ArgumentInst *ArgumentInst_new(Pool *pool, bool by_value) {
+    auto obj = pool->template alloc<ArgumentInst>();
+    ArgumentInst_set_by_value(obj, by_value);
+    return obj;
 }
 static const Type *ConstantInst_ty(ConstantInst *self) {
     return self->ty;
@@ -804,6 +1690,12 @@ static void ConstantInst_set_ty(ConstantInst *self, const Type *value) {
 static void ConstantInst_set_value(ConstantInst *self, Slice<uint8_t> value) {
     self->value = value.to_vector();
 }
+static ConstantInst *ConstantInst_new(Pool *pool, const Type *ty, Slice<uint8_t> value) {
+    auto obj = pool->template alloc<ConstantInst>();
+    ConstantInst_set_ty(obj, ty);
+    ConstantInst_set_value(obj, value);
+    return obj;
+}
 static const Func *CallInst_func(CallInst *self) {
     return self->func;
 }
@@ -816,11 +1708,26 @@ static void CallInst_set_func(CallInst *self, const Func *value) {
 static void CallInst_set_args(CallInst *self, Slice<Node *> value) {
     self->args = value.to_vector();
 }
+static CallInst *CallInst_new(Pool *pool, const Func *func, Slice<Node *> args) {
+    auto obj = pool->template alloc<CallInst>();
+    CallInst_set_func(obj, func);
+    CallInst_set_args(obj, args);
+    return obj;
+}
 static Slice<PhiIncoming> PhiInst_incomings(PhiInst *self) {
     return self->incomings;
 }
 static void PhiInst_set_incomings(PhiInst *self, Slice<PhiIncoming> value) {
     self->incomings = value.to_vector();
+}
+static PhiInst *PhiInst_new(Pool *pool, Slice<PhiIncoming> incomings) {
+    auto obj = pool->template alloc<PhiInst>();
+    PhiInst_set_incomings(obj, incomings);
+    return obj;
+}
+static BasicBlockSentinelInst *BasicBlockSentinelInst_new(Pool *pool) {
+    auto obj = pool->template alloc<BasicBlockSentinelInst>();
+    return obj;
 }
 static Node *IfInst_cond(IfInst *self) {
     return self->cond;
@@ -839,6 +1746,13 @@ static void IfInst_set_true_branch(IfInst *self, BasicBlock *value) {
 }
 static void IfInst_set_false_branch(IfInst *self, BasicBlock *value) {
     self->false_branch = value;
+}
+static IfInst *IfInst_new(Pool *pool, Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) {
+    auto obj = pool->template alloc<IfInst>();
+    IfInst_set_cond(obj, cond);
+    IfInst_set_true_branch(obj, true_branch);
+    IfInst_set_false_branch(obj, false_branch);
+    return obj;
 }
 static BasicBlock *GenericLoopInst_prepare(GenericLoopInst *self) {
     return self->prepare;
@@ -864,6 +1778,14 @@ static void GenericLoopInst_set_body(GenericLoopInst *self, BasicBlock *value) {
 static void GenericLoopInst_set_update(GenericLoopInst *self, BasicBlock *value) {
     self->update = value;
 }
+static GenericLoopInst *GenericLoopInst_new(Pool *pool, BasicBlock *prepare, Node *cond, BasicBlock *body, BasicBlock *update) {
+    auto obj = pool->template alloc<GenericLoopInst>();
+    GenericLoopInst_set_prepare(obj, prepare);
+    GenericLoopInst_set_cond(obj, cond);
+    GenericLoopInst_set_body(obj, body);
+    GenericLoopInst_set_update(obj, update);
+    return obj;
+}
 static Node *SwitchInst_value(SwitchInst *self) {
     return self->value;
 }
@@ -882,17 +1804,42 @@ static void SwitchInst_set_cases(SwitchInst *self, Slice<SwitchCase> value) {
 static void SwitchInst_set_default_(SwitchInst *self, BasicBlock *value) {
     self->default_ = value;
 }
+static SwitchInst *SwitchInst_new(Pool *pool, Node *value, Slice<SwitchCase> cases, BasicBlock *default_) {
+    auto obj = pool->template alloc<SwitchInst>();
+    SwitchInst_set_value(obj, value);
+    SwitchInst_set_cases(obj, cases);
+    SwitchInst_set_default_(obj, default_);
+    return obj;
+}
 static Node *LocalInst_init(LocalInst *self) {
     return self->init;
 }
 static void LocalInst_set_init(LocalInst *self, Node *value) {
     self->init = value;
 }
+static LocalInst *LocalInst_new(Pool *pool, Node *init) {
+    auto obj = pool->template alloc<LocalInst>();
+    LocalInst_set_init(obj, init);
+    return obj;
+}
+static BreakInst *BreakInst_new(Pool *pool) {
+    auto obj = pool->template alloc<BreakInst>();
+    return obj;
+}
+static ContinueInst *ContinueInst_new(Pool *pool) {
+    auto obj = pool->template alloc<ContinueInst>();
+    return obj;
+}
 static Node *ReturnInst_value(ReturnInst *self) {
     return self->value;
 }
 static void ReturnInst_set_value(ReturnInst *self, Node *value) {
     self->value = value;
+}
+static ReturnInst *ReturnInst_new(Pool *pool, Node *value) {
+    auto obj = pool->template alloc<ReturnInst>();
+    ReturnInst_set_value(obj, value);
+    return obj;
 }
 static Slice<const char> PrintInst_fmt(PrintInst *self) {
     return self->fmt;
@@ -906,6 +1853,12 @@ static void PrintInst_set_fmt(PrintInst *self, Slice<const char> value) {
 static void PrintInst_set_args(PrintInst *self, Slice<Node *> value) {
     self->args = value.to_vector();
 }
+static PrintInst *PrintInst_new(Pool *pool, Slice<const char> fmt, Slice<Node *> args) {
+    auto obj = pool->template alloc<PrintInst>();
+    PrintInst_set_fmt(obj, fmt);
+    PrintInst_set_args(obj, args);
+    return obj;
+}
 static Node *UpdateInst_var(UpdateInst *self) {
     return self->var;
 }
@@ -917,6 +1870,12 @@ static void UpdateInst_set_var(UpdateInst *self, Node *value) {
 }
 static void UpdateInst_set_value(UpdateInst *self, Node *value) {
     self->value = value;
+}
+static UpdateInst *UpdateInst_new(Pool *pool, Node *var, Node *value) {
+    auto obj = pool->template alloc<UpdateInst>();
+    UpdateInst_set_var(obj, var);
+    UpdateInst_set_value(obj, value);
+    return obj;
 }
 static Node *RayQueryInst_query(RayQueryInst *self) {
     return self->query;
@@ -936,17 +1895,34 @@ static void RayQueryInst_set_on_triangle_hit(RayQueryInst *self, BasicBlock *val
 static void RayQueryInst_set_on_procedural_hit(RayQueryInst *self, BasicBlock *value) {
     self->on_procedural_hit = value;
 }
+static RayQueryInst *RayQueryInst_new(Pool *pool, Node *query, BasicBlock *on_triangle_hit, BasicBlock *on_procedural_hit) {
+    auto obj = pool->template alloc<RayQueryInst>();
+    RayQueryInst_set_query(obj, query);
+    RayQueryInst_set_on_triangle_hit(obj, on_triangle_hit);
+    RayQueryInst_set_on_procedural_hit(obj, on_procedural_hit);
+    return obj;
+}
 static BasicBlock *RevAutodiffInst_body(RevAutodiffInst *self) {
     return self->body;
 }
 static void RevAutodiffInst_set_body(RevAutodiffInst *self, BasicBlock *value) {
     self->body = value;
 }
+static RevAutodiffInst *RevAutodiffInst_new(Pool *pool, BasicBlock *body) {
+    auto obj = pool->template alloc<RevAutodiffInst>();
+    RevAutodiffInst_set_body(obj, body);
+    return obj;
+}
 static BasicBlock *FwdAutodiffInst_body(FwdAutodiffInst *self) {
     return self->body;
 }
 static void FwdAutodiffInst_set_body(FwdAutodiffInst *self, BasicBlock *value) {
     self->body = value;
+}
+static FwdAutodiffInst *FwdAutodiffInst_new(Pool *pool, BasicBlock *body) {
+    auto obj = pool->template alloc<FwdAutodiffInst>();
+    FwdAutodiffInst_set_body(obj, body);
+    return obj;
 }
 Func *create_func_from_tag(Pool &pool, FuncTag tag) {
     switch (tag) {
@@ -1195,6 +2171,13 @@ static void BufferBinding_set_offset(BufferBinding *self, uint64_t value) {
 static void BufferBinding_set_size(BufferBinding *self, uint64_t value) {
     self->size = value;
 }
+static BufferBinding *BufferBinding_new(Pool *pool, uint64_t handle, uint64_t offset, uint64_t size) {
+    auto obj = pool->template alloc<BufferBinding>();
+    BufferBinding_set_handle(obj, handle);
+    BufferBinding_set_offset(obj, offset);
+    BufferBinding_set_size(obj, size);
+    return obj;
+}
 static uint64_t TextureBinding_handle(TextureBinding *self) {
     return self->handle;
 }
@@ -1207,17 +2190,33 @@ static void TextureBinding_set_handle(TextureBinding *self, uint64_t value) {
 static void TextureBinding_set_level(TextureBinding *self, uint64_t value) {
     self->level = value;
 }
+static TextureBinding *TextureBinding_new(Pool *pool, uint64_t handle, uint64_t level) {
+    auto obj = pool->template alloc<TextureBinding>();
+    TextureBinding_set_handle(obj, handle);
+    TextureBinding_set_level(obj, level);
+    return obj;
+}
 static uint64_t BindlessArrayBinding_handle(BindlessArrayBinding *self) {
     return self->handle;
 }
 static void BindlessArrayBinding_set_handle(BindlessArrayBinding *self, uint64_t value) {
     self->handle = value;
 }
+static BindlessArrayBinding *BindlessArrayBinding_new(Pool *pool, uint64_t handle) {
+    auto obj = pool->template alloc<BindlessArrayBinding>();
+    BindlessArrayBinding_set_handle(obj, handle);
+    return obj;
+}
 static uint64_t AccelBinding_handle(AccelBinding *self) {
     return self->handle;
 }
 static void AccelBinding_set_handle(AccelBinding *self, uint64_t value) {
     self->handle = value;
+}
+static AccelBinding *AccelBinding_new(Pool *pool, uint64_t handle) {
+    auto obj = pool->template alloc<AccelBinding>();
+    AccelBinding_set_handle(obj, handle);
+    return obj;
 }
 extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
     return {
@@ -1432,32 +2431,242 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Func_as_CpuExtFn,
         Func_as_ShaderExecutionReorderFn,
         Func_tag,
+        ZeroFn_new,
+        OneFn_new,
         AssumeFn_msg,
         AssumeFn_set_msg,
+        AssumeFn_new,
         UnreachableFn_msg,
         UnreachableFn_set_msg,
+        UnreachableFn_new,
+        ThreadIdFn_new,
+        BlockIdFn_new,
+        WarpSizeFn_new,
+        WarpLaneIdFn_new,
+        DispatchIdFn_new,
+        DispatchSizeFn_new,
+        PropagateGradientFn_new,
+        OutputGradientFn_new,
+        RequiresGradientFn_new,
+        BackwardFn_new,
+        GradientFn_new,
+        AccGradFn_new,
+        DetachFn_new,
+        RayTracingInstanceTransformFn_new,
+        RayTracingInstanceVisibilityMaskFn_new,
+        RayTracingInstanceUserIdFn_new,
+        RayTracingSetInstanceTransformFn_new,
+        RayTracingSetInstanceOpacityFn_new,
+        RayTracingSetInstanceVisibilityFn_new,
+        RayTracingSetInstanceUserIdFn_new,
+        RayTracingTraceClosestFn_new,
+        RayTracingTraceAnyFn_new,
+        RayTracingQueryAllFn_new,
+        RayTracingQueryAnyFn_new,
+        RayQueryWorldSpaceRayFn_new,
+        RayQueryProceduralCandidateHitFn_new,
+        RayQueryTriangleCandidateHitFn_new,
+        RayQueryCommittedHitFn_new,
+        RayQueryCommitTriangleFn_new,
+        RayQueryCommitdProceduralFn_new,
+        RayQueryTerminateFn_new,
+        LoadFn_new,
+        CastFn_new,
+        BitCastFn_new,
+        AddFn_new,
+        SubFn_new,
+        MulFn_new,
+        DivFn_new,
+        RemFn_new,
+        BitAndFn_new,
+        BitOrFn_new,
+        BitXorFn_new,
+        ShlFn_new,
+        ShrFn_new,
+        RotRightFn_new,
+        RotLeftFn_new,
+        EqFn_new,
+        NeFn_new,
+        LtFn_new,
+        LeFn_new,
+        GtFn_new,
+        GeFn_new,
+        MatCompMulFn_new,
+        NegFn_new,
+        NotFn_new,
+        BitNotFn_new,
+        AllFn_new,
+        AnyFn_new,
+        SelectFn_new,
+        ClampFn_new,
+        LerpFn_new,
+        StepFn_new,
+        SaturateFn_new,
+        SmoothStepFn_new,
+        AbsFn_new,
+        MinFn_new,
+        MaxFn_new,
+        ReduceSumFn_new,
+        ReduceProdFn_new,
+        ReduceMinFn_new,
+        ReduceMaxFn_new,
+        ClzFn_new,
+        CtzFn_new,
+        PopCountFn_new,
+        ReverseFn_new,
+        IsInfFn_new,
+        IsNanFn_new,
+        AcosFn_new,
+        AcoshFn_new,
+        AsinFn_new,
+        AsinhFn_new,
+        AtanFn_new,
+        Atan2Fn_new,
+        AtanhFn_new,
+        CosFn_new,
+        CoshFn_new,
+        SinFn_new,
+        SinhFn_new,
+        TanFn_new,
+        TanhFn_new,
+        ExpFn_new,
+        Exp2Fn_new,
+        Exp10Fn_new,
+        LogFn_new,
+        Log2Fn_new,
+        Log10Fn_new,
+        PowiFn_new,
+        PowfFn_new,
+        SqrtFn_new,
+        RsqrtFn_new,
+        CeilFn_new,
+        FloorFn_new,
+        FractFn_new,
+        TruncFn_new,
+        RoundFn_new,
+        FmaFn_new,
+        CopysignFn_new,
+        CrossFn_new,
+        DotFn_new,
+        OuterProductFn_new,
+        LengthFn_new,
+        LengthSquaredFn_new,
+        NormalizeFn_new,
+        FaceforwardFn_new,
+        DistanceFn_new,
+        ReflectFn_new,
+        DeterminantFn_new,
+        TransposeFn_new,
+        InverseFn_new,
+        WarpIsFirstActiveLaneFn_new,
+        WarpFirstActiveLaneFn_new,
+        WarpActiveAllEqualFn_new,
+        WarpActiveBitAndFn_new,
+        WarpActiveBitOrFn_new,
+        WarpActiveBitXorFn_new,
+        WarpActiveCountBitsFn_new,
+        WarpActiveMaxFn_new,
+        WarpActiveMinFn_new,
+        WarpActiveProductFn_new,
+        WarpActiveSumFn_new,
+        WarpActiveAllFn_new,
+        WarpActiveAnyFn_new,
+        WarpActiveBitMaskFn_new,
+        WarpPrefixCountBitsFn_new,
+        WarpPrefixSumFn_new,
+        WarpPrefixProductFn_new,
+        WarpReadLaneAtFn_new,
+        WarpReadFirstLaneFn_new,
+        SynchronizeBlockFn_new,
+        AtomicExchangeFn_new,
+        AtomicCompareExchangeFn_new,
+        AtomicFetchAddFn_new,
+        AtomicFetchSubFn_new,
+        AtomicFetchAndFn_new,
+        AtomicFetchOrFn_new,
+        AtomicFetchXorFn_new,
+        AtomicFetchMinFn_new,
+        AtomicFetchMaxFn_new,
+        BufferWriteFn_new,
+        BufferReadFn_new,
+        BufferSizeFn_new,
+        ByteBufferWriteFn_new,
+        ByteBufferReadFn_new,
+        ByteBufferSizeFn_new,
+        Texture2dReadFn_new,
+        Texture2dWriteFn_new,
+        Texture2dSizeFn_new,
+        Texture3dReadFn_new,
+        Texture3dWriteFn_new,
+        Texture3dSizeFn_new,
+        BindlessTexture2dSampleFn_new,
+        BindlessTexture2dSampleLevelFn_new,
+        BindlessTexture2dSampleGradFn_new,
+        BindlessTexture2dSampleGradLevelFn_new,
+        BindlessTexture2dReadFn_new,
+        BindlessTexture2dSizeFn_new,
+        BindlessTexture2dSizeLevelFn_new,
+        BindlessTexture3dSampleFn_new,
+        BindlessTexture3dSampleLevelFn_new,
+        BindlessTexture3dSampleGradFn_new,
+        BindlessTexture3dSampleGradLevelFn_new,
+        BindlessTexture3dReadFn_new,
+        BindlessTexture3dSizeFn_new,
+        BindlessTexture3dSizeLevelFn_new,
+        BindlessBufferWriteFn_new,
+        BindlessBufferReadFn_new,
+        BindlessBufferSizeFn_new,
+        BindlessByteBufferWriteFn_new,
+        BindlessByteBufferReadFn_new,
+        BindlessByteBufferSizeFn_new,
+        VecFn_new,
+        Vec2Fn_new,
+        Vec3Fn_new,
+        Vec4Fn_new,
+        PermuteFn_new,
+        GetElementPtrFn_new,
+        ExtractElementFn_new,
+        InsertElementFn_new,
+        ArrayFn_new,
+        StructFn_new,
+        MatFullFn_new,
+        Mat2Fn_new,
+        Mat3Fn_new,
+        Mat4Fn_new,
         BindlessAtomicExchangeFn_ty,
         BindlessAtomicExchangeFn_set_ty,
+        BindlessAtomicExchangeFn_new,
         BindlessAtomicCompareExchangeFn_ty,
         BindlessAtomicCompareExchangeFn_set_ty,
+        BindlessAtomicCompareExchangeFn_new,
         BindlessAtomicFetchAddFn_ty,
         BindlessAtomicFetchAddFn_set_ty,
+        BindlessAtomicFetchAddFn_new,
         BindlessAtomicFetchSubFn_ty,
         BindlessAtomicFetchSubFn_set_ty,
+        BindlessAtomicFetchSubFn_new,
         BindlessAtomicFetchAndFn_ty,
         BindlessAtomicFetchAndFn_set_ty,
+        BindlessAtomicFetchAndFn_new,
         BindlessAtomicFetchOrFn_ty,
         BindlessAtomicFetchOrFn_set_ty,
+        BindlessAtomicFetchOrFn_new,
         BindlessAtomicFetchXorFn_ty,
         BindlessAtomicFetchXorFn_set_ty,
+        BindlessAtomicFetchXorFn_new,
         BindlessAtomicFetchMinFn_ty,
         BindlessAtomicFetchMinFn_set_ty,
+        BindlessAtomicFetchMinFn_new,
         BindlessAtomicFetchMaxFn_ty,
         BindlessAtomicFetchMaxFn_set_ty,
+        BindlessAtomicFetchMaxFn_new,
         CallableFn_module,
         CallableFn_set_module,
+        CallableFn_new,
         CpuExtFn_f,
         CpuExtFn_set_f,
+        CpuExtFn_new,
+        ShaderExecutionReorderFn_new,
         Instruction_as_BufferInst,
         Instruction_as_Texture2dInst,
         Instruction_as_Texture3dInst,
@@ -1483,24 +2692,37 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Instruction_as_RevAutodiffInst,
         Instruction_as_FwdAutodiffInst,
         Instruction_tag,
+        BufferInst_new,
+        Texture2dInst_new,
+        Texture3dInst_new,
+        BindlessArrayInst_new,
+        AccelInst_new,
+        SharedInst_new,
+        UniformInst_new,
         ArgumentInst_by_value,
         ArgumentInst_set_by_value,
+        ArgumentInst_new,
         ConstantInst_ty,
         ConstantInst_value,
         ConstantInst_set_ty,
         ConstantInst_set_value,
+        ConstantInst_new,
         CallInst_func,
         CallInst_args,
         CallInst_set_func,
         CallInst_set_args,
+        CallInst_new,
         PhiInst_incomings,
         PhiInst_set_incomings,
+        PhiInst_new,
+        BasicBlockSentinelInst_new,
         IfInst_cond,
         IfInst_true_branch,
         IfInst_false_branch,
         IfInst_set_cond,
         IfInst_set_true_branch,
         IfInst_set_false_branch,
+        IfInst_new,
         GenericLoopInst_prepare,
         GenericLoopInst_cond,
         GenericLoopInst_body,
@@ -1509,34 +2731,45 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         GenericLoopInst_set_cond,
         GenericLoopInst_set_body,
         GenericLoopInst_set_update,
+        GenericLoopInst_new,
         SwitchInst_value,
         SwitchInst_cases,
         SwitchInst_default_,
         SwitchInst_set_value,
         SwitchInst_set_cases,
         SwitchInst_set_default_,
+        SwitchInst_new,
         LocalInst_init,
         LocalInst_set_init,
+        LocalInst_new,
+        BreakInst_new,
+        ContinueInst_new,
         ReturnInst_value,
         ReturnInst_set_value,
+        ReturnInst_new,
         PrintInst_fmt,
         PrintInst_args,
         PrintInst_set_fmt,
         PrintInst_set_args,
+        PrintInst_new,
         UpdateInst_var,
         UpdateInst_value,
         UpdateInst_set_var,
         UpdateInst_set_value,
+        UpdateInst_new,
         RayQueryInst_query,
         RayQueryInst_on_triangle_hit,
         RayQueryInst_on_procedural_hit,
         RayQueryInst_set_query,
         RayQueryInst_set_on_triangle_hit,
         RayQueryInst_set_on_procedural_hit,
+        RayQueryInst_new,
         RevAutodiffInst_body,
         RevAutodiffInst_set_body,
+        RevAutodiffInst_new,
         FwdAutodiffInst_body,
         FwdAutodiffInst_set_body,
+        FwdAutodiffInst_new,
         Binding_as_BufferBinding,
         Binding_as_TextureBinding,
         Binding_as_BindlessArrayBinding,
@@ -1548,14 +2781,18 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         BufferBinding_set_handle,
         BufferBinding_set_offset,
         BufferBinding_set_size,
+        BufferBinding_new,
         TextureBinding_handle,
         TextureBinding_level,
         TextureBinding_set_handle,
         TextureBinding_set_level,
+        TextureBinding_new,
         BindlessArrayBinding_handle,
         BindlessArrayBinding_set_handle,
+        BindlessArrayBinding_new,
         AccelBinding_handle,
         AccelBinding_set_handle,
+        AccelBinding_new,
     };
 }
 }// namespace luisa::compute::ir_v2

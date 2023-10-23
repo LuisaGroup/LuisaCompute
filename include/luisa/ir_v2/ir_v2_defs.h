@@ -35,6 +35,7 @@ public:
         return static_tag();
     }
 public:
+    ZeroFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -49,6 +50,7 @@ public:
         return static_tag();
     }
 public:
+    OneFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -64,6 +66,8 @@ public:
     }
 public:
     luisa::string msg;
+    AssumeFn() = default;
+    AssumeFn(luisa::string msg) : msg(msg) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -79,6 +83,8 @@ public:
     }
 public:
     luisa::string msg;
+    UnreachableFn() = default;
+    UnreachableFn(luisa::string msg) : msg(msg) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -93,6 +99,7 @@ public:
         return static_tag();
     }
 public:
+    ThreadIdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -107,6 +114,7 @@ public:
         return static_tag();
     }
 public:
+    BlockIdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -121,6 +129,7 @@ public:
         return static_tag();
     }
 public:
+    WarpSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -135,6 +144,7 @@ public:
         return static_tag();
     }
 public:
+    WarpLaneIdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -149,6 +159,7 @@ public:
         return static_tag();
     }
 public:
+    DispatchIdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -163,6 +174,7 @@ public:
         return static_tag();
     }
 public:
+    DispatchSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -177,6 +189,7 @@ public:
         return static_tag();
     }
 public:
+    PropagateGradientFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -191,6 +204,7 @@ public:
         return static_tag();
     }
 public:
+    OutputGradientFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -205,6 +219,7 @@ public:
         return static_tag();
     }
 public:
+    RequiresGradientFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -219,6 +234,7 @@ public:
         return static_tag();
     }
 public:
+    BackwardFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -233,6 +249,7 @@ public:
         return static_tag();
     }
 public:
+    GradientFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -247,6 +264,7 @@ public:
         return static_tag();
     }
 public:
+    AccGradFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -261,6 +279,7 @@ public:
         return static_tag();
     }
 public:
+    DetachFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -275,6 +294,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingInstanceTransformFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -289,6 +309,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingInstanceVisibilityMaskFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -303,6 +324,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingInstanceUserIdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -317,6 +339,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingSetInstanceTransformFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -331,6 +354,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingSetInstanceOpacityFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -345,6 +369,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingSetInstanceVisibilityFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -359,6 +384,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingSetInstanceUserIdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -373,6 +399,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingTraceClosestFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -387,6 +414,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingTraceAnyFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -401,6 +429,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingQueryAllFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -415,6 +444,7 @@ public:
         return static_tag();
     }
 public:
+    RayTracingQueryAnyFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -429,6 +459,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryWorldSpaceRayFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -443,6 +474,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryProceduralCandidateHitFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -457,6 +489,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryTriangleCandidateHitFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -471,6 +504,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryCommittedHitFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -485,6 +519,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryCommitTriangleFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -499,6 +534,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryCommitdProceduralFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -513,6 +549,7 @@ public:
         return static_tag();
     }
 public:
+    RayQueryTerminateFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -527,6 +564,7 @@ public:
         return static_tag();
     }
 public:
+    LoadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -541,6 +579,7 @@ public:
         return static_tag();
     }
 public:
+    CastFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -555,6 +594,7 @@ public:
         return static_tag();
     }
 public:
+    BitCastFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -569,6 +609,7 @@ public:
         return static_tag();
     }
 public:
+    AddFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -583,6 +624,7 @@ public:
         return static_tag();
     }
 public:
+    SubFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -597,6 +639,7 @@ public:
         return static_tag();
     }
 public:
+    MulFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -611,6 +654,7 @@ public:
         return static_tag();
     }
 public:
+    DivFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -625,6 +669,7 @@ public:
         return static_tag();
     }
 public:
+    RemFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -639,6 +684,7 @@ public:
         return static_tag();
     }
 public:
+    BitAndFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -653,6 +699,7 @@ public:
         return static_tag();
     }
 public:
+    BitOrFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -667,6 +714,7 @@ public:
         return static_tag();
     }
 public:
+    BitXorFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -681,6 +729,7 @@ public:
         return static_tag();
     }
 public:
+    ShlFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -695,6 +744,7 @@ public:
         return static_tag();
     }
 public:
+    ShrFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -709,6 +759,7 @@ public:
         return static_tag();
     }
 public:
+    RotRightFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -723,6 +774,7 @@ public:
         return static_tag();
     }
 public:
+    RotLeftFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -737,6 +789,7 @@ public:
         return static_tag();
     }
 public:
+    EqFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -751,6 +804,7 @@ public:
         return static_tag();
     }
 public:
+    NeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -765,6 +819,7 @@ public:
         return static_tag();
     }
 public:
+    LtFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -779,6 +834,7 @@ public:
         return static_tag();
     }
 public:
+    LeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -793,6 +849,7 @@ public:
         return static_tag();
     }
 public:
+    GtFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -807,6 +864,7 @@ public:
         return static_tag();
     }
 public:
+    GeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -821,6 +879,7 @@ public:
         return static_tag();
     }
 public:
+    MatCompMulFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -835,6 +894,7 @@ public:
         return static_tag();
     }
 public:
+    NegFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -849,6 +909,7 @@ public:
         return static_tag();
     }
 public:
+    NotFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -863,6 +924,7 @@ public:
         return static_tag();
     }
 public:
+    BitNotFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -877,6 +939,7 @@ public:
         return static_tag();
     }
 public:
+    AllFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -891,6 +954,7 @@ public:
         return static_tag();
     }
 public:
+    AnyFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -905,6 +969,7 @@ public:
         return static_tag();
     }
 public:
+    SelectFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -919,6 +984,7 @@ public:
         return static_tag();
     }
 public:
+    ClampFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -933,6 +999,7 @@ public:
         return static_tag();
     }
 public:
+    LerpFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -947,6 +1014,7 @@ public:
         return static_tag();
     }
 public:
+    StepFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -961,6 +1029,7 @@ public:
         return static_tag();
     }
 public:
+    SaturateFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -975,6 +1044,7 @@ public:
         return static_tag();
     }
 public:
+    SmoothStepFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -989,6 +1059,7 @@ public:
         return static_tag();
     }
 public:
+    AbsFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1003,6 +1074,7 @@ public:
         return static_tag();
     }
 public:
+    MinFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1017,6 +1089,7 @@ public:
         return static_tag();
     }
 public:
+    MaxFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1031,6 +1104,7 @@ public:
         return static_tag();
     }
 public:
+    ReduceSumFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1045,6 +1119,7 @@ public:
         return static_tag();
     }
 public:
+    ReduceProdFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1059,6 +1134,7 @@ public:
         return static_tag();
     }
 public:
+    ReduceMinFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1073,6 +1149,7 @@ public:
         return static_tag();
     }
 public:
+    ReduceMaxFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1087,6 +1164,7 @@ public:
         return static_tag();
     }
 public:
+    ClzFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1101,6 +1179,7 @@ public:
         return static_tag();
     }
 public:
+    CtzFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1115,6 +1194,7 @@ public:
         return static_tag();
     }
 public:
+    PopCountFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1129,6 +1209,7 @@ public:
         return static_tag();
     }
 public:
+    ReverseFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1143,6 +1224,7 @@ public:
         return static_tag();
     }
 public:
+    IsInfFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1157,6 +1239,7 @@ public:
         return static_tag();
     }
 public:
+    IsNanFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1171,6 +1254,7 @@ public:
         return static_tag();
     }
 public:
+    AcosFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1185,6 +1269,7 @@ public:
         return static_tag();
     }
 public:
+    AcoshFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1199,6 +1284,7 @@ public:
         return static_tag();
     }
 public:
+    AsinFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1213,6 +1299,7 @@ public:
         return static_tag();
     }
 public:
+    AsinhFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1227,6 +1314,7 @@ public:
         return static_tag();
     }
 public:
+    AtanFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1241,6 +1329,7 @@ public:
         return static_tag();
     }
 public:
+    Atan2Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1255,6 +1344,7 @@ public:
         return static_tag();
     }
 public:
+    AtanhFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1269,6 +1359,7 @@ public:
         return static_tag();
     }
 public:
+    CosFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1283,6 +1374,7 @@ public:
         return static_tag();
     }
 public:
+    CoshFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1297,6 +1389,7 @@ public:
         return static_tag();
     }
 public:
+    SinFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1311,6 +1404,7 @@ public:
         return static_tag();
     }
 public:
+    SinhFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1325,6 +1419,7 @@ public:
         return static_tag();
     }
 public:
+    TanFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1339,6 +1434,7 @@ public:
         return static_tag();
     }
 public:
+    TanhFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1353,6 +1449,7 @@ public:
         return static_tag();
     }
 public:
+    ExpFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1367,6 +1464,7 @@ public:
         return static_tag();
     }
 public:
+    Exp2Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1381,6 +1479,7 @@ public:
         return static_tag();
     }
 public:
+    Exp10Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1395,6 +1494,7 @@ public:
         return static_tag();
     }
 public:
+    LogFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1409,6 +1509,7 @@ public:
         return static_tag();
     }
 public:
+    Log2Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1423,6 +1524,7 @@ public:
         return static_tag();
     }
 public:
+    Log10Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1437,6 +1539,7 @@ public:
         return static_tag();
     }
 public:
+    PowiFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1451,6 +1554,7 @@ public:
         return static_tag();
     }
 public:
+    PowfFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1465,6 +1569,7 @@ public:
         return static_tag();
     }
 public:
+    SqrtFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1479,6 +1584,7 @@ public:
         return static_tag();
     }
 public:
+    RsqrtFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1493,6 +1599,7 @@ public:
         return static_tag();
     }
 public:
+    CeilFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1507,6 +1614,7 @@ public:
         return static_tag();
     }
 public:
+    FloorFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1521,6 +1629,7 @@ public:
         return static_tag();
     }
 public:
+    FractFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1535,6 +1644,7 @@ public:
         return static_tag();
     }
 public:
+    TruncFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1549,6 +1659,7 @@ public:
         return static_tag();
     }
 public:
+    RoundFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1563,6 +1674,7 @@ public:
         return static_tag();
     }
 public:
+    FmaFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1577,6 +1689,7 @@ public:
         return static_tag();
     }
 public:
+    CopysignFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1591,6 +1704,7 @@ public:
         return static_tag();
     }
 public:
+    CrossFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1605,6 +1719,7 @@ public:
         return static_tag();
     }
 public:
+    DotFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1619,6 +1734,7 @@ public:
         return static_tag();
     }
 public:
+    OuterProductFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1633,6 +1749,7 @@ public:
         return static_tag();
     }
 public:
+    LengthFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1647,6 +1764,7 @@ public:
         return static_tag();
     }
 public:
+    LengthSquaredFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1661,6 +1779,7 @@ public:
         return static_tag();
     }
 public:
+    NormalizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1675,6 +1794,7 @@ public:
         return static_tag();
     }
 public:
+    FaceforwardFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1689,6 +1809,7 @@ public:
         return static_tag();
     }
 public:
+    DistanceFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1703,6 +1824,7 @@ public:
         return static_tag();
     }
 public:
+    ReflectFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1717,6 +1839,7 @@ public:
         return static_tag();
     }
 public:
+    DeterminantFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1731,6 +1854,7 @@ public:
         return static_tag();
     }
 public:
+    TransposeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1745,6 +1869,7 @@ public:
         return static_tag();
     }
 public:
+    InverseFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -1759,6 +1884,7 @@ public:
         return static_tag();
     }
 public:
+    WarpIsFirstActiveLaneFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1773,6 +1899,7 @@ public:
         return static_tag();
     }
 public:
+    WarpFirstActiveLaneFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1787,6 +1914,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveAllEqualFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1801,6 +1929,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveBitAndFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1815,6 +1944,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveBitOrFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1829,6 +1959,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveBitXorFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1843,6 +1974,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveCountBitsFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1857,6 +1989,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveMaxFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1871,6 +2004,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveMinFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1885,6 +2019,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveProductFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1899,6 +2034,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveSumFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1913,6 +2049,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveAllFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1927,6 +2064,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveAnyFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1941,6 +2079,7 @@ public:
         return static_tag();
     }
 public:
+    WarpActiveBitMaskFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1955,6 +2094,7 @@ public:
         return static_tag();
     }
 public:
+    WarpPrefixCountBitsFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1969,6 +2109,7 @@ public:
         return static_tag();
     }
 public:
+    WarpPrefixSumFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1983,6 +2124,7 @@ public:
         return static_tag();
     }
 public:
+    WarpPrefixProductFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -1997,6 +2139,7 @@ public:
         return static_tag();
     }
 public:
+    WarpReadLaneAtFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2011,6 +2154,7 @@ public:
         return static_tag();
     }
 public:
+    WarpReadFirstLaneFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2025,6 +2169,7 @@ public:
         return static_tag();
     }
 public:
+    SynchronizeBlockFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2039,6 +2184,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicExchangeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2053,6 +2199,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicCompareExchangeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2067,6 +2214,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchAddFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2081,6 +2229,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchSubFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2095,6 +2244,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchAndFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2109,6 +2259,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchOrFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2123,6 +2274,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchXorFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2137,6 +2289,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchMinFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2151,6 +2304,7 @@ public:
         return static_tag();
     }
 public:
+    AtomicFetchMaxFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2165,6 +2319,7 @@ public:
         return static_tag();
     }
 public:
+    BufferWriteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2179,6 +2334,7 @@ public:
         return static_tag();
     }
 public:
+    BufferReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2193,6 +2349,7 @@ public:
         return static_tag();
     }
 public:
+    BufferSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2207,6 +2364,7 @@ public:
         return static_tag();
     }
 public:
+    ByteBufferWriteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2221,6 +2379,7 @@ public:
         return static_tag();
     }
 public:
+    ByteBufferReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2235,6 +2394,7 @@ public:
         return static_tag();
     }
 public:
+    ByteBufferSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2249,6 +2409,7 @@ public:
         return static_tag();
     }
 public:
+    Texture2dReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2263,6 +2424,7 @@ public:
         return static_tag();
     }
 public:
+    Texture2dWriteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2277,6 +2439,7 @@ public:
         return static_tag();
     }
 public:
+    Texture2dSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2291,6 +2454,7 @@ public:
         return static_tag();
     }
 public:
+    Texture3dReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2305,6 +2469,7 @@ public:
         return static_tag();
     }
 public:
+    Texture3dWriteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2319,6 +2484,7 @@ public:
         return static_tag();
     }
 public:
+    Texture3dSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2333,6 +2499,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dSampleFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2347,6 +2514,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dSampleLevelFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2361,6 +2529,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dSampleGradFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2375,6 +2544,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dSampleGradLevelFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2389,6 +2559,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2403,6 +2574,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2417,6 +2589,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture2dSizeLevelFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2431,6 +2604,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dSampleFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2445,6 +2619,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dSampleLevelFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2459,6 +2634,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dSampleGradFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2473,6 +2649,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dSampleGradLevelFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2487,6 +2664,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2501,6 +2679,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2515,6 +2694,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessTexture3dSizeLevelFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2529,6 +2709,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessBufferWriteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2543,6 +2724,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessBufferReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2557,6 +2739,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessBufferSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2571,6 +2754,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessByteBufferWriteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2585,6 +2769,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessByteBufferReadFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2599,6 +2784,7 @@ public:
         return static_tag();
     }
 public:
+    BindlessByteBufferSizeFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2613,6 +2799,7 @@ public:
         return static_tag();
     }
 public:
+    VecFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2627,6 +2814,7 @@ public:
         return static_tag();
     }
 public:
+    Vec2Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2641,6 +2829,7 @@ public:
         return static_tag();
     }
 public:
+    Vec3Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2655,6 +2844,7 @@ public:
         return static_tag();
     }
 public:
+    Vec4Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2669,6 +2859,7 @@ public:
         return static_tag();
     }
 public:
+    PermuteFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2683,6 +2874,7 @@ public:
         return static_tag();
     }
 public:
+    GetElementPtrFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2697,6 +2889,7 @@ public:
         return static_tag();
     }
 public:
+    ExtractElementFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2711,6 +2904,7 @@ public:
         return static_tag();
     }
 public:
+    InsertElementFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2725,6 +2919,7 @@ public:
         return static_tag();
     }
 public:
+    ArrayFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2739,6 +2934,7 @@ public:
         return static_tag();
     }
 public:
+    StructFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2753,6 +2949,7 @@ public:
         return static_tag();
     }
 public:
+    MatFullFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2767,6 +2964,7 @@ public:
         return static_tag();
     }
 public:
+    Mat2Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2781,6 +2979,7 @@ public:
         return static_tag();
     }
 public:
+    Mat3Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2795,6 +2994,7 @@ public:
         return static_tag();
     }
 public:
+    Mat4Fn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2810,6 +3010,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicExchangeFn() = default;
+    BindlessAtomicExchangeFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2825,6 +3027,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicCompareExchangeFn() = default;
+    BindlessAtomicCompareExchangeFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2840,6 +3044,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchAddFn() = default;
+    BindlessAtomicFetchAddFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2855,6 +3061,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchSubFn() = default;
+    BindlessAtomicFetchSubFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2870,6 +3078,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchAndFn() = default;
+    BindlessAtomicFetchAndFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2885,6 +3095,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchOrFn() = default;
+    BindlessAtomicFetchOrFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2900,6 +3112,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchXorFn() = default;
+    BindlessAtomicFetchXorFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2915,6 +3129,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchMinFn() = default;
+    BindlessAtomicFetchMinFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2930,6 +3146,8 @@ public:
     }
 public:
     const Type *ty;
+    BindlessAtomicFetchMaxFn() = default;
+    BindlessAtomicFetchMaxFn(const Type *ty) : ty(ty) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
     }
@@ -2945,6 +3163,8 @@ public:
     }
 public:
     luisa::shared_ptr<CallableModule> module;
+    CallableFn() = default;
+    CallableFn(luisa::shared_ptr<CallableModule> module) : module(module) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2960,6 +3180,8 @@ public:
     }
 public:
     CpuExternFn f;
+    CpuExtFn() = default;
+    CpuExtFn(CpuExternFn f) : f(f) {}
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -2974,6 +3196,7 @@ public:
         return static_tag();
     }
 public:
+    ShaderExecutionReorderFn() = default;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
     }
@@ -3361,6 +3584,8 @@ public:
     uint64_t handle;
     uint64_t offset;
     uint64_t size;
+    BufferBinding() = default;
+    BufferBinding(uint64_t handle, uint64_t offset, uint64_t size) : handle(handle), offset(offset), size(size) {}
 };
 struct LC_IR_API TextureBinding : public Binding {
 public:
@@ -3374,6 +3599,8 @@ public:
 public:
     uint64_t handle;
     uint64_t level;
+    TextureBinding() = default;
+    TextureBinding(uint64_t handle, uint64_t level) : handle(handle), level(level) {}
 };
 struct LC_IR_API BindlessArrayBinding : public Binding {
 public:
@@ -3386,6 +3613,8 @@ public:
     }
 public:
     uint64_t handle;
+    BindlessArrayBinding() = default;
+    BindlessArrayBinding(uint64_t handle) : handle(handle) {}
 };
 struct LC_IR_API AccelBinding : public Binding {
 public:
@@ -3398,5 +3627,7 @@ public:
     }
 public:
     uint64_t handle;
+    AccelBinding() = default;
+    AccelBinding(uint64_t handle) : handle(handle) {}
 };
 }// namespace luisa::compute::ir_v2
