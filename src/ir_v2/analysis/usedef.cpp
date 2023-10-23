@@ -25,7 +25,7 @@ void UseDefAnalysis::visit_node(Node *n) noexcept {
             this->add_to_root(n);
             break;
         case Instruction::Tag::CALL: {
-            auto call = inst->as<Call>();
+            auto call = inst->as<CallInst>();
             auto f = call->func;
             if (f->has_side_effects()) {
                 this->add_to_root(n);
@@ -40,14 +40,14 @@ void UseDefAnalysis::visit_node(Node *n) noexcept {
             this->add_to_root(n);
         } break;
         case Instruction::Tag::IF: {
-            auto if_ = inst->as<If>();
+            auto if_ = inst->as<IfInst>();
             this->add_to_root(if_->cond);
             this->add_to_root(n);
             this->visit_block(if_->true_branch);
             this->visit_block(if_->false_branch);
         } break;
         case Instruction::Tag::GENERIC_LOOP: {
-            auto loop = inst->as<GenericLoop>();
+            auto loop = inst->as<GenericLoopInst>();
             this->add_to_root(n);
             this->add_to_root(loop->cond);
             this->visit_block(loop->prepare);
@@ -56,7 +56,7 @@ void UseDefAnalysis::visit_node(Node *n) noexcept {
         }
         case Instruction::Tag::CONSTANT: break;
         case InstructionTag::PHI: {
-            auto phi = inst->as<Phi>();
+            auto phi = inst->as<PhiInst>();
             this->add_to_root(n);
             for (auto &i : phi->incomings) {
                 _used_by[i.value].insert(n);

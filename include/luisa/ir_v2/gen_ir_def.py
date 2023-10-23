@@ -108,6 +108,7 @@ class BasicBlock;
 struct CallableModule;
 struct Module;
 struct KernelModule; 
+class Pool;
 ''', file=fwd_file)
 
 
@@ -117,6 +118,7 @@ class Item:
         self.name = name
         self.fields = fields
         self.comment = comment
+        self.tag = to_screaming_snake_case(name)
 
     def gen(self):
         out = 'public:\n'
@@ -166,8 +168,27 @@ class Instruction(Item):
         if fields is None:
             fields = []
         super().__init__(name, fields, **kwargs)
+        self.name += 'Inst'
         if cpp_src is not None:
             self.cpp_src = cpp_src
+
+    def gen(self):
+        out = super().gen()
+        # gen ctor
+        out += f'    {self.name}() = default;\n'
+        if len(self.fields) > 0:
+            out += f'    {self.name}('
+            for i, field in enumerate(self.fields):
+                if i != 0:
+                    out += ', '
+                out += f'{field[0]} {field[1]}'
+            out += ') : '
+            for i, field in enumerate(self.fields):
+                if i != 0:
+                    out += ', '
+                out += f'{field[1]}({field[1]})'
+            out += ' {}\n'
+        return out
 
 
 class Func(Item):
@@ -175,6 +196,7 @@ class Func(Item):
         if fields is None:
             fields = []
         super().__init__(name, fields, **kwargs)
+        self.name += 'Fn'
         self.side_effects = side_effects
 
     def gen(self):
@@ -186,13 +208,52 @@ class Func(Item):
         return out
 
 
-class IRType(Item):
-    def __init__(self, name, fields=None, cpp_src=None, **kwargs) -> None:
-        if fields is None:
-            fields = []
-        super().__init__(name, fields, **kwargs)
-        if cpp_src is not None:
-            self.cpp_src = cpp_src
+class CppType:
+    def __init__(self) -> None:
+        pass
+
+
+class CppAtom(CppType):
+    def __init__(self, name) -> None:
+        super().__init__()
+        self.name = name
+
+
+class CppList(CppType):
+    def __init__(self, ty: CppType) -> None:
+        super().__init__()
+        self.ty = ty
+
+
+class CppString(CppType):
+    def __init__(self) -> None:
+        super().__init__()
+
+
+class CppPointer(CppType):
+    def __init__(self, ty: CppType) -> None:
+        super().__init__()
+        self.ty = ty
+
+
+class CppSharedPtr(CppType):
+    def __init__(self, ty: CppType) -> None:
+        super().__init__()
+        self.ty = ty
+
+
+def parse_cpp_type(s: str) -> CppType:
+    s = s.strip()
+    if s.startswith('luisa::vector'):
+        s = s[len('luisa::vector'):]
+        assert s.startswith('<')
+        assert s.endswith('>')
+        return CppList(parse_cpp_type(s[1:-1]))
+    if s == 'luisa::string':
+        return CppString()
+    if s.endswith('*'):
+        return CppPointer(parse_cpp_type(s[:-1]))
+    return CppAtom(s)
 
 
 def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
@@ -226,7 +287,7 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
         print('    using {}::Tag;'.format(adt), file=cpp_def)
         print('    static constexpr Tag static_tag() noexcept {', file=cpp_def)
         print('        return Tag::{};'.format(
-            to_screaming_snake_case(variant.name)), file=cpp_def)
+            variant.tag), file=cpp_def)
         print('    }', file=cpp_def)
         print(
             '    [[nodiscard]] Tag tag() const noexcept override {', file=cpp_def)
@@ -239,7 +300,7 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
     print(f'    enum class {adt}Tag : unsigned int {{', file=fwd_file)
     for variant in variants:
         print('        {},'.format(
-            to_screaming_snake_case(variant.name)), file=fwd_file)
+            variant.tag), file=fwd_file)
     print('    };', file=fwd_file)
     for variant in variants:
         # print('extern "C" LC_IR_API {1} * lc_ir_v2_{0}_as_{1}({0} *self);'.format(
@@ -286,89 +347,52 @@ instructions = [
     Instruction('Call', [
         ('const Func*', 'func'),
         ('luisa::vector<Node*>', 'args'),
-    ], cpp_src='''Call(const Func* func, luisa::vector<Node*> args) noexcept {
-        this->func = std::move(func);
-        this->args = std::move(args);
-}
-'''),
+    ]),
     Instruction('Phi', [('luisa::vector<PhiIncoming>', 'incomings')]),
     Instruction("BasicBlockSentinel", []),
     Instruction('If', [
         ('Node*', 'cond'),
         ('BasicBlock*', 'true_branch'),
         ('BasicBlock*', 'false_branch')
-    ], cpp_src='''If(Node* cond, BasicBlock* true_branch, BasicBlock* false_branch) noexcept {
-    this->cond = cond;
-    this->true_branch = true_branch;
-    this->false_branch = false_branch;
-}
-'''),
+    ]),
     Instruction('GenericLoop', [
         ('BasicBlock*', 'prepare'),
         ('Node*', 'cond'),
         ('BasicBlock*', 'body'),
         ('BasicBlock*', 'update')
-    ], cpp_src='''GenericLoop(BasicBlock* prepare, Node* cond, BasicBlock* body, BasicBlock* update) noexcept {
-    this->prepare = prepare;
-    this->cond = cond;
-    this->body = body;
-    this->update = update;
-}
-'''),
+    ]),
     Instruction('Switch', [
         ('Node*', 'value'),
         ('luisa::vector<SwitchCase>', 'cases'),
         ('BasicBlock*', 'default_')
-    ], cpp_src='''Switch(Node* value, luisa::vector<SwitchCase> cases, BasicBlock* default_) noexcept {
-    this->value = value;
-    this->cases = std::move(cases);
-    this->default_ = default_;
-}'''),
+    ]),
     Instruction('Local', [
         ('Node*', 'init')
-    ], cpp_src='''Local(Node* init) noexcept {
-    this->init = init;
-}'''),
+    ]),
     Instruction('Break', []),
     Instruction('Continue', []),
     Instruction('Return', [
         ('Node*', 'value')
-    ], cpp_src='''Return(Node* value) noexcept {
-    this->value = value;
-}'''),
+    ]),
     Instruction('Print', [
         ('luisa::string', 'fmt'),
         ('luisa::vector<Node*>', 'args')
-    ], cpp_src='''Print(luisa::string fmt, luisa::vector<Node*> args) noexcept {
-    this->fmt = std::move(fmt);
-    this->args = std::move(args);
-}'''),
+    ]),
     Instruction('Update', [
         ('Node*', 'var'),
         ('Node*', 'value')
-    ], cpp_src='''Update(Node* var, Node* value) noexcept {
-    this->var = var;
-    this->value = value;
-}'''),
+    ]),
     Instruction('RayQuery', [
         ('Node*', 'query'),
         ('BasicBlock*', 'on_triangle_hit'),
         ('BasicBlock*', 'on_procedural_hit'),
-    ], cpp_src='''RayQuery(Node* query, BasicBlock* on_triangle_hit, BasicBlock* on_procedural_hit) noexcept {
-    this->query = query;
-    this->on_triangle_hit = on_triangle_hit;
-    this->on_procedural_hit = on_procedural_hit;
-}'''),
+    ]),
     Instruction('RevAutodiff', [
         ('BasicBlock*', 'body'),
-    ], cpp_src='''RevAutodiff(BasicBlock* body) noexcept {
-    this->body = body;
-}'''),
+    ]),
     Instruction('FwdAutodiff', [
         ('BasicBlock*', 'body'),
-    ], cpp_src='''FwdAutodiff(BasicBlock* body) noexcept {
-    this->body = body;
-}'''),
+    ]),
 ]
 
 funcs = [
@@ -654,6 +678,15 @@ struct CpuExternFn {
 ''', file=fwd_file)
 gen_adt("Func", FUNC_CPP_SRC, funcs)
 gen_adt("Instruction", "", instructions)
+print('    LC_IR_API Func* create_func_from_tag(Pool&pool, FuncTag tag);', file=cpp_def)
+print(
+    '    Func* create_func_from_tag(Pool&pool, FuncTag tag) {', file=c_api_impl)
+print('        switch (tag) {', file=c_api_impl)
+for f in funcs:
+    print('            case FuncTag::{}: return pool.template alloc<{}>();'.format(
+        f.tag, f.name), file=c_api_impl)
+print('        }', file=c_api_impl)
+print('    }', file=c_api_impl)
 
 
 bindings = [

@@ -25,7 +25,7 @@ public:
 
     [[nodiscard]] virtual bool has_side_effects() const noexcept = 0;
 };
-struct LC_IR_API Zero : public Func {
+struct LC_IR_API ZeroFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -39,7 +39,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API One : public Func {
+struct LC_IR_API OneFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -53,7 +53,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Assume : public Func {
+struct LC_IR_API AssumeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -68,7 +68,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Unreachable : public Func {
+struct LC_IR_API UnreachableFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -83,7 +83,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ThreadId : public Func {
+struct LC_IR_API ThreadIdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -97,7 +97,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BlockId : public Func {
+struct LC_IR_API BlockIdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -111,7 +111,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API WarpSize : public Func {
+struct LC_IR_API WarpSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -125,7 +125,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API WarpLaneId : public Func {
+struct LC_IR_API WarpLaneIdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -139,7 +139,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API DispatchId : public Func {
+struct LC_IR_API DispatchIdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -153,7 +153,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API DispatchSize : public Func {
+struct LC_IR_API DispatchSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -167,7 +167,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API PropagateGradient : public Func {
+struct LC_IR_API PropagateGradientFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -181,7 +181,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API OutputGradient : public Func {
+struct LC_IR_API OutputGradientFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -195,7 +195,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RequiresGradient : public Func {
+struct LC_IR_API RequiresGradientFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -209,7 +209,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Backward : public Func {
+struct LC_IR_API BackwardFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -223,7 +223,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Gradient : public Func {
+struct LC_IR_API GradientFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -237,7 +237,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API AccGrad : public Func {
+struct LC_IR_API AccGradFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -251,7 +251,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Detach : public Func {
+struct LC_IR_API DetachFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -265,7 +265,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingInstanceTransform : public Func {
+struct LC_IR_API RayTracingInstanceTransformFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -279,7 +279,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingInstanceVisibilityMask : public Func {
+struct LC_IR_API RayTracingInstanceVisibilityMaskFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -293,7 +293,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingInstanceUserId : public Func {
+struct LC_IR_API RayTracingInstanceUserIdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -307,7 +307,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingSetInstanceTransform : public Func {
+struct LC_IR_API RayTracingSetInstanceTransformFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -321,7 +321,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API RayTracingSetInstanceOpacity : public Func {
+struct LC_IR_API RayTracingSetInstanceOpacityFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -335,7 +335,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API RayTracingSetInstanceVisibility : public Func {
+struct LC_IR_API RayTracingSetInstanceVisibilityFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -349,7 +349,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API RayTracingSetInstanceUserId : public Func {
+struct LC_IR_API RayTracingSetInstanceUserIdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -363,7 +363,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API RayTracingTraceClosest : public Func {
+struct LC_IR_API RayTracingTraceClosestFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -377,7 +377,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingTraceAny : public Func {
+struct LC_IR_API RayTracingTraceAnyFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -391,7 +391,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingQueryAll : public Func {
+struct LC_IR_API RayTracingQueryAllFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -405,7 +405,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayTracingQueryAny : public Func {
+struct LC_IR_API RayTracingQueryAnyFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -419,7 +419,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayQueryWorldSpaceRay : public Func {
+struct LC_IR_API RayQueryWorldSpaceRayFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -433,7 +433,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayQueryProceduralCandidateHit : public Func {
+struct LC_IR_API RayQueryProceduralCandidateHitFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -447,7 +447,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayQueryTriangleCandidateHit : public Func {
+struct LC_IR_API RayQueryTriangleCandidateHitFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -461,7 +461,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayQueryCommittedHit : public Func {
+struct LC_IR_API RayQueryCommittedHitFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -475,7 +475,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RayQueryCommitTriangle : public Func {
+struct LC_IR_API RayQueryCommitTriangleFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -489,7 +489,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API RayQueryCommitdProcedural : public Func {
+struct LC_IR_API RayQueryCommitdProceduralFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -503,7 +503,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API RayQueryTerminate : public Func {
+struct LC_IR_API RayQueryTerminateFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -517,7 +517,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Load : public Func {
+struct LC_IR_API LoadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -531,7 +531,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Cast : public Func {
+struct LC_IR_API CastFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -545,7 +545,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BitCast : public Func {
+struct LC_IR_API BitCastFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -559,7 +559,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Add : public Func {
+struct LC_IR_API AddFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -573,7 +573,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Sub : public Func {
+struct LC_IR_API SubFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -587,7 +587,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Mul : public Func {
+struct LC_IR_API MulFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -601,7 +601,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Div : public Func {
+struct LC_IR_API DivFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -615,7 +615,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Rem : public Func {
+struct LC_IR_API RemFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -629,7 +629,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BitAnd : public Func {
+struct LC_IR_API BitAndFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -643,7 +643,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BitOr : public Func {
+struct LC_IR_API BitOrFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -657,7 +657,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BitXor : public Func {
+struct LC_IR_API BitXorFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -671,7 +671,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Shl : public Func {
+struct LC_IR_API ShlFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -685,7 +685,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Shr : public Func {
+struct LC_IR_API ShrFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -699,7 +699,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RotRight : public Func {
+struct LC_IR_API RotRightFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -713,7 +713,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API RotLeft : public Func {
+struct LC_IR_API RotLeftFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -727,7 +727,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Eq : public Func {
+struct LC_IR_API EqFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -741,7 +741,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Ne : public Func {
+struct LC_IR_API NeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -755,7 +755,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Lt : public Func {
+struct LC_IR_API LtFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -769,7 +769,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Le : public Func {
+struct LC_IR_API LeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -783,7 +783,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Gt : public Func {
+struct LC_IR_API GtFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -797,7 +797,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Ge : public Func {
+struct LC_IR_API GeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -811,7 +811,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API MatCompMul : public Func {
+struct LC_IR_API MatCompMulFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -825,7 +825,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Neg : public Func {
+struct LC_IR_API NegFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -839,7 +839,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Not : public Func {
+struct LC_IR_API NotFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -853,7 +853,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BitNot : public Func {
+struct LC_IR_API BitNotFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -867,7 +867,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API All : public Func {
+struct LC_IR_API AllFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -881,7 +881,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Any : public Func {
+struct LC_IR_API AnyFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -895,7 +895,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Select : public Func {
+struct LC_IR_API SelectFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -909,7 +909,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Clamp : public Func {
+struct LC_IR_API ClampFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -923,7 +923,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Lerp : public Func {
+struct LC_IR_API LerpFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -937,7 +937,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Step : public Func {
+struct LC_IR_API StepFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -951,7 +951,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Saturate : public Func {
+struct LC_IR_API SaturateFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -965,7 +965,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API SmoothStep : public Func {
+struct LC_IR_API SmoothStepFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -979,7 +979,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Abs : public Func {
+struct LC_IR_API AbsFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -993,7 +993,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Min : public Func {
+struct LC_IR_API MinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1007,7 +1007,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Max : public Func {
+struct LC_IR_API MaxFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1021,7 +1021,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ReduceSum : public Func {
+struct LC_IR_API ReduceSumFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1035,7 +1035,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ReduceProd : public Func {
+struct LC_IR_API ReduceProdFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1049,7 +1049,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ReduceMin : public Func {
+struct LC_IR_API ReduceMinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1063,7 +1063,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ReduceMax : public Func {
+struct LC_IR_API ReduceMaxFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1077,7 +1077,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Clz : public Func {
+struct LC_IR_API ClzFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1091,7 +1091,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Ctz : public Func {
+struct LC_IR_API CtzFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1105,7 +1105,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API PopCount : public Func {
+struct LC_IR_API PopCountFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1119,7 +1119,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Reverse : public Func {
+struct LC_IR_API ReverseFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1133,7 +1133,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API IsInf : public Func {
+struct LC_IR_API IsInfFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1147,7 +1147,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API IsNan : public Func {
+struct LC_IR_API IsNanFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1161,7 +1161,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Acos : public Func {
+struct LC_IR_API AcosFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1175,7 +1175,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Acosh : public Func {
+struct LC_IR_API AcoshFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1189,7 +1189,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Asin : public Func {
+struct LC_IR_API AsinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1203,7 +1203,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Asinh : public Func {
+struct LC_IR_API AsinhFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1217,7 +1217,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Atan : public Func {
+struct LC_IR_API AtanFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1231,7 +1231,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Atan2 : public Func {
+struct LC_IR_API Atan2Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1245,7 +1245,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Atanh : public Func {
+struct LC_IR_API AtanhFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1259,7 +1259,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Cos : public Func {
+struct LC_IR_API CosFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1273,7 +1273,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Cosh : public Func {
+struct LC_IR_API CoshFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1287,7 +1287,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Sin : public Func {
+struct LC_IR_API SinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1301,7 +1301,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Sinh : public Func {
+struct LC_IR_API SinhFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1315,7 +1315,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Tan : public Func {
+struct LC_IR_API TanFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1329,7 +1329,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Tanh : public Func {
+struct LC_IR_API TanhFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1343,7 +1343,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Exp : public Func {
+struct LC_IR_API ExpFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1357,7 +1357,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Exp2 : public Func {
+struct LC_IR_API Exp2Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1371,7 +1371,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Exp10 : public Func {
+struct LC_IR_API Exp10Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1385,7 +1385,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Log : public Func {
+struct LC_IR_API LogFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1399,7 +1399,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Log2 : public Func {
+struct LC_IR_API Log2Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1413,7 +1413,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Log10 : public Func {
+struct LC_IR_API Log10Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1427,7 +1427,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Powi : public Func {
+struct LC_IR_API PowiFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1441,7 +1441,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Powf : public Func {
+struct LC_IR_API PowfFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1455,7 +1455,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Sqrt : public Func {
+struct LC_IR_API SqrtFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1469,7 +1469,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Rsqrt : public Func {
+struct LC_IR_API RsqrtFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1483,7 +1483,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Ceil : public Func {
+struct LC_IR_API CeilFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1497,7 +1497,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Floor : public Func {
+struct LC_IR_API FloorFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1511,7 +1511,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Fract : public Func {
+struct LC_IR_API FractFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1525,7 +1525,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Trunc : public Func {
+struct LC_IR_API TruncFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1539,7 +1539,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Round : public Func {
+struct LC_IR_API RoundFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1553,7 +1553,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Fma : public Func {
+struct LC_IR_API FmaFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1567,7 +1567,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Copysign : public Func {
+struct LC_IR_API CopysignFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1581,7 +1581,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Cross : public Func {
+struct LC_IR_API CrossFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1595,7 +1595,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Dot : public Func {
+struct LC_IR_API DotFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1609,7 +1609,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API OuterProduct : public Func {
+struct LC_IR_API OuterProductFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1623,7 +1623,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Length : public Func {
+struct LC_IR_API LengthFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1637,7 +1637,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API LengthSquared : public Func {
+struct LC_IR_API LengthSquaredFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1651,7 +1651,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Normalize : public Func {
+struct LC_IR_API NormalizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1665,7 +1665,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Faceforward : public Func {
+struct LC_IR_API FaceforwardFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1679,7 +1679,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Distance : public Func {
+struct LC_IR_API DistanceFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1693,7 +1693,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Reflect : public Func {
+struct LC_IR_API ReflectFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1707,7 +1707,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Determinant : public Func {
+struct LC_IR_API DeterminantFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1721,7 +1721,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Transpose : public Func {
+struct LC_IR_API TransposeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1735,7 +1735,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Inverse : public Func {
+struct LC_IR_API InverseFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1749,7 +1749,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API WarpIsFirstActiveLane : public Func {
+struct LC_IR_API WarpIsFirstActiveLaneFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1763,7 +1763,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpFirstActiveLane : public Func {
+struct LC_IR_API WarpFirstActiveLaneFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1777,7 +1777,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveAllEqual : public Func {
+struct LC_IR_API WarpActiveAllEqualFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1791,7 +1791,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveBitAnd : public Func {
+struct LC_IR_API WarpActiveBitAndFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1805,7 +1805,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveBitOr : public Func {
+struct LC_IR_API WarpActiveBitOrFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1819,7 +1819,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveBitXor : public Func {
+struct LC_IR_API WarpActiveBitXorFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1833,7 +1833,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveCountBits : public Func {
+struct LC_IR_API WarpActiveCountBitsFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1847,7 +1847,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveMax : public Func {
+struct LC_IR_API WarpActiveMaxFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1861,7 +1861,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveMin : public Func {
+struct LC_IR_API WarpActiveMinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1875,7 +1875,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveProduct : public Func {
+struct LC_IR_API WarpActiveProductFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1889,7 +1889,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveSum : public Func {
+struct LC_IR_API WarpActiveSumFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1903,7 +1903,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveAll : public Func {
+struct LC_IR_API WarpActiveAllFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1917,7 +1917,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveAny : public Func {
+struct LC_IR_API WarpActiveAnyFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1931,7 +1931,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpActiveBitMask : public Func {
+struct LC_IR_API WarpActiveBitMaskFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1945,7 +1945,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpPrefixCountBits : public Func {
+struct LC_IR_API WarpPrefixCountBitsFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1959,7 +1959,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpPrefixSum : public Func {
+struct LC_IR_API WarpPrefixSumFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1973,7 +1973,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpPrefixProduct : public Func {
+struct LC_IR_API WarpPrefixProductFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -1987,7 +1987,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpReadLaneAt : public Func {
+struct LC_IR_API WarpReadLaneAtFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2001,7 +2001,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API WarpReadFirstLane : public Func {
+struct LC_IR_API WarpReadFirstLaneFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2015,7 +2015,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API SynchronizeBlock : public Func {
+struct LC_IR_API SynchronizeBlockFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2029,7 +2029,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicExchange : public Func {
+struct LC_IR_API AtomicExchangeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2043,7 +2043,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicCompareExchange : public Func {
+struct LC_IR_API AtomicCompareExchangeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2057,7 +2057,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchAdd : public Func {
+struct LC_IR_API AtomicFetchAddFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2071,7 +2071,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchSub : public Func {
+struct LC_IR_API AtomicFetchSubFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2085,7 +2085,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchAnd : public Func {
+struct LC_IR_API AtomicFetchAndFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2099,7 +2099,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchOr : public Func {
+struct LC_IR_API AtomicFetchOrFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2113,7 +2113,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchXor : public Func {
+struct LC_IR_API AtomicFetchXorFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2127,7 +2127,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchMin : public Func {
+struct LC_IR_API AtomicFetchMinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2141,7 +2141,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API AtomicFetchMax : public Func {
+struct LC_IR_API AtomicFetchMaxFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2155,7 +2155,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BufferWrite : public Func {
+struct LC_IR_API BufferWriteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2169,7 +2169,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BufferRead : public Func {
+struct LC_IR_API BufferReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2183,7 +2183,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BufferSize : public Func {
+struct LC_IR_API BufferSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2197,7 +2197,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ByteBufferWrite : public Func {
+struct LC_IR_API ByteBufferWriteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2211,7 +2211,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API ByteBufferRead : public Func {
+struct LC_IR_API ByteBufferReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2225,7 +2225,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ByteBufferSize : public Func {
+struct LC_IR_API ByteBufferSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2239,7 +2239,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Texture2dRead : public Func {
+struct LC_IR_API Texture2dReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2253,7 +2253,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Texture2dWrite : public Func {
+struct LC_IR_API Texture2dWriteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2267,7 +2267,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Texture2dSize : public Func {
+struct LC_IR_API Texture2dSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2281,7 +2281,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Texture3dRead : public Func {
+struct LC_IR_API Texture3dReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2295,7 +2295,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Texture3dWrite : public Func {
+struct LC_IR_API Texture3dWriteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2309,7 +2309,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Texture3dSize : public Func {
+struct LC_IR_API Texture3dSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2323,7 +2323,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dSample : public Func {
+struct LC_IR_API BindlessTexture2dSampleFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2337,7 +2337,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dSampleLevel : public Func {
+struct LC_IR_API BindlessTexture2dSampleLevelFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2351,7 +2351,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dSampleGrad : public Func {
+struct LC_IR_API BindlessTexture2dSampleGradFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2365,7 +2365,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dSampleGradLevel : public Func {
+struct LC_IR_API BindlessTexture2dSampleGradLevelFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2379,7 +2379,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dRead : public Func {
+struct LC_IR_API BindlessTexture2dReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2393,7 +2393,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dSize : public Func {
+struct LC_IR_API BindlessTexture2dSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2407,7 +2407,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture2dSizeLevel : public Func {
+struct LC_IR_API BindlessTexture2dSizeLevelFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2421,7 +2421,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dSample : public Func {
+struct LC_IR_API BindlessTexture3dSampleFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2435,7 +2435,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dSampleLevel : public Func {
+struct LC_IR_API BindlessTexture3dSampleLevelFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2449,7 +2449,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dSampleGrad : public Func {
+struct LC_IR_API BindlessTexture3dSampleGradFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2463,7 +2463,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dSampleGradLevel : public Func {
+struct LC_IR_API BindlessTexture3dSampleGradLevelFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2477,7 +2477,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dRead : public Func {
+struct LC_IR_API BindlessTexture3dReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2491,7 +2491,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dSize : public Func {
+struct LC_IR_API BindlessTexture3dSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2505,7 +2505,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessTexture3dSizeLevel : public Func {
+struct LC_IR_API BindlessTexture3dSizeLevelFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2519,7 +2519,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessBufferWrite : public Func {
+struct LC_IR_API BindlessBufferWriteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2533,7 +2533,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessBufferRead : public Func {
+struct LC_IR_API BindlessBufferReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2547,7 +2547,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessBufferSize : public Func {
+struct LC_IR_API BindlessBufferSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2561,7 +2561,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessByteBufferWrite : public Func {
+struct LC_IR_API BindlessByteBufferWriteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2575,7 +2575,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessByteBufferRead : public Func {
+struct LC_IR_API BindlessByteBufferReadFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2589,7 +2589,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessByteBufferSize : public Func {
+struct LC_IR_API BindlessByteBufferSizeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2603,7 +2603,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Vec : public Func {
+struct LC_IR_API VecFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2617,7 +2617,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Vec2 : public Func {
+struct LC_IR_API Vec2Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2631,7 +2631,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Vec3 : public Func {
+struct LC_IR_API Vec3Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2645,7 +2645,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Vec4 : public Func {
+struct LC_IR_API Vec4Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2659,7 +2659,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Permute : public Func {
+struct LC_IR_API PermuteFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2673,7 +2673,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API GetElementPtr : public Func {
+struct LC_IR_API GetElementPtrFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2687,7 +2687,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ExtractElement : public Func {
+struct LC_IR_API ExtractElementFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2701,7 +2701,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API InsertElement : public Func {
+struct LC_IR_API InsertElementFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2715,7 +2715,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Array : public Func {
+struct LC_IR_API ArrayFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2729,7 +2729,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Struct : public Func {
+struct LC_IR_API StructFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2743,7 +2743,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API MatFull : public Func {
+struct LC_IR_API MatFullFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2757,7 +2757,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Mat2 : public Func {
+struct LC_IR_API Mat2Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2771,7 +2771,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Mat3 : public Func {
+struct LC_IR_API Mat3Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2785,7 +2785,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API Mat4 : public Func {
+struct LC_IR_API Mat4Fn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2799,7 +2799,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API BindlessAtomicExchange : public Func {
+struct LC_IR_API BindlessAtomicExchangeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2814,7 +2814,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicCompareExchange : public Func {
+struct LC_IR_API BindlessAtomicCompareExchangeFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2829,7 +2829,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchAdd : public Func {
+struct LC_IR_API BindlessAtomicFetchAddFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2844,7 +2844,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchSub : public Func {
+struct LC_IR_API BindlessAtomicFetchSubFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2859,7 +2859,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchAnd : public Func {
+struct LC_IR_API BindlessAtomicFetchAndFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2874,7 +2874,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchOr : public Func {
+struct LC_IR_API BindlessAtomicFetchOrFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2889,7 +2889,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchXor : public Func {
+struct LC_IR_API BindlessAtomicFetchXorFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2904,7 +2904,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchMin : public Func {
+struct LC_IR_API BindlessAtomicFetchMinFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2919,7 +2919,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API BindlessAtomicFetchMax : public Func {
+struct LC_IR_API BindlessAtomicFetchMaxFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2934,7 +2934,7 @@ public:
         return true;
     }
 };
-struct LC_IR_API Callable : public Func {
+struct LC_IR_API CallableFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2949,7 +2949,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API CpuExt : public Func {
+struct LC_IR_API CpuExtFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2964,7 +2964,7 @@ public:
         return false;
     }
 };
-struct LC_IR_API ShaderExecutionReorder : public Func {
+struct LC_IR_API ShaderExecutionReorderFn : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -2998,7 +2998,7 @@ public:
         return isa<T>() ? static_cast<const T *>(this) : nullptr;
     }
 };
-struct LC_IR_API Buffer : public Instruction {
+struct LC_IR_API BufferInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3008,8 +3008,9 @@ public:
         return static_tag();
     }
 public:
+    BufferInst() = default;
 };
-struct LC_IR_API Texture2d : public Instruction {
+struct LC_IR_API Texture2dInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3019,8 +3020,9 @@ public:
         return static_tag();
     }
 public:
+    Texture2dInst() = default;
 };
-struct LC_IR_API Texture3d : public Instruction {
+struct LC_IR_API Texture3dInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3030,8 +3032,9 @@ public:
         return static_tag();
     }
 public:
+    Texture3dInst() = default;
 };
-struct LC_IR_API BindlessArray : public Instruction {
+struct LC_IR_API BindlessArrayInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3041,8 +3044,9 @@ public:
         return static_tag();
     }
 public:
+    BindlessArrayInst() = default;
 };
-struct LC_IR_API Accel : public Instruction {
+struct LC_IR_API AccelInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3052,8 +3056,9 @@ public:
         return static_tag();
     }
 public:
+    AccelInst() = default;
 };
-struct LC_IR_API Shared : public Instruction {
+struct LC_IR_API SharedInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3063,8 +3068,9 @@ public:
         return static_tag();
     }
 public:
+    SharedInst() = default;
 };
-struct LC_IR_API Uniform : public Instruction {
+struct LC_IR_API UniformInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3074,8 +3080,9 @@ public:
         return static_tag();
     }
 public:
+    UniformInst() = default;
 };
-struct LC_IR_API Argument : public Instruction {
+struct LC_IR_API ArgumentInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3086,8 +3093,10 @@ public:
     }
 public:
     bool by_value;
+    ArgumentInst() = default;
+    ArgumentInst(bool by_value) : by_value(by_value) {}
 };
-struct LC_IR_API Constant : public Instruction {
+struct LC_IR_API ConstantInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3099,8 +3108,10 @@ public:
 public:
     const Type *ty;
     luisa::vector<uint8_t> value;
+    ConstantInst() = default;
+    ConstantInst(const Type *ty, luisa::vector<uint8_t> value) : ty(ty), value(value) {}
 };
-struct LC_IR_API Call : public Instruction {
+struct LC_IR_API CallInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3112,12 +3123,10 @@ public:
 public:
     const Func *func;
     luisa::vector<Node *> args;
-    Call(const Func *func, luisa::vector<Node *> args) noexcept {
-        this->func = std::move(func);
-        this->args = std::move(args);
-    }
+    CallInst() = default;
+    CallInst(const Func *func, luisa::vector<Node *> args) : func(func), args(args) {}
 };
-struct LC_IR_API Phi : public Instruction {
+struct LC_IR_API PhiInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3128,8 +3137,10 @@ public:
     }
 public:
     luisa::vector<PhiIncoming> incomings;
+    PhiInst() = default;
+    PhiInst(luisa::vector<PhiIncoming> incomings) : incomings(incomings) {}
 };
-struct LC_IR_API BasicBlockSentinel : public Instruction {
+struct LC_IR_API BasicBlockSentinelInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3139,8 +3150,9 @@ public:
         return static_tag();
     }
 public:
+    BasicBlockSentinelInst() = default;
 };
-struct LC_IR_API If : public Instruction {
+struct LC_IR_API IfInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3153,13 +3165,10 @@ public:
     Node *cond;
     BasicBlock *true_branch;
     BasicBlock *false_branch;
-    If(Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) noexcept {
-        this->cond = cond;
-        this->true_branch = true_branch;
-        this->false_branch = false_branch;
-    }
+    IfInst() = default;
+    IfInst(Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) : cond(cond), true_branch(true_branch), false_branch(false_branch) {}
 };
-struct LC_IR_API GenericLoop : public Instruction {
+struct LC_IR_API GenericLoopInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3173,14 +3182,10 @@ public:
     Node *cond;
     BasicBlock *body;
     BasicBlock *update;
-    GenericLoop(BasicBlock *prepare, Node *cond, BasicBlock *body, BasicBlock *update) noexcept {
-        this->prepare = prepare;
-        this->cond = cond;
-        this->body = body;
-        this->update = update;
-    }
+    GenericLoopInst() = default;
+    GenericLoopInst(BasicBlock *prepare, Node *cond, BasicBlock *body, BasicBlock *update) : prepare(prepare), cond(cond), body(body), update(update) {}
 };
-struct LC_IR_API Switch : public Instruction {
+struct LC_IR_API SwitchInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3193,13 +3198,10 @@ public:
     Node *value;
     luisa::vector<SwitchCase> cases;
     BasicBlock *default_;
-    Switch(Node *value, luisa::vector<SwitchCase> cases, BasicBlock *default_) noexcept {
-        this->value = value;
-        this->cases = std::move(cases);
-        this->default_ = default_;
-    }
+    SwitchInst() = default;
+    SwitchInst(Node *value, luisa::vector<SwitchCase> cases, BasicBlock *default_) : value(value), cases(cases), default_(default_) {}
 };
-struct LC_IR_API Local : public Instruction {
+struct LC_IR_API LocalInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3210,11 +3212,10 @@ public:
     }
 public:
     Node *init;
-    Local(Node *init) noexcept {
-        this->init = init;
-    }
+    LocalInst() = default;
+    LocalInst(Node *init) : init(init) {}
 };
-struct LC_IR_API Break : public Instruction {
+struct LC_IR_API BreakInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3224,8 +3225,9 @@ public:
         return static_tag();
     }
 public:
+    BreakInst() = default;
 };
-struct LC_IR_API Continue : public Instruction {
+struct LC_IR_API ContinueInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3235,8 +3237,9 @@ public:
         return static_tag();
     }
 public:
+    ContinueInst() = default;
 };
-struct LC_IR_API Return : public Instruction {
+struct LC_IR_API ReturnInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3247,11 +3250,10 @@ public:
     }
 public:
     Node *value;
-    Return(Node *value) noexcept {
-        this->value = value;
-    }
+    ReturnInst() = default;
+    ReturnInst(Node *value) : value(value) {}
 };
-struct LC_IR_API Print : public Instruction {
+struct LC_IR_API PrintInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3263,12 +3265,10 @@ public:
 public:
     luisa::string fmt;
     luisa::vector<Node *> args;
-    Print(luisa::string fmt, luisa::vector<Node *> args) noexcept {
-        this->fmt = std::move(fmt);
-        this->args = std::move(args);
-    }
+    PrintInst() = default;
+    PrintInst(luisa::string fmt, luisa::vector<Node *> args) : fmt(fmt), args(args) {}
 };
-struct LC_IR_API Update : public Instruction {
+struct LC_IR_API UpdateInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3280,12 +3280,10 @@ public:
 public:
     Node *var;
     Node *value;
-    Update(Node *var, Node *value) noexcept {
-        this->var = var;
-        this->value = value;
-    }
+    UpdateInst() = default;
+    UpdateInst(Node *var, Node *value) : var(var), value(value) {}
 };
-struct LC_IR_API RayQuery : public Instruction {
+struct LC_IR_API RayQueryInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3298,13 +3296,10 @@ public:
     Node *query;
     BasicBlock *on_triangle_hit;
     BasicBlock *on_procedural_hit;
-    RayQuery(Node *query, BasicBlock *on_triangle_hit, BasicBlock *on_procedural_hit) noexcept {
-        this->query = query;
-        this->on_triangle_hit = on_triangle_hit;
-        this->on_procedural_hit = on_procedural_hit;
-    }
+    RayQueryInst() = default;
+    RayQueryInst(Node *query, BasicBlock *on_triangle_hit, BasicBlock *on_procedural_hit) : query(query), on_triangle_hit(on_triangle_hit), on_procedural_hit(on_procedural_hit) {}
 };
-struct LC_IR_API RevAutodiff : public Instruction {
+struct LC_IR_API RevAutodiffInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3315,11 +3310,10 @@ public:
     }
 public:
     BasicBlock *body;
-    RevAutodiff(BasicBlock *body) noexcept {
-        this->body = body;
-    }
+    RevAutodiffInst() = default;
+    RevAutodiffInst(BasicBlock *body) : body(body) {}
 };
-struct LC_IR_API FwdAutodiff : public Instruction {
+struct LC_IR_API FwdAutodiffInst : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
@@ -3330,10 +3324,10 @@ public:
     }
 public:
     BasicBlock *body;
-    FwdAutodiff(BasicBlock *body) noexcept {
-        this->body = body;
-    }
+    FwdAutodiffInst() = default;
+    FwdAutodiffInst(BasicBlock *body) : body(body) {}
 };
+LC_IR_API Func *create_func_from_tag(Pool &pool, FuncTag tag);
 struct Binding {
 public:
     typedef BindingTag Tag;

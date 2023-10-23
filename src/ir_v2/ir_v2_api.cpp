@@ -1,952 +1,1166 @@
 #include <luisa/ir_v2/ir_v2_api.h>
 namespace luisa::compute::ir_v2 {
-static Zero *Func_as_Zero(Func *self) {
-    return self->as<Zero>();
+static ZeroFn *Func_as_ZeroFn(Func *self) {
+    return self->as<ZeroFn>();
 }
-static One *Func_as_One(Func *self) {
-    return self->as<One>();
+static OneFn *Func_as_OneFn(Func *self) {
+    return self->as<OneFn>();
 }
-static Assume *Func_as_Assume(Func *self) {
-    return self->as<Assume>();
+static AssumeFn *Func_as_AssumeFn(Func *self) {
+    return self->as<AssumeFn>();
 }
-static Unreachable *Func_as_Unreachable(Func *self) {
-    return self->as<Unreachable>();
+static UnreachableFn *Func_as_UnreachableFn(Func *self) {
+    return self->as<UnreachableFn>();
 }
-static ThreadId *Func_as_ThreadId(Func *self) {
-    return self->as<ThreadId>();
+static ThreadIdFn *Func_as_ThreadIdFn(Func *self) {
+    return self->as<ThreadIdFn>();
 }
-static BlockId *Func_as_BlockId(Func *self) {
-    return self->as<BlockId>();
+static BlockIdFn *Func_as_BlockIdFn(Func *self) {
+    return self->as<BlockIdFn>();
 }
-static WarpSize *Func_as_WarpSize(Func *self) {
-    return self->as<WarpSize>();
+static WarpSizeFn *Func_as_WarpSizeFn(Func *self) {
+    return self->as<WarpSizeFn>();
 }
-static WarpLaneId *Func_as_WarpLaneId(Func *self) {
-    return self->as<WarpLaneId>();
+static WarpLaneIdFn *Func_as_WarpLaneIdFn(Func *self) {
+    return self->as<WarpLaneIdFn>();
 }
-static DispatchId *Func_as_DispatchId(Func *self) {
-    return self->as<DispatchId>();
+static DispatchIdFn *Func_as_DispatchIdFn(Func *self) {
+    return self->as<DispatchIdFn>();
 }
-static DispatchSize *Func_as_DispatchSize(Func *self) {
-    return self->as<DispatchSize>();
+static DispatchSizeFn *Func_as_DispatchSizeFn(Func *self) {
+    return self->as<DispatchSizeFn>();
 }
-static PropagateGradient *Func_as_PropagateGradient(Func *self) {
-    return self->as<PropagateGradient>();
+static PropagateGradientFn *Func_as_PropagateGradientFn(Func *self) {
+    return self->as<PropagateGradientFn>();
 }
-static OutputGradient *Func_as_OutputGradient(Func *self) {
-    return self->as<OutputGradient>();
+static OutputGradientFn *Func_as_OutputGradientFn(Func *self) {
+    return self->as<OutputGradientFn>();
 }
-static RequiresGradient *Func_as_RequiresGradient(Func *self) {
-    return self->as<RequiresGradient>();
+static RequiresGradientFn *Func_as_RequiresGradientFn(Func *self) {
+    return self->as<RequiresGradientFn>();
 }
-static Backward *Func_as_Backward(Func *self) {
-    return self->as<Backward>();
+static BackwardFn *Func_as_BackwardFn(Func *self) {
+    return self->as<BackwardFn>();
 }
-static Gradient *Func_as_Gradient(Func *self) {
-    return self->as<Gradient>();
+static GradientFn *Func_as_GradientFn(Func *self) {
+    return self->as<GradientFn>();
 }
-static AccGrad *Func_as_AccGrad(Func *self) {
-    return self->as<AccGrad>();
+static AccGradFn *Func_as_AccGradFn(Func *self) {
+    return self->as<AccGradFn>();
 }
-static Detach *Func_as_Detach(Func *self) {
-    return self->as<Detach>();
+static DetachFn *Func_as_DetachFn(Func *self) {
+    return self->as<DetachFn>();
 }
-static RayTracingInstanceTransform *Func_as_RayTracingInstanceTransform(Func *self) {
-    return self->as<RayTracingInstanceTransform>();
+static RayTracingInstanceTransformFn *Func_as_RayTracingInstanceTransformFn(Func *self) {
+    return self->as<RayTracingInstanceTransformFn>();
 }
-static RayTracingInstanceVisibilityMask *Func_as_RayTracingInstanceVisibilityMask(Func *self) {
-    return self->as<RayTracingInstanceVisibilityMask>();
+static RayTracingInstanceVisibilityMaskFn *Func_as_RayTracingInstanceVisibilityMaskFn(Func *self) {
+    return self->as<RayTracingInstanceVisibilityMaskFn>();
 }
-static RayTracingInstanceUserId *Func_as_RayTracingInstanceUserId(Func *self) {
-    return self->as<RayTracingInstanceUserId>();
+static RayTracingInstanceUserIdFn *Func_as_RayTracingInstanceUserIdFn(Func *self) {
+    return self->as<RayTracingInstanceUserIdFn>();
 }
-static RayTracingSetInstanceTransform *Func_as_RayTracingSetInstanceTransform(Func *self) {
-    return self->as<RayTracingSetInstanceTransform>();
+static RayTracingSetInstanceTransformFn *Func_as_RayTracingSetInstanceTransformFn(Func *self) {
+    return self->as<RayTracingSetInstanceTransformFn>();
 }
-static RayTracingSetInstanceOpacity *Func_as_RayTracingSetInstanceOpacity(Func *self) {
-    return self->as<RayTracingSetInstanceOpacity>();
+static RayTracingSetInstanceOpacityFn *Func_as_RayTracingSetInstanceOpacityFn(Func *self) {
+    return self->as<RayTracingSetInstanceOpacityFn>();
 }
-static RayTracingSetInstanceVisibility *Func_as_RayTracingSetInstanceVisibility(Func *self) {
-    return self->as<RayTracingSetInstanceVisibility>();
+static RayTracingSetInstanceVisibilityFn *Func_as_RayTracingSetInstanceVisibilityFn(Func *self) {
+    return self->as<RayTracingSetInstanceVisibilityFn>();
 }
-static RayTracingSetInstanceUserId *Func_as_RayTracingSetInstanceUserId(Func *self) {
-    return self->as<RayTracingSetInstanceUserId>();
+static RayTracingSetInstanceUserIdFn *Func_as_RayTracingSetInstanceUserIdFn(Func *self) {
+    return self->as<RayTracingSetInstanceUserIdFn>();
 }
-static RayTracingTraceClosest *Func_as_RayTracingTraceClosest(Func *self) {
-    return self->as<RayTracingTraceClosest>();
+static RayTracingTraceClosestFn *Func_as_RayTracingTraceClosestFn(Func *self) {
+    return self->as<RayTracingTraceClosestFn>();
 }
-static RayTracingTraceAny *Func_as_RayTracingTraceAny(Func *self) {
-    return self->as<RayTracingTraceAny>();
+static RayTracingTraceAnyFn *Func_as_RayTracingTraceAnyFn(Func *self) {
+    return self->as<RayTracingTraceAnyFn>();
 }
-static RayTracingQueryAll *Func_as_RayTracingQueryAll(Func *self) {
-    return self->as<RayTracingQueryAll>();
+static RayTracingQueryAllFn *Func_as_RayTracingQueryAllFn(Func *self) {
+    return self->as<RayTracingQueryAllFn>();
 }
-static RayTracingQueryAny *Func_as_RayTracingQueryAny(Func *self) {
-    return self->as<RayTracingQueryAny>();
+static RayTracingQueryAnyFn *Func_as_RayTracingQueryAnyFn(Func *self) {
+    return self->as<RayTracingQueryAnyFn>();
 }
-static RayQueryWorldSpaceRay *Func_as_RayQueryWorldSpaceRay(Func *self) {
-    return self->as<RayQueryWorldSpaceRay>();
+static RayQueryWorldSpaceRayFn *Func_as_RayQueryWorldSpaceRayFn(Func *self) {
+    return self->as<RayQueryWorldSpaceRayFn>();
 }
-static RayQueryProceduralCandidateHit *Func_as_RayQueryProceduralCandidateHit(Func *self) {
-    return self->as<RayQueryProceduralCandidateHit>();
+static RayQueryProceduralCandidateHitFn *Func_as_RayQueryProceduralCandidateHitFn(Func *self) {
+    return self->as<RayQueryProceduralCandidateHitFn>();
 }
-static RayQueryTriangleCandidateHit *Func_as_RayQueryTriangleCandidateHit(Func *self) {
-    return self->as<RayQueryTriangleCandidateHit>();
+static RayQueryTriangleCandidateHitFn *Func_as_RayQueryTriangleCandidateHitFn(Func *self) {
+    return self->as<RayQueryTriangleCandidateHitFn>();
 }
-static RayQueryCommittedHit *Func_as_RayQueryCommittedHit(Func *self) {
-    return self->as<RayQueryCommittedHit>();
+static RayQueryCommittedHitFn *Func_as_RayQueryCommittedHitFn(Func *self) {
+    return self->as<RayQueryCommittedHitFn>();
 }
-static RayQueryCommitTriangle *Func_as_RayQueryCommitTriangle(Func *self) {
-    return self->as<RayQueryCommitTriangle>();
+static RayQueryCommitTriangleFn *Func_as_RayQueryCommitTriangleFn(Func *self) {
+    return self->as<RayQueryCommitTriangleFn>();
 }
-static RayQueryCommitdProcedural *Func_as_RayQueryCommitdProcedural(Func *self) {
-    return self->as<RayQueryCommitdProcedural>();
+static RayQueryCommitdProceduralFn *Func_as_RayQueryCommitdProceduralFn(Func *self) {
+    return self->as<RayQueryCommitdProceduralFn>();
 }
-static RayQueryTerminate *Func_as_RayQueryTerminate(Func *self) {
-    return self->as<RayQueryTerminate>();
+static RayQueryTerminateFn *Func_as_RayQueryTerminateFn(Func *self) {
+    return self->as<RayQueryTerminateFn>();
 }
-static Load *Func_as_Load(Func *self) {
-    return self->as<Load>();
+static LoadFn *Func_as_LoadFn(Func *self) {
+    return self->as<LoadFn>();
 }
-static Cast *Func_as_Cast(Func *self) {
-    return self->as<Cast>();
+static CastFn *Func_as_CastFn(Func *self) {
+    return self->as<CastFn>();
 }
-static BitCast *Func_as_BitCast(Func *self) {
-    return self->as<BitCast>();
+static BitCastFn *Func_as_BitCastFn(Func *self) {
+    return self->as<BitCastFn>();
 }
-static Add *Func_as_Add(Func *self) {
-    return self->as<Add>();
+static AddFn *Func_as_AddFn(Func *self) {
+    return self->as<AddFn>();
 }
-static Sub *Func_as_Sub(Func *self) {
-    return self->as<Sub>();
+static SubFn *Func_as_SubFn(Func *self) {
+    return self->as<SubFn>();
 }
-static Mul *Func_as_Mul(Func *self) {
-    return self->as<Mul>();
+static MulFn *Func_as_MulFn(Func *self) {
+    return self->as<MulFn>();
 }
-static Div *Func_as_Div(Func *self) {
-    return self->as<Div>();
+static DivFn *Func_as_DivFn(Func *self) {
+    return self->as<DivFn>();
 }
-static Rem *Func_as_Rem(Func *self) {
-    return self->as<Rem>();
+static RemFn *Func_as_RemFn(Func *self) {
+    return self->as<RemFn>();
 }
-static BitAnd *Func_as_BitAnd(Func *self) {
-    return self->as<BitAnd>();
+static BitAndFn *Func_as_BitAndFn(Func *self) {
+    return self->as<BitAndFn>();
 }
-static BitOr *Func_as_BitOr(Func *self) {
-    return self->as<BitOr>();
+static BitOrFn *Func_as_BitOrFn(Func *self) {
+    return self->as<BitOrFn>();
 }
-static BitXor *Func_as_BitXor(Func *self) {
-    return self->as<BitXor>();
+static BitXorFn *Func_as_BitXorFn(Func *self) {
+    return self->as<BitXorFn>();
 }
-static Shl *Func_as_Shl(Func *self) {
-    return self->as<Shl>();
+static ShlFn *Func_as_ShlFn(Func *self) {
+    return self->as<ShlFn>();
 }
-static Shr *Func_as_Shr(Func *self) {
-    return self->as<Shr>();
+static ShrFn *Func_as_ShrFn(Func *self) {
+    return self->as<ShrFn>();
 }
-static RotRight *Func_as_RotRight(Func *self) {
-    return self->as<RotRight>();
+static RotRightFn *Func_as_RotRightFn(Func *self) {
+    return self->as<RotRightFn>();
 }
-static RotLeft *Func_as_RotLeft(Func *self) {
-    return self->as<RotLeft>();
+static RotLeftFn *Func_as_RotLeftFn(Func *self) {
+    return self->as<RotLeftFn>();
 }
-static Eq *Func_as_Eq(Func *self) {
-    return self->as<Eq>();
+static EqFn *Func_as_EqFn(Func *self) {
+    return self->as<EqFn>();
 }
-static Ne *Func_as_Ne(Func *self) {
-    return self->as<Ne>();
+static NeFn *Func_as_NeFn(Func *self) {
+    return self->as<NeFn>();
 }
-static Lt *Func_as_Lt(Func *self) {
-    return self->as<Lt>();
+static LtFn *Func_as_LtFn(Func *self) {
+    return self->as<LtFn>();
 }
-static Le *Func_as_Le(Func *self) {
-    return self->as<Le>();
+static LeFn *Func_as_LeFn(Func *self) {
+    return self->as<LeFn>();
 }
-static Gt *Func_as_Gt(Func *self) {
-    return self->as<Gt>();
+static GtFn *Func_as_GtFn(Func *self) {
+    return self->as<GtFn>();
 }
-static Ge *Func_as_Ge(Func *self) {
-    return self->as<Ge>();
+static GeFn *Func_as_GeFn(Func *self) {
+    return self->as<GeFn>();
 }
-static MatCompMul *Func_as_MatCompMul(Func *self) {
-    return self->as<MatCompMul>();
+static MatCompMulFn *Func_as_MatCompMulFn(Func *self) {
+    return self->as<MatCompMulFn>();
 }
-static Neg *Func_as_Neg(Func *self) {
-    return self->as<Neg>();
+static NegFn *Func_as_NegFn(Func *self) {
+    return self->as<NegFn>();
 }
-static Not *Func_as_Not(Func *self) {
-    return self->as<Not>();
+static NotFn *Func_as_NotFn(Func *self) {
+    return self->as<NotFn>();
 }
-static BitNot *Func_as_BitNot(Func *self) {
-    return self->as<BitNot>();
+static BitNotFn *Func_as_BitNotFn(Func *self) {
+    return self->as<BitNotFn>();
 }
-static All *Func_as_All(Func *self) {
-    return self->as<All>();
+static AllFn *Func_as_AllFn(Func *self) {
+    return self->as<AllFn>();
 }
-static Any *Func_as_Any(Func *self) {
-    return self->as<Any>();
+static AnyFn *Func_as_AnyFn(Func *self) {
+    return self->as<AnyFn>();
 }
-static Select *Func_as_Select(Func *self) {
-    return self->as<Select>();
+static SelectFn *Func_as_SelectFn(Func *self) {
+    return self->as<SelectFn>();
 }
-static Clamp *Func_as_Clamp(Func *self) {
-    return self->as<Clamp>();
+static ClampFn *Func_as_ClampFn(Func *self) {
+    return self->as<ClampFn>();
 }
-static Lerp *Func_as_Lerp(Func *self) {
-    return self->as<Lerp>();
+static LerpFn *Func_as_LerpFn(Func *self) {
+    return self->as<LerpFn>();
 }
-static Step *Func_as_Step(Func *self) {
-    return self->as<Step>();
+static StepFn *Func_as_StepFn(Func *self) {
+    return self->as<StepFn>();
 }
-static Saturate *Func_as_Saturate(Func *self) {
-    return self->as<Saturate>();
+static SaturateFn *Func_as_SaturateFn(Func *self) {
+    return self->as<SaturateFn>();
 }
-static SmoothStep *Func_as_SmoothStep(Func *self) {
-    return self->as<SmoothStep>();
+static SmoothStepFn *Func_as_SmoothStepFn(Func *self) {
+    return self->as<SmoothStepFn>();
 }
-static Abs *Func_as_Abs(Func *self) {
-    return self->as<Abs>();
+static AbsFn *Func_as_AbsFn(Func *self) {
+    return self->as<AbsFn>();
 }
-static Min *Func_as_Min(Func *self) {
-    return self->as<Min>();
+static MinFn *Func_as_MinFn(Func *self) {
+    return self->as<MinFn>();
 }
-static Max *Func_as_Max(Func *self) {
-    return self->as<Max>();
+static MaxFn *Func_as_MaxFn(Func *self) {
+    return self->as<MaxFn>();
 }
-static ReduceSum *Func_as_ReduceSum(Func *self) {
-    return self->as<ReduceSum>();
+static ReduceSumFn *Func_as_ReduceSumFn(Func *self) {
+    return self->as<ReduceSumFn>();
 }
-static ReduceProd *Func_as_ReduceProd(Func *self) {
-    return self->as<ReduceProd>();
+static ReduceProdFn *Func_as_ReduceProdFn(Func *self) {
+    return self->as<ReduceProdFn>();
 }
-static ReduceMin *Func_as_ReduceMin(Func *self) {
-    return self->as<ReduceMin>();
+static ReduceMinFn *Func_as_ReduceMinFn(Func *self) {
+    return self->as<ReduceMinFn>();
 }
-static ReduceMax *Func_as_ReduceMax(Func *self) {
-    return self->as<ReduceMax>();
+static ReduceMaxFn *Func_as_ReduceMaxFn(Func *self) {
+    return self->as<ReduceMaxFn>();
 }
-static Clz *Func_as_Clz(Func *self) {
-    return self->as<Clz>();
+static ClzFn *Func_as_ClzFn(Func *self) {
+    return self->as<ClzFn>();
 }
-static Ctz *Func_as_Ctz(Func *self) {
-    return self->as<Ctz>();
+static CtzFn *Func_as_CtzFn(Func *self) {
+    return self->as<CtzFn>();
 }
-static PopCount *Func_as_PopCount(Func *self) {
-    return self->as<PopCount>();
+static PopCountFn *Func_as_PopCountFn(Func *self) {
+    return self->as<PopCountFn>();
 }
-static Reverse *Func_as_Reverse(Func *self) {
-    return self->as<Reverse>();
+static ReverseFn *Func_as_ReverseFn(Func *self) {
+    return self->as<ReverseFn>();
 }
-static IsInf *Func_as_IsInf(Func *self) {
-    return self->as<IsInf>();
+static IsInfFn *Func_as_IsInfFn(Func *self) {
+    return self->as<IsInfFn>();
 }
-static IsNan *Func_as_IsNan(Func *self) {
-    return self->as<IsNan>();
+static IsNanFn *Func_as_IsNanFn(Func *self) {
+    return self->as<IsNanFn>();
 }
-static Acos *Func_as_Acos(Func *self) {
-    return self->as<Acos>();
+static AcosFn *Func_as_AcosFn(Func *self) {
+    return self->as<AcosFn>();
 }
-static Acosh *Func_as_Acosh(Func *self) {
-    return self->as<Acosh>();
+static AcoshFn *Func_as_AcoshFn(Func *self) {
+    return self->as<AcoshFn>();
 }
-static Asin *Func_as_Asin(Func *self) {
-    return self->as<Asin>();
+static AsinFn *Func_as_AsinFn(Func *self) {
+    return self->as<AsinFn>();
 }
-static Asinh *Func_as_Asinh(Func *self) {
-    return self->as<Asinh>();
+static AsinhFn *Func_as_AsinhFn(Func *self) {
+    return self->as<AsinhFn>();
 }
-static Atan *Func_as_Atan(Func *self) {
-    return self->as<Atan>();
+static AtanFn *Func_as_AtanFn(Func *self) {
+    return self->as<AtanFn>();
 }
-static Atan2 *Func_as_Atan2(Func *self) {
-    return self->as<Atan2>();
+static Atan2Fn *Func_as_Atan2Fn(Func *self) {
+    return self->as<Atan2Fn>();
 }
-static Atanh *Func_as_Atanh(Func *self) {
-    return self->as<Atanh>();
+static AtanhFn *Func_as_AtanhFn(Func *self) {
+    return self->as<AtanhFn>();
 }
-static Cos *Func_as_Cos(Func *self) {
-    return self->as<Cos>();
+static CosFn *Func_as_CosFn(Func *self) {
+    return self->as<CosFn>();
 }
-static Cosh *Func_as_Cosh(Func *self) {
-    return self->as<Cosh>();
+static CoshFn *Func_as_CoshFn(Func *self) {
+    return self->as<CoshFn>();
 }
-static Sin *Func_as_Sin(Func *self) {
-    return self->as<Sin>();
+static SinFn *Func_as_SinFn(Func *self) {
+    return self->as<SinFn>();
 }
-static Sinh *Func_as_Sinh(Func *self) {
-    return self->as<Sinh>();
+static SinhFn *Func_as_SinhFn(Func *self) {
+    return self->as<SinhFn>();
 }
-static Tan *Func_as_Tan(Func *self) {
-    return self->as<Tan>();
+static TanFn *Func_as_TanFn(Func *self) {
+    return self->as<TanFn>();
 }
-static Tanh *Func_as_Tanh(Func *self) {
-    return self->as<Tanh>();
+static TanhFn *Func_as_TanhFn(Func *self) {
+    return self->as<TanhFn>();
 }
-static Exp *Func_as_Exp(Func *self) {
-    return self->as<Exp>();
+static ExpFn *Func_as_ExpFn(Func *self) {
+    return self->as<ExpFn>();
 }
-static Exp2 *Func_as_Exp2(Func *self) {
-    return self->as<Exp2>();
+static Exp2Fn *Func_as_Exp2Fn(Func *self) {
+    return self->as<Exp2Fn>();
 }
-static Exp10 *Func_as_Exp10(Func *self) {
-    return self->as<Exp10>();
+static Exp10Fn *Func_as_Exp10Fn(Func *self) {
+    return self->as<Exp10Fn>();
 }
-static Log *Func_as_Log(Func *self) {
-    return self->as<Log>();
+static LogFn *Func_as_LogFn(Func *self) {
+    return self->as<LogFn>();
 }
-static Log2 *Func_as_Log2(Func *self) {
-    return self->as<Log2>();
+static Log2Fn *Func_as_Log2Fn(Func *self) {
+    return self->as<Log2Fn>();
 }
-static Log10 *Func_as_Log10(Func *self) {
-    return self->as<Log10>();
+static Log10Fn *Func_as_Log10Fn(Func *self) {
+    return self->as<Log10Fn>();
 }
-static Powi *Func_as_Powi(Func *self) {
-    return self->as<Powi>();
+static PowiFn *Func_as_PowiFn(Func *self) {
+    return self->as<PowiFn>();
 }
-static Powf *Func_as_Powf(Func *self) {
-    return self->as<Powf>();
+static PowfFn *Func_as_PowfFn(Func *self) {
+    return self->as<PowfFn>();
 }
-static Sqrt *Func_as_Sqrt(Func *self) {
-    return self->as<Sqrt>();
+static SqrtFn *Func_as_SqrtFn(Func *self) {
+    return self->as<SqrtFn>();
 }
-static Rsqrt *Func_as_Rsqrt(Func *self) {
-    return self->as<Rsqrt>();
+static RsqrtFn *Func_as_RsqrtFn(Func *self) {
+    return self->as<RsqrtFn>();
 }
-static Ceil *Func_as_Ceil(Func *self) {
-    return self->as<Ceil>();
+static CeilFn *Func_as_CeilFn(Func *self) {
+    return self->as<CeilFn>();
 }
-static Floor *Func_as_Floor(Func *self) {
-    return self->as<Floor>();
+static FloorFn *Func_as_FloorFn(Func *self) {
+    return self->as<FloorFn>();
 }
-static Fract *Func_as_Fract(Func *self) {
-    return self->as<Fract>();
+static FractFn *Func_as_FractFn(Func *self) {
+    return self->as<FractFn>();
 }
-static Trunc *Func_as_Trunc(Func *self) {
-    return self->as<Trunc>();
+static TruncFn *Func_as_TruncFn(Func *self) {
+    return self->as<TruncFn>();
 }
-static Round *Func_as_Round(Func *self) {
-    return self->as<Round>();
+static RoundFn *Func_as_RoundFn(Func *self) {
+    return self->as<RoundFn>();
 }
-static Fma *Func_as_Fma(Func *self) {
-    return self->as<Fma>();
+static FmaFn *Func_as_FmaFn(Func *self) {
+    return self->as<FmaFn>();
 }
-static Copysign *Func_as_Copysign(Func *self) {
-    return self->as<Copysign>();
+static CopysignFn *Func_as_CopysignFn(Func *self) {
+    return self->as<CopysignFn>();
 }
-static Cross *Func_as_Cross(Func *self) {
-    return self->as<Cross>();
+static CrossFn *Func_as_CrossFn(Func *self) {
+    return self->as<CrossFn>();
 }
-static Dot *Func_as_Dot(Func *self) {
-    return self->as<Dot>();
+static DotFn *Func_as_DotFn(Func *self) {
+    return self->as<DotFn>();
 }
-static OuterProduct *Func_as_OuterProduct(Func *self) {
-    return self->as<OuterProduct>();
+static OuterProductFn *Func_as_OuterProductFn(Func *self) {
+    return self->as<OuterProductFn>();
 }
-static Length *Func_as_Length(Func *self) {
-    return self->as<Length>();
+static LengthFn *Func_as_LengthFn(Func *self) {
+    return self->as<LengthFn>();
 }
-static LengthSquared *Func_as_LengthSquared(Func *self) {
-    return self->as<LengthSquared>();
+static LengthSquaredFn *Func_as_LengthSquaredFn(Func *self) {
+    return self->as<LengthSquaredFn>();
 }
-static Normalize *Func_as_Normalize(Func *self) {
-    return self->as<Normalize>();
+static NormalizeFn *Func_as_NormalizeFn(Func *self) {
+    return self->as<NormalizeFn>();
 }
-static Faceforward *Func_as_Faceforward(Func *self) {
-    return self->as<Faceforward>();
+static FaceforwardFn *Func_as_FaceforwardFn(Func *self) {
+    return self->as<FaceforwardFn>();
 }
-static Distance *Func_as_Distance(Func *self) {
-    return self->as<Distance>();
+static DistanceFn *Func_as_DistanceFn(Func *self) {
+    return self->as<DistanceFn>();
 }
-static Reflect *Func_as_Reflect(Func *self) {
-    return self->as<Reflect>();
+static ReflectFn *Func_as_ReflectFn(Func *self) {
+    return self->as<ReflectFn>();
 }
-static Determinant *Func_as_Determinant(Func *self) {
-    return self->as<Determinant>();
+static DeterminantFn *Func_as_DeterminantFn(Func *self) {
+    return self->as<DeterminantFn>();
 }
-static Transpose *Func_as_Transpose(Func *self) {
-    return self->as<Transpose>();
+static TransposeFn *Func_as_TransposeFn(Func *self) {
+    return self->as<TransposeFn>();
 }
-static Inverse *Func_as_Inverse(Func *self) {
-    return self->as<Inverse>();
+static InverseFn *Func_as_InverseFn(Func *self) {
+    return self->as<InverseFn>();
 }
-static WarpIsFirstActiveLane *Func_as_WarpIsFirstActiveLane(Func *self) {
-    return self->as<WarpIsFirstActiveLane>();
+static WarpIsFirstActiveLaneFn *Func_as_WarpIsFirstActiveLaneFn(Func *self) {
+    return self->as<WarpIsFirstActiveLaneFn>();
 }
-static WarpFirstActiveLane *Func_as_WarpFirstActiveLane(Func *self) {
-    return self->as<WarpFirstActiveLane>();
+static WarpFirstActiveLaneFn *Func_as_WarpFirstActiveLaneFn(Func *self) {
+    return self->as<WarpFirstActiveLaneFn>();
 }
-static WarpActiveAllEqual *Func_as_WarpActiveAllEqual(Func *self) {
-    return self->as<WarpActiveAllEqual>();
+static WarpActiveAllEqualFn *Func_as_WarpActiveAllEqualFn(Func *self) {
+    return self->as<WarpActiveAllEqualFn>();
 }
-static WarpActiveBitAnd *Func_as_WarpActiveBitAnd(Func *self) {
-    return self->as<WarpActiveBitAnd>();
+static WarpActiveBitAndFn *Func_as_WarpActiveBitAndFn(Func *self) {
+    return self->as<WarpActiveBitAndFn>();
 }
-static WarpActiveBitOr *Func_as_WarpActiveBitOr(Func *self) {
-    return self->as<WarpActiveBitOr>();
+static WarpActiveBitOrFn *Func_as_WarpActiveBitOrFn(Func *self) {
+    return self->as<WarpActiveBitOrFn>();
 }
-static WarpActiveBitXor *Func_as_WarpActiveBitXor(Func *self) {
-    return self->as<WarpActiveBitXor>();
+static WarpActiveBitXorFn *Func_as_WarpActiveBitXorFn(Func *self) {
+    return self->as<WarpActiveBitXorFn>();
 }
-static WarpActiveCountBits *Func_as_WarpActiveCountBits(Func *self) {
-    return self->as<WarpActiveCountBits>();
+static WarpActiveCountBitsFn *Func_as_WarpActiveCountBitsFn(Func *self) {
+    return self->as<WarpActiveCountBitsFn>();
 }
-static WarpActiveMax *Func_as_WarpActiveMax(Func *self) {
-    return self->as<WarpActiveMax>();
+static WarpActiveMaxFn *Func_as_WarpActiveMaxFn(Func *self) {
+    return self->as<WarpActiveMaxFn>();
 }
-static WarpActiveMin *Func_as_WarpActiveMin(Func *self) {
-    return self->as<WarpActiveMin>();
+static WarpActiveMinFn *Func_as_WarpActiveMinFn(Func *self) {
+    return self->as<WarpActiveMinFn>();
 }
-static WarpActiveProduct *Func_as_WarpActiveProduct(Func *self) {
-    return self->as<WarpActiveProduct>();
+static WarpActiveProductFn *Func_as_WarpActiveProductFn(Func *self) {
+    return self->as<WarpActiveProductFn>();
 }
-static WarpActiveSum *Func_as_WarpActiveSum(Func *self) {
-    return self->as<WarpActiveSum>();
+static WarpActiveSumFn *Func_as_WarpActiveSumFn(Func *self) {
+    return self->as<WarpActiveSumFn>();
 }
-static WarpActiveAll *Func_as_WarpActiveAll(Func *self) {
-    return self->as<WarpActiveAll>();
+static WarpActiveAllFn *Func_as_WarpActiveAllFn(Func *self) {
+    return self->as<WarpActiveAllFn>();
 }
-static WarpActiveAny *Func_as_WarpActiveAny(Func *self) {
-    return self->as<WarpActiveAny>();
+static WarpActiveAnyFn *Func_as_WarpActiveAnyFn(Func *self) {
+    return self->as<WarpActiveAnyFn>();
 }
-static WarpActiveBitMask *Func_as_WarpActiveBitMask(Func *self) {
-    return self->as<WarpActiveBitMask>();
+static WarpActiveBitMaskFn *Func_as_WarpActiveBitMaskFn(Func *self) {
+    return self->as<WarpActiveBitMaskFn>();
 }
-static WarpPrefixCountBits *Func_as_WarpPrefixCountBits(Func *self) {
-    return self->as<WarpPrefixCountBits>();
+static WarpPrefixCountBitsFn *Func_as_WarpPrefixCountBitsFn(Func *self) {
+    return self->as<WarpPrefixCountBitsFn>();
 }
-static WarpPrefixSum *Func_as_WarpPrefixSum(Func *self) {
-    return self->as<WarpPrefixSum>();
+static WarpPrefixSumFn *Func_as_WarpPrefixSumFn(Func *self) {
+    return self->as<WarpPrefixSumFn>();
 }
-static WarpPrefixProduct *Func_as_WarpPrefixProduct(Func *self) {
-    return self->as<WarpPrefixProduct>();
+static WarpPrefixProductFn *Func_as_WarpPrefixProductFn(Func *self) {
+    return self->as<WarpPrefixProductFn>();
 }
-static WarpReadLaneAt *Func_as_WarpReadLaneAt(Func *self) {
-    return self->as<WarpReadLaneAt>();
+static WarpReadLaneAtFn *Func_as_WarpReadLaneAtFn(Func *self) {
+    return self->as<WarpReadLaneAtFn>();
 }
-static WarpReadFirstLane *Func_as_WarpReadFirstLane(Func *self) {
-    return self->as<WarpReadFirstLane>();
+static WarpReadFirstLaneFn *Func_as_WarpReadFirstLaneFn(Func *self) {
+    return self->as<WarpReadFirstLaneFn>();
 }
-static SynchronizeBlock *Func_as_SynchronizeBlock(Func *self) {
-    return self->as<SynchronizeBlock>();
+static SynchronizeBlockFn *Func_as_SynchronizeBlockFn(Func *self) {
+    return self->as<SynchronizeBlockFn>();
 }
-static AtomicExchange *Func_as_AtomicExchange(Func *self) {
-    return self->as<AtomicExchange>();
+static AtomicExchangeFn *Func_as_AtomicExchangeFn(Func *self) {
+    return self->as<AtomicExchangeFn>();
 }
-static AtomicCompareExchange *Func_as_AtomicCompareExchange(Func *self) {
-    return self->as<AtomicCompareExchange>();
+static AtomicCompareExchangeFn *Func_as_AtomicCompareExchangeFn(Func *self) {
+    return self->as<AtomicCompareExchangeFn>();
 }
-static AtomicFetchAdd *Func_as_AtomicFetchAdd(Func *self) {
-    return self->as<AtomicFetchAdd>();
+static AtomicFetchAddFn *Func_as_AtomicFetchAddFn(Func *self) {
+    return self->as<AtomicFetchAddFn>();
 }
-static AtomicFetchSub *Func_as_AtomicFetchSub(Func *self) {
-    return self->as<AtomicFetchSub>();
+static AtomicFetchSubFn *Func_as_AtomicFetchSubFn(Func *self) {
+    return self->as<AtomicFetchSubFn>();
 }
-static AtomicFetchAnd *Func_as_AtomicFetchAnd(Func *self) {
-    return self->as<AtomicFetchAnd>();
+static AtomicFetchAndFn *Func_as_AtomicFetchAndFn(Func *self) {
+    return self->as<AtomicFetchAndFn>();
 }
-static AtomicFetchOr *Func_as_AtomicFetchOr(Func *self) {
-    return self->as<AtomicFetchOr>();
+static AtomicFetchOrFn *Func_as_AtomicFetchOrFn(Func *self) {
+    return self->as<AtomicFetchOrFn>();
 }
-static AtomicFetchXor *Func_as_AtomicFetchXor(Func *self) {
-    return self->as<AtomicFetchXor>();
+static AtomicFetchXorFn *Func_as_AtomicFetchXorFn(Func *self) {
+    return self->as<AtomicFetchXorFn>();
 }
-static AtomicFetchMin *Func_as_AtomicFetchMin(Func *self) {
-    return self->as<AtomicFetchMin>();
+static AtomicFetchMinFn *Func_as_AtomicFetchMinFn(Func *self) {
+    return self->as<AtomicFetchMinFn>();
 }
-static AtomicFetchMax *Func_as_AtomicFetchMax(Func *self) {
-    return self->as<AtomicFetchMax>();
+static AtomicFetchMaxFn *Func_as_AtomicFetchMaxFn(Func *self) {
+    return self->as<AtomicFetchMaxFn>();
 }
-static BufferWrite *Func_as_BufferWrite(Func *self) {
-    return self->as<BufferWrite>();
+static BufferWriteFn *Func_as_BufferWriteFn(Func *self) {
+    return self->as<BufferWriteFn>();
 }
-static BufferRead *Func_as_BufferRead(Func *self) {
-    return self->as<BufferRead>();
+static BufferReadFn *Func_as_BufferReadFn(Func *self) {
+    return self->as<BufferReadFn>();
 }
-static BufferSize *Func_as_BufferSize(Func *self) {
-    return self->as<BufferSize>();
+static BufferSizeFn *Func_as_BufferSizeFn(Func *self) {
+    return self->as<BufferSizeFn>();
 }
-static ByteBufferWrite *Func_as_ByteBufferWrite(Func *self) {
-    return self->as<ByteBufferWrite>();
+static ByteBufferWriteFn *Func_as_ByteBufferWriteFn(Func *self) {
+    return self->as<ByteBufferWriteFn>();
 }
-static ByteBufferRead *Func_as_ByteBufferRead(Func *self) {
-    return self->as<ByteBufferRead>();
+static ByteBufferReadFn *Func_as_ByteBufferReadFn(Func *self) {
+    return self->as<ByteBufferReadFn>();
 }
-static ByteBufferSize *Func_as_ByteBufferSize(Func *self) {
-    return self->as<ByteBufferSize>();
+static ByteBufferSizeFn *Func_as_ByteBufferSizeFn(Func *self) {
+    return self->as<ByteBufferSizeFn>();
 }
-static Texture2dRead *Func_as_Texture2dRead(Func *self) {
-    return self->as<Texture2dRead>();
+static Texture2dReadFn *Func_as_Texture2dReadFn(Func *self) {
+    return self->as<Texture2dReadFn>();
 }
-static Texture2dWrite *Func_as_Texture2dWrite(Func *self) {
-    return self->as<Texture2dWrite>();
+static Texture2dWriteFn *Func_as_Texture2dWriteFn(Func *self) {
+    return self->as<Texture2dWriteFn>();
 }
-static Texture2dSize *Func_as_Texture2dSize(Func *self) {
-    return self->as<Texture2dSize>();
+static Texture2dSizeFn *Func_as_Texture2dSizeFn(Func *self) {
+    return self->as<Texture2dSizeFn>();
 }
-static Texture3dRead *Func_as_Texture3dRead(Func *self) {
-    return self->as<Texture3dRead>();
+static Texture3dReadFn *Func_as_Texture3dReadFn(Func *self) {
+    return self->as<Texture3dReadFn>();
 }
-static Texture3dWrite *Func_as_Texture3dWrite(Func *self) {
-    return self->as<Texture3dWrite>();
+static Texture3dWriteFn *Func_as_Texture3dWriteFn(Func *self) {
+    return self->as<Texture3dWriteFn>();
 }
-static Texture3dSize *Func_as_Texture3dSize(Func *self) {
-    return self->as<Texture3dSize>();
+static Texture3dSizeFn *Func_as_Texture3dSizeFn(Func *self) {
+    return self->as<Texture3dSizeFn>();
 }
-static BindlessTexture2dSample *Func_as_BindlessTexture2dSample(Func *self) {
-    return self->as<BindlessTexture2dSample>();
+static BindlessTexture2dSampleFn *Func_as_BindlessTexture2dSampleFn(Func *self) {
+    return self->as<BindlessTexture2dSampleFn>();
 }
-static BindlessTexture2dSampleLevel *Func_as_BindlessTexture2dSampleLevel(Func *self) {
-    return self->as<BindlessTexture2dSampleLevel>();
+static BindlessTexture2dSampleLevelFn *Func_as_BindlessTexture2dSampleLevelFn(Func *self) {
+    return self->as<BindlessTexture2dSampleLevelFn>();
 }
-static BindlessTexture2dSampleGrad *Func_as_BindlessTexture2dSampleGrad(Func *self) {
-    return self->as<BindlessTexture2dSampleGrad>();
+static BindlessTexture2dSampleGradFn *Func_as_BindlessTexture2dSampleGradFn(Func *self) {
+    return self->as<BindlessTexture2dSampleGradFn>();
 }
-static BindlessTexture2dSampleGradLevel *Func_as_BindlessTexture2dSampleGradLevel(Func *self) {
-    return self->as<BindlessTexture2dSampleGradLevel>();
+static BindlessTexture2dSampleGradLevelFn *Func_as_BindlessTexture2dSampleGradLevelFn(Func *self) {
+    return self->as<BindlessTexture2dSampleGradLevelFn>();
 }
-static BindlessTexture2dRead *Func_as_BindlessTexture2dRead(Func *self) {
-    return self->as<BindlessTexture2dRead>();
+static BindlessTexture2dReadFn *Func_as_BindlessTexture2dReadFn(Func *self) {
+    return self->as<BindlessTexture2dReadFn>();
 }
-static BindlessTexture2dSize *Func_as_BindlessTexture2dSize(Func *self) {
-    return self->as<BindlessTexture2dSize>();
+static BindlessTexture2dSizeFn *Func_as_BindlessTexture2dSizeFn(Func *self) {
+    return self->as<BindlessTexture2dSizeFn>();
 }
-static BindlessTexture2dSizeLevel *Func_as_BindlessTexture2dSizeLevel(Func *self) {
-    return self->as<BindlessTexture2dSizeLevel>();
+static BindlessTexture2dSizeLevelFn *Func_as_BindlessTexture2dSizeLevelFn(Func *self) {
+    return self->as<BindlessTexture2dSizeLevelFn>();
 }
-static BindlessTexture3dSample *Func_as_BindlessTexture3dSample(Func *self) {
-    return self->as<BindlessTexture3dSample>();
+static BindlessTexture3dSampleFn *Func_as_BindlessTexture3dSampleFn(Func *self) {
+    return self->as<BindlessTexture3dSampleFn>();
 }
-static BindlessTexture3dSampleLevel *Func_as_BindlessTexture3dSampleLevel(Func *self) {
-    return self->as<BindlessTexture3dSampleLevel>();
+static BindlessTexture3dSampleLevelFn *Func_as_BindlessTexture3dSampleLevelFn(Func *self) {
+    return self->as<BindlessTexture3dSampleLevelFn>();
 }
-static BindlessTexture3dSampleGrad *Func_as_BindlessTexture3dSampleGrad(Func *self) {
-    return self->as<BindlessTexture3dSampleGrad>();
+static BindlessTexture3dSampleGradFn *Func_as_BindlessTexture3dSampleGradFn(Func *self) {
+    return self->as<BindlessTexture3dSampleGradFn>();
 }
-static BindlessTexture3dSampleGradLevel *Func_as_BindlessTexture3dSampleGradLevel(Func *self) {
-    return self->as<BindlessTexture3dSampleGradLevel>();
+static BindlessTexture3dSampleGradLevelFn *Func_as_BindlessTexture3dSampleGradLevelFn(Func *self) {
+    return self->as<BindlessTexture3dSampleGradLevelFn>();
 }
-static BindlessTexture3dRead *Func_as_BindlessTexture3dRead(Func *self) {
-    return self->as<BindlessTexture3dRead>();
+static BindlessTexture3dReadFn *Func_as_BindlessTexture3dReadFn(Func *self) {
+    return self->as<BindlessTexture3dReadFn>();
 }
-static BindlessTexture3dSize *Func_as_BindlessTexture3dSize(Func *self) {
-    return self->as<BindlessTexture3dSize>();
+static BindlessTexture3dSizeFn *Func_as_BindlessTexture3dSizeFn(Func *self) {
+    return self->as<BindlessTexture3dSizeFn>();
 }
-static BindlessTexture3dSizeLevel *Func_as_BindlessTexture3dSizeLevel(Func *self) {
-    return self->as<BindlessTexture3dSizeLevel>();
+static BindlessTexture3dSizeLevelFn *Func_as_BindlessTexture3dSizeLevelFn(Func *self) {
+    return self->as<BindlessTexture3dSizeLevelFn>();
 }
-static BindlessBufferWrite *Func_as_BindlessBufferWrite(Func *self) {
-    return self->as<BindlessBufferWrite>();
+static BindlessBufferWriteFn *Func_as_BindlessBufferWriteFn(Func *self) {
+    return self->as<BindlessBufferWriteFn>();
 }
-static BindlessBufferRead *Func_as_BindlessBufferRead(Func *self) {
-    return self->as<BindlessBufferRead>();
+static BindlessBufferReadFn *Func_as_BindlessBufferReadFn(Func *self) {
+    return self->as<BindlessBufferReadFn>();
 }
-static BindlessBufferSize *Func_as_BindlessBufferSize(Func *self) {
-    return self->as<BindlessBufferSize>();
+static BindlessBufferSizeFn *Func_as_BindlessBufferSizeFn(Func *self) {
+    return self->as<BindlessBufferSizeFn>();
 }
-static BindlessByteBufferWrite *Func_as_BindlessByteBufferWrite(Func *self) {
-    return self->as<BindlessByteBufferWrite>();
+static BindlessByteBufferWriteFn *Func_as_BindlessByteBufferWriteFn(Func *self) {
+    return self->as<BindlessByteBufferWriteFn>();
 }
-static BindlessByteBufferRead *Func_as_BindlessByteBufferRead(Func *self) {
-    return self->as<BindlessByteBufferRead>();
+static BindlessByteBufferReadFn *Func_as_BindlessByteBufferReadFn(Func *self) {
+    return self->as<BindlessByteBufferReadFn>();
 }
-static BindlessByteBufferSize *Func_as_BindlessByteBufferSize(Func *self) {
-    return self->as<BindlessByteBufferSize>();
+static BindlessByteBufferSizeFn *Func_as_BindlessByteBufferSizeFn(Func *self) {
+    return self->as<BindlessByteBufferSizeFn>();
 }
-static Vec *Func_as_Vec(Func *self) {
-    return self->as<Vec>();
+static VecFn *Func_as_VecFn(Func *self) {
+    return self->as<VecFn>();
 }
-static Vec2 *Func_as_Vec2(Func *self) {
-    return self->as<Vec2>();
+static Vec2Fn *Func_as_Vec2Fn(Func *self) {
+    return self->as<Vec2Fn>();
 }
-static Vec3 *Func_as_Vec3(Func *self) {
-    return self->as<Vec3>();
+static Vec3Fn *Func_as_Vec3Fn(Func *self) {
+    return self->as<Vec3Fn>();
 }
-static Vec4 *Func_as_Vec4(Func *self) {
-    return self->as<Vec4>();
+static Vec4Fn *Func_as_Vec4Fn(Func *self) {
+    return self->as<Vec4Fn>();
 }
-static Permute *Func_as_Permute(Func *self) {
-    return self->as<Permute>();
+static PermuteFn *Func_as_PermuteFn(Func *self) {
+    return self->as<PermuteFn>();
 }
-static GetElementPtr *Func_as_GetElementPtr(Func *self) {
-    return self->as<GetElementPtr>();
+static GetElementPtrFn *Func_as_GetElementPtrFn(Func *self) {
+    return self->as<GetElementPtrFn>();
 }
-static ExtractElement *Func_as_ExtractElement(Func *self) {
-    return self->as<ExtractElement>();
+static ExtractElementFn *Func_as_ExtractElementFn(Func *self) {
+    return self->as<ExtractElementFn>();
 }
-static InsertElement *Func_as_InsertElement(Func *self) {
-    return self->as<InsertElement>();
+static InsertElementFn *Func_as_InsertElementFn(Func *self) {
+    return self->as<InsertElementFn>();
 }
-static Array *Func_as_Array(Func *self) {
-    return self->as<Array>();
+static ArrayFn *Func_as_ArrayFn(Func *self) {
+    return self->as<ArrayFn>();
 }
-static Struct *Func_as_Struct(Func *self) {
-    return self->as<Struct>();
+static StructFn *Func_as_StructFn(Func *self) {
+    return self->as<StructFn>();
 }
-static MatFull *Func_as_MatFull(Func *self) {
-    return self->as<MatFull>();
+static MatFullFn *Func_as_MatFullFn(Func *self) {
+    return self->as<MatFullFn>();
 }
-static Mat2 *Func_as_Mat2(Func *self) {
-    return self->as<Mat2>();
+static Mat2Fn *Func_as_Mat2Fn(Func *self) {
+    return self->as<Mat2Fn>();
 }
-static Mat3 *Func_as_Mat3(Func *self) {
-    return self->as<Mat3>();
+static Mat3Fn *Func_as_Mat3Fn(Func *self) {
+    return self->as<Mat3Fn>();
 }
-static Mat4 *Func_as_Mat4(Func *self) {
-    return self->as<Mat4>();
+static Mat4Fn *Func_as_Mat4Fn(Func *self) {
+    return self->as<Mat4Fn>();
 }
-static BindlessAtomicExchange *Func_as_BindlessAtomicExchange(Func *self) {
-    return self->as<BindlessAtomicExchange>();
+static BindlessAtomicExchangeFn *Func_as_BindlessAtomicExchangeFn(Func *self) {
+    return self->as<BindlessAtomicExchangeFn>();
 }
-static BindlessAtomicCompareExchange *Func_as_BindlessAtomicCompareExchange(Func *self) {
-    return self->as<BindlessAtomicCompareExchange>();
+static BindlessAtomicCompareExchangeFn *Func_as_BindlessAtomicCompareExchangeFn(Func *self) {
+    return self->as<BindlessAtomicCompareExchangeFn>();
 }
-static BindlessAtomicFetchAdd *Func_as_BindlessAtomicFetchAdd(Func *self) {
-    return self->as<BindlessAtomicFetchAdd>();
+static BindlessAtomicFetchAddFn *Func_as_BindlessAtomicFetchAddFn(Func *self) {
+    return self->as<BindlessAtomicFetchAddFn>();
 }
-static BindlessAtomicFetchSub *Func_as_BindlessAtomicFetchSub(Func *self) {
-    return self->as<BindlessAtomicFetchSub>();
+static BindlessAtomicFetchSubFn *Func_as_BindlessAtomicFetchSubFn(Func *self) {
+    return self->as<BindlessAtomicFetchSubFn>();
 }
-static BindlessAtomicFetchAnd *Func_as_BindlessAtomicFetchAnd(Func *self) {
-    return self->as<BindlessAtomicFetchAnd>();
+static BindlessAtomicFetchAndFn *Func_as_BindlessAtomicFetchAndFn(Func *self) {
+    return self->as<BindlessAtomicFetchAndFn>();
 }
-static BindlessAtomicFetchOr *Func_as_BindlessAtomicFetchOr(Func *self) {
-    return self->as<BindlessAtomicFetchOr>();
+static BindlessAtomicFetchOrFn *Func_as_BindlessAtomicFetchOrFn(Func *self) {
+    return self->as<BindlessAtomicFetchOrFn>();
 }
-static BindlessAtomicFetchXor *Func_as_BindlessAtomicFetchXor(Func *self) {
-    return self->as<BindlessAtomicFetchXor>();
+static BindlessAtomicFetchXorFn *Func_as_BindlessAtomicFetchXorFn(Func *self) {
+    return self->as<BindlessAtomicFetchXorFn>();
 }
-static BindlessAtomicFetchMin *Func_as_BindlessAtomicFetchMin(Func *self) {
-    return self->as<BindlessAtomicFetchMin>();
+static BindlessAtomicFetchMinFn *Func_as_BindlessAtomicFetchMinFn(Func *self) {
+    return self->as<BindlessAtomicFetchMinFn>();
 }
-static BindlessAtomicFetchMax *Func_as_BindlessAtomicFetchMax(Func *self) {
-    return self->as<BindlessAtomicFetchMax>();
+static BindlessAtomicFetchMaxFn *Func_as_BindlessAtomicFetchMaxFn(Func *self) {
+    return self->as<BindlessAtomicFetchMaxFn>();
 }
-static Callable *Func_as_Callable(Func *self) {
-    return self->as<Callable>();
+static CallableFn *Func_as_CallableFn(Func *self) {
+    return self->as<CallableFn>();
 }
-static CpuExt *Func_as_CpuExt(Func *self) {
-    return self->as<CpuExt>();
+static CpuExtFn *Func_as_CpuExtFn(Func *self) {
+    return self->as<CpuExtFn>();
 }
-static ShaderExecutionReorder *Func_as_ShaderExecutionReorder(Func *self) {
-    return self->as<ShaderExecutionReorder>();
+static ShaderExecutionReorderFn *Func_as_ShaderExecutionReorderFn(Func *self) {
+    return self->as<ShaderExecutionReorderFn>();
 }
 static FuncTag Func_tag(Func *self) {
     return self->tag();
 }
-static Slice<const char> Assume_msg(Assume *self) {
+static Slice<const char> AssumeFn_msg(AssumeFn *self) {
     return self->msg;
 }
-static void Assume_set_msg(Assume *self, Slice<const char> value) {
+static void AssumeFn_set_msg(AssumeFn *self, Slice<const char> value) {
     self->msg = value.to_string();
 }
-static Slice<const char> Unreachable_msg(Unreachable *self) {
+static Slice<const char> UnreachableFn_msg(UnreachableFn *self) {
     return self->msg;
 }
-static void Unreachable_set_msg(Unreachable *self, Slice<const char> value) {
+static void UnreachableFn_set_msg(UnreachableFn *self, Slice<const char> value) {
     self->msg = value.to_string();
 }
-static const Type *BindlessAtomicExchange_ty(BindlessAtomicExchange *self) {
+static const Type *BindlessAtomicExchangeFn_ty(BindlessAtomicExchangeFn *self) {
     return self->ty;
 }
-static void BindlessAtomicExchange_set_ty(BindlessAtomicExchange *self, const Type *value) {
+static void BindlessAtomicExchangeFn_set_ty(BindlessAtomicExchangeFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicCompareExchange_ty(BindlessAtomicCompareExchange *self) {
+static const Type *BindlessAtomicCompareExchangeFn_ty(BindlessAtomicCompareExchangeFn *self) {
     return self->ty;
 }
-static void BindlessAtomicCompareExchange_set_ty(BindlessAtomicCompareExchange *self, const Type *value) {
+static void BindlessAtomicCompareExchangeFn_set_ty(BindlessAtomicCompareExchangeFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchAdd_ty(BindlessAtomicFetchAdd *self) {
+static const Type *BindlessAtomicFetchAddFn_ty(BindlessAtomicFetchAddFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchAdd_set_ty(BindlessAtomicFetchAdd *self, const Type *value) {
+static void BindlessAtomicFetchAddFn_set_ty(BindlessAtomicFetchAddFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchSub_ty(BindlessAtomicFetchSub *self) {
+static const Type *BindlessAtomicFetchSubFn_ty(BindlessAtomicFetchSubFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchSub_set_ty(BindlessAtomicFetchSub *self, const Type *value) {
+static void BindlessAtomicFetchSubFn_set_ty(BindlessAtomicFetchSubFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchAnd_ty(BindlessAtomicFetchAnd *self) {
+static const Type *BindlessAtomicFetchAndFn_ty(BindlessAtomicFetchAndFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchAnd_set_ty(BindlessAtomicFetchAnd *self, const Type *value) {
+static void BindlessAtomicFetchAndFn_set_ty(BindlessAtomicFetchAndFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchOr_ty(BindlessAtomicFetchOr *self) {
+static const Type *BindlessAtomicFetchOrFn_ty(BindlessAtomicFetchOrFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchOr_set_ty(BindlessAtomicFetchOr *self, const Type *value) {
+static void BindlessAtomicFetchOrFn_set_ty(BindlessAtomicFetchOrFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchXor_ty(BindlessAtomicFetchXor *self) {
+static const Type *BindlessAtomicFetchXorFn_ty(BindlessAtomicFetchXorFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchXor_set_ty(BindlessAtomicFetchXor *self, const Type *value) {
+static void BindlessAtomicFetchXorFn_set_ty(BindlessAtomicFetchXorFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchMin_ty(BindlessAtomicFetchMin *self) {
+static const Type *BindlessAtomicFetchMinFn_ty(BindlessAtomicFetchMinFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchMin_set_ty(BindlessAtomicFetchMin *self, const Type *value) {
+static void BindlessAtomicFetchMinFn_set_ty(BindlessAtomicFetchMinFn *self, const Type *value) {
     self->ty = value;
 }
-static const Type *BindlessAtomicFetchMax_ty(BindlessAtomicFetchMax *self) {
+static const Type *BindlessAtomicFetchMaxFn_ty(BindlessAtomicFetchMaxFn *self) {
     return self->ty;
 }
-static void BindlessAtomicFetchMax_set_ty(BindlessAtomicFetchMax *self, const Type *value) {
+static void BindlessAtomicFetchMaxFn_set_ty(BindlessAtomicFetchMaxFn *self, const Type *value) {
     self->ty = value;
 }
-static CallableModule *Callable_module(Callable *self) {
+static CallableModule *CallableFn_module(CallableFn *self) {
     return self->module.get();
 }
-static void Callable_set_module(Callable *self, CallableModule *value) {
+static void CallableFn_set_module(CallableFn *self, CallableModule *value) {
     self->module = luisa::static_pointer_cast<std::decay_t<decltype(self->module)>::element_type>(value->shared_from_this());
 }
-static CpuExternFn CpuExt_f(CpuExt *self) {
+static CpuExternFn CpuExtFn_f(CpuExtFn *self) {
     return self->f;
 }
-static void CpuExt_set_f(CpuExt *self, CpuExternFn value) {
+static void CpuExtFn_set_f(CpuExtFn *self, CpuExternFn value) {
     self->f = value;
 }
-static Buffer *Instruction_as_Buffer(Instruction *self) {
-    return self->as<Buffer>();
+static BufferInst *Instruction_as_BufferInst(Instruction *self) {
+    return self->as<BufferInst>();
 }
-static Texture2d *Instruction_as_Texture2d(Instruction *self) {
-    return self->as<Texture2d>();
+static Texture2dInst *Instruction_as_Texture2dInst(Instruction *self) {
+    return self->as<Texture2dInst>();
 }
-static Texture3d *Instruction_as_Texture3d(Instruction *self) {
-    return self->as<Texture3d>();
+static Texture3dInst *Instruction_as_Texture3dInst(Instruction *self) {
+    return self->as<Texture3dInst>();
 }
-static BindlessArray *Instruction_as_BindlessArray(Instruction *self) {
-    return self->as<BindlessArray>();
+static BindlessArrayInst *Instruction_as_BindlessArrayInst(Instruction *self) {
+    return self->as<BindlessArrayInst>();
 }
-static Accel *Instruction_as_Accel(Instruction *self) {
-    return self->as<Accel>();
+static AccelInst *Instruction_as_AccelInst(Instruction *self) {
+    return self->as<AccelInst>();
 }
-static Shared *Instruction_as_Shared(Instruction *self) {
-    return self->as<Shared>();
+static SharedInst *Instruction_as_SharedInst(Instruction *self) {
+    return self->as<SharedInst>();
 }
-static Uniform *Instruction_as_Uniform(Instruction *self) {
-    return self->as<Uniform>();
+static UniformInst *Instruction_as_UniformInst(Instruction *self) {
+    return self->as<UniformInst>();
 }
-static Argument *Instruction_as_Argument(Instruction *self) {
-    return self->as<Argument>();
+static ArgumentInst *Instruction_as_ArgumentInst(Instruction *self) {
+    return self->as<ArgumentInst>();
 }
-static Constant *Instruction_as_Constant(Instruction *self) {
-    return self->as<Constant>();
+static ConstantInst *Instruction_as_ConstantInst(Instruction *self) {
+    return self->as<ConstantInst>();
 }
-static Call *Instruction_as_Call(Instruction *self) {
-    return self->as<Call>();
+static CallInst *Instruction_as_CallInst(Instruction *self) {
+    return self->as<CallInst>();
 }
-static Phi *Instruction_as_Phi(Instruction *self) {
-    return self->as<Phi>();
+static PhiInst *Instruction_as_PhiInst(Instruction *self) {
+    return self->as<PhiInst>();
 }
-static BasicBlockSentinel *Instruction_as_BasicBlockSentinel(Instruction *self) {
-    return self->as<BasicBlockSentinel>();
+static BasicBlockSentinelInst *Instruction_as_BasicBlockSentinelInst(Instruction *self) {
+    return self->as<BasicBlockSentinelInst>();
 }
-static If *Instruction_as_If(Instruction *self) {
-    return self->as<If>();
+static IfInst *Instruction_as_IfInst(Instruction *self) {
+    return self->as<IfInst>();
 }
-static GenericLoop *Instruction_as_GenericLoop(Instruction *self) {
-    return self->as<GenericLoop>();
+static GenericLoopInst *Instruction_as_GenericLoopInst(Instruction *self) {
+    return self->as<GenericLoopInst>();
 }
-static Switch *Instruction_as_Switch(Instruction *self) {
-    return self->as<Switch>();
+static SwitchInst *Instruction_as_SwitchInst(Instruction *self) {
+    return self->as<SwitchInst>();
 }
-static Local *Instruction_as_Local(Instruction *self) {
-    return self->as<Local>();
+static LocalInst *Instruction_as_LocalInst(Instruction *self) {
+    return self->as<LocalInst>();
 }
-static Break *Instruction_as_Break(Instruction *self) {
-    return self->as<Break>();
+static BreakInst *Instruction_as_BreakInst(Instruction *self) {
+    return self->as<BreakInst>();
 }
-static Continue *Instruction_as_Continue(Instruction *self) {
-    return self->as<Continue>();
+static ContinueInst *Instruction_as_ContinueInst(Instruction *self) {
+    return self->as<ContinueInst>();
 }
-static Return *Instruction_as_Return(Instruction *self) {
-    return self->as<Return>();
+static ReturnInst *Instruction_as_ReturnInst(Instruction *self) {
+    return self->as<ReturnInst>();
 }
-static Print *Instruction_as_Print(Instruction *self) {
-    return self->as<Print>();
+static PrintInst *Instruction_as_PrintInst(Instruction *self) {
+    return self->as<PrintInst>();
 }
-static Update *Instruction_as_Update(Instruction *self) {
-    return self->as<Update>();
+static UpdateInst *Instruction_as_UpdateInst(Instruction *self) {
+    return self->as<UpdateInst>();
 }
-static RayQuery *Instruction_as_RayQuery(Instruction *self) {
-    return self->as<RayQuery>();
+static RayQueryInst *Instruction_as_RayQueryInst(Instruction *self) {
+    return self->as<RayQueryInst>();
 }
-static RevAutodiff *Instruction_as_RevAutodiff(Instruction *self) {
-    return self->as<RevAutodiff>();
+static RevAutodiffInst *Instruction_as_RevAutodiffInst(Instruction *self) {
+    return self->as<RevAutodiffInst>();
 }
-static FwdAutodiff *Instruction_as_FwdAutodiff(Instruction *self) {
-    return self->as<FwdAutodiff>();
+static FwdAutodiffInst *Instruction_as_FwdAutodiffInst(Instruction *self) {
+    return self->as<FwdAutodiffInst>();
 }
 static InstructionTag Instruction_tag(Instruction *self) {
     return self->tag();
 }
-static bool Argument_by_value(Argument *self) {
+static bool ArgumentInst_by_value(ArgumentInst *self) {
     return self->by_value;
 }
-static void Argument_set_by_value(Argument *self, bool value) {
+static void ArgumentInst_set_by_value(ArgumentInst *self, bool value) {
     self->by_value = value;
 }
-static const Type *Constant_ty(Constant *self) {
+static const Type *ConstantInst_ty(ConstantInst *self) {
     return self->ty;
 }
-static Slice<uint8_t> Constant_value(Constant *self) {
+static Slice<uint8_t> ConstantInst_value(ConstantInst *self) {
     return self->value;
 }
-static void Constant_set_ty(Constant *self, const Type *value) {
+static void ConstantInst_set_ty(ConstantInst *self, const Type *value) {
     self->ty = value;
 }
-static void Constant_set_value(Constant *self, Slice<uint8_t> value) {
+static void ConstantInst_set_value(ConstantInst *self, Slice<uint8_t> value) {
     self->value = value.to_vector();
 }
-static const Func *Call_func(Call *self) {
+static const Func *CallInst_func(CallInst *self) {
     return self->func;
 }
-static Slice<Node *> Call_args(Call *self) {
+static Slice<Node *> CallInst_args(CallInst *self) {
     return self->args;
 }
-static void Call_set_func(Call *self, const Func *value) {
+static void CallInst_set_func(CallInst *self, const Func *value) {
     self->func = value;
 }
-static void Call_set_args(Call *self, Slice<Node *> value) {
+static void CallInst_set_args(CallInst *self, Slice<Node *> value) {
     self->args = value.to_vector();
 }
-static Slice<PhiIncoming> Phi_incomings(Phi *self) {
+static Slice<PhiIncoming> PhiInst_incomings(PhiInst *self) {
     return self->incomings;
 }
-static void Phi_set_incomings(Phi *self, Slice<PhiIncoming> value) {
+static void PhiInst_set_incomings(PhiInst *self, Slice<PhiIncoming> value) {
     self->incomings = value.to_vector();
 }
-static Node *If_cond(If *self) {
+static Node *IfInst_cond(IfInst *self) {
     return self->cond;
 }
-static BasicBlock *If_true_branch(If *self) {
+static BasicBlock *IfInst_true_branch(IfInst *self) {
     return self->true_branch;
 }
-static BasicBlock *If_false_branch(If *self) {
+static BasicBlock *IfInst_false_branch(IfInst *self) {
     return self->false_branch;
 }
-static void If_set_cond(If *self, Node *value) {
+static void IfInst_set_cond(IfInst *self, Node *value) {
     self->cond = value;
 }
-static void If_set_true_branch(If *self, BasicBlock *value) {
+static void IfInst_set_true_branch(IfInst *self, BasicBlock *value) {
     self->true_branch = value;
 }
-static void If_set_false_branch(If *self, BasicBlock *value) {
+static void IfInst_set_false_branch(IfInst *self, BasicBlock *value) {
     self->false_branch = value;
 }
-static BasicBlock *GenericLoop_prepare(GenericLoop *self) {
+static BasicBlock *GenericLoopInst_prepare(GenericLoopInst *self) {
     return self->prepare;
 }
-static Node *GenericLoop_cond(GenericLoop *self) {
+static Node *GenericLoopInst_cond(GenericLoopInst *self) {
     return self->cond;
 }
-static BasicBlock *GenericLoop_body(GenericLoop *self) {
+static BasicBlock *GenericLoopInst_body(GenericLoopInst *self) {
     return self->body;
 }
-static BasicBlock *GenericLoop_update(GenericLoop *self) {
+static BasicBlock *GenericLoopInst_update(GenericLoopInst *self) {
     return self->update;
 }
-static void GenericLoop_set_prepare(GenericLoop *self, BasicBlock *value) {
+static void GenericLoopInst_set_prepare(GenericLoopInst *self, BasicBlock *value) {
     self->prepare = value;
 }
-static void GenericLoop_set_cond(GenericLoop *self, Node *value) {
+static void GenericLoopInst_set_cond(GenericLoopInst *self, Node *value) {
     self->cond = value;
 }
-static void GenericLoop_set_body(GenericLoop *self, BasicBlock *value) {
+static void GenericLoopInst_set_body(GenericLoopInst *self, BasicBlock *value) {
     self->body = value;
 }
-static void GenericLoop_set_update(GenericLoop *self, BasicBlock *value) {
+static void GenericLoopInst_set_update(GenericLoopInst *self, BasicBlock *value) {
     self->update = value;
 }
-static Node *Switch_value(Switch *self) {
+static Node *SwitchInst_value(SwitchInst *self) {
     return self->value;
 }
-static Slice<SwitchCase> Switch_cases(Switch *self) {
+static Slice<SwitchCase> SwitchInst_cases(SwitchInst *self) {
     return self->cases;
 }
-static BasicBlock *Switch_default_(Switch *self) {
+static BasicBlock *SwitchInst_default_(SwitchInst *self) {
     return self->default_;
 }
-static void Switch_set_value(Switch *self, Node *value) {
+static void SwitchInst_set_value(SwitchInst *self, Node *value) {
     self->value = value;
 }
-static void Switch_set_cases(Switch *self, Slice<SwitchCase> value) {
+static void SwitchInst_set_cases(SwitchInst *self, Slice<SwitchCase> value) {
     self->cases = value.to_vector();
 }
-static void Switch_set_default_(Switch *self, BasicBlock *value) {
+static void SwitchInst_set_default_(SwitchInst *self, BasicBlock *value) {
     self->default_ = value;
 }
-static Node *Local_init(Local *self) {
+static Node *LocalInst_init(LocalInst *self) {
     return self->init;
 }
-static void Local_set_init(Local *self, Node *value) {
+static void LocalInst_set_init(LocalInst *self, Node *value) {
     self->init = value;
 }
-static Node *Return_value(Return *self) {
+static Node *ReturnInst_value(ReturnInst *self) {
     return self->value;
 }
-static void Return_set_value(Return *self, Node *value) {
+static void ReturnInst_set_value(ReturnInst *self, Node *value) {
     self->value = value;
 }
-static Slice<const char> Print_fmt(Print *self) {
+static Slice<const char> PrintInst_fmt(PrintInst *self) {
     return self->fmt;
 }
-static Slice<Node *> Print_args(Print *self) {
+static Slice<Node *> PrintInst_args(PrintInst *self) {
     return self->args;
 }
-static void Print_set_fmt(Print *self, Slice<const char> value) {
+static void PrintInst_set_fmt(PrintInst *self, Slice<const char> value) {
     self->fmt = value.to_string();
 }
-static void Print_set_args(Print *self, Slice<Node *> value) {
+static void PrintInst_set_args(PrintInst *self, Slice<Node *> value) {
     self->args = value.to_vector();
 }
-static Node *Update_var(Update *self) {
+static Node *UpdateInst_var(UpdateInst *self) {
     return self->var;
 }
-static Node *Update_value(Update *self) {
+static Node *UpdateInst_value(UpdateInst *self) {
     return self->value;
 }
-static void Update_set_var(Update *self, Node *value) {
+static void UpdateInst_set_var(UpdateInst *self, Node *value) {
     self->var = value;
 }
-static void Update_set_value(Update *self, Node *value) {
+static void UpdateInst_set_value(UpdateInst *self, Node *value) {
     self->value = value;
 }
-static Node *RayQuery_query(RayQuery *self) {
+static Node *RayQueryInst_query(RayQueryInst *self) {
     return self->query;
 }
-static BasicBlock *RayQuery_on_triangle_hit(RayQuery *self) {
+static BasicBlock *RayQueryInst_on_triangle_hit(RayQueryInst *self) {
     return self->on_triangle_hit;
 }
-static BasicBlock *RayQuery_on_procedural_hit(RayQuery *self) {
+static BasicBlock *RayQueryInst_on_procedural_hit(RayQueryInst *self) {
     return self->on_procedural_hit;
 }
-static void RayQuery_set_query(RayQuery *self, Node *value) {
+static void RayQueryInst_set_query(RayQueryInst *self, Node *value) {
     self->query = value;
 }
-static void RayQuery_set_on_triangle_hit(RayQuery *self, BasicBlock *value) {
+static void RayQueryInst_set_on_triangle_hit(RayQueryInst *self, BasicBlock *value) {
     self->on_triangle_hit = value;
 }
-static void RayQuery_set_on_procedural_hit(RayQuery *self, BasicBlock *value) {
+static void RayQueryInst_set_on_procedural_hit(RayQueryInst *self, BasicBlock *value) {
     self->on_procedural_hit = value;
 }
-static BasicBlock *RevAutodiff_body(RevAutodiff *self) {
+static BasicBlock *RevAutodiffInst_body(RevAutodiffInst *self) {
     return self->body;
 }
-static void RevAutodiff_set_body(RevAutodiff *self, BasicBlock *value) {
+static void RevAutodiffInst_set_body(RevAutodiffInst *self, BasicBlock *value) {
     self->body = value;
 }
-static BasicBlock *FwdAutodiff_body(FwdAutodiff *self) {
+static BasicBlock *FwdAutodiffInst_body(FwdAutodiffInst *self) {
     return self->body;
 }
-static void FwdAutodiff_set_body(FwdAutodiff *self, BasicBlock *value) {
+static void FwdAutodiffInst_set_body(FwdAutodiffInst *self, BasicBlock *value) {
     self->body = value;
+}
+Func *create_func_from_tag(Pool &pool, FuncTag tag) {
+    switch (tag) {
+        case FuncTag::ZERO: return pool.template alloc<ZeroFn>();
+        case FuncTag::ONE: return pool.template alloc<OneFn>();
+        case FuncTag::ASSUME: return pool.template alloc<AssumeFn>();
+        case FuncTag::UNREACHABLE: return pool.template alloc<UnreachableFn>();
+        case FuncTag::THREAD_ID: return pool.template alloc<ThreadIdFn>();
+        case FuncTag::BLOCK_ID: return pool.template alloc<BlockIdFn>();
+        case FuncTag::WARP_SIZE: return pool.template alloc<WarpSizeFn>();
+        case FuncTag::WARP_LANE_ID: return pool.template alloc<WarpLaneIdFn>();
+        case FuncTag::DISPATCH_ID: return pool.template alloc<DispatchIdFn>();
+        case FuncTag::DISPATCH_SIZE: return pool.template alloc<DispatchSizeFn>();
+        case FuncTag::PROPAGATE_GRADIENT: return pool.template alloc<PropagateGradientFn>();
+        case FuncTag::OUTPUT_GRADIENT: return pool.template alloc<OutputGradientFn>();
+        case FuncTag::REQUIRES_GRADIENT: return pool.template alloc<RequiresGradientFn>();
+        case FuncTag::BACKWARD: return pool.template alloc<BackwardFn>();
+        case FuncTag::GRADIENT: return pool.template alloc<GradientFn>();
+        case FuncTag::ACC_GRAD: return pool.template alloc<AccGradFn>();
+        case FuncTag::DETACH: return pool.template alloc<DetachFn>();
+        case FuncTag::RAY_TRACING_INSTANCE_TRANSFORM: return pool.template alloc<RayTracingInstanceTransformFn>();
+        case FuncTag::RAY_TRACING_INSTANCE_VISIBILITY_MASK: return pool.template alloc<RayTracingInstanceVisibilityMaskFn>();
+        case FuncTag::RAY_TRACING_INSTANCE_USER_ID: return pool.template alloc<RayTracingInstanceUserIdFn>();
+        case FuncTag::RAY_TRACING_SET_INSTANCE_TRANSFORM: return pool.template alloc<RayTracingSetInstanceTransformFn>();
+        case FuncTag::RAY_TRACING_SET_INSTANCE_OPACITY: return pool.template alloc<RayTracingSetInstanceOpacityFn>();
+        case FuncTag::RAY_TRACING_SET_INSTANCE_VISIBILITY: return pool.template alloc<RayTracingSetInstanceVisibilityFn>();
+        case FuncTag::RAY_TRACING_SET_INSTANCE_USER_ID: return pool.template alloc<RayTracingSetInstanceUserIdFn>();
+        case FuncTag::RAY_TRACING_TRACE_CLOSEST: return pool.template alloc<RayTracingTraceClosestFn>();
+        case FuncTag::RAY_TRACING_TRACE_ANY: return pool.template alloc<RayTracingTraceAnyFn>();
+        case FuncTag::RAY_TRACING_QUERY_ALL: return pool.template alloc<RayTracingQueryAllFn>();
+        case FuncTag::RAY_TRACING_QUERY_ANY: return pool.template alloc<RayTracingQueryAnyFn>();
+        case FuncTag::RAY_QUERY_WORLD_SPACE_RAY: return pool.template alloc<RayQueryWorldSpaceRayFn>();
+        case FuncTag::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: return pool.template alloc<RayQueryProceduralCandidateHitFn>();
+        case FuncTag::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: return pool.template alloc<RayQueryTriangleCandidateHitFn>();
+        case FuncTag::RAY_QUERY_COMMITTED_HIT: return pool.template alloc<RayQueryCommittedHitFn>();
+        case FuncTag::RAY_QUERY_COMMIT_TRIANGLE: return pool.template alloc<RayQueryCommitTriangleFn>();
+        case FuncTag::RAY_QUERY_COMMITD_PROCEDURAL: return pool.template alloc<RayQueryCommitdProceduralFn>();
+        case FuncTag::RAY_QUERY_TERMINATE: return pool.template alloc<RayQueryTerminateFn>();
+        case FuncTag::LOAD: return pool.template alloc<LoadFn>();
+        case FuncTag::CAST: return pool.template alloc<CastFn>();
+        case FuncTag::BIT_CAST: return pool.template alloc<BitCastFn>();
+        case FuncTag::ADD: return pool.template alloc<AddFn>();
+        case FuncTag::SUB: return pool.template alloc<SubFn>();
+        case FuncTag::MUL: return pool.template alloc<MulFn>();
+        case FuncTag::DIV: return pool.template alloc<DivFn>();
+        case FuncTag::REM: return pool.template alloc<RemFn>();
+        case FuncTag::BIT_AND: return pool.template alloc<BitAndFn>();
+        case FuncTag::BIT_OR: return pool.template alloc<BitOrFn>();
+        case FuncTag::BIT_XOR: return pool.template alloc<BitXorFn>();
+        case FuncTag::SHL: return pool.template alloc<ShlFn>();
+        case FuncTag::SHR: return pool.template alloc<ShrFn>();
+        case FuncTag::ROT_RIGHT: return pool.template alloc<RotRightFn>();
+        case FuncTag::ROT_LEFT: return pool.template alloc<RotLeftFn>();
+        case FuncTag::EQ: return pool.template alloc<EqFn>();
+        case FuncTag::NE: return pool.template alloc<NeFn>();
+        case FuncTag::LT: return pool.template alloc<LtFn>();
+        case FuncTag::LE: return pool.template alloc<LeFn>();
+        case FuncTag::GT: return pool.template alloc<GtFn>();
+        case FuncTag::GE: return pool.template alloc<GeFn>();
+        case FuncTag::MAT_COMP_MUL: return pool.template alloc<MatCompMulFn>();
+        case FuncTag::NEG: return pool.template alloc<NegFn>();
+        case FuncTag::NOT: return pool.template alloc<NotFn>();
+        case FuncTag::BIT_NOT: return pool.template alloc<BitNotFn>();
+        case FuncTag::ALL: return pool.template alloc<AllFn>();
+        case FuncTag::ANY: return pool.template alloc<AnyFn>();
+        case FuncTag::SELECT: return pool.template alloc<SelectFn>();
+        case FuncTag::CLAMP: return pool.template alloc<ClampFn>();
+        case FuncTag::LERP: return pool.template alloc<LerpFn>();
+        case FuncTag::STEP: return pool.template alloc<StepFn>();
+        case FuncTag::SATURATE: return pool.template alloc<SaturateFn>();
+        case FuncTag::SMOOTH_STEP: return pool.template alloc<SmoothStepFn>();
+        case FuncTag::ABS: return pool.template alloc<AbsFn>();
+        case FuncTag::MIN: return pool.template alloc<MinFn>();
+        case FuncTag::MAX: return pool.template alloc<MaxFn>();
+        case FuncTag::REDUCE_SUM: return pool.template alloc<ReduceSumFn>();
+        case FuncTag::REDUCE_PROD: return pool.template alloc<ReduceProdFn>();
+        case FuncTag::REDUCE_MIN: return pool.template alloc<ReduceMinFn>();
+        case FuncTag::REDUCE_MAX: return pool.template alloc<ReduceMaxFn>();
+        case FuncTag::CLZ: return pool.template alloc<ClzFn>();
+        case FuncTag::CTZ: return pool.template alloc<CtzFn>();
+        case FuncTag::POP_COUNT: return pool.template alloc<PopCountFn>();
+        case FuncTag::REVERSE: return pool.template alloc<ReverseFn>();
+        case FuncTag::IS_INF: return pool.template alloc<IsInfFn>();
+        case FuncTag::IS_NAN: return pool.template alloc<IsNanFn>();
+        case FuncTag::ACOS: return pool.template alloc<AcosFn>();
+        case FuncTag::ACOSH: return pool.template alloc<AcoshFn>();
+        case FuncTag::ASIN: return pool.template alloc<AsinFn>();
+        case FuncTag::ASINH: return pool.template alloc<AsinhFn>();
+        case FuncTag::ATAN: return pool.template alloc<AtanFn>();
+        case FuncTag::ATAN2: return pool.template alloc<Atan2Fn>();
+        case FuncTag::ATANH: return pool.template alloc<AtanhFn>();
+        case FuncTag::COS: return pool.template alloc<CosFn>();
+        case FuncTag::COSH: return pool.template alloc<CoshFn>();
+        case FuncTag::SIN: return pool.template alloc<SinFn>();
+        case FuncTag::SINH: return pool.template alloc<SinhFn>();
+        case FuncTag::TAN: return pool.template alloc<TanFn>();
+        case FuncTag::TANH: return pool.template alloc<TanhFn>();
+        case FuncTag::EXP: return pool.template alloc<ExpFn>();
+        case FuncTag::EXP2: return pool.template alloc<Exp2Fn>();
+        case FuncTag::EXP10: return pool.template alloc<Exp10Fn>();
+        case FuncTag::LOG: return pool.template alloc<LogFn>();
+        case FuncTag::LOG2: return pool.template alloc<Log2Fn>();
+        case FuncTag::LOG10: return pool.template alloc<Log10Fn>();
+        case FuncTag::POWI: return pool.template alloc<PowiFn>();
+        case FuncTag::POWF: return pool.template alloc<PowfFn>();
+        case FuncTag::SQRT: return pool.template alloc<SqrtFn>();
+        case FuncTag::RSQRT: return pool.template alloc<RsqrtFn>();
+        case FuncTag::CEIL: return pool.template alloc<CeilFn>();
+        case FuncTag::FLOOR: return pool.template alloc<FloorFn>();
+        case FuncTag::FRACT: return pool.template alloc<FractFn>();
+        case FuncTag::TRUNC: return pool.template alloc<TruncFn>();
+        case FuncTag::ROUND: return pool.template alloc<RoundFn>();
+        case FuncTag::FMA: return pool.template alloc<FmaFn>();
+        case FuncTag::COPYSIGN: return pool.template alloc<CopysignFn>();
+        case FuncTag::CROSS: return pool.template alloc<CrossFn>();
+        case FuncTag::DOT: return pool.template alloc<DotFn>();
+        case FuncTag::OUTER_PRODUCT: return pool.template alloc<OuterProductFn>();
+        case FuncTag::LENGTH: return pool.template alloc<LengthFn>();
+        case FuncTag::LENGTH_SQUARED: return pool.template alloc<LengthSquaredFn>();
+        case FuncTag::NORMALIZE: return pool.template alloc<NormalizeFn>();
+        case FuncTag::FACEFORWARD: return pool.template alloc<FaceforwardFn>();
+        case FuncTag::DISTANCE: return pool.template alloc<DistanceFn>();
+        case FuncTag::REFLECT: return pool.template alloc<ReflectFn>();
+        case FuncTag::DETERMINANT: return pool.template alloc<DeterminantFn>();
+        case FuncTag::TRANSPOSE: return pool.template alloc<TransposeFn>();
+        case FuncTag::INVERSE: return pool.template alloc<InverseFn>();
+        case FuncTag::WARP_IS_FIRST_ACTIVE_LANE: return pool.template alloc<WarpIsFirstActiveLaneFn>();
+        case FuncTag::WARP_FIRST_ACTIVE_LANE: return pool.template alloc<WarpFirstActiveLaneFn>();
+        case FuncTag::WARP_ACTIVE_ALL_EQUAL: return pool.template alloc<WarpActiveAllEqualFn>();
+        case FuncTag::WARP_ACTIVE_BIT_AND: return pool.template alloc<WarpActiveBitAndFn>();
+        case FuncTag::WARP_ACTIVE_BIT_OR: return pool.template alloc<WarpActiveBitOrFn>();
+        case FuncTag::WARP_ACTIVE_BIT_XOR: return pool.template alloc<WarpActiveBitXorFn>();
+        case FuncTag::WARP_ACTIVE_COUNT_BITS: return pool.template alloc<WarpActiveCountBitsFn>();
+        case FuncTag::WARP_ACTIVE_MAX: return pool.template alloc<WarpActiveMaxFn>();
+        case FuncTag::WARP_ACTIVE_MIN: return pool.template alloc<WarpActiveMinFn>();
+        case FuncTag::WARP_ACTIVE_PRODUCT: return pool.template alloc<WarpActiveProductFn>();
+        case FuncTag::WARP_ACTIVE_SUM: return pool.template alloc<WarpActiveSumFn>();
+        case FuncTag::WARP_ACTIVE_ALL: return pool.template alloc<WarpActiveAllFn>();
+        case FuncTag::WARP_ACTIVE_ANY: return pool.template alloc<WarpActiveAnyFn>();
+        case FuncTag::WARP_ACTIVE_BIT_MASK: return pool.template alloc<WarpActiveBitMaskFn>();
+        case FuncTag::WARP_PREFIX_COUNT_BITS: return pool.template alloc<WarpPrefixCountBitsFn>();
+        case FuncTag::WARP_PREFIX_SUM: return pool.template alloc<WarpPrefixSumFn>();
+        case FuncTag::WARP_PREFIX_PRODUCT: return pool.template alloc<WarpPrefixProductFn>();
+        case FuncTag::WARP_READ_LANE_AT: return pool.template alloc<WarpReadLaneAtFn>();
+        case FuncTag::WARP_READ_FIRST_LANE: return pool.template alloc<WarpReadFirstLaneFn>();
+        case FuncTag::SYNCHRONIZE_BLOCK: return pool.template alloc<SynchronizeBlockFn>();
+        case FuncTag::ATOMIC_EXCHANGE: return pool.template alloc<AtomicExchangeFn>();
+        case FuncTag::ATOMIC_COMPARE_EXCHANGE: return pool.template alloc<AtomicCompareExchangeFn>();
+        case FuncTag::ATOMIC_FETCH_ADD: return pool.template alloc<AtomicFetchAddFn>();
+        case FuncTag::ATOMIC_FETCH_SUB: return pool.template alloc<AtomicFetchSubFn>();
+        case FuncTag::ATOMIC_FETCH_AND: return pool.template alloc<AtomicFetchAndFn>();
+        case FuncTag::ATOMIC_FETCH_OR: return pool.template alloc<AtomicFetchOrFn>();
+        case FuncTag::ATOMIC_FETCH_XOR: return pool.template alloc<AtomicFetchXorFn>();
+        case FuncTag::ATOMIC_FETCH_MIN: return pool.template alloc<AtomicFetchMinFn>();
+        case FuncTag::ATOMIC_FETCH_MAX: return pool.template alloc<AtomicFetchMaxFn>();
+        case FuncTag::BUFFER_WRITE: return pool.template alloc<BufferWriteFn>();
+        case FuncTag::BUFFER_READ: return pool.template alloc<BufferReadFn>();
+        case FuncTag::BUFFER_SIZE: return pool.template alloc<BufferSizeFn>();
+        case FuncTag::BYTE_BUFFER_WRITE: return pool.template alloc<ByteBufferWriteFn>();
+        case FuncTag::BYTE_BUFFER_READ: return pool.template alloc<ByteBufferReadFn>();
+        case FuncTag::BYTE_BUFFER_SIZE: return pool.template alloc<ByteBufferSizeFn>();
+        case FuncTag::TEXTURE2D_READ: return pool.template alloc<Texture2dReadFn>();
+        case FuncTag::TEXTURE2D_WRITE: return pool.template alloc<Texture2dWriteFn>();
+        case FuncTag::TEXTURE2D_SIZE: return pool.template alloc<Texture2dSizeFn>();
+        case FuncTag::TEXTURE3D_READ: return pool.template alloc<Texture3dReadFn>();
+        case FuncTag::TEXTURE3D_WRITE: return pool.template alloc<Texture3dWriteFn>();
+        case FuncTag::TEXTURE3D_SIZE: return pool.template alloc<Texture3dSizeFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_SAMPLE: return pool.template alloc<BindlessTexture2dSampleFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return pool.template alloc<BindlessTexture2dSampleLevelFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return pool.template alloc<BindlessTexture2dSampleGradFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: return pool.template alloc<BindlessTexture2dSampleGradLevelFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_READ: return pool.template alloc<BindlessTexture2dReadFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_SIZE: return pool.template alloc<BindlessTexture2dSizeFn>();
+        case FuncTag::BINDLESS_TEXTURE2D_SIZE_LEVEL: return pool.template alloc<BindlessTexture2dSizeLevelFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_SAMPLE: return pool.template alloc<BindlessTexture3dSampleFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: return pool.template alloc<BindlessTexture3dSampleLevelFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_SAMPLE_GRAD: return pool.template alloc<BindlessTexture3dSampleGradFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: return pool.template alloc<BindlessTexture3dSampleGradLevelFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_READ: return pool.template alloc<BindlessTexture3dReadFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_SIZE: return pool.template alloc<BindlessTexture3dSizeFn>();
+        case FuncTag::BINDLESS_TEXTURE3D_SIZE_LEVEL: return pool.template alloc<BindlessTexture3dSizeLevelFn>();
+        case FuncTag::BINDLESS_BUFFER_WRITE: return pool.template alloc<BindlessBufferWriteFn>();
+        case FuncTag::BINDLESS_BUFFER_READ: return pool.template alloc<BindlessBufferReadFn>();
+        case FuncTag::BINDLESS_BUFFER_SIZE: return pool.template alloc<BindlessBufferSizeFn>();
+        case FuncTag::BINDLESS_BYTE_BUFFER_WRITE: return pool.template alloc<BindlessByteBufferWriteFn>();
+        case FuncTag::BINDLESS_BYTE_BUFFER_READ: return pool.template alloc<BindlessByteBufferReadFn>();
+        case FuncTag::BINDLESS_BYTE_BUFFER_SIZE: return pool.template alloc<BindlessByteBufferSizeFn>();
+        case FuncTag::VEC: return pool.template alloc<VecFn>();
+        case FuncTag::VEC2: return pool.template alloc<Vec2Fn>();
+        case FuncTag::VEC3: return pool.template alloc<Vec3Fn>();
+        case FuncTag::VEC4: return pool.template alloc<Vec4Fn>();
+        case FuncTag::PERMUTE: return pool.template alloc<PermuteFn>();
+        case FuncTag::GET_ELEMENT_PTR: return pool.template alloc<GetElementPtrFn>();
+        case FuncTag::EXTRACT_ELEMENT: return pool.template alloc<ExtractElementFn>();
+        case FuncTag::INSERT_ELEMENT: return pool.template alloc<InsertElementFn>();
+        case FuncTag::ARRAY: return pool.template alloc<ArrayFn>();
+        case FuncTag::STRUCT: return pool.template alloc<StructFn>();
+        case FuncTag::MAT_FULL: return pool.template alloc<MatFullFn>();
+        case FuncTag::MAT2: return pool.template alloc<Mat2Fn>();
+        case FuncTag::MAT3: return pool.template alloc<Mat3Fn>();
+        case FuncTag::MAT4: return pool.template alloc<Mat4Fn>();
+        case FuncTag::BINDLESS_ATOMIC_EXCHANGE: return pool.template alloc<BindlessAtomicExchangeFn>();
+        case FuncTag::BINDLESS_ATOMIC_COMPARE_EXCHANGE: return pool.template alloc<BindlessAtomicCompareExchangeFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_ADD: return pool.template alloc<BindlessAtomicFetchAddFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_SUB: return pool.template alloc<BindlessAtomicFetchSubFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_AND: return pool.template alloc<BindlessAtomicFetchAndFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_OR: return pool.template alloc<BindlessAtomicFetchOrFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_XOR: return pool.template alloc<BindlessAtomicFetchXorFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_MIN: return pool.template alloc<BindlessAtomicFetchMinFn>();
+        case FuncTag::BINDLESS_ATOMIC_FETCH_MAX: return pool.template alloc<BindlessAtomicFetchMaxFn>();
+        case FuncTag::CALLABLE: return pool.template alloc<CallableFn>();
+        case FuncTag::CPU_EXT: return pool.template alloc<CpuExtFn>();
+        case FuncTag::SHADER_EXECUTION_REORDER: return pool.template alloc<ShaderExecutionReorderFn>();
+    }
 }
 static BufferBinding *Binding_as_BufferBinding(Binding *self) {
     return self->as<BufferBinding>();
@@ -1007,322 +1221,322 @@ static void AccelBinding_set_handle(AccelBinding *self, uint64_t value) {
 }
 extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
     return {
-        Func_as_Zero,
-        Func_as_One,
-        Func_as_Assume,
-        Func_as_Unreachable,
-        Func_as_ThreadId,
-        Func_as_BlockId,
-        Func_as_WarpSize,
-        Func_as_WarpLaneId,
-        Func_as_DispatchId,
-        Func_as_DispatchSize,
-        Func_as_PropagateGradient,
-        Func_as_OutputGradient,
-        Func_as_RequiresGradient,
-        Func_as_Backward,
-        Func_as_Gradient,
-        Func_as_AccGrad,
-        Func_as_Detach,
-        Func_as_RayTracingInstanceTransform,
-        Func_as_RayTracingInstanceVisibilityMask,
-        Func_as_RayTracingInstanceUserId,
-        Func_as_RayTracingSetInstanceTransform,
-        Func_as_RayTracingSetInstanceOpacity,
-        Func_as_RayTracingSetInstanceVisibility,
-        Func_as_RayTracingSetInstanceUserId,
-        Func_as_RayTracingTraceClosest,
-        Func_as_RayTracingTraceAny,
-        Func_as_RayTracingQueryAll,
-        Func_as_RayTracingQueryAny,
-        Func_as_RayQueryWorldSpaceRay,
-        Func_as_RayQueryProceduralCandidateHit,
-        Func_as_RayQueryTriangleCandidateHit,
-        Func_as_RayQueryCommittedHit,
-        Func_as_RayQueryCommitTriangle,
-        Func_as_RayQueryCommitdProcedural,
-        Func_as_RayQueryTerminate,
-        Func_as_Load,
-        Func_as_Cast,
-        Func_as_BitCast,
-        Func_as_Add,
-        Func_as_Sub,
-        Func_as_Mul,
-        Func_as_Div,
-        Func_as_Rem,
-        Func_as_BitAnd,
-        Func_as_BitOr,
-        Func_as_BitXor,
-        Func_as_Shl,
-        Func_as_Shr,
-        Func_as_RotRight,
-        Func_as_RotLeft,
-        Func_as_Eq,
-        Func_as_Ne,
-        Func_as_Lt,
-        Func_as_Le,
-        Func_as_Gt,
-        Func_as_Ge,
-        Func_as_MatCompMul,
-        Func_as_Neg,
-        Func_as_Not,
-        Func_as_BitNot,
-        Func_as_All,
-        Func_as_Any,
-        Func_as_Select,
-        Func_as_Clamp,
-        Func_as_Lerp,
-        Func_as_Step,
-        Func_as_Saturate,
-        Func_as_SmoothStep,
-        Func_as_Abs,
-        Func_as_Min,
-        Func_as_Max,
-        Func_as_ReduceSum,
-        Func_as_ReduceProd,
-        Func_as_ReduceMin,
-        Func_as_ReduceMax,
-        Func_as_Clz,
-        Func_as_Ctz,
-        Func_as_PopCount,
-        Func_as_Reverse,
-        Func_as_IsInf,
-        Func_as_IsNan,
-        Func_as_Acos,
-        Func_as_Acosh,
-        Func_as_Asin,
-        Func_as_Asinh,
-        Func_as_Atan,
-        Func_as_Atan2,
-        Func_as_Atanh,
-        Func_as_Cos,
-        Func_as_Cosh,
-        Func_as_Sin,
-        Func_as_Sinh,
-        Func_as_Tan,
-        Func_as_Tanh,
-        Func_as_Exp,
-        Func_as_Exp2,
-        Func_as_Exp10,
-        Func_as_Log,
-        Func_as_Log2,
-        Func_as_Log10,
-        Func_as_Powi,
-        Func_as_Powf,
-        Func_as_Sqrt,
-        Func_as_Rsqrt,
-        Func_as_Ceil,
-        Func_as_Floor,
-        Func_as_Fract,
-        Func_as_Trunc,
-        Func_as_Round,
-        Func_as_Fma,
-        Func_as_Copysign,
-        Func_as_Cross,
-        Func_as_Dot,
-        Func_as_OuterProduct,
-        Func_as_Length,
-        Func_as_LengthSquared,
-        Func_as_Normalize,
-        Func_as_Faceforward,
-        Func_as_Distance,
-        Func_as_Reflect,
-        Func_as_Determinant,
-        Func_as_Transpose,
-        Func_as_Inverse,
-        Func_as_WarpIsFirstActiveLane,
-        Func_as_WarpFirstActiveLane,
-        Func_as_WarpActiveAllEqual,
-        Func_as_WarpActiveBitAnd,
-        Func_as_WarpActiveBitOr,
-        Func_as_WarpActiveBitXor,
-        Func_as_WarpActiveCountBits,
-        Func_as_WarpActiveMax,
-        Func_as_WarpActiveMin,
-        Func_as_WarpActiveProduct,
-        Func_as_WarpActiveSum,
-        Func_as_WarpActiveAll,
-        Func_as_WarpActiveAny,
-        Func_as_WarpActiveBitMask,
-        Func_as_WarpPrefixCountBits,
-        Func_as_WarpPrefixSum,
-        Func_as_WarpPrefixProduct,
-        Func_as_WarpReadLaneAt,
-        Func_as_WarpReadFirstLane,
-        Func_as_SynchronizeBlock,
-        Func_as_AtomicExchange,
-        Func_as_AtomicCompareExchange,
-        Func_as_AtomicFetchAdd,
-        Func_as_AtomicFetchSub,
-        Func_as_AtomicFetchAnd,
-        Func_as_AtomicFetchOr,
-        Func_as_AtomicFetchXor,
-        Func_as_AtomicFetchMin,
-        Func_as_AtomicFetchMax,
-        Func_as_BufferWrite,
-        Func_as_BufferRead,
-        Func_as_BufferSize,
-        Func_as_ByteBufferWrite,
-        Func_as_ByteBufferRead,
-        Func_as_ByteBufferSize,
-        Func_as_Texture2dRead,
-        Func_as_Texture2dWrite,
-        Func_as_Texture2dSize,
-        Func_as_Texture3dRead,
-        Func_as_Texture3dWrite,
-        Func_as_Texture3dSize,
-        Func_as_BindlessTexture2dSample,
-        Func_as_BindlessTexture2dSampleLevel,
-        Func_as_BindlessTexture2dSampleGrad,
-        Func_as_BindlessTexture2dSampleGradLevel,
-        Func_as_BindlessTexture2dRead,
-        Func_as_BindlessTexture2dSize,
-        Func_as_BindlessTexture2dSizeLevel,
-        Func_as_BindlessTexture3dSample,
-        Func_as_BindlessTexture3dSampleLevel,
-        Func_as_BindlessTexture3dSampleGrad,
-        Func_as_BindlessTexture3dSampleGradLevel,
-        Func_as_BindlessTexture3dRead,
-        Func_as_BindlessTexture3dSize,
-        Func_as_BindlessTexture3dSizeLevel,
-        Func_as_BindlessBufferWrite,
-        Func_as_BindlessBufferRead,
-        Func_as_BindlessBufferSize,
-        Func_as_BindlessByteBufferWrite,
-        Func_as_BindlessByteBufferRead,
-        Func_as_BindlessByteBufferSize,
-        Func_as_Vec,
-        Func_as_Vec2,
-        Func_as_Vec3,
-        Func_as_Vec4,
-        Func_as_Permute,
-        Func_as_GetElementPtr,
-        Func_as_ExtractElement,
-        Func_as_InsertElement,
-        Func_as_Array,
-        Func_as_Struct,
-        Func_as_MatFull,
-        Func_as_Mat2,
-        Func_as_Mat3,
-        Func_as_Mat4,
-        Func_as_BindlessAtomicExchange,
-        Func_as_BindlessAtomicCompareExchange,
-        Func_as_BindlessAtomicFetchAdd,
-        Func_as_BindlessAtomicFetchSub,
-        Func_as_BindlessAtomicFetchAnd,
-        Func_as_BindlessAtomicFetchOr,
-        Func_as_BindlessAtomicFetchXor,
-        Func_as_BindlessAtomicFetchMin,
-        Func_as_BindlessAtomicFetchMax,
-        Func_as_Callable,
-        Func_as_CpuExt,
-        Func_as_ShaderExecutionReorder,
+        Func_as_ZeroFn,
+        Func_as_OneFn,
+        Func_as_AssumeFn,
+        Func_as_UnreachableFn,
+        Func_as_ThreadIdFn,
+        Func_as_BlockIdFn,
+        Func_as_WarpSizeFn,
+        Func_as_WarpLaneIdFn,
+        Func_as_DispatchIdFn,
+        Func_as_DispatchSizeFn,
+        Func_as_PropagateGradientFn,
+        Func_as_OutputGradientFn,
+        Func_as_RequiresGradientFn,
+        Func_as_BackwardFn,
+        Func_as_GradientFn,
+        Func_as_AccGradFn,
+        Func_as_DetachFn,
+        Func_as_RayTracingInstanceTransformFn,
+        Func_as_RayTracingInstanceVisibilityMaskFn,
+        Func_as_RayTracingInstanceUserIdFn,
+        Func_as_RayTracingSetInstanceTransformFn,
+        Func_as_RayTracingSetInstanceOpacityFn,
+        Func_as_RayTracingSetInstanceVisibilityFn,
+        Func_as_RayTracingSetInstanceUserIdFn,
+        Func_as_RayTracingTraceClosestFn,
+        Func_as_RayTracingTraceAnyFn,
+        Func_as_RayTracingQueryAllFn,
+        Func_as_RayTracingQueryAnyFn,
+        Func_as_RayQueryWorldSpaceRayFn,
+        Func_as_RayQueryProceduralCandidateHitFn,
+        Func_as_RayQueryTriangleCandidateHitFn,
+        Func_as_RayQueryCommittedHitFn,
+        Func_as_RayQueryCommitTriangleFn,
+        Func_as_RayQueryCommitdProceduralFn,
+        Func_as_RayQueryTerminateFn,
+        Func_as_LoadFn,
+        Func_as_CastFn,
+        Func_as_BitCastFn,
+        Func_as_AddFn,
+        Func_as_SubFn,
+        Func_as_MulFn,
+        Func_as_DivFn,
+        Func_as_RemFn,
+        Func_as_BitAndFn,
+        Func_as_BitOrFn,
+        Func_as_BitXorFn,
+        Func_as_ShlFn,
+        Func_as_ShrFn,
+        Func_as_RotRightFn,
+        Func_as_RotLeftFn,
+        Func_as_EqFn,
+        Func_as_NeFn,
+        Func_as_LtFn,
+        Func_as_LeFn,
+        Func_as_GtFn,
+        Func_as_GeFn,
+        Func_as_MatCompMulFn,
+        Func_as_NegFn,
+        Func_as_NotFn,
+        Func_as_BitNotFn,
+        Func_as_AllFn,
+        Func_as_AnyFn,
+        Func_as_SelectFn,
+        Func_as_ClampFn,
+        Func_as_LerpFn,
+        Func_as_StepFn,
+        Func_as_SaturateFn,
+        Func_as_SmoothStepFn,
+        Func_as_AbsFn,
+        Func_as_MinFn,
+        Func_as_MaxFn,
+        Func_as_ReduceSumFn,
+        Func_as_ReduceProdFn,
+        Func_as_ReduceMinFn,
+        Func_as_ReduceMaxFn,
+        Func_as_ClzFn,
+        Func_as_CtzFn,
+        Func_as_PopCountFn,
+        Func_as_ReverseFn,
+        Func_as_IsInfFn,
+        Func_as_IsNanFn,
+        Func_as_AcosFn,
+        Func_as_AcoshFn,
+        Func_as_AsinFn,
+        Func_as_AsinhFn,
+        Func_as_AtanFn,
+        Func_as_Atan2Fn,
+        Func_as_AtanhFn,
+        Func_as_CosFn,
+        Func_as_CoshFn,
+        Func_as_SinFn,
+        Func_as_SinhFn,
+        Func_as_TanFn,
+        Func_as_TanhFn,
+        Func_as_ExpFn,
+        Func_as_Exp2Fn,
+        Func_as_Exp10Fn,
+        Func_as_LogFn,
+        Func_as_Log2Fn,
+        Func_as_Log10Fn,
+        Func_as_PowiFn,
+        Func_as_PowfFn,
+        Func_as_SqrtFn,
+        Func_as_RsqrtFn,
+        Func_as_CeilFn,
+        Func_as_FloorFn,
+        Func_as_FractFn,
+        Func_as_TruncFn,
+        Func_as_RoundFn,
+        Func_as_FmaFn,
+        Func_as_CopysignFn,
+        Func_as_CrossFn,
+        Func_as_DotFn,
+        Func_as_OuterProductFn,
+        Func_as_LengthFn,
+        Func_as_LengthSquaredFn,
+        Func_as_NormalizeFn,
+        Func_as_FaceforwardFn,
+        Func_as_DistanceFn,
+        Func_as_ReflectFn,
+        Func_as_DeterminantFn,
+        Func_as_TransposeFn,
+        Func_as_InverseFn,
+        Func_as_WarpIsFirstActiveLaneFn,
+        Func_as_WarpFirstActiveLaneFn,
+        Func_as_WarpActiveAllEqualFn,
+        Func_as_WarpActiveBitAndFn,
+        Func_as_WarpActiveBitOrFn,
+        Func_as_WarpActiveBitXorFn,
+        Func_as_WarpActiveCountBitsFn,
+        Func_as_WarpActiveMaxFn,
+        Func_as_WarpActiveMinFn,
+        Func_as_WarpActiveProductFn,
+        Func_as_WarpActiveSumFn,
+        Func_as_WarpActiveAllFn,
+        Func_as_WarpActiveAnyFn,
+        Func_as_WarpActiveBitMaskFn,
+        Func_as_WarpPrefixCountBitsFn,
+        Func_as_WarpPrefixSumFn,
+        Func_as_WarpPrefixProductFn,
+        Func_as_WarpReadLaneAtFn,
+        Func_as_WarpReadFirstLaneFn,
+        Func_as_SynchronizeBlockFn,
+        Func_as_AtomicExchangeFn,
+        Func_as_AtomicCompareExchangeFn,
+        Func_as_AtomicFetchAddFn,
+        Func_as_AtomicFetchSubFn,
+        Func_as_AtomicFetchAndFn,
+        Func_as_AtomicFetchOrFn,
+        Func_as_AtomicFetchXorFn,
+        Func_as_AtomicFetchMinFn,
+        Func_as_AtomicFetchMaxFn,
+        Func_as_BufferWriteFn,
+        Func_as_BufferReadFn,
+        Func_as_BufferSizeFn,
+        Func_as_ByteBufferWriteFn,
+        Func_as_ByteBufferReadFn,
+        Func_as_ByteBufferSizeFn,
+        Func_as_Texture2dReadFn,
+        Func_as_Texture2dWriteFn,
+        Func_as_Texture2dSizeFn,
+        Func_as_Texture3dReadFn,
+        Func_as_Texture3dWriteFn,
+        Func_as_Texture3dSizeFn,
+        Func_as_BindlessTexture2dSampleFn,
+        Func_as_BindlessTexture2dSampleLevelFn,
+        Func_as_BindlessTexture2dSampleGradFn,
+        Func_as_BindlessTexture2dSampleGradLevelFn,
+        Func_as_BindlessTexture2dReadFn,
+        Func_as_BindlessTexture2dSizeFn,
+        Func_as_BindlessTexture2dSizeLevelFn,
+        Func_as_BindlessTexture3dSampleFn,
+        Func_as_BindlessTexture3dSampleLevelFn,
+        Func_as_BindlessTexture3dSampleGradFn,
+        Func_as_BindlessTexture3dSampleGradLevelFn,
+        Func_as_BindlessTexture3dReadFn,
+        Func_as_BindlessTexture3dSizeFn,
+        Func_as_BindlessTexture3dSizeLevelFn,
+        Func_as_BindlessBufferWriteFn,
+        Func_as_BindlessBufferReadFn,
+        Func_as_BindlessBufferSizeFn,
+        Func_as_BindlessByteBufferWriteFn,
+        Func_as_BindlessByteBufferReadFn,
+        Func_as_BindlessByteBufferSizeFn,
+        Func_as_VecFn,
+        Func_as_Vec2Fn,
+        Func_as_Vec3Fn,
+        Func_as_Vec4Fn,
+        Func_as_PermuteFn,
+        Func_as_GetElementPtrFn,
+        Func_as_ExtractElementFn,
+        Func_as_InsertElementFn,
+        Func_as_ArrayFn,
+        Func_as_StructFn,
+        Func_as_MatFullFn,
+        Func_as_Mat2Fn,
+        Func_as_Mat3Fn,
+        Func_as_Mat4Fn,
+        Func_as_BindlessAtomicExchangeFn,
+        Func_as_BindlessAtomicCompareExchangeFn,
+        Func_as_BindlessAtomicFetchAddFn,
+        Func_as_BindlessAtomicFetchSubFn,
+        Func_as_BindlessAtomicFetchAndFn,
+        Func_as_BindlessAtomicFetchOrFn,
+        Func_as_BindlessAtomicFetchXorFn,
+        Func_as_BindlessAtomicFetchMinFn,
+        Func_as_BindlessAtomicFetchMaxFn,
+        Func_as_CallableFn,
+        Func_as_CpuExtFn,
+        Func_as_ShaderExecutionReorderFn,
         Func_tag,
-        Assume_msg,
-        Assume_set_msg,
-        Unreachable_msg,
-        Unreachable_set_msg,
-        BindlessAtomicExchange_ty,
-        BindlessAtomicExchange_set_ty,
-        BindlessAtomicCompareExchange_ty,
-        BindlessAtomicCompareExchange_set_ty,
-        BindlessAtomicFetchAdd_ty,
-        BindlessAtomicFetchAdd_set_ty,
-        BindlessAtomicFetchSub_ty,
-        BindlessAtomicFetchSub_set_ty,
-        BindlessAtomicFetchAnd_ty,
-        BindlessAtomicFetchAnd_set_ty,
-        BindlessAtomicFetchOr_ty,
-        BindlessAtomicFetchOr_set_ty,
-        BindlessAtomicFetchXor_ty,
-        BindlessAtomicFetchXor_set_ty,
-        BindlessAtomicFetchMin_ty,
-        BindlessAtomicFetchMin_set_ty,
-        BindlessAtomicFetchMax_ty,
-        BindlessAtomicFetchMax_set_ty,
-        Callable_module,
-        Callable_set_module,
-        CpuExt_f,
-        CpuExt_set_f,
-        Instruction_as_Buffer,
-        Instruction_as_Texture2d,
-        Instruction_as_Texture3d,
-        Instruction_as_BindlessArray,
-        Instruction_as_Accel,
-        Instruction_as_Shared,
-        Instruction_as_Uniform,
-        Instruction_as_Argument,
-        Instruction_as_Constant,
-        Instruction_as_Call,
-        Instruction_as_Phi,
-        Instruction_as_BasicBlockSentinel,
-        Instruction_as_If,
-        Instruction_as_GenericLoop,
-        Instruction_as_Switch,
-        Instruction_as_Local,
-        Instruction_as_Break,
-        Instruction_as_Continue,
-        Instruction_as_Return,
-        Instruction_as_Print,
-        Instruction_as_Update,
-        Instruction_as_RayQuery,
-        Instruction_as_RevAutodiff,
-        Instruction_as_FwdAutodiff,
+        AssumeFn_msg,
+        AssumeFn_set_msg,
+        UnreachableFn_msg,
+        UnreachableFn_set_msg,
+        BindlessAtomicExchangeFn_ty,
+        BindlessAtomicExchangeFn_set_ty,
+        BindlessAtomicCompareExchangeFn_ty,
+        BindlessAtomicCompareExchangeFn_set_ty,
+        BindlessAtomicFetchAddFn_ty,
+        BindlessAtomicFetchAddFn_set_ty,
+        BindlessAtomicFetchSubFn_ty,
+        BindlessAtomicFetchSubFn_set_ty,
+        BindlessAtomicFetchAndFn_ty,
+        BindlessAtomicFetchAndFn_set_ty,
+        BindlessAtomicFetchOrFn_ty,
+        BindlessAtomicFetchOrFn_set_ty,
+        BindlessAtomicFetchXorFn_ty,
+        BindlessAtomicFetchXorFn_set_ty,
+        BindlessAtomicFetchMinFn_ty,
+        BindlessAtomicFetchMinFn_set_ty,
+        BindlessAtomicFetchMaxFn_ty,
+        BindlessAtomicFetchMaxFn_set_ty,
+        CallableFn_module,
+        CallableFn_set_module,
+        CpuExtFn_f,
+        CpuExtFn_set_f,
+        Instruction_as_BufferInst,
+        Instruction_as_Texture2dInst,
+        Instruction_as_Texture3dInst,
+        Instruction_as_BindlessArrayInst,
+        Instruction_as_AccelInst,
+        Instruction_as_SharedInst,
+        Instruction_as_UniformInst,
+        Instruction_as_ArgumentInst,
+        Instruction_as_ConstantInst,
+        Instruction_as_CallInst,
+        Instruction_as_PhiInst,
+        Instruction_as_BasicBlockSentinelInst,
+        Instruction_as_IfInst,
+        Instruction_as_GenericLoopInst,
+        Instruction_as_SwitchInst,
+        Instruction_as_LocalInst,
+        Instruction_as_BreakInst,
+        Instruction_as_ContinueInst,
+        Instruction_as_ReturnInst,
+        Instruction_as_PrintInst,
+        Instruction_as_UpdateInst,
+        Instruction_as_RayQueryInst,
+        Instruction_as_RevAutodiffInst,
+        Instruction_as_FwdAutodiffInst,
         Instruction_tag,
-        Argument_by_value,
-        Argument_set_by_value,
-        Constant_ty,
-        Constant_value,
-        Constant_set_ty,
-        Constant_set_value,
-        Call_func,
-        Call_args,
-        Call_set_func,
-        Call_set_args,
-        Phi_incomings,
-        Phi_set_incomings,
-        If_cond,
-        If_true_branch,
-        If_false_branch,
-        If_set_cond,
-        If_set_true_branch,
-        If_set_false_branch,
-        GenericLoop_prepare,
-        GenericLoop_cond,
-        GenericLoop_body,
-        GenericLoop_update,
-        GenericLoop_set_prepare,
-        GenericLoop_set_cond,
-        GenericLoop_set_body,
-        GenericLoop_set_update,
-        Switch_value,
-        Switch_cases,
-        Switch_default_,
-        Switch_set_value,
-        Switch_set_cases,
-        Switch_set_default_,
-        Local_init,
-        Local_set_init,
-        Return_value,
-        Return_set_value,
-        Print_fmt,
-        Print_args,
-        Print_set_fmt,
-        Print_set_args,
-        Update_var,
-        Update_value,
-        Update_set_var,
-        Update_set_value,
-        RayQuery_query,
-        RayQuery_on_triangle_hit,
-        RayQuery_on_procedural_hit,
-        RayQuery_set_query,
-        RayQuery_set_on_triangle_hit,
-        RayQuery_set_on_procedural_hit,
-        RevAutodiff_body,
-        RevAutodiff_set_body,
-        FwdAutodiff_body,
-        FwdAutodiff_set_body,
+        ArgumentInst_by_value,
+        ArgumentInst_set_by_value,
+        ConstantInst_ty,
+        ConstantInst_value,
+        ConstantInst_set_ty,
+        ConstantInst_set_value,
+        CallInst_func,
+        CallInst_args,
+        CallInst_set_func,
+        CallInst_set_args,
+        PhiInst_incomings,
+        PhiInst_set_incomings,
+        IfInst_cond,
+        IfInst_true_branch,
+        IfInst_false_branch,
+        IfInst_set_cond,
+        IfInst_set_true_branch,
+        IfInst_set_false_branch,
+        GenericLoopInst_prepare,
+        GenericLoopInst_cond,
+        GenericLoopInst_body,
+        GenericLoopInst_update,
+        GenericLoopInst_set_prepare,
+        GenericLoopInst_set_cond,
+        GenericLoopInst_set_body,
+        GenericLoopInst_set_update,
+        SwitchInst_value,
+        SwitchInst_cases,
+        SwitchInst_default_,
+        SwitchInst_set_value,
+        SwitchInst_set_cases,
+        SwitchInst_set_default_,
+        LocalInst_init,
+        LocalInst_set_init,
+        ReturnInst_value,
+        ReturnInst_set_value,
+        PrintInst_fmt,
+        PrintInst_args,
+        PrintInst_set_fmt,
+        PrintInst_set_args,
+        UpdateInst_var,
+        UpdateInst_value,
+        UpdateInst_set_var,
+        UpdateInst_set_value,
+        RayQueryInst_query,
+        RayQueryInst_on_triangle_hit,
+        RayQueryInst_on_procedural_hit,
+        RayQueryInst_set_query,
+        RayQueryInst_set_on_triangle_hit,
+        RayQueryInst_set_on_procedural_hit,
+        RevAutodiffInst_body,
+        RevAutodiffInst_set_body,
+        FwdAutodiffInst_body,
+        FwdAutodiffInst_set_body,
         Binding_as_BufferBinding,
         Binding_as_TextureBinding,
         Binding_as_BindlessArrayBinding,
