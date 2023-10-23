@@ -89,6 +89,9 @@ struct Slice {
     constexpr Slice(luisa::string &str) noexcept : data(str.data()), len(str.size()) {
         static_assert(std::is_same_v<T, char> || std::is_same_v<T, const char>);
     }
+    luisa::vector<T> to_vector() const noexcept {
+        return luisa::vector<T>(data, data + len);
+    }
 #endif 
 };    
 }
@@ -119,7 +122,7 @@ class Item:
         return out
 
     def gen_c_api(self):
-        # get xx_field() -> xx
+        # gen xx_field() -> xx
         for f in self.fields:
             fname = f'{self.name}_{f[1]}'
             fsig = f'{MAP_FFI_TYPE[f[0]]} (*{fname})({self.name} *self)'
@@ -132,6 +135,15 @@ class Item:
             else:
                 print('    return self->{};'.format(f[1]), file=c_api_impl)
             print('}', file=c_api_impl)
+        
+        # set xx_field(xx)
+        for f in self.fields:
+            fname = f'{self.name}_set_{f[1]}'
+            fsig = f'void (*{fname})({self.name} *self, {MAP_FFI_TYPE[f[0]]} value)'
+            func_table.append((fname, fsig))
+            print(
+                f'static void {fname}({self.name} *self, {MAP_FFI_TYPE[f[0]]} value) {{', file=c_api_impl)
+            
 
 
 class Instruction(Item):
@@ -157,6 +169,15 @@ class Func(Item):
             'true' if self.side_effects else 'false')
         out += '    }\n'
         return out
+
+
+class IRType(Item):
+    def __init__(self, name, fields=None, cpp_src=None, **kwargs) -> None:
+        if fields is None:
+            fields = []
+        super().__init__(name, fields, **kwargs)
+        if cpp_src is not None:
+            self.cpp_src = cpp_src
 
 
 def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
@@ -243,7 +264,7 @@ instructions = [
     Instruction('Argument', [
         ('bool', 'by_value'),
     ]),
-    Instruction('Const', [
+    Instruction('Constant', [
         ('const Type*', 'ty'),
         ('luisa::vector<uint8_t>', 'value')
     ]),
@@ -307,6 +328,32 @@ instructions = [
     this->fmt = std::move(fmt);
     this->args = std::move(args);
 }'''),
+    Instruction('Update', [
+        ('Node*', 'var'),
+        ('Node*', 'value')
+    ], cpp_src='''Update(Node* var, Node* value) noexcept {
+    this->var = var;
+    this->value = value;
+}'''),
+    Instruction('RayQuery', [
+        ('Node*', 'query'),
+        ('BasicBlock*', 'on_triangle_hit'),
+        ('BasicBlock*', 'on_procedural_hit'),
+    ], cpp_src='''RayQuery(Node* query, BasicBlock* on_triangle_hit, BasicBlock* on_procedural_hit) noexcept {
+    this->query = query;
+    this->on_triangle_hit = on_triangle_hit;
+    this->on_procedural_hit = on_procedural_hit;
+}'''),
+    Instruction('RevAutodiff', [
+        ('BasicBlock*', 'body'),
+    ], cpp_src='''RevAutodiff(BasicBlock* body) noexcept {
+    this->body = body;
+}'''),
+    Instruction('FwdAutodiff', [
+        ('BasicBlock*', 'body'),
+    ], cpp_src='''FwdAutodiff(BasicBlock* body) noexcept {
+    this->body = body;
+}'''),
 ]
 
 funcs = [
@@ -354,10 +401,9 @@ funcs = [
     Func('RayQueryCommittedHit', []),
     Func('RayQueryCommitTriangle', [], side_effects=True),
     Func('RayQueryCommitdProcedural', [], side_effects=True),
-    Func('RayQueryTerminate', []),
+    Func('RayQueryTerminate', [], side_effects=True),
 
     Func('Load', []),
-    Func('Store', [], side_effects=True),
 
     Func('Cast', []),
     Func('BitCast', []),
@@ -453,26 +499,26 @@ funcs = [
     Func('Transpose'),
     Func('Inverse'),
 
-    Func('WarpIsFirstActiveLane'),
-    Func('WarpFirstActiveLane'),
-    Func('WarpActiveAllEqual'),
-    Func('WarpActiveBitAnd'),
-    Func('WarpActiveBitOr'),
-    Func('WarpActiveBitXor'),
-    Func('WarpActiveCountBits'),
-    Func('WarpActiveMax'),
-    Func('WarpActiveMin'),
-    Func('WarpActiveProduct'),
-    Func('WarpActiveSum'),
-    Func('WarpActiveAll'),
-    Func('WarpActiveAny'),
-    Func('WarpActiveBitMask'),
-    Func('WarpPrefixCountBits'),
-    Func('WarpPrefixSum'),
-    Func('WarpPrefixProduct'),
-    Func('WarpReadLaneAt'),
-    Func('WarpReadFirstLane'),
-    Func('SynchronizeBlock'),
+    Func('WarpIsFirstActiveLane', side_effects=True),
+    Func('WarpFirstActiveLane', side_effects=True),
+    Func('WarpActiveAllEqual', side_effects=True),
+    Func('WarpActiveBitAnd', side_effects=True),
+    Func('WarpActiveBitOr', side_effects=True),
+    Func('WarpActiveBitXor', side_effects=True),
+    Func('WarpActiveCountBits', side_effects=True),
+    Func('WarpActiveMax', side_effects=True),
+    Func('WarpActiveMin', side_effects=True),
+    Func('WarpActiveProduct', side_effects=True),
+    Func('WarpActiveSum', side_effects=True),
+    Func('WarpActiveAll', side_effects=True),
+    Func('WarpActiveAny', side_effects=True),
+    Func('WarpActiveBitMask', side_effects=True),
+    Func('WarpPrefixCountBits', side_effects=True),
+    Func('WarpPrefixSum', side_effects=True),
+    Func('WarpPrefixProduct', side_effects=True),
+    Func('WarpReadLaneAt', side_effects=True),
+    Func('WarpReadFirstLane', side_effects=True),
+    Func('SynchronizeBlock', side_effects=True),
 
     Func('AtomicExchange', [], side_effects=True),
     Func('AtomicCompareExchange', [], side_effects=True),
@@ -577,12 +623,12 @@ FUNC_CPP_SRC = '''
 
 print('''
 struct PhiIncoming {
-    const BasicBlock *block = nullptr;
-    const Node *value = nullptr;
+    BasicBlock *block = nullptr;
+    Node *value = nullptr;
 };
 struct SwitchCase {
     int32_t value = 0;
-    const BasicBlock *block = nullptr;    
+    BasicBlock *block = nullptr;    
 };
 struct CpuExternFn {
     void *data = nullptr;

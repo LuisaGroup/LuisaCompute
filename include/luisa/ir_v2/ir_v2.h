@@ -20,10 +20,12 @@ struct LC_IR_API Node {
     const Type *ty = Type::of<void>();
     Node() noexcept = default;
     Node(Instruction *inst, const Type *ty) : inst{inst}, ty(ty) {}
-
+    // insert all nodes in bb after this node
+    // bb is set to empty
+    void insert_block_after(BasicBlock *bb) noexcept;
     void insert_after_this(Node *n) noexcept {
         LUISA_ASSERT(n != nullptr, "bad node");
-        
+
         LUISA_ASSERT(next != nullptr, "bad node");
         n->prev = this;
         n->next = next;
@@ -32,7 +34,7 @@ struct LC_IR_API Node {
     }
     void insert_before_this(Node *n) noexcept {
         LUISA_ASSERT(n != nullptr, "bad node");
-        
+
         LUISA_ASSERT(prev != nullptr, "bad node");
         n->prev = prev;
         n->next = this;
@@ -40,7 +42,7 @@ struct LC_IR_API Node {
         prev = n;
     }
     void remove_this() noexcept {
-        
+
         LUISA_ASSERT(prev != nullptr, "bad node");
         LUISA_ASSERT(next != nullptr, "bad node");
         prev->next = next;
@@ -50,7 +52,7 @@ struct LC_IR_API Node {
     }
     luisa::optional<int32_t> get_index() const noexcept {
         _check();
-        if (auto cst = inst->as<Const>()) {
+        if (auto cst = inst->as<Constant>()) {
             auto ty = cst->ty;
             if (ty == Type::of<int32_t>()) {
                 return *reinterpret_cast<int32_t *>(cst->value.data());
@@ -60,7 +62,7 @@ struct LC_IR_API Node {
     }
     bool is_const() const noexcept {
         _check();
-        return inst->isa<Const>();
+        return inst->isa<Constant>();
     }
     bool is_call() const noexcept {
         _check();
@@ -80,32 +82,39 @@ struct LC_IR_API Node {
 private:
     void _check() const noexcept {
         LUISA_ASSERT(scope != nullptr, "bad node");
-        
     }
 };
 
 class LC_IR_API BasicBlock {
+    // NEVER set _first and _last to nullptr!!!
     Node *_first;
     Node *_last;
 public:
     BasicBlock(Pool &pool) noexcept;
     template<class F>
     void for_each(F &&f) const noexcept {
-        auto n = _first.next;
+        auto n = _first->next;
         while (n != _last) {
             f(n);
             n = n->next;
         }
     }
-    Node *first() const noexcept {
+    [[nodiscard]] Node *first() const noexcept {
         return _first;
     }
-    Node *last() const noexcept {
+    [[nodiscard]] Node *last() const noexcept {
         return _last;
+    }
+    void clear() noexcept {
+        _first->next = _last;
+        _last->prev = _first;
+    }
+    [[nodiscard]] bool is_empty() const noexcept {
+        return _first->next == _last;
     }
 };
 
-class LC_IR_API Pool {
+class LC_IR_API Pool : public luisa::enable_shared_from_this<Pool> {
     using Deleter = void (*)(void *) noexcept;
 public:
     template<typename T, typename... Args>
@@ -171,7 +180,7 @@ public:
     [[nodiscard]] Node *const_(T v) noexcept {
         luisa::vector<uint8_t> data(sizeof(T));
         std::memcpy(data.data(), &v, sizeof(T));
-        auto cst = _pool->alloc<Const>();
+        auto cst = _pool->alloc<Constant>();
         cst->ty = Type::of<T>();
         cst->value = std::move(data);
         return append(_pool->alloc<Node>(cst, Type::of<T>()));
@@ -230,8 +239,20 @@ public:
         return append(_pool->alloc<Node>(cont, Type::of<void>()));
     }
 };
+class UseDefAnalysis;
+
 struct Module {
+public:
+    enum class Kind {
+        CALLABLE,
+        KERNEL
+    };
+    luisa::vector<Node *> args;
     BasicBlock *entry = nullptr;
+    luisa::shared_ptr<UseDefAnalysis> use_def_analysis;
+    luisa::shared_ptr<Pool> pool;
+    virtual ~Module() noexcept = default;
+    virtual [[nodiscard]] Kind kind() const noexcept;
 };
 
 struct Capture {
@@ -239,22 +260,24 @@ struct Capture {
     Binding *binding = nullptr;
 };
 
-struct CallableModule {
-    luisa::vector<Node *> args;
-    Module body;
-    luisa::shared_ptr<Pool> pool;
+struct CallableModule : Module {
+    virtual [[nodiscard]] Kind kind() const noexcept override {
+        return Kind::CALLABLE;
+    }
 };
 
-struct KernelModule {
-    Module body;
-    luisa::vector<Node *> args;
+struct KernelModule : Module {
     luisa::vector<Capture> captures;
-    luisa::shared_ptr<Pool> pool;
     std::array<uint32_t, 3> block_size;
+    virtual [[nodiscard]] Kind kind() const noexcept override {
+        return Kind::KERNEL;
+    }
 };
 
 class Transform {
     virtual void run(Module &module) noexcept = 0;
 };
+
+void validate(Module &module) noexcept;
 
 }// namespace luisa::compute::ir_v2

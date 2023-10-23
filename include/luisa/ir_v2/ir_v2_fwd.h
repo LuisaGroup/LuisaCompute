@@ -17,12 +17,12 @@ struct Module;
 struct KernelModule;
 
 struct PhiIncoming {
-    const BasicBlock *block = nullptr;
-    const Node *value = nullptr;
+    BasicBlock *block = nullptr;
+    Node *value = nullptr;
 };
 struct SwitchCase {
     int32_t value = 0;
-    const BasicBlock *block = nullptr;
+    BasicBlock *block = nullptr;
 };
 struct CpuExternFn {
     void *data = nullptr;
@@ -68,7 +68,6 @@ struct RayQueryCommitTriangle;
 struct RayQueryCommitdProcedural;
 struct RayQueryTerminate;
 struct Load;
-struct Store;
 struct Cast;
 struct BitCast;
 struct Add;
@@ -280,7 +279,6 @@ enum class FuncTag : unsigned int {
     RAY_QUERY_COMMITD_PROCEDURAL,
     RAY_QUERY_TERMINATE,
     LOAD,
-    STORE,
     CAST,
     BIT_CAST,
     ADD,
@@ -465,7 +463,7 @@ struct Accel;
 struct Shared;
 struct Uniform;
 struct Argument;
-struct Const;
+struct Constant;
 struct Call;
 struct Phi;
 struct BasicBlockSentinel;
@@ -477,6 +475,10 @@ struct Break;
 struct Continue;
 struct Return;
 struct Print;
+struct Update;
+struct RayQuery;
+struct RevAutodiff;
+struct FwdAutodiff;
 enum class InstructionTag : unsigned int {
     BUFFER,
     TEXTURE2D,
@@ -486,7 +488,7 @@ enum class InstructionTag : unsigned int {
     SHARED,
     UNIFORM,
     ARGUMENT,
-    CONST,
+    CONSTANT,
     CALL,
     PHI,
     BASIC_BLOCK_SENTINEL,
@@ -498,6 +500,10 @@ enum class InstructionTag : unsigned int {
     CONTINUE,
     RETURN,
     PRINT,
+    UPDATE,
+    RAY_QUERY,
+    REV_AUTODIFF,
+    FWD_AUTODIFF,
 };
 struct Binding;
 struct BufferBinding;

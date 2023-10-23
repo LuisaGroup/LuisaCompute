@@ -108,9 +108,6 @@ static RayQueryTerminate *Func_as_RayQueryTerminate(Func *self) {
 static Load *Func_as_Load(Func *self) {
     return self->as<Load>();
 }
-static Store *Func_as_Store(Func *self) {
-    return self->as<Store>();
-}
 static Cast *Func_as_Cast(Func *self) {
     return self->as<Cast>();
 }
@@ -699,8 +696,8 @@ static Uniform *Instruction_as_Uniform(Instruction *self) {
 static Argument *Instruction_as_Argument(Instruction *self) {
     return self->as<Argument>();
 }
-static Const *Instruction_as_Const(Instruction *self) {
-    return self->as<Const>();
+static Constant *Instruction_as_Constant(Instruction *self) {
+    return self->as<Constant>();
 }
 static Call *Instruction_as_Call(Instruction *self) {
     return self->as<Call>();
@@ -735,16 +732,28 @@ static Return *Instruction_as_Return(Instruction *self) {
 static Print *Instruction_as_Print(Instruction *self) {
     return self->as<Print>();
 }
+static Update *Instruction_as_Update(Instruction *self) {
+    return self->as<Update>();
+}
+static RayQuery *Instruction_as_RayQuery(Instruction *self) {
+    return self->as<RayQuery>();
+}
+static RevAutodiff *Instruction_as_RevAutodiff(Instruction *self) {
+    return self->as<RevAutodiff>();
+}
+static FwdAutodiff *Instruction_as_FwdAutodiff(Instruction *self) {
+    return self->as<FwdAutodiff>();
+}
 static InstructionTag Instruction_tag(Instruction *self) {
     return self->tag();
 }
 static bool Argument_by_value(Argument *self) {
     return self->by_value;
 }
-static const Type *Const_ty(Const *self) {
+static const Type *Constant_ty(Constant *self) {
     return self->ty;
 }
-static Slice<uint8_t> Const_value(Const *self) {
+static Slice<uint8_t> Constant_value(Constant *self) {
     return self->value;
 }
 static const Func *Call_func(Call *self) {
@@ -797,6 +806,27 @@ static Slice<const char> Print_fmt(Print *self) {
 }
 static Slice<Node *> Print_args(Print *self) {
     return self->args;
+}
+static Node *Update_var(Update *self) {
+    return self->var;
+}
+static Node *Update_value(Update *self) {
+    return self->value;
+}
+static Node *RayQuery_query(RayQuery *self) {
+    return self->query;
+}
+static BasicBlock *RayQuery_on_triangle_hit(RayQuery *self) {
+    return self->on_triangle_hit;
+}
+static BasicBlock *RayQuery_on_procedural_hit(RayQuery *self) {
+    return self->on_procedural_hit;
+}
+static BasicBlock *RevAutodiff_body(RevAutodiff *self) {
+    return self->body;
+}
+static BasicBlock *FwdAutodiff_body(FwdAutodiff *self) {
+    return self->body;
 }
 static BufferBinding *Binding_as_BufferBinding(Binding *self) {
     return self->as<BufferBinding>();
@@ -872,7 +902,6 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Func_as_RayQueryCommitdProcedural,
         Func_as_RayQueryTerminate,
         Func_as_Load,
-        Func_as_Store,
         Func_as_Cast,
         Func_as_BitCast,
         Func_as_Add,
@@ -1069,7 +1098,7 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Instruction_as_Shared,
         Instruction_as_Uniform,
         Instruction_as_Argument,
-        Instruction_as_Const,
+        Instruction_as_Constant,
         Instruction_as_Call,
         Instruction_as_Phi,
         Instruction_as_BasicBlockSentinel,
@@ -1081,10 +1110,14 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Instruction_as_Continue,
         Instruction_as_Return,
         Instruction_as_Print,
+        Instruction_as_Update,
+        Instruction_as_RayQuery,
+        Instruction_as_RevAutodiff,
+        Instruction_as_FwdAutodiff,
         Instruction_tag,
         Argument_by_value,
-        Const_ty,
-        Const_value,
+        Constant_ty,
+        Constant_value,
         Call_func,
         Call_args,
         Phi_incomings,
@@ -1102,6 +1135,13 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Return_value,
         Print_fmt,
         Print_args,
+        Update_var,
+        Update_value,
+        RayQuery_query,
+        RayQuery_on_triangle_hit,
+        RayQuery_on_procedural_hit,
+        RevAutodiff_body,
+        FwdAutodiff_body,
         Binding_as_BufferBinding,
         Binding_as_TextureBinding,
         Binding_as_BindlessArrayBinding,

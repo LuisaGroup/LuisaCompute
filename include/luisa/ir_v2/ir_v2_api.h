@@ -72,7 +72,6 @@ struct IrV2BindingTable {
     RayQueryCommitdProcedural *(*Func_as_RayQueryCommitdProcedural)(Func *self);
     RayQueryTerminate *(*Func_as_RayQueryTerminate)(Func *self);
     Load *(*Func_as_Load)(Func *self);
-    Store *(*Func_as_Store)(Func *self);
     Cast *(*Func_as_Cast)(Func *self);
     BitCast *(*Func_as_BitCast)(Func *self);
     Add *(*Func_as_Add)(Func *self);
@@ -269,7 +268,7 @@ struct IrV2BindingTable {
     Shared *(*Instruction_as_Shared)(Instruction *self);
     Uniform *(*Instruction_as_Uniform)(Instruction *self);
     Argument *(*Instruction_as_Argument)(Instruction *self);
-    Const *(*Instruction_as_Const)(Instruction *self);
+    Constant *(*Instruction_as_Constant)(Instruction *self);
     Call *(*Instruction_as_Call)(Instruction *self);
     Phi *(*Instruction_as_Phi)(Instruction *self);
     BasicBlockSentinel *(*Instruction_as_BasicBlockSentinel)(Instruction *self);
@@ -281,10 +280,14 @@ struct IrV2BindingTable {
     Continue *(*Instruction_as_Continue)(Instruction *self);
     Return *(*Instruction_as_Return)(Instruction *self);
     Print *(*Instruction_as_Print)(Instruction *self);
+    Update *(*Instruction_as_Update)(Instruction *self);
+    RayQuery *(*Instruction_as_RayQuery)(Instruction *self);
+    RevAutodiff *(*Instruction_as_RevAutodiff)(Instruction *self);
+    FwdAutodiff *(*Instruction_as_FwdAutodiff)(Instruction *self);
     InstructionTag (*Instruction_tag)(Instruction *self);
     bool (*Argument_by_value)(Argument *self);
-    const Type *(*Const_ty)(Const *self);
-    Slice<uint8_t> (*Const_value)(Const *self);
+    const Type *(*Constant_ty)(Constant *self);
+    Slice<uint8_t> (*Constant_value)(Constant *self);
     const Func *(*Call_func)(Call *self);
     Slice<Node *> (*Call_args)(Call *self);
     Slice<PhiIncoming> (*Phi_incomings)(Phi *self);
@@ -302,6 +305,13 @@ struct IrV2BindingTable {
     Node *(*Return_value)(Return *self);
     Slice<const char> (*Print_fmt)(Print *self);
     Slice<Node *> (*Print_args)(Print *self);
+    Node *(*Update_var)(Update *self);
+    Node *(*Update_value)(Update *self);
+    Node *(*RayQuery_query)(RayQuery *self);
+    BasicBlock *(*RayQuery_on_triangle_hit)(RayQuery *self);
+    BasicBlock *(*RayQuery_on_procedural_hit)(RayQuery *self);
+    BasicBlock *(*RevAutodiff_body)(RevAutodiff *self);
+    BasicBlock *(*FwdAutodiff_body)(FwdAutodiff *self);
     BufferBinding *(*Binding_as_BufferBinding)(Binding *self);
     TextureBinding *(*Binding_as_TextureBinding)(Binding *self);
     BindlessArrayBinding *(*Binding_as_BindlessArrayBinding)(Binding *self);

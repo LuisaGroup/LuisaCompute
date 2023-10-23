@@ -1,6 +1,10 @@
 set(LUISA_COMPUTE_IR_V2_SOURCES
             ir.cpp
-            ir_v2_api.cpp)
+            ir_v2_api.cpp
+            analysis/usedef.cpp
+            transform/dce.cpp
+            transform/ssa.cpp
+            )
 
 add_library(luisa-compute-ir-v2 SHARED ${LUISA_COMPUTE_IR_V2_SOURCES})
 target_link_libraries(luisa-compute-ir-v2 PUBLIC luisa-compute-ast)

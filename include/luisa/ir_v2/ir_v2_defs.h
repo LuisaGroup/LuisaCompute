@@ -514,7 +514,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API Load : public Func {
@@ -529,20 +529,6 @@ public:
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return false;
-    }
-};
-struct LC_IR_API Store : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::STORE;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
     }
 };
 struct LC_IR_API Cast : public Func {
@@ -1774,7 +1760,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpFirstActiveLane : public Func {
@@ -1788,7 +1774,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveAllEqual : public Func {
@@ -1802,7 +1788,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveBitAnd : public Func {
@@ -1816,7 +1802,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveBitOr : public Func {
@@ -1830,7 +1816,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveBitXor : public Func {
@@ -1844,7 +1830,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveCountBits : public Func {
@@ -1858,7 +1844,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveMax : public Func {
@@ -1872,7 +1858,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveMin : public Func {
@@ -1886,7 +1872,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveProduct : public Func {
@@ -1900,7 +1886,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveSum : public Func {
@@ -1914,7 +1900,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveAll : public Func {
@@ -1928,7 +1914,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveAny : public Func {
@@ -1942,7 +1928,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpActiveBitMask : public Func {
@@ -1956,7 +1942,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpPrefixCountBits : public Func {
@@ -1970,7 +1956,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpPrefixSum : public Func {
@@ -1984,7 +1970,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpPrefixProduct : public Func {
@@ -1998,7 +1984,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpReadLaneAt : public Func {
@@ -2012,7 +1998,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API WarpReadFirstLane : public Func {
@@ -2026,7 +2012,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API SynchronizeBlock : public Func {
@@ -2040,7 +2026,7 @@ public:
     }
 public:
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
+        return true;
     }
 };
 struct LC_IR_API AtomicExchange : public Func {
@@ -3101,11 +3087,11 @@ public:
 public:
     bool by_value;
 };
-struct LC_IR_API Const : public Instruction {
+struct LC_IR_API Constant : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::CONST;
+        return Tag::CONSTANT;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -3280,6 +3266,72 @@ public:
     Print(luisa::string fmt, luisa::vector<Node *> args) noexcept {
         this->fmt = std::move(fmt);
         this->args = std::move(args);
+    }
+};
+struct LC_IR_API Update : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::UPDATE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    Node *var;
+    Node *value;
+    Update(Node *var, Node *value) noexcept {
+        this->var = var;
+        this->value = value;
+    }
+};
+struct LC_IR_API RayQuery : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    Node *query;
+    BasicBlock *on_triangle_hit;
+    BasicBlock *on_procedural_hit;
+    RayQuery(Node *query, BasicBlock *on_triangle_hit, BasicBlock *on_procedural_hit) noexcept {
+        this->query = query;
+        this->on_triangle_hit = on_triangle_hit;
+        this->on_procedural_hit = on_procedural_hit;
+    }
+};
+struct LC_IR_API RevAutodiff : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REV_AUTODIFF;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    BasicBlock *body;
+    RevAutodiff(BasicBlock *body) noexcept {
+        this->body = body;
+    }
+};
+struct LC_IR_API FwdAutodiff : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::FWD_AUTODIFF;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    BasicBlock *body;
+    FwdAutodiff(BasicBlock *body) noexcept {
+        this->body = body;
     }
 };
 struct Binding {
