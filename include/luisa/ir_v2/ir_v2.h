@@ -288,7 +288,7 @@ public:
     luisa::shared_ptr<UseDefAnalysis> use_def_analysis;
     luisa::shared_ptr<Pool> pool;
     virtual ~Module() noexcept = default;
-    virtual [[nodiscard]] Kind kind() const noexcept;
+    [[nodiscard]] virtual Kind kind() const noexcept;
 };
 
 struct Capture {
@@ -297,7 +297,7 @@ struct Capture {
 };
 
 struct CallableModule : Module {
-    virtual [[nodiscard]] Kind kind() const noexcept override {
+    [[nodiscard]] virtual Kind kind() const noexcept override {
         return Kind::CALLABLE;
     }
 };
@@ -305,7 +305,7 @@ struct CallableModule : Module {
 struct KernelModule : Module {
     luisa::vector<Capture> captures;
     std::array<uint32_t, 3> block_size;
-    virtual [[nodiscard]] Kind kind() const noexcept override {
+    [[nodiscard]] virtual Kind kind() const noexcept override {
         return Kind::KERNEL;
     }
 };

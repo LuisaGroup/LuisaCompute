@@ -6,5 +6,5 @@ int main() {
     auto x = builder.const_(1.0f);
     auto y = builder.const_(2.0f);
     luisa::vector<ir_v2::Node*> args{x,y};
-    auto z = builder.call<ir_v2::Add>(luisa::span{args}, Type::of<float>());
+    auto z = builder.call<ir_v2::AddFn>(luisa::span{args}, Type::of<float>());
 }
