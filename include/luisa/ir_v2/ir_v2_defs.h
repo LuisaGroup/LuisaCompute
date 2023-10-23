@@ -3,101 +3,33 @@
 #include <type_traits>
 #include <luisa/ir_v2/ir_v2_fwd.h>
 namespace luisa::compute::ir_v2 {
-
-struct PhiIncoming {
-    const BasicBlock *block = nullptr;
-    const Node *value = nullptr;
-};
-struct SwitchCase {
-    int32_t value = 0;
-    const BasicBlock *block = nullptr;
-};
-
 struct Func {
 public:
-    enum class Tag {
-        Add,
-        Sub,
-        Mul,
-        Div,
-        Mod,
-        Min,
-        Max,
-        Pow,
-        Sin,
-        Cos,
-        Tan,
-        Asin,
-        Acos,
-        Atan,
-        Load,
-        Store,
-        GetElementPtr,
-        ExtractElement,
-        InsertElement,
-        Vec,
-        Vec2,
-        Vec3,
-        Vec4,
-        MatFull,
-        Mat2,
-        Mat3,
-        Mat4,
-        Cast,
-        BitCast,
-        BufferWrite,
-        BufferRead,
-        BufferSize,
-        ByteBufferWrite,
-        ByteBufferRead,
-        ByteBufferSize,
-        AtomicFetchAdd,
-        AtomicFetchSub,
-        AtomicFetchAnd,
-        AtomicFetchOr,
-        AtomicFetchXor,
-        AtomicFetchMin,
-        AtomicFetchMax,
-        BindlessBufferWrite,
-        BindlessBufferRead,
-        BindlessBufferSize,
-        BindlessByteBufferWrite,
-        BindlessByteBufferRead,
-        BindlessByteBufferSize,
-        BindlessAtomicFetchAdd,
-        BindlessAtomicFetchSub,
-        BindlessAtomicFetchAnd,
-        BindlessAtomicFetchOr,
-        BindlessAtomicFetchXor,
-        BindlessAtomicFetchMin,
-        BindlessAtomicFetchMax,
-    };
+    typedef FuncTag Tag;
     [[nodiscard]] virtual Tag tag() const noexcept = 0;
     template<class T>
         requires std::is_base_of_v<Func, T>
-    [[nodiscard]] bool is() const noexcept {
-        return tag() == T::Tag;
+    [[nodiscard]] bool isa() const noexcept {
+        return tag() == T::static_tag();
     }
     template<class T>
         requires std::is_base_of_v<Func, T>
-    [[nodiscard]] T &as() {
-        LUISA_ASSERT(is<T>());
-        return static_cast<T &>(*this);
+    [[nodiscard]] T *as() {
+        return isa<T>() ? static_cast<T *>(this) : nullptr;
     }
     template<class T>
         requires std::is_base_of_v<Func, T>
-    [[nodiscard]] const T &as() const {
-        LUISA_ASSERT(is<T>());
-        return static_cast<const T &>(*this);
+    [[nodiscard]] const T *as() const {
+        return isa<T>() ? static_cast<const T *>(this) : nullptr;
     }
 
     [[nodiscard]] virtual bool has_side_effects() const noexcept = 0;
 };
-struct Add : public Func {
+struct LC_IR_API Zero : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Add;
+        return Tag::ZERO;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -107,11 +39,11 @@ public:
         return false;
     }
 };
-struct Sub : public Func {
+struct LC_IR_API One : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Sub;
+        return Tag::ONE;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -121,11 +53,41 @@ public:
         return false;
     }
 };
-struct Mul : public Func {
+struct LC_IR_API Assume : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Mul;
+        return Tag::ASSUME;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    luisa::string msg;
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Unreachable : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::UNREACHABLE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    luisa::string msg;
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ThreadId : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::THREAD_ID;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -135,11 +97,11 @@ public:
         return false;
     }
 };
-struct Div : public Func {
+struct LC_IR_API BlockId : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Div;
+        return Tag::BLOCK_ID;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -149,11 +111,11 @@ public:
         return false;
     }
 };
-struct Mod : public Func {
+struct LC_IR_API WarpSize : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Mod;
+        return Tag::WARP_SIZE;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -163,11 +125,11 @@ public:
         return false;
     }
 };
-struct Min : public Func {
+struct LC_IR_API WarpLaneId : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Min;
+        return Tag::WARP_LANE_ID;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -177,11 +139,11 @@ public:
         return false;
     }
 };
-struct Max : public Func {
+struct LC_IR_API DispatchId : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Max;
+        return Tag::DISPATCH_ID;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -191,11 +153,11 @@ public:
         return false;
     }
 };
-struct Pow : public Func {
+struct LC_IR_API DispatchSize : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Pow;
+        return Tag::DISPATCH_SIZE;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -205,109 +167,11 @@ public:
         return false;
     }
 };
-struct Sin : public Func {
+struct LC_IR_API PropagateGradient : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Sin;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Cos : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Cos;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Tan : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Tan;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Asin : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Asin;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Acos : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Acos;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Atan : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Atan;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Load : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Load;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Store : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Store;
+        return Tag::PROPAGATE_GRADIENT;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -317,11 +181,11 @@ public:
         return true;
     }
 };
-struct GetElementPtr : public Func {
+struct LC_IR_API OutputGradient : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::GetElementPtr;
+        return Tag::OUTPUT_GRADIENT;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -331,179 +195,11 @@ public:
         return false;
     }
 };
-struct ExtractElement : public Func {
+struct LC_IR_API RequiresGradient : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::ExtractElement;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct InsertElement : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::InsertElement;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Vec : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Vec;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Vec2 : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Vec2;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Vec3 : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Vec3;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Vec4 : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Vec4;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct MatFull : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::MatFull;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Mat2 : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Mat2;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Mat3 : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Mat3;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Mat4 : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Mat4;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct Cast : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::Cast;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct BitCast : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::BitCast;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct BufferWrite : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::BufferWrite;
+        return Tag::REQUIRES_GRADIENT;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -513,11 +209,25 @@ public:
         return true;
     }
 };
-struct BufferRead : public Func {
+struct LC_IR_API Backward : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BufferRead;
+        return Tag::BACKWARD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API Gradient : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::GRADIENT;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -527,11 +237,25 @@ public:
         return false;
     }
 };
-struct BufferSize : public Func {
+struct LC_IR_API AccGrad : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BufferSize;
+        return Tag::ACC_GRAD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API Detach : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::DETACH;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -541,25 +265,11 @@ public:
         return false;
     }
 };
-struct ByteBufferWrite : public Func {
+struct LC_IR_API RayTracingInstanceTransform : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::ByteBufferWrite;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct ByteBufferRead : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::ByteBufferRead;
+        return Tag::RAY_TRACING_INSTANCE_TRANSFORM;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -569,11 +279,11 @@ public:
         return false;
     }
 };
-struct ByteBufferSize : public Func {
+struct LC_IR_API RayTracingInstanceVisibilityMask : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::ByteBufferSize;
+        return Tag::RAY_TRACING_INSTANCE_VISIBILITY_MASK;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -583,123 +293,11 @@ public:
         return false;
     }
 };
-struct AtomicFetchAdd : public Func {
+struct LC_IR_API RayTracingInstanceUserId : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchAdd;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct AtomicFetchSub : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchSub;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct AtomicFetchAnd : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchAnd;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct AtomicFetchOr : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchOr;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct AtomicFetchXor : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchXor;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct AtomicFetchMin : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchMin;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct AtomicFetchMax : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::AtomicFetchMax;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct BindlessBufferWrite : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessBufferWrite;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return true;
-    }
-};
-struct BindlessBufferRead : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessBufferRead;
+        return Tag::RAY_TRACING_INSTANCE_USER_ID;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -709,25 +307,11 @@ public:
         return false;
     }
 };
-struct BindlessBufferSize : public Func {
+struct LC_IR_API RayTracingSetInstanceTransform : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessBufferSize;
-    }
-    [[nodiscard]] Tag tag() const noexcept override {
-        return static_tag();
-    }
-public:
-    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
-        return false;
-    }
-};
-struct BindlessByteBufferWrite : public Func {
-public:
-    using Func::Tag;
-    static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessByteBufferWrite;
+        return Tag::RAY_TRACING_SET_INSTANCE_TRANSFORM;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -737,11 +321,53 @@ public:
         return true;
     }
 };
-struct BindlessByteBufferRead : public Func {
+struct LC_IR_API RayTracingSetInstanceOpacity : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessByteBufferRead;
+        return Tag::RAY_TRACING_SET_INSTANCE_OPACITY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API RayTracingSetInstanceVisibility : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_TRACING_SET_INSTANCE_VISIBILITY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API RayTracingSetInstanceUserId : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_TRACING_SET_INSTANCE_USER_ID;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API RayTracingTraceClosest : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_TRACING_TRACE_CLOSEST;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -751,11 +377,11 @@ public:
         return false;
     }
 };
-struct BindlessByteBufferSize : public Func {
+struct LC_IR_API RayTracingTraceAny : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessByteBufferSize;
+        return Tag::RAY_TRACING_TRACE_ANY;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -765,11 +391,2433 @@ public:
         return false;
     }
 };
-struct BindlessAtomicFetchAdd : public Func {
+struct LC_IR_API RayTracingQueryAll : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchAdd;
+        return Tag::RAY_TRACING_QUERY_ALL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RayTracingQueryAny : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_TRACING_QUERY_ANY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RayQueryWorldSpaceRay : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_WORLD_SPACE_RAY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RayQueryProceduralCandidateHit : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RayQueryTriangleCandidateHit : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_TRIANGLE_CANDIDATE_HIT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RayQueryCommittedHit : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_COMMITTED_HIT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RayQueryCommitTriangle : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_COMMIT_TRIANGLE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API RayQueryCommitdProcedural : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_COMMITD_PROCEDURAL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API RayQueryTerminate : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RAY_QUERY_TERMINATE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Load : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LOAD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Store : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::STORE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API Cast : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CAST;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BitCast : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BIT_CAST;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Add : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ADD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Sub : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SUB;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Mul : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MUL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Div : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::DIV;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Rem : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REM;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BitAnd : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BIT_AND;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BitOr : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BIT_OR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BitXor : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BIT_XOR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Shl : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SHL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Shr : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SHR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RotRight : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ROT_RIGHT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API RotLeft : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ROT_LEFT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Eq : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::EQ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Ne : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::NE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Lt : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Le : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Gt : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::GT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Ge : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::GE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API MatCompMul : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MAT_COMP_MUL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Neg : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::NEG;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Not : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::NOT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BitNot : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BIT_NOT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API All : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ALL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Any : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ANY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Select : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SELECT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Clamp : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CLAMP;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Lerp : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LERP;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Step : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::STEP;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Saturate : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SATURATE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API SmoothStep : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SMOOTH_STEP;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Abs : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ABS;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Min : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MIN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Max : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MAX;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ReduceSum : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REDUCE_SUM;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ReduceProd : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REDUCE_PROD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ReduceMin : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REDUCE_MIN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ReduceMax : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REDUCE_MAX;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Clz : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CLZ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Ctz : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CTZ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API PopCount : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::POP_COUNT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Reverse : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REVERSE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API IsInf : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::IS_INF;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API IsNan : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::IS_NAN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Acos : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ACOS;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Acosh : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ACOSH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Asin : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ASIN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Asinh : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ASINH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Atan : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATAN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Atan2 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATAN2;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Atanh : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATANH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Cos : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::COS;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Cosh : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::COSH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Sin : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SIN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Sinh : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SINH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Tan : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TAN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Tanh : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TANH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Exp : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::EXP;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Exp2 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::EXP2;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Exp10 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::EXP10;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Log : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LOG;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Log2 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LOG2;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Log10 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LOG10;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Powi : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::POWI;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Powf : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::POWF;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Sqrt : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SQRT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Rsqrt : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::RSQRT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Ceil : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CEIL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Floor : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::FLOOR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Fract : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::FRACT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Trunc : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TRUNC;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Round : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ROUND;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Fma : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::FMA;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Copysign : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::COPYSIGN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Cross : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CROSS;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Dot : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::DOT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API OuterProduct : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::OUTER_PRODUCT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Length : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LENGTH;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API LengthSquared : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::LENGTH_SQUARED;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Normalize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::NORMALIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Faceforward : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::FACEFORWARD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Distance : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::DISTANCE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Reflect : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::REFLECT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Determinant : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::DETERMINANT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Transpose : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TRANSPOSE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Inverse : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::INVERSE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpIsFirstActiveLane : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_IS_FIRST_ACTIVE_LANE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpFirstActiveLane : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_FIRST_ACTIVE_LANE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveAllEqual : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_ALL_EQUAL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveBitAnd : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_BIT_AND;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveBitOr : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_BIT_OR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveBitXor : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_BIT_XOR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveCountBits : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_COUNT_BITS;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveMax : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_MAX;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveMin : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_MIN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveProduct : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_PRODUCT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveSum : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_SUM;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveAll : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_ALL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveAny : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_ANY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpActiveBitMask : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_ACTIVE_BIT_MASK;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpPrefixCountBits : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_PREFIX_COUNT_BITS;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpPrefixSum : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_PREFIX_SUM;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpPrefixProduct : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_PREFIX_PRODUCT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpReadLaneAt : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_READ_LANE_AT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API WarpReadFirstLane : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::WARP_READ_FIRST_LANE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API SynchronizeBlock : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SYNCHRONIZE_BLOCK;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API AtomicExchange : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_EXCHANGE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicCompareExchange : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_COMPARE_EXCHANGE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchAdd : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_ADD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchSub : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_SUB;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchAnd : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_AND;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchOr : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_OR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchXor : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_XOR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchMin : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_MIN;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API AtomicFetchMax : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ATOMIC_FETCH_MAX;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API BufferWrite : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BUFFER_WRITE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API BufferRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BUFFER_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BufferSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BUFFER_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ByteBufferWrite : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BYTE_BUFFER_WRITE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API ByteBufferRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BYTE_BUFFER_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ByteBufferSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BYTE_BUFFER_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Texture2dRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE2D_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Texture2dWrite : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE2D_WRITE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API Texture2dSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE2D_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Texture3dRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE3D_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Texture3dWrite : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE3D_WRITE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API Texture3dSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE3D_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dSample : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_SAMPLE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dSampleLevel : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_SAMPLE_LEVEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dSampleGrad : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_SAMPLE_GRAD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dSampleGradLevel : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture2dSizeLevel : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE2D_SIZE_LEVEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dSample : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_SAMPLE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dSampleLevel : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_SAMPLE_LEVEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dSampleGrad : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_SAMPLE_GRAD;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dSampleGradLevel : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessTexture3dSizeLevel : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_TEXTURE3D_SIZE_LEVEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessBufferWrite : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_BUFFER_WRITE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API BindlessBufferRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_BUFFER_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessBufferSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_BUFFER_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessByteBufferWrite : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_BYTE_BUFFER_WRITE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return true;
+    }
+};
+struct LC_IR_API BindlessByteBufferRead : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_BYTE_BUFFER_READ;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessByteBufferSize : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_BYTE_BUFFER_SIZE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Vec : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::VEC;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Vec2 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::VEC2;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Vec3 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::VEC3;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Vec4 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::VEC4;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Permute : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::PERMUTE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API GetElementPtr : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::GET_ELEMENT_PTR;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ExtractElement : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::EXTRACT_ELEMENT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API InsertElement : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::INSERT_ELEMENT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Array : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ARRAY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Struct : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::STRUCT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API MatFull : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MAT_FULL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Mat2 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MAT2;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Mat3 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MAT3;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API Mat4 : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::MAT4;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API BindlessAtomicFetchAdd : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_ATOMIC_FETCH_ADD;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -780,11 +2828,11 @@ public:
         return true;
     }
 };
-struct BindlessAtomicFetchSub : public Func {
+struct LC_IR_API BindlessAtomicFetchSub : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchSub;
+        return Tag::BINDLESS_ATOMIC_FETCH_SUB;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -795,11 +2843,11 @@ public:
         return true;
     }
 };
-struct BindlessAtomicFetchAnd : public Func {
+struct LC_IR_API BindlessAtomicFetchAnd : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchAnd;
+        return Tag::BINDLESS_ATOMIC_FETCH_AND;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -810,11 +2858,11 @@ public:
         return true;
     }
 };
-struct BindlessAtomicFetchOr : public Func {
+struct LC_IR_API BindlessAtomicFetchOr : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchOr;
+        return Tag::BINDLESS_ATOMIC_FETCH_OR;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -825,11 +2873,11 @@ public:
         return true;
     }
 };
-struct BindlessAtomicFetchXor : public Func {
+struct LC_IR_API BindlessAtomicFetchXor : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchXor;
+        return Tag::BINDLESS_ATOMIC_FETCH_XOR;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -840,11 +2888,11 @@ public:
         return true;
     }
 };
-struct BindlessAtomicFetchMin : public Func {
+struct LC_IR_API BindlessAtomicFetchMin : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchMin;
+        return Tag::BINDLESS_ATOMIC_FETCH_MIN;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -855,11 +2903,11 @@ public:
         return true;
     }
 };
-struct BindlessAtomicFetchMax : public Func {
+struct LC_IR_API BindlessAtomicFetchMax : public Func {
 public:
     using Func::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BindlessAtomicFetchMax;
+        return Tag::BINDLESS_ATOMIC_FETCH_MAX;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -868,60 +2916,179 @@ public:
     const Type *ty;
     [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
         return true;
+    }
+};
+struct LC_IR_API Callable : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CALLABLE;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    luisa::shared_ptr<CallableModule> module;
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API CpuExt : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CPU_EXT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    CpuExternFn f;
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
+    }
+};
+struct LC_IR_API ShaderExecutionReorder : public Func {
+public:
+    using Func::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SHADER_EXECUTION_REORDER;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    [[nodiscard]] constexpr bool has_side_effects() const noexcept override {
+        return false;
     }
 };
 struct Instruction {
 public:
-    enum class Tag {
-        Const,
-        Call,
-        Phi,
-        BasicBlockSential,
-        If,
-        GenericLoop,
-        Switch,
-        Local,
-        Break,
-        Continue,
-        Return,
-    };
+    typedef InstructionTag Tag;
     [[nodiscard]] virtual Tag tag() const noexcept = 0;
     template<class T>
         requires std::is_base_of_v<Instruction, T>
-    [[nodiscard]] bool is() const noexcept {
-        return tag() == T::Tag;
+    [[nodiscard]] bool isa() const noexcept {
+        return tag() == T::static_tag();
     }
     template<class T>
         requires std::is_base_of_v<Instruction, T>
-    [[nodiscard]] T &as() {
-        LUISA_ASSERT(is<T>());
-        return static_cast<T &>(*this);
+    [[nodiscard]] T *as() {
+        return isa<T>() ? static_cast<T *>(this) : nullptr;
     }
     template<class T>
         requires std::is_base_of_v<Instruction, T>
-    [[nodiscard]] const T &as() const {
-        LUISA_ASSERT(is<T>());
-        return static_cast<const T &>(*this);
+    [[nodiscard]] const T *as() const {
+        return isa<T>() ? static_cast<const T *>(this) : nullptr;
     }
 };
-struct Const : public Instruction {
+struct LC_IR_API Buffer : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Const;
+        return Tag::BUFFER;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
     }
 public:
-    const Type *type;
-    luisa::vector<uint8_t> value;
 };
-struct Call : public Instruction {
+struct LC_IR_API Texture2d : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Call;
+        return Tag::TEXTURE2D;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+};
+struct LC_IR_API Texture3d : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE3D;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+};
+struct LC_IR_API BindlessArray : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_ARRAY;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+};
+struct LC_IR_API Accel : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ACCEL;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+};
+struct LC_IR_API Shared : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::SHARED;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+};
+struct LC_IR_API Uniform : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::UNIFORM;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+};
+struct LC_IR_API Argument : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ARGUMENT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    bool by_value;
+};
+struct LC_IR_API Const : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CONST;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    const Type *ty;
+    luisa::vector<uint8_t> value;
+};
+struct LC_IR_API Call : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::CALL;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -934,11 +3101,11 @@ public:
         this->args = std::move(args);
     }
 };
-struct Phi : public Instruction {
+struct LC_IR_API Phi : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Phi;
+        return Tag::PHI;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -946,22 +3113,22 @@ public:
 public:
     luisa::vector<PhiIncoming> incomings;
 };
-struct BasicBlockSential : public Instruction {
+struct LC_IR_API BasicBlockSentinel : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::BasicBlockSential;
+        return Tag::BASIC_BLOCK_SENTINEL;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
     }
 public:
 };
-struct If : public Instruction {
+struct LC_IR_API If : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::If;
+        return Tag::IF;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -976,11 +3143,11 @@ public:
         this->false_branch = false_branch;
     }
 };
-struct GenericLoop : public Instruction {
+struct LC_IR_API GenericLoop : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::GenericLoop;
+        return Tag::GENERIC_LOOP;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -997,11 +3164,11 @@ public:
         this->update = update;
     }
 };
-struct Switch : public Instruction {
+struct LC_IR_API Switch : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Switch;
+        return Tag::SWITCH;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -1016,11 +3183,11 @@ public:
         this->default_ = default_;
     }
 };
-struct Local : public Instruction {
+struct LC_IR_API Local : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Local;
+        return Tag::LOCAL;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -1031,33 +3198,33 @@ public:
         this->init = init;
     }
 };
-struct Break : public Instruction {
+struct LC_IR_API Break : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Break;
+        return Tag::BREAK;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
     }
 public:
 };
-struct Continue : public Instruction {
+struct LC_IR_API Continue : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Continue;
+        return Tag::CONTINUE;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
     }
 public:
 };
-struct Return : public Instruction {
+struct LC_IR_API Return : public Instruction {
 public:
     using Instruction::Tag;
     static constexpr Tag static_tag() noexcept {
-        return Tag::Return;
+        return Tag::RETURN;
     }
     [[nodiscard]] Tag tag() const noexcept override {
         return static_tag();
@@ -1067,5 +3234,93 @@ public:
     Return(Node *value) noexcept {
         this->value = value;
     }
+};
+struct LC_IR_API Print : public Instruction {
+public:
+    using Instruction::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::PRINT;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    luisa::string fmt;
+    luisa::vector<Node *> args;
+    Print(luisa::string fmt, luisa::vector<Node *> args) noexcept {
+        this->fmt = std::move(fmt);
+        this->args = std::move(args);
+    }
+};
+struct Binding {
+public:
+    typedef BindingTag Tag;
+    [[nodiscard]] virtual Tag tag() const noexcept = 0;
+    template<class T>
+        requires std::is_base_of_v<Binding, T>
+    [[nodiscard]] bool isa() const noexcept {
+        return tag() == T::static_tag();
+    }
+    template<class T>
+        requires std::is_base_of_v<Binding, T>
+    [[nodiscard]] T *as() {
+        return isa<T>() ? static_cast<T *>(this) : nullptr;
+    }
+    template<class T>
+        requires std::is_base_of_v<Binding, T>
+    [[nodiscard]] const T *as() const {
+        return isa<T>() ? static_cast<const T *>(this) : nullptr;
+    }
+};
+struct LC_IR_API BufferBinding : public Binding {
+public:
+    using Binding::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BUFFER_BINDING;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    uint64_t handle;
+    uint64_t offset;
+    uint64_t size;
+};
+struct LC_IR_API TextureBinding : public Binding {
+public:
+    using Binding::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::TEXTURE_BINDING;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    uint64_t handle;
+    uint64_t level;
+};
+struct LC_IR_API BindlessArrayBinding : public Binding {
+public:
+    using Binding::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::BINDLESS_ARRAY_BINDING;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    uint64_t handle;
+};
+struct LC_IR_API AccelBinding : public Binding {
+public:
+    using Binding::Tag;
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ACCEL_BINDING;
+    }
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+public:
+    uint64_t handle;
 };
 }// namespace luisa::compute::ir_v2

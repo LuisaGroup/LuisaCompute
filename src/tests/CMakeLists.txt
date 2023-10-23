@@ -47,7 +47,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         luisa_compute_add_executable(test_path_tracing_ir test_path_tracing_ir.cpp)
     endif ()
 endif ()
-
+luisa_compute_add_executable(test_ir_v2 test_ir_v2.cpp)
 luisa_compute_add_executable(test_helloworld test_helloworld.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)

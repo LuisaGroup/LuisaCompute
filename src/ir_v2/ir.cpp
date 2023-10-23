@@ -4,8 +4,8 @@ namespace luisa::compute::ir_v2 {
 BasicBlock::BasicBlock(Pool &pool) noexcept {
     _first = pool.alloc<Node>();
     _last = pool.alloc<Node>();
-    _first->inst = pool.alloc<BasicBlockSential>();
-    _last->inst = pool.alloc<BasicBlockSential>();
+    _first->inst = pool.alloc<BasicBlockSentinel>();
+    _last->inst = pool.alloc<BasicBlockSentinel>();
     _first->next = _last;
     _last->prev = _first;
     _first->scope = this;
@@ -26,7 +26,7 @@ Node *IrBuilder::generic_loop(BasicBlock *perpare, Node *cond, BasicBlock *body,
     return append(_pool->alloc<Node>(loop, Type::of<void>()));
 }
 Node *IrBuilder::switch_(Node *value, luisa::span<SwitchCase> cases, BasicBlock *default_branch) noexcept {
-    luisa::vector<SwitchCase> cases_{cases.begin(), cases.end()};
+    luisa::vector<SwitchCase> cases_ { cases.begin(), cases.end() };
     auto switch_ = _pool->alloc<Switch>(value, cases_, default_branch);
     return append(_pool->alloc<Node>(switch_, Type::of<void>()));
 }
