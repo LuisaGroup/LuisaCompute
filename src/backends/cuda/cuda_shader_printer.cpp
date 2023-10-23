@@ -212,21 +212,27 @@ public:
                 [&](auto &&p) noexcept {
                     using T = std::decay_t<decltype(p)>;
                     if constexpr (std::is_same_v<T, Type::Tag>) {
-                        auto print_primitive = [&](auto &&p) noexcept {
-                            luisa::format_to(std::back_inserter(scratch), "{}", p);
+                        auto print_primitive = [&](auto v, auto &&p) noexcept {
+                            using TT = std::decay_t<decltype(v)>;
+                            std::memcpy(&v, data, sizeof(v));
+                            if constexpr (luisa::is_integral_v<TT> && sizeof(TT) <= sizeof(short)) {
+                                luisa::format_to(std::back_inserter(scratch), "{}", static_cast<int>(v));
+                            } else {
+                                luisa::format_to(std::back_inserter(scratch), "{}", v);
+                            }
                         };
                         switch (p) {
-                            case Type::Tag::INT8: print_primitive(*reinterpret_cast<const int8_t *>(data)); break;
-                            case Type::Tag::UINT8: print_primitive(*reinterpret_cast<const uint8_t *>(data)); break;
-                            case Type::Tag::INT16: print_primitive(*reinterpret_cast<const int16_t *>(data)); break;
-                            case Type::Tag::UINT16: print_primitive(*reinterpret_cast<const uint16_t *>(data)); break;
-                            case Type::Tag::INT32: print_primitive(*reinterpret_cast<const int32_t *>(data)); break;
-                            case Type::Tag::UINT32: print_primitive(*reinterpret_cast<const uint32_t *>(data)); break;
-                            case Type::Tag::INT64: print_primitive(*reinterpret_cast<const int64_t *>(data)); break;
-                            case Type::Tag::UINT64: print_primitive(*reinterpret_cast<const uint64_t *>(data)); break;
-                            case Type::Tag::FLOAT16: print_primitive(*reinterpret_cast<const half *>(data)); break;
-                            case Type::Tag::FLOAT32: print_primitive(*reinterpret_cast<const float *>(data)); break;
-                            case Type::Tag::FLOAT64: print_primitive(*reinterpret_cast<const double *>(data)); break;
+                            case Type::Tag::INT8: print_primitive(int8_t{}, data); break;
+                            case Type::Tag::UINT8: print_primitive(uint8_t{}, data); break;
+                            case Type::Tag::INT16: print_primitive(int16_t{}, data); break;
+                            case Type::Tag::UINT16: print_primitive(uint16_t{}, data); break;
+                            case Type::Tag::INT32: print_primitive(int32_t{}, data); break;
+                            case Type::Tag::UINT32: print_primitive(uint32_t{}, data); break;
+                            case Type::Tag::INT64: print_primitive(int64_t{}, data); break;
+                            case Type::Tag::UINT64: print_primitive(uint64_t{}, data); break;
+                            case Type::Tag::FLOAT16: print_primitive(half{}, data); break;
+                            case Type::Tag::FLOAT32: print_primitive(float{}, data); break;
+                            case Type::Tag::FLOAT64: print_primitive(double{}, data); break;
                             default: LUISA_ERROR_WITH_LOCATION("Unsupported type for shader printer.");
                         }
                     } else {

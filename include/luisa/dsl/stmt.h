@@ -463,7 +463,7 @@ inline void return_() noexcept {
 }
 
 template<typename FMT, typename... Args>
-inline void device_print(FMT &&fmt, Args &&...args) noexcept {
+inline void device_log(FMT &&fmt, Args &&...args) noexcept {
     detail::FunctionBuilder::current()->print_(
         luisa::string_view{std::forward<FMT>(fmt)},
         std::array<const Expression *, sizeof...(args)>{
