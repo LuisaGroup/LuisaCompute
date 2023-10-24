@@ -1358,9 +1358,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << " = params.";
             _emit_variable_name(arg);
             _scratch << ";";
-            if (_requires_printing) {
-                _scratch << "\n  const auto &print_buffer = params.print_buffer;";
-            }
+        }
+        if (!_requires_optix && _requires_printing) {
+            _scratch << "\n  const auto &print_buffer = params.print_buffer;";
         }
         for (auto i = 0u; i < f.bound_arguments().size(); i++) {
             auto binding = f.bound_arguments()[i];
