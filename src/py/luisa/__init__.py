@@ -13,7 +13,6 @@ from .image3d import image3d, Image3D, Texture3DType
 from .dylibs.lcapi import PixelStorage
 from .gui import GUI
 
-from .printer import Printer
 from .accel import Accel, make_ray, inf_ray, offset_ray_origin
 from .hit import TriangleHit, CommittedHit, ProceduralHit
 from .rayquery import RayQueryAllType, RayQueryAnyType, is_triangle, is_procedural, Ray
