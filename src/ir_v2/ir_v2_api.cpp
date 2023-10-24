@@ -1,5 +1,8 @@
+#include <luisa/ir_v2/ir_v2_defs.h>
 #include <luisa/ir_v2/ir_v2_api.h>
+
 namespace luisa::compute::ir_v2 {
+
 static ZeroFn *Func_as_ZeroFn(Func *self) {
     return self->as<ZeroFn>();
 }
