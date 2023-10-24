@@ -32,7 +32,7 @@ public:
     //  - first: a Buffer owns the pinned memory resource that
     //     *unpins* and *unregisters* the memory when destructed.
     //  - second: a BufferView with the offset and size for
-    //     access to the input host memory region.
+    //     accessing the valid input host memory region.
     // Note: the page-aligned host accessible pointer can be
     //  obtained by calling Buffer::native_handle(), which
     //  is not necessarily the same as the input host_ptr, if
