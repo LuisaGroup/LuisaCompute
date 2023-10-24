@@ -4,9 +4,12 @@
 #pragma warning(disable : 4190)
 #endif
 
-#include <cstddef>
 #include <cstdint>
-
+#include <array>
+#include <luisa/core/dll_export.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 namespace luisa::compute {
 class Type;
 }// namespace luisa::compute
