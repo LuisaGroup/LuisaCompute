@@ -1,6 +1,7 @@
 set(LUISA_COMPUTE_IR_V2_SOURCES
             ir.cpp
             ir_v2_api.cpp
+            ir_v2_defs.cpp
             analysis/usedef.cpp
             transform/dce.cpp
             transform/ssa.cpp

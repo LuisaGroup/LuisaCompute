@@ -8,7 +8,7 @@ void UseDefAnalysis::visit_block(BasicBlock *block) noexcept {
     });
 }
 void UseDefAnalysis::visit_node(Node *n) noexcept {
-    auto inst = n->inst;
+    auto inst = &n->inst;
     auto tag = inst->tag();
     switch (tag) {
         case Instruction::Tag::ACCEL: [[fallthrough]];
@@ -26,7 +26,7 @@ void UseDefAnalysis::visit_node(Node *n) noexcept {
             break;
         case Instruction::Tag::CALL: {
             auto call = inst->as<CallInst>();
-            auto f = call->func;
+            auto f = &call->func;
             if (f->has_side_effects()) {
                 this->add_to_root(n);
             }

@@ -5,6 +5,6 @@ int main() {
     auto builder = ir_v2::IrBuilder{pool};
     auto x = builder.const_(1.0f);
     auto y = builder.const_(2.0f);
-    luisa::vector<ir_v2::Node*> args{x,y};
-    auto z = builder.call<ir_v2::AddFn>(luisa::span{args}, Type::of<float>());
+    luisa::vector<ir_v2::Node *> args{x, y};
+    auto z = builder.call(ir_v2::FuncTag::ADD, luisa::span{args}, Type::of<float>());
 }

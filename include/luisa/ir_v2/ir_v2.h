@@ -12,14 +12,14 @@
 
 namespace luisa::compute::ir_v2 {
 class Pool;
+
 struct LC_IR_API Node {
     Node *prev = nullptr;
     Node *next = nullptr;
     BasicBlock *scope = nullptr;
-    Instruction *inst = nullptr;
+    Instruction inst;
     const Type *ty = Type::of<void>();
-    Node() noexcept = default;
-    Node(Instruction *inst, const Type *ty) : inst{inst}, ty(ty) {}
+    Node(Instruction inst, const Type *ty) : inst{std::move(inst)}, ty(ty) {}
     // insert all nodes in bb after this node
     // bb is set to empty
     void insert_block_after(BasicBlock *bb) noexcept;
@@ -52,34 +52,34 @@ struct LC_IR_API Node {
     }
     luisa::optional<int32_t> get_index() const noexcept {
         _check();
-        if (auto cst = inst->as<ConstantInst>()) {
+        if (auto cst = inst.as<ConstantInst>()) {
             auto ty = cst->ty;
             if (ty == Type::of<int32_t>()) {
-                return *reinterpret_cast<int32_t *>(cst->value.data());
+                return *reinterpret_cast<const int32_t *>(cst->value.data());
             }
         }
         return luisa::nullopt;
     }
     bool is_const() const noexcept {
         _check();
-        return inst->isa<ConstantInst>();
+        return inst.isa<ConstantInst>();
     }
     bool is_call() const noexcept {
         _check();
-        return inst->isa<CallInst>();
+        return inst.isa<CallInst>();
     }
     bool is_local() const noexcept {
         _check();
-        return inst->isa<LocalInst>();
+        return inst.isa<LocalInst>();
     }
     bool is_argument() const noexcept {
         _check();
-        return inst->isa<ArgumentInst>();
+        return inst.isa<ArgumentInst>();
     }
     bool is_gep() const noexcept {
         _check();
-        if (auto call = inst->as<CallInst>()) {
-            return call->func->isa<GetElementPtrFn>();
+        if (auto call = inst.as<CallInst>()) {
+            return call->func.isa(FuncTag::GET_ELEMENT_PTR);
         }
         return false;
     }
@@ -123,6 +123,7 @@ class LC_IR_API Pool : public luisa::enable_shared_from_this<Pool> {
     using Deleter = void (*)(void *) noexcept;
 public:
     template<typename T, typename... Args>
+        requires std::constructible_from<T, Args...>
     [[nodiscard]] T *alloc(Args &&...args) noexcept {
         auto ptr = luisa::new_with_allocator<T>(std::forward<Args>(args)...);
         _deleters.emplace_back([](void *p) noexcept {
@@ -175,20 +176,18 @@ public:
     auto &pool() noexcept {
         return *_pool;
     }
-    template<class F>
-    [[nodiscard]] Node *call(luisa::span<Node *> args, const Type *ty) noexcept {
-        auto f = _pool->alloc<F>();
-        return call(f, args, ty);
+    [[nodiscard]] Node *call(Func f, luisa::span<Node *> args, const Type *ty) noexcept;
+    [[nodiscard]] Node *call(FuncTag tag, luisa::span<Node *> args, const Type *ty) noexcept {
+        return call(Func(tag), args, ty);
     }
-    [[nodiscard]] Node *call(const Func *f, luisa::span<Node *> args, const Type *ty) noexcept;
     template<class T>
     [[nodiscard]] Node *const_(T v) noexcept {
         luisa::vector<uint8_t> data(sizeof(T));
         std::memcpy(data.data(), &v, sizeof(T));
-        auto cst = _pool->alloc<ConstantInst>();
-        cst->ty = Type::of<T>();
-        cst->value = std::move(data);
-        return append(_pool->alloc<Node>(cst, Type::of<T>()));
+        auto cst = ConstantInst();
+        cst.ty = Type::of<T>();
+        cst.value = std::move(data);
+        return append(_pool->alloc<Node>(Instruction(cst), Type::of<T>()));
     }
     [[nodiscard]] Node *extract_element(Node *value, luisa::span<uint32_t> indices, const Type *ty) noexcept {
         luisa::vector<Node *> args;
@@ -196,7 +195,7 @@ public:
         for (auto i : indices) {
             args.push_back(const_(i));
         }
-        return call(_pool->alloc<ExtractElementFn>(), args, ty);
+        return call(FuncTag::EXTRACT_ELEMENT, args, ty);
     }
     [[nodiscard]] Node *insert_element(Node *agg, Node *el, luisa::span<uint32_t> indices, const Type *ty) noexcept {
         luisa::vector<Node *> args;
@@ -205,12 +204,12 @@ public:
         for (auto i : indices) {
             args.push_back(const_(i));
         }
-        return call(_pool->alloc<InsertElementFn>(), args, ty);
+        return call(FuncTag::INSERT_ELEMENT, args, ty);
     }
     [[nodiscard]] Node *gep(Node *agg, luisa::span<uint32_t> indices, const Type *ty) noexcept {
         luisa::vector<Node *> args;
         if (agg->is_gep()) {
-            auto call = agg->inst->as<CallInst>();
+            auto call = agg->inst.as<CallInst>();
             LUISA_ASSERT(!call->args.empty(), "bad gep");
             LUISA_ASSERT(!call->args[0]->is_gep(), "bad gep");
             for (auto a : call->args) {
@@ -222,7 +221,7 @@ public:
         for (auto i : indices) {
             args.push_back(const_(i));
         }
-        return call(_pool->alloc<GetElementPtrFn>(), args, ty);
+        return call(FuncTag::GET_ELEMENT_PTR, args, ty);
     }
     Node *if_(Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) noexcept;
     Node *generic_loop(BasicBlock *perpare, Node *cond, BasicBlock *body, BasicBlock *after) noexcept;
@@ -232,47 +231,47 @@ public:
         return _current_bb;
     }
     Node *return_(Node *value) noexcept {
-        auto ret = _pool->alloc<ReturnInst>(value);
-        return append(_pool->alloc<Node>(ret, Type::of<void>()));
+        auto ret = Instruction(ReturnInst(value));
+        return append(_pool->alloc<Node>(std::move(ret), Type::of<void>()));
     }
     Node *break_() noexcept {
-        auto br = _pool->alloc<BreakInst>();
-        return append(_pool->alloc<Node>(br, Type::of<void>()));
+        auto br = Instruction(InstructionTag::BREAK);
+        return append(_pool->alloc<Node>(std::move(br), Type::of<void>()));
     }
     Node *continue_() noexcept {
-        auto cont = _pool->alloc<ContinueInst>();
-        return append(_pool->alloc<Node>(cont, Type::of<void>()));
+        auto cont = Instruction(InstructionTag::CONTINUE);
+        return append(_pool->alloc<Node>(std::move(cont), Type::of<void>()));
     }
     Node *rev_autodiff(BasicBlock *body) noexcept {
-        auto rev = _pool->alloc<RevAutodiffInst>(body);
-        return append(_pool->alloc<Node>(rev, Type::of<void>()));
+        auto rev = Instruction(RevAutodiffInst(body));
+        return append(_pool->alloc<Node>(std::move(rev), Type::of<void>()));
     }
     Node *forward_autodiff(BasicBlock *body) noexcept {
-        auto fwd = _pool->alloc<FwdAutodiffInst>(body);
-        return append(_pool->alloc<Node>(fwd, Type::of<void>()));
+        auto fwd = Instruction(FwdAutodiffInst(body));
+        return append(_pool->alloc<Node>(std::move(fwd), Type::of<void>()));
     }
     Node *update(Node *var, Node *value) noexcept {
         LUISA_ASSERT(var->is_lvalue(), "bad update");
-        auto update = _pool->alloc<UpdateInst>(var, value);
-        return append(_pool->alloc<Node>(update, Type::of<void>()));
+        auto update = Instruction(UpdateInst(var, value));
+        return append(_pool->alloc<Node>(std::move(update), Type::of<void>()));
     }
-    Node *local(Node *init) noexcept {
-        auto local = _pool->alloc<LocalInst>(init);
-        return append(_pool->alloc<Node>(local, Type::of<void>()));
+    [[nodiscard]] Node *local(Node *init) noexcept {
+        auto local = Instruction(LocalInst(init));
+        return append(_pool->alloc<Node>(std::move(local), Type::of<void>()));
     }
-    Node *zero(const Type *ty) noexcept {
-        return this->call<ZeroFn>({}, ty);
+    [[nodiscard]] Node *zero(const Type *ty) noexcept {
+        return call(FuncTag::ZERO, {}, ty);
     }
-    Node *one(const Type *ty) noexcept {
-        return this->call<OneFn>({}, ty);
+    [[nodiscard]] Node *one(const Type *ty) noexcept {
+        return call(FuncTag::ONE, {}, ty);
     }
-    Node *local_zeroed(const Type *ty) noexcept {
+    [[nodiscard]] Node *local_zeroed(const Type *ty) noexcept {
         return this->local(this->zero(ty));
     }
-    Node *phi(luisa::span<const PhiIncoming> incomings, const Type *ty) noexcept {
+    [[nodiscard]] Node *phi(luisa::span<const PhiIncoming> incomings, const Type *ty) noexcept {
         luisa::vector<PhiIncoming> args{incomings.begin(), incomings.end()};
-        auto phi = _pool->alloc<PhiInst>(args);
-        return append(_pool->alloc<Node>(phi, ty));
+        auto phi = Instruction(PhiInst(args));
+        return append(_pool->alloc<Node>(std::move(phi), ty));
     }
 };
 class UseDefAnalysis;
@@ -288,12 +287,12 @@ public:
     luisa::shared_ptr<UseDefAnalysis> use_def_analysis;
     luisa::shared_ptr<Pool> pool;
     virtual ~Module() noexcept = default;
-    [[nodiscard]] virtual Kind kind() const noexcept;
+    [[nodiscard]] virtual Kind kind() const noexcept = 0;
 };
 
 struct Capture {
     Node *node = nullptr;
-    Binding *binding = nullptr;
+    Binding binding;
 };
 
 struct CallableModule : Module {
