@@ -262,3 +262,25 @@ impl PhiCollector {
         }
     }
 }
+
+impl<'a> FunctionEmitter<'a> {
+    fn new(globals: &'a mut GlobalEmitter, type_gen: &'a TypeGen) -> Self {
+        Self {
+            type_gen,
+            node_to_var: HashMap::new(),
+            body: String::new(),
+            fwd_defs: String::new(),
+            phis: IndexSet::new(),
+            phis_per_block: IndexMap::new(),
+            indent: 1,
+            visited: HashSet::new(),
+            globals,
+            inside_generic_loop: false,
+        }
+    }
+    fn write_ident(&mut self) {
+        for _ in 0..self.indent {
+            write!(&mut self.body, "    ").unwrap();
+        }
+    }
+}
