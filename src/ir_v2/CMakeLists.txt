@@ -2,9 +2,11 @@ set(LUISA_COMPUTE_IR_V2_SOURCES
             ir.cpp
             ir_v2_api.cpp
             ir_v2_defs.cpp
+            ir_v2_bindings.cpp
             analysis/usedef.cpp
             transform/dce.cpp
             transform/ssa.cpp
+            ../backends/common/string_scratch.cpp
             )
 
 add_library(luisa-compute-ir-v2 SHARED ${LUISA_COMPUTE_IR_V2_SOURCES})

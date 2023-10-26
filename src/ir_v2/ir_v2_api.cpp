@@ -41,8 +41,8 @@ static CallableFn *Func_as_CallableFn(CFunc *self) {
 static CpuExtFn *Func_as_CpuExtFn(CFunc *self) {
     return reinterpret_cast<Func *>(self)->as<CpuExtFn>();
 }
-static FuncTag Func_tag(Func *self) {
-    return reinterpret_cast<Func *>(self)->tag();
+static FuncTag Func_tag(const CFunc *self) {
+    return reinterpret_cast<const Func *>(self)->tag();
 }
 static Slice<const char> AssumeFn_msg(AssumeFn *self) {
     return self->msg;
@@ -301,8 +301,8 @@ static RevAutodiffInst *Instruction_as_RevAutodiffInst(CInstruction *self) {
 static FwdAutodiffInst *Instruction_as_FwdAutodiffInst(CInstruction *self) {
     return reinterpret_cast<Instruction *>(self)->as<FwdAutodiffInst>();
 }
-static InstructionTag Instruction_tag(Instruction *self) {
-    return reinterpret_cast<Instruction *>(self)->tag();
+static InstructionTag Instruction_tag(const CInstruction *self) {
+    return reinterpret_cast<const Instruction *>(self)->tag();
 }
 static bool ArgumentInst_by_value(ArgumentInst *self) {
     return self->by_value;
@@ -853,8 +853,8 @@ static BindlessArrayBinding *Binding_as_BindlessArrayBinding(CBinding *self) {
 static AccelBinding *Binding_as_AccelBinding(CBinding *self) {
     return reinterpret_cast<Binding *>(self)->as<AccelBinding>();
 }
-static BindingTag Binding_tag(Binding *self) {
-    return reinterpret_cast<Binding *>(self)->tag();
+static BindingTag Binding_tag(const CBinding *self) {
+    return reinterpret_cast<const Binding *>(self)->tag();
 }
 static uint64_t BufferBinding_handle(BufferBinding *self) {
     return self->handle;
@@ -1113,6 +1113,48 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         AccelBinding_set_handle,
         AccelBinding_new,
         Binding_new,
+        ir_v2_binding_type_extract,
+        ir_v2_binding_type_size,
+        ir_v2_binding_type_alignment,
+        ir_v2_binding_type_is_scalar,
+        ir_v2_binding_type_is_bool,
+        ir_v2_binding_type_is_int16,
+        ir_v2_binding_type_is_int32,
+        ir_v2_binding_type_is_int64,
+        ir_v2_binding_type_is_uint16,
+        ir_v2_binding_type_is_uint32,
+        ir_v2_binding_type_is_uint64,
+        ir_v2_binding_type_is_float16,
+        ir_v2_binding_type_is_float32,
+        ir_v2_binding_type_is_array,
+        ir_v2_binding_type_is_vector,
+        ir_v2_binding_type_is_struct,
+        ir_v2_binding_type_is_custom,
+        ir_v2_binding_type_is_matrix,
+        ir_v2_binding_type_element,
+        ir_v2_binding_type_description,
+        ir_v2_binding_type_dimension,
+        ir_v2_binding_type_members,
+        ir_v2_binding_make_struct,
+        ir_v2_binding_make_array,
+        ir_v2_binding_make_vector,
+        ir_v2_binding_make_matrix,
+        ir_v2_binding_make_custom,
+        ir_v2_binding_from_desc,
+        ir_v2_binding_type_bool,
+        ir_v2_binding_type_int16,
+        ir_v2_binding_type_int32,
+        ir_v2_binding_type_int64,
+        ir_v2_binding_type_uint16,
+        ir_v2_binding_type_uint32,
+        ir_v2_binding_type_uint64,
+        ir_v2_binding_type_float16,
+        ir_v2_binding_type_float32,
+        ir_v2_binding_node_prev,
+        ir_v2_binding_node_next,
+        ir_v2_binding_node_inst,
+        ir_v2_binding_basic_block_first,
+        ir_v2_binding_basic_block_last,
     };
 }
 }// namespace luisa::compute::ir_v2

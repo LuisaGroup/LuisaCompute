@@ -12,6 +12,7 @@
 
 namespace luisa::compute::ir_v2 {
 class Pool;
+inline void validate(const Type *ty) noexcept;
 
 struct LC_IR_API Node {
     Node *prev = nullptr;
@@ -19,7 +20,12 @@ struct LC_IR_API Node {
     BasicBlock *scope = nullptr;
     Instruction inst;
     const Type *ty = Type::of<void>();
-    Node(Instruction inst, const Type *ty) : inst{std::move(inst)}, ty(ty) {}
+    Node() = delete;
+    Node(Instruction inst, const Type *ty) : inst{std::move(inst)}, ty(ty) {
+#ifndef NDEBUG
+        validate(ty);
+#endif
+    }
     // insert all nodes in bb after this node
     // bb is set to empty
     void insert_block_after(BasicBlock *bb) noexcept;
@@ -89,12 +95,51 @@ private:
         LUISA_ASSERT(scope != nullptr, "bad node");
     }
 };
-
+template<class NodeType>
+class BasicBlockIterator {
+    NodeType _begin;
+    NodeType _end;
+    friend class BasicBlock;
+    BasicBlockIterator(NodeType begin, NodeType end) noexcept : _begin{begin}, _end{end} {}
+public:
+    [[nodiscard]] bool operator==(const BasicBlockIterator &rhs) const noexcept {
+        return _begin == rhs._begin;
+    }
+    [[nodiscard]] bool operator!=(const BasicBlockIterator &rhs) const noexcept {
+        return _begin != rhs._begin;
+    }
+    BasicBlockIterator &operator++() noexcept {
+        LUISA_ASSERT(_begin != _end, "bad iterator");
+        _begin = _begin->next;
+        return *this;
+    }
+    BasicBlockIterator operator++(int) noexcept {
+        auto copy = *this;
+        ++(*this);
+        return copy;
+    }
+    [[nodiscard]] auto &operator*() const noexcept {
+        LUISA_ASSERT(_begin != _end, "bad iterator");
+        return *_begin;
+    }
+};
 class LC_IR_API BasicBlock {
     // NEVER set _first and _last to nullptr!!!
     Node *_first;
     Node *_last;
 public:
+    [[nodiscard]] BasicBlockIterator<Node *> begin() noexcept {
+        return {_first, _last};
+    }
+    [[nodiscard]] BasicBlockIterator<const Node *> cbegin() const noexcept {
+        return {_first, _last};
+    }
+    [[nodiscard]] BasicBlockIterator<Node *> end() noexcept {
+        return {_last, _last};
+    }
+    [[nodiscard]] BasicBlockIterator<const Node *> cend() const noexcept {
+        return {_last, _last};
+    }
     BasicBlock(Pool &pool) noexcept;
     template<class F>
     void for_each(F &&f) const noexcept {
@@ -176,8 +221,8 @@ public:
     auto &pool() noexcept {
         return *_pool;
     }
-    [[nodiscard]] Node *call(Func f, luisa::span<Node *> args, const Type *ty) noexcept;
-    [[nodiscard]] Node *call(FuncTag tag, luisa::span<Node *> args, const Type *ty) noexcept {
+    [[nodiscard]] Node *call(Func f, luisa::span<Node *const> args, const Type *ty) noexcept;
+    [[nodiscard]] Node *call(FuncTag tag, luisa::span<Node *const> args, const Type *ty) noexcept {
         return call(Func(tag), args, ty);
     }
     template<class T>
@@ -189,24 +234,30 @@ public:
         cst.value = std::move(data);
         return append(_pool->alloc<Node>(Instruction(cst), Type::of<T>()));
     }
-    [[nodiscard]] Node *extract_element(Node *value, luisa::span<uint32_t> indices, const Type *ty) noexcept {
+    template<class I>
+        requires std::is_integral_v<I>
+    [[nodiscard]] Node *extract_element(Node *value, luisa::span<I> indices, const Type *ty) noexcept {
         luisa::vector<Node *> args;
         args.push_back(value);
         for (auto i : indices) {
-            args.push_back(const_(i));
+            args.push_back(const_((int32_t)i));
         }
         return call(FuncTag::EXTRACT_ELEMENT, args, ty);
     }
-    [[nodiscard]] Node *insert_element(Node *agg, Node *el, luisa::span<uint32_t> indices, const Type *ty) noexcept {
+    template<class I>
+        requires std::is_integral_v<I>
+    [[nodiscard]] Node *insert_element(Node *agg, Node *el, luisa::span<I> indices, const Type *ty) noexcept {
         luisa::vector<Node *> args;
         args.push_back(agg);
         args.push_back(el);
         for (auto i : indices) {
-            args.push_back(const_(i));
+            args.push_back(const_((int32_t)i));
         }
         return call(FuncTag::INSERT_ELEMENT, args, ty);
     }
-    [[nodiscard]] Node *gep(Node *agg, luisa::span<uint32_t> indices, const Type *ty) noexcept {
+    template<class I>
+        requires std::is_integral_v<I>
+    [[nodiscard]] Node *gep(Node *agg, luisa::span<I> indices, const Type *ty) noexcept {
         luisa::vector<Node *> args;
         if (agg->is_gep()) {
             auto call = agg->inst.as<CallInst>();
@@ -219,14 +270,14 @@ public:
             args.push_back(agg);
         }
         for (auto i : indices) {
-            args.push_back(const_(i));
+            args.push_back(const_((int32_t)i));
         }
         return call(FuncTag::GET_ELEMENT_PTR, args, ty);
     }
     Node *if_(Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) noexcept;
     Node *generic_loop(BasicBlock *perpare, Node *cond, BasicBlock *body, BasicBlock *after) noexcept;
     Node *switch_(Node *value, luisa::span<SwitchCase> cases, BasicBlock *default_branch) noexcept;
-    const BasicBlock *finish() && noexcept {
+    BasicBlock *finish() && noexcept {
         LUISA_ASSERT(_current_bb != nullptr, "IrBuilder is not configured to produce a basic block");
         return _current_bb;
     }
@@ -276,7 +327,7 @@ public:
 };
 class UseDefAnalysis;
 
-struct Module : luisa::enable_shared_from_this<Module> {
+struct Module : luisa::enable_shared_from_this<Module>, luisa::concepts::Noncopyable {
 public:
     enum class Kind {
         CALLABLE,
@@ -286,6 +337,7 @@ public:
     BasicBlock *entry = nullptr;
     luisa::shared_ptr<UseDefAnalysis> use_def_analysis;
     luisa::shared_ptr<Pool> pool;
+    Module() noexcept : pool{luisa::make_shared<Pool>()} {}
     virtual ~Module() noexcept = default;
     [[nodiscard]] virtual Kind kind() const noexcept = 0;
 };
@@ -293,6 +345,9 @@ public:
 struct Capture {
     Node *node = nullptr;
     Binding binding;
+    Capture() noexcept = delete;
+    Capture(const Capture &) = delete;
+    Capture(Node *node, Binding binding) noexcept : node{node}, binding{std::move(binding)} {}
 };
 
 struct CallableModule : Module {
@@ -303,7 +358,8 @@ struct CallableModule : Module {
 
 struct KernelModule : Module {
     luisa::vector<Capture> captures;
-    std::array<uint32_t, 3> block_size;
+    std::array<uint32_t, 3> block_size = {64, 1, 1};
+    KernelModule() = default;
     [[nodiscard]] virtual Kind kind() const noexcept override {
         return Kind::KERNEL;
     }
@@ -313,7 +369,35 @@ class Transform {
     virtual void run(Module &module) noexcept = 0;
 };
 
-void validate(Module &module) noexcept;
-void normalize(Module &module) noexcept;
-
+LC_IR_API void validate(Module &module) noexcept;
+LC_IR_API void normalize(Module &module) noexcept;
+inline void validate(const Type *ty) noexcept {
+    bool bad = false;
+    if (!ty) {
+    } else if (ty->is_structure()) {
+        for (auto e : ty->members()) {
+            validate(e);
+        }
+    } else if (ty->is_array()) {
+        validate(ty->element());
+    } else if (ty->is_vector()) {
+        validate(ty->element());
+        if (ty->dimension() > 4) {
+            bad = true;
+        }
+    } else if (ty->is_matrix()) {
+        validate(ty->element());
+        if (ty->dimension() > 4) {
+            bad = true;
+        }
+    } else if (ty->is_scalar()) {
+        // very good
+    } else {
+        bad = true;
+    }
+    if (bad) {
+        LUISA_ERROR_WITH_LOCATION("type: `{}` is not a valid type for IR!!!", ty->description());
+    }
+}
+LC_IR_API luisa::string dump_human_readable(Module &module) noexcept;
 }// namespace luisa::compute::ir_v2

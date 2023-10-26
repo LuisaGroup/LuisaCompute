@@ -566,6 +566,10 @@ dependencies = [
 [[package]]
 name = "luisa_compute_ir_v2"
 version = "0.1.0"
+dependencies = [
+ "libloading 0.8.0",
+ "luisa_compute_ir",
+]
 
 [[package]]
 name = "memchr"

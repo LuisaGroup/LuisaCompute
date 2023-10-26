@@ -236,10 +236,6 @@ fn bindgen_test_layout_FuncMetadata() {
         )
     );
 }
-extern "C" {
-    #[link_name = "\u{1}?func_metadata@ir_v2@compute@luisa@@YAPEBUFuncMetadata@123@XZ"]
-    pub fn func_metadata() -> *const FuncMetadata;
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Func {
@@ -715,8 +711,9 @@ pub struct BindlessArrayBinding {
 pub struct AccelBinding {
     _unused: [u8; 0],
 }
+#[doc = " <div rustbindgen nodebug></div>"]
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct Slice<T> {
     pub data: *mut T,
     pub len: usize,
@@ -886,7 +883,7 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CFunc) -> *mut CallableFn>,
     pub Func_as_CpuExtFn:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CFunc) -> *mut CpuExtFn>,
-    pub Func_tag: ::std::option::Option<unsafe extern "C" fn(self_: *mut Func) -> FuncTag>,
+    pub Func_tag: ::std::option::Option<unsafe extern "C" fn(self_: *const CFunc) -> FuncTag>,
     pub AssumeFn_msg: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut AssumeFn) -> Slice<::std::os::raw::c_char>,
     >,
@@ -1025,7 +1022,7 @@ pub struct IrV2BindingTable {
         unsafe extern "C" fn(self_: *mut CInstruction) -> *mut FwdAutodiffInst,
     >,
     pub Instruction_tag:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut Instruction) -> InstructionTag>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *const CInstruction) -> InstructionTag>,
     pub ArgumentInst_by_value:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut ArgumentInst) -> bool>,
     pub ArgumentInst_set_by_value:
@@ -1223,7 +1220,8 @@ pub struct IrV2BindingTable {
     >,
     pub Binding_as_AccelBinding:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CBinding) -> *mut AccelBinding>,
-    pub Binding_tag: ::std::option::Option<unsafe extern "C" fn(self_: *mut Binding) -> BindingTag>,
+    pub Binding_tag:
+        ::std::option::Option<unsafe extern "C" fn(self_: *const CBinding) -> BindingTag>,
     pub BufferBinding_handle:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
     pub BufferBinding_offset:
@@ -1264,6 +1262,63 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, handle: u64) -> CBinding>,
     pub Binding_new:
         ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, tag: BindingTag) -> CBinding>,
+    pub type_extract:
+        ::std::option::Option<unsafe extern "C" fn(ty: *const Type, index: u32) -> *const Type>,
+    pub type_size: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> usize>,
+    pub type_alignment: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> usize>,
+    pub type_is_scalar: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_bool: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_int16: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_int32: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_int64: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_uint16: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_uint32: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_uint64: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_float16: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_float32: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_array: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_vector: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_struct: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_custom: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_is_matrix: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
+    pub type_element: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> *const Type>,
+    pub type_description: ::std::option::Option<
+        unsafe extern "C" fn(ty: *const Type) -> Slice<::std::os::raw::c_char>,
+    >,
+    pub type_dimension: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> usize>,
+    pub type_members:
+        ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> Slice<*const Type>>,
+    pub make_struct: ::std::option::Option<
+        unsafe extern "C" fn(alignment: usize, tys: *mut *const Type, count: u32) -> *const Type,
+    >,
+    pub make_array:
+        ::std::option::Option<unsafe extern "C" fn(ty: *const Type, count: u32) -> *const Type>,
+    pub make_vector:
+        ::std::option::Option<unsafe extern "C" fn(ty: *const Type, count: u32) -> *const Type>,
+    pub make_matrix: ::std::option::Option<unsafe extern "C" fn(dim: u32) -> *const Type>,
+    pub make_custom: ::std::option::Option<
+        unsafe extern "C" fn(name: Slice<::std::os::raw::c_char>) -> *const Type,
+    >,
+    pub from_desc: ::std::option::Option<
+        unsafe extern "C" fn(desc: Slice<::std::os::raw::c_char>) -> *const Type,
+    >,
+    pub type_bool: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_int16: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_int32: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_int64: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_uint16: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_uint32: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_uint64: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_float16: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub type_float32: ::std::option::Option<unsafe extern "C" fn() -> *const Type>,
+    pub node_prev: ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> *const Node>,
+    pub node_next: ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> *const Node>,
+    pub node_inst:
+        ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> *const CInstruction>,
+    pub basic_block_first:
+        ::std::option::Option<unsafe extern "C" fn(block: *const BasicBlock) -> *const Node>,
+    pub basic_block_last:
+        ::std::option::Option<unsafe extern "C" fn(block: *const BasicBlock) -> *const Node>,
 }
 #[test]
 fn bindgen_test_layout_IrV2BindingTable() {
@@ -1271,7 +1326,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<IrV2BindingTable>(),
-        1304usize,
+        1640usize,
         concat!("Size of: ", stringify!(IrV2BindingTable))
     );
     assert_eq!(
@@ -2983,7 +3038,424 @@ fn bindgen_test_layout_IrV2BindingTable() {
             stringify!(Binding_new)
         )
     );
-}
-extern "C" {
-    pub fn lc_ir_v2_binding_table() -> IrV2BindingTable;
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_extract) as usize - ptr as usize },
+        1304usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_extract)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_size) as usize - ptr as usize },
+        1312usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_size)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_alignment) as usize - ptr as usize },
+        1320usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_alignment)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_scalar) as usize - ptr as usize },
+        1328usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_scalar)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_bool) as usize - ptr as usize },
+        1336usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_bool)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_int16) as usize - ptr as usize },
+        1344usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_int16)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_int32) as usize - ptr as usize },
+        1352usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_int32)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_int64) as usize - ptr as usize },
+        1360usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_int64)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_uint16) as usize - ptr as usize },
+        1368usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_uint16)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_uint32) as usize - ptr as usize },
+        1376usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_uint32)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_uint64) as usize - ptr as usize },
+        1384usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_uint64)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_float16) as usize - ptr as usize },
+        1392usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_float16)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_float32) as usize - ptr as usize },
+        1400usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_float32)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_array) as usize - ptr as usize },
+        1408usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_array)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_vector) as usize - ptr as usize },
+        1416usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_vector)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_struct) as usize - ptr as usize },
+        1424usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_struct)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_custom) as usize - ptr as usize },
+        1432usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_custom)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_matrix) as usize - ptr as usize },
+        1440usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_is_matrix)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_element) as usize - ptr as usize },
+        1448usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_element)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_description) as usize - ptr as usize },
+        1456usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_description)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_dimension) as usize - ptr as usize },
+        1464usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_dimension)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_members) as usize - ptr as usize },
+        1472usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_members)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).make_struct) as usize - ptr as usize },
+        1480usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(make_struct)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).make_array) as usize - ptr as usize },
+        1488usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(make_array)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).make_vector) as usize - ptr as usize },
+        1496usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(make_vector)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).make_matrix) as usize - ptr as usize },
+        1504usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(make_matrix)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).make_custom) as usize - ptr as usize },
+        1512usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(make_custom)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).from_desc) as usize - ptr as usize },
+        1520usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(from_desc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_bool) as usize - ptr as usize },
+        1528usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_bool)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_int16) as usize - ptr as usize },
+        1536usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_int16)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_int32) as usize - ptr as usize },
+        1544usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_int32)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_int64) as usize - ptr as usize },
+        1552usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_int64)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_uint16) as usize - ptr as usize },
+        1560usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_uint16)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_uint32) as usize - ptr as usize },
+        1568usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_uint32)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_uint64) as usize - ptr as usize },
+        1576usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_uint64)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_float16) as usize - ptr as usize },
+        1584usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_float16)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_float32) as usize - ptr as usize },
+        1592usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_float32)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_prev) as usize - ptr as usize },
+        1600usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_prev)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_next) as usize - ptr as usize },
+        1608usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_next)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_inst) as usize - ptr as usize },
+        1616usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_inst)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).basic_block_first) as usize - ptr as usize },
+        1624usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(basic_block_first)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).basic_block_last) as usize - ptr as usize },
+        1632usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(basic_block_last)
+        )
+    );
 }

@@ -3,6 +3,8 @@
 #include <type_traits>
 #include <luisa/ir_v2/ir_v2_fwd.h>
 #include <luisa/core/logging.h>
+#include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 namespace luisa::compute::ir_v2 {
 struct LC_IR_API Func {
     luisa::unique_ptr<FuncData> _data;
@@ -318,6 +320,43 @@ public:
     luisa::vector<uint8_t> value{};
     ConstantInst() = default;
     ConstantInst(const Type *ty, luisa::vector<uint8_t> value) : ty(std::move(ty)), value(std::move(value)) {}
+
+    [[nodiscard]] uint16_t as_uint16() const noexcept {
+        LUISA_ASSERT(ty->is_uint16(), "Type mismatch!");
+        return *reinterpret_cast<const uint16_t *>(value.data());
+    }
+    [[nodiscard]] uint32_t as_uint32() const noexcept {
+        LUISA_ASSERT(ty->is_uint32(), "Type mismatch!");
+        return *reinterpret_cast<const uint32_t *>(value.data());
+    }
+    [[nodiscard]] uint64_t as_uint64() const noexcept {
+        LUISA_ASSERT(ty->is_uint64(), "Type mismatch!");
+        return *reinterpret_cast<const uint64_t *>(value.data());
+    }
+    [[nodiscard]] int16_t as_int16() const noexcept {
+        LUISA_ASSERT(ty->is_int16(), "Type mismatch!");
+        return *reinterpret_cast<const int16_t *>(value.data());
+    }
+    [[nodiscard]] int32_t as_int32() const noexcept {
+        LUISA_ASSERT(ty->is_int32(), "Type mismatch!");
+        return *reinterpret_cast<const int32_t *>(value.data());
+    }
+    [[nodiscard]] int64_t as_int64() const noexcept {
+        LUISA_ASSERT(ty->is_int64(), "Type mismatch!");
+        return *reinterpret_cast<const int64_t *>(value.data());
+    }
+    [[nodiscard]] half as_float16() const noexcept {
+        LUISA_ASSERT(ty->is_float16(), "Type mismatch!");
+        return *reinterpret_cast<const half *>(value.data());
+    }
+    [[nodiscard]] float as_float32() const noexcept {
+        LUISA_ASSERT(ty->is_float32(), "Type mismatch!");
+        return *reinterpret_cast<const float *>(value.data());
+    }
+    [[nodiscard]] bool as_bool() const noexcept {
+        LUISA_ASSERT(ty->is_bool(), "Type mismatch!");
+        return *reinterpret_cast<const bool *>(value.data());
+    }
 };
 struct LC_IR_API CallInst : public InstructionData {
 public:

@@ -2,6 +2,9 @@
 #include <luisa/ir_v2/ir_v2_fwd.h>
 
 namespace luisa::compute::ir_v2 {
+/** 
+* <div rustbindgen nodebug></div>
+*/
 template<class T>
 struct Slice {
     T *data = nullptr;
@@ -73,7 +76,7 @@ struct IrV2BindingTable {
     BindlessAtomicFetchMaxFn *(*Func_as_BindlessAtomicFetchMaxFn)(CFunc *self);
     CallableFn *(*Func_as_CallableFn)(CFunc *self);
     CpuExtFn *(*Func_as_CpuExtFn)(CFunc *self);
-    FuncTag (*Func_tag)(Func *self);
+    FuncTag (*Func_tag)(const CFunc *self);
     Slice<const char> (*AssumeFn_msg)(AssumeFn *self);
     void (*AssumeFn_set_msg)(AssumeFn *self, Slice<const char> value);
     CFunc (*AssumeFn_new)(Pool *pool, Slice<const char> msg);
@@ -128,7 +131,7 @@ struct IrV2BindingTable {
     RayQueryInst *(*Instruction_as_RayQueryInst)(CInstruction *self);
     RevAutodiffInst *(*Instruction_as_RevAutodiffInst)(CInstruction *self);
     FwdAutodiffInst *(*Instruction_as_FwdAutodiffInst)(CInstruction *self);
-    InstructionTag (*Instruction_tag)(Instruction *self);
+    InstructionTag (*Instruction_tag)(const CInstruction *self);
     bool (*ArgumentInst_by_value)(ArgumentInst *self);
     void (*ArgumentInst_set_by_value)(ArgumentInst *self, bool value);
     CInstruction (*ArgumentInst_new)(Pool *pool, bool by_value);
@@ -203,7 +206,7 @@ struct IrV2BindingTable {
     TextureBinding *(*Binding_as_TextureBinding)(CBinding *self);
     BindlessArrayBinding *(*Binding_as_BindlessArrayBinding)(CBinding *self);
     AccelBinding *(*Binding_as_AccelBinding)(CBinding *self);
-    BindingTag (*Binding_tag)(Binding *self);
+    BindingTag (*Binding_tag)(const CBinding *self);
     uint64_t (*BufferBinding_handle)(BufferBinding *self);
     uint64_t (*BufferBinding_offset)(BufferBinding *self);
     uint64_t (*BufferBinding_size)(BufferBinding *self);
@@ -223,6 +226,48 @@ struct IrV2BindingTable {
     void (*AccelBinding_set_handle)(AccelBinding *self, uint64_t value);
     CBinding (*AccelBinding_new)(Pool *pool, uint64_t handle);
     CBinding (*Binding_new)(Pool *pool, BindingTag tag);
+    const Type *(*type_extract)(const Type *ty, uint32_t index);
+    size_t (*type_size)(const Type *ty);
+    size_t (*type_alignment)(const Type *ty);
+    bool (*type_is_scalar)(const Type *ty);
+    bool (*type_is_bool)(const Type *ty);
+    bool (*type_is_int16)(const Type *ty);
+    bool (*type_is_int32)(const Type *ty);
+    bool (*type_is_int64)(const Type *ty);
+    bool (*type_is_uint16)(const Type *ty);
+    bool (*type_is_uint32)(const Type *ty);
+    bool (*type_is_uint64)(const Type *ty);
+    bool (*type_is_float16)(const Type *ty);
+    bool (*type_is_float32)(const Type *ty);
+    bool (*type_is_array)(const Type *ty);
+    bool (*type_is_vector)(const Type *ty);
+    bool (*type_is_struct)(const Type *ty);
+    bool (*type_is_custom)(const Type *ty);
+    bool (*type_is_matrix)(const Type *ty);
+    const Type *(*type_element)(const Type *ty);
+    Slice<const char> (*type_description)(const Type *ty);
+    size_t (*type_dimension)(const Type *ty);
+    Slice<const Type *const> (*type_members)(const Type *ty);
+    const Type *(*make_struct)(size_t alignment, const Type **tys, uint32_t count);
+    const Type *(*make_array)(const Type *ty, uint32_t count);
+    const Type *(*make_vector)(const Type *ty, uint32_t count);
+    const Type *(*make_matrix)(uint32_t dim);
+    const Type *(*make_custom)(Slice<const char> name);
+    const Type *(*from_desc)(Slice<const char> desc);
+    const Type *(*type_bool)();
+    const Type *(*type_int16)();
+    const Type *(*type_int32)();
+    const Type *(*type_int64)();
+    const Type *(*type_uint16)();
+    const Type *(*type_uint32)();
+    const Type *(*type_uint64)();
+    const Type *(*type_float16)();
+    const Type *(*type_float32)();
+    const Node *(*node_prev)(const Node *node);
+    const Node *(*node_next)(const Node *node);
+    const CInstruction *(*node_inst)(const Node *node);
+    const Node *(*basic_block_first)(const BasicBlock *block);
+    const Node *(*basic_block_last)(const BasicBlock *block);
 };
 extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table();
 }// namespace luisa::compute::ir_v2
