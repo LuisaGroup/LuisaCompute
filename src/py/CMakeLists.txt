@@ -6,6 +6,7 @@ set(LUISA_PYTHON_SOURCES
         export_matrix.cpp
         export_op.cpp
         export_runtime.cpp
+        export_dlpack.cpp
         export_vector2.cpp
         export_vector3.cpp
         export_vector4.cpp

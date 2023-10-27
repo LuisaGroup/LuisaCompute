@@ -303,6 +303,9 @@ void export_runtime(py::module &m) {
     //     });
 
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
+        .def("backend_name", [](DeviceInterface &self) {
+                return self.backend_name();
+            })
         .def(
             "create_shader", [](DeviceInterface &self, Function kernel) {
                 auto handle = self.create_shader({}, kernel).handle;
