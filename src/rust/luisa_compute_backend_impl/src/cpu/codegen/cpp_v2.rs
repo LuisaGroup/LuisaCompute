@@ -283,4 +283,94 @@ impl<'a> FunctionEmitter<'a> {
             write!(&mut self.body, "    ").unwrap();
         }
     }
+    fn gen_node(&mut self, node: NodeRef) -> String {
+        if let Some(var) = self.node_to_var.get(&node) {
+            return var.clone();
+        } else {
+            let index = self.node_to_var.len();
+            let inst = call!(node_inst, node) as *mut CInstruction;
+            let var = match call!(Instruction_tag, inst) {
+                InstructionTag::BUFFER => format!("b{}", index),
+                InstructionTag::BINDLESS_ARRAY => format!("bl{}", index),
+                InstructionTag::TEXTURE2D => format!("t2d{}", index),
+                InstructionTag::TEXTURE3D => format!("t3d{}", index),
+                InstructionTag::ACCEL => format!("a{}", index),
+                InstructionTag::SHARED => format!("s{}", index),
+                InstructionTag::UNIFORM => format!("u{}", index),
+                InstructionTag::LOCAL => format!("v{}", index),
+                InstructionTag::ARGUMENT => format!("arg{}", index),
+                InstructionTag::CONSTANT => format!("c{}", index),
+                InstructionTag::CALL => format!("f{}", index),
+                InstructionTag::PHI => format!("phi{}", index),
+                _ => unreachable!(),
+            };
+            self.node_to_var.insert(node, var.clone());
+            return var;
+        }
+    }
+    fn access_chain(&mut self, mut var: String, node: NodeRef, indices: &[NodeRef]) -> String {
+        let mut ty = call!(node_type, node);
+        for (i, index) in indices.iter().enumerate() {
+            if call!(type_is_matrix, ty) || call!(type_is_vector, ty) {
+                var = format!("{}[{}]", var, self.gen_node(*index));
+                assert_eq!(i, indices.len() - 1);
+                break;
+            } else if call!(type_is_array, ty) {
+                var = format!("{}[{}]", var, self.gen_node(*index));
+                ty = call!(type_element, ty);
+            } else {
+                assert!(call!(type_is_struct, ty));
+                let idx = call!(node_get_index, *index) as u32;
+                var = format!("{}.f{}", var, idx);
+                ty = call!(type_extract, ty, idx);
+            }
+        }
+        var
+    }
+    fn atomic_chain_op(
+        &mut self,
+        var: &str,
+        node_ty_s: &String,
+        args: &[NodeRef],
+        args_v: &[String],
+        op: &str,
+        noperand: usize,
+    ) {
+        let n = args.len();
+        let buffer_ty = self.type_gen.gen_c_type(call!(node_type, args[0]));
+        let indices = &args[2..n - noperand];
+        let buffer_ref = format!(
+            "(*lc_buffer_ref<{0}>(k_args, {1}, {2}))",
+            buffer_ty, args_v[0], args_v[1]
+        );
+        let access_chain = self.access_chain(buffer_ref, args[0], indices);
+        writeln!(
+            self.body,
+            "const {} {} = {}(&{}, {});",
+            node_ty_s,
+            var,
+            op,
+            access_chain,
+            args_v[n - noperand..].join(", ")
+        )
+        .unwrap();
+    }
+    fn gep_field_name(node: NodeRef, i: i32) -> String {
+        let ty = call!(node_type, node);
+        if call!(type_is_struct, ty) {
+            format!("f{}", i)
+        } else if call!(type_is_vector, ty) {
+            match i {
+                0 => "x".to_string(),
+                1 => "y".to_string(),
+                2 => "z".to_string(),
+                3 => "w".to_string(),
+                _ => unreachable!(),
+            }
+        } else if call!(type_is_matrix, ty) {
+            format!("cols[{}]", i)
+        } else {
+            unreachable!()
+        }
+    }
 }

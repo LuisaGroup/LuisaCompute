@@ -642,6 +642,8 @@ const Type *ir_v2_binding_type_float32();
 const Node *ir_v2_binding_node_prev(const Node *node);
 const Node *ir_v2_binding_node_next(const Node *node);
 const CInstruction *ir_v2_binding_node_inst(const Node *node);
+const Type *ir_v2_binding_node_type(const Node *node);
+int32_t ir_v2_binding_node_get_index(const Node *node);
 const Node *ir_v2_binding_basic_block_first(const BasicBlock *block);
 const Node *ir_v2_binding_basic_block_last(const BasicBlock *block);
 }// namespace luisa::compute::ir_v2

@@ -8,7 +8,6 @@
 #include <luisa/runtime/rhi/tile_modification.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/runtime/depth_format.h>
-#include <luisa/ir_v2/ir_v2.h>
 
 namespace luisa {
 class BinaryIO;
@@ -28,6 +27,10 @@ struct Type;
 template<class T>
 struct CArc;
 }// namespace ir
+
+namespace ir_v2 {
+struct KernelModule;
+}// namespace ir_v2
 
 class Type;
 struct AccelOption;
@@ -104,8 +107,9 @@ public:
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-        LUISA_ERROR_WITH_LOCATION(
-            "DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) is not implemented.");
+        fprintf(stderr,
+                "DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) is not implemented.");
+        abort();
     }
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
     virtual Usage shader_argument_usage(uint64_t handle, size_t index) noexcept = 0;

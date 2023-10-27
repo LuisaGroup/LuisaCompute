@@ -1315,6 +1315,8 @@ pub struct IrV2BindingTable {
     pub node_next: ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> *const Node>,
     pub node_inst:
         ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> *const CInstruction>,
+    pub node_type: ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> *const Type>,
+    pub node_get_index: ::std::option::Option<unsafe extern "C" fn(node: *const Node) -> i32>,
     pub basic_block_first:
         ::std::option::Option<unsafe extern "C" fn(block: *const BasicBlock) -> *const Node>,
     pub basic_block_last:
@@ -1326,7 +1328,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<IrV2BindingTable>(),
-        1640usize,
+        1656usize,
         concat!("Size of: ", stringify!(IrV2BindingTable))
     );
     assert_eq!(
@@ -3439,8 +3441,28 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).basic_block_first) as usize - ptr as usize },
+        unsafe { ::std::ptr::addr_of!((*ptr).node_type) as usize - ptr as usize },
         1624usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_type)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_get_index) as usize - ptr as usize },
+        1632usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_get_index)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).basic_block_first) as usize - ptr as usize },
+        1640usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3450,7 +3472,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).basic_block_last) as usize - ptr as usize },
-        1632usize,
+        1648usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),

@@ -266,6 +266,8 @@ struct IrV2BindingTable {
     const Node *(*node_prev)(const Node *node);
     const Node *(*node_next)(const Node *node);
     const CInstruction *(*node_inst)(const Node *node);
+    const Type *(*node_type)(const Node *node);
+    int32_t (*node_get_index)(const Node *node);
     const Node *(*basic_block_first)(const BasicBlock *block);
     const Node *(*basic_block_last)(const BasicBlock *block);
 };

@@ -928,6 +928,8 @@ def gen_extra_bindings():
     add_func('const Node*', 'node_prev', 'const Node* node')
     add_func('const Node*', 'node_next', 'const Node* node')
     add_func('const CInstruction*', 'node_inst', 'const Node* node')
+    add_func('const Type*', 'node_type', 'const Node* node')
+    add_func('int32_t', 'node_get_index', 'const Node* node')
 
     add_func('const Node*', 'basic_block_first', 'const BasicBlock* block')
     add_func('const Node*', 'basic_block_last', 'const BasicBlock* block')

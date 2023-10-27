@@ -1153,6 +1153,8 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         ir_v2_binding_node_prev,
         ir_v2_binding_node_next,
         ir_v2_binding_node_inst,
+        ir_v2_binding_node_type,
+        ir_v2_binding_node_get_index,
         ir_v2_binding_basic_block_first,
         ir_v2_binding_basic_block_last,
     };

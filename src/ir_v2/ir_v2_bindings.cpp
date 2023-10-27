@@ -22,54 +22,56 @@ size_t ir_v2_binding_type_alignment(const Type *ty) {
     return ty->alignment();
 }
 bool ir_v2_binding_type_is_scalar(const Type *ty) {
-    return ty->is_scalar();
+    return ty && ty->is_scalar();
 }
 bool ir_v2_binding_type_is_bool(const Type *ty) {
-    return ty->is_bool();
+    return ty && ty->is_bool();
 }
 bool ir_v2_binding_type_is_int16(const Type *ty) {
-    return ty->is_int16();
+    return ty && ty->is_int16();
 }
 bool ir_v2_binding_type_is_int32(const Type *ty) {
-    return ty->is_int32();
+    return ty && ty->is_int32();
 }
 bool ir_v2_binding_type_is_int64(const Type *ty) {
-    return ty->is_int64();
+    return ty && ty->is_int64();
 }
 bool ir_v2_binding_type_is_uint16(const Type *ty) {
-    return ty->is_uint16();
+    return ty && ty->is_uint16();
 }
 bool ir_v2_binding_type_is_uint32(const Type *ty) {
-    return ty->is_uint32();
+    return ty && ty->is_uint32();
 }
 bool ir_v2_binding_type_is_uint64(const Type *ty) {
-    return ty->is_uint64();
+    return ty && ty->is_uint64();
 }
 bool ir_v2_binding_type_is_float16(const Type *ty) {
-    return ty->is_float16();
+    return ty && ty->is_float16();
 }
 bool ir_v2_binding_type_is_float32(const Type *ty) {
-    return ty->is_float32();
+    return ty && ty->is_float32();
 }
 bool ir_v2_binding_type_is_array(const Type *ty) {
-    return ty->is_array();
+    return ty && ty->is_array();
 }
 bool ir_v2_binding_type_is_vector(const Type *ty) {
-    return ty->is_vector();
+    return ty && ty->is_vector();
 }
 bool ir_v2_binding_type_is_struct(const Type *ty) {
-    return ty->is_structure();
+    return ty && ty->is_structure();
 }
 bool ir_v2_binding_type_is_custom(const Type *ty) {
-    return ty->is_custom();
+    return ty && ty->is_custom();
 }
 bool ir_v2_binding_type_is_matrix(const Type *ty) {
-    return ty->is_matrix();
+    return ty && ty->is_matrix();
 }
 const Type *ir_v2_binding_type_element(const Type *ty) {
+    LUISA_ASSERT(ty, "Null pointer.");
     return ty->element();
 }
 Slice<const char> ir_v2_binding_type_description(const Type *ty) {
+    LUISA_ASSERT(ty, "Null pointer.");
     auto desc = ty->description();
     return {desc.data(), desc.size()};
 }
@@ -133,7 +135,13 @@ const Node *ir_v2_binding_node_next(const Node *node) {
     return node->next;
 }
 const CInstruction *ir_v2_binding_node_inst(const Node *node) {
-    return reinterpret_cast<const CInstruction*>(&node->inst);
+    return reinterpret_cast<const CInstruction *>(&node->inst);
+}
+int32_t ir_v2_binding_node_get_index(const Node *node) {
+    return *node->get_index();
+}
+const Type *ir_v2_binding_node_type(const Node *node) {
+    return node->ty;
 }
 const Node *ir_v2_binding_basic_block_first(const BasicBlock *block) {
     return block->first();
