@@ -8,6 +8,7 @@ use crate::ir::{Primitive, Type, VectorElementType};
 use luisa_compute_ir::ir;
 
 pub mod cpp;
+pub mod cpp_v2;
 
 pub fn sha256_full(s: &str) -> String {
     let mut hasher = Sha256::new();
