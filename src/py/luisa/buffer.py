@@ -134,6 +134,25 @@ class Buffer:
         elsize = to_lctype(self.dtype).size()
         return [from_bytes(self.dtype, packed_bytes[elsize * i: elsize * (i + 1)]) for i in range(self.size)]
 
+    def __dlpack_device__(self):
+        backend_name = get_global_device().impl().backend_name()
+        device_id = 0 # TODO support multi device
+        return lcapi.to_dlpack_device(backend_name, device_id)
+
+    def __dlpack__(self, stream=None):
+        backend_name = get_global_device().impl().backend_name()
+        device_id = 0 # TODO support multi device
+        globalvars.vars.stream.synchronize()
+        # TODO don't synchronize within the same stream
+        return lcapi.to_dlpack(self, self.native_handle, self.size, to_lctype(self.dtype), backend_name, device_id)
+
+    @staticmethod
+    def from_dlpack(arr):
+        raise NotImplementedError
+        # TODO
+        if hasattr(arr, '__dlpack__'):
+            pass
+
 
 buffer = Buffer.buffer
 
