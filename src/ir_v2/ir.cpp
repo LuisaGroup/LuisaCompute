@@ -19,28 +19,28 @@ BasicBlock::BasicBlock(Pool &pool) noexcept {
     _first->scope = this;
     _last->scope = this;
 }
-Node *IrBuilder::call(Func f, luisa::span<Node *const> args_span, const Type *ty) noexcept {
-    auto args = luisa::vector<Node *>{args_span.begin(), args_span.end()};
+Node *IrBuilder::call(Func f, luisa::span<const Node *const> args_span, const Type *ty) noexcept {
+    auto args = luisa::vector<Node *>{(Node *)args_span.begin(), (Node *)args_span.end()};
     auto call = Instruction(CallInst(std::move(f), args));
     return append(_pool->alloc<Node>(std::move(call), ty));
 }
 
-Node *IrBuilder::if_(Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) noexcept {
-    auto if_ = Instruction(IfInst(cond, true_branch, false_branch));
+Node *IrBuilder::if_(const Node *cond, const BasicBlock *true_branch, const BasicBlock *false_branch) noexcept {
+    auto if_ = Instruction(IfInst(const_cast<Node *>(cond), true_branch, false_branch));
     return append(_pool->alloc<Node>(std::move(if_), Type::of<void>()));
 }
-Node *IrBuilder::generic_loop(BasicBlock *perpare, Node *cond, BasicBlock *body, BasicBlock *after) noexcept {
-    auto loop = Instruction(GenericLoopInst(perpare, cond, body, after));
+Node *IrBuilder::generic_loop(const BasicBlock *perpare, const Node *cond, const BasicBlock *body, const BasicBlock *after) noexcept {
+    auto loop = Instruction(GenericLoopInst(perpare, const_cast<Node *>(cond), body, after));
     return append(_pool->alloc<Node>(std::move(loop), Type::of<void>()));
 }
-Node *IrBuilder::switch_(Node *value, luisa::span<SwitchCase> cases, BasicBlock *default_branch) noexcept {
+Node *IrBuilder::switch_(const Node *value, luisa::span<const SwitchCase> cases, const BasicBlock *default_branch) noexcept {
     luisa::vector<SwitchCase> cases_{cases.begin(), cases.end()};
-    auto switch_ = Instruction(SwitchInst(value, cases_, default_branch));
+    auto switch_ = Instruction(SwitchInst(const_cast<Node *>(value), cases_, default_branch));
     return append(_pool->alloc<Node>(std::move(switch_), Type::of<void>()));
 }
 
 void validate(Module &module) noexcept {
-    luisa::unordered_set<Node *> defined;
+    luisa::unordered_set<const Node *> defined;
     for (auto arg : module.args) {
         defined.insert(arg);
     }
@@ -51,16 +51,16 @@ void validate(Module &module) noexcept {
         // }
     }
     struct Visitor {
-        std::function<void(Node *)> visit_node;
-        std::function<void(BasicBlock *)> visit_block;
+        std::function<void(const Node *)> visit_node;
+        std::function<void(const BasicBlock *)> visit_block;
     };
     Visitor vis;
-    auto check = [&](Node *n) {
+    auto check = [&](const Node *n) {
         if (!n) { return; }
         if (defined.contains(n)) { return; }
         LUISA_ERROR_WITH_LOCATION("use of undefined node: {}", (void *)n);
     };
-    vis.visit_node = [&](Node *node) {
+    vis.visit_node = [&](const Node *node) {
         auto &inst = node->inst;
         auto tag = inst.tag();
         switch (tag) {
@@ -104,7 +104,7 @@ void validate(Module &module) noexcept {
         }
         defined.insert(node);
     };
-    vis.visit_block = [&](BasicBlock *bb) {
+    vis.visit_block = [&](const BasicBlock *bb) {
         bb->for_each([&](Node *n) {
             vis.visit_node(n);
         });

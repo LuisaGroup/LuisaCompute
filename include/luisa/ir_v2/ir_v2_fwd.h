@@ -28,20 +28,95 @@ struct Slice;
 struct CInstruction;
 struct CFunc;
 struct CBinding;
+// Don't touch!! These typedef are for bindgen
+typedef const Node *NodeRef;
+typedef Node *NodeRefMut;
+typedef const BasicBlock *BasicBlockRef;
+typedef BasicBlock *BasicBlockRefMut;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const CallableModule *CallableModuleRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef CallableModule *CallableModuleRefMut;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const Module *ModuleRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef Module *ModuleRefMut;
+typedef const KernelModule *KernelModuleRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef KernelModule *KernelModuleRefMut;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const Pool *PoolRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef Pool *PoolRefMut;
+typedef const Type *TypeRef;
+enum class RustyTypeTag {
+    Bool,   //BOOL,
+    Int8,   //INT8,
+    Uint8,  //UINT8,
+    Int16,  //INT16,
+    Uint16, //UINT16,
+    Int32,  //INT32,
+    Uint32, //UINT32,
+    Int64,  //INT64,
+    Uint64, //UINT64,
+    Float16,//FLOAT16,
+    Float32,//FLOAT32,
+    Float64,//FLOAT64,
+
+    Vector,//VECTOR,
+    Matrix,//MATRIX,
+
+    Array, //,ARRAY,
+    Struct,//,STRUCTURE,
+
+    __HIDDEN_BUFFER,
+    __HIDDEN_TEXTURE,
+    __HIDDEN_BINDLESS_ARRAY,
+    __HIDDEN_ACCEL,
+
+    Custom,//CUSTOM
+};
+
+/**
+* <div rustbindgen nocopy></div>
+*/
+class IrBuilder;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const IrBuilder *IrBuilderRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef IrBuilder *IrBuilderRefMut;
 
 struct PhiIncoming {
-    BasicBlock *block = nullptr;
-    Node *value = nullptr;
+    BasicBlockRef block = nullptr;
+    NodeRef value = nullptr;
 };
 struct SwitchCase {
     int32_t value = 0;
-    BasicBlock *block = nullptr;
+    BasicBlockRef block = nullptr;
 };
 struct CpuExternFn {
     void *data = nullptr;
     void (*func)(void *data, void *args) = nullptr;
     void (*dtor)(void *data) = nullptr;
-    const Type *arg_ty = nullptr;
+    TypeRef arg_ty = nullptr;
 };
 struct FuncMetadata {
     bool has_side_effects = false;
@@ -50,6 +125,8 @@ const FuncMetadata *func_metadata();
 
 struct Func;
 struct FuncData;
+typedef const CFunc *FuncRef;
+typedef CFunc *FuncRefMut;
 enum class FuncTag : unsigned int {
     UNDEF,
     ZERO,
@@ -221,6 +298,7 @@ enum class FuncTag : unsigned int {
     BINDLESS_TEXTURE2D_SAMPLE_GRAD,
     BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL,
     BINDLESS_TEXTURE2D_READ,
+    BINDLESS_TEXTURE2D_READ_LEVEL,
     BINDLESS_TEXTURE2D_SIZE,
     BINDLESS_TEXTURE2D_SIZE_LEVEL,
     BINDLESS_TEXTURE3D_SAMPLE,
@@ -228,11 +306,13 @@ enum class FuncTag : unsigned int {
     BINDLESS_TEXTURE3D_SAMPLE_GRAD,
     BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,
     BINDLESS_TEXTURE3D_READ,
+    BINDLESS_TEXTURE3D_READ_LEVEL,
     BINDLESS_TEXTURE3D_SIZE,
     BINDLESS_TEXTURE3D_SIZE_LEVEL,
     BINDLESS_BUFFER_WRITE,
     BINDLESS_BUFFER_READ,
     BINDLESS_BUFFER_SIZE,
+    BINDLESS_BUFFER_TYPE,
     BINDLESS_BYTE_BUFFER_WRITE,
     BINDLESS_BYTE_BUFFER_READ,
     BINDLESS_BYTE_BUFFER_SIZE,
@@ -262,6 +342,222 @@ enum class FuncTag : unsigned int {
     CALLABLE,
     CPU_EXT,
     SHADER_EXECUTION_REORDER,
+};
+enum class RustyFuncTag : unsigned int {
+    Undef,
+    Zero,
+    One,
+    Assume,
+    Unreachable,
+    ThreadId,
+    BlockId,
+    WarpSize,
+    WarpLaneId,
+    DispatchId,
+    DispatchSize,
+    PropagateGradient,
+    OutputGradient,
+    RequiresGradient,
+    Backward,
+    Gradient,
+    AccGrad,
+    Detach,
+    RayTracingInstanceTransform,
+    RayTracingInstanceVisibilityMask,
+    RayTracingInstanceUserId,
+    RayTracingSetInstanceTransform,
+    RayTracingSetInstanceOpacity,
+    RayTracingSetInstanceVisibility,
+    RayTracingSetInstanceUserId,
+    RayTracingTraceClosest,
+    RayTracingTraceAny,
+    RayTracingQueryAll,
+    RayTracingQueryAny,
+    RayQueryWorldSpaceRay,
+    RayQueryProceduralCandidateHit,
+    RayQueryTriangleCandidateHit,
+    RayQueryCommittedHit,
+    RayQueryCommitTriangle,
+    RayQueryCommitdProcedural,
+    RayQueryTerminate,
+    Load,
+    Cast,
+    BitCast,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    RotRight,
+    RotLeft,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    MatCompMul,
+    Neg,
+    Not,
+    BitNot,
+    All,
+    Any,
+    Select,
+    Clamp,
+    Lerp,
+    Step,
+    Saturate,
+    SmoothStep,
+    Abs,
+    Min,
+    Max,
+    ReduceSum,
+    ReduceProd,
+    ReduceMin,
+    ReduceMax,
+    Clz,
+    Ctz,
+    PopCount,
+    Reverse,
+    IsInf,
+    IsNan,
+    Acos,
+    Acosh,
+    Asin,
+    Asinh,
+    Atan,
+    Atan2,
+    Atanh,
+    Cos,
+    Cosh,
+    Sin,
+    Sinh,
+    Tan,
+    Tanh,
+    Exp,
+    Exp2,
+    Exp10,
+    Log,
+    Log2,
+    Log10,
+    Powi,
+    Powf,
+    Sqrt,
+    Rsqrt,
+    Ceil,
+    Floor,
+    Fract,
+    Trunc,
+    Round,
+    Fma,
+    Copysign,
+    Cross,
+    Dot,
+    OuterProduct,
+    Length,
+    LengthSquared,
+    Normalize,
+    Faceforward,
+    Distance,
+    Reflect,
+    Determinant,
+    Transpose,
+    Inverse,
+    WarpIsFirstActiveLane,
+    WarpFirstActiveLane,
+    WarpActiveAllEqual,
+    WarpActiveBitAnd,
+    WarpActiveBitOr,
+    WarpActiveBitXor,
+    WarpActiveCountBits,
+    WarpActiveMax,
+    WarpActiveMin,
+    WarpActiveProduct,
+    WarpActiveSum,
+    WarpActiveAll,
+    WarpActiveAny,
+    WarpActiveBitMask,
+    WarpPrefixCountBits,
+    WarpPrefixSum,
+    WarpPrefixProduct,
+    WarpReadLaneAt,
+    WarpReadFirstLane,
+    SynchronizeBlock,
+    AtomicExchange,
+    AtomicCompareExchange,
+    AtomicFetchAdd,
+    AtomicFetchSub,
+    AtomicFetchAnd,
+    AtomicFetchOr,
+    AtomicFetchXor,
+    AtomicFetchMin,
+    AtomicFetchMax,
+    BufferWrite,
+    BufferRead,
+    BufferSize,
+    ByteBufferWrite,
+    ByteBufferRead,
+    ByteBufferSize,
+    Texture2dRead,
+    Texture2dWrite,
+    Texture2dSize,
+    Texture3dRead,
+    Texture3dWrite,
+    Texture3dSize,
+    BindlessTexture2dSample,
+    BindlessTexture2dSampleLevel,
+    BindlessTexture2dSampleGrad,
+    BindlessTexture2dSampleGradLevel,
+    BindlessTexture2dRead,
+    BindlessTexture2dReadLevel,
+    BindlessTexture2dSize,
+    BindlessTexture2dSizeLevel,
+    BindlessTexture3dSample,
+    BindlessTexture3dSampleLevel,
+    BindlessTexture3dSampleGrad,
+    BindlessTexture3dSampleGradLevel,
+    BindlessTexture3dRead,
+    BindlessTexture3dReadLevel,
+    BindlessTexture3dSize,
+    BindlessTexture3dSizeLevel,
+    BindlessBufferWrite,
+    BindlessBufferRead,
+    BindlessBufferSize,
+    BindlessBufferType,
+    BindlessByteBufferWrite,
+    BindlessByteBufferRead,
+    BindlessByteBufferSize,
+    Vec,
+    Vec2,
+    Vec3,
+    Vec4,
+    Permute,
+    GetElementPtr,
+    ExtractElement,
+    InsertElement,
+    Array,
+    Struct,
+    MatFull,
+    Mat2,
+    Mat3,
+    Mat4,
+    BindlessAtomicExchange,
+    BindlessAtomicCompareExchange,
+    BindlessAtomicFetchAdd,
+    BindlessAtomicFetchSub,
+    BindlessAtomicFetchAnd,
+    BindlessAtomicFetchOr,
+    BindlessAtomicFetchXor,
+    BindlessAtomicFetchMin,
+    BindlessAtomicFetchMax,
+    Callable,
+    CpuExt,
+    ShaderExecutionReorder,
 };
 inline const char *tag_name(FuncTag tag) {
     switch (tag) {
@@ -435,6 +731,7 @@ inline const char *tag_name(FuncTag tag) {
         case FuncTag::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return "BindlessTexture2dSampleGradFn";
         case FuncTag::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: return "BindlessTexture2dSampleGradLevelFn";
         case FuncTag::BINDLESS_TEXTURE2D_READ: return "BindlessTexture2dReadFn";
+        case FuncTag::BINDLESS_TEXTURE2D_READ_LEVEL: return "BindlessTexture2dReadLevelFn";
         case FuncTag::BINDLESS_TEXTURE2D_SIZE: return "BindlessTexture2dSizeFn";
         case FuncTag::BINDLESS_TEXTURE2D_SIZE_LEVEL: return "BindlessTexture2dSizeLevelFn";
         case FuncTag::BINDLESS_TEXTURE3D_SAMPLE: return "BindlessTexture3dSampleFn";
@@ -442,11 +739,13 @@ inline const char *tag_name(FuncTag tag) {
         case FuncTag::BINDLESS_TEXTURE3D_SAMPLE_GRAD: return "BindlessTexture3dSampleGradFn";
         case FuncTag::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: return "BindlessTexture3dSampleGradLevelFn";
         case FuncTag::BINDLESS_TEXTURE3D_READ: return "BindlessTexture3dReadFn";
+        case FuncTag::BINDLESS_TEXTURE3D_READ_LEVEL: return "BindlessTexture3dReadLevelFn";
         case FuncTag::BINDLESS_TEXTURE3D_SIZE: return "BindlessTexture3dSizeFn";
         case FuncTag::BINDLESS_TEXTURE3D_SIZE_LEVEL: return "BindlessTexture3dSizeLevelFn";
         case FuncTag::BINDLESS_BUFFER_WRITE: return "BindlessBufferWriteFn";
         case FuncTag::BINDLESS_BUFFER_READ: return "BindlessBufferReadFn";
         case FuncTag::BINDLESS_BUFFER_SIZE: return "BindlessBufferSizeFn";
+        case FuncTag::BINDLESS_BUFFER_TYPE: return "BindlessBufferTypeFn";
         case FuncTag::BINDLESS_BYTE_BUFFER_WRITE: return "BindlessByteBufferWriteFn";
         case FuncTag::BINDLESS_BYTE_BUFFER_READ: return "BindlessByteBufferReadFn";
         case FuncTag::BINDLESS_BYTE_BUFFER_SIZE: return "BindlessByteBufferSizeFn";
@@ -486,20 +785,48 @@ struct LC_IR_API FuncData {
 #endif
 };
 struct AssumeFn;
+typedef const AssumeFn *AssumeFnRef;
+typedef AssumeFn *AssumeFnRefMut;
 struct UnreachableFn;
+typedef const UnreachableFn *UnreachableFnRef;
+typedef UnreachableFn *UnreachableFnRefMut;
 struct BindlessAtomicExchangeFn;
+typedef const BindlessAtomicExchangeFn *BindlessAtomicExchangeFnRef;
+typedef BindlessAtomicExchangeFn *BindlessAtomicExchangeFnRefMut;
 struct BindlessAtomicCompareExchangeFn;
+typedef const BindlessAtomicCompareExchangeFn *BindlessAtomicCompareExchangeFnRef;
+typedef BindlessAtomicCompareExchangeFn *BindlessAtomicCompareExchangeFnRefMut;
 struct BindlessAtomicFetchAddFn;
+typedef const BindlessAtomicFetchAddFn *BindlessAtomicFetchAddFnRef;
+typedef BindlessAtomicFetchAddFn *BindlessAtomicFetchAddFnRefMut;
 struct BindlessAtomicFetchSubFn;
+typedef const BindlessAtomicFetchSubFn *BindlessAtomicFetchSubFnRef;
+typedef BindlessAtomicFetchSubFn *BindlessAtomicFetchSubFnRefMut;
 struct BindlessAtomicFetchAndFn;
+typedef const BindlessAtomicFetchAndFn *BindlessAtomicFetchAndFnRef;
+typedef BindlessAtomicFetchAndFn *BindlessAtomicFetchAndFnRefMut;
 struct BindlessAtomicFetchOrFn;
+typedef const BindlessAtomicFetchOrFn *BindlessAtomicFetchOrFnRef;
+typedef BindlessAtomicFetchOrFn *BindlessAtomicFetchOrFnRefMut;
 struct BindlessAtomicFetchXorFn;
+typedef const BindlessAtomicFetchXorFn *BindlessAtomicFetchXorFnRef;
+typedef BindlessAtomicFetchXorFn *BindlessAtomicFetchXorFnRefMut;
 struct BindlessAtomicFetchMinFn;
+typedef const BindlessAtomicFetchMinFn *BindlessAtomicFetchMinFnRef;
+typedef BindlessAtomicFetchMinFn *BindlessAtomicFetchMinFnRefMut;
 struct BindlessAtomicFetchMaxFn;
+typedef const BindlessAtomicFetchMaxFn *BindlessAtomicFetchMaxFnRef;
+typedef BindlessAtomicFetchMaxFn *BindlessAtomicFetchMaxFnRefMut;
 struct CallableFn;
+typedef const CallableFn *CallableFnRef;
+typedef CallableFn *CallableFnRefMut;
 struct CpuExtFn;
+typedef const CpuExtFn *CpuExtFnRef;
+typedef CpuExtFn *CpuExtFnRefMut;
 struct Instruction;
 struct InstructionData;
+typedef const CInstruction *InstructionRef;
+typedef CInstruction *InstructionRefMut;
 enum class InstructionTag : unsigned int {
     BUFFER,
     TEXTURE2D,
@@ -525,6 +852,32 @@ enum class InstructionTag : unsigned int {
     RAY_QUERY,
     REV_AUTODIFF,
     FWD_AUTODIFF,
+};
+enum class RustyInstructionTag : unsigned int {
+    Buffer,
+    Texture2d,
+    Texture3d,
+    BindlessArray,
+    Accel,
+    Shared,
+    Uniform,
+    Argument,
+    Constant,
+    Call,
+    Phi,
+    BasicBlockSentinel,
+    If,
+    GenericLoop,
+    Switch,
+    Local,
+    Break,
+    Continue,
+    Return,
+    Print,
+    Update,
+    RayQuery,
+    RevAutodiff,
+    FwdAutodiff,
 };
 inline const char *tag_name(InstructionTag tag) {
     switch (tag) {
@@ -562,26 +915,62 @@ struct LC_IR_API InstructionData {
 #endif
 };
 struct ArgumentInst;
+typedef const ArgumentInst *ArgumentInstRef;
+typedef ArgumentInst *ArgumentInstRefMut;
 struct ConstantInst;
+typedef const ConstantInst *ConstantInstRef;
+typedef ConstantInst *ConstantInstRefMut;
 struct CallInst;
+typedef const CallInst *CallInstRef;
+typedef CallInst *CallInstRefMut;
 struct PhiInst;
+typedef const PhiInst *PhiInstRef;
+typedef PhiInst *PhiInstRefMut;
 struct IfInst;
+typedef const IfInst *IfInstRef;
+typedef IfInst *IfInstRefMut;
 struct GenericLoopInst;
+typedef const GenericLoopInst *GenericLoopInstRef;
+typedef GenericLoopInst *GenericLoopInstRefMut;
 struct SwitchInst;
+typedef const SwitchInst *SwitchInstRef;
+typedef SwitchInst *SwitchInstRefMut;
 struct LocalInst;
+typedef const LocalInst *LocalInstRef;
+typedef LocalInst *LocalInstRefMut;
 struct ReturnInst;
+typedef const ReturnInst *ReturnInstRef;
+typedef ReturnInst *ReturnInstRefMut;
 struct PrintInst;
+typedef const PrintInst *PrintInstRef;
+typedef PrintInst *PrintInstRefMut;
 struct UpdateInst;
+typedef const UpdateInst *UpdateInstRef;
+typedef UpdateInst *UpdateInstRefMut;
 struct RayQueryInst;
+typedef const RayQueryInst *RayQueryInstRef;
+typedef RayQueryInst *RayQueryInstRefMut;
 struct RevAutodiffInst;
+typedef const RevAutodiffInst *RevAutodiffInstRef;
+typedef RevAutodiffInst *RevAutodiffInstRefMut;
 struct FwdAutodiffInst;
+typedef const FwdAutodiffInst *FwdAutodiffInstRef;
+typedef FwdAutodiffInst *FwdAutodiffInstRefMut;
 struct Binding;
 struct BindingData;
+typedef const CBinding *BindingRef;
+typedef CBinding *BindingRefMut;
 enum class BindingTag : unsigned int {
     BUFFER_BINDING,
     TEXTURE_BINDING,
     BINDLESS_ARRAY_BINDING,
     ACCEL_BINDING,
+};
+enum class RustyBindingTag : unsigned int {
+    BufferBinding,
+    TextureBinding,
+    BindlessArrayBinding,
+    AccelBinding,
 };
 inline const char *tag_name(BindingTag tag) {
     switch (tag) {
@@ -599,12 +988,21 @@ struct LC_IR_API BindingData {
 #endif
 };
 struct BufferBinding;
+typedef const BufferBinding *BufferBindingRef;
+typedef BufferBinding *BufferBindingRefMut;
 struct TextureBinding;
+typedef const TextureBinding *TextureBindingRef;
+typedef TextureBinding *TextureBindingRefMut;
 struct BindlessArrayBinding;
+typedef const BindlessArrayBinding *BindlessArrayBindingRef;
+typedef BindlessArrayBinding *BindlessArrayBindingRefMut;
 struct AccelBinding;
+typedef const AccelBinding *AccelBindingRef;
+typedef AccelBinding *AccelBindingRefMut;
 const Type *ir_v2_binding_type_extract(const Type *ty, uint32_t index);
 size_t ir_v2_binding_type_size(const Type *ty);
 size_t ir_v2_binding_type_alignment(const Type *ty);
+RustyTypeTag ir_v2_binding_type_tag(const Type *ty);
 bool ir_v2_binding_type_is_scalar(const Type *ty);
 bool ir_v2_binding_type_is_bool(const Type *ty);
 bool ir_v2_binding_type_is_int16(const Type *ty);
@@ -646,4 +1044,26 @@ const Type *ir_v2_binding_node_type(const Node *node);
 int32_t ir_v2_binding_node_get_index(const Node *node);
 const Node *ir_v2_binding_basic_block_first(const BasicBlock *block);
 const Node *ir_v2_binding_basic_block_last(const BasicBlock *block);
+void ir_v2_binding_node_unlink(Node *node);
+void ir_v2_binding_node_set_next(Node *node, Node *next);
+void ir_v2_binding_node_set_prev(Node *node, Node *prev);
+void ir_v2_binding_node_replace(Node *node, Node *new_node);
+Pool *ir_v2_binding_pool_new();
+void ir_v2_binding_pool_drop(Pool *pool);
+Pool *ir_v2_binding_pool_clone(Pool *pool);
+IrBuilder *ir_v2_binding_ir_builder_new(Pool *pool);
+IrBuilder *ir_v2_binding_ir_builder_new_without_bb(Pool *pool);
+void ir_v2_binding_ir_builder_drop(IrBuilder *builder);
+void ir_v2_binding_ir_builder_set_insert_point(IrBuilder *builder, Node *node);
+Node *ir_v2_binding_ir_builder_insert_point(IrBuilder *builder);
+Node *ir_v2_binding_ir_build_call(IrBuilder *builder, CFunc &&func, Slice<const Node *const> args, const Type *ty);
+Node *ir_v2_binding_ir_build_call_tag(IrBuilder *builder, RustyFuncTag tag, Slice<const Node *const> args, const Type *ty);
+Node *ir_v2_binding_ir_build_if(IrBuilder *builder, const Node *cond, const BasicBlock *true_branch, const BasicBlock *false_branch);
+Node *ir_v2_binding_ir_build_generic_loop(IrBuilder *builder, const BasicBlock *prepare, const Node *cond, const BasicBlock *body, const BasicBlock *update);
+Node *ir_v2_binding_ir_build_switch(IrBuilder *builder, const Node *value, Slice<const SwitchCase> cases, const BasicBlock *default_);
+Node *ir_v2_binding_ir_build_local(IrBuilder *builder, const Node *init);
+Node *ir_v2_binding_ir_build_break(IrBuilder *builder);
+Node *ir_v2_binding_ir_build_continue(IrBuilder *builder);
+Node *ir_v2_binding_ir_build_return(IrBuilder *builder, const Node *value);
+const BasicBlock *ir_v2_binding_ir_builder_finish(IrBuilder &&builder);
 }// namespace luisa::compute::ir_v2

@@ -32,6 +32,7 @@ MAP_FFI_TYPE_GET = {
     'Func': 'const CFunc*',
     'Node*': 'Node*',
     'BasicBlock*': 'BasicBlock*',
+    'const BasicBlock*': 'const BasicBlock*',
 }
 MAP_FFI_TYPE_SET = {
      'bool': 'bool',
@@ -56,6 +57,7 @@ MAP_FFI_TYPE_SET = {
     'Func': 'CFunc',
     'Node*': 'Node*',
     'BasicBlock*': 'BasicBlock*',
+    'const BasicBlock*': 'const BasicBlock*',
 }
 
 
@@ -148,6 +150,83 @@ struct Slice;
 struct CInstruction;
 struct CFunc;
 struct CBinding;
+// Don't touch!! These typedef are for bindgen
+typedef const Node *NodeRef;
+typedef Node *NodeRefMut;
+typedef const BasicBlock *BasicBlockRef;
+typedef BasicBlock *BasicBlockRefMut;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const CallableModule *CallableModuleRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef CallableModule *CallableModuleRefMut;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const Module *ModuleRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef Module *ModuleRefMut;
+typedef const KernelModule *KernelModuleRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef KernelModule *KernelModuleRefMut;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const Pool *PoolRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef Pool *PoolRefMut;
+typedef const Type *TypeRef;
+enum class RustyTypeTag {
+    Bool,//BOOL,
+    Int8,//INT8,
+    Uint8,//UINT8,
+    Int16,//INT16,
+    Uint16,//UINT16,
+    Int32,//INT32,
+    Uint32,//UINT32,
+    Int64,//INT64,
+    Uint64,//UINT64,
+    Float16,//FLOAT16,
+    Float32,//FLOAT32,
+    Float64,//FLOAT64,
+
+    Vector,//VECTOR,
+    Matrix,//MATRIX,
+
+    Array,//,ARRAY,
+    Struct,//,STRUCTURE,
+
+    __HIDDEN_BUFFER,
+    __HIDDEN_TEXTURE,
+    __HIDDEN_BINDLESS_ARRAY,
+    __HIDDEN_ACCEL,
+
+    Custom,//CUSTOM
+};
+      
+/**
+* <div rustbindgen nocopy></div>
+*/
+class IrBuilder;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef const IrBuilder *IrBuilderRef;
+/**
+* <div rustbindgen nocopy></div>
+*/
+typedef IrBuilder *IrBuilderRefMut;
+
+    
 ''', file=fwd_file)
 print('#include <luisa/ir_v2/ir_v2.h>', file=cpp_api_impl)
 print('namespace luisa::compute::ir_v2 {', file=cpp_api_impl)
@@ -160,6 +239,7 @@ class Item:
         self.comment = comment
         self.base = base
         self.tag = to_screaming_snake_case(name)
+        self.tag_rs = str(name)
 
     def gen(self):
         out = 'public:\n'
@@ -321,12 +401,20 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
     # gen cpp
     print('struct {};'.format(adt), file=fwd_file)
     print('struct {}Data;'.format(adt), file=fwd_file)
+    print(f'typedef const C{adt}* {adt}Ref;', file=fwd_file)
+    print(f'typedef C{adt}* {adt}RefMut;', file=fwd_file)
     
 
     print(f'    enum class {adt}Tag : unsigned int {{', file=fwd_file)
     for variant in variants:
         print('        {},'.format(
             variant.tag), file=fwd_file)
+    print('    };', file=fwd_file)
+
+    print(f'    enum class Rusty{adt}Tag : unsigned int {{', file=fwd_file)
+    for variant in variants:
+        print('        {},'.format(
+            variant.tag_rs), file=fwd_file)
     print('    };', file=fwd_file)
 
     print(f'    inline const char* tag_name({adt}Tag tag) {{', file=fwd_file)
@@ -348,6 +436,8 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
     for variant in variants:
         if len(variant.fields) > 0:
             print('struct {};'.format(variant.name), file=fwd_file)
+            print(f'typedef const {variant.name}* {variant.name}Ref;', file=fwd_file)
+            print(f'typedef {variant.name}* {variant.name}RefMut;', file=fwd_file)
     print('struct LC_IR_API {} {{'.format(adt), file=cpp_def)
     print('    luisa::unique_ptr<{}Data> _data;'.format(adt), file=cpp_def)
     print('     {}Tag _tag;'.format(adt), file=cpp_def)
@@ -429,19 +519,19 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
     
 
     fname = f'{adt}_tag'
-    fsig = f'{adt}Tag (*{fname})(const C{adt} *self)'
+    fsig = f'Rusty{adt}Tag (*{fname})(const C{adt} *self)'
     func_table.append((fname, fsig))
-    print(f'static {adt}Tag {fname}(const C{adt} *self) {{', file=c_api_impl)
-    print(f'    return reinterpret_cast<const {adt}*>(self)->tag();', file=c_api_impl)
+    print(f'static Rusty{adt}Tag {fname}(const C{adt} *self) {{', file=c_api_impl)
+    print(f'    return static_cast<Rusty{adt}Tag>(reinterpret_cast<const {adt}*>(self)->tag());', file=c_api_impl)
     print('}', file=c_api_impl)
     for variant in variants:
         variant.gen_c_api()
 
     fname = f'{adt}_new'
-    fsig = f'C{adt} (*{fname})(Pool *pool, {adt}Tag tag)'
+    fsig = f'C{adt} (*{fname})(Pool *pool, Rusty{adt}Tag tag)'
     func_table.append((fname, fsig))
-    print(f'static C{adt} {fname}(Pool *pool, {adt}Tag tag) {{', file=c_api_impl)
-    print(f'    auto obj = {adt}(tag);', file=c_api_impl)
+    print(f'static C{adt} {fname}(Pool *pool, Rusty{adt}Tag tag) {{', file=c_api_impl)
+    print(f'    auto obj = {adt}(static_cast<{adt}Tag>(tag));', file=c_api_impl)
     print(f'    auto cobj = C{adt}{{}};', file=c_api_impl)
     print(f'    std::memcpy(&cobj, &obj, sizeof(C{adt}));', file=c_api_impl)
     print(f'    (void)obj.steal();', file=c_api_impl)
@@ -508,19 +598,19 @@ instructions = [
     Instruction("BasicBlockSentinel", []),
     Instruction('If', [
         ('Node*', 'cond'),
-        ('BasicBlock*', 'true_branch'),
-        ('BasicBlock*', 'false_branch')
+        ('const BasicBlock*', 'true_branch'),
+        ('const BasicBlock*', 'false_branch')
     ]),
     Instruction('GenericLoop', [
-        ('BasicBlock*', 'prepare'),
+        ('const BasicBlock*', 'prepare'),
         ('Node*', 'cond'),
-        ('BasicBlock*', 'body'),
-        ('BasicBlock*', 'update')
+        ('const BasicBlock*', 'body'),
+        ('const BasicBlock*', 'update')
     ]),
     Instruction('Switch', [
         ('Node*', 'value'),
         ('luisa::vector<SwitchCase>', 'cases'),
-        ('BasicBlock*', 'default_')
+        ('const BasicBlock*', 'default_')
     ]),
     Instruction('Local', [
         ('Node*', 'init')
@@ -540,14 +630,14 @@ instructions = [
     ]),
     Instruction('RayQuery', [
         ('Node*', 'query'),
-        ('BasicBlock*', 'on_triangle_hit'),
-        ('BasicBlock*', 'on_procedural_hit'),
+        ('const BasicBlock*', 'on_triangle_hit'),
+        ('const BasicBlock*', 'on_procedural_hit'),
     ]),
     Instruction('RevAutodiff', [
-        ('BasicBlock*', 'body'),
+        ('const BasicBlock*', 'body'),
     ]),
     Instruction('FwdAutodiff', [
-        ('BasicBlock*', 'body'),
+        ('const BasicBlock*', 'body'),
     ]),
 ]
 
@@ -747,6 +837,7 @@ funcs = [
     Func('BindlessTexture2dSampleGrad', []),
     Func('BindlessTexture2dSampleGradLevel', []),
     Func('BindlessTexture2dRead', []),
+    Func('BindlessTexture2dReadLevel', []),
     Func('BindlessTexture2dSize', []),
     Func('BindlessTexture2dSizeLevel', []),
 
@@ -755,12 +846,14 @@ funcs = [
     Func('BindlessTexture3dSampleGrad', []),
     Func('BindlessTexture3dSampleGradLevel', []),
     Func('BindlessTexture3dRead', []),
+    Func('BindlessTexture3dReadLevel', []),
     Func('BindlessTexture3dSize', []),
     Func('BindlessTexture3dSizeLevel', []),
 
     Func('BindlessBufferWrite', [], side_effects=True),
     Func('BindlessBufferRead', []),
     Func('BindlessBufferSize', []),
+    Func('BindlessBufferType'),
 
     Func('BindlessByteBufferWrite', [], side_effects=True),
     Func('BindlessByteBufferRead', []),
@@ -815,18 +908,18 @@ funcs = [
 
 print('''
 struct PhiIncoming {
-    BasicBlock *block = nullptr;
-    Node *value = nullptr;
+    BasicBlockRef block = nullptr;
+    NodeRef value = nullptr;
 };
 struct SwitchCase {
     int32_t value = 0;
-    BasicBlock *block = nullptr;    
+    BasicBlockRef block = nullptr;    
 };
 struct CpuExternFn {
     void *data = nullptr;
     void (*func)(void *data, void *args) = nullptr;
     void (*dtor)(void *data) = nullptr;
-    const Type* arg_ty = nullptr;
+    TypeRef arg_ty = nullptr;
 };
 struct FuncMetadata {
     bool has_side_effects = false;    
@@ -886,6 +979,7 @@ def gen_extra_bindings():
     add_func('const Type*', 'type_extract', 'const Type* ty, uint32_t index')
     add_func('size_t', 'type_size', 'const Type* ty')
     add_func('size_t', 'type_alignment', 'const Type* ty')
+    add_func('RustyTypeTag', 'type_tag', 'const Type* ty')
     add_func('bool', 'type_is_scalar', 'const Type* ty')
     add_func('bool', 'type_is_bool', 'const Type* ty')
     add_func('bool', 'type_is_int16', 'const Type* ty')
@@ -934,6 +1028,31 @@ def gen_extra_bindings():
     add_func('const Node*', 'basic_block_first', 'const BasicBlock* block')
     add_func('const Node*', 'basic_block_last', 'const BasicBlock* block')
 
+    add_func('void','node_unlink', 'Node* node')
+    add_func('void','node_set_next', 'Node* node, Node* next')
+    add_func('void','node_set_prev', 'Node* node, Node* prev')
+    add_func('void','node_replace', 'Node* node, Node* new_node')
+
+    add_func('Pool*', 'pool_new', '')
+    add_func('void', 'pool_drop', 'Pool* pool')
+    add_func('Pool*', 'pool_clone', 'Pool* pool')
+
+    add_func('IrBuilder*', 'ir_builder_new', 'Pool* pool')
+    add_func('IrBuilder*', 'ir_builder_new_without_bb', 'Pool* pool')
+    add_func('void', 'ir_builder_drop', 'IrBuilder* builder')
+    add_func('void', 'ir_builder_set_insert_point', 'IrBuilder* builder, Node* node')
+    add_func('Node *', 'ir_builder_insert_point', 'IrBuilder* builder')
+    add_func('Node *','ir_build_call', 'IrBuilder* builder, CFunc &&func, Slice<const Node* const> args, const Type* ty')
+    add_func('Node *','ir_build_call_tag', 'IrBuilder* builder, RustyFuncTag tag, Slice<const Node* const> args, const Type* ty')
+    add_func('Node *', 'ir_build_if', 'IrBuilder* builder, const Node* cond, const BasicBlock* true_branch, const BasicBlock* false_branch')
+    add_func('Node *', 'ir_build_generic_loop', 'IrBuilder* builder, const BasicBlock* prepare, const Node* cond, const BasicBlock* body, const BasicBlock* update')
+    add_func('Node *', 'ir_build_switch', 'IrBuilder* builder, const Node* value, Slice<const SwitchCase> cases, const BasicBlock* default_')
+    add_func('Node *', 'ir_build_local', 'IrBuilder* builder, const Node* init')
+    add_func('Node *', 'ir_build_break', 'IrBuilder* builder')
+    add_func('Node *', 'ir_build_continue', 'IrBuilder* builder')
+    add_func('Node *', 'ir_build_return', 'IrBuilder* builder, const Node* value')
+    add_func('const BasicBlock*', 'ir_builder_finish', 'IrBuilder&& builder')
+
 gen_extra_bindings()
 
 # generate binding table
@@ -977,6 +1096,9 @@ os.system('clang-format -i ../../../src/ir_v2/ir_v2_defs.cpp')
 # run bindgen
 os.system('bindgen ir_v2_api.h -o ../../../src/rust/luisa_compute_ir_v2/src/binding.rs --rustified-enum .*Tag --disable-name-namespacing '
           '--blocklist-type _.* --blocklist-function _.* --blocklist-item _.* --blocklist-function .* '
+          '--blocklist-type TypeTag --blocklist-type InstructionTag --blocklist-type FuncTag --blocklist-type BindingTag '
+          '--new-type-alias .*Ref --new-type-alias .*RefMut '
+          '--with-derive-partialeq --with-derive-eq --with-derive-hash '
           '-- -I../../ -x c++ -std=c++17 -DLC_IR_EXPORT_DLL=1 -DBINDGEN -Wno-pragma-once-outside-header -Wno-return-type-c-linkage')
 
 

@@ -2,12 +2,12 @@
 namespace luisa::compute::ir_v2 {
 UseDefAnalysis::UseDefAnalysis(Module &module) : module{module} {
 }
-void UseDefAnalysis::visit_block(BasicBlock *block) noexcept {
+void UseDefAnalysis::visit_block(const BasicBlock *block) noexcept {
     block->for_each([&](Node *n) {
         visit_node(n);
     });
 }
-void UseDefAnalysis::visit_node(Node *n) noexcept {
+void UseDefAnalysis::visit_node(const Node *n) noexcept {
     auto inst = &n->inst;
     auto tag = inst->tag();
     switch (tag) {

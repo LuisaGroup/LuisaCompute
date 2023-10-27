@@ -398,10 +398,10 @@ public:
     }
 public:
     Node *cond{};
-    BasicBlock *true_branch{};
-    BasicBlock *false_branch{};
+    const BasicBlock *true_branch{};
+    const BasicBlock *false_branch{};
     IfInst() = default;
-    IfInst(Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) : cond(std::move(cond)), true_branch(std::move(true_branch)), false_branch(std::move(false_branch)) {}
+    IfInst(Node *cond, const BasicBlock *true_branch, const BasicBlock *false_branch) : cond(std::move(cond)), true_branch(std::move(true_branch)), false_branch(std::move(false_branch)) {}
 };
 struct LC_IR_API GenericLoopInst : public InstructionData {
 public:
@@ -413,12 +413,12 @@ public:
         return Tag::GENERIC_LOOP;
     }
 public:
-    BasicBlock *prepare{};
+    const BasicBlock *prepare{};
     Node *cond{};
-    BasicBlock *body{};
-    BasicBlock *update{};
+    const BasicBlock *body{};
+    const BasicBlock *update{};
     GenericLoopInst() = default;
-    GenericLoopInst(BasicBlock *prepare, Node *cond, BasicBlock *body, BasicBlock *update) : prepare(std::move(prepare)), cond(std::move(cond)), body(std::move(body)), update(std::move(update)) {}
+    GenericLoopInst(const BasicBlock *prepare, Node *cond, const BasicBlock *body, const BasicBlock *update) : prepare(std::move(prepare)), cond(std::move(cond)), body(std::move(body)), update(std::move(update)) {}
 };
 struct LC_IR_API SwitchInst : public InstructionData {
 public:
@@ -432,9 +432,9 @@ public:
 public:
     Node *value{};
     luisa::vector<SwitchCase> cases{};
-    BasicBlock *default_{};
+    const BasicBlock *default_{};
     SwitchInst() = default;
-    SwitchInst(Node *value, luisa::vector<SwitchCase> cases, BasicBlock *default_) : value(std::move(value)), cases(std::move(cases)), default_(std::move(default_)) {}
+    SwitchInst(Node *value, luisa::vector<SwitchCase> cases, const BasicBlock *default_) : value(std::move(value)), cases(std::move(cases)), default_(std::move(default_)) {}
 };
 struct LC_IR_API LocalInst : public InstructionData {
 public:
@@ -505,10 +505,10 @@ public:
     }
 public:
     Node *query{};
-    BasicBlock *on_triangle_hit{};
-    BasicBlock *on_procedural_hit{};
+    const BasicBlock *on_triangle_hit{};
+    const BasicBlock *on_procedural_hit{};
     RayQueryInst() = default;
-    RayQueryInst(Node *query, BasicBlock *on_triangle_hit, BasicBlock *on_procedural_hit) : query(std::move(query)), on_triangle_hit(std::move(on_triangle_hit)), on_procedural_hit(std::move(on_procedural_hit)) {}
+    RayQueryInst(Node *query, const BasicBlock *on_triangle_hit, const BasicBlock *on_procedural_hit) : query(std::move(query)), on_triangle_hit(std::move(on_triangle_hit)), on_procedural_hit(std::move(on_procedural_hit)) {}
 };
 struct LC_IR_API RevAutodiffInst : public InstructionData {
 public:
@@ -520,9 +520,9 @@ public:
         return Tag::REV_AUTODIFF;
     }
 public:
-    BasicBlock *body{};
+    const BasicBlock *body{};
     RevAutodiffInst() = default;
-    RevAutodiffInst(BasicBlock *body) : body(std::move(body)) {}
+    RevAutodiffInst(const BasicBlock *body) : body(std::move(body)) {}
 };
 struct LC_IR_API FwdAutodiffInst : public InstructionData {
 public:
@@ -534,9 +534,9 @@ public:
         return Tag::FWD_AUTODIFF;
     }
 public:
-    BasicBlock *body{};
+    const BasicBlock *body{};
     FwdAutodiffInst() = default;
-    FwdAutodiffInst(BasicBlock *body) : body(std::move(body)) {}
+    FwdAutodiffInst(const BasicBlock *body) : body(std::move(body)) {}
 };
 struct LC_IR_API Binding {
     luisa::unique_ptr<BindingData> _data;

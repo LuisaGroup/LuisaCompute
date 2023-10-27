@@ -59,11 +59,96 @@ pub struct KernelModule {
 pub struct Pool {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct NodeRef(pub *const Node);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct NodeRefMut(pub *mut Node);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BasicBlockRef(pub *const BasicBlock);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BasicBlockRefMut(pub *mut BasicBlock);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct CallableModuleRef(pub *const CallableModule);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct CallableModuleRefMut(pub *mut CallableModule);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct ModuleRef(pub *const Module);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct ModuleRefMut(pub *mut Module);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct KernelModuleRef(pub *const KernelModule);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct KernelModuleRefMut(pub *mut KernelModule);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct PoolRef(pub *const Pool);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct PoolRefMut(pub *mut Pool);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct TypeRef(pub *const Type);
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum RustyTypeTag {
+    Bool = 0,
+    Int8 = 1,
+    Uint8 = 2,
+    Int16 = 3,
+    Uint16 = 4,
+    Int32 = 5,
+    Uint32 = 6,
+    Int64 = 7,
+    Uint64 = 8,
+    Float16 = 9,
+    Float32 = 10,
+    Float64 = 11,
+    Vector = 12,
+    Matrix = 13,
+    Array = 14,
+    Struct = 15,
+    __HIDDEN_BUFFER = 16,
+    __HIDDEN_TEXTURE = 17,
+    __HIDDEN_BINDLESS_ARRAY = 18,
+    __HIDDEN_ACCEL = 19,
+    Custom = 20,
+}
+#[doc = " <div rustbindgen nocopy></div>"]
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
+pub struct IrBuilder {
+    _unused: [u8; 0],
+}
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct IrBuilderRef(pub *const IrBuilder);
+#[doc = " <div rustbindgen nocopy></div>"]
+#[repr(transparent)]
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct IrBuilderRefMut(pub *mut IrBuilder);
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhiIncoming {
-    pub block: *mut BasicBlock,
-    pub value: *mut Node,
+    pub block: BasicBlockRef,
+    pub value: NodeRef,
 }
 #[test]
 fn bindgen_test_layout_PhiIncoming() {
@@ -101,10 +186,10 @@ fn bindgen_test_layout_PhiIncoming() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct SwitchCase {
     pub value: i32,
-    pub block: *mut BasicBlock,
+    pub block: BasicBlockRef,
 }
 #[test]
 fn bindgen_test_layout_SwitchCase() {
@@ -142,14 +227,14 @@ fn bindgen_test_layout_SwitchCase() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct CpuExternFn {
     pub data: *mut ::std::os::raw::c_void,
     pub func: ::std::option::Option<
         unsafe extern "C" fn(data: *mut ::std::os::raw::c_void, args: *mut ::std::os::raw::c_void),
     >,
     pub dtor: ::std::option::Option<unsafe extern "C" fn(data: *mut ::std::os::raw::c_void)>,
-    pub arg_ty: *const Type,
+    pub arg_ty: TypeRef,
 }
 #[test]
 fn bindgen_test_layout_CpuExternFn() {
@@ -207,7 +292,7 @@ fn bindgen_test_layout_CpuExternFn() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct FuncMetadata {
     pub has_side_effects: bool,
 }
@@ -241,6 +326,12 @@ fn bindgen_test_layout_FuncMetadata() {
 pub struct Func {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct FuncRef(pub *const CFunc);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct FuncRefMut(pub *mut CFunc);
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum FuncTag {
@@ -414,50 +505,271 @@ pub enum FuncTag {
     BINDLESS_TEXTURE2D_SAMPLE_GRAD = 167,
     BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL = 168,
     BINDLESS_TEXTURE2D_READ = 169,
-    BINDLESS_TEXTURE2D_SIZE = 170,
-    BINDLESS_TEXTURE2D_SIZE_LEVEL = 171,
-    BINDLESS_TEXTURE3D_SAMPLE = 172,
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL = 173,
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD = 174,
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL = 175,
-    BINDLESS_TEXTURE3D_READ = 176,
-    BINDLESS_TEXTURE3D_SIZE = 177,
-    BINDLESS_TEXTURE3D_SIZE_LEVEL = 178,
-    BINDLESS_BUFFER_WRITE = 179,
-    BINDLESS_BUFFER_READ = 180,
-    BINDLESS_BUFFER_SIZE = 181,
-    BINDLESS_BYTE_BUFFER_WRITE = 182,
-    BINDLESS_BYTE_BUFFER_READ = 183,
-    BINDLESS_BYTE_BUFFER_SIZE = 184,
-    VEC = 185,
-    VEC2 = 186,
-    VEC3 = 187,
-    VEC4 = 188,
-    PERMUTE = 189,
-    GET_ELEMENT_PTR = 190,
-    EXTRACT_ELEMENT = 191,
-    INSERT_ELEMENT = 192,
-    ARRAY = 193,
-    STRUCT = 194,
-    MAT_FULL = 195,
-    MAT2 = 196,
-    MAT3 = 197,
-    MAT4 = 198,
-    BINDLESS_ATOMIC_EXCHANGE = 199,
-    BINDLESS_ATOMIC_COMPARE_EXCHANGE = 200,
-    BINDLESS_ATOMIC_FETCH_ADD = 201,
-    BINDLESS_ATOMIC_FETCH_SUB = 202,
-    BINDLESS_ATOMIC_FETCH_AND = 203,
-    BINDLESS_ATOMIC_FETCH_OR = 204,
-    BINDLESS_ATOMIC_FETCH_XOR = 205,
-    BINDLESS_ATOMIC_FETCH_MIN = 206,
-    BINDLESS_ATOMIC_FETCH_MAX = 207,
-    CALLABLE = 208,
-    CPU_EXT = 209,
-    SHADER_EXECUTION_REORDER = 210,
+    BINDLESS_TEXTURE2D_READ_LEVEL = 170,
+    BINDLESS_TEXTURE2D_SIZE = 171,
+    BINDLESS_TEXTURE2D_SIZE_LEVEL = 172,
+    BINDLESS_TEXTURE3D_SAMPLE = 173,
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL = 174,
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD = 175,
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL = 176,
+    BINDLESS_TEXTURE3D_READ = 177,
+    BINDLESS_TEXTURE3D_READ_LEVEL = 178,
+    BINDLESS_TEXTURE3D_SIZE = 179,
+    BINDLESS_TEXTURE3D_SIZE_LEVEL = 180,
+    BINDLESS_BUFFER_WRITE = 181,
+    BINDLESS_BUFFER_READ = 182,
+    BINDLESS_BUFFER_SIZE = 183,
+    BINDLESS_BUFFER_TYPE = 184,
+    BINDLESS_BYTE_BUFFER_WRITE = 185,
+    BINDLESS_BYTE_BUFFER_READ = 186,
+    BINDLESS_BYTE_BUFFER_SIZE = 187,
+    VEC = 188,
+    VEC2 = 189,
+    VEC3 = 190,
+    VEC4 = 191,
+    PERMUTE = 192,
+    GET_ELEMENT_PTR = 193,
+    EXTRACT_ELEMENT = 194,
+    INSERT_ELEMENT = 195,
+    ARRAY = 196,
+    STRUCT = 197,
+    MAT_FULL = 198,
+    MAT2 = 199,
+    MAT3 = 200,
+    MAT4 = 201,
+    BINDLESS_ATOMIC_EXCHANGE = 202,
+    BINDLESS_ATOMIC_COMPARE_EXCHANGE = 203,
+    BINDLESS_ATOMIC_FETCH_ADD = 204,
+    BINDLESS_ATOMIC_FETCH_SUB = 205,
+    BINDLESS_ATOMIC_FETCH_AND = 206,
+    BINDLESS_ATOMIC_FETCH_OR = 207,
+    BINDLESS_ATOMIC_FETCH_XOR = 208,
+    BINDLESS_ATOMIC_FETCH_MIN = 209,
+    BINDLESS_ATOMIC_FETCH_MAX = 210,
+    CALLABLE = 211,
+    CPU_EXT = 212,
+    SHADER_EXECUTION_REORDER = 213,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum RustyFuncTag {
+    Undef = 0,
+    Zero = 1,
+    One = 2,
+    Assume = 3,
+    Unreachable = 4,
+    ThreadId = 5,
+    BlockId = 6,
+    WarpSize = 7,
+    WarpLaneId = 8,
+    DispatchId = 9,
+    DispatchSize = 10,
+    PropagateGradient = 11,
+    OutputGradient = 12,
+    RequiresGradient = 13,
+    Backward = 14,
+    Gradient = 15,
+    AccGrad = 16,
+    Detach = 17,
+    RayTracingInstanceTransform = 18,
+    RayTracingInstanceVisibilityMask = 19,
+    RayTracingInstanceUserId = 20,
+    RayTracingSetInstanceTransform = 21,
+    RayTracingSetInstanceOpacity = 22,
+    RayTracingSetInstanceVisibility = 23,
+    RayTracingSetInstanceUserId = 24,
+    RayTracingTraceClosest = 25,
+    RayTracingTraceAny = 26,
+    RayTracingQueryAll = 27,
+    RayTracingQueryAny = 28,
+    RayQueryWorldSpaceRay = 29,
+    RayQueryProceduralCandidateHit = 30,
+    RayQueryTriangleCandidateHit = 31,
+    RayQueryCommittedHit = 32,
+    RayQueryCommitTriangle = 33,
+    RayQueryCommitdProcedural = 34,
+    RayQueryTerminate = 35,
+    Load = 36,
+    Cast = 37,
+    BitCast = 38,
+    Add = 39,
+    Sub = 40,
+    Mul = 41,
+    Div = 42,
+    Rem = 43,
+    BitAnd = 44,
+    BitOr = 45,
+    BitXor = 46,
+    Shl = 47,
+    Shr = 48,
+    RotRight = 49,
+    RotLeft = 50,
+    Eq = 51,
+    Ne = 52,
+    Lt = 53,
+    Le = 54,
+    Gt = 55,
+    Ge = 56,
+    MatCompMul = 57,
+    Neg = 58,
+    Not = 59,
+    BitNot = 60,
+    All = 61,
+    Any = 62,
+    Select = 63,
+    Clamp = 64,
+    Lerp = 65,
+    Step = 66,
+    Saturate = 67,
+    SmoothStep = 68,
+    Abs = 69,
+    Min = 70,
+    Max = 71,
+    ReduceSum = 72,
+    ReduceProd = 73,
+    ReduceMin = 74,
+    ReduceMax = 75,
+    Clz = 76,
+    Ctz = 77,
+    PopCount = 78,
+    Reverse = 79,
+    IsInf = 80,
+    IsNan = 81,
+    Acos = 82,
+    Acosh = 83,
+    Asin = 84,
+    Asinh = 85,
+    Atan = 86,
+    Atan2 = 87,
+    Atanh = 88,
+    Cos = 89,
+    Cosh = 90,
+    Sin = 91,
+    Sinh = 92,
+    Tan = 93,
+    Tanh = 94,
+    Exp = 95,
+    Exp2 = 96,
+    Exp10 = 97,
+    Log = 98,
+    Log2 = 99,
+    Log10 = 100,
+    Powi = 101,
+    Powf = 102,
+    Sqrt = 103,
+    Rsqrt = 104,
+    Ceil = 105,
+    Floor = 106,
+    Fract = 107,
+    Trunc = 108,
+    Round = 109,
+    Fma = 110,
+    Copysign = 111,
+    Cross = 112,
+    Dot = 113,
+    OuterProduct = 114,
+    Length = 115,
+    LengthSquared = 116,
+    Normalize = 117,
+    Faceforward = 118,
+    Distance = 119,
+    Reflect = 120,
+    Determinant = 121,
+    Transpose = 122,
+    Inverse = 123,
+    WarpIsFirstActiveLane = 124,
+    WarpFirstActiveLane = 125,
+    WarpActiveAllEqual = 126,
+    WarpActiveBitAnd = 127,
+    WarpActiveBitOr = 128,
+    WarpActiveBitXor = 129,
+    WarpActiveCountBits = 130,
+    WarpActiveMax = 131,
+    WarpActiveMin = 132,
+    WarpActiveProduct = 133,
+    WarpActiveSum = 134,
+    WarpActiveAll = 135,
+    WarpActiveAny = 136,
+    WarpActiveBitMask = 137,
+    WarpPrefixCountBits = 138,
+    WarpPrefixSum = 139,
+    WarpPrefixProduct = 140,
+    WarpReadLaneAt = 141,
+    WarpReadFirstLane = 142,
+    SynchronizeBlock = 143,
+    AtomicExchange = 144,
+    AtomicCompareExchange = 145,
+    AtomicFetchAdd = 146,
+    AtomicFetchSub = 147,
+    AtomicFetchAnd = 148,
+    AtomicFetchOr = 149,
+    AtomicFetchXor = 150,
+    AtomicFetchMin = 151,
+    AtomicFetchMax = 152,
+    BufferWrite = 153,
+    BufferRead = 154,
+    BufferSize = 155,
+    ByteBufferWrite = 156,
+    ByteBufferRead = 157,
+    ByteBufferSize = 158,
+    Texture2dRead = 159,
+    Texture2dWrite = 160,
+    Texture2dSize = 161,
+    Texture3dRead = 162,
+    Texture3dWrite = 163,
+    Texture3dSize = 164,
+    BindlessTexture2dSample = 165,
+    BindlessTexture2dSampleLevel = 166,
+    BindlessTexture2dSampleGrad = 167,
+    BindlessTexture2dSampleGradLevel = 168,
+    BindlessTexture2dRead = 169,
+    BindlessTexture2dReadLevel = 170,
+    BindlessTexture2dSize = 171,
+    BindlessTexture2dSizeLevel = 172,
+    BindlessTexture3dSample = 173,
+    BindlessTexture3dSampleLevel = 174,
+    BindlessTexture3dSampleGrad = 175,
+    BindlessTexture3dSampleGradLevel = 176,
+    BindlessTexture3dRead = 177,
+    BindlessTexture3dReadLevel = 178,
+    BindlessTexture3dSize = 179,
+    BindlessTexture3dSizeLevel = 180,
+    BindlessBufferWrite = 181,
+    BindlessBufferRead = 182,
+    BindlessBufferSize = 183,
+    BindlessBufferType = 184,
+    BindlessByteBufferWrite = 185,
+    BindlessByteBufferRead = 186,
+    BindlessByteBufferSize = 187,
+    Vec = 188,
+    Vec2 = 189,
+    Vec3 = 190,
+    Vec4 = 191,
+    Permute = 192,
+    GetElementPtr = 193,
+    ExtractElement = 194,
+    InsertElement = 195,
+    Array = 196,
+    Struct = 197,
+    MatFull = 198,
+    Mat2 = 199,
+    Mat3 = 200,
+    Mat4 = 201,
+    BindlessAtomicExchange = 202,
+    BindlessAtomicCompareExchange = 203,
+    BindlessAtomicFetchAdd = 204,
+    BindlessAtomicFetchSub = 205,
+    BindlessAtomicFetchAnd = 206,
+    BindlessAtomicFetchOr = 207,
+    BindlessAtomicFetchXor = 208,
+    BindlessAtomicFetchMin = 209,
+    BindlessAtomicFetchMax = 210,
+    Callable = 211,
+    CpuExt = 212,
+    ShaderExecutionReorder = 213,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct FuncData {
     pub _address: u8,
 }
@@ -479,71 +791,155 @@ fn bindgen_test_layout_FuncData() {
 pub struct AssumeFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct AssumeFnRef(pub *const AssumeFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct AssumeFnRefMut(pub *mut AssumeFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct UnreachableFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct UnreachableFnRef(pub *const UnreachableFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct UnreachableFnRefMut(pub *mut UnreachableFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicExchangeFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicExchangeFnRef(pub *const BindlessAtomicExchangeFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicExchangeFnRefMut(pub *mut BindlessAtomicExchangeFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicCompareExchangeFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicCompareExchangeFnRef(pub *const BindlessAtomicCompareExchangeFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicCompareExchangeFnRefMut(pub *mut BindlessAtomicCompareExchangeFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchAddFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchAddFnRef(pub *const BindlessAtomicFetchAddFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchAddFnRefMut(pub *mut BindlessAtomicFetchAddFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchSubFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchSubFnRef(pub *const BindlessAtomicFetchSubFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchSubFnRefMut(pub *mut BindlessAtomicFetchSubFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchAndFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchAndFnRef(pub *const BindlessAtomicFetchAndFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchAndFnRefMut(pub *mut BindlessAtomicFetchAndFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchOrFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchOrFnRef(pub *const BindlessAtomicFetchOrFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchOrFnRefMut(pub *mut BindlessAtomicFetchOrFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchXorFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchXorFnRef(pub *const BindlessAtomicFetchXorFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchXorFnRefMut(pub *mut BindlessAtomicFetchXorFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchMinFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchMinFnRef(pub *const BindlessAtomicFetchMinFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchMinFnRefMut(pub *mut BindlessAtomicFetchMinFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessAtomicFetchMaxFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchMaxFnRef(pub *const BindlessAtomicFetchMaxFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessAtomicFetchMaxFnRefMut(pub *mut BindlessAtomicFetchMaxFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CallableFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CallableFnRef(pub *const CallableFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CallableFnRefMut(pub *mut CallableFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CpuExtFn {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CpuExtFnRef(pub *const CpuExtFn);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CpuExtFnRefMut(pub *mut CpuExtFn);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Instruction {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct InstructionRef(pub *const CInstruction);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct InstructionRefMut(pub *mut CInstruction);
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum InstructionTag {
@@ -572,8 +968,36 @@ pub enum InstructionTag {
     REV_AUTODIFF = 22,
     FWD_AUTODIFF = 23,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum RustyInstructionTag {
+    Buffer = 0,
+    Texture2d = 1,
+    Texture3d = 2,
+    BindlessArray = 3,
+    Accel = 4,
+    Shared = 5,
+    Uniform = 6,
+    Argument = 7,
+    Constant = 8,
+    Call = 9,
+    Phi = 10,
+    BasicBlockSentinel = 11,
+    If = 12,
+    GenericLoop = 13,
+    Switch = 14,
+    Local = 15,
+    Break = 16,
+    Continue = 17,
+    Return = 18,
+    Print = 19,
+    Update = 20,
+    RayQuery = 21,
+    RevAutodiff = 22,
+    FwdAutodiff = 23,
+}
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct InstructionData {
     pub _address: u8,
 }
@@ -595,76 +1019,166 @@ fn bindgen_test_layout_InstructionData() {
 pub struct ArgumentInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ArgumentInstRef(pub *const ArgumentInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ArgumentInstRefMut(pub *mut ArgumentInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ConstantInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ConstantInstRef(pub *const ConstantInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ConstantInstRefMut(pub *mut ConstantInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CallInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CallInstRef(pub *const CallInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CallInstRefMut(pub *mut CallInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct PhiInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct PhiInstRef(pub *const PhiInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct PhiInstRefMut(pub *mut PhiInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct IfInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct IfInstRef(pub *const IfInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct IfInstRefMut(pub *mut IfInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct GenericLoopInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct GenericLoopInstRef(pub *const GenericLoopInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct GenericLoopInstRefMut(pub *mut GenericLoopInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct SwitchInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct SwitchInstRef(pub *const SwitchInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct SwitchInstRefMut(pub *mut SwitchInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct LocalInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct LocalInstRef(pub *const LocalInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct LocalInstRefMut(pub *mut LocalInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ReturnInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ReturnInstRef(pub *const ReturnInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ReturnInstRefMut(pub *mut ReturnInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct PrintInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct PrintInstRef(pub *const PrintInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct PrintInstRefMut(pub *mut PrintInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct UpdateInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct UpdateInstRef(pub *const UpdateInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct UpdateInstRefMut(pub *mut UpdateInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct RayQueryInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct RayQueryInstRef(pub *const RayQueryInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct RayQueryInstRefMut(pub *mut RayQueryInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct RevAutodiffInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct RevAutodiffInstRef(pub *const RevAutodiffInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct RevAutodiffInstRefMut(pub *mut RevAutodiffInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct FwdAutodiffInst {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct FwdAutodiffInstRef(pub *const FwdAutodiffInst);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct FwdAutodiffInstRefMut(pub *mut FwdAutodiffInst);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Binding {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindingRef(pub *const CBinding);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindingRefMut(pub *mut CBinding);
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum BindingTag {
@@ -673,8 +1187,16 @@ pub enum BindingTag {
     BINDLESS_ARRAY_BINDING = 2,
     ACCEL_BINDING = 3,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum RustyBindingTag {
+    BufferBinding = 0,
+    TextureBinding = 1,
+    BindlessArrayBinding = 2,
+    AccelBinding = 3,
+}
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct BindingData {
     pub _address: u8,
 }
@@ -696,24 +1218,48 @@ fn bindgen_test_layout_BindingData() {
 pub struct BufferBinding {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BufferBindingRef(pub *const BufferBinding);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BufferBindingRefMut(pub *mut BufferBinding);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct TextureBinding {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct TextureBindingRef(pub *const TextureBinding);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct TextureBindingRefMut(pub *mut TextureBinding);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct BindlessArrayBinding {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessArrayBindingRef(pub *const BindlessArrayBinding);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct BindlessArrayBindingRefMut(pub *mut BindlessArrayBinding);
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct AccelBinding {
     _unused: [u8; 0],
 }
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct AccelBindingRef(pub *const AccelBinding);
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct AccelBindingRefMut(pub *mut AccelBinding);
 #[doc = " <div rustbindgen nodebug></div>"]
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Slice<T> {
     pub data: *mut T,
     pub len: usize,
@@ -721,7 +1267,7 @@ pub struct Slice<T> {
 }
 #[doc = " <div rustbindgen nocopy></div>"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct CFunc {
     pub data: *mut ::std::os::raw::c_void,
     pub tag: FuncTag,
@@ -763,7 +1309,7 @@ fn bindgen_test_layout_CFunc() {
 }
 #[doc = " <div rustbindgen nocopy></div>"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct CInstruction {
     pub data: *mut ::std::os::raw::c_void,
     pub tag: InstructionTag,
@@ -805,7 +1351,7 @@ fn bindgen_test_layout_CInstruction() {
 }
 #[doc = " <div rustbindgen nocopy></div>"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct CBinding {
     pub data: *mut ::std::os::raw::c_void,
     pub tag: BindingTag,
@@ -846,7 +1392,7 @@ fn bindgen_test_layout_CBinding() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct IrV2BindingTable {
     pub Func_as_AssumeFn:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CFunc) -> *mut AssumeFn>,
@@ -883,7 +1429,7 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CFunc) -> *mut CallableFn>,
     pub Func_as_CpuExtFn:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CFunc) -> *mut CpuExtFn>,
-    pub Func_tag: ::std::option::Option<unsafe extern "C" fn(self_: *const CFunc) -> FuncTag>,
+    pub Func_tag: ::std::option::Option<unsafe extern "C" fn(self_: *const CFunc) -> RustyFuncTag>,
     pub AssumeFn_msg: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut AssumeFn) -> Slice<::std::os::raw::c_char>,
     >,
@@ -989,7 +1535,7 @@ pub struct IrV2BindingTable {
     pub CpuExtFn_new:
         ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, f: CpuExternFn) -> CFunc>,
     pub Func_new:
-        ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, tag: FuncTag) -> CFunc>,
+        ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, tag: RustyFuncTag) -> CFunc>,
     pub Instruction_as_ArgumentInst:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CInstruction) -> *mut ArgumentInst>,
     pub Instruction_as_ConstantInst:
@@ -1021,8 +1567,9 @@ pub struct IrV2BindingTable {
     pub Instruction_as_FwdAutodiffInst: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut CInstruction) -> *mut FwdAutodiffInst,
     >,
-    pub Instruction_tag:
-        ::std::option::Option<unsafe extern "C" fn(self_: *const CInstruction) -> InstructionTag>,
+    pub Instruction_tag: ::std::option::Option<
+        unsafe extern "C" fn(self_: *const CInstruction) -> RustyInstructionTag,
+    >,
     pub ArgumentInst_by_value:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut ArgumentInst) -> bool>,
     pub ArgumentInst_set_by_value:
@@ -1061,49 +1608,52 @@ pub struct IrV2BindingTable {
     >,
     pub IfInst_cond: ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst) -> *mut Node>,
     pub IfInst_true_branch:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst) -> *mut BasicBlock>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst) -> *const BasicBlock>,
     pub IfInst_false_branch:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst) -> *mut BasicBlock>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst) -> *const BasicBlock>,
     pub IfInst_set_cond:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst, value: *mut Node)>,
     pub IfInst_set_true_branch:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst, value: *mut BasicBlock)>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst, value: *const BasicBlock)>,
     pub IfInst_set_false_branch:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst, value: *mut BasicBlock)>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut IfInst, value: *const BasicBlock)>,
     pub IfInst_new: ::std::option::Option<
         unsafe extern "C" fn(
             pool: *mut Pool,
             cond: *mut Node,
-            true_branch: *mut BasicBlock,
-            false_branch: *mut BasicBlock,
+            true_branch: *const BasicBlock,
+            false_branch: *const BasicBlock,
         ) -> CInstruction,
     >,
-    pub GenericLoopInst_prepare:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *mut BasicBlock>,
+    pub GenericLoopInst_prepare: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *const BasicBlock,
+    >,
     pub GenericLoopInst_cond:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *mut Node>,
-    pub GenericLoopInst_body:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *mut BasicBlock>,
-    pub GenericLoopInst_update:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *mut BasicBlock>,
+    pub GenericLoopInst_body: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *const BasicBlock,
+    >,
+    pub GenericLoopInst_update: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GenericLoopInst) -> *const BasicBlock,
+    >,
     pub GenericLoopInst_set_prepare: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *const BasicBlock),
     >,
     pub GenericLoopInst_set_cond:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *mut Node)>,
     pub GenericLoopInst_set_body: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *const BasicBlock),
     >,
     pub GenericLoopInst_set_update: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut GenericLoopInst, value: *const BasicBlock),
     >,
     pub GenericLoopInst_new: ::std::option::Option<
         unsafe extern "C" fn(
             pool: *mut Pool,
-            prepare: *mut BasicBlock,
+            prepare: *const BasicBlock,
             cond: *mut Node,
-            body: *mut BasicBlock,
-            update: *mut BasicBlock,
+            body: *const BasicBlock,
+            update: *const BasicBlock,
         ) -> CInstruction,
     >,
     pub SwitchInst_value:
@@ -1111,20 +1661,21 @@ pub struct IrV2BindingTable {
     pub SwitchInst_cases:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut SwitchInst) -> Slice<SwitchCase>>,
     pub SwitchInst_default_:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut SwitchInst) -> *mut BasicBlock>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut SwitchInst) -> *const BasicBlock>,
     pub SwitchInst_set_value:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut SwitchInst, value: *mut Node)>,
     pub SwitchInst_set_cases: ::std::option::Option<
         unsafe extern "C" fn(self_: *mut SwitchInst, value: Slice<SwitchCase>),
     >,
-    pub SwitchInst_set_default_:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut SwitchInst, value: *mut BasicBlock)>,
+    pub SwitchInst_set_default_: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut SwitchInst, value: *const BasicBlock),
+    >,
     pub SwitchInst_new: ::std::option::Option<
         unsafe extern "C" fn(
             pool: *mut Pool,
             value: *mut Node,
             cases: Slice<SwitchCase>,
-            default_: *mut BasicBlock,
+            default_: *const BasicBlock,
         ) -> CInstruction,
     >,
     pub LocalInst_init:
@@ -1172,43 +1723,45 @@ pub struct IrV2BindingTable {
     pub RayQueryInst_query:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQueryInst) -> *mut Node>,
     pub RayQueryInst_on_triangle_hit:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQueryInst) -> *mut BasicBlock>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQueryInst) -> *const BasicBlock>,
     pub RayQueryInst_on_procedural_hit:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQueryInst) -> *mut BasicBlock>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQueryInst) -> *const BasicBlock>,
     pub RayQueryInst_set_query:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut RayQueryInst, value: *mut Node)>,
     pub RayQueryInst_set_on_triangle_hit: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut RayQueryInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut RayQueryInst, value: *const BasicBlock),
     >,
     pub RayQueryInst_set_on_procedural_hit: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut RayQueryInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut RayQueryInst, value: *const BasicBlock),
     >,
     pub RayQueryInst_new: ::std::option::Option<
         unsafe extern "C" fn(
             pool: *mut Pool,
             query: *mut Node,
-            on_triangle_hit: *mut BasicBlock,
-            on_procedural_hit: *mut BasicBlock,
+            on_triangle_hit: *const BasicBlock,
+            on_procedural_hit: *const BasicBlock,
         ) -> CInstruction,
     >,
-    pub RevAutodiffInst_body:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut RevAutodiffInst) -> *mut BasicBlock>,
+    pub RevAutodiffInst_body: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut RevAutodiffInst) -> *const BasicBlock,
+    >,
     pub RevAutodiffInst_set_body: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut RevAutodiffInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut RevAutodiffInst, value: *const BasicBlock),
     >,
     pub RevAutodiffInst_new: ::std::option::Option<
-        unsafe extern "C" fn(pool: *mut Pool, body: *mut BasicBlock) -> CInstruction,
+        unsafe extern "C" fn(pool: *mut Pool, body: *const BasicBlock) -> CInstruction,
     >,
-    pub FwdAutodiffInst_body:
-        ::std::option::Option<unsafe extern "C" fn(self_: *mut FwdAutodiffInst) -> *mut BasicBlock>,
+    pub FwdAutodiffInst_body: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut FwdAutodiffInst) -> *const BasicBlock,
+    >,
     pub FwdAutodiffInst_set_body: ::std::option::Option<
-        unsafe extern "C" fn(self_: *mut FwdAutodiffInst, value: *mut BasicBlock),
+        unsafe extern "C" fn(self_: *mut FwdAutodiffInst, value: *const BasicBlock),
     >,
     pub FwdAutodiffInst_new: ::std::option::Option<
-        unsafe extern "C" fn(pool: *mut Pool, body: *mut BasicBlock) -> CInstruction,
+        unsafe extern "C" fn(pool: *mut Pool, body: *const BasicBlock) -> CInstruction,
     >,
     pub Instruction_new: ::std::option::Option<
-        unsafe extern "C" fn(pool: *mut Pool, tag: InstructionTag) -> CInstruction,
+        unsafe extern "C" fn(pool: *mut Pool, tag: RustyInstructionTag) -> CInstruction,
     >,
     pub func_metadata: ::std::option::Option<unsafe extern "C" fn() -> *const FuncMetadata>,
     pub Binding_as_BufferBinding:
@@ -1221,7 +1774,7 @@ pub struct IrV2BindingTable {
     pub Binding_as_AccelBinding:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut CBinding) -> *mut AccelBinding>,
     pub Binding_tag:
-        ::std::option::Option<unsafe extern "C" fn(self_: *const CBinding) -> BindingTag>,
+        ::std::option::Option<unsafe extern "C" fn(self_: *const CBinding) -> RustyBindingTag>,
     pub BufferBinding_handle:
         ::std::option::Option<unsafe extern "C" fn(self_: *mut BufferBinding) -> u64>,
     pub BufferBinding_offset:
@@ -1260,12 +1813,14 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(self_: *mut AccelBinding, value: u64)>,
     pub AccelBinding_new:
         ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, handle: u64) -> CBinding>,
-    pub Binding_new:
-        ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool, tag: BindingTag) -> CBinding>,
+    pub Binding_new: ::std::option::Option<
+        unsafe extern "C" fn(pool: *mut Pool, tag: RustyBindingTag) -> CBinding,
+    >,
     pub type_extract:
         ::std::option::Option<unsafe extern "C" fn(ty: *const Type, index: u32) -> *const Type>,
     pub type_size: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> usize>,
     pub type_alignment: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> usize>,
+    pub type_tag: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> RustyTypeTag>,
     pub type_is_scalar: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
     pub type_is_bool: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
     pub type_is_int16: ::std::option::Option<unsafe extern "C" fn(ty: *const Type) -> bool>,
@@ -1321,6 +1876,78 @@ pub struct IrV2BindingTable {
         ::std::option::Option<unsafe extern "C" fn(block: *const BasicBlock) -> *const Node>,
     pub basic_block_last:
         ::std::option::Option<unsafe extern "C" fn(block: *const BasicBlock) -> *const Node>,
+    pub node_unlink: ::std::option::Option<unsafe extern "C" fn(node: *mut Node)>,
+    pub node_set_next:
+        ::std::option::Option<unsafe extern "C" fn(node: *mut Node, next: *mut Node)>,
+    pub node_set_prev:
+        ::std::option::Option<unsafe extern "C" fn(node: *mut Node, prev: *mut Node)>,
+    pub node_replace:
+        ::std::option::Option<unsafe extern "C" fn(node: *mut Node, new_node: *mut Node)>,
+    pub pool_new: ::std::option::Option<unsafe extern "C" fn() -> *mut Pool>,
+    pub pool_drop: ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool)>,
+    pub pool_clone: ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool) -> *mut Pool>,
+    pub ir_builder_new:
+        ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool) -> *mut IrBuilder>,
+    pub ir_builder_new_without_bb:
+        ::std::option::Option<unsafe extern "C" fn(pool: *mut Pool) -> *mut IrBuilder>,
+    pub ir_builder_drop: ::std::option::Option<unsafe extern "C" fn(builder: *mut IrBuilder)>,
+    pub ir_builder_set_insert_point:
+        ::std::option::Option<unsafe extern "C" fn(builder: *mut IrBuilder, node: *mut Node)>,
+    pub ir_builder_insert_point:
+        ::std::option::Option<unsafe extern "C" fn(builder: *mut IrBuilder) -> *mut Node>,
+    pub ir_build_call: ::std::option::Option<
+        unsafe extern "C" fn(
+            builder: *mut IrBuilder,
+            func: *mut CFunc,
+            args: Slice<*const Node>,
+            ty: *const Type,
+        ) -> *mut Node,
+    >,
+    pub ir_build_call_tag: ::std::option::Option<
+        unsafe extern "C" fn(
+            builder: *mut IrBuilder,
+            tag: RustyFuncTag,
+            args: Slice<*const Node>,
+            ty: *const Type,
+        ) -> *mut Node,
+    >,
+    pub ir_build_if: ::std::option::Option<
+        unsafe extern "C" fn(
+            builder: *mut IrBuilder,
+            cond: *const Node,
+            true_branch: *const BasicBlock,
+            false_branch: *const BasicBlock,
+        ) -> *mut Node,
+    >,
+    pub ir_build_generic_loop: ::std::option::Option<
+        unsafe extern "C" fn(
+            builder: *mut IrBuilder,
+            prepare: *const BasicBlock,
+            cond: *const Node,
+            body: *const BasicBlock,
+            update: *const BasicBlock,
+        ) -> *mut Node,
+    >,
+    pub ir_build_switch: ::std::option::Option<
+        unsafe extern "C" fn(
+            builder: *mut IrBuilder,
+            value: *const Node,
+            cases: Slice<SwitchCase>,
+            default_: *const BasicBlock,
+        ) -> *mut Node,
+    >,
+    pub ir_build_local: ::std::option::Option<
+        unsafe extern "C" fn(builder: *mut IrBuilder, init: *const Node) -> *mut Node,
+    >,
+    pub ir_build_break:
+        ::std::option::Option<unsafe extern "C" fn(builder: *mut IrBuilder) -> *mut Node>,
+    pub ir_build_continue:
+        ::std::option::Option<unsafe extern "C" fn(builder: *mut IrBuilder) -> *mut Node>,
+    pub ir_build_return: ::std::option::Option<
+        unsafe extern "C" fn(builder: *mut IrBuilder, value: *const Node) -> *mut Node,
+    >,
+    pub ir_builder_finish:
+        ::std::option::Option<unsafe extern "C" fn(builder: *mut IrBuilder) -> *const BasicBlock>,
 }
 #[test]
 fn bindgen_test_layout_IrV2BindingTable() {
@@ -1328,7 +1955,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<IrV2BindingTable>(),
-        1656usize,
+        1840usize,
         concat!("Size of: ", stringify!(IrV2BindingTable))
     );
     assert_eq!(
@@ -3071,8 +3698,18 @@ fn bindgen_test_layout_IrV2BindingTable() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).type_is_scalar) as usize - ptr as usize },
+        unsafe { ::std::ptr::addr_of!((*ptr).type_tag) as usize - ptr as usize },
         1328usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(type_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_is_scalar) as usize - ptr as usize },
+        1336usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3082,7 +3719,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_bool) as usize - ptr as usize },
-        1336usize,
+        1344usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3092,7 +3729,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_int16) as usize - ptr as usize },
-        1344usize,
+        1352usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3102,7 +3739,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_int32) as usize - ptr as usize },
-        1352usize,
+        1360usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3112,7 +3749,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_int64) as usize - ptr as usize },
-        1360usize,
+        1368usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3122,7 +3759,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_uint16) as usize - ptr as usize },
-        1368usize,
+        1376usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3132,7 +3769,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_uint32) as usize - ptr as usize },
-        1376usize,
+        1384usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3142,7 +3779,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_uint64) as usize - ptr as usize },
-        1384usize,
+        1392usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3152,7 +3789,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_float16) as usize - ptr as usize },
-        1392usize,
+        1400usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3162,7 +3799,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_float32) as usize - ptr as usize },
-        1400usize,
+        1408usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3172,7 +3809,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_array) as usize - ptr as usize },
-        1408usize,
+        1416usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3182,7 +3819,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_vector) as usize - ptr as usize },
-        1416usize,
+        1424usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3192,7 +3829,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_struct) as usize - ptr as usize },
-        1424usize,
+        1432usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3202,7 +3839,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_custom) as usize - ptr as usize },
-        1432usize,
+        1440usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3212,7 +3849,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_is_matrix) as usize - ptr as usize },
-        1440usize,
+        1448usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3222,7 +3859,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_element) as usize - ptr as usize },
-        1448usize,
+        1456usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3232,7 +3869,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_description) as usize - ptr as usize },
-        1456usize,
+        1464usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3242,7 +3879,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_dimension) as usize - ptr as usize },
-        1464usize,
+        1472usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3252,7 +3889,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_members) as usize - ptr as usize },
-        1472usize,
+        1480usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3262,7 +3899,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).make_struct) as usize - ptr as usize },
-        1480usize,
+        1488usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3272,7 +3909,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).make_array) as usize - ptr as usize },
-        1488usize,
+        1496usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3282,7 +3919,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).make_vector) as usize - ptr as usize },
-        1496usize,
+        1504usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3292,7 +3929,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).make_matrix) as usize - ptr as usize },
-        1504usize,
+        1512usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3302,7 +3939,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).make_custom) as usize - ptr as usize },
-        1512usize,
+        1520usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3312,7 +3949,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).from_desc) as usize - ptr as usize },
-        1520usize,
+        1528usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3322,7 +3959,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_bool) as usize - ptr as usize },
-        1528usize,
+        1536usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3332,7 +3969,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_int16) as usize - ptr as usize },
-        1536usize,
+        1544usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3342,7 +3979,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_int32) as usize - ptr as usize },
-        1544usize,
+        1552usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3352,7 +3989,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_int64) as usize - ptr as usize },
-        1552usize,
+        1560usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3362,7 +3999,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_uint16) as usize - ptr as usize },
-        1560usize,
+        1568usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3372,7 +4009,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_uint32) as usize - ptr as usize },
-        1568usize,
+        1576usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3382,7 +4019,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_uint64) as usize - ptr as usize },
-        1576usize,
+        1584usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3392,7 +4029,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_float16) as usize - ptr as usize },
-        1584usize,
+        1592usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3402,7 +4039,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).type_float32) as usize - ptr as usize },
-        1592usize,
+        1600usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3412,7 +4049,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).node_prev) as usize - ptr as usize },
-        1600usize,
+        1608usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3422,7 +4059,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).node_next) as usize - ptr as usize },
-        1608usize,
+        1616usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3432,7 +4069,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).node_inst) as usize - ptr as usize },
-        1616usize,
+        1624usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3442,7 +4079,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).node_type) as usize - ptr as usize },
-        1624usize,
+        1632usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3452,7 +4089,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).node_get_index) as usize - ptr as usize },
-        1632usize,
+        1640usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3462,7 +4099,7 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).basic_block_first) as usize - ptr as usize },
-        1640usize,
+        1648usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
@@ -3472,12 +4109,232 @@ fn bindgen_test_layout_IrV2BindingTable() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).basic_block_last) as usize - ptr as usize },
-        1648usize,
+        1656usize,
         concat!(
             "Offset of field: ",
             stringify!(IrV2BindingTable),
             "::",
             stringify!(basic_block_last)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_unlink) as usize - ptr as usize },
+        1664usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_unlink)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_set_next) as usize - ptr as usize },
+        1672usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_set_next)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_set_prev) as usize - ptr as usize },
+        1680usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_set_prev)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).node_replace) as usize - ptr as usize },
+        1688usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(node_replace)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).pool_new) as usize - ptr as usize },
+        1696usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(pool_new)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).pool_drop) as usize - ptr as usize },
+        1704usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(pool_drop)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).pool_clone) as usize - ptr as usize },
+        1712usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(pool_clone)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_builder_new) as usize - ptr as usize },
+        1720usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_builder_new)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_builder_new_without_bb) as usize - ptr as usize },
+        1728usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_builder_new_without_bb)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_builder_drop) as usize - ptr as usize },
+        1736usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_builder_drop)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_builder_set_insert_point) as usize - ptr as usize },
+        1744usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_builder_set_insert_point)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_builder_insert_point) as usize - ptr as usize },
+        1752usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_builder_insert_point)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_call) as usize - ptr as usize },
+        1760usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_call)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_call_tag) as usize - ptr as usize },
+        1768usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_call_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_if) as usize - ptr as usize },
+        1776usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_if)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_generic_loop) as usize - ptr as usize },
+        1784usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_generic_loop)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_switch) as usize - ptr as usize },
+        1792usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_switch)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_local) as usize - ptr as usize },
+        1800usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_local)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_break) as usize - ptr as usize },
+        1808usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_break)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_continue) as usize - ptr as usize },
+        1816usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_continue)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_build_return) as usize - ptr as usize },
+        1824usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_build_return)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ir_builder_finish) as usize - ptr as usize },
+        1832usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(IrV2BindingTable),
+            "::",
+            stringify!(ir_builder_finish)
         )
     );
 }

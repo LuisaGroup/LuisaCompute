@@ -4,16 +4,16 @@
 namespace luisa::compute::ir_v2 {
 class UseDefAnalysis {
     // _use[a] = {b, c, d} means a is used by b, c, d
-    luisa::unordered_map<Node *, luisa::unordered_set<Node *>> _used_by;
+    luisa::unordered_map<const Node *, luisa::unordered_set<const Node *>> _used_by;
 
     // nodes that are implicitly used
-    luisa::unordered_set<Node *> _root;
+    luisa::unordered_set<const Node *> _root;
     Module &module;
-    void visit_block(BasicBlock *block) noexcept;
-    void visit_node(Node *node) noexcept;
+    void visit_block(const BasicBlock *block) noexcept;
+    void visit_node(const Node *node) noexcept;
 public:
     UseDefAnalysis(Module &module);
-    void add_to_root(Node *node) noexcept {
+    void add_to_root(const Node *node) noexcept {
         _root.insert(node);
     }
     void run() noexcept;
@@ -21,22 +21,22 @@ public:
         _used_by.clear();
         _root.clear();
     }
-    [[nodiscard]] const luisa::unordered_set<Node *> &used_by(Node *n) const noexcept {
+    [[nodiscard]] const luisa::unordered_set<const Node *> &used_by(const Node *n) const noexcept {
         auto it = _used_by.find(n);
-        LUISA_ASSERT(it != _used_by.end(), "{} not in use-def analysis", (void*)n);
+        LUISA_ASSERT(it != _used_by.end(), "{} not in use-def analysis", (void *)n);
         return it->second;
     }
-    [[nodiscard]] const luisa::unordered_set<Node *> &root() const noexcept {
+    [[nodiscard]] const luisa::unordered_set<const Node *> &root() const noexcept {
         return _root;
     }
-    [[nodiscard]] bool in_use(Node *node) const noexcept {
+    [[nodiscard]] bool in_use(const Node *node) const noexcept {
         {
             auto it = _used_by.find(node);
-            LUISA_ASSERT(it != _used_by.end(), "{} not in use-def analysis", (void*)node);
+            LUISA_ASSERT(it != _used_by.end(), "{} not in use-def analysis", (void *)node);
         }
         // check if n can be reached from root
-        luisa::unordered_set<Node *> visited;
-        luisa::vector<Node *> queue;
+        luisa::unordered_set<const Node *> visited;
+        luisa::vector<const Node *> queue;
         queue.reserve(_root.size());
         for (auto r : _root) {
             queue.push_back(r);

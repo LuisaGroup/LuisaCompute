@@ -41,8 +41,8 @@ static CallableFn *Func_as_CallableFn(CFunc *self) {
 static CpuExtFn *Func_as_CpuExtFn(CFunc *self) {
     return reinterpret_cast<Func *>(self)->as<CpuExtFn>();
 }
-static FuncTag Func_tag(const CFunc *self) {
-    return reinterpret_cast<const Func *>(self)->tag();
+static RustyFuncTag Func_tag(const CFunc *self) {
+    return static_cast<RustyFuncTag>(reinterpret_cast<const Func *>(self)->tag());
 }
 static Slice<const char> AssumeFn_msg(AssumeFn *self) {
     return self->msg;
@@ -252,8 +252,8 @@ static CFunc CpuExtFn_new(Pool *pool, CpuExternFn f) {
     (void)obj.steal();
     return cobj;
 }
-static CFunc Func_new(Pool *pool, FuncTag tag) {
-    auto obj = Func(tag);
+static CFunc Func_new(Pool *pool, RustyFuncTag tag) {
+    auto obj = Func(static_cast<FuncTag>(tag));
     auto cobj = CFunc{};
     std::memcpy(&cobj, &obj, sizeof(CFunc));
     (void)obj.steal();
@@ -301,8 +301,8 @@ static RevAutodiffInst *Instruction_as_RevAutodiffInst(CInstruction *self) {
 static FwdAutodiffInst *Instruction_as_FwdAutodiffInst(CInstruction *self) {
     return reinterpret_cast<Instruction *>(self)->as<FwdAutodiffInst>();
 }
-static InstructionTag Instruction_tag(const CInstruction *self) {
-    return reinterpret_cast<const Instruction *>(self)->tag();
+static RustyInstructionTag Instruction_tag(const CInstruction *self) {
+    return static_cast<RustyInstructionTag>(reinterpret_cast<const Instruction *>(self)->tag());
 }
 static bool ArgumentInst_by_value(ArgumentInst *self) {
     return self->by_value;
@@ -385,22 +385,22 @@ static CInstruction PhiInst_new(Pool *pool, Slice<PhiIncoming> incomings) {
 static Node *IfInst_cond(IfInst *self) {
     return self->cond;
 }
-static BasicBlock *IfInst_true_branch(IfInst *self) {
+static const BasicBlock *IfInst_true_branch(IfInst *self) {
     return self->true_branch;
 }
-static BasicBlock *IfInst_false_branch(IfInst *self) {
+static const BasicBlock *IfInst_false_branch(IfInst *self) {
     return self->false_branch;
 }
 static void IfInst_set_cond(IfInst *self, Node *value) {
     self->cond = value;
 }
-static void IfInst_set_true_branch(IfInst *self, BasicBlock *value) {
+static void IfInst_set_true_branch(IfInst *self, const BasicBlock *value) {
     self->true_branch = value;
 }
-static void IfInst_set_false_branch(IfInst *self, BasicBlock *value) {
+static void IfInst_set_false_branch(IfInst *self, const BasicBlock *value) {
     self->false_branch = value;
 }
-static CInstruction IfInst_new(Pool *pool, Node *cond, BasicBlock *true_branch, BasicBlock *false_branch) {
+static CInstruction IfInst_new(Pool *pool, Node *cond, const BasicBlock *true_branch, const BasicBlock *false_branch) {
     auto data = luisa::unique_ptr<IfInst>();
     IfInst_set_cond(data.get(), cond);
     IfInst_set_true_branch(data.get(), true_branch);
@@ -412,31 +412,31 @@ static CInstruction IfInst_new(Pool *pool, Node *cond, BasicBlock *true_branch, 
     (void)obj.steal();
     return cobj;
 }
-static BasicBlock *GenericLoopInst_prepare(GenericLoopInst *self) {
+static const BasicBlock *GenericLoopInst_prepare(GenericLoopInst *self) {
     return self->prepare;
 }
 static Node *GenericLoopInst_cond(GenericLoopInst *self) {
     return self->cond;
 }
-static BasicBlock *GenericLoopInst_body(GenericLoopInst *self) {
+static const BasicBlock *GenericLoopInst_body(GenericLoopInst *self) {
     return self->body;
 }
-static BasicBlock *GenericLoopInst_update(GenericLoopInst *self) {
+static const BasicBlock *GenericLoopInst_update(GenericLoopInst *self) {
     return self->update;
 }
-static void GenericLoopInst_set_prepare(GenericLoopInst *self, BasicBlock *value) {
+static void GenericLoopInst_set_prepare(GenericLoopInst *self, const BasicBlock *value) {
     self->prepare = value;
 }
 static void GenericLoopInst_set_cond(GenericLoopInst *self, Node *value) {
     self->cond = value;
 }
-static void GenericLoopInst_set_body(GenericLoopInst *self, BasicBlock *value) {
+static void GenericLoopInst_set_body(GenericLoopInst *self, const BasicBlock *value) {
     self->body = value;
 }
-static void GenericLoopInst_set_update(GenericLoopInst *self, BasicBlock *value) {
+static void GenericLoopInst_set_update(GenericLoopInst *self, const BasicBlock *value) {
     self->update = value;
 }
-static CInstruction GenericLoopInst_new(Pool *pool, BasicBlock *prepare, Node *cond, BasicBlock *body, BasicBlock *update) {
+static CInstruction GenericLoopInst_new(Pool *pool, const BasicBlock *prepare, Node *cond, const BasicBlock *body, const BasicBlock *update) {
     auto data = luisa::unique_ptr<GenericLoopInst>();
     GenericLoopInst_set_prepare(data.get(), prepare);
     GenericLoopInst_set_cond(data.get(), cond);
@@ -455,7 +455,7 @@ static Node *SwitchInst_value(SwitchInst *self) {
 static Slice<SwitchCase> SwitchInst_cases(SwitchInst *self) {
     return self->cases;
 }
-static BasicBlock *SwitchInst_default_(SwitchInst *self) {
+static const BasicBlock *SwitchInst_default_(SwitchInst *self) {
     return self->default_;
 }
 static void SwitchInst_set_value(SwitchInst *self, Node *value) {
@@ -464,10 +464,10 @@ static void SwitchInst_set_value(SwitchInst *self, Node *value) {
 static void SwitchInst_set_cases(SwitchInst *self, Slice<SwitchCase> value) {
     self->cases = value.to_vector();
 }
-static void SwitchInst_set_default_(SwitchInst *self, BasicBlock *value) {
+static void SwitchInst_set_default_(SwitchInst *self, const BasicBlock *value) {
     self->default_ = value;
 }
-static CInstruction SwitchInst_new(Pool *pool, Node *value, Slice<SwitchCase> cases, BasicBlock *default_) {
+static CInstruction SwitchInst_new(Pool *pool, Node *value, Slice<SwitchCase> cases, const BasicBlock *default_) {
     auto data = luisa::unique_ptr<SwitchInst>();
     SwitchInst_set_value(data.get(), value);
     SwitchInst_set_cases(data.get(), cases);
@@ -560,22 +560,22 @@ static CInstruction UpdateInst_new(Pool *pool, Node *var, Node *value) {
 static Node *RayQueryInst_query(RayQueryInst *self) {
     return self->query;
 }
-static BasicBlock *RayQueryInst_on_triangle_hit(RayQueryInst *self) {
+static const BasicBlock *RayQueryInst_on_triangle_hit(RayQueryInst *self) {
     return self->on_triangle_hit;
 }
-static BasicBlock *RayQueryInst_on_procedural_hit(RayQueryInst *self) {
+static const BasicBlock *RayQueryInst_on_procedural_hit(RayQueryInst *self) {
     return self->on_procedural_hit;
 }
 static void RayQueryInst_set_query(RayQueryInst *self, Node *value) {
     self->query = value;
 }
-static void RayQueryInst_set_on_triangle_hit(RayQueryInst *self, BasicBlock *value) {
+static void RayQueryInst_set_on_triangle_hit(RayQueryInst *self, const BasicBlock *value) {
     self->on_triangle_hit = value;
 }
-static void RayQueryInst_set_on_procedural_hit(RayQueryInst *self, BasicBlock *value) {
+static void RayQueryInst_set_on_procedural_hit(RayQueryInst *self, const BasicBlock *value) {
     self->on_procedural_hit = value;
 }
-static CInstruction RayQueryInst_new(Pool *pool, Node *query, BasicBlock *on_triangle_hit, BasicBlock *on_procedural_hit) {
+static CInstruction RayQueryInst_new(Pool *pool, Node *query, const BasicBlock *on_triangle_hit, const BasicBlock *on_procedural_hit) {
     auto data = luisa::unique_ptr<RayQueryInst>();
     RayQueryInst_set_query(data.get(), query);
     RayQueryInst_set_on_triangle_hit(data.get(), on_triangle_hit);
@@ -587,13 +587,13 @@ static CInstruction RayQueryInst_new(Pool *pool, Node *query, BasicBlock *on_tri
     (void)obj.steal();
     return cobj;
 }
-static BasicBlock *RevAutodiffInst_body(RevAutodiffInst *self) {
+static const BasicBlock *RevAutodiffInst_body(RevAutodiffInst *self) {
     return self->body;
 }
-static void RevAutodiffInst_set_body(RevAutodiffInst *self, BasicBlock *value) {
+static void RevAutodiffInst_set_body(RevAutodiffInst *self, const BasicBlock *value) {
     self->body = value;
 }
-static CInstruction RevAutodiffInst_new(Pool *pool, BasicBlock *body) {
+static CInstruction RevAutodiffInst_new(Pool *pool, const BasicBlock *body) {
     auto data = luisa::unique_ptr<RevAutodiffInst>();
     RevAutodiffInst_set_body(data.get(), body);
     auto tag = RevAutodiffInst::static_tag();
@@ -603,13 +603,13 @@ static CInstruction RevAutodiffInst_new(Pool *pool, BasicBlock *body) {
     (void)obj.steal();
     return cobj;
 }
-static BasicBlock *FwdAutodiffInst_body(FwdAutodiffInst *self) {
+static const BasicBlock *FwdAutodiffInst_body(FwdAutodiffInst *self) {
     return self->body;
 }
-static void FwdAutodiffInst_set_body(FwdAutodiffInst *self, BasicBlock *value) {
+static void FwdAutodiffInst_set_body(FwdAutodiffInst *self, const BasicBlock *value) {
     self->body = value;
 }
-static CInstruction FwdAutodiffInst_new(Pool *pool, BasicBlock *body) {
+static CInstruction FwdAutodiffInst_new(Pool *pool, const BasicBlock *body) {
     auto data = luisa::unique_ptr<FwdAutodiffInst>();
     FwdAutodiffInst_set_body(data.get(), body);
     auto tag = FwdAutodiffInst::static_tag();
@@ -619,8 +619,8 @@ static CInstruction FwdAutodiffInst_new(Pool *pool, BasicBlock *body) {
     (void)obj.steal();
     return cobj;
 }
-static CInstruction Instruction_new(Pool *pool, InstructionTag tag) {
-    auto obj = Instruction(tag);
+static CInstruction Instruction_new(Pool *pool, RustyInstructionTag tag) {
+    auto obj = Instruction(static_cast<InstructionTag>(tag));
     auto cobj = CInstruction{};
     std::memcpy(&cobj, &obj, sizeof(CInstruction));
     (void)obj.steal();
@@ -806,7 +806,10 @@ static FuncMetadata _func_metadata[] = {
     {false},
     {false},
     {false},
+    {false},
+    {false},
     {true},
+    {false},
     {false},
     {false},
     {true},
@@ -839,7 +842,7 @@ static FuncMetadata _func_metadata[] = {
     {false},
     {false},
 };
-static_assert(sizeof(_func_metadata) == sizeof(FuncMetadata) * 211);
+static_assert(sizeof(_func_metadata) == sizeof(FuncMetadata) * 214);
 const FuncMetadata *func_metadata() { return _func_metadata; }
 static BufferBinding *Binding_as_BufferBinding(CBinding *self) {
     return reinterpret_cast<Binding *>(self)->as<BufferBinding>();
@@ -853,8 +856,8 @@ static BindlessArrayBinding *Binding_as_BindlessArrayBinding(CBinding *self) {
 static AccelBinding *Binding_as_AccelBinding(CBinding *self) {
     return reinterpret_cast<Binding *>(self)->as<AccelBinding>();
 }
-static BindingTag Binding_tag(const CBinding *self) {
-    return reinterpret_cast<const Binding *>(self)->tag();
+static RustyBindingTag Binding_tag(const CBinding *self) {
+    return static_cast<RustyBindingTag>(reinterpret_cast<const Binding *>(self)->tag());
 }
 static uint64_t BufferBinding_handle(BufferBinding *self) {
     return self->handle;
@@ -941,8 +944,8 @@ static CBinding AccelBinding_new(Pool *pool, uint64_t handle) {
     (void)obj.steal();
     return cobj;
 }
-static CBinding Binding_new(Pool *pool, BindingTag tag) {
-    auto obj = Binding(tag);
+static CBinding Binding_new(Pool *pool, RustyBindingTag tag) {
+    auto obj = Binding(static_cast<BindingTag>(tag));
     auto cobj = CBinding{};
     std::memcpy(&cobj, &obj, sizeof(CBinding));
     (void)obj.steal();
@@ -1116,6 +1119,7 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         ir_v2_binding_type_extract,
         ir_v2_binding_type_size,
         ir_v2_binding_type_alignment,
+        ir_v2_binding_type_tag,
         ir_v2_binding_type_is_scalar,
         ir_v2_binding_type_is_bool,
         ir_v2_binding_type_is_int16,
@@ -1157,6 +1161,28 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         ir_v2_binding_node_get_index,
         ir_v2_binding_basic_block_first,
         ir_v2_binding_basic_block_last,
+        ir_v2_binding_node_unlink,
+        ir_v2_binding_node_set_next,
+        ir_v2_binding_node_set_prev,
+        ir_v2_binding_node_replace,
+        ir_v2_binding_pool_new,
+        ir_v2_binding_pool_drop,
+        ir_v2_binding_pool_clone,
+        ir_v2_binding_ir_builder_new,
+        ir_v2_binding_ir_builder_new_without_bb,
+        ir_v2_binding_ir_builder_drop,
+        ir_v2_binding_ir_builder_set_insert_point,
+        ir_v2_binding_ir_builder_insert_point,
+        ir_v2_binding_ir_build_call,
+        ir_v2_binding_ir_build_call_tag,
+        ir_v2_binding_ir_build_if,
+        ir_v2_binding_ir_build_generic_loop,
+        ir_v2_binding_ir_build_switch,
+        ir_v2_binding_ir_build_local,
+        ir_v2_binding_ir_build_break,
+        ir_v2_binding_ir_build_continue,
+        ir_v2_binding_ir_build_return,
+        ir_v2_binding_ir_builder_finish,
     };
 }
 }// namespace luisa::compute::ir_v2

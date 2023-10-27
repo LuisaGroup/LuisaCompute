@@ -3,6 +3,8 @@
 #include <luisa/ast/type.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/forget.h>
+
 namespace luisa::compute::ir_v2 {
 const Type *ir_v2_binding_type_extract(const Type *ty, uint32_t index) {
     if (ty->is_vector() || ty->is_array()) {
@@ -20,6 +22,10 @@ size_t ir_v2_binding_type_size(const Type *ty) {
 }
 size_t ir_v2_binding_type_alignment(const Type *ty) {
     return ty->alignment();
+}
+RustyTypeTag ir_v2_binding_type_tag(const Type *ty) {
+    LUISA_ASSERT(!(ty->tag() >= Type::Tag::BUFFER && ty->tag() <= Type::Tag::ACCEL), "Resource types are not valid IR types.");
+    return static_cast<RustyTypeTag>(ty->tag());
 }
 bool ir_v2_binding_type_is_scalar(const Type *ty) {
     return ty && ty->is_scalar();
@@ -148,5 +154,81 @@ const Node *ir_v2_binding_basic_block_first(const BasicBlock *block) {
 }
 const Node *ir_v2_binding_basic_block_last(const BasicBlock *block) {
     return block->last();
+}
+void ir_v2_binding_node_unlink(Node *node) {
+    node->unlink();
+}
+void ir_v2_binding_node_set_next(Node *node, Node *next) {
+    node->next = next;
+}
+void ir_v2_binding_node_set_prev(Node *node, Node *prev) {
+    node->prev = prev;
+}
+void ir_v2_binding_node_replace(Node *node, Node *new_node) {
+    node->replace_with(new_node);
+}
+
+Pool *ir_v2_binding_pool_new() {
+    auto pool = luisa::make_shared<Pool>();
+    auto ptr = pool.get();
+    forget(std::move(pool));
+    return ptr;
+}
+void ir_v2_binding_pool_drop(Pool *pool) {
+    auto _sp = pool->shared_from_this();
+}
+Pool *ir_v2_binding_pool_clone(Pool *pool) {
+    auto sp = pool->shared_from_this();
+    auto ptr = sp.get();
+    forget(std::move(sp));
+    return ptr;
+}
+
+IrBuilder *ir_v2_binding_ir_builder_new(Pool *pool) {
+    return luisa::new_with_allocator<IrBuilder>(pool->shared_from_this());
+}
+IrBuilder *ir_v2_binding_ir_builder_new_without_bb(Pool *pool) {
+    return luisa::new_with_allocator<IrBuilder>(std::move(IrBuilder::create_without_bb(pool->shared_from_this())));
+}
+void ir_v2_binding_ir_builder_drop(IrBuilder *builder) {
+    luisa::delete_with_allocator(builder);
+}
+void ir_v2_binding_ir_builder_set_insert_point(IrBuilder *builder, Node *node) {
+    builder->set_insert_point(node);
+}
+Node *ir_v2_binding_ir_builder_insert_point(IrBuilder *builder) {
+    return builder->insert_point();
+}
+Node *ir_v2_binding_ir_build_call(IrBuilder *builder, CFunc &&func, Slice<const Node *const> args, const Type *ty) {
+    Func f{};
+    std::memcpy(&f, &func, sizeof(CFunc));
+    return builder->call(std::move(f), luisa::span{args.data, args.len}, ty);
+}
+Node *ir_v2_binding_ir_build_call_tag(IrBuilder *builder, RustyFuncTag tag, Slice<const Node *const> args, const Type *ty) {
+    return builder->call(static_cast<FuncTag>(tag), luisa::span{args.data, args.len}, ty);
+}
+Node *ir_v2_binding_ir_build_if(IrBuilder *builder, const Node *cond, const BasicBlock *true_branch, const BasicBlock *false_branch) {
+    return builder->if_(cond, true_branch, false_branch);
+}
+Node *ir_v2_binding_ir_build_generic_loop(IrBuilder *builder, const BasicBlock *prepare, const Node *cond, const BasicBlock *body, const BasicBlock *update) {
+    return builder->generic_loop(prepare, cond, body, update);
+}
+Node *ir_v2_binding_ir_build_switch(IrBuilder *builder, const Node *value, Slice<const SwitchCase> cases, const BasicBlock *default_) {
+    return builder->switch_(value, luisa::span{cases.data, cases.len}, default_);
+}
+Node *ir_v2_binding_ir_build_local(IrBuilder *builder, const Node *init) {
+    return builder->local(init);
+}
+Node *ir_v2_binding_ir_build_break(IrBuilder *builder) {
+    return builder->break_();
+}
+Node *ir_v2_binding_ir_build_continue(IrBuilder *builder) {
+    return builder->continue_();
+}
+Node *ir_v2_binding_ir_build_return(IrBuilder *builder, const Node *value) {
+    return builder->return_(value);
+}
+const BasicBlock *ir_v2_binding_ir_builder_finish(IrBuilder &&builder) {
+    return std::move(builder).finish();
 }
 }// namespace luisa::compute::ir_v2
