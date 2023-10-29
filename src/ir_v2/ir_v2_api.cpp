@@ -8,6 +8,9 @@ static AssumeFn *Func_as_AssumeFn(CFunc *self) {
 static UnreachableFn *Func_as_UnreachableFn(CFunc *self) {
     return reinterpret_cast<Func *>(self)->as<UnreachableFn>();
 }
+static AssertFn *Func_as_AssertFn(CFunc *self) {
+    return reinterpret_cast<Func *>(self)->as<AssertFn>();
+}
 static BindlessAtomicExchangeFn *Func_as_BindlessAtomicExchangeFn(CFunc *self) {
     return reinterpret_cast<Func *>(self)->as<BindlessAtomicExchangeFn>();
 }
@@ -70,6 +73,22 @@ static CFunc UnreachableFn_new(Pool *pool, Slice<const char> msg) {
     auto data = luisa::unique_ptr<UnreachableFn>();
     UnreachableFn_set_msg(data.get(), msg);
     auto tag = UnreachableFn::static_tag();
+    auto cobj = CFunc{};
+    auto obj = Func(tag, std::move(data));
+    std::memcpy(&cobj, &obj, sizeof(CFunc));
+    (void)obj.steal();
+    return cobj;
+}
+static Slice<const char> AssertFn_msg(AssertFn *self) {
+    return self->msg;
+}
+static void AssertFn_set_msg(AssertFn *self, Slice<const char> value) {
+    self->msg = value.to_string();
+}
+static CFunc AssertFn_new(Pool *pool, Slice<const char> msg) {
+    auto data = luisa::unique_ptr<AssertFn>();
+    AssertFn_set_msg(data.get(), msg);
+    auto tag = AssertFn::static_tag();
     auto cobj = CFunc{};
     auto obj = Func(tag, std::move(data));
     std::memcpy(&cobj, &obj, sizeof(CFunc));
@@ -236,13 +255,13 @@ static CFunc CallableFn_new(Pool *pool, CallableModule *module) {
     (void)obj.steal();
     return cobj;
 }
-static CpuExternFn CpuExtFn_f(CpuExtFn *self) {
-    return self->f;
+static CpuExternFn *CpuExtFn_f(CpuExtFn *self) {
+    return self->f.get();
 }
-static void CpuExtFn_set_f(CpuExtFn *self, CpuExternFn value) {
-    self->f = value;
+static void CpuExtFn_set_f(CpuExtFn *self, CpuExternFn *value) {
+    self->f = luisa::static_pointer_cast<std::decay_t<decltype(self->f)>::element_type>(value->shared_from_this());
 }
-static CFunc CpuExtFn_new(Pool *pool, CpuExternFn f) {
+static CFunc CpuExtFn_new(Pool *pool, CpuExternFn *f) {
     auto data = luisa::unique_ptr<CpuExtFn>();
     CpuExtFn_set_f(data.get(), f);
     auto tag = CpuExtFn::static_tag();
@@ -288,6 +307,9 @@ static ReturnInst *Instruction_as_ReturnInst(CInstruction *self) {
 }
 static PrintInst *Instruction_as_PrintInst(CInstruction *self) {
     return reinterpret_cast<Instruction *>(self)->as<PrintInst>();
+}
+static CommentInst *Instruction_as_CommentInst(CInstruction *self) {
+    return reinterpret_cast<Instruction *>(self)->as<CommentInst>();
 }
 static UpdateInst *Instruction_as_UpdateInst(CInstruction *self) {
     return reinterpret_cast<Instruction *>(self)->as<UpdateInst>();
@@ -534,6 +556,22 @@ static CInstruction PrintInst_new(Pool *pool, Slice<const char> fmt, Slice<Node 
     (void)obj.steal();
     return cobj;
 }
+static Slice<const char> CommentInst_comment(CommentInst *self) {
+    return self->comment;
+}
+static void CommentInst_set_comment(CommentInst *self, Slice<const char> value) {
+    self->comment = value.to_string();
+}
+static CInstruction CommentInst_new(Pool *pool, Slice<const char> comment) {
+    auto data = luisa::unique_ptr<CommentInst>();
+    CommentInst_set_comment(data.get(), comment);
+    auto tag = CommentInst::static_tag();
+    auto cobj = CInstruction{};
+    auto obj = Instruction(tag, std::move(data));
+    std::memcpy(&cobj, &obj, sizeof(CInstruction));
+    (void)obj.steal();
+    return cobj;
+}
 static Node *UpdateInst_var(UpdateInst *self) {
     return self->var;
 }
@@ -627,6 +665,7 @@ static CInstruction Instruction_new(Pool *pool, RustyInstructionTag tag) {
     return cobj;
 }
 static FuncMetadata _func_metadata[] = {
+    {false},
     {false},
     {false},
     {false},
@@ -842,7 +881,7 @@ static FuncMetadata _func_metadata[] = {
     {false},
     {false},
 };
-static_assert(sizeof(_func_metadata) == sizeof(FuncMetadata) * 214);
+static_assert(sizeof(_func_metadata) == sizeof(FuncMetadata) * 215);
 const FuncMetadata *func_metadata() { return _func_metadata; }
 static BufferBinding *Binding_as_BufferBinding(CBinding *self) {
     return reinterpret_cast<Binding *>(self)->as<BufferBinding>();
@@ -955,6 +994,7 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
     return {
         Func_as_AssumeFn,
         Func_as_UnreachableFn,
+        Func_as_AssertFn,
         Func_as_BindlessAtomicExchangeFn,
         Func_as_BindlessAtomicCompareExchangeFn,
         Func_as_BindlessAtomicFetchAddFn,
@@ -973,6 +1013,9 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         UnreachableFn_msg,
         UnreachableFn_set_msg,
         UnreachableFn_new,
+        AssertFn_msg,
+        AssertFn_set_msg,
+        AssertFn_new,
         BindlessAtomicExchangeFn_ty,
         BindlessAtomicExchangeFn_set_ty,
         BindlessAtomicExchangeFn_new,
@@ -1017,6 +1060,7 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         Instruction_as_LocalInst,
         Instruction_as_ReturnInst,
         Instruction_as_PrintInst,
+        Instruction_as_CommentInst,
         Instruction_as_UpdateInst,
         Instruction_as_RayQueryInst,
         Instruction_as_RevAutodiffInst,
@@ -1072,6 +1116,9 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         PrintInst_set_fmt,
         PrintInst_set_args,
         PrintInst_new,
+        CommentInst_comment,
+        CommentInst_set_comment,
+        CommentInst_new,
         UpdateInst_var,
         UpdateInst_value,
         UpdateInst_set_var,
@@ -1183,6 +1230,10 @@ extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table() {
         ir_v2_binding_ir_build_continue,
         ir_v2_binding_ir_build_return,
         ir_v2_binding_ir_builder_finish,
+        ir_v2_binding_cpu_ext_fn_data,
+        ir_v2_binding_cpu_ext_fn_new,
+        ir_v2_binding_cpu_ext_fn_clone,
+        ir_v2_binding_cpu_ext_fn_drop,
     };
 }
 }// namespace luisa::compute::ir_v2

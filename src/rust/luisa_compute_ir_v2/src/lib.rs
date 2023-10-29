@@ -1,7 +1,10 @@
+#![allow(unused_unsafe)]
+
 #[allow(non_snake_case)]
 #[allow(non_upper_case_globals)]
 #[allow(non_camel_case_types)]
 pub mod binding;
+use core::panic;
 use std::{ffi::CStr, sync::Once};
 
 pub use binding::*;
@@ -254,6 +257,18 @@ impl InstructionRef {
     pub fn as_rev_autodiff(&self) -> RevAutodiffInstRef {
         RevAutodiffInstRef(call!(Instruction_as_RevAutodiffInst, self.0 as *mut _))
     }
+    #[inline]
+    pub fn as_constant(&self) -> ConstantInstRef {
+        ConstantInstRef(call!(Instruction_as_ConstantInst, self.0 as *mut _))
+    }
+    #[inline]
+    pub fn as_update(&self) -> UpdateInstRef {
+        UpdateInstRef(call!(Instruction_as_UpdateInst, self.0 as *mut _))
+    }
+    #[inline]
+    pub fn as_comment(&self) -> CommentInstRef {
+        CommentInstRef(call!(Instruction_as_CommentInst, self.0 as *mut _))
+    }
 }
 
 impl PhiInstRef {
@@ -342,6 +357,20 @@ impl LocalInstRef {
         NodeRef(call!(LocalInst_init, self.0 as *mut _))
     }
 }
+impl UpdateInstRef {
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+    #[inline]
+    pub fn value(&self) -> NodeRef {
+        NodeRef(call!(UpdateInst_value, self.0 as *mut _))
+    }
+    #[inline]
+    pub fn var(&self) -> NodeRef {
+        NodeRef(call!(UpdateInst_var, self.0 as *mut _))
+    }
+}
 impl SwitchInstRef {
     #[inline]
     pub fn is_null(&self) -> bool {
@@ -374,6 +403,10 @@ impl RayQueryInstRef {
     pub fn on_procedural_hit(&self) -> BasicBlockRef {
         BasicBlockRef(call!(RayQueryInst_on_procedural_hit, self.0 as *mut _))
     }
+    #[inline]
+    pub fn ray_query(&self) -> NodeRef {
+        NodeRef(call!(RayQueryInst_query, self.0 as *mut _))
+    }
 }
 impl FwdAutodiffInstRef {
     #[inline]
@@ -403,6 +436,10 @@ impl TypeRef {
     #[inline]
     pub fn tag(&self) -> TypeTag {
         call!(type_tag, self.0)
+    }
+    #[inline]
+    pub fn is_bool(&self) -> bool {
+        self.tag() == TypeTag::Bool
     }
     #[inline]
     pub fn is_f16(&self) -> bool {
@@ -467,6 +504,19 @@ impl TypeRef {
     #[inline]
     pub fn is_scalar(&self) -> bool {
         call!(type_is_scalar, self.0)
+    }
+    #[inline]
+    pub fn is_float(&self) -> bool {
+        self.is_f16() || self.is_f32() || self.is_f64()
+    }
+    #[inline]
+    pub fn is_int(&self) -> bool {
+        self.is_i16()
+            || self.is_i32()
+            || self.is_i64()
+            || self.is_u16()
+            || self.is_u32()
+            || self.is_u64()
     }
     #[inline]
     pub fn description(&self) -> String {
@@ -535,6 +585,66 @@ impl FuncRef {
     pub fn tag(&self) -> FuncTag {
         call!(Func_tag, self.0)
     }
+    pub fn as_assert(&self) -> AssertFnRef {
+        AssertFnRef(call!(Func_as_AssertFn, self.0 as *mut _) as *const _)
+    }
+    pub fn as_unreachable(&self) -> UnreachableFnRef {
+        UnreachableFnRef(call!(Func_as_UnreachableFn, self.0 as *mut _) as *const _)
+    }
+    pub fn as_cpu_ext(&self) -> CpuExtFnRef {
+        CpuExtFnRef(call!(Func_as_CpuExtFn, self.0 as *mut _) as *const _)
+    }
+    pub fn as_callable(&self) -> CallableFnRef {
+        CallableFnRef(call!(Func_as_CallableFn, self.0 as *mut _) as *const _)
+    }
+}
+impl AssertFnRef {
+    pub fn message(&self) -> String {
+        let msg = call!(AssertFn_msg, self.0 as *mut _);
+        slice_i8_to_string(msg)
+    }
+}
+impl UnreachableFnRef {
+    pub fn message(&self) -> String {
+        let msg = call!(UnreachableFn_msg, self.0 as *mut _);
+        slice_i8_to_string(msg)
+    }
+}
+#[repr(transparent)]
+pub struct CpuExternFnRef(*const CpuExternFn);
+impl CpuExternFnRef {
+    pub fn new(data: CpuExternFnData) -> Self {
+        Self(call!(cpu_ext_fn_new, data))
+    }
+    pub unsafe fn from_raw(ptr: *const CpuExternFn) -> Self {
+        Self(call!(cpu_ext_fn_clone, ptr))
+    }
+    pub fn as_ptr(&self) -> *const CpuExternFn {
+        self.0
+    }
+}
+
+impl std::ops::Deref for CpuExternFnRef {
+    type Target = CpuExternFnData;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        unsafe { call!(cpu_ext_fn_data, self.0).as_ref().unwrap() }
+    }
+}
+impl CpuExtFnRef {
+    pub fn func(&self) -> CpuExternFnRef {
+        unsafe { CpuExternFnRef::from_raw(call!(CpuExtFn_f, self.0 as *mut _)) }
+    }
+}
+impl Drop for CpuExternFnRef {
+    fn drop(&mut self) {
+        call!(cpu_ext_fn_drop, self.0);
+    }
+}
+impl Clone for CpuExternFnRef {
+    fn clone(&self) -> Self {
+        Self(call!(cpu_ext_fn_clone, self.0))
+    }
 }
 impl std::ops::Deref for PoolRefMut {
     type Target = PoolRef;
@@ -550,12 +660,12 @@ impl Clone for PoolRefMut {
 }
 impl Drop for PoolRefMut {
     fn drop(&mut self) {
-        panic!("Don't drop PoolRefMut");
+        panic!("don't call drop(), call release() instead");
     }
 }
 impl Drop for ModuleRefMut {
     fn drop(&mut self) {
-        panic!("Don't drop ModuleRefMut");
+        panic!("don't call drop(), call release() instead");
     }
 }
 
@@ -626,5 +736,31 @@ impl Drop for CInstruction {
 impl Drop for CBinding {
     fn drop(&mut self) {
         panic!("Don't drop");
+    }
+}
+
+impl ConstantInstRef {
+    pub fn data(&self) -> &[u8] {
+        let data = call!(ConstantInst_value, self.0 as *mut _);
+        unsafe { std::slice::from_raw_parts(data.data as *const u8, data.len) }
+    }
+    pub fn ty(&self) -> TypeRef {
+        TypeRef(call!(ConstantInst_ty, self.0 as *mut _))
+    }
+}
+impl CommentInstRef {
+    pub fn comment(&self) -> String {
+        let comment = call!(CommentInst_comment, self.0 as *mut _);
+        slice_i8_to_string(comment)
+    }
+}
+
+fn slice_i8_to_string(slice: Slice<i8>) -> String {
+    unsafe {
+        CStr::from_bytes_with_nul(std::slice::from_raw_parts(slice.data as *mut _, slice.len))
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 }

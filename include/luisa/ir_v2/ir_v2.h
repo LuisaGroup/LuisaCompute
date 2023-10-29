@@ -13,7 +13,9 @@
 namespace luisa::compute::ir_v2 {
 class Pool;
 inline void validate(const Type *ty) noexcept;
-
+struct CpuExternFn : CpuExternFnData, luisa::enable_shared_from_this<CpuExternFn> {
+    CpuExternFn(CpuExternFnData data) noexcept : CpuExternFnData{std::move(data)} {}
+};
 struct LC_IR_API Node {
     mutable Node *prev = nullptr;
     mutable Node *next = nullptr;
@@ -242,7 +244,7 @@ public:
     template<class I>
         requires std::is_integral_v<I>
     [[nodiscard]] Node *extract_element(const Node *value, luisa::span<I> indices, const Type *ty) noexcept {
-        luisa::vector<Node *> args;
+        luisa::vector<const Node *> args;
         args.push_back(value);
         for (auto i : indices) {
             args.push_back(const_((int32_t)i));
@@ -263,7 +265,7 @@ public:
     template<class I>
         requires std::is_integral_v<I>
     [[nodiscard]] Node *gep(const Node *agg, luisa::span<I> indices, const Type *ty) noexcept {
-        luisa::vector<Node *> args;
+        luisa::vector<const Node *> args;
         if (agg->is_gep()) {
             auto call = agg->inst.as<CallInst>();
             LUISA_ASSERT(!call->args.empty(), "bad gep");

@@ -112,12 +112,13 @@ struct SwitchCase {
     int32_t value = 0;
     BasicBlockRef block = nullptr;
 };
-struct CpuExternFn {
+struct CpuExternFnData {
     void *data = nullptr;
     void (*func)(void *data, void *args) = nullptr;
     void (*dtor)(void *data) = nullptr;
     TypeRef arg_ty = nullptr;
 };
+struct CpuExternFn;
 struct FuncMetadata {
     bool has_side_effects = false;
 };
@@ -133,6 +134,7 @@ enum class FuncTag : unsigned int {
     ONE,
     ASSUME,
     UNREACHABLE,
+    ASSERT,
     THREAD_ID,
     BLOCK_ID,
     WARP_SIZE,
@@ -162,7 +164,7 @@ enum class FuncTag : unsigned int {
     RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
     RAY_QUERY_COMMITTED_HIT,
     RAY_QUERY_COMMIT_TRIANGLE,
-    RAY_QUERY_COMMITD_PROCEDURAL,
+    RAY_QUERY_COMMIT_PROCEDURAL,
     RAY_QUERY_TERMINATE,
     LOAD,
     CAST,
@@ -349,6 +351,7 @@ enum class RustyFuncTag : unsigned int {
     One,
     Assume,
     Unreachable,
+    Assert,
     ThreadId,
     BlockId,
     WarpSize,
@@ -378,7 +381,7 @@ enum class RustyFuncTag : unsigned int {
     RayQueryTriangleCandidateHit,
     RayQueryCommittedHit,
     RayQueryCommitTriangle,
-    RayQueryCommitdProcedural,
+    RayQueryCommitProcedural,
     RayQueryTerminate,
     Load,
     Cast,
@@ -566,6 +569,7 @@ inline const char *tag_name(FuncTag tag) {
         case FuncTag::ONE: return "OneFn";
         case FuncTag::ASSUME: return "AssumeFn";
         case FuncTag::UNREACHABLE: return "UnreachableFn";
+        case FuncTag::ASSERT: return "AssertFn";
         case FuncTag::THREAD_ID: return "ThreadIdFn";
         case FuncTag::BLOCK_ID: return "BlockIdFn";
         case FuncTag::WARP_SIZE: return "WarpSizeFn";
@@ -595,7 +599,7 @@ inline const char *tag_name(FuncTag tag) {
         case FuncTag::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: return "RayQueryTriangleCandidateHitFn";
         case FuncTag::RAY_QUERY_COMMITTED_HIT: return "RayQueryCommittedHitFn";
         case FuncTag::RAY_QUERY_COMMIT_TRIANGLE: return "RayQueryCommitTriangleFn";
-        case FuncTag::RAY_QUERY_COMMITD_PROCEDURAL: return "RayQueryCommitdProceduralFn";
+        case FuncTag::RAY_QUERY_COMMIT_PROCEDURAL: return "RayQueryCommitProceduralFn";
         case FuncTag::RAY_QUERY_TERMINATE: return "RayQueryTerminateFn";
         case FuncTag::LOAD: return "LoadFn";
         case FuncTag::CAST: return "CastFn";
@@ -790,6 +794,9 @@ typedef AssumeFn *AssumeFnRefMut;
 struct UnreachableFn;
 typedef const UnreachableFn *UnreachableFnRef;
 typedef UnreachableFn *UnreachableFnRefMut;
+struct AssertFn;
+typedef const AssertFn *AssertFnRef;
+typedef AssertFn *AssertFnRefMut;
 struct BindlessAtomicExchangeFn;
 typedef const BindlessAtomicExchangeFn *BindlessAtomicExchangeFnRef;
 typedef BindlessAtomicExchangeFn *BindlessAtomicExchangeFnRefMut;
@@ -848,6 +855,7 @@ enum class InstructionTag : unsigned int {
     CONTINUE,
     RETURN,
     PRINT,
+    COMMENT,
     UPDATE,
     RAY_QUERY,
     REV_AUTODIFF,
@@ -874,6 +882,7 @@ enum class RustyInstructionTag : unsigned int {
     Continue,
     Return,
     Print,
+    Comment,
     Update,
     RayQuery,
     RevAutodiff,
@@ -901,6 +910,7 @@ inline const char *tag_name(InstructionTag tag) {
         case InstructionTag::CONTINUE: return "ContinueInst";
         case InstructionTag::RETURN: return "ReturnInst";
         case InstructionTag::PRINT: return "PrintInst";
+        case InstructionTag::COMMENT: return "CommentInst";
         case InstructionTag::UPDATE: return "UpdateInst";
         case InstructionTag::RAY_QUERY: return "RayQueryInst";
         case InstructionTag::REV_AUTODIFF: return "RevAutodiffInst";
@@ -944,6 +954,9 @@ typedef ReturnInst *ReturnInstRefMut;
 struct PrintInst;
 typedef const PrintInst *PrintInstRef;
 typedef PrintInst *PrintInstRefMut;
+struct CommentInst;
+typedef const CommentInst *CommentInstRef;
+typedef CommentInst *CommentInstRefMut;
 struct UpdateInst;
 typedef const UpdateInst *UpdateInstRef;
 typedef UpdateInst *UpdateInstRefMut;
@@ -1066,4 +1079,8 @@ Node *ir_v2_binding_ir_build_break(IrBuilder *builder);
 Node *ir_v2_binding_ir_build_continue(IrBuilder *builder);
 Node *ir_v2_binding_ir_build_return(IrBuilder *builder, const Node *value);
 const BasicBlock *ir_v2_binding_ir_builder_finish(IrBuilder &&builder);
+const CpuExternFnData *ir_v2_binding_cpu_ext_fn_data(const CpuExternFn *f);
+const CpuExternFn *ir_v2_binding_cpu_ext_fn_new(CpuExternFnData);
+const CpuExternFn *ir_v2_binding_cpu_ext_fn_clone(const CpuExternFn *f);
+void ir_v2_binding_cpu_ext_fn_drop(const CpuExternFn *f);
 }// namespace luisa::compute::ir_v2

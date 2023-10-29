@@ -17,6 +17,7 @@ public:
     typedef FuncTag Tag;
     explicit Func(AssumeFn v);
     explicit Func(UnreachableFn v);
+    explicit Func(AssertFn v);
     explicit Func(BindlessAtomicExchangeFn v);
     explicit Func(BindlessAtomicCompareExchangeFn v);
     explicit Func(BindlessAtomicFetchAddFn v);
@@ -86,6 +87,20 @@ public:
     luisa::string msg{};
     UnreachableFn() = default;
     UnreachableFn(luisa::string msg) : msg(std::move(msg)) {}
+};
+struct LC_IR_API AssertFn : public FuncData {
+public:
+    typedef FuncTag Tag;
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+    static constexpr Tag static_tag() noexcept {
+        return Tag::ASSERT;
+    }
+public:
+    luisa::string msg{};
+    AssertFn() = default;
+    AssertFn(luisa::string msg) : msg(std::move(msg)) {}
 };
 struct LC_IR_API BindlessAtomicExchangeFn : public FuncData {
 public:
@@ -237,9 +252,9 @@ public:
         return Tag::CPU_EXT;
     }
 public:
-    CpuExternFn f{};
+    luisa::shared_ptr<CpuExternFn> f{};
     CpuExtFn() = default;
-    CpuExtFn(CpuExternFn f) : f(std::move(f)) {}
+    CpuExtFn(luisa::shared_ptr<CpuExternFn> f) : f(std::move(f)) {}
 };
 struct LC_IR_API Instruction {
     luisa::unique_ptr<InstructionData> _data;
@@ -260,6 +275,7 @@ public:
     explicit Instruction(LocalInst v);
     explicit Instruction(ReturnInst v);
     explicit Instruction(PrintInst v);
+    explicit Instruction(CommentInst v);
     explicit Instruction(UpdateInst v);
     explicit Instruction(RayQueryInst v);
     explicit Instruction(RevAutodiffInst v);
@@ -478,6 +494,20 @@ public:
     luisa::vector<Node *> args{};
     PrintInst() = default;
     PrintInst(luisa::string fmt, luisa::vector<Node *> args) : fmt(std::move(fmt)), args(std::move(args)) {}
+};
+struct LC_IR_API CommentInst : public InstructionData {
+public:
+    typedef InstructionTag Tag;
+    [[nodiscard]] Tag tag() const noexcept override {
+        return static_tag();
+    }
+    static constexpr Tag static_tag() noexcept {
+        return Tag::COMMENT;
+    }
+public:
+    luisa::string comment{};
+    CommentInst() = default;
+    CommentInst(luisa::string comment) : comment(std::move(comment)) {}
 };
 struct LC_IR_API UpdateInst : public InstructionData {
 public:

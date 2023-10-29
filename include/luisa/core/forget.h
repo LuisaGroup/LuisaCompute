@@ -10,6 +10,6 @@ void forget(T &&value) noexcept {
     static_assert(sizeof(AlignedStorage) == sizeof(T));
     static_assert(alignof(AlignedStorage) == alignof(T));
     AlignedStorage s{};
-    new (s._) T{std::forward<T>(value)};
+    new (s._) T{std::move(value)};
 }
 }// namespace luisa

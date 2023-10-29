@@ -28,7 +28,7 @@ MAP_FFI_TYPE_GET = {
     'luisa::vector<Module*>': 'Slice<Module*>',
     'luisa::vector<KernelModule*>': 'Slice<KernelModule*>',
     'luisa::shared_ptr<CallableModule>': 'CallableModule*',
-    'CpuExternFn': 'CpuExternFn',
+    'luisa::shared_ptr<CpuExternFn>': 'CpuExternFn*',
     'Func': 'const CFunc*',
     'Node*': 'Node*',
     'BasicBlock*': 'BasicBlock*',
@@ -53,7 +53,7 @@ MAP_FFI_TYPE_SET = {
     'luisa::vector<Module*>': 'Slice<Module*>',
     'luisa::vector<KernelModule*>': 'Slice<KernelModule*>',
     'luisa::shared_ptr<CallableModule>': 'CallableModule*',
-    'CpuExternFn': 'CpuExternFn',
+    'luisa::shared_ptr<CpuExternFn>': 'CpuExternFn*',
     'Func': 'CFunc',
     'Node*': 'Node*',
     'BasicBlock*': 'BasicBlock*',
@@ -232,7 +232,7 @@ print('#include <luisa/ir_v2/ir_v2.h>', file=cpp_api_impl)
 print('namespace luisa::compute::ir_v2 {', file=cpp_api_impl)
 
 class Item:
-    def __init__(self, name, base,fields: List[Tuple[str, str]], comment=None) -> None:
+    def __init__(self, name, base,fields: List[Tuple[str, str]], comment=None,no_copy=False) -> None:
         self.cpp_src = ''
         self.name = name
         self.fields = fields
@@ -240,6 +240,7 @@ class Item:
         self.base = base
         self.tag = to_screaming_snake_case(name)
         self.tag_rs = str(name)
+        self.no_copy = no_copy
 
     def gen(self):
         out = 'public:\n'
@@ -436,7 +437,15 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
     for variant in variants:
         if len(variant.fields) > 0:
             print('struct {};'.format(variant.name), file=fwd_file)
+            if variant.no_copy:
+                print('''/**
+* <div rustbindgen nocopy></div>
+*/''', file=fwd_file)
             print(f'typedef const {variant.name}* {variant.name}Ref;', file=fwd_file)
+            if variant.no_copy:
+                print('''/**
+* <div rustbindgen nocopy></div>
+*/''', file=fwd_file)
             print(f'typedef {variant.name}* {variant.name}RefMut;', file=fwd_file)
     print('struct LC_IR_API {} {{'.format(adt), file=cpp_def)
     print('    luisa::unique_ptr<{}Data> _data;'.format(adt), file=cpp_def)
@@ -624,6 +633,9 @@ instructions = [
         ('luisa::string', 'fmt'),
         ('luisa::vector<Node*>', 'args')
     ]),
+    Instruction('Comment', [
+        ('luisa::string', 'comment')
+    ]),
     Instruction('Update', [
         ('Node*', 'var'),
         ('Node*', 'value')
@@ -651,8 +663,8 @@ funcs = [
     ]),
     Func('Unreachable', [
          ('luisa::string', 'msg')
-         ]),
-
+    ]),
+    Func('Assert', [('luisa::string', 'msg')]),
     Func('ThreadId', []),
     Func('BlockId', []),
     Func('WarpSize', []),
@@ -686,7 +698,7 @@ funcs = [
     Func('RayQueryTriangleCandidateHit', []),
     Func('RayQueryCommittedHit', []),
     Func('RayQueryCommitTriangle', [], side_effects=True),
-    Func('RayQueryCommitdProcedural', [], side_effects=True),
+    Func('RayQueryCommitProcedural', [], side_effects=True),
     Func('RayQueryTerminate', [], side_effects=True),
 
     Func('Load', []),
@@ -901,7 +913,7 @@ funcs = [
         ('luisa::shared_ptr<CallableModule>', 'module'),
     ]),
     Func('CpuExt', [
-        ('CpuExternFn', 'f'),
+        ('luisa::shared_ptr<CpuExternFn>', 'f'),
     ]),
     Func('ShaderExecutionReorder')
 ]
@@ -915,12 +927,13 @@ struct SwitchCase {
     int32_t value = 0;
     BasicBlockRef block = nullptr;    
 };
-struct CpuExternFn {
+struct CpuExternFnData {
     void *data = nullptr;
     void (*func)(void *data, void *args) = nullptr;
     void (*dtor)(void *data) = nullptr;
     TypeRef arg_ty = nullptr;
 };
+struct CpuExternFn;
 struct FuncMetadata {
     bool has_side_effects = false;    
 };
@@ -1052,6 +1065,12 @@ def gen_extra_bindings():
     add_func('Node *', 'ir_build_continue', 'IrBuilder* builder')
     add_func('Node *', 'ir_build_return', 'IrBuilder* builder, const Node* value')
     add_func('const BasicBlock*', 'ir_builder_finish', 'IrBuilder&& builder')
+
+    add_func('const CpuExternFnData*', 'cpu_ext_fn_data', 'const CpuExternFn* f')
+    add_func('const CpuExternFn*', 'cpu_ext_fn_new', 'CpuExternFnData')
+    add_func('const CpuExternFn*', 'cpu_ext_fn_clone', 'const CpuExternFn* f')
+    add_func('void', 'cpu_ext_fn_drop', 'const CpuExternFn* f')
+
 
 gen_extra_bindings()
 

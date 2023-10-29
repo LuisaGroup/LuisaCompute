@@ -231,4 +231,22 @@ Node *ir_v2_binding_ir_build_return(IrBuilder *builder, const Node *value) {
 const BasicBlock *ir_v2_binding_ir_builder_finish(IrBuilder &&builder) {
     return std::move(builder).finish();
 }
+const CpuExternFnData *ir_v2_binding_cpu_ext_fn_data(const CpuExternFn *f) {
+    return f;
+}
+const CpuExternFn *ir_v2_binding_cpu_ext_fn_new(CpuExternFnData data) {
+    auto sp = luisa::make_shared<CpuExternFn>(data);
+    auto ptr = sp.get();
+    forget(std::move(sp));
+    return ptr;
+}
+const CpuExternFn *ir_v2_binding_cpu_ext_fn_clone(const CpuExternFn *f) {
+    auto sp = f->shared_from_this();
+    auto ptr = sp.get();
+    forget(std::move(sp));
+    return ptr;
+}
+void ir_v2_binding_cpu_ext_fn_drop(const CpuExternFn *f) {
+    auto _sp = f->shared_from_this();
+}
 }// namespace luisa::compute::ir_v2

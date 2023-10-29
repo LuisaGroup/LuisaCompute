@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
         auto foo = builder.local(builder.call(FuncTag::BUFFER_READ, luisa::span{std::array{buf, tid}}, Type::of<Foo>()));
         auto foo_x = builder.gep(foo, luisa::span{std::array{0u}}, Type::of<int>());
         builder.update(foo_x, builder.const_(int(1)));
-        (void)builder.call(FuncTag::BUFFER_WRITE, luisa::span{std::array{buf, tid, foo}}, Type::of<void>());
+        (void)builder.call(FuncTag::BUFFER_WRITE, luisa::span{std::array<const Node*, 3>{buf, tid, foo}}, Type::of<void>());
         mod.entry = std::move(builder).finish();
     }
     LUISA_VERBOSE("{}", dump_human_readable(mod));

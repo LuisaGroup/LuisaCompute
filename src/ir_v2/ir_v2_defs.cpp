@@ -2,6 +2,7 @@
 namespace luisa::compute::ir_v2 {
 Func::Func(AssumeFn v) : _data(luisa::make_unique<AssumeFn>(std::move(v))), _tag(AssumeFn::static_tag()) {}
 Func::Func(UnreachableFn v) : _data(luisa::make_unique<UnreachableFn>(std::move(v))), _tag(UnreachableFn::static_tag()) {}
+Func::Func(AssertFn v) : _data(luisa::make_unique<AssertFn>(std::move(v))), _tag(AssertFn::static_tag()) {}
 Func::Func(BindlessAtomicExchangeFn v) : _data(luisa::make_unique<BindlessAtomicExchangeFn>(std::move(v))), _tag(BindlessAtomicExchangeFn::static_tag()) {}
 Func::Func(BindlessAtomicCompareExchangeFn v) : _data(luisa::make_unique<BindlessAtomicCompareExchangeFn>(std::move(v))), _tag(BindlessAtomicCompareExchangeFn::static_tag()) {}
 Func::Func(BindlessAtomicFetchAddFn v) : _data(luisa::make_unique<BindlessAtomicFetchAddFn>(std::move(v))), _tag(BindlessAtomicFetchAddFn::static_tag()) {}
@@ -23,6 +24,7 @@ Instruction::Instruction(SwitchInst v) : _data(luisa::make_unique<SwitchInst>(st
 Instruction::Instruction(LocalInst v) : _data(luisa::make_unique<LocalInst>(std::move(v))), _tag(LocalInst::static_tag()) {}
 Instruction::Instruction(ReturnInst v) : _data(luisa::make_unique<ReturnInst>(std::move(v))), _tag(ReturnInst::static_tag()) {}
 Instruction::Instruction(PrintInst v) : _data(luisa::make_unique<PrintInst>(std::move(v))), _tag(PrintInst::static_tag()) {}
+Instruction::Instruction(CommentInst v) : _data(luisa::make_unique<CommentInst>(std::move(v))), _tag(CommentInst::static_tag()) {}
 Instruction::Instruction(UpdateInst v) : _data(luisa::make_unique<UpdateInst>(std::move(v))), _tag(UpdateInst::static_tag()) {}
 Instruction::Instruction(RayQueryInst v) : _data(luisa::make_unique<RayQueryInst>(std::move(v))), _tag(RayQueryInst::static_tag()) {}
 Instruction::Instruction(RevAutodiffInst v) : _data(luisa::make_unique<RevAutodiffInst>(std::move(v))), _tag(RevAutodiffInst::static_tag()) {}

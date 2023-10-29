@@ -65,6 +65,7 @@ static_assert(sizeof(CBinding) == 16);
 struct IrV2BindingTable {
     AssumeFn *(*Func_as_AssumeFn)(CFunc *self);
     UnreachableFn *(*Func_as_UnreachableFn)(CFunc *self);
+    AssertFn *(*Func_as_AssertFn)(CFunc *self);
     BindlessAtomicExchangeFn *(*Func_as_BindlessAtomicExchangeFn)(CFunc *self);
     BindlessAtomicCompareExchangeFn *(*Func_as_BindlessAtomicCompareExchangeFn)(CFunc *self);
     BindlessAtomicFetchAddFn *(*Func_as_BindlessAtomicFetchAddFn)(CFunc *self);
@@ -83,6 +84,9 @@ struct IrV2BindingTable {
     Slice<const char> (*UnreachableFn_msg)(UnreachableFn *self);
     void (*UnreachableFn_set_msg)(UnreachableFn *self, Slice<const char> value);
     CFunc (*UnreachableFn_new)(Pool *pool, Slice<const char> msg);
+    Slice<const char> (*AssertFn_msg)(AssertFn *self);
+    void (*AssertFn_set_msg)(AssertFn *self, Slice<const char> value);
+    CFunc (*AssertFn_new)(Pool *pool, Slice<const char> msg);
     const Type *(*BindlessAtomicExchangeFn_ty)(BindlessAtomicExchangeFn *self);
     void (*BindlessAtomicExchangeFn_set_ty)(BindlessAtomicExchangeFn *self, const Type *value);
     CFunc (*BindlessAtomicExchangeFn_new)(Pool *pool, const Type *ty);
@@ -113,9 +117,9 @@ struct IrV2BindingTable {
     CallableModule *(*CallableFn_module)(CallableFn *self);
     void (*CallableFn_set_module)(CallableFn *self, CallableModule *value);
     CFunc (*CallableFn_new)(Pool *pool, CallableModule *module);
-    CpuExternFn (*CpuExtFn_f)(CpuExtFn *self);
-    void (*CpuExtFn_set_f)(CpuExtFn *self, CpuExternFn value);
-    CFunc (*CpuExtFn_new)(Pool *pool, CpuExternFn f);
+    CpuExternFn *(*CpuExtFn_f)(CpuExtFn *self);
+    void (*CpuExtFn_set_f)(CpuExtFn *self, CpuExternFn *value);
+    CFunc (*CpuExtFn_new)(Pool *pool, CpuExternFn *f);
     CFunc (*Func_new)(Pool *pool, RustyFuncTag tag);
     ArgumentInst *(*Instruction_as_ArgumentInst)(CInstruction *self);
     ConstantInst *(*Instruction_as_ConstantInst)(CInstruction *self);
@@ -127,6 +131,7 @@ struct IrV2BindingTable {
     LocalInst *(*Instruction_as_LocalInst)(CInstruction *self);
     ReturnInst *(*Instruction_as_ReturnInst)(CInstruction *self);
     PrintInst *(*Instruction_as_PrintInst)(CInstruction *self);
+    CommentInst *(*Instruction_as_CommentInst)(CInstruction *self);
     UpdateInst *(*Instruction_as_UpdateInst)(CInstruction *self);
     RayQueryInst *(*Instruction_as_RayQueryInst)(CInstruction *self);
     RevAutodiffInst *(*Instruction_as_RevAutodiffInst)(CInstruction *self);
@@ -182,6 +187,9 @@ struct IrV2BindingTable {
     void (*PrintInst_set_fmt)(PrintInst *self, Slice<const char> value);
     void (*PrintInst_set_args)(PrintInst *self, Slice<Node *> value);
     CInstruction (*PrintInst_new)(Pool *pool, Slice<const char> fmt, Slice<Node *> args);
+    Slice<const char> (*CommentInst_comment)(CommentInst *self);
+    void (*CommentInst_set_comment)(CommentInst *self, Slice<const char> value);
+    CInstruction (*CommentInst_new)(Pool *pool, Slice<const char> comment);
     Node *(*UpdateInst_var)(UpdateInst *self);
     Node *(*UpdateInst_value)(UpdateInst *self);
     void (*UpdateInst_set_var)(UpdateInst *self, Node *value);
@@ -293,6 +301,10 @@ struct IrV2BindingTable {
     Node *(*ir_build_continue)(IrBuilder *builder);
     Node *(*ir_build_return)(IrBuilder *builder, const Node *value);
     const BasicBlock *(*ir_builder_finish)(IrBuilder &&builder);
+    const CpuExternFnData *(*cpu_ext_fn_data)(const CpuExternFn *f);
+    const CpuExternFn *(*cpu_ext_fn_new)(CpuExternFnData);
+    const CpuExternFn *(*cpu_ext_fn_clone)(const CpuExternFn *f);
+    void (*cpu_ext_fn_drop)(const CpuExternFn *f);
 };
 extern "C" LC_IR_API IrV2BindingTable lc_ir_v2_binding_table();
 }// namespace luisa::compute::ir_v2
