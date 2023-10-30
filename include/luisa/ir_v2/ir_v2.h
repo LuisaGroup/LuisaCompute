@@ -254,7 +254,7 @@ public:
     template<class I>
         requires std::is_integral_v<I>
     [[nodiscard]] Node *insert_element(const Node *agg, Node *el, luisa::span<I> indices, const Type *ty) noexcept {
-        luisa::vector<Node *> args;
+        luisa::vector<const Node *> args;
         args.push_back(agg);
         args.push_back(el);
         for (auto i : indices) {

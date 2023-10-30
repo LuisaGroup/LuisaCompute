@@ -161,7 +161,7 @@ class IrDebugDump {
                 writeln("{}, by_value:{}, ty: {}, ", gen(node), gen_ty(ty), arg->by_value);
                 break;
             }
-            case InstructionTag::BUFFER: [[fallthough]];
+            case InstructionTag::BUFFER: [[fallthrough]];
             case InstructionTag::TEXTURE2D: [[fallthrough]];
             case InstructionTag::TEXTURE3D: [[fallthrough]];
             case InstructionTag::BINDLESS_ARRAY: [[fallthrough]];
