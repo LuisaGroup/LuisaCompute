@@ -12,7 +12,7 @@ struct LC_IR_API Func {
 public:
     explicit Func(FuncTag tag) : _data(luisa::unique_ptr<FuncData>()), _tag(tag) {}
     explicit Func(FuncTag tag, luisa::unique_ptr<FuncData> data) : _data(std::move(data)), _tag(tag) {
-        LUISA_ASSERT(tag == data->tag(), "Mismatched tag!!!");
+        LUISA_ASSERT(tag == _data->tag(), "Mismatched tag!!!");
     }
     typedef FuncTag Tag;
     explicit Func(AssumeFn v);
@@ -262,7 +262,7 @@ struct LC_IR_API Instruction {
 public:
     explicit Instruction(InstructionTag tag) : _data(luisa::unique_ptr<InstructionData>()), _tag(tag) {}
     explicit Instruction(InstructionTag tag, luisa::unique_ptr<InstructionData> data) : _data(std::move(data)), _tag(tag) {
-        LUISA_ASSERT(tag == data->tag(), "Mismatched tag!!!");
+        LUISA_ASSERT(tag == _data->tag(), "Mismatched tag!!!");
     }
     typedef InstructionTag Tag;
     explicit Instruction(ArgumentInst v);
@@ -574,7 +574,7 @@ struct LC_IR_API Binding {
 public:
     explicit Binding(BindingTag tag) : _data(luisa::unique_ptr<BindingData>()), _tag(tag) {}
     explicit Binding(BindingTag tag, luisa::unique_ptr<BindingData> data) : _data(std::move(data)), _tag(tag) {
-        LUISA_ASSERT(tag == data->tag(), "Mismatched tag!!!");
+        LUISA_ASSERT(tag == _data->tag(), "Mismatched tag!!!");
     }
     typedef BindingTag Tag;
     explicit Binding(BufferBinding v);

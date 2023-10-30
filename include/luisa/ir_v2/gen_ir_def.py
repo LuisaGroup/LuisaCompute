@@ -454,7 +454,7 @@ def gen_adt(adt: str, cpp_src: str, variants: List[Item]):
     print(f'   explicit {adt}({adt}Tag tag) : _data(luisa::unique_ptr<{adt}Data>()), _tag(tag) {{}}', file=cpp_def)
     print('    explicit {}({}Tag tag, luisa::unique_ptr<{}Data> data) : _data(std::move(data)), _tag(tag) {{'.format(
         adt, adt, adt), file=cpp_def)
-    print(f'        LUISA_ASSERT(tag == data->tag(), "Mismatched tag!!!");', file=cpp_def)
+    print(f'        LUISA_ASSERT(tag == _data->tag(), "Mismatched tag!!!");', file=cpp_def)
     print('    }', file=cpp_def)
     print('    typedef {}Tag Tag;'.format(adt), file=cpp_def)
     for variant in variants:
