@@ -5,7 +5,7 @@ _config_project({
 })
 add_deps("lc-runtime")
 add_headerfiles("*.h")
-add_files("*.cpp", "*.mm", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
+add_files("*.cpp", "*.mm", "../common/default_binary_io.cpp")
 
 add_frameworks("Foundation", "Metal", "QuartzCore", "AppKit")
 add_syslinks("compression")

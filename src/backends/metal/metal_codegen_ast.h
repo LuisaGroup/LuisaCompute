@@ -3,7 +3,7 @@
 #include <luisa/ast/function.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/expression.h>
-#include "../common/string_scratch.h"
+#include <luisa/core/string_scratch.h>
 
 namespace luisa::compute::metal {
 

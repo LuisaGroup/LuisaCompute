@@ -12,7 +12,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         logging.cpp
         platform.cpp
         pool.cpp
-        thread_pool.cpp)
+        thread_pool.cpp
+        string_scratch.cpp)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_STL_SOURCES} ${LUISA_COMPUTE_CORE_SOURCES})

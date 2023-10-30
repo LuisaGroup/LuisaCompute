@@ -1,6 +1,5 @@
 #include <luisa/ir_v2/ir_v2.h>
-#include <luisa/core/magic_enum.h>
-#include "../backends/common/string_scratch.h"
+#include <luisa/core/string_scratch.h>
 namespace luisa::compute::ir_v2 {
 bool Node::is_lvalue() const noexcept {
     if (is_local()) return true;

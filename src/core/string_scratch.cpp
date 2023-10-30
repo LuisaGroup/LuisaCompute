@@ -3,10 +3,9 @@
 #include <luisa/core/platform.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/string_scratch.h>
 
-#include "string_scratch.h"
-
-namespace luisa::compute {
+namespace luisa {
 
 namespace detail {
 
@@ -51,4 +50,4 @@ void StringScratch::pop_back() noexcept { _buffer.pop_back(); }
 void StringScratch::clear() noexcept { _buffer.clear(); }
 char StringScratch::back() const noexcept { return _buffer.back(); }
 
-}// namespace luisa::compute
+}// namespace luisa

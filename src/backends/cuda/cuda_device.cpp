@@ -8,6 +8,7 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/binary_io.h>
+#include <luisa/core/string_scratch.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
@@ -18,7 +19,6 @@
 #include <luisa/ir/transform.h>
 #endif
 
-#include "../common/string_scratch.h"
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "cuda_buffer.h"

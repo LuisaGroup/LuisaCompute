@@ -32,6 +32,7 @@ public:
     }
 };
 
+// TODO: move this to a common place so backends can share it
 class CUDAShaderPrinter::Formatter {
 
 public:
@@ -296,7 +297,7 @@ void CUDAShaderPrinter::_do_print(const void *data) const noexcept {
     if (head->size == 0u) { return; }
     auto offset = static_cast<size_t>(0u);
     luisa::string scratch;
-    scratch.reserve(128_k);
+    scratch.reserve(std::max(luisa::pagesize(), 16_k) - 1u);
     while (offset < head->size && offset < print_buffer_content_capacity) {
         struct Item {
             uint size;

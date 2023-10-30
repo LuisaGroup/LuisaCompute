@@ -10,7 +10,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             # common
             ../common/default_binary_io.cpp ../common/default_binary_io.h
             ../common/resource_tracker.h
-            ../common/string_scratch.cpp ../common/string_scratch.h
 
             # metal-cpp
             metal-cpp/SingleHeader/Metal.hpp

@@ -30,8 +30,7 @@ if (CUDAToolkit_FOUND)
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h
-            default_binary_io.cpp
-            string_scratch.cpp)
+            default_binary_io.cpp)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 

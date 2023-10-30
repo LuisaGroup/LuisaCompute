@@ -1,11 +1,12 @@
 #pragma once
 
+#include <luisa/core/dll_export.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/string.h>
 
-namespace luisa::compute {
+namespace luisa {
 
-class StringScratch {
+class LC_CORE_API StringScratch {
 
 private:
     luisa::string _buffer;
@@ -32,5 +33,4 @@ public:
     [[nodiscard]] char back() const noexcept;
 };
 
-}// namespace luisa::compute
-
+}// namespace luisa
