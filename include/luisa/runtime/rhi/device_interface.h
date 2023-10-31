@@ -76,6 +76,8 @@ public:
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept = 0;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture

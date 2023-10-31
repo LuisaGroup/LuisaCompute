@@ -368,7 +368,7 @@ void export_runtime(py::module &m) {
                 return 6;
             }
             auto pixel_args = pixel.arguments();
-            if (pixel_args.size() < 1 || v2p != pixel_args[0].type()) {
+            if (pixel_args.empty() || v2p != pixel_args[0].type()) {
                 return 1;
             }
             auto pos = v2p;
@@ -436,6 +436,11 @@ void export_runtime(py::module &m) {
                 return info;
             },
             pyref)
+        .def("import_external_buffer", [](DeviceInterface &d, const Type *type, uint64_t native_address, size_t size_bytes) noexcept {
+            auto info = d.create_buffer(type, reinterpret_cast<void *>(native_address), size_bytes);
+            RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+            return info;
+        })
         .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
             auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size);
             RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});

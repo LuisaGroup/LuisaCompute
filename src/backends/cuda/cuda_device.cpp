@@ -224,6 +224,27 @@ BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, 
 #endif
 }
 
+BufferCreationInfo CUDADevice::create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept {
+    BufferCreationInfo info{};
+    info.element_stride = element ? 1u : CUDACompiler::type_size(element);
+    info.total_size_bytes = size_bytes;
+    info.native_handle = external_memory;
+    auto buffer = with_handle([p = reinterpret_cast<CUdeviceptr>(external_memory), size_bytes] {
+        return new_with_allocator<CUDABuffer>(p, size_bytes);
+    });
+    info.handle = reinterpret_cast<uint64_t>(buffer);
+    return info;
+}
+
+BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept {
+#ifdef LUISA_ENABLE_IR
+    auto type = IR2AST::get_type(element->get());
+    return create_buffer(type, external_memory, size_bytes);
+#else
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
+#endif
+}
+
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     with_handle([buffer = reinterpret_cast<CUDABufferBase *>(handle)] {
         delete_with_allocator(buffer);
