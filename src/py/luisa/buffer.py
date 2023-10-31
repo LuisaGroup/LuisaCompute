@@ -21,18 +21,14 @@ class Buffer:
         self.dtype = dtype
         lc_type = to_lctype(self.dtype)
         self.stride = lc_type.size()
+        assert size >= self.stride
+        self.size = size
+        self.bytesize = size * self.stride
         # instantiate buffer on device
         if external_memory is None:  # owned memory
-            assert size >= self.stride
-            self.size = size
-            self.bytesize = size * self.stride
             info = get_global_device().impl().create_buffer(lc_type, size)
         else:  # unowned external memory
-            external_memory_addr, external_memory_size = external_memory
-            self.size = external_memory_size // self.stride
-            self.bytesize = external_memory_size
-            info = get_global_device().impl().import_external_buffer(
-                lc_type, external_memory_addr, external_memory_size)
+            info = get_global_device().impl().import_external_buffer(lc_type, external_memory, self.bytesize)
         self.handle = info.handle()
         self.native_handle = info.native_handle()
 
@@ -56,8 +52,8 @@ class Buffer:
         return Buffer(size, dtype)
 
     @staticmethod
-    def import_external_memory(native_address, size_bytes, dtype):
-        return Buffer(0, dtype, external_memory=(native_address, size_bytes))
+    def import_external_memory(native_address, size, dtype):
+        return Buffer(size, dtype, external_memory=native_address)
 
     @staticmethod
     def from_list(arr):
