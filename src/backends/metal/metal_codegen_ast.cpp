@@ -1052,25 +1052,25 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: _scratch << "lc_indirect_dispatch_set_kernel"; break;
         case CallOp::DDX: _scratch << "dfdx"; break;
         case CallOp::DDY: _scratch << "dfdy"; break;
-        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: _scratch << "lc_warp_is_first_active_lane";
-        case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane";
-        case CallOp::WARP_ACTIVE_ALL_EQUAL: _scratch << "lc_warp_active_all_equal";
-        case CallOp::WARP_ACTIVE_BIT_AND: _scratch << "lc_warp_active_bit_and";
-        case CallOp::WARP_ACTIVE_BIT_OR: _scratch << "lc_warp_active_bit_or";
-        case CallOp::WARP_ACTIVE_BIT_XOR: _scratch << "lc_warp_active_bit_xor";
-        case CallOp::WARP_ACTIVE_COUNT_BITS: _scratch << "lc_warp_active_count_bits";
-        case CallOp::WARP_ACTIVE_MAX: _scratch << "lc_warp_active_max";
-        case CallOp::WARP_ACTIVE_MIN: _scratch << "lc_warp_active_min";
-        case CallOp::WARP_ACTIVE_PRODUCT: _scratch << "lc_warp_active_product";
-        case CallOp::WARP_ACTIVE_SUM: _scratch << "lc_warp_active_sum";
-        case CallOp::WARP_ACTIVE_ALL: _scratch << "lc_warp_active_all";
-        case CallOp::WARP_ACTIVE_ANY: _scratch << "lc_warp_active_any";
-        case CallOp::WARP_ACTIVE_BIT_MASK: _scratch << "lc_warp_active_bit_mask";
-        case CallOp::WARP_PREFIX_COUNT_BITS: _scratch << "lc_warp_prefix_count_bits";
-        case CallOp::WARP_PREFIX_SUM: _scratch << "lc_warp_prefix_sum";
-        case CallOp::WARP_PREFIX_PRODUCT: _scratch << "lc_warp_prefix_product";
-        case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane";
-        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane";
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: _scratch << "lc_warp_is_first_active_lane"; break;
+        case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane"; break;
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: _scratch << "lc_warp_active_all_equal"; break;
+        case CallOp::WARP_ACTIVE_BIT_AND: _scratch << "lc_warp_active_bit_and"; break;
+        case CallOp::WARP_ACTIVE_BIT_OR: _scratch << "lc_warp_active_bit_or"; break;
+        case CallOp::WARP_ACTIVE_BIT_XOR: _scratch << "lc_warp_active_bit_xor"; break;
+        case CallOp::WARP_ACTIVE_COUNT_BITS: _scratch << "lc_warp_active_count_bits"; break;
+        case CallOp::WARP_ACTIVE_MAX: _scratch << "lc_warp_active_max"; break;
+        case CallOp::WARP_ACTIVE_MIN: _scratch << "lc_warp_active_min"; break;
+        case CallOp::WARP_ACTIVE_PRODUCT: _scratch << "lc_warp_active_product"; break;
+        case CallOp::WARP_ACTIVE_SUM: _scratch << "lc_warp_active_sum"; break;
+        case CallOp::WARP_ACTIVE_ALL: _scratch << "lc_warp_active_all"; break;
+        case CallOp::WARP_ACTIVE_ANY: _scratch << "lc_warp_active_any"; break;
+        case CallOp::WARP_ACTIVE_BIT_MASK: _scratch << "lc_warp_active_bit_mask"; break;
+        case CallOp::WARP_PREFIX_COUNT_BITS: _scratch << "lc_warp_prefix_count_bits"; break;
+        case CallOp::WARP_PREFIX_SUM: _scratch << "lc_warp_prefix_sum"; break;
+        case CallOp::WARP_PREFIX_PRODUCT: _scratch << "lc_warp_prefix_product"; break;
+        case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane"; break;
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane"; break;
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";
@@ -1311,6 +1311,57 @@ void MetalCodegenAST::visit(const CommentStmt *stmt) noexcept {
         }
     }
     _scratch << "\n";
+}
+
+void MetalCodegenAST::visit(const PrintStmt *stmt) noexcept {
+    _emit_indention();
+    _scratch << "{// print\n";
+    _indention++;
+    _emit_indention();
+    _scratch << "struct __lc_print_args {\n";
+    _indention++;
+    _emit_indention();
+    _scratch << "uint size;\n";
+    _emit_indention();
+    _scratch << "uint token;\n";
+    for (auto i = 0u; i < stmt->arguments().size(); i++) {
+        _emit_indention();
+        _emit_type_name(stmt->arguments()[i]->type(), Usage::READ);
+        _scratch << " arg" << i << ";\n";
+    }
+    _indention--;
+    _emit_indention();
+    _scratch << "};\n";
+    _emit_indention();
+    auto token = [stmt, this] {
+        luisa::vector<const Type *> arg_pack;
+        arg_pack.reserve(stmt->arguments().size() + 2u);
+        arg_pack.emplace_back(Type::of<uint>());// size
+        arg_pack.emplace_back(Type::of<uint>());// fmt id
+        for (auto a : stmt->arguments()) { arg_pack.emplace_back(a->type()); }
+        auto s = Type::structure(arg_pack);
+        for (auto i = 0u; i < _print_formats.size(); i++) {
+            if (auto &&[f, t] = _print_formats[i];
+                f == stmt->format() && t == s) { return i; }
+        }
+        auto index = static_cast<uint>(_print_formats.size());
+        _print_formats.emplace_back(stmt->format(), s);
+        return index;
+    }();
+    _scratch << "lc_print_impl({/* TODO */}, __lc_print_args{"// TODO
+             << ".size = sizeof(__lc_print_args), "
+             << ".token = " << token << ", ";
+    for (auto i = 0u; i < stmt->arguments().size(); i++) {
+        _scratch << ".arg" << i << " = ";
+        stmt->arguments()[i]->accept(*this);
+        _scratch << ", ";
+    }
+    _scratch.pop_back();
+    _scratch.pop_back();
+    _scratch << "});\n";
+    _indention--;
+    _emit_indention();
+    _scratch << "}\n";
 }
 
 void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
