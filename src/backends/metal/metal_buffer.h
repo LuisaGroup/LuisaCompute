@@ -31,6 +31,7 @@ public:
 
 public:
     MetalBuffer(MTL::Device *device, size_t size) noexcept;
+    explicit MetalBuffer(MTL::Buffer *external) noexcept;
     ~MetalBuffer() noexcept override;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] Binding binding(size_t offset, size_t size) const noexcept;
