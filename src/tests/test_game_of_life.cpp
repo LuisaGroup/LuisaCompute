@@ -76,10 +76,9 @@ int main(int argc, char *argv[]) {
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), window.size());
 
     // reset
-    luisa::vector<uint> host_image;
-    host_image.push_back_uninitialized(width * height);
-    for (uint v : host_image) {
-        uint x = (rng() % 4u == 0u) * 255u;
+    luisa::vector<uint> host_image(width * height);
+    for (auto &v : host_image) {
+        auto x = (rng() % 4u == 0u) * 255u;
         v = x * 0x00010101u | 0xff000000u;
     }
     stream << image_pair.prev.copy_from(host_image.data()) << synchronize();
