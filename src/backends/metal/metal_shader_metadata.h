@@ -14,12 +14,14 @@ struct MetalShaderMetadata {
     uint3 block_size;
     luisa::vector<luisa::string> argument_types;
     luisa::vector<Usage> argument_usages;
+    luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
 
     [[nodiscard]] auto operator==(const MetalShaderMetadata &rhs) const noexcept {
         return checksum == rhs.checksum &&
                all(block_size == rhs.block_size) &&
                argument_types == rhs.argument_types &&
-               argument_usages == rhs.argument_usages;
+               argument_usages == rhs.argument_usages &&
+               format_types == rhs.format_types;
     }
 };
 
@@ -27,4 +29,3 @@ struct MetalShaderMetadata {
 [[nodiscard]] luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::string_view metadata) noexcept;
 
 }// namespace luisa::compute::metal
-

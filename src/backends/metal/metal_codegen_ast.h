@@ -17,6 +17,7 @@ private:
     StringScratch &_scratch;
     Function _function;
     uint _indention{0u};
+    bool _uses_printing{false};
     const Type *_ray_type;
     const Type *_triangle_hit_type;
     const Type *_procedural_hit_type;

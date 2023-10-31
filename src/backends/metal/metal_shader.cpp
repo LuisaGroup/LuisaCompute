@@ -5,6 +5,7 @@
 #include "metal_accel.h"
 #include "metal_bindless_array.h"
 #include "metal_command_encoder.h"
+#include "metal_shader_printer.h"
 #include "metal_shader.h"
 
 namespace luisa::compute::metal {
@@ -13,12 +14,22 @@ MetalShader::MetalShader(MetalDevice *device,
                          MetalShaderHandle handle,
                          luisa::vector<Usage> argument_usages,
                          luisa::vector<Argument> bound_arguments,
+                         luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
                          uint3 block_size) noexcept
     : _handle{std::move(handle)},
       _argument_usages{std::move(argument_usages)},
       _bound_arguments{std::move(bound_arguments)},
       _block_size{block_size.x, block_size.y, block_size.z},
-      _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {}
+      _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {
+    if (!print_formats.empty()) {
+        luisa::vector<std::pair<luisa::string, const Type *>> fmts;
+        fmts.reserve(print_formats.size());
+        for (auto &&[name, type] : print_formats) {
+            fmts.emplace_back(name, Type::from(type));
+        }
+        _printer = luisa::make_unique<MetalShaderPrinter>(luisa::span{fmts});
+    }
+}
 
 MetalShader::~MetalShader() noexcept {
     if (_name) { _name->release(); }
@@ -252,4 +263,3 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::metal
-

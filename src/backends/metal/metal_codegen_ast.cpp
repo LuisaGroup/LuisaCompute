@@ -654,6 +654,8 @@ void MetalCodegenAST::_emit_constant(const Function::Constant &c) noexcept {
 
 void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) noexcept {
 
+    _uses_printing = kernel.requires_printing();
+
     // emit device library
     _scratch << luisa::string_view{luisa_metal_builtin_metal_device_lib,
                                    sizeof(luisa_metal_builtin_metal_device_lib)}

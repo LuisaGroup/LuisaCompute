@@ -417,30 +417,31 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         luisa::vector<MetalShader::Argument> bound_arguments;
         bound_arguments.reserve(kernel.bound_arguments().size());
         for (auto &&binding : kernel.bound_arguments()) {
-            luisa::visit([&bound_arguments](auto b) noexcept {
-                using T = std::remove_cvref_t<decltype(b)>;
-                MetalShader::Argument argument{};
-                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                    argument.tag = MetalShader::Argument::Tag::BUFFER;
-                    argument.buffer.handle = b.handle;
-                    argument.buffer.offset = b.offset;
-                    argument.buffer.size = b.size;
-                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                    argument.tag = MetalShader::Argument::Tag::TEXTURE;
-                    argument.texture.handle = b.handle;
-                    argument.texture.level = b.level;
-                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                    argument.tag = MetalShader::Argument::Tag::BINDLESS_ARRAY;
-                    argument.bindless_array.handle = b.handle;
-                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                    argument.tag = MetalShader::Argument::Tag::ACCEL;
-                    argument.accel.handle = b.handle;
-                } else {
-                    LUISA_ERROR_WITH_LOCATION("Invalid binding type.");
-                }
-                bound_arguments.emplace_back(argument);
-            },
-                         binding);
+            luisa::visit(
+                [&bound_arguments](auto b) noexcept {
+                    using T = std::remove_cvref_t<decltype(b)>;
+                    MetalShader::Argument argument{};
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                        argument.tag = MetalShader::Argument::Tag::BUFFER;
+                        argument.buffer.handle = b.handle;
+                        argument.buffer.offset = b.offset;
+                        argument.buffer.size = b.size;
+                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                        argument.tag = MetalShader::Argument::Tag::TEXTURE;
+                        argument.texture.handle = b.handle;
+                        argument.texture.level = b.level;
+                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                        argument.tag = MetalShader::Argument::Tag::BINDLESS_ARRAY;
+                        argument.bindless_array.handle = b.handle;
+                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                        argument.tag = MetalShader::Argument::Tag::ACCEL;
+                        argument.accel.handle = b.handle;
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION("Invalid binding type.");
+                    }
+                    bound_arguments.emplace_back(argument);
+                },
+                binding);
         }
 
         // codegen
@@ -448,12 +449,19 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         MetalCodegenAST codegen{scratch};
         codegen.emit(kernel, option.native_include);
 
+        // kernel printing
+        metadata.format_types.reserve(codegen.print_formats().size());
+        for (auto &&[name, format] : codegen.print_formats()) {
+            metadata.format_types.emplace_back(name, format->description());
+        }
+
         // create shader
         auto pipeline = _compiler->compile(scratch.string_view(), option, metadata);
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
             std::move(bound_arguments),
+            std::move(metadata.format_types),
             kernel.block_size());
         ShaderCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(shader);
@@ -499,6 +507,7 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
             luisa::vector<MetalShader::Argument>{},
+            std::move(metadata.format_types),
             metadata.block_size);
         ShaderCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(shader);
