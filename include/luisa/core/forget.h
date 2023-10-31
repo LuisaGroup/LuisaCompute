@@ -1,8 +1,12 @@
 #pragma once
+
 #include <type_traits>
+
 namespace luisa {
+
 /// @brief  forget a value. similar to std::mem::forget in rust.
-template<class T>
+template<typename T>
+    requires std::is_rvalue_reference_v<T &&>
 void forget(T &&value) noexcept {
     struct AlignedStorage {
         alignas(T) std::byte _[sizeof(T)];
@@ -12,4 +16,5 @@ void forget(T &&value) noexcept {
     AlignedStorage s{};
     new (s._) T{std::move(value)};
 }
+
 }// namespace luisa
