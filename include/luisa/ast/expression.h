@@ -389,6 +389,10 @@ protected:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
+    // FIXME: too hacky
+    void _unsafe_set_custom(CustomCallee callee) const noexcept;
+
+public:
     /**
      * @brief Construct a new CallExpr object calling custom function
      * 

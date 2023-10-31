@@ -797,6 +797,11 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
                      "Cannot internalize expression with no type.");
         return expr;
     }
+    if (_tag != Function::Tag::CALLABLE) {
+        // must be a leak from a callable, so postpone
+        // the fix until the kernel is encoded
+        return expr;
+    }
     // check if already internalized
     if (auto iter = _captured_external_variables.find(expr);
         iter != _captured_external_variables.end()) {

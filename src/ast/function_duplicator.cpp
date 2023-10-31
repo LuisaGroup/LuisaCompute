@@ -400,6 +400,45 @@ private:
         return dup;
     }
 
+private:
+    static void _deduplicate_custom_callables_impl(
+        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> &unique,
+        const FunctionBuilder *const_builder) noexcept {
+        auto builder = const_cast<FunctionBuilder *>(const_builder);
+        luisa::unordered_set<const FunctionBuilder *> used;
+        traverse_expressions<true>(
+            builder->body(),
+            [&unique, &used](const Expression *expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call = static_cast<const CallExpr *>(expr);
+                    if (call->is_custom()) {
+                        auto custom = call->custom();
+                        auto [iter, is_new] = unique.try_emplace(
+                            custom.hash(), custom.shared_builder());
+                        auto f = iter->second.get();
+                        used.emplace(f);
+                        if (is_new) {
+                            _deduplicate_custom_callables_impl(unique, f);
+                        } else {
+                            call->_unsafe_set_custom(f);
+                        }
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+        builder->_used_custom_callables.clear();
+        builder->_used_custom_callables.reserve(used.size());
+        for (auto f : used) { builder->_used_custom_callables.emplace_back(f->shared_from_this()); }
+        builder->_used_custom_callables.shrink_to_fit();
+    }
+
+public:
+    static void deduplicate_custom_callables(const FunctionBuilder *const_builder) noexcept {
+        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> unique;
+        _deduplicate_custom_callables_impl(unique, const_builder);
+    }
+
 public:
     [[nodiscard]] static luisa::shared_ptr<const FunctionBuilder>
     duplicate(const FunctionBuilder &f) noexcept {
@@ -430,7 +469,12 @@ luisa::shared_ptr<const FunctionBuilder> FunctionBuilder::_duplicate_if_necessar
             [](auto) noexcept {});
         return necessary;
     };
-    if (check(check, this)) { return duplicate(); }
+    if (check(check, this)) {
+        auto f = duplicate();
+        FunctionDuplicator::deduplicate_custom_callables(f.get());
+        return f;
+    }
+    FunctionDuplicator::deduplicate_custom_callables(this);
     return shared_from_this();
 }
 

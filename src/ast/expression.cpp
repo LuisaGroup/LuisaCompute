@@ -134,6 +134,14 @@ const ExternalFunction *CallExpr::external() const noexcept {
     return luisa::get<ExternalCallee>(_func);
 }
 
+void CallExpr::_unsafe_set_custom(CallExpr::CustomCallee callee) const noexcept {
+    auto f = luisa::get_if<CustomCallee>(&_func);
+    LUISA_ASSERT(f != nullptr && (*f)->hash() == callee->hash(),
+                 "Not a custom function with hash {}.",
+                 callee->hash());
+    const_cast<Callee &>(_func) = callee;
+}
+
 uint64_t UnaryExpr::_compute_hash() const noexcept {
     return hash_combine({static_cast<uint64_t>(_op), _operand->hash()});
 }

@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
 
-        Callable lcg = [&state] {
+        Lambda lcg = [&state] {
             constexpr uint lcg_a = 1664525u;
             constexpr uint lcg_c = 1013904223u;
             state = lcg_a * state + lcg_c;
