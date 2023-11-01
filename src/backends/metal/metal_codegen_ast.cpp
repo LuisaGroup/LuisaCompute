@@ -389,6 +389,9 @@ void MetalCodegenAST::_emit_function() noexcept {
             _emit_variable_name(arg);
             _scratch << ";\n";
         }
+        if (_uses_printing) {
+            _scratch << "  alignas(16) LCPrinterBuffer print_buffer;\n";
+        }
         _scratch << "};\n\n";
 
         // emit function signature and prelude
@@ -417,6 +420,9 @@ void MetalCodegenAST::_emit_function() noexcept {
             _emit_variable_name(arg);
             _scratch << ";\n";
         }
+        if (_uses_printing) {
+            _scratch << "  auto print_buffer = args.print_buffer;\n";
+        }
     } else {
         auto texture_count = std::count_if(
             _function.arguments().cbegin(), _function.arguments().cend(),
@@ -433,7 +439,7 @@ void MetalCodegenAST::_emit_function() noexcept {
         _emit_type_name(_function.return_type());
         _scratch << " callable_" << hash_to_string(_function.hash()) << "(";
         auto emitted_texture_count = 0u;
-        if (!_function.arguments().empty()) {
+        if (!_function.arguments().empty() || _uses_printing) {
             for (auto arg : _function.arguments()) {
                 auto is_mut_ref = arg.is_reference() &&
                                   (to_underlying(_function.variable_usage(arg.uid())) &
@@ -449,8 +455,12 @@ void MetalCodegenAST::_emit_function() noexcept {
                 _emit_variable_name(arg);
                 _scratch << ", ";
             }
-            _scratch.pop_back();
-            _scratch.pop_back();
+            if (_uses_printing) {
+                _scratch << "LCPrinterBuffer print_buffer";
+            } else {
+                _scratch.pop_back();
+                _scratch.pop_back();
+            }
         }
         _scratch << ") {\n";
     }
@@ -1099,6 +1109,10 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             arg->accept(*this);
             _scratch << ", ";
         }
+        if (expr->is_custom() && _uses_printing) {
+            _scratch << "print_buffer";
+            trailing_comma = false;
+        }
         if (trailing_comma) {
             _scratch.pop_back();
             _scratch.pop_back();
@@ -1350,7 +1364,7 @@ void MetalCodegenAST::visit(const PrintStmt *stmt) noexcept {
         _print_formats.emplace_back(stmt->format(), s);
         return index;
     }();
-    _scratch << "lc_print_impl({/* TODO */}, __lc_print_args{"// TODO
+    _scratch << "lc_print_impl(print_buffer, __lc_print_args{"// TODO
              << ".size = sizeof(__lc_print_args), "
              << ".token = " << token << ", ";
     for (auto i = 0u; i < stmt->arguments().size(); i++) {

@@ -3,6 +3,10 @@
 #include <cuda.h>
 #include <luisa/ast/type.h>
 
+namespace luisa::compute {
+class ShaderPrintFormatter;
+}// namespace luisa::compute
+
 namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
@@ -20,7 +24,7 @@ public:
     };
 
     class Callback;
-    class Formatter;
+    using Formatter = ShaderPrintFormatter;
 
 private:
     luisa::vector<luisa::unique_ptr<Formatter>> _formatters;

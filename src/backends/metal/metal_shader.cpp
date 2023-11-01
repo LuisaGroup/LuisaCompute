@@ -169,6 +169,13 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 
         for (auto arg : _bound_arguments) { encode(arg); }
         for (auto arg : command->arguments()) { encode(arg); }
+        MTL::Buffer *printer_buffer{nullptr};
+        if (_printer != nullptr) {
+            auto info = _printer->encode(encoder);
+            auto binding = info.binding();
+            copy(&binding, sizeof(binding));
+            printer_buffer = info.buffer;
+        }
         auto argument_size = luisa::align(argument_offset, argument_alignment);
 
         // update indirect command buffer
@@ -218,6 +225,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                                                                  indirect_binding.capacity - indirect_binding.offset));
         for (auto arg : _bound_arguments) { mark_usage(compute_encoder, arg); }
         for (auto arg : command->arguments()) { mark_usage(compute_encoder, arg); }
+        if (printer_buffer != nullptr) { compute_encoder->useResource(printer_buffer, mtl_usage(Usage::READ_WRITE)); }
         compute_encoder->endEncoding();
 
     } else {
@@ -236,6 +244,14 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         for (auto arg : command->arguments()) {
             encode(arg);
             mark_usage(compute_encoder, arg);
+        }
+
+        // printer
+        if (_printer != nullptr) {
+            auto info = _printer->encode(encoder);
+            auto binding = info.binding();
+            copy(&binding, sizeof(binding));
+            compute_encoder->useResource(info.buffer, mtl_usage(Usage::READ_WRITE));
         }
 
         auto size = argument_offset;
