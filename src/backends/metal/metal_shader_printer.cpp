@@ -12,8 +12,8 @@ inline constexpr auto metal_shader_printer_content_capacity =
 MetalShaderPrinter::MetalShaderPrinter(
     luisa::span<const std::pair<luisa::string, const Type *>> print_formats) noexcept {
     _formatters.reserve(print_formats.size());
-    for (auto &&[name, type] : print_formats) {
-        _formatters.emplace_back(luisa::make_unique<ShaderPrintFormatter>(name, type));
+    for (auto &&[fmt, type] : print_formats) {
+        _formatters.emplace_back(luisa::make_unique<ShaderPrintFormatter>(fmt, type));
     }
 }
 
@@ -57,7 +57,7 @@ MetalShaderPrinter::Encode MetalShaderPrinter::encode(MetalCommandEncoder &encod
                  .size = buffer->size()};
             auto data = buffer->data();
             *reinterpret_cast<size_t *>(data) = 0ul;
-            encoder.add_callback(Callback::create(this, buffer->data()));
+            encoder.add_callback(Callback::create(this, data));
         });
     return e;
 }
@@ -69,7 +69,8 @@ void MetalShaderPrinter::_do_print(const void *data) const noexcept {
     };
     auto *head = reinterpret_cast<const Head *>(data);
     auto valid_size = std::min(head->size, metal_shader_printer_content_capacity);
-    auto printed_size = format_shader_print(_formatters, luisa::span{head->content, valid_size});
+    auto valid_content = luisa::span{head->content, valid_size};
+    auto printed_size = format_shader_print(_formatters, valid_content);
     if (head->size > printed_size) {
         LUISA_WARNING("Device print overflow. {} byte(s) truncated.",
                       head->size - printed_size);

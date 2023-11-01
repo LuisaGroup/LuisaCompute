@@ -320,7 +320,14 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                             fmt_codes);
                         return luisa::nullopt;
                     }
-                    auto code = (hi << 4u) | lo;
+                    auto hex_to_dec = [](auto x) noexcept {
+                        return x >= '0' && x <= '9' ?
+                                   x - '0' :
+                               x >= 'a' && x <= 'f' ?
+                                   x - 'a' + 10 :
+                                   x - 'A' + 10;
+                    };
+                    auto code = (hex_to_dec(hi) << 4u) | hex_to_dec(lo);
                     fmt.push_back(static_cast<char>(code));
                 }
                 auto type = read_token();

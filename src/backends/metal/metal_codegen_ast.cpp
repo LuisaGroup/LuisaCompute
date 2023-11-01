@@ -1334,7 +1334,7 @@ void MetalCodegenAST::visit(const PrintStmt *stmt) noexcept {
     _scratch << "{// print\n";
     _indention++;
     _emit_indention();
-    _scratch << "struct __lc_print_args {\n";
+    _scratch << "struct __lc_print_args_t {\n";
     _indention++;
     _emit_indention();
     _scratch << "uint size;\n";
@@ -1343,13 +1343,12 @@ void MetalCodegenAST::visit(const PrintStmt *stmt) noexcept {
     for (auto i = 0u; i < stmt->arguments().size(); i++) {
         _emit_indention();
         _emit_type_name(stmt->arguments()[i]->type(), Usage::READ);
-        _scratch << " arg" << i << ";\n";
+        _scratch << " m" << i << ";\n";
     }
     _indention--;
     _emit_indention();
     _scratch << "};\n";
-    _emit_indention();
-    auto token = [stmt, this] {
+    auto [token, type] = [stmt, this] {
         luisa::vector<const Type *> arg_pack;
         arg_pack.reserve(stmt->arguments().size() + 2u);
         arg_pack.emplace_back(Type::of<uint>());// size
@@ -1358,23 +1357,32 @@ void MetalCodegenAST::visit(const PrintStmt *stmt) noexcept {
         auto s = Type::structure(arg_pack);
         for (auto i = 0u; i < _print_formats.size(); i++) {
             if (auto &&[f, t] = _print_formats[i];
-                f == stmt->format() && t == s) { return i; }
+                f == stmt->format() && t == s) {
+                return std::make_pair(i, t);
+            }
         }
         auto index = static_cast<uint>(_print_formats.size());
         _print_formats.emplace_back(stmt->format(), s);
-        return index;
+        return std::make_pair(index, s);
     }();
-    _scratch << "lc_print_impl(print_buffer, __lc_print_args{"// TODO
-             << ".size = sizeof(__lc_print_args), "
+    _emit_indention();
+    _scratch << "static_assert(sizeof(__lc_print_args_t) == " << type->size() << "u);\n";
+    _emit_indention();
+    _scratch << "static_assert(alignof(__lc_print_args_t) == " << type->alignment() << "u);\n";
+    _emit_indention();
+    _scratch << "__lc_print_args_t print_args{"// TODO
+             << ".size = " << type->size() << ", "
              << ".token = " << token << ", ";
     for (auto i = 0u; i < stmt->arguments().size(); i++) {
-        _scratch << ".arg" << i << " = ";
+        _scratch << ".m" << i << " = ";
         stmt->arguments()[i]->accept(*this);
         _scratch << ", ";
     }
     _scratch.pop_back();
     _scratch.pop_back();
-    _scratch << "});\n";
+    _scratch << "};\n";
+    _emit_indention();
+    _scratch << "lc_print_impl(print_buffer, print_args);\n";
     _indention--;
     _emit_indention();
     _scratch << "}\n";

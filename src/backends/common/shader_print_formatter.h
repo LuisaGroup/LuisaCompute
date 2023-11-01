@@ -68,6 +68,7 @@ public:
                     auto arg = args.front();
                     args = args.subspan(1u);
                     auto encode = [this, &s, &commit_s](auto &&self, size_t offset, const Type *arg) noexcept -> void {
+                        offset = luisa::align(offset, arg->alignment());
                         if (arg->is_scalar()) {
                             _offsets.push_back(offset);
                             _primitives.emplace_back(arg->tag());
@@ -116,7 +117,6 @@ public:
                             commit_s();
                             for (auto i = 0u; i < arg->members().size(); i++) {
                                 auto member = arg->members()[i];
-                                offset = luisa::align(offset, member->alignment());
                                 self(self, offset, member);
                                 if (i + 1u < arg->members().size()) {
                                     s.append(", ");
@@ -235,7 +235,7 @@ public:
 };
 
 inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrintFormatter>> formatters,
-                                luisa::span<const std::byte> contents) noexcept {
+                                  luisa::span<const std::byte> contents) noexcept {
     if (contents.empty()) { return 0u; }
     luisa::string scratch;
     scratch.reserve(1_k - 1u);
@@ -249,6 +249,10 @@ inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrin
         static_assert(sizeof(Item) == 8u);
         auto raw = contents.data() + offset;
         auto *item = reinterpret_cast<const Item *>(raw);
+        if (item->size == 0u) {
+            LUISA_WARNING("Invalid print item size: 0.");
+            return false;
+        }
         if (auto item_end = offset + item->size;
             item_end > contents.size_bytes()) { break; }
         if (item->fmt < formatters.size()) {
