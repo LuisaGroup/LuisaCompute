@@ -34,6 +34,7 @@ RenderTexture::RenderTexture(
         auto byteSize = allocateInfo.SizeInBytes;
         allocHandle.allocateHandle = allocator->AllocateTextureHeap(
             device,
+            "render texture",
             byteSize,
             &heap,
             &offset,

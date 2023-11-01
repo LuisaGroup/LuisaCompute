@@ -88,11 +88,11 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
 
     exts.try_emplace(
         DxCudaInterop::name,
-        [](LCDevice* device) -> DeviceExtension* {
-        return new DxCudaInteropImpl(*device);
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxCudaInteropImpl(*device);
         },
-        [](DeviceExtension* ext) {
-            delete static_cast<DxCudaInteropImpl*>(ext);
+        [](DeviceExtension *ext) {
+            delete static_cast<DxCudaInteropImpl *>(ext);
         });
 }
 LCDevice::~LCDevice() {
@@ -106,6 +106,44 @@ LCDevice::~LCDevice() {
 //}
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device.Get();
+}
+
+BufferCreationInfo LCDevice::create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept {
+    BufferCreationInfo info{};
+    Buffer *res{};
+    info.total_size_bytes = size_bytes;
+    if (element == Type::of<void>()) {
+        info.element_stride = 1u;
+        res = new DefaultBuffer(
+            &nativeDevice,
+            info.total_size_bytes,
+            reinterpret_cast<ID3D12Heap *>(external_memory));
+        info.handle = reinterpret_cast<uint64_t>(res);
+        info.native_handle = res->GetResource();
+        return info;
+    }
+    if (element->is_custom()) {
+        if (element == Type::of<IndirectKernelDispatch>()) {
+            info.element_stride = ComputeShader::DispatchIndirectStride;
+            res = static_cast<Buffer *>(
+                new DefaultBuffer(
+                    &nativeDevice,
+                    info.total_size_bytes,
+                    reinterpret_cast<ID3D12Heap *>(external_memory)));
+        } else {
+            LUISA_ERROR("Un-known custom type in dx-backend.");
+        }
+    } else {
+        res = static_cast<Buffer *>(
+            new DefaultBuffer(
+                &nativeDevice,
+                info.total_size_bytes,
+                reinterpret_cast<ID3D12Heap *>(external_memory)));
+        info.element_stride = element->size();
+    }
+    info.handle = resource_to_handle(res);
+    info.native_handle = res->GetResource();
+    return info;
 }
 
 BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
@@ -744,7 +782,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
 }
 ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, "sparse buffer heap", byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);
@@ -758,7 +796,7 @@ void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
 }
 ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, !is_compressed_type);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, "sparse texture heap", byte_size, &heap->heap, &heap->offset, !is_compressed_type);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);

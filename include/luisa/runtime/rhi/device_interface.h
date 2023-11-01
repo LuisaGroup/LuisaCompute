@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/basic_types.h>
+#include <luisa/core/platform.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/stream_tag.h>
@@ -40,9 +41,22 @@ public:
     virtual ~DeviceConfigExt() noexcept = default;
 };
 
+class MemoryProfiler {
+public:
+    virtual void allocate(
+        uint64_t handle,
+        uint64_t alignment,
+        size_t size,
+        luisa::string_view name,
+        luisa::vector<TraceItem>&& stacktrace) = 0;
+    virtual void free(
+        uint64_t handle) = 0;
+};
+
 struct DeviceConfig {
     mutable luisa::unique_ptr<DeviceConfigExt> extension;
     const BinaryIO *binary_io{nullptr};
+    MemoryProfiler *memory_profiler{nullptr};
     size_t device_index{std::numeric_limits<size_t>::max()};
     bool inqueue_buffer_limit{true};
     bool headless{false};

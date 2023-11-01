@@ -9,12 +9,12 @@ DefaultBuffer::DefaultBuffer(
     : Buffer(device),
       allocHandle(allocator),
       byteSize(byteSize),
-      initState(initState){
+      initState(initState) {
     if (allocator) {
         ID3D12Heap *heap;
         uint64 offset;
         allocHandle.allocateHandle = allocHandle.allocator->AllocateBufferHeap(
-            device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, 0,
+            device, "default buffer", byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, 0,
             shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE);
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         ThrowIfFailed(device->device->CreatePlacedResource(
@@ -34,6 +34,24 @@ DefaultBuffer::DefaultBuffer(
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
+}
+DefaultBuffer::DefaultBuffer(
+    Device *device,
+    uint64 byteSize,
+    ID3D12Heap *heap,
+    D3D12_RESOURCE_STATES initState,
+    bool shared_adaptor)
+    : Buffer(device),
+      allocHandle(nullptr),
+      byteSize(byteSize),
+      initState(initState) {
+    auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    ThrowIfFailed(device->device->CreatePlacedResource(
+        heap, 0,
+        &buffer,
+        initState,
+        nullptr,
+        IID_PPV_ARGS(&allocHandle.resource)));
 }
 vstd::optional<D3D12_SHADER_RESOURCE_VIEW_DESC> DefaultBuffer::GetColorSrvDesc(bool isRaw) const {
     return GetColorSrvDesc(0, byteSize, isRaw);
