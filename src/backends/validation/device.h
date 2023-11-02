@@ -39,9 +39,9 @@ public:
     void *native_handle() const noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
-    ~Device();
-    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
+    ~Device() override;
+    BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
 
     // texture

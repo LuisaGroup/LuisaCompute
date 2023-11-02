@@ -431,12 +431,18 @@ public:
         LUISA_NOT_IMPLEMENTED();
     }
 
-    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override {
+    BufferCreationInfo create_buffer(const Type *element,
+                                     size_t elem_count,
+                                     void *external_memory) noexcept override {
         auto type = AST2IR::build_type(element);
-        return create_buffer(&type, elem_count);
+        return create_buffer(&type, elem_count, external_memory);
     }
 
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override {
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
+                                     size_t elem_count,
+                                     void *external_memory) noexcept override {
+        // TODO: akari impl external memory pls
+        LUISA_ASSERT(external_memory == nullptr, "External memory is not supported.");
         api::CreatedBufferInfo buffer = device.create_buffer(device.device, element, elem_count);
         BufferCreationInfo info{};
         info.element_stride = buffer.element_stride;

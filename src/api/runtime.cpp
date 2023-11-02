@@ -334,7 +334,7 @@ LUISA_EXPORT_API LCCreatedBufferInfo
 luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count) LUISA_NOEXCEPT {
     auto element = reinterpret_cast<const ir::CArc<ir::Type> *>(element_);
     auto d = reinterpret_cast<DeviceInterface *>(device._0);
-    auto info = d->create_buffer(element, elem_count);
+    auto info = d->create_buffer(element, elem_count, nullptr);
     return LCCreatedBufferInfo{
         .resource = LCCreatedResourceInfo{
             .handle = info.handle,
