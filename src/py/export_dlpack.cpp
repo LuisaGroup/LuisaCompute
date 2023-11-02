@@ -36,6 +36,31 @@ auto get_pydldevice(luisa::string_view backend_name, int32_t device_id) {
 }
 
 
+const Type* scalar_type_from_dldatatype(DLDataType datatype)
+{
+    if (datatype.lanes != 1) {
+        throw std::runtime_error("LC doesn't support lanes != 1");
+    }
+    #define MATCH(CODE,BITS,REPR) \
+        if (datatype.code == CODE && datatype.bits == BITS) \
+            return Type::from(REPR);
+    MATCH(kDLBool, 8, "bool")
+    MATCH(kDLInt, 8, "byte")
+    MATCH(kDLUInt, 8, "ubyte")
+    MATCH(kDLInt, 16, "short")
+    MATCH(kDLUInt, 16, "ushort")
+    MATCH(kDLInt, 32, "int")
+    MATCH(kDLUInt, 32, "uint")
+    MATCH(kDLInt, 64, "long")
+    MATCH(kDLUInt, 64, "ulong")
+    MATCH(kDLFloat, 16, "half")
+    MATCH(kDLFloat, 32, "float")
+    MATCH(kDLFloat, 64, "double")
+    #undef MATCH
+    throw std::runtime_error("unsupported DLDataType");
+}
+
+
 DLDataType get_dldatatype(const Type *type) {
     DLDataType datatype;
     switch (type->element()->tag())
@@ -68,6 +93,61 @@ DLDataType get_dldatatype(const Type *type) {
     // Note: multi-lane representations are not supported by pytorch
     datatype.lanes = 1;
     return datatype;
+}
+
+
+const Type* buffer_dtype_from_dltensor(DLTensor t)
+{
+    if (t.byte_offset) {
+        throw std::runtime_error("non-zero byte offset");
+    }
+    const Type* scalar_type = scalar_type_from_dldatatype(t.dtype);
+    // buffer of scalars
+    if (t.ndim == 1) {
+        if (!t.strides || t.strides[0]==1)
+            return scalar_type;
+        else
+            throw std::runtime_error("linear buffer must be compact");
+    }
+    // buffer of vector
+    if (t.ndim == 2) {
+        auto n = t.shape[1];
+        if (n==3) {
+            if (t.strides && t.strides[1]==1 && t.strides[0]==4)
+                return Type::vector(scalar_type, n);
+            else
+                throw std::runtime_error("vector[3] must be 4-aligned");
+        }
+        if (n==2 || n==4) {
+            if (!t.strides || t.strides[1]==1 && t.strides[0]==n)
+                return Type::vector(scalar_type, n);
+            else
+                throw std::runtime_error("buffer of vector[2/4] must be compact");
+        }
+        throw std::runtime_error("buffer of unsupported vector size");
+    }
+    // buffer of matrices
+    if (t.ndim == 3) {
+        auto n = t.shape[1];
+        if (n != t.shape[2])
+            std::runtime_error("unsupported shape");
+        if (scalar_type != Type::from("float"))
+            std::runtime_error("lc matrix only supports float");
+        if (n==3) {
+            if (t.strides && t.strides[2]==1 && t.strides[1]==4 && t.strides[0]==12)
+                return Type::matrix(n);
+            else
+                throw std::runtime_error("vector[3] must be 4-aligned");
+        }
+        if (n==2 || n==4) {
+            if (!t.strides || t.strides[2]==1 && t.strides[1]==n && t.strides[0]==n*n)
+                return Type::matrix(n);
+            else
+                throw std::runtime_error("buffer of matrix[2/4] must be compact");
+        }
+        throw std::runtime_error("buffer of unsupported vector size");
+    }
+    throw std::runtime_error("invalid dimension");
 }
 
 
@@ -152,26 +232,17 @@ py::capsule to_py_dlpack(
 }
 
 
-void from_py_dlpack(const py::capsule &o) {
+auto from_py_dlpack(const py::capsule &o) {
     const char *name = PyCapsule_GetName(o.ptr());
     if (strcmp(name, "dltensor") != 0)
         throw std::runtime_error("DLTensor capsule was already consumed!");
     DLManagedTensor* t = reinterpret_cast<DLManagedTensor*>(PyCapsule_GetPointer(o.ptr(), "dltensor"));
     PyCapsule_SetName(o.ptr(), "used_dltensor"); // rename to make sure the capsule won't be consumed again
-    log_info("ndim:", t->dl_tensor.ndim);
-    log_info("shape:");
-    for (int dim=0; dim<t->dl_tensor.ndim; ++dim) {
-        log_info(t->dl_tensor.shape[dim]);
-    }
-    log_info("strides:");
-    if (t->dl_tensor.strides == NULL)
-        log_info(" NULL");
-    else {
-        for (int dim=0; dim<t->dl_tensor.ndim; ++dim) {
-            log_info(t->dl_tensor.strides[dim]);
-        }
-    }
-    log_info("---");
+    const Type* dtype = buffer_dtype_from_dltensor(t->dl_tensor);
+    int64_t size = t->dl_tensor.shape[0];
+    uint64_t addr = reinterpret_cast<uint64_t>(t->dl_tensor.data);
+    DLDevice device = t->dl_tensor.device;
+    return py::make_tuple(dtype, size, addr, py::make_tuple(device.device_type, device.device_id));
 }
 
 
