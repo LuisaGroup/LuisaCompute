@@ -1487,13 +1487,13 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             }
             "REQUIRES_GRADIENT" => {
                 let args = convert_args(&[true]);
-                assert!(args[0].is_local());
+                assert!(args[0].is_local() || args[0].is_argument());
                 assert!(t.is_void());
                 args
             }
             "GRADIENT" => {
                 let args = convert_args(&[true]);
-                assert!(args[0].is_local());
+                assert!(args[0].is_local() || args[0].is_argument());
                 check_same_types!(t, args[0].type_());
                 args
             }
