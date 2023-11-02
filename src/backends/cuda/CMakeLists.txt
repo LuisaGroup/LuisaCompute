@@ -82,8 +82,8 @@ if (CUDAToolkit_FOUND)
     endif ()
 
     find_package(nvcomp CONFIG)
-    if (NOT nvcomp_FOUND)
-        message(WARNING "nvcomp not found. The CUDA backend will be built without GPU compression support. You may want to set the LUISA_COMPUTE_DOWNLOAD_NVCOMP option to ON to let LuisaCompute automatically download it.")
+    if (NOT nvcomp_FOUND OR ${nvcomp_VERSION} VERSION_LESS "3.0.0")
+        message(WARNING "nvCOMP not found. The CUDA backend will be built without GPU compression support. You may want to set the LUISA_COMPUTE_DOWNLOAD_NVCOMP option to ON to let LuisaCompute automatically download it.")
     else ()
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVCOMP=1)
         set(NVCOMP_TARGETS
@@ -100,24 +100,105 @@ if (CUDAToolkit_FOUND)
         endforeach ()
     endif ()
 
-    # NVTT 3
-    if (LUISA_COMPUTE_DOWNLOAD_NVTT)
-        set(NVTT_VERSION "30204")
-#        if (WIN32)
-#            set(NVTT_DOWNLOAD_URL "https://developer.nvidia.com/downloads/texture-tools-linux-x86-64")
-#        else ()
-#            set(NVTT_DOWNLOAD_URL "https://developer.nvidia.com/downloads/texture-tools-linux-x86-64")
-#        endif ()
-#        message(STATUS "Downloading nvtt from ${NVTT_DOWNLOAD_URL}")
-#        include(FetchContent)
-#        FetchContent_Declare(nvtt URL ${NVTT_DOWNLOAD_URL} DOWNLOAD_EXTRACT_TIMESTAMP ON)
-#        FetchContent_MakeAvailable(nvtt)
-#        FetchContent_GetProperties(nvtt)
-    endif ()
-
     # CUB LuisaCompute integration
     if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
         add_subdirectory(lcub)
+    endif ()
+
+    # NVTT
+    if (NOT NVTT_DIR)
+        set(_SEARCH_PATHS
+                "${CMAKE_CURRENT_LIST_DIR}"
+                "${CMAKE_CURRENT_LIST_DIR}/.."
+                "${CMAKE_CURRENT_LIST_DIR}/../nvtt"
+                "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools"
+                "$ENV{NVTT_DIR}")
+
+        foreach (_PATH ${_SEARCH_PATHS})
+            file(GLOB _DLL_POSSIBILITIES "${_PATH}/nvtt*.dll" "${_PATH}/libnvtt.so.*")
+            if (_DLL_POSSIBILITIES) # If this folder contains a DLL matching the NVTT DLL pattern
+                set(NVTT_DIR "${_PATH}")
+                break()
+            endif ()
+        endforeach ()
+
+        if (NOT NVTT_DIR)
+            message(WARNING "NVTT not found! Please install NVTT from https://developer.nvidia.com/nvidia-texture-tools-exporter and set the CMake NVTT_DIR variable to the folder containing nvtt*.dll (e.g. C:\\Program Files\\NVIDIA Corporation\\NVIDIA Texture Tools).")
+        endif ()
+    endif ()
+
+    # Get the NVTT shared library name.
+    file(GLOB _NVTT_SL_POSSIBILITIES "${NVTT_DIR}/nvtt*.dll" "${NVTT_DIR}/libnvtt.so.*")
+    if (NOT _NVTT_SL_POSSIBILITIES)
+        message(WARNING "NVTT_DIR didn't contain an NVTT shared library of the form nvtt*.dll or libnvtt.so.*! Is NVTT_DIR set correctly? NVTT_DIR was ${NVTT_DIR}")
+        return()
+    else ()
+        list(LENGTH _NVTT_SL_POSSIBILITIES _NVTT_SL_POSSIBILITIES_LEN)
+        math(EXPR _NVTT_SL_IDX ${_NVTT_SL_POSSIBILITIES_LEN}-1)
+        list(GET _NVTT_SL_POSSIBILITIES ${_NVTT_SL_IDX} _NVTT_SL)
+    endif ()
+
+    # Find the NVTT linker library on Windows.
+    if (WIN32)
+        if (NOT NVTT_LIB)
+            file(GLOB _NVTT_LIB_ALL "${NVTT_DIR}/lib/x64-v*/nvtt*.lib")
+            if (NOT _NVTT_LIB_ALL)
+                message(WARNING "Found nvtt.dll in ${NVTT_DIR}, but was unable to find nvtt.lib in ${NVTT_DIR}/lib/... ! Please check the NVTT directory and this CMake script to see if the path is correct.")
+            else ()
+                list(LENGTH _NVTT_LIB_ALL _NVTT_LIB_LEN)
+                math(EXPR _NVTT_LIB_IDX ${_NVTT_LIB_LEN}-1)
+                list(GET _NVTT_LIB_ALL ${_NVTT_LIB_IDX} NVTT_LIB)
+            endif ()
+        endif ()
+    endif ()
+
+    if (_NVTT_SL)
+        message(STATUS "Found NVTT shared library: ${_NVTT_SL}")
+        # get include directories
+        get_filename_component(_NVTT_SL_DIR "${_NVTT_SL}" DIRECTORY)
+        if (EXISTS "${_NVTT_SL_DIR}/include/nvtt/nvtt.h" AND
+                EXISTS "${_NVTT_SL_DIR}/include/nvtt/nvtt_wrapper.h" AND
+                EXISTS "${_NVTT_SL_DIR}/include/nvtt/nvtt_lowlevel.h")
+            set(NVTT_INCLUDE_DIR "${_NVTT_SL_DIR}/include")
+        else ()
+            message(WARNING "Unable to find NVTT include directory! NVTT shared library directory was ${_NVTT_SL_DIR}")
+        endif ()
+        # parse the NVTT shared library name to get the version number
+        if (WIN32) # nvtt*.dll
+            if (NVTT_LIB) # necessary on Windows
+                string(REGEX MATCH "nvtt([0-9]+).dll" _NVTT_SL_VERSION "${_NVTT_SL}")
+                if (NOT _NVTT_SL_VERSION OR _NVTT_SL_VERSION LESS 30200)
+                    message(WARNING "Unable to parse the NVTT shared library name to get the version number! NVTT shared library name was ${_NVTT_SL}")
+                else ()
+                    set(NVTT_VERSION ${CMAKE_MATCH_1})
+                    set(NVTT_LINKER_LIB ${NVTT_LIB})
+                    set(NVTT_RUNTIME_LIB ${_NVTT_SL})
+                endif ()
+            endif ()
+        else () # libnvtt.so.*
+            string(REGEX MATCH "libnvtt.so.([0-9]+)" _NVTT_SL_VERSION "${_NVTT_SL}")
+            if (NOT _NVTT_SL_VERSION OR _NVTT_SL_VERSION LESS 30200)
+                message(WARNING "Unable to parse the NVTT shared library name to get the version number! NVTT shared library name was ${_NVTT_SL}")
+            else ()
+                set(NVTT_VERSION ${CMAKE_MATCH_1})
+                set(NVTT_LINKER_LIB ${_NVTT_SL})
+                set(NVTT_RUNTIME_LIB ${_NVTT_SL})
+            endif ()
+        endif ()
+        if (NVTT_INCLUDE_DIR AND NVTT_VERSION AND NVTT_RUNTIME_LIB AND NVTT_LINKER_LIB)
+            message(STATUS "Found NVTT ${NVTT_VERSION}\n   NVTT_INCLUDE_DIR: ${NVTT_INCLUDE_DIR}\n   NVTT_LIBS: ${NVTT_LIBS}")
+            target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVTT=1)
+            target_include_directories(luisa-compute-backend-cuda PRIVATE ${NVTT_INCLUDE_DIR})
+            target_link_libraries(luisa-compute-backend-cuda PRIVATE "${NVTT_LINKER_LIB}")
+            target_sources(luisa-compute-backend-cuda PRIVATE cuda_texture_compression.cpp cuda_texture_compression.h)
+            # The misplaced [[deprecated]] attributes in NVTT result in an error with Clang so we disable them.
+            target_compile_definitions(luisa-compute-backend-cuda PRIVATE "NVTT_DEPRECATED_API=")
+            # TODO: fix rpath on Linux?
+            add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${NVTT_RUNTIME_LIB}" "$<TARGET_FILE_DIR:luisa-compute-core>")
+            install(FILES "${NVTT_RUNTIME_LIB}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+        endif ()
     endif ()
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)

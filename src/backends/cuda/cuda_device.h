@@ -15,6 +15,11 @@ namespace luisa::compute::cuda {
 
 class CUDADenoiserExt;
 class CUDADStorageExt;
+
+#ifdef LUISA_COMPUTE_ENABLE_NVTT
+class CUDATexCompressExt;
+#endif
+
 class CUDATimelineEventPool;
 class CUDAEventManager;
 
@@ -97,6 +102,10 @@ private:
     std::mutex _ext_mutex;
     luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
+
+#ifdef LUISA_COMPUTE_ENABLE_NVTT
+    luisa::unique_ptr<CUDATexCompressExt> _tex_comp_ext;
+#endif
 
 private:
     [[nodiscard]] ShaderCreationInfo _create_shader(luisa::string name,
