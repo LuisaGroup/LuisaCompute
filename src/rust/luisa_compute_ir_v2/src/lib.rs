@@ -219,54 +219,67 @@ impl InstructionRef {
     }
     #[inline]
     pub fn as_phi(&self) -> PhiInstRef {
+        assert_eq!(self.tag(), InstructionTag::Phi);
         PhiInstRef(call!(Instruction_as_PhiInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_if(&self) -> IfInstRef {
+        assert_eq!(self.tag(), InstructionTag::If);
         IfInstRef(call!(Instruction_as_IfInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_call(&self) -> CallInstRef {
+        assert_eq!(self.tag(), InstructionTag::Call);
         CallInstRef(call!(Instruction_as_CallInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_return(&self) -> ReturnInstRef {
+        assert_eq!(self.tag(), InstructionTag::Return);
         ReturnInstRef(call!(Instruction_as_ReturnInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_generic_loop(&self) -> GenericLoopInstRef {
+        assert_eq!(self.tag(), InstructionTag::GenericLoop);
         GenericLoopInstRef(call!(Instruction_as_GenericLoopInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_local(&self) -> LocalInstRef {
+        assert_eq!(self.tag(), InstructionTag::Local);
         LocalInstRef(call!(Instruction_as_LocalInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_switch(&self) -> SwitchInstRef {
+        assert_eq!(self.tag(), InstructionTag::Switch);
         SwitchInstRef(call!(Instruction_as_SwitchInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_ray_query(&self) -> RayQueryInstRef {
+        assert_eq!(self.tag(), InstructionTag::RayQuery);
         RayQueryInstRef(call!(Instruction_as_RayQueryInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_fwd_autodiff(&self) -> FwdAutodiffInstRef {
+        assert_eq!(self.tag(), InstructionTag::FwdAutodiff);
         FwdAutodiffInstRef(call!(Instruction_as_FwdAutodiffInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_rev_autodiff(&self) -> RevAutodiffInstRef {
+        assert_eq!(self.tag(), InstructionTag::RevAutodiff);
         RevAutodiffInstRef(call!(Instruction_as_RevAutodiffInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_constant(&self) -> ConstantInstRef {
+        assert_eq!(self.tag(), InstructionTag::Constant);
         ConstantInstRef(call!(Instruction_as_ConstantInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_update(&self) -> UpdateInstRef {
+        assert_eq!(self.tag(), InstructionTag::Update);
         UpdateInstRef(call!(Instruction_as_UpdateInst, self.0 as *mut _))
     }
     #[inline]
     pub fn as_comment(&self) -> CommentInstRef {
+        assert_eq!(self.tag(), InstructionTag::Comment);
         CommentInstRef(call!(Instruction_as_CommentInst, self.0 as *mut _))
     }
 }
@@ -586,15 +599,19 @@ impl FuncRef {
         call!(Func_tag, self.0)
     }
     pub fn as_assert(&self) -> AssertFnRef {
+        assert_eq!(self.tag(), FuncTag::Assert);
         AssertFnRef(call!(Func_as_AssertFn, self.0 as *mut _) as *const _)
     }
     pub fn as_unreachable(&self) -> UnreachableFnRef {
+        assert_eq!(self.tag(), FuncTag::Unreachable);
         UnreachableFnRef(call!(Func_as_UnreachableFn, self.0 as *mut _) as *const _)
     }
     pub fn as_cpu_ext(&self) -> CpuExtFnRef {
+        assert_eq!(self.tag(), FuncTag::CpuExt);
         CpuExtFnRef(call!(Func_as_CpuExtFn, self.0 as *mut _) as *const _)
     }
     pub fn as_callable(&self) -> CallableFnRef {
+        assert_eq!(self.tag(), FuncTag::Callable);
         CallableFnRef(call!(Func_as_CallableFn, self.0 as *mut _) as *const _)
     }
 }

@@ -177,7 +177,12 @@ pub struct RustcInfo {
 pub trait Backend: Sync + Send {
     fn native_handle(&self) -> *mut c_void;
     fn compute_warp_size(&self) -> u32;
-    fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> api::CreatedBufferInfo;
+    fn create_buffer(
+        &self,
+        ty: &CArc<ir::Type>,
+        count: usize,
+        ext_mem: *mut c_void,
+    ) -> api::CreatedBufferInfo;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
         &self,
@@ -269,10 +274,11 @@ extern "C" fn create_buffer<B: Backend>(
     backend: api::Device,
     ty: *const c_void,
     count: usize,
+    ext_mem: *mut c_void,
 ) -> api::CreatedBufferInfo {
     let backend: &B = get_backend(backend);
     let ty = unsafe { &*(ty as *const CArc<ir::Type>) };
-    backend.create_buffer(ty, count)
+    backend.create_buffer(ty, count, ext_mem)
 }
 
 pub extern "C" fn destroy_buffer<B: Backend>(backend: api::Device, buffer: api::Buffer) {

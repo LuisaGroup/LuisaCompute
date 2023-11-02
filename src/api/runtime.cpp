@@ -331,10 +331,10 @@ LUISA_EXPORT_API void *luisa_compute_device_native_handle(LCDevice device) LUISA
 }
 
 LUISA_EXPORT_API LCCreatedBufferInfo
-luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count) LUISA_NOEXCEPT {
+luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count, void *ext_mem) LUISA_NOEXCEPT {
     auto element = reinterpret_cast<const ir::CArc<ir::Type> *>(element_);
     auto d = reinterpret_cast<DeviceInterface *>(device._0);
-    auto info = d->create_buffer(element, elem_count, nullptr);
+    auto info = d->create_buffer(element, elem_count, ext_mem);
     return LCCreatedBufferInfo{
         .resource = LCCreatedResourceInfo{
             .handle = info.handle,
