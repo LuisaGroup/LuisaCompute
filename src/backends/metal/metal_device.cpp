@@ -235,17 +235,21 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
                                               void *external_memory) noexcept {
     return with_autorelease_pool([=, this] {
         // special handling of the indirect dispatch buffer
-        if (element == Type::of<IndirectKernelDispatch>()) {
-            LUISA_ASSERT(external_memory == nullptr,
-                         "External memory is not supported "
-                         "for indirect dispatch buffer.");
-            auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
-            BufferCreationInfo info{};
-            info.handle = reinterpret_cast<uint64_t>(p);
-            info.native_handle = p->dispatch_buffer();
-            info.element_stride = sizeof(MetalIndirectDispatchBuffer::Dispatch);
-            info.total_size_bytes = p->dispatch_buffer()->length();
-            return info;
+        if (element->is_custom()) {
+            if (element == Type::of<IndirectKernelDispatch>()) {
+                LUISA_ASSERT(external_memory == nullptr,
+                             "External memory is not supported "
+                             "for indirect dispatch buffer.");
+                auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
+                BufferCreationInfo info{};
+                info.handle = reinterpret_cast<uint64_t>(p);
+                info.native_handle = p->dispatch_buffer();
+                info.element_stride = sizeof(MetalIndirectDispatchBuffer::Dispatch);
+                info.total_size_bytes = p->dispatch_buffer()->length();
+                return info;
+            }
+            LUISA_ERROR_WITH_LOCATION("Invalid custom buffer type: {}",
+                                      element->description());
         }
         if (element == Type::of<void>()) {
             return create_device_buffer(_handle, 1u, elem_count, external_memory);
