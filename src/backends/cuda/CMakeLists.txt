@@ -82,22 +82,27 @@ if (CUDAToolkit_FOUND)
     endif ()
 
     find_package(nvcomp CONFIG)
-    if (NOT nvcomp_FOUND OR ${nvcomp_VERSION} VERSION_LESS "3.0.0")
-        message(WARNING "nvCOMP not found. The CUDA backend will be built without GPU compression support. You may want to set the LUISA_COMPUTE_DOWNLOAD_NVCOMP option to ON to let LuisaCompute automatically download it.")
+    set(_NVCOMP_WARNING_MSG "nvCOMP not found. The CUDA backend will be built without GPU compression support. You may want to set the LUISA_COMPUTE_DOWNLOAD_NVCOMP option to ON to let LuisaCompute automatically download it.")
+    if (NOT nvcomp_FOUND)
+        message(WARNING  ${_NVCOMP_WARNING_MSG})
     else ()
-        target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVCOMP=1)
-        set(NVCOMP_TARGETS
-                nvcomp::nvcomp
-                nvcomp::nvcomp_bitcomp
-                nvcomp::nvcomp_gdeflate)
-        target_link_libraries(luisa-compute-backend-cuda PRIVATE ${NVCOMP_TARGETS})
-        foreach (target ${NVCOMP_TARGETS})
-            add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:${target}>
-                    $<TARGET_FILE_DIR:luisa-compute-core>)
-            install(FILES $<TARGET_FILE:${target}> DESTINATION ${CMAKE_INSTALL_BINDIR})
-        endforeach ()
+        if (${nvcomp_VERSION} VERSION_LESS "3.0.0")
+            message(WARNING  ${_NVCOMP_WARNING_MSG})
+        else()
+            target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVCOMP=1)
+            set(NVCOMP_TARGETS
+                    nvcomp::nvcomp
+                    nvcomp::nvcomp_bitcomp
+                    nvcomp::nvcomp_gdeflate)
+            target_link_libraries(luisa-compute-backend-cuda PRIVATE ${NVCOMP_TARGETS})
+            foreach (target ${NVCOMP_TARGETS})
+                add_custom_command(TARGET luisa-compute-backend-cuda POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        $<TARGET_FILE:${target}>
+                        $<TARGET_FILE_DIR:luisa-compute-core>)
+                install(FILES $<TARGET_FILE:${target}> DESTINATION ${CMAKE_INSTALL_BINDIR})
+            endforeach ()
+        endif()       
     endif ()
 
     # CUB LuisaCompute integration
