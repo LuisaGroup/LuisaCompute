@@ -23,10 +23,9 @@ int test_buffer_view(Device &device, size_t literal_size, size_t align_size = 4)
     auto buffer = device.create_buffer<T_FloatX>(n);
     auto view = buffer.view();
     auto handle_view = BufferView<T_FloatX>{
-        buffer.native_handle(), 
-        buffer.handle(), 
-        align_size, 0, 10, 10};
-
+        buffer.native_handle(),
+        buffer.handle(),
+        align_size, 0, n, n};
     Stream stream = device.create_stream();
     luisa::vector<float> data_init(n * align_size, 1.f);
     luisa::vector<float> data_result(n * align_size, 0.f);
