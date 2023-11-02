@@ -21,29 +21,33 @@ struct v2p {
     float2 uv;
     float color;
 };
-LUISA_STRUCT(v2p, pos, uv, color){};
+LUISA_STRUCT(v2p, pos, uv, color) {};
 struct Vertex {
-    std::array<float, 3> pos;
-    std::array<float, 2> uv;
+    float3 pos;
+    float3 normal;
+    float4 tangent;
+    float2 uv1;
+    uint color;
 };
 int main(int argc, char *argv[]) {
 
     RasterStageKernel vert = [&](Var<AppData> var, Float time) {
         Var<v2p> o;
         o.pos = make_float4(var.position, 1.f);
-        $if(var.vertex_id >= 3) {
+        $if (var.vertex_id >= 3) {
             o.pos.y += sin(time) * 0.1f;
             o.color = 0.5f;
         }
         $else {
             o.color = 0.f;
         };
-        o.uv = var.uv[0];
+        o.uv = float2(0.5);
         return o;
     };
-    RasterStageKernel pixel = [&](Var<v2p> i, Float time) {
+    RasterStageKernel pixel = [&](Var<v2p> i, Float time, BufferVar<float> img) {
         // return make_float4(object_id().cast<float>() / 10.0f);
-        return make_float4(i.uv, fract(cos(time) * 0.5f + 0.5f - i.color), 1.f);
+        img.write(i.pos.x.cast<uint>() + i.pos.y.cast<uint>() * 1024u, 1.f);
+        return float4();
     };
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
         image.write(dispatch_id().xy(), make_float4(0.1f));
@@ -58,13 +62,15 @@ int main(int argc, char *argv[]) {
     Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
     MeshFormat mesh_format;
     VertexAttribute attributes[] = {
-        {VertexAttributeType::Position, VertexElementFormat::XYZ32Float},
+        {VertexAttributeType::Position, VertexElementFormat::XYZW32Float},
+        {VertexAttributeType::Normal, VertexElementFormat::XYZW32Float},
+        {VertexAttributeType::Tangent, VertexElementFormat::XYZW32Float},
         {VertexAttributeType::UV0, VertexElementFormat::XY32Float},
+        {VertexAttributeType::Color, VertexElementFormat::XY32Float},
     };
     mesh_format.emplace_vertex_stream(attributes);
     static constexpr uint width = 1024;
     static constexpr uint height = 1024;
-    DepthBuffer depth_buffer = device.create_depth_buffer(DepthFormat::D32, uint2(width, height));
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height};
     Swapchain swap_chain{device.create_swapchain(
@@ -74,23 +80,17 @@ int main(int argc, char *argv[]) {
         true, false, 2)};
     Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
     PixelFormat img_format = out_img.format();
-    RasterShader<float, float> shader = device.compile(
+    auto shader = device.compile(
         kernel,
         mesh_format);
     Vertex vertices[6];
     vertices[0].pos = {-0.5f, 0.5f, 0.5f};
-    vertices[0].uv = {0.0f, 0.0f};
     vertices[1].pos = {0.5f, 0.5f, 0.5f};
-    vertices[1].uv = {1.0f, 0.0f};
     vertices[2].pos = {0.0f, -0.5f, 0.5f};
-    vertices[2].uv = {0.0f, 1.0f};
 
     vertices[3].pos = {-0.7f, 0.5f, 0.2f};
-    vertices[3].uv = {0.0f, 0.0f};
     vertices[4].pos = {0.5f, 0.2f, 0.8f};
-    vertices[4].uv = {1.0f, 0.0f};
     vertices[5].pos = {0.2f, -0.5f, 0.3f};
-    vertices[5].uv = {0.0f, 1.0f};
 
     Buffer<Vertex> vert_buffer = device.create_buffer<Vertex>(6);
     Buffer<uint> idx_buffer = device.create_buffer<uint>(6);
@@ -104,20 +104,23 @@ int main(int argc, char *argv[]) {
     luisa::vector<RasterMesh> meshes;
     RasterState state{
         .cull_mode = CullMode::None,
-        .depth_state = DepthState{
-            .enable_depth = true,
-            .comparison = Comparison::Less,
-            .write = true}};
+        .conservative = true};
+    auto bf = device.create_buffer<float>(1024 * 1024);
+    float arr[10];
     while (!window.should_close()) {
         float time = clock.toc() / 1000.0f;
         // add triangle mesh
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
         stream
             // clear depth buffer
-            << depth_buffer.clear(1.f)
             << clear_shader(out_img).dispatch(width, height)
-            << shader(time, time * 5).draw(std::move(meshes), Viewport{}, state, &depth_buffer, out_img)
-            << swap_chain.present(out_img);
+            << shader(time, time * 5, bf).draw(std::move(meshes), Viewport{0.f, 0.f, float(width), float(height)}, state, nullptr)
+            << bf.view(0, 10).copy_to(&arr)
+            << swap_chain.present(out_img)
+            << synchronize();
+        for(auto&& i: arr){
+            LUISA_INFO("{}", i);
+        }
         window.poll_events();
     }
     stream << synchronize();

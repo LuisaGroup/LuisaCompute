@@ -7,6 +7,7 @@
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
 #include "cuda_shader_optix.h"
+#include "cuda_shader_printer.h"
 
 namespace luisa::compute::cuda {
 
@@ -49,7 +50,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                                  const char *ptx, size_t ptx_size, const char *entry,
                                  const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : CUDAShader{metadata.argument_usages},
+    : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
+                 metadata.argument_usages},
       _bound_arguments{std::move(bound_arguments)} {
 
     // compute argument buffer size
@@ -77,6 +79,10 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                 _argument_buffer_size += type->size();
                 break;
         }
+        _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
+    }
+    if (metadata.requires_printing) {
+        _argument_buffer_size += sizeof(CUDAShaderPrinter::Binding);
         _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
     }
     // for dispatch size and kernel id
@@ -200,12 +206,12 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
 }
 
 void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
-
     luisa::vector<std::byte> indirect_dispatches_host;
     const IndirectParameters *indirect_dispatches_device = nullptr;
     if (command->is_indirect()) {
         // read back dispatch buffer
-        auto buffer = reinterpret_cast<CUDAIndirectDispatchBuffer *>(command->indirect_dispatch().handle);
+        auto indirect = command->indirect_dispatch();
+        auto buffer = reinterpret_cast<CUDAIndirectDispatchBuffer *>(indirect.handle);
         indirect_dispatches_host.resize(buffer->size_bytes());
         encoder.with_download_pool_no_fallback(buffer->size_bytes(), [&](auto temp) noexcept {
             auto stream = encoder.stream()->handle();
@@ -277,10 +283,18 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         // TODO: optimize this
         for (auto &&arg : _bound_arguments) { encode_argument(arg); }
         for (auto &&arg : command->arguments()) { encode_argument(arg); }
-        auto s = command->dispatch_size();
-        auto ds_and_kid = make_uint4(s, 0u);
-        auto ptr = allocate_argument(sizeof(ds_and_kid));
-        std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
+        // printer
+        if (printer()) {
+            auto b = printer()->encode(encoder);
+            auto ptr = allocate_argument(sizeof(b));
+            std::memcpy(ptr, &b, sizeof(b));
+        }
+        // dispatch size and kernel id
+        auto ptr = allocate_argument(sizeof(uint4));
+        if (!command->is_indirect()) {
+            auto ds_and_kid = make_uint4(0u);
+            std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
+        }
         auto cuda_stream = encoder.stream()->handle();
         if (argument_buffer->is_pooled()) [[likely]] {
             // for (direct) dispatches, if the argument buffer
@@ -289,9 +303,17 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &device_argument_buffer, argument_buffer->address(), 0u));
             if (!indirect_dispatches_host.empty()) {
-                _do_launch_indirect(cuda_stream, device_argument_buffer, indirect_dispatches_device,
+                auto indirect = command->indirect_dispatch();
+                _do_launch_indirect(cuda_stream, device_argument_buffer,
+                                    indirect.offset, indirect.max_dispatch_size,
+                                    indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
+            } else if (command->is_multiple_dispatch()) {
+                for (auto s : command->dispatch_sizes()) {
+                    _do_launch(cuda_stream, device_argument_buffer, s);
+                }
             } else {
+                auto s = command->dispatch_size();
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }
         } else {// otherwise, we need to copy the argument buffer to the device
@@ -302,9 +324,17 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                 device_argument_buffer, argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
             if (!indirect_dispatches_host.empty()) {
-                _do_launch_indirect(cuda_stream, device_argument_buffer, indirect_dispatches_device,
+                auto indirect = command->indirect_dispatch();
+                _do_launch_indirect(cuda_stream, device_argument_buffer,
+                                    indirect.offset, indirect.max_dispatch_size,
+                                    indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
+            } else if (command->is_multiple_dispatch()) {
+                for (auto s : command->dispatch_sizes()) {
+                    _do_launch(cuda_stream, device_argument_buffer, s);
+                }
             } else {
+                auto s = command->dispatch_size();
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }
             LUISA_CHECK_CUDA(cuMemFreeAsync(device_argument_buffer, cuda_stream));
@@ -332,15 +362,17 @@ void CUDAShaderOptiX::_do_launch(CUstream stream, CUdeviceptr argument_buffer, u
 }
 
 void CUDAShaderOptiX::_do_launch_indirect(CUstream stream, CUdeviceptr argument_buffer,
+                                          size_t dispatch_offset, size_t dispatch_count,
                                           const CUDAShaderOptiX::IndirectParameters *indirect_buffer_device,
                                           const CUDAShaderOptiX::IndirectParameters *indirect_params_readback) const noexcept {
     auto sbt = _make_sbt();
     auto p = argument_buffer + _argument_buffer_size - sizeof(uint4);
     LUISA_CHECK_CUDA(cuStreamSynchronize(stream));
-    for (auto i = 0u; i < indirect_params_readback->header.size; i++) {
-        auto dispatch = indirect_params_readback->dispatches[i].dispatch_size_and_kernel_id;
+    auto n = std::min<size_t>(indirect_params_readback->header.size, dispatch_count);
+    for (auto i = 0u; i < n; i++) {
+        auto dispatch = indirect_params_readback->dispatches[i + dispatch_offset].dispatch_size_and_kernel_id;
         auto dispatch_size = dispatch.xyz();
-        auto d = reinterpret_cast<CUdeviceptr>(&indirect_buffer_device->dispatches[i]);
+        auto d = reinterpret_cast<CUdeviceptr>(&indirect_buffer_device->dispatches[i + dispatch_offset]);
         LUISA_CHECK_CUDA(cuMemcpyAsync(p, d, sizeof(uint4), stream));
         LUISA_CHECK_OPTIX(optix::api().launch(
             _pipeline, stream, argument_buffer, _argument_buffer_size,

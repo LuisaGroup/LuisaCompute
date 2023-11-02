@@ -49,8 +49,11 @@ public:
     MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept;
     ~MetalDevice() noexcept override;
     void *native_handle() const noexcept override;
+    uint compute_warp_size() const noexcept override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
+    BufferCreationInfo create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept override;
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;

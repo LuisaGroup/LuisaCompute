@@ -23,7 +23,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     Device device = context.create_device(argv[1]);
-    Printer printer{device};
 
     Kernel2D kernel = [&]() noexcept {
         UInt2 coord = dispatch_id().xy();
@@ -32,13 +31,13 @@ int main(int argc, char *argv[]) {
             Var<MyStruct> s;
             s.a = v;
             s.b = coord;
-            printer.info_with_location("s = {}", s);
+            $outline {
+                device_log("s = {}", s);
+            };
         };
     };
     Shader2D<> shader = device.compile(kernel);
     Stream stream = device.create_stream();
-    stream << printer.reset()
-           << shader().dispatch(128u, 128u);
-    stream << printer.retrieve()
+    stream << shader().dispatch(128u, 128u)
            << synchronize();
 }

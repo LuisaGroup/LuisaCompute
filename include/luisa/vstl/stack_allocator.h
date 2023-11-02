@@ -10,6 +10,7 @@ class LC_VSTL_API StackAllocator {
     StackAllocatorVisitor *visitor;
     uint64 capacity;
     uint64 initCapacity;
+    double capaExpanRate;
     struct Buffer {
         uint64 handle;
         uint64 fullSize;
@@ -20,7 +21,8 @@ class LC_VSTL_API StackAllocator {
 public:
     StackAllocator(
         uint64 initCapacity,
-        StackAllocatorVisitor *visitor);
+        StackAllocatorVisitor *visitor,
+        double capaExpanRate = 1.5);
     ~StackAllocator();
     struct Chunk {
         uint64 handle;

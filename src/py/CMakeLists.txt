@@ -1,10 +1,12 @@
 set(LUISA_PYTHON_SOURCES
+        ast_evaluator.cpp ast_evaluator.h
         export_commands.cpp
         export_expr.cpp
         export_gui.cpp
         export_matrix.cpp
         export_op.cpp
         export_runtime.cpp
+        export_dlpack.cpp
         export_vector2.cpp
         export_vector3.cpp
         export_vector4.cpp
@@ -26,8 +28,10 @@ endif ()
 target_link_libraries(lcapi PRIVATE luisa::compute)
 target_precompile_headers(lcapi PRIVATE pch.h)
 
-install(DIRECTORY luisa
-        DESTINATION ${SKBUILD_PLATLIB_DIR})
-install(TARGETS lcapi
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if (SKBUILD)
+    install(DIRECTORY luisa
+            DESTINATION ${SKBUILD_PLATLIB_DIR})
+    install(TARGETS lcapi
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif ()

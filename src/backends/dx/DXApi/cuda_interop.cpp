@@ -5,7 +5,13 @@
 #include <Resource/Buffer.h>
 #include <Resource/TextureBase.h>
 #include <DXApi/LCEvent.h>
+#include <DXApi/LCDevice.h>
 #include <aclapi.h>
+#include <Resource/DefaultBuffer.h>
+#include <Resource/RenderTexture.h>
+#include <luisa/runtime/dispatch_buffer.h>
+#include <Shader/ComputeShader.h>
+#include "TypeCheck.h"
 #else
 #include <luisa/core/logging.h>
 #endif
@@ -68,11 +74,22 @@ WindowsSecurityAttributes::~WindowsSecurityAttributes() {
 SECURITY_ATTRIBUTES *WindowsSecurityAttributes::operator&() {
     return &m_winSecurityAttributes;
 }
-uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle) noexcept {
+void DxCudaInteropImpl::unmap(void *cuda_ptr, void *cuda_handle) noexcept {
+    auto result = cudaFree(cuda_ptr);
+    result = cudaDestroyExternalMemory(reinterpret_cast<cudaExternalMemory_t>(cuda_handle));
+}
+void DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept {
     auto dxBuffer = reinterpret_cast<Buffer const *>(dx_buffer_handle);
-    WindowsSecurityAttributes windowsSecurityAttributes;
+    SECURITY_ATTRIBUTES windowsSecurityAttributes = {};
+    windowsSecurityAttributes.nLength = sizeof(SECURITY_ATTRIBUTES);
+    windowsSecurityAttributes.bInheritHandle = TRUE;
+    windowsSecurityAttributes.lpSecurityDescriptor = nullptr;
     HANDLE sharedHandle;
-    _device.device->CreateSharedHandle(dxBuffer->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
+
+    //In order to make this work, the buffers now uses committed resource instead of placed
+    if (!SUCCEEDED(_device.nativeDevice.device->CreateSharedHandle(dxBuffer->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle))) {
+        LUISA_ERROR("Failed to create shared handle");
+    }
 
     cudaExternalMemoryHandleDesc externalMemoryHandleDesc;
     memset(&externalMemoryHandleDesc, 0, sizeof(externalMemoryHandleDesc));
@@ -82,16 +99,28 @@ uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle) noexcept {
     externalMemoryHandleDesc.size = dxBuffer->GetByteSize();
     externalMemoryHandleDesc.flags = cudaExternalMemoryDedicated;
     cudaExternalMemory_t externalMemory{};
-    assert(cudaImportExternalMemory(&externalMemory, &externalMemoryHandleDesc));
+    if (cudaImportExternalMemory(&externalMemory, &externalMemoryHandleDesc) != cudaSuccess) {
+        LUISA_ERROR("Failed to create shared CUDA handle");
+    }
+    *cuda_handle = reinterpret_cast<uint64_t>(externalMemory);
     // TODO: need cuda buffer here
-    return reinterpret_cast<uint64_t>(externalMemory);
+    cudaExternalMemoryBufferDesc bufferDesc{};
+    bufferDesc.offset = 0;
+    bufferDesc.size = dxBuffer->GetByteSize();
+    bufferDesc.flags = 0;
+
+    void *devicePtr;
+    if (cudaExternalMemoryGetMappedBuffer(&devicePtr, externalMemory, &bufferDesc) != cudaSuccess) {
+        LUISA_ERROR("Failed to create shared CUDA memory");
+    }
+    *cuda_ptr = reinterpret_cast<uint64_t>(devicePtr);
 }
 uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture_handle) noexcept {
     auto dxTex = reinterpret_cast<TextureBase const *>(dx_texture_handle);
-    auto allocateInfo = _device.device->GetResourceAllocationInfo(0, 1, vstd::get_rval_ptr(dxTex->GetResource()->GetDesc()));
+    auto allocateInfo = _device.nativeDevice.device->GetResourceAllocationInfo(0, 1, vstd::get_rval_ptr(dxTex->GetResource()->GetDesc()));
     WindowsSecurityAttributes windowsSecurityAttributes;
     HANDLE sharedHandle;
-    _device.device->CreateSharedHandle(dxTex->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
+    _device.nativeDevice.device->CreateSharedHandle(dxTex->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
 
     cudaExternalMemoryHandleDesc externalMemoryHandleDesc;
     memset(&externalMemoryHandleDesc, 0, sizeof(externalMemoryHandleDesc));
@@ -113,7 +142,7 @@ uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event_handle) noexcept {
     WindowsSecurityAttributes windowsSecurityAttributes;
     HANDLE sharedHandle;
     externalSemaphoreHandleDesc.type = cudaExternalSemaphoreHandleTypeD3D12Fence;
-    _device.device->CreateSharedHandle(dxEvent->Fence(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
+    _device.nativeDevice.device->CreateSharedHandle(dxEvent->Fence(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
     externalSemaphoreHandleDesc.handle.win32.handle = (void *)sharedHandle;
     externalSemaphoreHandleDesc.flags = 0;
     cudaExternalSemaphore_t externalSemaphre{};
@@ -121,11 +150,72 @@ uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event_handle) noexcept {
     // TODO: need cuda event here
     return reinterpret_cast<uint64_t>(externalSemaphre);
 }
+BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element, size_t elem_count) noexcept {
+    BufferCreationInfo info{};
+    Buffer *res{};
+    if (element == Type::of<void>()) {
+        info.total_size_bytes = elem_count;
+        info.element_stride = 1u;
+        res = new DefaultBuffer(
+            &_device.nativeDevice,
+            info.total_size_bytes,
+            _device.nativeDevice.defaultAllocator.get(),
+            D3D12_RESOURCE_STATE_COMMON, true);
+        info.handle = reinterpret_cast<uint64_t>(res);
+        info.native_handle = res->GetResource();
+        return info;
+    }
+    if (element->is_custom()) {
+        if (element == Type::of<IndirectKernelDispatch>()) {
+            info.element_stride = ComputeShader::DispatchIndirectStride;
+            info.total_size_bytes = 4 + info.element_stride * elem_count;
+            res = static_cast<Buffer *>(new DefaultBuffer(&_device.nativeDevice, info.total_size_bytes, _device.nativeDevice.defaultAllocator.get()));
+        } else {
+            LUISA_ERROR("Un-known custom type in dx-backend.");
+        }
+    } else {
+        info.total_size_bytes = element->size() * elem_count;
+        res = static_cast<Buffer *>(
+            new DefaultBuffer(
+                &_device.nativeDevice,
+                info.total_size_bytes,
+                _device.nativeDevice.defaultAllocator.get(),
+                D3D12_RESOURCE_STATE_COMMON, true));
+        info.element_stride = element->size();
+    }
+    info.handle = reinterpret_cast<uint64>(res);
+    info.native_handle = res->GetResource();
+    return info;
+}
+ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    bool allowUAV = !is_block_compressed(format);
+    ResourceCreationInfo info;
+    auto res = new RenderTexture(
+        &_device.nativeDevice,
+        width,
+        height,
+        TextureBase::ToGFXFormat(format),
+        (TextureDimension)dimension,
+        depth,
+        mipmap_levels,
+        allowUAV,
+        simultaneous_access,
+        _device.nativeDevice.defaultAllocator.get(),
+        true);
+    info.handle = reinterpret_cast<uint64>(res);
+    info.native_handle = res->GetResource();
+    return info;
+}
+DeviceInterface *DxCudaInteropImpl::device() {
+    return &_device;
+}
 #else
 #define LUISA_UNIMPL_ERROR LUISA_ERROR("Method unimplemented.")
-uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer) noexcept {
+void DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept {
     LUISA_UNIMPL_ERROR;
-    return invalid_resource_handle;
 }
 uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture) noexcept {
     LUISA_UNIMPL_ERROR;
@@ -134,6 +224,21 @@ uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture) noexcept {
 uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event) noexcept {
     LUISA_UNIMPL_ERROR;
     return invalid_resource_handle;
+}
+BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element, size_t elem_count) noexcept {
+    LUISA_UNIMPL_ERROR;
+}
+ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    LUISA_UNIMPL_ERROR;
+}
+DeviceInterface *DxCudaInteropImpl::device() {
+    LUISA_UNIMPL_ERROR;
+}
+void DxCudaInteropImpl::unmap(void *cuda_ptr, void *cuda_handle) noexcept {
+    LUISA_UNIMPL_ERROR;
 }
 #undef LUISA_UNIMPL_ERROR
 #endif

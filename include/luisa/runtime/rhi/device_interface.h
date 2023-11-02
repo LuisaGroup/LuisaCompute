@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/basic_types.h>
+#include <luisa/core/platform.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/stream_tag.h>
@@ -28,6 +29,10 @@ template<class T>
 struct CArc;
 }// namespace ir
 
+namespace ir_v2 {
+struct KernelModule;
+}// namespace ir_v2
+
 class Type;
 struct AccelOption;
 
@@ -36,10 +41,23 @@ public:
     virtual ~DeviceConfigExt() noexcept = default;
 };
 
+class MemoryProfiler {
+public:
+    virtual void allocate(
+        uint64_t handle,
+        uint64_t alignment,
+        size_t size,
+        luisa::string_view name,
+        luisa::vector<TraceItem>&& stacktrace) = 0;
+    virtual void free(
+        uint64_t handle) = 0;
+};
+
 struct DeviceConfig {
     mutable luisa::unique_ptr<DeviceConfigExt> extension;
     const BinaryIO *binary_io{nullptr};
-    size_t device_index{0ull};
+    MemoryProfiler *memory_profiler{nullptr};
+    size_t device_index{std::numeric_limits<size_t>::max()};
     bool inqueue_buffer_limit{true};
     bool headless{false};
 };
@@ -67,12 +85,13 @@ public:
 
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
-    [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
-    [[nodiscard]] virtual uint compute_warp_size() const noexcept { return 0; }
+    [[nodiscard]] virtual uint compute_warp_size() const noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept = 0;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture
@@ -103,6 +122,11 @@ public:
     // kernel
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
+    [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
+        fprintf(stderr,
+                "DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) is not implemented.");
+        abort();
+    }
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
     virtual Usage shader_argument_usage(uint64_t handle, size_t index) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
@@ -144,7 +168,7 @@ public:
     virtual void destroy_sparse_buffer(uint64_t handle) noexcept {}
 
     // sparse texture
-    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept { return ResourceCreationInfo::make_invalid(); }
+    [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept { return ResourceCreationInfo::make_invalid(); }
     virtual void deallocate_sparse_texture_heap(uint64_t handle) noexcept {}
     [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,

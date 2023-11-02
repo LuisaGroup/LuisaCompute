@@ -1,11 +1,14 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
-
+    # set profile based on build type
+    set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+            PROFILE ${LUISA_CARGO_PROFILE}
             NO_DEFAULT_FEATURES)
 
     corrosion_set_env_vars(luisa_compute_ir "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
     corrosion_set_env_vars(luisa_compute_api_types "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -39,7 +42,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endif ()
     endfunction()
 
-    luisa_compute_rust_fix_rpath(ir)
     luisa_compute_rust_fix_rpath(backend_impl)
 
     function(luisa_compute_install_rust target)
@@ -69,11 +71,16 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         if (LUISA_COMPUTE_ENABLE_REMOTE)
             corrosion_set_features(luisa_compute_backend_impl FEATURES remote)
         endif ()
-
+        if (LUISA_COMPUTE_EMBREE_ZIP_PATH STREQUAL "" OR NOT LUISA_COMPUTE_EMBREE_ZIP_PATH)
+        else()
+            if(NOT EXISTS ${LUISA_COMPUTE_EMBREE_ZIP_PATH})
+                message(FATAL_ERROR "LUISA_COMPUTE_EMBREE_ZIP_PATH is set to ${LUISA_COMPUTE_EMBREE_ZIP_PATH} but the file does not exist.")
+            endif()
+            corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_ZIP_FILE=${LUISA_COMPUTE_EMBREE_ZIP_PATH}")
+        endif()
         if (LUISA_COMPUTE_ENABLE_CPU)
 
             corrosion_set_features(luisa_compute_backend_impl FEATURES cpu)
-
             set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
             set(LUISA_RUST_OUTPUT_DIR
                     "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
@@ -84,8 +91,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
 
             # building from source is preferred for Python wheels
-            if (UNIX AND SKBUILD)
-                corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+            if (UNIX)
+                if (APPLE) # workaround clang linking
+                    corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_CC=cc" "EMBREE_CXX=c++")
+                endif ()
+                if (SKBUILD) # force building from source for Python binding to avoid dependency issues
+                    corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+                endif ()
             endif ()
             add_custom_target(luisa-compute-rust-copy DEPENDS cargo-build_luisa_compute_backend_impl)
             add_custom_command(TARGET luisa-compute-rust-copy

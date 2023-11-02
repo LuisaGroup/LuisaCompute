@@ -36,9 +36,10 @@ else ()
     option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" ON)
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
     option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
+    option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
 endif ()
 
-option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build" ON)
+option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build (which might accelerate the compilation but could break VS Code's clangd indexing)" OFF)
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
 # validate the options

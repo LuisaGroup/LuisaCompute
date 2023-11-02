@@ -36,7 +36,9 @@ jobs:
         with:
           submodules: recursive
       - name: "Setup LLVM"
-        run: brew install llvm molten-vk
+        run: |
+          brew install --overwrite python@3.11
+          brew install --overwrite llvm molten-vk
       - name: "Build Wheels"
         run: |
           export PATH="/usr/local/opt/llvm/bin:$PATH"

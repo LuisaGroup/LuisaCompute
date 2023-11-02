@@ -51,7 +51,8 @@ public:
                 for (auto i = 0u; i < _impl.size(); i++) {
                     detail::SwitchCaseStmtBuilder{i} % [&f, this, i] { f(impl(i)); };
                 }
-                detail::SwitchDefaultStmtBuilder{} % unreachable;
+                detail::SwitchDefaultStmtBuilder{} %
+                    [] { unreachable(); };
             };
         }
     }
@@ -78,7 +79,8 @@ public:
                 for (auto i = lo; i < hi; i++) {
                     detail::SwitchCaseStmtBuilder{i} % [&f, this, i] { f(impl(i)); };
                 }
-                detail::SwitchDefaultStmtBuilder{} % unreachable;
+                detail::SwitchDefaultStmtBuilder{} %
+                    [] { unreachable(); };
             };
         }
     }
@@ -112,11 +114,11 @@ public:
                 for (auto t : tags) {
                     detail::SwitchCaseStmtBuilder{t} % [&f, this, t] { f(impl(t)); };
                 }
-                detail::SwitchDefaultStmtBuilder{} % unreachable;
+                detail::SwitchDefaultStmtBuilder{} %
+                    [] { unreachable(); };
             };
         }
     }
 };
 
 }// namespace luisa::compute
-

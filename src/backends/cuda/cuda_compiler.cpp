@@ -77,6 +77,9 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
       }()},
       _device_library{[] {
           luisa::string device_library;
+          auto device_half = luisa::string_view{
+              luisa_cuda_builtin_cuda_device_half,
+              sizeof(luisa_cuda_builtin_cuda_device_half)};
           auto device_math = luisa::string_view{
               luisa_cuda_builtin_cuda_device_math,
               sizeof(luisa_cuda_builtin_cuda_device_math)};
@@ -84,10 +87,14 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
               luisa_cuda_builtin_cuda_device_resource,
               sizeof(luisa_cuda_builtin_cuda_device_resource)};
 
-          device_library.resize(device_math.size() + device_resource.size());
+          device_library.resize(device_half.size() +
+                                device_math.size() +
+                                device_resource.size());
           std::memcpy(device_library.data(),
+                      device_half.data(), device_half.size());
+          std::memcpy(device_library.data() + device_half.size(),
                       device_math.data(), device_math.size());
-          std::memcpy(device_library.data() + device_math.size(),
+          std::memcpy(device_library.data() + device_half.size() + device_math.size(),
                       device_resource.data(), device_resource.size());
           return device_library;
       }()},

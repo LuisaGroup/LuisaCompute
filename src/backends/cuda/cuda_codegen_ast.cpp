@@ -7,7 +7,8 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/dsl/rtx/ray_query.h>
-#include "../common/string_scratch.h"
+
+#include "cuda_texture.h"
 #include "cuda_codegen_ast.h"
 
 namespace luisa::compute::cuda {
@@ -423,6 +424,19 @@ private:
                 _codegen->_scratch << " = params.";
                 _codegen->_emit_variable_name(*r.cbegin());
                 _codegen->_scratch << ";\n";
+                // inform the compiler of the underlying storage if the resource is captured
+                // Note: this is O(n^2) but we should not have that many resources
+                for (auto i = 0u; i < f.bound_arguments().size(); i++) {
+                    auto binding = f.bound_arguments()[i];
+                    if (auto b = luisa::get_if<Function::TextureBinding>(&binding);
+                        b != nullptr && f.arguments()[i] == v) {
+                        auto surf = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                        _codegen->_emit_indent();
+                        _codegen->_scratch << "lc_assume(";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << ".surface.storage == " << surf.storage << ");\n";
+                    }
+                }
             }
             // captured variables through stack
             if (!captured_elements.empty() ||
@@ -781,11 +795,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
         case CallOp::PACK: _scratch << "lc_pack_to"; break;
-        case CallOp::UNPACK:
+        case CallOp::UNPACK: {
             _scratch << "lc_unpack_from<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
+        }
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::EXTERNAL: _scratch << expr->external()->name(); break;
         case CallOp::ALL: _scratch << "lc_all"; break;
@@ -857,7 +872,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
-        case CallOp::BYTE_BUFFER_READ: _scratch << "lc_byte_buffer_read"; break;
+        case CallOp::BYTE_BUFFER_READ: {
+            _scratch << "lc_byte_buffer_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::BYTE_BUFFER_WRITE: _scratch << "lc_byte_buffer_write"; break;
         case CallOp::BYTE_BUFFER_SIZE: _scratch << "lc_byte_buffer_size"; break;
         case CallOp::TEXTURE_READ: _scratch << "lc_texture_read"; break;
@@ -885,8 +905,12 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
-            _scratch << "lc_bindless_byte_address_buffer_read<";
+        case CallOp::BINDLESS_BUFFER_WRITE: {
+            _scratch << "lc_bindless_buffer_read";
+            break;
+        }
+        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
+            _scratch << "lc_bindless_byte_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
@@ -931,9 +955,13 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
+        // TODO
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: LUISA_NOT_IMPLEMENTED(); break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
@@ -955,7 +983,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::GRADIENT: _scratch << "LC_GRAD"; break;
         case CallOp::GRADIENT_MARKER: _scratch << "LC_MARK_GRAD"; break;
         case CallOp::ACCUMULATE_GRADIENT: _scratch << "LC_ACCUM_GRAD"; break;
-        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BACKWARD: LUISA_ERROR_WITH_LOCATION("autodiff::backward() should have been lowered."); break;
         case CallOp::DETACH: {
             _scratch << "static_cast<";
             _emit_type_name(expr->type());
@@ -963,39 +991,29 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             break;
         }
         case CallOp::RASTER_DISCARD: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: _scratch << "lc_indirect_buffer_clear"; break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: _scratch << "lc_indirect_buffer_emplace"; break;
-        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::INDIRECT_SET_DISPATCH_KERNEL: _scratch << "lc_indirect_set_dispatch_kernel"; break;
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: _scratch << "lc_indirect_set_dispatch_count"; break;
         case CallOp::DDX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::DDY:
-            LUISA_NOT_IMPLEMENTED();
-            break;
-
-            // warp intrinsics
-        case CallOp::WARP_LANE_COUNT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_LANE_INDEX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_ALL_EQUAL: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_AND: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_OR: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_XOR: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_COUNT_BITS: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_MAX: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_MIN: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_SUM: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_ALL: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_ANY: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_ACTIVE_BIT_MASK: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_PREFIX_COUNT_BITS: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_PREFIX_SUM: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_PREFIX_PRODUCT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_READ_LANE_AT: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_READ_FIRST_LANE:
-            LUISA_NOT_IMPLEMENTED();
-            break;
-
-            // SER
+        case CallOp::DDY: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::WARP_FIRST_ACTIVE_LANE: _scratch << "lc_warp_first_active_lane"; break;
+        case CallOp::WARP_IS_FIRST_ACTIVE_LANE: _scratch << "lc_warp_is_first_active_lane"; break;
+        case CallOp::WARP_ACTIVE_ALL_EQUAL: _scratch << "lc_warp_active_all_equal"; break;
+        case CallOp::WARP_ACTIVE_BIT_AND: _scratch << "lc_warp_active_bit_and"; break;
+        case CallOp::WARP_ACTIVE_BIT_OR: _scratch << "lc_warp_active_bit_or"; break;
+        case CallOp::WARP_ACTIVE_BIT_XOR: _scratch << "lc_warp_active_bit_xor"; break;
+        case CallOp::WARP_ACTIVE_COUNT_BITS: _scratch << "lc_warp_active_count_bits"; break;
+        case CallOp::WARP_ACTIVE_MAX: _scratch << "lc_warp_active_max"; break;
+        case CallOp::WARP_ACTIVE_MIN: _scratch << "lc_warp_active_min"; break;
+        case CallOp::WARP_ACTIVE_PRODUCT: _scratch << "lc_warp_active_product"; break;
+        case CallOp::WARP_ACTIVE_SUM: _scratch << "lc_warp_active_sum"; break;
+        case CallOp::WARP_ACTIVE_ALL: _scratch << "lc_warp_active_all"; break;
+        case CallOp::WARP_ACTIVE_ANY: _scratch << "lc_warp_active_any"; break;
+        case CallOp::WARP_ACTIVE_BIT_MASK: _scratch << "lc_warp_active_bit_mask"; break;
+        case CallOp::WARP_PREFIX_COUNT_BITS: _scratch << "lc_warp_prefix_count_bits"; break;
+        case CallOp::WARP_PREFIX_SUM: _scratch << "lc_warp_prefix_sum"; break;
+        case CallOp::WARP_PREFIX_PRODUCT: _scratch << "lc_warp_prefix_product"; break;
+        case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane"; break;
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane"; break;
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
     }
     _scratch << "(";
@@ -1014,10 +1032,18 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         }
     } else {
         auto trailing_comma = false;
+        if (op == CallOp::UNREACHABLE) {
+            _scratch << "__FILE__, __LINE__, ";
+            trailing_comma = true;
+        }
         for (auto arg : expr->arguments()) {
             trailing_comma = true;
             arg->accept(*this);
             _scratch << ", ";
+        }
+        if (op == CallOp::CUSTOM && _requires_printing && !_requires_optix) {
+            _scratch << "print_buffer, ";
+            trailing_comma = true;
         }
         if (trailing_comma) {
             _scratch.pop_back();
@@ -1101,6 +1127,10 @@ void CUDACodegenAST::visit(const TypeIDExpr *expr) {
     _emit_type_name(expr->type());
     _scratch << ">(0ull)";
     // TODO: use type id
+}
+
+void CUDACodegenAST::visit(const StringIDExpr *expr) {
+    LUISA_NOT_IMPLEMENTED();
 }
 
 void CUDACodegenAST::visit(const BreakStmt *) {
@@ -1199,6 +1229,10 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
 void CUDACodegenAST::emit(Function f,
                           luisa::string_view device_lib,
                           luisa::string_view native_include) {
+
+    _requires_printing = f.requires_printing();
+    _requires_optix = f.requires_raytracing();
+
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
@@ -1234,10 +1268,12 @@ void CUDACodegenAST::emit(Function f,
 
 void CUDACodegenAST::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find_if(_generated_functions.cbegin(),
-                                 _generated_functions.cend(), [&](auto &&other) noexcept { return other.hash() == f.hash(); });
+    if (auto iter = std::find_if(
+            _generated_functions.cbegin(),
+            _generated_functions.cend(),
+            [&](auto &&other) noexcept { return other == f.hash(); });
         iter != _generated_functions.cend()) { return; }
-    _generated_functions.emplace_back(f);
+    _generated_functions.emplace_back(f.hash());
 
     // ray tracing kernels use __constant__ args
     // note: this must go before any other
@@ -1247,6 +1283,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << "\n  alignas(16) ";
             _emit_variable_decl(f, arg, !arg.type()->is_buffer());
             _scratch << "{};";
+        }
+        if (_requires_printing) {
+            _scratch << "\n  alignas(16) LCPrintBuffer print_buffer{};";
         }
         _scratch << "\n  alignas(16) lc_uint4 ls_kid;";
         _scratch << "\n};\n\n";
@@ -1320,12 +1359,30 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _emit_variable_name(arg);
             _scratch << ";";
         }
+        if (!_requires_optix && _requires_printing) {
+            _scratch << "\n  const auto &print_buffer = params.print_buffer;";
+        }
+        for (auto i = 0u; i < f.bound_arguments().size(); i++) {
+            auto binding = f.bound_arguments()[i];
+            if (auto b = luisa::get_if<Function::TextureBinding>(&binding)) {
+                auto surface = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                // inform the compiler of the underlying storage
+                _scratch << "\n  lc_assume(";
+                _emit_variable_name(f.arguments()[i]);
+                _scratch << ".surface.storage == " << surface.storage << ");";
+            }
+        }
     } else {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
             _emit_variable_decl(f, arg, false);
             _scratch << ",";
+            any_arg = true;
+        }
+        // we have to pass the print buffer to all callables
+        if (!_requires_optix && _requires_printing) {
+            _scratch << "\n    LCPrintBuffer print_buffer,";
             any_arg = true;
         }
         if (any_arg) { _scratch.pop_back(); }
@@ -1349,19 +1406,22 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
             _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
                      << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
-                     << "  if (i < indirect.header()->size) {\n"
+                     << "  auto n = min(indirect.header()->size, indirect.capacity - indirect.offset);\n"
+                     << "  if (i < n) {\n"
                      << "    auto args = params;\n"
-                     << "    auto d = indirect.dispatches()[i];\n"
+                     << "    auto d = indirect.dispatches()[i + indirect.offset];\n"
                      << "    args.ls_kid = d.dispatch_size_and_kernel_id;\n"
                      << "    auto block_size = lc_block_size();\n"
                      << "#ifdef LUISA_DEBUG\n"
                      << "    lc_assert(lc_all(block_size == d.block_size));\n"
                      << "#endif\n"
                      << "    auto dispatch_size = lc_make_uint3(d.dispatch_size_and_kernel_id);\n"
-                     << "    auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
-                     << "    auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
-                     << "    auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
-                     << "    kernel_main<<<nb, bs>>>(args);\n"
+                     << "    if (lc_all(dispatch_size > 0u)) {\n"
+                     << "      auto block_count = (dispatch_size + block_size - 1u) / block_size;\n"
+                     << "      auto nb = dim3(block_count.x, block_count.y, block_count.z);\n"
+                     << "      auto bs = dim3(block_size.x, block_size.y, block_size.z);\n"
+                     << "      kernel_main<<<nb, bs>>>(args);\n"
+                     << "    }\n"
                      << "  }\n"
                      << "}\n\n";
         }
@@ -1381,7 +1441,11 @@ void CUDACodegenAST::_emit_builtin_variables() noexcept {
         // block id
         << "\n  const auto bid = lc_block_id();"
         // kernel id
-        << "\n  const auto kid = lc_kernel_id();";
+        << "\n  const auto kid = lc_kernel_id();"
+        // warp size
+        << "\n  const auto ws = lc_warp_size();"
+        // warp lane id
+        << "\n  const auto lid = lc_warp_lane_id();";
 }
 
 void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
@@ -1398,6 +1462,8 @@ void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
         case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
         case Variable::Tag::KERNEL_ID: _scratch << "kid"; break;
+        case Variable::Tag::WARP_LANE_COUNT: _scratch << "ws"; break;
+        case Variable::Tag::WARP_LANE_ID: _scratch << "lid"; break;
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 }
@@ -1461,6 +1527,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     // process types in topological order
     types.clear();
     auto emit = [&](auto &&self, auto type) noexcept -> void {
+        if (type == Type::of<void>()) { return; }
         if (types.emplace(type).second) {
             if (type->is_array() || type->is_buffer()) {
                 self(self, type->element());
@@ -1473,6 +1540,55 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
         }
     };
     for (auto t : sorted) { emit(emit, t); }
+
+    // collect print args
+    visited.clear();
+    auto collect_print_args = [this, &visited](auto &&self, Function f) noexcept {
+        if (!visited.emplace(f).second) { return; }
+        for (auto &&c : f.custom_callables()) {
+            self(self, Function{c.get()});
+        }
+        traverse_expressions<false>(
+            f.body(),
+            [](auto) noexcept {},
+            [this](auto stmt) noexcept {
+                if (stmt->tag() == Statement::Tag::PRINT) {
+                    auto p = static_cast<const PrintStmt *>(stmt);
+                    luisa::vector<const Type *> args;
+                    args.reserve(p->arguments().size() + 2u);
+                    args.emplace_back(Type::of<uint>());// arg size
+                    args.emplace_back(Type::of<uint>());// fmt id
+                    for (auto arg : p->arguments()) {
+                        args.emplace_back(arg->type());
+                    }
+                    auto s = Type::structure(args);
+                    this->_print_stmt_types.emplace(p, s);
+                }
+            },
+            [](auto) noexcept {});
+    };
+    collect_print_args(collect_print_args, kernel);
+
+    // sort print args by name so the generated
+    // source is identical across runs
+    sorted.clear();
+    sorted.reserve(_print_stmt_types.size());
+    for (auto [_, s] : _print_stmt_types) { sorted.emplace_back(s); }
+    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+        return a->hash() < b->hash();
+    });
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+
+    // generate print args
+    for (auto t : sorted) {
+        _scratch << "struct LCPrintArgs_" << hash_to_string(t->hash()) << " {\n";
+        for (auto i = 0u; i < t->members().size(); i++) {
+            _scratch << "  ";
+            _emit_type_name(t->members()[i]);
+            _scratch << " m" << i << ";\n";
+        }
+        _scratch << "};\n\n";
+    }
 }
 
 void CUDACodegenAST::visit(const Type *type) noexcept {
@@ -1483,15 +1599,20 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
         type != _committed_hit_type &&
         type != _ray_query_all_type &&
         type != _ray_query_any_type) {
-        _scratch << "struct alignas(" << type->alignment() << ") ";
-        _emit_type_name(type);
-        _scratch << " {\n";
-        for (auto i = 0u; i < type->members().size(); i++) {
-            _scratch << "  ";
-            _emit_type_name(type->members()[i]);
-            _scratch << " m" << i << "{};\n";
-        }
-        _scratch << "};\n\n";
+
+        auto emit_decl = [type, this](bool hack_float_to_int) noexcept {
+            _scratch << "struct alignas(" << type->alignment() << ") ";
+            _emit_type_name(type, hack_float_to_int);
+            _scratch << " {\n";
+            for (auto i = 0u; i < type->members().size(); i++) {
+                _scratch << "  ";
+                _emit_type_name(type->members()[i], hack_float_to_int);
+                _scratch << " m" << i << "{};\n";
+            }
+            _scratch << "};\n\n";
+        };
+        emit_decl(false);
+        emit_decl(true);
     }
     if (type->is_structure()) {
         // lc_zero and lc_one
@@ -1525,16 +1646,18 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
     }
 }
 
-void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
+void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) noexcept {
     if (type == nullptr) {
         _scratch << "void";
         return;
     }
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
-        case Type::Tag::FLOAT16: _scratch << "lc_half"; break;
-        case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
-        case Type::Tag::FLOAT64: _scratch << "lc_double"; break;
+        case Type::Tag::FLOAT16: _scratch << (hack_float_to_int ? "lc_ushort" : "lc_half"); break;
+        case Type::Tag::FLOAT32: _scratch << (hack_float_to_int ? "lc_uint" : "lc_float"); break;
+        case Type::Tag::FLOAT64: _scratch << (hack_float_to_int ? "lc_ulong" : "lc_double"); break;
+        case Type::Tag::INT8: _scratch << "lc_byte"; break;
+        case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
@@ -1542,18 +1665,26 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::INT64: _scratch << "lc_long"; break;
         case Type::Tag::UINT64: _scratch << "lc_ulong"; break;
         case Type::Tag::VECTOR:
-            _emit_type_name(type->element());
+            _emit_type_name(type->element(), hack_float_to_int);
             _scratch << type->dimension();
             break;
         case Type::Tag::MATRIX:
-            _scratch << "lc_float"
-                     << type->dimension()
-                     << "x"
-                     << type->dimension();
+            if (hack_float_to_int) {
+                _scratch << "lc_array<lc_uint"
+                         << type->dimension()
+                         << ", "
+                         << type->dimension()
+                         << ">";
+            } else {
+                _scratch << "lc_float"
+                         << type->dimension()
+                         << "x"
+                         << type->dimension();
+            }
             break;
         case Type::Tag::ARRAY:
             _scratch << "lc_array<";
-            _emit_type_name(type->element());
+            _emit_type_name(type->element(), hack_float_to_int);
             _scratch << ", ";
             _scratch << type->dimension() << ">";
             break;
@@ -1568,6 +1699,7 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCCommittedHit";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
+                if (hack_float_to_int) { _scratch << "_int"; }
             }
             break;
         }
@@ -1606,7 +1738,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             if (readonly || force_const) {
                 _scratch << "const ";
                 _emit_type_name(v.type());
-                _scratch << " ";
+                _scratch << " &";
             } else {
                 _emit_type_name(v.type());
                 _scratch << " &";
@@ -1622,7 +1754,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
                 if (auto elem = v.type()->element()) {
                     _emit_type_name(elem);
                 } else {// void type marks a buffer of bytes
-                    _scratch << "lc_byte";
+                    _scratch << "lc_ubyte";
                 }
                 _scratch << "> ";
             }
@@ -1670,6 +1802,7 @@ void CUDACodegenAST::_emit_statements(luisa::span<const Statement *const> stmts)
     }
 }
 
+// TODO: This would have trouble with infinities and NaNs
 class CUDAConstantPrinter final : public ConstantDecoder {
 
 private:
@@ -1688,24 +1821,18 @@ protected:
     void _decode_long(slong x) noexcept override { _codegen->_scratch << luisa::format("lc_long({})", x); }
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("lc_ulong({})", x); }
     void _decode_half(half x) noexcept override {
-        LUISA_NOT_IMPLEMENTED();
+        _codegen->_scratch << luisa::format("lc_ushort({})", luisa::bit_cast<ushort>(x));
     }
     void _decode_float(float x) noexcept override {
-        _codegen->_scratch << "lc_float(";
-        detail::LiteralPrinter p{_codegen->_scratch};
-        p(x);
-        _codegen->_scratch << ")";
+        _codegen->_scratch << luisa::format("lc_uint({})", luisa::bit_cast<uint>(x));
     }
     void _decode_double(double x) noexcept override {
-        _codegen->_scratch << "lc_double(";
-        detail::LiteralPrinter p{_codegen->_scratch};
-        p(x);
-        _codegen->_scratch << ")";
+        _codegen->_scratch << luisa::format("lc_ulong({})", luisa::bit_cast<ulong>(x));
     }
     void _vector_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1716,7 +1843,7 @@ protected:
     void _matrix_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1727,7 +1854,7 @@ protected:
     void _struct_separator(const Type *type, uint index) noexcept override {
         auto n = type->members().size();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1738,7 +1865,7 @@ protected:
     void _array_separator(const Type *type, uint index) noexcept override {
         auto n = type->dimension();
         if (index == 0u) {
-            _codegen->_emit_type_name(type);
+            _codegen->_emit_type_name(type, true);
             _codegen->_scratch << "{";
         } else if (index == n) {
             _codegen->_scratch << "}";
@@ -1754,7 +1881,6 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
                               _generated_constants.cend(), c.hash());
         iter != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.hash());
-
     _scratch << "__constant__ LC_CONSTANT auto c"
              << hash_to_string(c.hash())
              << " = ";
@@ -1764,7 +1890,9 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
 }
 
 void CUDACodegenAST::visit(const ConstantExpr *expr) {
-    _scratch << "c" << hash_to_string(expr->data().hash());
+    _scratch << "(*reinterpret_cast<const ";
+    _emit_type_name(expr->type());
+    _scratch << " *>(&c" << hash_to_string(expr->data().hash()) << "))";
 }
 
 void CUDACodegenAST::visit(const ForStmt *stmt) {
@@ -1779,7 +1907,17 @@ void CUDACodegenAST::visit(const ForStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const CommentStmt *stmt) {
-    _scratch << "/* " << stmt->comment() << " */";
+    _scratch << "// ";
+    for (auto c : stmt->comment()) {
+        if (c == '\n') {
+            _scratch << "\n";
+            _emit_indent();
+            _scratch << "// ";
+        } else {
+            char s[] = {c, '\0'};
+            _scratch << s;
+        }
+    }
 }
 
 void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
@@ -1815,6 +1953,31 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
         _emit_variable_name(v);
         _scratch << ");";
     }
+}
+
+void CUDACodegenAST::visit(const PrintStmt *stmt) {
+    //_scratch << "struct LCPrintArgs_" << hash_to_string(t->hash())
+    auto iter = _print_stmt_types.find(stmt);
+    LUISA_ASSERT(iter != _print_stmt_types.end(),
+                 "Print statement type not found.");
+    auto t = iter->second;
+    auto fmt_id = [this, fmt = stmt->format(), t] {
+        for (auto i = 0u; i < _print_formats.size(); i++) {
+            if (auto &&[ff, tt] = _print_formats[i];
+                ff == fmt && tt == t) { return i; }
+        }
+        auto index = static_cast<uint>(_print_formats.size());
+        _print_formats.emplace_back(fmt, t);
+        return index;
+    }();
+    _scratch << "lc_print_impl(LC_PRINT_BUFFER, LCPrintArgs_"
+             << hash_to_string(t->hash())
+             << "{" << t->size() << "u, " << fmt_id << "u";
+    for (auto a : stmt->arguments()) {
+        _scratch << ", ";
+        a->accept(*this);
+    }
+    _scratch << "});";
 }
 
 void CUDACodegenAST::visit(const CpuCustomOpExpr *expr) {

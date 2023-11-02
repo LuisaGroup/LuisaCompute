@@ -16,7 +16,10 @@ namespace luisa::compute {
 class Device;
 
 /// Printer in kernel
-class LC_DSL_API Printer {
+class [[deprecated("The frontend-implemented `Printer` is deprecated "
+                   "in favor of the backend-implemented built-in function. "
+                   "Please use `device_log()` from <luisa/dsl/builtin.h>.")]] LC_DSL_API
+    Printer {
 
 public:
     struct Item {

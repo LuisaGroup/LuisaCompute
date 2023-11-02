@@ -122,7 +122,7 @@ public:
     [[nodiscard]] auto backend_name() const noexcept { return _impl->backend_name(); }
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
-    [[nodiscard]] auto compute_warp_size() const noexcept {return _impl->compute_warp_size();}
+    [[nodiscard]] auto compute_warp_size() const noexcept { return _impl->compute_warp_size(); }
     // Is device initialized
     [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_impl); }
     // backend native plugins & extensions interface
@@ -206,7 +206,7 @@ public:
 
     [[nodiscard]] SparseBufferHeap allocate_sparse_buffer_heap(size_t byte_size) noexcept;
 
-    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size) noexcept;
+    [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept;
 
     [[nodiscard]] ByteBuffer create_byte_buffer(size_t byte_size) noexcept;
 
@@ -214,6 +214,12 @@ public:
         requires(!is_custom_struct_v<T>)//backend-specific type not allowed
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
         return _create<Buffer<T>>(size);
+    }
+
+    template<typename T>
+        requires(!is_custom_struct_v<T>)
+    [[nodiscard]] auto import_external_buffer(void *external_memory, size_t external_size_bytes) noexcept {
+        return _create<Buffer<T>>(impl()->create_buffer(Type::of<T>(), external_memory, external_size_bytes));
     }
 
     template<typename T>

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <luisa/ast/ast_evaluator.h>
+#include <luisa/ast/ast2json.h>
 #include <luisa/ast/atomic_ref_node.h>
+#include <luisa/ast/callable_library.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/external_function.h>
@@ -26,6 +27,7 @@
 #include <luisa/core/dll_export.h>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/first_fit.h>
+#include <luisa/core/forget.h>
 #include <luisa/core/intrin.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/macro.h>
@@ -36,6 +38,7 @@
 #include <luisa/core/shared_function.h>
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl.h>
+#include <luisa/core/string_scratch.h>
 #include <luisa/core/thread_pool.h>
 #include <luisa/core/thread_safety.h>
 
@@ -44,6 +47,7 @@
 #include <luisa/dsl/atomic.h>
 #include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/builtin.h>
+#include <luisa/dsl/callable_library.h>
 #include <luisa/dsl/constant.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/expr.h>
@@ -81,8 +85,8 @@
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ir/fwd.h>
-#include <luisa/ir/ir.h>
 #include <luisa/ir/ir2ast.h>
+#include <luisa/ir/transform.h>
 #endif
 
 #include <luisa/osl/hint.h>

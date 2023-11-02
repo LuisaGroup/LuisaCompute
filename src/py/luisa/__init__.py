@@ -13,7 +13,6 @@ from .image3d import image3d, Image3D, Texture3DType
 from .dylibs.lcapi import PixelStorage
 from .gui import GUI
 
-from .printer import Printer
 from .accel import Accel, make_ray, inf_ray, offset_ray_origin
 from .hit import TriangleHit, CommittedHit, ProceduralHit
 from .rayquery import RayQueryAllType, RayQueryAnyType, is_triangle, is_procedural, Ray
@@ -28,26 +27,11 @@ import platform
 def _select_backend(backends):
     platform_str = str(platform.platform()).lower()
     if platform_str.find("windows") >= 0:
-        for i in backends:
-            if i == "dx":
-                backend_name = "dx"
-                break
-        if backend_name is None:
-            backend_name = backends[0]
+        backend_name = "dx" if "dx" in backends else backends[0]
     elif platform_str.find("linux") >= 0:
-        for i in backends:
-            if i == "cuda":
-                backend_name = "cuda"
-                break
-        if backend_name is None:
-            backend_name = backends[0]
+        backend_name = "cuda" if "cuda" in backends else backends[0]
     elif platform_str.find("macos") >= 0:
-        for i in backends:
-            if i == "metal":
-                backend_name = "metal"
-                break
-        if backend_name is None:
-            backend_name = backends[0]
+        backend_name = "metal" if "metal" in backends else backends[0]
     else:
         backend_name = backends[0]
     print(f"detected backends: {backends}. Selecting {backend_name}.")

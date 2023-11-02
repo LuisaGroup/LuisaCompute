@@ -38,13 +38,13 @@ inline static auto ReadBinaryIO(CacheType type, luisa::BinaryIO const *binIo, lu
 inline static void WriteBinaryIO(CacheType type, luisa::BinaryIO const *binIo, luisa::string_view name, luisa::span<std::byte const> data) {
     switch (type) {
         case CacheType::ByteCode:
-            binIo->write_shader_bytecode(name, data);
+            static_cast<void>(binIo->write_shader_bytecode(name, data));
             return;
         case CacheType::Cache:
-            binIo->write_shader_cache(name, data);
+            static_cast<void>(binIo->write_shader_cache(name, data));
             return;
         case CacheType::Internal:
-            binIo->write_internal_shader(name, data);
+            static_cast<void>(binIo->write_internal_shader(name, data));
             return;
     }
 }

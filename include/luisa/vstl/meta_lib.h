@@ -231,7 +231,7 @@ public:
         stackObj.destroy();
         return true;
     }
-    void reset() const noexcept {
+    void reset() noexcept {
         destroy();
     }
     T &value() &noexcept {

@@ -1,5 +1,6 @@
 #pragma once
 
-extern "C" const char luisa_cuda_builtin_cuda_builtin_kernels[5293];
-extern "C" const char luisa_cuda_builtin_cuda_device_math[415636];
-extern "C" const char luisa_cuda_builtin_cuda_device_resource[84232];
+extern "C" const char luisa_cuda_builtin_cuda_builtin_kernels[5368];
+extern "C" const char luisa_cuda_builtin_cuda_device_half[87792];
+extern "C" const char luisa_cuda_builtin_cuda_device_math[497428];
+extern "C" const char luisa_cuda_builtin_cuda_device_resource[115281];

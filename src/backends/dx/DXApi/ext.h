@@ -161,13 +161,20 @@ public:
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
-    Device &_device;
+    LCDevice &_device;
 
 public:
-    uint64_t cuda_buffer(uint64_t dx_buffer) noexcept override;
+    DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {}
+    BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+    ResourceCreationInfo create_interop_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels, bool simultaneous_access) noexcept override;
+    void cuda_buffer(uint64_t dx_buffer, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
-    DxCudaInteropImpl(Device &device) : _device{device} {}
+    virtual DeviceInterface *device() override;
+    void unmap(void *cuda_ptr, void *cuda_handle) noexcept override;
 };
 
 class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
@@ -177,6 +184,7 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
     ComPtr<IDStorageCompressionCodec> compression_codec;
     vstd::spin_mutex spin_mtx;
     std::mutex mtx;
+    std::atomic_size_t staging_size;
     LCDevice *mdevice;
     bool is_hdd = false;
     void init_factory();
@@ -184,6 +192,7 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
     void set_config(bool hdd) noexcept;
 
 public:
+    auto Factory() const { return factory.Get(); }
     DeviceInterface *device() const noexcept override;
     DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
     ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;

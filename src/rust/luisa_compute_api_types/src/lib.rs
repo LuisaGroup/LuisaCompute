@@ -174,8 +174,9 @@ bitflags! {
         const TRANSFORM = 1 << 1;
         const OPAQUE_ON = 1 << 2;
         const OPAQUE_OFF = 1 << 3;
-        const VISIBILITY = 1 << 4;
         const OPAQUE = Self::OPAQUE_ON.bits() | Self::OPAQUE_OFF.bits();
+        const VISIBILITY = 1 << 4;
+        const USER_ID = 1 << 5;
     }
 }
 #[repr(C)]
@@ -188,8 +189,9 @@ pub enum MeshType {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct AccelBuildModification {
     pub index: u32,
+    pub user_id: u32,
     pub flags: AccelBuildModificationFlags,
-    pub visibility: u8,
+    pub visibility: u32,
     pub mesh: u64,
     pub affine: [f32; 12],
 }
@@ -575,7 +577,7 @@ impl Default for BindlessArrayUpdateTexture {
     }
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default)]
 pub struct BindlessArrayUpdateModification {
     pub slot: usize,
     pub buffer: BindlessArrayUpdateBuffer,
@@ -650,8 +652,18 @@ pub struct DeviceInterface {
     pub destroy_device: unsafe extern "C" fn(DeviceInterface),
     pub create_buffer: unsafe extern "C" fn(Device, *const c_void, usize) -> CreatedBufferInfo,
     pub destroy_buffer: unsafe extern "C" fn(Device, Buffer),
-    pub create_texture:
-        unsafe extern "C" fn(Device, PixelFormat, u32, u32, u32, u32, u32, bool) -> CreatedResourceInfo,
+    pub create_texture: unsafe extern "C" fn(
+        Device,
+        PixelFormat,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        bool,
+    ) -> CreatedResourceInfo,
+    pub native_handle: unsafe extern "C" fn(Device) -> *mut c_void,
+    pub compute_warp_size: unsafe extern "C" fn(Device) -> u32,
     pub destroy_texture: unsafe extern "C" fn(Device, Texture),
     pub create_bindless_array: unsafe extern "C" fn(Device, usize) -> CreatedResourceInfo,
     pub destroy_bindless_array: unsafe extern "C" fn(Device, BindlessArray),
@@ -689,5 +701,56 @@ pub struct DeviceInterface {
     pub destroy_accel: unsafe extern "C" fn(Device, Accel),
     pub query: unsafe extern "C" fn(Device, *const c_char) -> *mut c_char,
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct StringView {
+    pub data: *const c_char,
+    pub size: usize,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct StringViewMut {
+    pub data: *mut c_char,
+    pub size: usize,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct BinaryIo {
+    pub dtor: unsafe extern "C" fn(*mut BinaryIo),
 
+    pub read_shader_bytecode: unsafe extern "C" fn(*mut BinaryIo, name: StringView) -> ByteStream,
+    pub read_shader_cache: unsafe extern "C" fn(*mut BinaryIo, name: StringView) -> ByteStream,
+    pub read_internal_shader_cache:
+        unsafe extern "C" fn(*mut BinaryIo, name: StringView) -> ByteStream,
+
+    pub write_shader_byte_code: unsafe extern "C" fn(
+        *mut BinaryIo,
+        name: StringView,
+        data: *const u8,
+        size: usize,
+        out_path: StringViewMut,
+    ),
+    pub write_shader_cache: unsafe extern "C" fn(
+        *mut BinaryIo,
+        name: StringView,
+        data: *const u8,
+        size: usize,
+        out_path: StringViewMut,
+    ),
+    pub write_internal_shader_cache: unsafe extern "C" fn(
+        *mut BinaryIo,
+        name: StringView,
+        data: *const u8,
+        size: usize,
+        out_path: StringViewMut,
+    ),
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ByteStream {
+    pub dtor: unsafe extern "C" fn(*mut ByteStream),
+    pub length: unsafe extern "C" fn(*mut ByteStream) -> usize,
+    pub pos: unsafe extern "C" fn(*mut ByteStream) -> usize,
+    pub read: unsafe extern "C" fn(*mut ByteStream, *mut u8, usize) -> usize,
+}
 pub fn __dummy() {}

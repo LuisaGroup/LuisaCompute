@@ -5,6 +5,7 @@
 #include "metal_accel.h"
 #include "metal_bindless_array.h"
 #include "metal_command_encoder.h"
+#include "metal_shader_printer.h"
 #include "metal_shader.h"
 
 namespace luisa::compute::metal {
@@ -13,12 +14,22 @@ MetalShader::MetalShader(MetalDevice *device,
                          MetalShaderHandle handle,
                          luisa::vector<Usage> argument_usages,
                          luisa::vector<Argument> bound_arguments,
+                         luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
                          uint3 block_size) noexcept
     : _handle{std::move(handle)},
       _argument_usages{std::move(argument_usages)},
       _bound_arguments{std::move(bound_arguments)},
       _block_size{block_size.x, block_size.y, block_size.z},
-      _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {}
+      _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {
+    if (!print_formats.empty()) {
+        luisa::vector<std::pair<luisa::string, const Type *>> fmts;
+        fmts.reserve(print_formats.size());
+        for (auto &&[name, type] : print_formats) {
+            fmts.emplace_back(name, Type::from(type));
+        }
+        _printer = luisa::make_unique<MetalShaderPrinter>(luisa::span{fmts});
+    }
+}
 
 MetalShader::~MetalShader() noexcept {
     if (_name) { _name->release(); }
@@ -76,7 +87,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             case Argument::Tag::BUFFER: {
                 if (reinterpret_cast<const MetalBufferBase *>(arg.buffer.handle)->is_indirect()) {
                     auto buffer = reinterpret_cast<const MetalIndirectDispatchBuffer *>(arg.buffer.handle);
-                    auto binding = buffer->binding();
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
                     copy(&binding, sizeof(binding));
                 } else {
                     auto buffer = reinterpret_cast<const MetalBuffer *>(arg.buffer.handle);
@@ -138,7 +149,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             case Argument::Tag::BINDLESS_ARRAY: {
                 auto array = reinterpret_cast<MetalBindlessArray *>(arg.bindless_array.handle);
-                if (usage != 0u) { array->mark_resource_usages(compute_encoder); }
+                if (usage != 0u) { array->mark_resource_usages(compute_encoder, usage); }
                 break;
             }
             case Argument::Tag::ACCEL: {
@@ -152,11 +163,19 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 
     if (command->is_indirect()) {
 
-        auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(
-            command->indirect_dispatch().handle);
+        auto indirect = command->indirect_dispatch();
+        auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(indirect.handle);
+        auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
 
         for (auto arg : _bound_arguments) { encode(arg); }
         for (auto arg : command->arguments()) { encode(arg); }
+        MTL::Buffer *printer_buffer{nullptr};
+        if (_printer != nullptr) {
+            auto info = _printer->encode(encoder);
+            auto binding = info.binding();
+            copy(&binding, sizeof(binding));
+            printer_buffer = info.buffer;
+        }
         auto argument_size = luisa::align(argument_offset, argument_alignment);
 
         // update indirect command buffer
@@ -168,12 +187,14 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
             struct ICB {
                 uint64_t dispatch_buffer;
-                size_t command_buffer_capacity;
+                uint command_buffer_offset;
+                uint command_buffer_capacity;
                 MTL::ResourceID command_buffer;
                 MTL::ResourceID pipeline_state;
             };
-            ICB icb{.dispatch_buffer = indirect_buffer->dispatch_buffer()->gpuAddress(),
-                    .command_buffer_capacity = indirect_buffer->capacity(),
+            ICB icb{.dispatch_buffer = indirect_binding.address,
+                    .command_buffer_offset = indirect_binding.offset,
+                    .command_buffer_capacity = indirect_binding.capacity,
                     .command_buffer = indirect_buffer->command_buffer()->gpuResourceID(),
                     .pipeline_state = _handle.indirect_entry->gpuResourceID()};
             command_encoder->setComputePipelineState(_prepare_indirect);
@@ -182,7 +203,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             command_encoder->useResource(indirect_buffer->command_buffer(), MTL::ResourceUsageWrite);
             command_encoder->setBytes(argument_buffer.data(), argument_size, 1u);
             constexpr auto block_size = MetalDevice::prepare_indirect_dispatches_block_size;
-            auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+            auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
             command_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u}, MTL::Size{block_size, 1u, 1u});
             command_encoder->endEncoding();
 
@@ -200,9 +221,11 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             if (_name) { compute_encoder->setLabel(_name); }
         }
         compute_encoder->executeCommandsInBuffer(indirect_buffer->command_buffer(),
-                                                 indirect_buffer->dispatch_buffer(), 0u);
+                                                 NS::Range::Make(indirect_binding.offset,
+                                                                 indirect_binding.capacity - indirect_binding.offset));
         for (auto arg : _bound_arguments) { mark_usage(compute_encoder, arg); }
         for (auto arg : command->arguments()) { mark_usage(compute_encoder, arg); }
+        if (printer_buffer != nullptr) { compute_encoder->useResource(printer_buffer, mtl_usage(Usage::READ_WRITE)); }
         compute_encoder->endEncoding();
 
     } else {
@@ -223,22 +246,36 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             mark_usage(compute_encoder, arg);
         }
 
-        // encode dispatch size
-        auto dispatch_size = command->dispatch_size();
-        auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-        auto blocks = (dispatch_size + block_size - 1u) / block_size;
-        auto size = copy(&dispatch_size, sizeof(dispatch_size));
+        // printer
+        if (_printer != nullptr) {
+            auto info = _printer->encode(encoder);
+            auto binding = info.binding();
+            copy(&binding, sizeof(binding));
+            compute_encoder->useResource(info.buffer, mtl_usage(Usage::READ_WRITE));
+        }
 
-        // set argument buffer
+        auto size = argument_offset;
         compute_encoder->setBytes(argument_buffer.data(), size, 0u);
 
-        // dispatch
-        compute_encoder->dispatchThreadgroups(
-            MTL::Size{blocks.x, blocks.y, blocks.z},
-            MTL::Size{block_size.x, block_size.y, block_size.z});
+        auto single_dispatch_size = make_uint3(0u);
+        luisa::span<const uint3> dispatch_sizes;
+        if (command->is_multiple_dispatch()) {
+            dispatch_sizes = command->dispatch_sizes();
+        } else {
+            single_dispatch_size = command->dispatch_size();
+            dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
+        }
+
+        for (auto dispatch_size : dispatch_sizes) {
+            compute_encoder->setBytes(&dispatch_size, sizeof(dispatch_size), 1u);
+            auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+            auto blocks = (dispatch_size + block_size - 1u) / block_size;
+            compute_encoder->dispatchThreadgroups(
+                MTL::Size{blocks.x, blocks.y, blocks.z},
+                MTL::Size{block_size.x, block_size.y, block_size.z});
+        }
         compute_encoder->endEncoding();
     }
 }
 
 }// namespace luisa::compute::metal
-

@@ -57,7 +57,7 @@ usize_is_size_t = true
 
 
 [export]
-include = ["Node", "CBox", "CSlice", "CBoxedSlice", "Instruction", "BasicBlock","CallableModuleRef", "CallableModule", "KernelModule"]
+include = ["Node", "CBox", "CSlice", "CBoxedSlice", "Instruction", "BasicBlock","CallableModuleRef", "CallableModule", "KernelModule", "ModuleFlags"]
 exclude = ["CArc", "CArcSharedBlock", "Pooled"]
 # prefix = "CAPI_"
 item_types = []
@@ -127,7 +127,7 @@ sort_by = "Name"
 
 
 [macro_expansion]
-bitflags = false
+bitflags = true
 
 
 

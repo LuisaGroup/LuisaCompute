@@ -94,11 +94,24 @@ uint64_t AutoDiffStmt::_compute_hash() const noexcept {
     return _body.hash();
 }
 
+uint64_t PrintStmt::_compute_hash() const noexcept {
+    auto h = luisa::hash_value(_format);
+    for (auto &&e : _args) {
+        h = luisa::hash_value(e->hash(), h);
+    }
+    return h;
+}
+
 void StmtVisitor::visit(const AutoDiffStmt *stmt) {
     // reports error by default since it should be
     // handled by the IR when reaching the backend
     LUISA_ERROR_WITH_LOCATION("AutoDiffStmt is not supported.");
 }
 
-}// namespace luisa::compute
+void StmtVisitor::visit(const PrintStmt *stmt) {
+    // reports error by default since it should be
+    // handled by the IR when reaching the backend
+    LUISA_WARNING_WITH_LOCATION("PrintStmt is not supported.");
+}
 
+}// namespace luisa::compute

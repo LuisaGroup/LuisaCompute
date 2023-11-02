@@ -132,9 +132,9 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
     // store the binary archive
     auto io = _device->io();
     if (is_aot) {
-        io->write_shader_bytecode(name, buffer);
+        static_cast<void>(io->write_shader_bytecode(name, buffer));
     } else {
-        io->write_shader_cache(name, buffer);
+        static_cast<void>(io->write_shader_cache(name, buffer));
     }
 }
 
@@ -199,6 +199,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     }
     metadata.argument_types = std::move(file_metadata->argument_types);
     metadata.argument_usages = std::move(file_metadata->argument_usages);
+    metadata.format_types = std::move(file_metadata->format_types);
 
     // load library
     auto library_data = luisa::span{buffer}.subspan(sizeof(size_t) + metadata_size);

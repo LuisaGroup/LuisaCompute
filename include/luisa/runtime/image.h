@@ -47,6 +47,7 @@ private:
 private:
     friend class Device;
     friend class ResourceGenerator;
+    friend class DxCudaInterop;
     Image(DeviceInterface *device,
           const ResourceCreationInfo &create_info,
           PixelStorage storage,

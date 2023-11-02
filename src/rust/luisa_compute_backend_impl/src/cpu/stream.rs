@@ -1,24 +1,15 @@
 use api::{Argument, Sampler};
 use luisa_compute_api_types as api;
-use luisa_compute_ir::{
-    context::type_hash,
-    ir::{Binding, Capture},
-};
-use parking_lot::{Condvar, Mutex, RwLock};
+use luisa_compute_ir::ir::{Binding, Capture};
+use parking_lot::{Condvar, Mutex};
 use rayon;
 use std::{
     collections::VecDeque,
     sync::{atomic::AtomicUsize, Arc},
     thread::{self, JoinHandle},
 };
-use std::{
-    collections::{HashMap, HashSet},
-    process::abort,
-};
-use std::{
-    panic::{RefUnwindSafe, UnwindSafe},
-    sync::atomic::AtomicBool,
-};
+
+use std::{panic::RefUnwindSafe, sync::atomic::AtomicBool};
 
 use super::{
     accel::{AccelImpl, GeometryImpl},
@@ -26,7 +17,7 @@ use super::{
     shader::ShaderImpl,
     texture::TextureImpl,
 };
-use crate::panic_abort;
+
 use bumpalo::Bump;
 use luisa_compute_cpu_kernel_defs as defs;
 
@@ -48,7 +39,7 @@ impl StagingBuffers {
     unsafe fn allocate(&mut self, ptr: *const u8, size: usize) {
         let bump = &mut self.bump;
         let buffer = bump
-            .alloc_layout(std::alloc::Layout::from_size_align(size, 256).unwrap())
+            .alloc_layout(std::alloc::Layout::from_size_align(size, 16).unwrap())
             .as_ptr();
         std::ptr::copy_nonoverlapping(ptr, buffer, size);
         self.buffers.push(buffer);
@@ -117,10 +108,6 @@ pub(super) struct StreamImpl {
     ctx: Arc<StreamContext>,
 }
 
-unsafe impl Send for StreamContext {}
-
-unsafe impl Sync for StreamContext {}
-
 impl StreamImpl {
     pub(super) fn new(shared_pool: Arc<rayon::ThreadPool>) -> Self {
         let ctx = Arc::new(StreamContext {
@@ -151,8 +138,8 @@ impl StreamImpl {
                         ctx.finished_count
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         guard = ctx.queue.lock();
+                        ctx.sync.notify_all();
                         if guard.is_empty() {
-                            ctx.sync.notify_one();
                             break;
                         }
                     }
@@ -167,10 +154,11 @@ impl StreamImpl {
     }
     pub(super) fn synchronize(&self) {
         let mut guard = self.ctx.queue.lock();
-        while self
+        let cur_work_count = self
             .ctx
             .work_count
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Relaxed);
+        while cur_work_count
             > self
                 .ctx
                 .finished_count
@@ -192,7 +180,7 @@ impl StreamImpl {
         self.ctx
             .work_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.ctx.new_work.notify_one();
+        self.ctx.new_work.notify_all();
     }
     pub(super) fn parallel_for(
         &self,
@@ -449,7 +437,7 @@ impl StreamImpl {
 #[inline]
 pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
     match arg {
-        api::Argument::Buffer(buffer_arg) => {
+        Argument::Buffer(buffer_arg) => {
             let buffer = &*(buffer_arg.buffer.0 as *mut BufferImpl);
             let offset = buffer_arg.offset;
             let size = buffer_arg.size;
@@ -460,7 +448,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 ty: buffer.ty,
             })
         }
-        api::Argument::Texture(t) => {
+        Argument::Texture(t) => {
             let texture = &*(t.texture.0 as *mut TextureImpl);
             let level = t.level as usize;
             defs::KernelFnArg::Texture(
@@ -471,8 +459,8 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 level as u8,
             )
         }
-        api::Argument::Uniform(uniform) => defs::KernelFnArg::Uniform(uniform.data),
-        api::Argument::Accel(accel) => {
+        Argument::Uniform(uniform) => defs::KernelFnArg::Uniform(uniform.data),
+        Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
             defs::KernelFnArg::Accel(defs::Accel {
                 handle: accel as *const _ as *const std::ffi::c_void,
@@ -480,11 +468,14 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 trace_any,
                 set_instance_visibility,
                 set_instance_transform,
+                set_instance_user_id,
                 instance_transform,
+                instance_user_id,
+                instance_visibility_mask,
                 ray_query,
             })
         }
-        api::Argument::BindlessArray(a) => {
+        Argument::BindlessArray(a) => {
             let a = &*(a.0 as *mut BindlessArrayImpl);
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
@@ -548,7 +539,10 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
                 trace_any,
                 set_instance_visibility,
                 set_instance_transform,
+                set_instance_user_id,
                 instance_transform,
+                instance_user_id,
+                instance_visibility_mask,
                 ray_query,
             })
         }
@@ -558,7 +552,7 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
 extern "C" fn trace_closest(
     accel: *const std::ffi::c_void,
     ray: &defs::Ray,
-    mask: u8,
+    mask: u32,
 ) -> defs::Hit {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
@@ -566,7 +560,7 @@ extern "C" fn trace_closest(
     }
 }
 
-extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u8) -> bool {
+extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask: u32) -> bool {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.trace_any(ray, mask)
@@ -622,11 +616,32 @@ extern "C" fn set_instance_transform(
 extern "C" fn set_instance_visibility(
     accel: *const std::ffi::c_void,
     instance_id: u32,
-    visible: u8,
+    visible: u32,
 ) {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
         accel.set_instance_visibility(instance_id, visible);
+    }
+}
+
+extern "C" fn set_instance_user_id(accel: *const std::ffi::c_void, instance_id: u32, user_id: u32) {
+    unsafe {
+        let accel = &*(accel as *const AccelImpl);
+        accel.set_instance_user_id(instance_id, user_id);
+    }
+}
+
+extern "C" fn instance_user_id(accel: *const std::ffi::c_void, instance_id: u32) -> u32 {
+    unsafe {
+        let accel = &*(accel as *const AccelImpl);
+        accel.instance_user_id(instance_id)
+    }
+}
+
+extern "C" fn instance_visibility_mask(accel: *const std::ffi::c_void, instance_id: u32) -> u32 {
+    unsafe {
+        let accel = &*(accel as *const AccelImpl);
+        accel.instance_visibility_mask(instance_id)
     }
 }
 

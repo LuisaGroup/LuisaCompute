@@ -10,7 +10,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             # common
             ../common/default_binary_io.cpp ../common/default_binary_io.h
             ../common/resource_tracker.h
-            ../common/string_scratch.cpp ../common/string_scratch.h
 
             # metal-cpp
             metal-cpp/SingleHeader/Metal.hpp
@@ -29,6 +28,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_command_encoder.cpp metal_command_encoder.h
             metal_shader.cpp metal_shader.h
             metal_shader_metadata.cpp metal_shader_metadata.h
+            metal_shader_printer.cpp metal_shader_printer.h
             metal_stage_buffer_pool.cpp metal_stage_buffer_pool.h
             metal_callback_context.cpp metal_callback_context.h
             metal_primitive.cpp metal_primitive.h

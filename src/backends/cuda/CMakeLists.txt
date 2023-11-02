@@ -24,13 +24,13 @@ if (CUDAToolkit_FOUND)
             cuda_shader_metadata.cpp cuda_shader_metadata.h
             cuda_shader_native.cpp cuda_shader_native.h
             cuda_shader_optix.cpp cuda_shader_optix.h
+            cuda_shader_printer.cpp cuda_shader_printer.h
             cuda_ext.cpp cuda_ext.h
             cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h
-            default_binary_io.cpp
-            string_scratch.cpp)
+            default_binary_io.cpp)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 

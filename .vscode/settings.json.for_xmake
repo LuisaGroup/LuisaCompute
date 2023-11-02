@@ -14,7 +14,7 @@
     "--background-index", 
     "--background-index-priority=normal",
     "--header-insertion=never",
-    "--pch-storage=memory",
+    "--pch-storage=disk",
     "--offset-encoding=utf-8"
   ],
   "files.eol":"\n"

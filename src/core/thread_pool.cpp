@@ -80,50 +80,54 @@ struct ThreadPool::Impl {
     luisa::vector<std::thread> threads;
     luisa::queue<luisa::SharedFunction<void()>> tasks;
     std::mutex mutex;
-    luisa::unique_ptr<Barrier> synchronize_barrier;
-    luisa::unique_ptr<Barrier> dispatch_barrier;
+    Barrier synchronize_barrier;
+    Barrier dispatch_barrier;
     std::condition_variable cv;
     bool should_stop{false};
+    explicit Impl(size_t num_threads) noexcept
+        : synchronize_barrier(num_threads + 1u),
+          dispatch_barrier(num_threads) {
+        threads.reserve(num_threads);
+        for (auto i = 0u; i < num_threads; i++) {
+            threads.emplace_back([this, i] {
+                detail::is_worker_thread() = true;
+                detail::worker_thread_index() = i;
+                for (;;) {
+                    std::unique_lock lock{mutex};
+                    cv.wait(lock, [this] { return !tasks.empty() || should_stop; });
+                    if (should_stop && tasks.empty()) [[unlikely]] { break; }
+                    auto task = std::move(tasks.front());
+                    tasks.pop();
+                    lock.unlock();
+                    task();
+                }
+            });
+        }
+        LUISA_INFO("Created thread pool with {} thread{}.",
+                   num_threads, num_threads == 1u ? "" : "s");
+    }
 };
 
 ThreadPool::ThreadPool(size_t num_threads) noexcept
-    : _impl{luisa::make_unique<Impl>()} {
-    if (num_threads == 0u) {
-        num_threads = std::max(
-            std::thread::hardware_concurrency(), 1u);
-    }
-    _impl->dispatch_barrier = luisa::make_unique<Barrier>(num_threads);
-    _impl->synchronize_barrier = luisa::make_unique<Barrier>(num_threads + 1u /* main thread */);
-    _impl->threads.reserve(num_threads);
-    for (auto i = 0u; i < num_threads; i++) {
-        _impl->threads.emplace_back(std::thread{[this, i] {
-            detail::is_worker_thread() = true;
-            detail::worker_thread_index() = i;
-            for (;;) {
-                std::unique_lock lock{_impl->mutex};
-                _impl->cv.wait(lock, [this] { return !_impl->tasks.empty() || _impl->should_stop; });
-                if (_impl->should_stop && _impl->tasks.empty()) [[unlikely]] { break; }
-                auto task = std::move(_impl->tasks.front());
-                _impl->tasks.pop();
-                lock.unlock();
-                task();
-            }
-        }});
-    }
-    LUISA_INFO("Created thread pool with {} thread{}.",
-               num_threads, num_threads == 1u ? "" : "s");
+    : _impl{luisa::make_unique<Impl>([&]() {
+          if (num_threads == 0u) {
+              num_threads = std::max(
+                  std::thread::hardware_concurrency(), 1u);
+          }
+          return num_threads;
+      }())} {
 }
 
 void ThreadPool::barrier() noexcept {
     detail::check_not_in_worker_thread("barrier");
-    _dispatch_all([this] { _impl->dispatch_barrier->arrive_and_wait(); });
+    _dispatch_all([this] { _impl->dispatch_barrier.arrive_and_wait(); });
 }
 
 void ThreadPool::synchronize() noexcept {
     detail::check_not_in_worker_thread("synchronize");
     while (task_count() != 0u) {
-        _dispatch_all([this] { _impl->synchronize_barrier->arrive_and_wait(); });
-        _impl->synchronize_barrier->arrive_and_wait();
+        _dispatch_all([this] { _impl->synchronize_barrier.arrive_and_wait(); });
+        _impl->synchronize_barrier.arrive_and_wait();
     }
 }
 
@@ -167,4 +171,3 @@ uint ThreadPool::worker_thread_index() noexcept {
 }
 
 }// namespace luisa
-

@@ -16,7 +16,7 @@ static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
 
 Device::LazyLoadShader::~LazyLoadShader() {}
-
+VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r);
 Device::LazyLoadShader::LazyLoadShader(LoadFunc loadFunc) : loadFunc(loadFunc) {}
 Device::~Device() {
     //lcmdSig.destroy();
@@ -57,7 +57,8 @@ hlsl::ShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
 Device::Device(Context &&ctx, DeviceConfig const *settings)
-    : setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
+    : setBindlessKernel(BuiltinKernel::LoadBindlessSetKernel),
+      setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
       bc6TryModeG10(BuiltinKernel::LoadBC6TryModeG10CSKernel),
       bc6TryModeLE10(BuiltinKernel::LoadBC6TryModeLE10CSKernel),
       bc6EncodeBlock(BuiltinKernel::LoadBC6EncodeBlockCSKernel),
@@ -66,7 +67,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
       bc7TryMode02(BuiltinKernel::LoadBC7TryMode02CSKernel),
       bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel) {
     using Microsoft::WRL::ComPtr;
-    size_t index = 0;
+    size_t index{std::numeric_limits<size_t>::max()};
     bool useRuntime = true;
     {
         std::lock_guard lck(gDxcMutex);
@@ -76,6 +77,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     }
     if (settings) {
         index = settings->device_index;
+        // auto select
         useRuntime = !settings->headless;
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
@@ -127,6 +129,21 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
 #endif
             ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
+            if (index == std::numeric_limits<size_t>::max()) {
+                luisa::vector<luisa::string> device_names;
+                backend_device_names(device_names);
+                index = 0;
+                for (size_t i = 0; i < device_names.size(); ++i) {
+                    luisa::string &device_name = device_names[i];
+                    if (device_name.find("GeForce") != luisa::string::npos ||
+                        device_name.find("Radeon RX") != luisa::string::npos ||
+                        device_name.find("Arc") != luisa::string::npos) {
+                        LUISA_INFO("Select device: {}", device_name);
+                        index = i;
+                        break;
+                    }
+                }
+            }
             auto capableAdapterIndex = 0u;
             for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, adapter.GetAddressOf()) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
                 DXGI_ADAPTER_DESC1 desc;
@@ -145,12 +162,12 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
         }
-        defaultAllocator = vstd::make_unique<GpuAllocator>(this);
+        defaultAllocator = vstd::make_unique<GpuAllocator>(this, settings ? settings->memory_profiler : nullptr);
         globalHeap = vstd::create_unique(
             new DescriptorHeap(
                 this,
                 D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                262144,
+                524288,
                 true));
         samplerHeap = vstd::create_unique(
             new DescriptorHeap(

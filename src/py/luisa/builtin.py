@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from .mathtypes import *
 from .types import uint, uint3, float2, float3, float4, short, ushort, half, half2, half3, half4, long, ulong, to_lctype, is_bit16_types, is_bit64_types, BuiltinFuncBuilder, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, \
-    vector, length_of, element_of, nameof, implicit_covertable, basic_dtypes, integer_scalar_vector_dtypes
+    vector, length_of, element_of, nameof, implicit_convertible, basic_dtypes, integer_scalar_vector_dtypes
 import functools
 from . import globalvars
 from types import SimpleNamespace
@@ -137,12 +137,12 @@ def builtin_bin_op(op, lhs, rhs):
     length0, length1 = length_of(dtype0), length_of(dtype1)
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
     if op != ast.Mult:
-        assert implicit_covertable(dtype0, dtype1) or \
-               (length0 == 1 or length1 == 1 and implicit_covertable(element_of(dtype0), element_of(dtype1))), \
+        assert implicit_convertible(dtype0, dtype1) or \
+               (length0 == 1 or length1 == 1 and implicit_convertible(element_of(dtype0), element_of(dtype1))), \
             f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     else:
-        assert implicit_covertable(dtype0, dtype1) or \
-               (length0 == 1 or length1 == 1 and implicit_covertable(element_of(dtype0), element_of(dtype1))) or \
+        assert implicit_convertible(dtype0, dtype1) or \
+               (length0 == 1 or length1 == 1 and implicit_convertible(element_of(dtype0), element_of(dtype1))) or \
                (dtype0 == float2x2 and dtype1 in {float2, half2}) or \
                (dtype0 == float3x3 and dtype1 in {float3, half3}) or \
                (dtype0 == float4x4 and dtype1 in {float4, half4}), \
@@ -160,7 +160,7 @@ def builtin_bin_op(op, lhs, rhs):
                 f'operator `{op}` only supports `int` and `uint` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
-            assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
+            assert implicit_convertible(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
@@ -183,7 +183,7 @@ def builtin_bin_op(op, lhs, rhs):
         else:
             # forbid implicit type conversion
             # so check rhs's type, ensure it is the same with lhs
-            assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
+            assert implicit_convertible(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in {ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq}:
@@ -199,7 +199,7 @@ builtin_func_names = {
     'set_block_size',
     'sync_block',
     'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
-    'kernel_id', 'object_id',
+    'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id',
     'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
     'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
     'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
@@ -253,7 +253,7 @@ def check_exact_signature(signature, args, name):
     if len(signature) != len(args):
         raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
     for idx in range(len(args)):
-        if not implicit_covertable(signature[idx], args[idx].dtype):
+        if not implicit_convertible(signature[idx], args[idx].dtype):
             raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
@@ -296,7 +296,7 @@ def make_vector_call(dtype, op, args):
     assert dtype in {int, uint, float, short, ushort, half, bool, long, ulong}
     dim = 1
     for arg in args:
-        if not (implicit_covertable(arg.dtype, dtype) or arg.dtype in vector_dtypes and implicit_covertable(
+        if not (implicit_convertible(arg.dtype, dtype) or arg.dtype in vector_dtypes and implicit_convertible(
                 element_of(arg.dtype), dtype)):
             raise TypeError("arguments must be float or float vector")
         if arg.dtype in vector_dtypes:
@@ -308,7 +308,7 @@ def make_vector_call(dtype, op, args):
     convtype = vector(dtype, dim)
     exprlist = []
     for arg in args:
-        if implicit_covertable(arg.dtype, convtype):
+        if implicit_convertible(arg.dtype, convtype):
             exprlist.append(arg.expr)
         else:
             dtype1, expr1 = builtin_type_cast(convtype, arg)
@@ -400,7 +400,7 @@ def _custom_xx_id(name, *args):
     return dtype, expr
 
 
-for _func in 'kernel_id', 'object_id':
+for _func in 'kernel_id', 'object_id', 'warp_lane_count', 'warp_lane_id':
     _func_map[_func] = _custom_xx_id
 
 
@@ -607,9 +607,28 @@ _func_map["select"] = _select
 
 
 def _print(name, *args):
-    globalvars.printer.kernel_print(args)
-    globalvars.current_context.uses_printer = True
-    return None, None
+    format_str = ''
+    elements = []
+    def escape(s):
+        return s.replace('\\', '\\\\').replace('{','{{').replace('}','}}')
+    def add_element(node):
+        nonlocal format_str
+        if hasattr(node, "joined"): # f-string
+            for t in node.joined:
+                add_element(t)
+        elif node.dtype is str:
+            format_str += escape(node.expr)
+        elif node.dtype in basic_dtypes or type(node.dtype) is StructType:
+            format_str += '{}'
+            elements.append(node.expr)
+        else:
+            raise NotImplementedError(f"printing unsupported type {node.dtype}")
+    sep = ' '
+    for idx, node in enumerate(args):
+        if idx > 0:
+            format_str += escape(sep)
+        add_element(node)
+    return None, lcapi.builder().print_(format_str, elements)
 
 
 _func_map["print"] = _print
@@ -655,7 +674,7 @@ for name in ('clamp', 'fma'):
 def _step(name, *args):
     op = getattr(lcapi.CallOp, name.upper())
     assert len(args) == 2
-    assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
+    assert implicit_convertible(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
         "invalid parameter"
     if args[0].dtype in {int, uint, float}:
         # step(scalar, scalar) -> float
@@ -674,8 +693,8 @@ _func_map["step"] = _step
 def _int_func(name, *args):
     op = getattr(lcapi.CallOp, name.upper())
     assert len(args) == 1
-    assert args[0].dtype == int or \
-           args[0].dtype in vector_dtypes and element_of(args[0].dtype) is int, \
+    assert args[0].dtype == uint or \
+           args[0].dtype in vector_dtypes and element_of(args[0].dtype) is uint, \
         "invalid parameter"
     # clz(uint) -> uint
     # clz(vector<uint>) -> vector<uint>
@@ -776,7 +795,6 @@ def callable_call(func, *args):
     if func is globalvars.current_context.func and arg_list == globalvars.current_context.argtypes:
         raise Exception("Recursion is not supported")
     f = func.get_compiled(func_type=1, allow_ref=True, argtypes=arg_list, arg_info=shared_dict, custom_key=globalvars.saved_shader_count)
-    globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument
     # call
     if getattr(f, "return_type", None) is None:
@@ -784,16 +802,6 @@ def callable_call(func, *args):
     else:
         dtype = f.return_type
         return dtype, lcapi.builder().call(to_lctype(dtype), f.function, exprs)
-
-@BuiltinFuncBuilder
-def warp_lane_count():
-    op = lcapi.CallOp.WARP_LANE_COUNT
-    return uint, lcapi.builder().call(to_lctype(uint), op, [])
-
-@BuiltinFuncBuilder
-def warp_lane_index():
-    op = lcapi.CallOp.WARP_LANE_INDEX
-    return uint, lcapi.builder().call(to_lctype(uint), op, [])
 
 @BuiltinFuncBuilder
 def warp_is_first_active_lane():
@@ -887,13 +895,13 @@ def warp_prefix_sum(value):
     op = lcapi.CallOp.WARP_PREFIX_SUM
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])
 @BuiltinFuncBuilder
-def warp_read_lane_at(value, index):
+def warp_read_lane(value, index):
     assert value.dtype in basic_dtypes and index.dtype in {int, uint, short, ushort, long, ulong}
-    op = lcapi.CallOp.WARP_READ_LANE_AT
+    op = lcapi.CallOp.WARP_READ_LANE
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr, index.expr])
 
 @BuiltinFuncBuilder
 def warp_read_first_lane(value):
     assert value.dtype in basic_dtypes
-    op = lcapi.CallOp.WARP_READ_FIRST_LANE
+    op = lcapi.CallOp.WARP_READ_FIRST_ACTIVE_LANE
     return value.dtype, lcapi.builder().call(to_lctype(value.dtype), op, [value.expr])

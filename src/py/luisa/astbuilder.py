@@ -2,7 +2,7 @@ import ast
 import inspect
 import sys
 from types import SimpleNamespace, ModuleType
-from .types import length_of, element_of, vector, uint, implicit_covertable, short, ushort, long, ulong
+from .types import length_of, element_of, vector, uint, implicit_convertible, short, ushort, long, ulong
 from . import globalvars
 from .dylibs import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
@@ -246,7 +246,7 @@ class ASTVisitor:
             for idx, x in enumerate(val.values):
                 lhs = lcapi.builder().member(to_lctype(dtype.membertype[idx]), expr, idx)
                 rhs_dtype, rhs_expr, rhs_lr = build.captured_expr(x)
-                assert implicit_covertable(rhs_dtype, dtype.membertype[idx])
+                assert implicit_convertible(rhs_dtype, dtype.membertype[idx])
                 lcapi.builder().assign(lhs, rhs_expr)
             return dtype, expr, 'r'
         raise TypeError("unrecognized closure var type:", type(val))
@@ -328,10 +328,10 @@ class ASTVisitor:
             # Note: all local variables are function scope
         else:
             # must assign with same type; no implicit casting is allowed.
-            if not implicit_covertable(lhs.dtype, rhs.dtype):
+            if not implicit_convertible(lhs.dtype, rhs.dtype):
                 lhs_type = to_lctype(lhs.dtype)
                 rhs_type = to_lctype(rhs.dtype)
-                if (not (lhs_type.is_vector() or lhs_type.is_matrix())) or not implicit_covertable(lhs_type.element(),
+                if (not (lhs_type.is_vector() or lhs_type.is_matrix())) or not implicit_convertible(lhs_type.element(),
                                                                                                    rhs_type):
                     raise TypeError(f"Can't assign to {lhs.dtype} with {rhs.dtype} ")
             if lhs.lr == "r":
@@ -345,7 +345,7 @@ class ASTVisitor:
             raise TypeError("invalid assign annotation")
         build(node.value)
         build.build_assign_pair(node.target, node.value)
-        if not implicit_covertable(node.target.dtype, node.annotation.expr):
+        if not implicit_convertible(node.target.dtype, node.annotation.expr):
             raise TypeError(f"assign annotation is {node.annotation.expr}, got {node.target.dtype}")
 
     @staticmethod

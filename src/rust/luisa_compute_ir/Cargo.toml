@@ -14,16 +14,18 @@ bincode = "1.3.3"
 luisa_compute_api_types = { path = "../luisa_compute_api_types", version = "0.1.1-alpha.1" }
 base64ct = { version = "1.5.0", features = ["alloc"] }
 sha2 = "0.10"
-indexmap = "1.9.2"
+indexmap = "2.0.0"
 half = { version = "2.3.1", features = ["std", "serde", "num-traits", "zerocopy"] }
+json = "0.12.4"
+bitflags = {version = "2.2.3", features = ["serde"]}
+smallvec = "1.11.0"
+log = "0.4"
 
 [build-dependencies]
 cbindgen = "0.24.3"
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib", "staticlib"]
 name = "luisa_compute_ir"
 
-[profile.dev]
-panic = 'abort'
-incremental = true
+

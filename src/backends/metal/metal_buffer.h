@@ -31,6 +31,7 @@ public:
 
 public:
     MetalBuffer(MTL::Device *device, size_t size) noexcept;
+    explicit MetalBuffer(MTL::Buffer *external) noexcept;
     ~MetalBuffer() noexcept override;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] Binding binding(size_t offset, size_t size) const noexcept;
@@ -47,11 +48,11 @@ private:
 public:
     struct Binding {
         uint64_t address;
-        size_t capacity;
+        uint offset;
+        uint capacity;
     };
 
     struct alignas(16) Header {
-        uint offset;
         uint count;
     };
 
@@ -67,7 +68,7 @@ public:
     [[nodiscard]] auto command_buffer() const noexcept { return _command_buffer; }
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] bool is_indirect() const noexcept override { return true; }
-    [[nodiscard]] Binding binding() const noexcept;
+    [[nodiscard]] Binding binding(size_t offset, size_t count) const noexcept;
     void set_name(luisa::string_view name) noexcept override;
 };
 

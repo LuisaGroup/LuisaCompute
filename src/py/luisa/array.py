@@ -45,6 +45,7 @@ class ArrayType:
         self.dtype = dtype
         assert type(size) is int and size > 0
         self.luisa_type = lcapi.Type.from_(f'array<{to_lctype(dtype).description()},{self.size}>')
+        self.size_bytes = self.luisa_type.size()
 
     def __call__(self, data):
         assert self == deduce_array_type(data)

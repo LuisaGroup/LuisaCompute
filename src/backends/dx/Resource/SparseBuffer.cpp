@@ -61,11 +61,7 @@ void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size
         LUISA_ERROR("Map size out of range. Required size: {}, heap size: {}", size * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, heap->size_bytes);
     }
     D3D12_TILE_REGION_SIZE tileSize{
-        .NumTiles = size,
-        .UseBox = true,
-        .Width = size,
-        .Height = 1,
-        .Depth = 1};
+        .NumTiles = size};
     uint tileOffset = heap->offset / D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     queue->UpdateTileMappings(
         resource.Get(), 1,

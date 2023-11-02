@@ -1,14 +1,18 @@
 use indexmap::{IndexMap, IndexSet};
 
+use core::panic;
+use half::f16;
 use std::ops::Deref;
 use std::{
-    borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
 };
 
 use crate::context::is_type_equal;
-use crate::ir::{new_node, Const, Instruction, ModulePools, PhiIncoming, Primitive, SwitchCase};
+use crate::ir::{
+    new_node, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming, Primitive, SwitchCase,
+};
+use crate::transform::inliner;
 use crate::transform::ssa::ToSSA;
 use crate::{
     context,
@@ -16,7 +20,7 @@ use crate::{
         ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
         StructType, Type, VectorElementType, VectorType,
     },
-    CBoxedSlice, TypeOf,
+    CBoxedSlice,
 };
 use crate::{CArc, Pooled};
 
@@ -75,6 +79,8 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
         Type::Void | Type::UserData => None,
         Type::Primitive(p) => match p {
             crate::ir::Primitive::Bool => None,
+            crate::ir::Primitive::Int8 => None,
+            crate::ir::Primitive::Uint8 => None,
             crate::ir::Primitive::Int16 => None,
             crate::ir::Primitive::Uint16 => None,
             crate::ir::Primitive::Int32 => None,
@@ -259,6 +265,17 @@ impl<'a> StoreIntermediate<'a> {
         if self.intermediate.contains_key(&node) {
             return;
         }
+        if node.is_const() {
+            let inst = node.get().instruction.as_ref();
+            match inst {
+                Instruction::Const(c) => {
+                    let c = self.builder.const_(c.clone());
+                    self.intermediate.insert(node, c);
+                    return;
+                }
+                _ => unreachable!(),
+            }
+        }
         // {
         //     println!("create intermediate");
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&self.module);
@@ -391,8 +408,8 @@ impl<'a> StoreIntermediate<'a> {
                 }
             }
             Instruction::Phi(incomings) => {
-                for PhiIncoming { value, .. } in incomings.as_ref().iter() {
-                    if self.forward_reachable.contains(value) {
+                if self.backward_reachable.contains(&node) {
+                    for PhiIncoming { value, .. } in incomings.as_ref().iter() {
                         self.backward_reachable.insert(*value);
                     }
                 }
@@ -413,6 +430,7 @@ struct Backward {
     intermediate: IndexMap<NodeRef, NodeRef>,
     intermediate_to_node: IndexMap<NodeRef, NodeRef>,
     final_grad: IndexMap<NodeRef, usize>,
+    locally_defined_nodes: HashSet<NodeRef>,
 }
 
 impl Backward {
@@ -425,6 +443,7 @@ impl Backward {
             node = self.intermediate_to_node[&node];
         }
         if let Some(grad_var) = self.grad(node) {
+            assert!(grad_var.is_lvalue());
             builder.call(Func::AccGrad, &[grad_var, grad], Type::void());
         }
         // } else {
@@ -916,7 +935,7 @@ impl Backward {
     fn fp_constant(&mut self, t: CArc<Type>, x: f64, builder: &mut IrBuilder) -> NodeRef {
         return match t.deref() {
             Type::Primitive(p) => match p {
-                Primitive::Float16 => todo!(),
+                Primitive::Float16 => builder.const_(Const::Float16(f16::from_f64(x))),
                 Primitive::Float32 => builder.const_(Const::Float32(x as f32)),
                 Primitive::Float64 => builder.const_(Const::Float64(x)),
                 _ => panic!("fp_constant: invalid type: {:?}", t),
@@ -1109,7 +1128,7 @@ impl Backward {
         let instruction = &node.get().instruction;
         let type_ = &node.get().type_;
         let grad_type = grad_type_of(type_.clone());
-
+        // dbg!(node, instruction);
         match instruction.as_ref() {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless => {}
@@ -1127,6 +1146,7 @@ impl Backward {
             crate::ir::Instruction::AdScope { .. } => {
                 todo!()
             }
+            crate::ir::Instruction::Print { .. } => {}
             crate::ir::Instruction::AdDetach(_) => {}
             Instruction::RayQuery { .. } => panic!("RayQuery is not supported yet"),
             crate::ir::Instruction::Call(func, args) => {
@@ -1135,6 +1155,11 @@ impl Backward {
                 }
                 let out_grad = self.grad(node);
                 if out_grad.is_none() {
+                    return;
+                }
+                if *func == Func::Load {
+                    let var = args[0];
+                    assert!(!self.locally_defined_nodes.contains(&var));
                     return;
                 }
                 // dbg!(node);
@@ -1147,6 +1172,11 @@ impl Backward {
                     .collect::<Vec<_>>();
                 let node = self.get_intermediate(node);
                 let out_grad = out_grad.unwrap();
+                let out_grad = if out_grad.is_lvalue() {
+                    builder.load(out_grad)
+                } else {
+                    out_grad
+                };
                 match func {
                     Func::Add => {
                         let (lhs_grad, rhs_grad) =
@@ -1602,26 +1632,25 @@ impl Backward {
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::ExtractElement => {
+                        let indices = args[1..].to_vec();
                         let v_grad = builder.const_(Const::Zero(args[0].type_().clone()));
-                        let v_grad = builder.call(
-                            Func::InsertElement,
-                            &[v_grad, out_grad, original_args[1]],
-                            v_grad.type_().clone(),
-                        );
+                        let mut call_args = vec![v_grad, out_grad];
+                        call_args.extend(indices);
+                        let v_grad =
+                            builder.call(Func::InsertElement, &call_args, v_grad.type_().clone());
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::InsertElement => {
                         let zero = builder.const_(Const::Zero(args[1].type_().clone()));
-                        let v_grad = builder.call(
-                            Func::InsertElement,
-                            &[out_grad, zero, original_args[2]],
-                            args[0].type_().clone(),
-                        );
-                        let x_grad = builder.call(
-                            Func::ExtractElement,
-                            &[out_grad, original_args[2]],
-                            args[1].type_().clone(),
-                        );
+                        let indices = args[2..].to_vec();
+                        let mut call_args = vec![out_grad, zero];
+                        call_args.extend(indices.clone());
+                        let v_grad =
+                            builder.call(Func::InsertElement, &call_args, args[0].type_().clone());
+                        call_args = vec![out_grad];
+                        call_args.extend(indices);
+                        let x_grad =
+                            builder.call(Func::ExtractElement, &call_args, args[1].type_().clone());
                         self.accumulate_grad(args[0], v_grad, builder);
                         self.accumulate_grad(args[1], x_grad, builder);
                     }
@@ -1681,6 +1710,9 @@ impl Backward {
                             self.accumulate_grad(*member, member_grad, builder);
                         }
                     }
+                    Func::Callable(_) => {
+                        panic!("Callable not supported yet! Please inline your callables manually.")
+                    }
                     _ => {}
                 }
             }
@@ -1688,7 +1720,17 @@ impl Backward {
                 if grad_type.is_none() {
                     return;
                 }
-                let out_grad = self.grad(node).unwrap();
+
+                let out_grad = self.grad(node);
+                if out_grad.is_none() {
+                    return;
+                }
+                let out_grad = out_grad.unwrap();
+                let out_grad = if out_grad.is_local() {
+                    builder.call(Func::Load, &[out_grad], out_grad.type_().clone())
+                } else {
+                    out_grad
+                };
                 for PhiIncoming { value, .. } in incomings.as_ref() {
                     self.accumulate_grad(*value, out_grad, builder);
                 }
@@ -1739,10 +1781,9 @@ impl Backward {
         for node in block.nodes().iter().rev() {
             self.backward(*node, &mut builder);
         }
-
         builder.finish()
     }
-    fn run(&mut self, block: &BasicBlock) -> Pooled<BasicBlock> {
+    fn run(&mut self, block: &BasicBlock) -> (Pooled<BasicBlock>, HashMap<NodeRef, NodeRef>) {
         let mut builder = IrBuilder::new(self.pools.clone());
         for node in block.nodes().iter().rev() {
             self.backward(*node, &mut builder);
@@ -1753,23 +1794,25 @@ impl Backward {
             .map(|(k, v)| (*k, *v))
             .collect::<Vec<_>>();
         final_grads.sort_by_key(|(_, k)| *k);
+        let mut grads = HashMap::new();
         for (n, _) in final_grads {
-            let mut grad = self
+            let grad = self
                 .grads
                 .get(&n)
                 .cloned()
                 .unwrap_or_else(|| builder.zero_initializer(n.type_().clone()));
-            if grad.is_local() {
-                grad = builder.call(Func::Load, &[grad], grad.type_().clone());
-            }
-            builder.call(Func::GradientMarker, &[n, grad], Type::void());
+            // if grad.is_local() {
+            //     grad = builder.call(Func::Load, &[grad], grad.type_().clone());
+            // }
+            // builder.call(Func::GradientMarker, &[n, grad], Type::void());
+            grads.insert(n, grad);
         }
-        builder.finish()
+        (builder.finish(), grads)
     }
 }
 
 pub struct Autodiff;
-fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
+fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<NodeRef, NodeRef>) {
     assert!(
         module.kind == crate::ir::ModuleKind::Block,
         "ad_transform_block should be applied to a block"
@@ -1781,6 +1824,7 @@ fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
         final_grad,
         intermediate,
         intermediate_to_node,
+        locally_defined_nodes,
         // backward_reachable,
         // forward_reachable,
         ..
@@ -1792,36 +1836,81 @@ fn ad_transform_block(module: crate::ir::Module) -> crate::ir::Module {
         final_grad,
         intermediate,
         intermediate_to_node,
+        locally_defined_nodes,
         pools: module.pools.clone(),
     };
     // dbg!(&backward.intermediate);
     // dbg!(&backward.grads);
     let fwd = module.entry;
 
-    let bwd = backward.run(&fwd);
+    let (bwd, grads) = backward.run(&fwd);
     fwd.merge(bwd);
 
     // let mut display = display::DisplayIR::new();
     // let fwd_src = display.display_ir(&module);
     // print!("{}\n", fwd_src);
 
-    Module {
-        kind: ModuleKind::Block,
-        entry: fwd,
-        pools: module.pools,
-    }
+    (
+        Module {
+            kind: ModuleKind::Block,
+            entry: fwd,
+            pools: module.pools,
+            flags: ModuleFlags::NONE,
+        },
+        grads,
+    )
 }
 fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) {
-    for node in block.iter() {
+    let nodes = block.nodes();
+    let mut i = 0;
+    while i < nodes.len() {
+        let node = nodes[i];
         match node.get().instruction.as_ref() {
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, forward, .. } => {
+                if *forward {
+                    i += 1;
+                    continue;
+                }
                 let ad_block = Module {
                     kind: ModuleKind::Block,
                     entry: body.clone(),
                     pools: pools.clone(),
+                    flags: ModuleFlags::NONE,
                 };
+                // {
+                //     println!(
+                //         "Before SSA:\n{}",
+                //         ir::debug::dump_ir_human_readable(&Module {
+                //             kind: ModuleKind::Block,
+                //             entry: body.clone(),
+                //             pools: pools.clone(),
+                //             flags: ModuleFlags::NONE,
+                //         })
+                //     );
+                // }
+                {
+                    let nodes = ad_block.collect_nodes();
+                    for n in nodes {
+                        let inst = n.get().instruction.as_ref();
+                        match inst {
+                            Instruction::Call(f, _) => match f {
+                                Func::Callable(_) => inliner::inline_callable(&ad_block, n, true),
+                                _ => {}
+                            },
+                            _ => {}
+                        }
+                    }
+                }
                 let ad_block = ToSSA.transform(ad_block);
+               
+                // {
+                //     println!(
+                //         "After SSA:\n{}",
+                //         ir::debug::dump_ir_human_readable(&ad_block)
+                //     );
+                // }
                 let mut backward = None;
+                let mut gradient_marker = None;
                 for node in body.iter() {
                     match node.get().instruction.as_ref() {
                         Instruction::Call(f, _) => {
@@ -1831,6 +1920,12 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                                 } else {
                                     panic!("multiple backward calls inside AdScope!");
                                 }
+                            } else if *f == Func::GradientMarker {
+                                if gradient_marker == None {
+                                    gradient_marker = Some(node);
+                                } else {
+                                    panic!("multiple gradient_marker calls inside AdScope!");
+                                }
                             }
                         }
                         _ => {}
@@ -1839,11 +1934,47 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 let backward = backward.unwrap_or_else(|| {
                     panic!("no backward call inside AdScope!");
                 });
+
                 let epilogue = body.split(backward, pools);
                 backward.remove();
-                let ad_block = ad_transform_block(ad_block);
+                let (ad_block, grads) = ad_transform_block(ad_block);
+                {
+                    let epilogue = Module {
+                        kind: ModuleKind::Block,
+                        entry: epilogue,
+                        pools: pools.clone(),
+                        flags: ModuleFlags::NONE,
+                    };
+                    let nodes = epilogue.collect_nodes();
+                    for node in nodes {
+                        let inst = CArc::get_mut(&mut node.get_mut().instruction).unwrap();
+                        match inst {
+                            Instruction::Call(f, args) => {
+                                if *f == Func::Gradient {
+                                    let grad = grads[&args[0]];
+                                    assert!(
+                                        grad.is_lvalue(),
+                                        "{:?}. Please don't call grad(out).",
+                                        grad.get().instruction.as_ref()
+                                    );
+                                    *inst =
+                                        Instruction::Call(Func::Load, CBoxedSlice::new(vec![grad]));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                {
+                    gradient_marker.unwrap().remove();
+                }
                 assert_eq!(ad_block.entry.ptr, body.ptr);
                 body.merge(epilogue);
+
+                let after_ad = block.split(node, pools);
+                node.remove();
+                block.merge(*body);
+                block.merge(after_ad);
             }
             Instruction::If {
                 cond: _,
@@ -1876,13 +2007,40 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     ad_transform_recursive(*block, pools);
                 }
             }
+            Instruction::Call(f, ..) => match f {
+                Func::Callable(callable) => {
+                    let callable = &callable.0;
+                    if callable
+                        .module
+                        .flags
+                        .contains(ModuleFlags::REQUIRES_REV_AD_TRANSFORM)
+                    {
+                        ad_transform_recursive(callable.module.entry, pools);
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
+        i += 1;
     }
 }
 impl Transform for Autodiff {
-    fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
+    fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
+        log::debug!("Autodiff transform");
+        // {
+        //     println!("Before AD:");
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("{}", debug.to_str().unwrap());
+        // }
         ad_transform_recursive(module.entry, &module.pools);
+        module.flags.remove(ModuleFlags::REQUIRES_REV_AD_TRANSFORM);
+        // {
+        //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);
+        //     let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
+        //     println!("After AD:\n{}", debug.to_str().unwrap());
+        // }
         module
     }
 }

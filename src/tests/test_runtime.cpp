@@ -63,14 +63,15 @@ int main(int argc, char *argv[]) {
     Clock clk;
     clk.tic();
     // Fence index is a self-incremental integer
-    uint64_t fence_index = 0;
+    uint64_t frame_index = 0;
     while (!window.should_close()) {
+        // current frame's index
+        uint64_t this_frame = frame_index;
+        // next frame's index
+        frame_index += 1;
         // Wait for last cycle
-        auto last_fence = fence_index;
-        fence_index += 1;
-        auto next_fence = fence_index;
-        if(last_fence >= framebuffer_count){
-            graphics_event.synchronize(last_fence - (framebuffer_count - 1));
+        if (this_frame >= framebuffer_count) {
+            graphics_event.synchronize(this_frame - (framebuffer_count - 1));
         }
         CommandList cmd_list;
         cmd_list << shader(clk.toc() / 200.0f).dispatch(resolution);
@@ -82,18 +83,21 @@ int main(int argc, char *argv[]) {
         // #define NO_SYNC_ERROR
 // compute stream must wait last frame's graphics stream
 #ifndef NO_SYNC_ERROR
-        compute_stream << graphics_event.wait(last_fence);
+        if (this_frame > 0) {
+            compute_stream << graphics_event.wait(this_frame);
+        }
 #endif
         compute_stream
             << cmd_list.commit()
             // make a signal after compute_stream's tasks
             << compute_event.signal();
+        // update frame
         graphics_stream
             // wait compute_stream's tasks
             << compute_event.wait()
             << swap_chain.present(ldr_image)
             // let host wait here
-            << graphics_event.signal(next_fence);
+            << graphics_event.signal(frame_index);
         window.poll_events();
     }
     compute_stream << synchronize();

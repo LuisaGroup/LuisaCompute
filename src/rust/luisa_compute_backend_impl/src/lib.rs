@@ -4,17 +4,19 @@ mod cpu;
 mod remote;
 
 use libloading::Library;
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{Level, LevelFilter, Metadata, Record};
 use luisa_compute_api_types as api;
 use luisa_compute_api_types::DeviceInterface;
 use luisa_compute_backend::create_device_interface;
 pub(crate) use luisa_compute_backend::Backend;
 pub(crate) use luisa_compute_ir::ir;
+use luisa_compute_ir_v2::IrV2BindingTable;
 use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::panic::Location;
 use std::path::{Path, PathBuf};
-use std::process::{abort, exit};
+use std::process::exit;
+use std::sync::atomic::AtomicPtr;
 use std::sync::Arc;
 
 pub struct SwapChainForCpuContext {
@@ -31,7 +33,7 @@ pub struct SwapChainForCpuContext {
     pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
     pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
     pub cpu_swapchain_present:
-    unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
+        unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
 }
 
 unsafe impl Send for SwapChainForCpuContext {}
@@ -107,7 +109,7 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
         location.file(),
         location.line()
     );
-    eprintln!("set LUISA_BACKTRACE=1 ro enable host DSL backtrace");
+    eprintln!("set LUISA_BACKTRACE=1 to enable host DSL backtrace");
     match env::var("RUST_BACKTRACE") {
         Ok(v) => {
             if v == "1" {
@@ -123,25 +125,10 @@ pub(crate) fn _panic_abort(msg: String, location: &Location<'_>) {
     exit(-1);
 }
 
-fn init() {
+fn init_logger() {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Trace))
         .unwrap();
-    // std::panic::set_hook(Box::new(move |panic_info| {});
-    // let default_hook = std::panic::take_hook();
-    // std::panic::set_hook(Box::new(move |panic_info| {
-    //     let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-    //         Some(*s)
-    //     } else {
-    //         None
-    //     };
-    //     if let Some(msg) = msg {
-    //         if msg.starts_with("##lc_kernel##") {
-    //             return;
-    //         }
-    //     }
-    //     abort();
-    // }));
 }
 
 extern "C" fn free_string(ptr: *mut c_char) {
@@ -156,7 +143,7 @@ static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
 
 extern "C" fn set_logger_callback(cb: unsafe extern "C" fn(api::LoggerMessage)) {
     INIT_LOGGER.call_once(|| {
-        init();
+        init_logger();
         unsafe {
             LOGGER_CALLBACK = Some(cb);
         }
@@ -182,7 +169,7 @@ extern "C" fn destroy_context(ctx: api::Context) {
 unsafe extern "C" fn create_device(
     ctx: api::Context,
     device: *const c_char,
-    config: *const c_char,
+    _config: *const c_char, // TODO: respect config
 ) -> DeviceInterface {
     let device = CStr::from_ptr(device).to_str().unwrap();
     // let config = CStr::from_ptr(config).to_str().unwrap();
@@ -204,7 +191,11 @@ unsafe extern "C" fn create_device(
                 let swapchain = lib_path.join(swapchain_dll);
                 let swapchain = SwapChainForCpuContext::new(&swapchain)
                     .map_err(|e| {
-                        eprintln!("failed to load swapchain: {}, path:{}", e, swapchain.display());
+                        eprintln!(
+                            "failed to load swapchain: {}, path:{}",
+                            e,
+                            swapchain.display()
+                        );
                         e
                     })
                     .ok()
@@ -246,4 +237,17 @@ pub extern "C" fn luisa_compute_lib_interface() -> api::LibInterface {
         create_device,
         free_string,
     }
+}
+
+const IR_V2_BINDING_TABLE: AtomicPtr<IrV2BindingTable> = AtomicPtr::new(std::ptr::null_mut());
+#[no_mangle]
+pub extern "C" fn luisa_compute_set_ir_v2_binding(table: *const IrV2BindingTable) {
+    IR_V2_BINDING_TABLE.store(
+        table as *mut IrV2BindingTable,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+pub fn ir_v2_binding() -> &'static IrV2BindingTable {
+    unsafe { &*IR_V2_BINDING_TABLE.load(std::sync::atomic::Ordering::SeqCst) }
 }

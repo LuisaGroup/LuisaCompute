@@ -1322,17 +1322,15 @@ public:
                    PixelStorage::HALF4;
     }
 
-    void present(luisa::span<const std::byte> pixels) noexcept {
+    using BlitCallback = void (*)(void *ctx, void *mapped_pixels);
 
-        LUISA_ASSERT(pixels.size_bytes() >= _stage_buffer_size,
-                     "Pixel buffer is too small.");
-
+    void present(void *ctx, BlitCallback blit) noexcept {
         _base.wait_for_fence();
 
         // update stage buffer
         void *mapped = nullptr;
         LUISA_CHECK_VULKAN(vkMapMemory(_base.device(), _stage_buffer_memories[_current_frame], 0u, _stage_buffer_size, 0u, &mapped));
-        std::memcpy(mapped, pixels.data(), pixels.size_bytes());
+        blit(ctx, mapped);
         vkUnmapMemory(_base.device(), _stage_buffer_memories[_current_frame]);
 
         // copy buffer to image
@@ -1369,6 +1367,15 @@ public:
         // update frame index
         _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
     }
+
+    void present(luisa::span<const std::byte> pixels) noexcept {
+        LUISA_ASSERT(pixels.size_bytes() >= _stage_buffer_size,
+                     "Pixel buffer is too small.");
+        present(&pixels, [](void *ctx, void *mapped) noexcept {
+            auto pixels = static_cast<luisa::span<const std::byte> *>(ctx);
+            std::memcpy(mapped, pixels->data(), pixels->size_bytes());
+        });
+    }
 };
 
 LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
@@ -1385,6 +1392,10 @@ LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexc
 
 LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const void *pixels, uint64_t size) noexcept {
     static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
+}
+
+LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present_with_callback(void *swapchain, void *ctx, void (*blit)(void *ctx, void *mapped_pixels)) noexcept {
+    static_cast<VulkanSwapchainForCPU *>(swapchain)->present(ctx, blit);
 }
 
 }// namespace luisa::compute

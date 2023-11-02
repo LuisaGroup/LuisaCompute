@@ -15,7 +15,6 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
-#include <luisa/ir/ir.h>
 
 using namespace luisa;
 using namespace luisa::compute;

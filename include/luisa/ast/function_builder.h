@@ -25,14 +25,18 @@ class CallableLibrary;
 
 namespace luisa::compute::detail {
 
+class FunctionDuplicator;
+
 /**
  * @brief %Function builder.
  * 
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
-    friend class CallableLibrary;
+
+    friend class luisa::compute::CallableLibrary;
     friend class lc::validation::Device;
+    friend class FunctionDuplicator;
 
 public:
     /**
@@ -84,6 +88,14 @@ private:
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
     luisa::vector<Binding> _bound_arguments;
+    luisa::unordered_map<
+        const Expression * /* external */,
+        const Expression * /* internal */>
+        _captured_external_variables;
+    luisa::unordered_map<
+        Variable /* argument */,
+        const Expression * /* captured */>
+        _internalizer_arguments;
     luisa::vector<luisa::shared_ptr<const ExternalFunction>> _used_external_functions;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Variable> _local_variables;
@@ -98,11 +110,12 @@ private:
     Tag _tag;
     bool _hash_computed{false};
     bool _requires_atomic_float{false};
+    bool _requires_printing{false};
 
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
-
+    [[nodiscard]] const Expression *_internalize(const Expression *expr) noexcept;
     void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const RefExpr *_builtin(Type const *type, Variable::Tag tag) noexcept;
@@ -145,6 +158,9 @@ private:
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
 
+    /// Duplicate the function if necessary, e.g., when some outlined functions leak local variables.
+    [[nodiscard]] luisa::shared_ptr<const FunctionBuilder> _duplicate_if_necessary() const noexcept;
+
 public:
     /**
      * @brief Construct a new %Function Builder object
@@ -166,6 +182,8 @@ public:
      * @return FunctionBuilder* 
      */
     [[nodiscard]] static FunctionBuilder *current() noexcept;
+    [[nodiscard]] static FunctionBuilder *current_or_null() noexcept;
+    [[nodiscard]] static luisa::span<const FunctionBuilder *const> stack() noexcept;
 
     // interfaces for class Function
     /// Return a span of builtin variables.
@@ -214,12 +232,15 @@ public:
     [[nodiscard]] bool requires_atomic_float() const noexcept;
     /// Return if uses automatic differentiation.
     [[nodiscard]] bool requires_autodiff() const noexcept;
+    /// Return if uses printing.
+    [[nodiscard]] bool requires_printing() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
     template<typename Def>
     static auto define_kernel(Def &&def) {
-        return _define(Function::Tag::KERNEL, std::forward<Def>(def));
+        auto k = _define(Function::Tag::KERNEL, std::forward<Def>(def));
+        return k->_duplicate_if_necessary();
     }
 
     /// Define a callable function with given definition
@@ -251,6 +272,10 @@ public:
     [[nodiscard]] const RefExpr *kernel_id() noexcept;
     /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *object_id() noexcept;
+    /// Return warp lane count
+    [[nodiscard]] const RefExpr *warp_lane_count() noexcept;
+    /// Return warp lane count
+    [[nodiscard]] const RefExpr *warp_lane_id() noexcept;
 
     // variables
     /// Add local variable of type
@@ -296,6 +321,10 @@ public:
     [[nodiscard]] const Expression *swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept;
     /// Create access expression
     [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
+    /// Create string ID expression
+    [[nodiscard]] const StringIDExpr *string_id(luisa::string s) noexcept;
+    /// Create type ID expression
+    [[nodiscard]] const TypeIDExpr *type_id(const Type *payload) noexcept;
     /// Create cast expression
     [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
     /// Create call expression
@@ -352,6 +381,8 @@ public:
     [[nodiscard]] RayQueryStmt *ray_query_(const RefExpr *query) noexcept;
     /// Add auto diff statement
     [[nodiscard]] AutoDiffStmt *autodiff_() noexcept;
+    /// Add print statement
+    void print_(luisa::string_view format, luisa::span<const Expression *const> args) noexcept;
 
     // For autodiff use only
     [[nodiscard]] const Statement *pop_stmt() noexcept;
@@ -386,11 +417,14 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
-    /// separate arguments and bindings, make command need no bindings info, only work with kernel.
+    /// Separate arguments and bindings, make command need no bindings info, only work with kernel.
     void sort_bindings() noexcept;
 
     /// Return a Function object constructed from this
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
+
+    /// Duplicate the function builder, also perform certain simplifications and canonicalizations.
+    [[nodiscard]] luisa::shared_ptr<const FunctionBuilder> duplicate() const noexcept;
 };
 
 }// namespace luisa::compute::detail

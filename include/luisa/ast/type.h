@@ -274,8 +274,12 @@ class LC_AST_API Type {
 
 public:
     /// Type tags
+    /// !!!DO NOT CHANGE THE ORDER OF THESE ENUMS!!!
+    /// IF YOU EVER WANT TO CHANGE THE ENUM, PLEASE CHANGE ir_v2/en_ir_def.py AS WELL!
     enum struct Tag : uint32_t {
         BOOL,
+        INT8,
+        UINT8,
         INT16,
         UINT16,
         INT32,
@@ -292,6 +296,7 @@ public:
         ARRAY,
         STRUCTURE,
 
+        // resource types, not valid type for IR
         BUFFER,
         TEXTURE,
         BINDLESS_ARRAY,
@@ -441,4 +446,3 @@ public:
 };
 
 }// namespace luisa::compute
-

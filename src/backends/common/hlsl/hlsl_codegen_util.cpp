@@ -3,13 +3,16 @@
 #include "variant_util.h"
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/ast/function_builder.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <luisa/vstl/pdqsort.h>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
+static bool shown_buffer_warning = false;
 namespace lc::hlsl {
+static std::atomic_bool rootsig_exceed_warned = false;
 #ifdef LUISA_ENABLE_IR
 static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
     if (f.requires_autodiff())
@@ -76,7 +79,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (ops.test(CallOp::INVERSE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
     }
-    if (ops.test(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER) || ops.test(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL)) {
+    if (ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_COUNT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
     }
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
@@ -95,8 +98,11 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
         builder << CodegenUtility::ReadInternalHLSLFile("accel_header", internalDataPath);
     }
@@ -106,11 +112,11 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
     }
-    if (ops.test(CallOp::ZERO) ||
-        ops.test(CallOp::ONE) ||
-        ops.test(CallOp::GRADIENT) ||
+    if (ops.test(CallOp::GRADIENT) ||
         ops.test(CallOp::ACCUMULATE_GRADIENT) ||
-        ops.test(CallOp::REQUIRES_GRADIENT)) {
+        ops.test(CallOp::REQUIRES_GRADIENT) ||
+        ops.test(CallOp::GRADIENT_MARKER) ||
+        ops.test(CallOp::DETACH)) {
         builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);
     }
     if (ops.test(CallOp::REDUCE_MAX) ||
@@ -180,6 +186,20 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
         case Variable::Tag::OBJECT_ID:
             LUISA_ASSERT(opt->isRaster, "object id only allowed in raster shader");
             str << "obj_id"sv;
+            break;
+        case Variable::Tag::WARP_LANE_COUNT:
+            if (opt->funcType == CodegenStackData::FuncType::Callable) {
+                str << "_wrpct"sv;
+            } else {
+                str << "WaveGetLaneCount()"sv;
+            }
+            break;
+        case Variable::Tag::WARP_LANE_ID:
+            if (opt->funcType == CodegenStackData::FuncType::Callable) {
+                str << "_wrpid"sv;
+            } else {
+                str << "WaveGetLaneIndex()"sv;
+            }
             break;
         case Variable::Tag::LOCAL:
             switch (opt->funcType) {
@@ -401,7 +421,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &funcDec
     }
     {
         data += " custom_"sv;
-        vstd::to_string((opt->GetFuncCount(func.builder())), data);
+        vstd::to_string((opt->GetFuncCount(func)), data);
         if (func.arguments().empty()) {
             data += "()"sv;
         } else {
@@ -446,7 +466,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &funcDec
              << data;
 }
 void CodegenUtility::GetFunctionName(Function callable, vstd::StringBuilder &result) {
-    result << "custom_"sv << vstd::to_string((opt->GetFuncCount(callable.builder())));
+    result << "custom_"sv << vstd::to_string((opt->GetFuncCount(callable)));
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &str, StringStateVisitor &vis) {
     auto args = expr->arguments();
@@ -466,7 +486,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
-            str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().builder())));
+            str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom())));
             str << '(';
             {
                 uint64 sz = 0;
@@ -685,7 +705,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_Smptx";
             break;
         case CallOp::TEXTURE_WRITE:
-            LUISA_ASSERT(!opt->isRaster, "texture-write can only be used in compute shader");
             str << "_Writetx";
             break;
         case CallOp::MAKE_LONG2:
@@ -761,7 +780,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_WRITE: {
-            LUISA_ASSERT(!opt->isRaster, "buffer-write can only be used in compute shader");
             str << "_bfwrite"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
@@ -776,6 +794,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_SIZE: {
+            if (!shown_buffer_warning) {
+                LUISA_WARNING_WITH_LOCATION("CallOp::BUFFER_SIZE is broken on dx!"sv);
+                shown_buffer_warning = true;
+            }
             str << "_bfsize"sv;
         } break;
         case CallOp::BYTE_BUFFER_READ: {
@@ -899,7 +921,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ",bdls)"sv;
             return;
         }
-        case CallOp::BINDLESS_BYTE_ADDRESS_BUFFER_READ: {
+        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
             str << "_READ_BUFFER_BYTES"sv;
             opt->useBufferBindless = true;
             str << '(';
@@ -913,7 +935,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::ASSERT:
         case CallOp::ASSUME:
+            return;
         case CallOp::UNREACHABLE: {
+            if (auto t = expr->type()) {
+                str << "("sv;
+                GetTypeName(*t, str, Usage::READ, true);
+                str << ")0"sv;
+            }
             return;
         }
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
@@ -1016,6 +1044,22 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
+            str << "_InstId("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: {
+            str << "_InstVis("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
             str << "_SetAccelTransform("sv;
             args[0]->accept(vis);
@@ -1040,16 +1084,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
-        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "_ClearDispInd"sv;
-            break;
-        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
-            str << "_EmplaceDispInd"sv;
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
+            str << "_SetUserId("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            PrintArgs(1);
+            str << ')';
+            return;
+        }
+        case CallOp::INDIRECT_SET_DISPATCH_COUNT: {
+            str << "_SetDispCount"sv;
         } break;
         case CallOp::INDIRECT_SET_DISPATCH_KERNEL: {
-            LUISA_ASSERT(!opt->isRaster, "indirect-operation can only be used in compute shader");
             str << "_SetDispInd"sv;
         } break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
@@ -1073,11 +1119,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ".CommitNonOpaqueTriangleHit()"sv;
             return;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
-            args[0]->accept(vis);
-            str << ".CommitProceduralPrimitiveHit("sv;
-            args[1]->accept(vis);
-            str << ')';
-            return;
+            str << "_CommitProcedural"sv;
+            break;
         case CallOp::RAY_QUERY_TERMINATE:
             args[0]->accept(vis);
             str << ".Abort()"sv;
@@ -1111,7 +1154,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_MARK_GRAD";
             break;
         case CallOp::ACCUMULATE_GRADIENT:
+            LUISA_ASSERT(args.size() == 2, "accumulate_gradient must have 2 arguments");
             str << "_accum_grad";
+            if (args[0]->type()->is_structure() || args[0]->type()->is_array()) {
+                str << luisa::format("_{:016X}", args[0]->type()->hash());
+            }
             break;
         case CallOp::DETACH:
             str << "_detach";
@@ -1123,12 +1170,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::OUTER_PRODUCT: str << "_outer_product"; break;
         case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: str << "_mat_comp_mul"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: LUISA_NOT_IMPLEMENTED(); break;
-        case CallOp::WARP_LANE_COUNT:
-            str << "WaveGetLaneCount"sv;
-            break;
-        case CallOp::WARP_LANE_INDEX:
-            str << "WaveGetLaneIndex"sv;
-            break;
         case CallOp::WARP_IS_FIRST_ACTIVE_LANE:
             str << "WaveIsFirstLane"sv;
             break;
@@ -1163,7 +1204,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "WaveActiveProduct"sv;
             break;
         case CallOp::WARP_PREFIX_SUM:
-            str << "WavePrefixProduct"sv;
+            str << "WavePrefixSum"sv;
             break;
         case CallOp::WARP_ACTIVE_SUM:
             str << "WaveActiveSum"sv;
@@ -1177,18 +1218,22 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::WARP_ACTIVE_BIT_MASK:
             str << "WaveActiveBallot"sv;
             break;
-        case CallOp::WARP_READ_LANE_AT:
+        case CallOp::WARP_READ_LANE:
             str << "WaveReadLaneAt"sv;
             break;
-        case CallOp::WARP_READ_FIRST_LANE:
+        case CallOp::WARP_READ_FIRST_ACTIVE_LANE:
             str << "WaveReadLaneFirst"sv;
             break;
         case CallOp::BACKWARD:
             LUISA_ERROR_WITH_LOCATION("`backward()` should not be called directly.");
             break;
-        case CallOp::PACK:
-        case CallOp::UNPACK:
-            LUISA_ERROR_WITH_LOCATION("Call-Op not implemented.");
+            // TODO: save save hlsl
+        case CallOp::PACK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_BUFFER_WRITE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::WARP_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::SHADER_EXECUTION_REORDER:
+            str << "(void)";
             break;
     }
     str << '(';
@@ -1360,7 +1405,6 @@ protected:
 };
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty) {
-
     auto codegenOneFunc = [&](Function func) {
         auto constants = func.constants();
         for (auto &&i : constants) {
@@ -1435,12 +1479,11 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
         }
         result << "}\n"sv;
     };
-    vstd::unordered_set<void const *> callableMap;
+    vstd::unordered_set<uint64_t> callableMap;
     auto callable = [&](auto &&callable, Function func) -> void {
         for (auto &&i : func.custom_callables()) {
-            if (callableMap.emplace(i.get()).second) {
-                Function f(i.get());
-                callable(callable, f);
+            if (callableMap.emplace(i->hash()).second) {
+                callable(callable, i->function());
             }
         }
         codegenOneFunc(func);
@@ -1506,8 +1549,10 @@ v2p o;
         result << retName
                << " r=vert(vt);\n"sv;
         for (auto i : vstd::range(retType->members().size())) {
+            auto member = retType->members()[i];
             auto num = vstd::to_string(i);
-            result << "o.v"sv << num << "=r.v"sv << num << ";\n"sv;
+            result << "o.v"sv << num << "=r.v"sv << num;
+            result << ";\n"sv;
         }
     }
     if (isDX) {
@@ -1637,7 +1682,8 @@ bool CodegenUtility::IsCBufferNonEmpty(Function f) {
 }
 void CodegenUtility::GenerateCBuffer(
     std::initializer_list<vstd::IRange<Variable> *> fs,
-    vstd::StringBuilder &result) {
+    vstd::StringBuilder &result,
+    uint &bind_count) {
     result << "struct _Args{\n"sv;
     size_t align = 0;
     size_t size = 0;
@@ -1662,12 +1708,14 @@ void CodegenUtility::GenerateCBuffer(
     result << R"(};
 StructuredBuffer<_Args> _Global:register(t0);
 )"sv;
+    bind_count += 2;
 }
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str,
     luisa::BinaryIO const *internalDataPath,
-    bool isSpirV) {
+    bool isSpirV,
+    uint &bind_count) {
     uint table_idx = isSpirV ? 2 : 1;
     auto add_prop = [&](ShaderVariableType svt) {
         properties.emplace_back(
@@ -1681,18 +1729,21 @@ void CodegenUtility::GenerateBindless(
         str << "ByteAddressBuffer bdls[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
         add_prop(ShaderVariableType::SRVBufferHeap);
         table_idx++;
+        bind_count += 1;
     }
     if (opt->useTex2DBindless) {
         str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
         str << CodegenUtility::ReadInternalHLSLFile("tex2d_bindless", internalDataPath);
+        bind_count += 1;
     }
     if (opt->useTex3DBindless) {
         str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
         str << CodegenUtility::ReadInternalHLSLFile("tex3d_bindless", internalDataPath);
+        bind_count += 1;
     }
 }
 
@@ -1702,7 +1753,7 @@ void CodegenUtility::PreprocessCodegenProperties(
     RegisterIndexer &registerCount,
     luisa::BinaryIO const *internalDataPath,
     bool cbufferNonEmpty,
-    bool isRaster, bool isSpirv) {
+    bool isRaster, bool isSpirv, uint &bind_count) {
     // 1,0,0
     registerCount.init();
     if (isSpirv) {
@@ -1737,8 +1788,27 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0,
                 1});
     }
-    GenerateBindless(properties, varData, internalDataPath, isSpirv);
+    GenerateBindless(properties, varData, internalDataPath, isSpirv, bind_count);
 }
+
+namespace detail {
+[[nodiscard]] static auto can_accum_grad(const Type *t) noexcept {
+    auto tt = t->tag();
+    if (tt == Type::Tag::FLOAT16 ||
+        tt == Type::Tag::FLOAT32 ||
+        tt == Type::Tag::FLOAT64 ||
+        tt == Type::Tag::STRUCTURE) {
+        return true;
+    }
+    if (tt == Type::Tag::ARRAY ||
+        tt == Type::Tag::VECTOR ||
+        tt == Type::Tag::MATRIX) {
+        return can_accum_grad(t->element());
+    }
+    return false;
+}
+}// namespace detail
+
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
         vstd::fixed_vector<StructGenerator *, 16> customStructVector;
@@ -1752,6 +1822,31 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
         for (auto v : customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
+            finalResult << "#ifdef _GRAD\n";
+            auto accum_grad = [&s = finalResult](luisa::string_view access, const Type *t) noexcept {
+                if (t->is_structure() || t->is_array()) {
+                    s << luisa::format("_accum_grad_{:016X}(x_grad{}, dx{});\n", t->hash(), access, access);
+                } else {
+                    s << luisa::format("_accum_grad(x_grad{}, dx{});\n", access, access);
+                }
+            };
+            if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
+                finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
+                                             t->hash(), v->GetStructName(), v->GetStructName());
+                if (t->is_structure()) {
+                    for (auto i = 0u; i < t->members().size(); i++) {
+                        if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
+                            accum_grad(luisa::format(".v{}", i), m);
+                        }
+                    }
+                } else if (detail::can_accum_grad(t->element())) {
+                    finalResult << luisa::format("for(uint i=0;i<{};++i){{", t->dimension());
+                    accum_grad(luisa::format(".v[i]"), t->element());
+                    finalResult << "}\n";
+                }
+                finalResult << "}\n";
+            }
+            finalResult << "#endif\n";
         }
     }
     for (auto &&kv : opt->sharedVariable) {
@@ -1770,7 +1865,8 @@ void CodegenUtility::CodegenProperties(
     vstd::StringBuilder &varData,
     Function kernel,
     uint offset,
-    RegisterIndexer &registerCount) {
+    RegisterIndexer &registerCount,
+    uint &bind_count) {
     enum class RegisterType : uint8_t {
         CBV,
         UAV,
@@ -1816,6 +1912,22 @@ void CodegenUtility::CodegenProperties(
             vstd::to_string(r, varData);
             varData << ");\n"sv;
             r++;
+            switch (sT) {
+                case ShaderVariableType::ConstantBuffer:
+                case ShaderVariableType::StructuredBuffer:
+                case ShaderVariableType::RWStructuredBuffer:
+                case ShaderVariableType::ConstantValue:
+                case ShaderVariableType::SamplerHeap:
+                    bind_count += 2;
+                    break;
+                case ShaderVariableType::SRVTextureHeap:
+                case ShaderVariableType::UAVTextureHeap:
+                case ShaderVariableType::SRVBufferHeap:
+                case ShaderVariableType::UAVBufferHeap:
+                case ShaderVariableType::CBVBufferHeap:
+                    bind_count += 1;
+                    break;
+            }
         };
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
@@ -1851,8 +1963,10 @@ void CodegenUtility::CodegenProperties(
             default: break;
         }
     }
-    if (uavArgCount > 8) {
-        LUISA_ERROR("Writable resources' count must be less than 8.");
+    if (uavArgCount > 64) [[unlikely]] {
+        LUISA_WARNING("Writable resources' count greater than 8 may cause crash.");
+    } else if (uavArgCount > 64) [[unlikely]] {
+        LUISA_ERROR("Writable resources' count must be less than 64.");
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
@@ -1908,25 +2022,35 @@ CodegenResult CodegenUtility::Codegen(
 
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::range_impl(vstd::cache_end_range(kernel.arguments()) | vstd::value_range());
+    uint bind_count = 2;
     if (nonEmptyCbuffer) {
-        GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData);
+        GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData, bind_count);
     }
     if (isSpirV) {
         varData << R"(cbuffer CB:register(b1){
 uint4 dsp_c;
 }
 )"sv;
+        bind_count += 2;
     } else {
         varData << "uint4 dsp_c:register(b0);\n"sv;
+        bind_count += 2;
     }
     CodegenResult::Properties properties;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV);
-    CodegenProperties(properties, varData, kernel, 0, indexer);
+    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV, bind_count);
+    CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << incrementalFunc << codegenData;
+    if (bind_count >= 64) [[unlikely]] {
+        LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
+    } else if (bind_count > 16) [[unlikely]] {
+        if (!rootsig_exceed_warned.exchange(true)) {
+            LUISA_WARNING("Arguments binding size exceeds 16 32-bit unit (max 64 allowed). This may cause extra performance cost, try to use bindless instead.");
+        }
+    }
     return {
         std::move(finalResult),
         std::move(properties),
@@ -1970,7 +2094,10 @@ CodegenResult CodegenUtility::RasterCodegen(
     if (v2pType->is_structure()) {
         size_t memberIdx = 0;
         for (auto &&i : v2pType->members()) {
-            GetTypeName(*i, codegenData, Usage::READ);
+            if (v2pType->is_vector() && v2pType->dimension() == 3) [[unlikely]] {
+                LUISA_ERROR("Vector3 in vertex-to-pixel struct is not allowed.");
+            }
+            GetTypeName(*i, codegenData, Usage::READ, false);
             codegenData << " v"sv << vstd::to_string(memberIdx);
             if (memberIdx == 0) {
                 codegenData << ":SV_POSITION;\n"sv;
@@ -1984,15 +2111,18 @@ CodegenResult CodegenUtility::RasterCodegen(
     } else {
         LUISA_ERROR("Illegal vertex return type!");
     }
+    uint bind_count = 2;
     if (isSpirV) {
         codegenData << R"(};
 cbuffer CB:register(b1){
 uint obj_id;
 )"sv;
+        bind_count += 2;
     } else {
         codegenData << R"(};
 uint obj_id:register(b0);
 )"sv;
+        bind_count += 2;
     }
     codegenData << "#ifdef VS\n";
     std::bitset<kVertexAttributeCount> bits;
@@ -2035,8 +2165,8 @@ uint obj_id:register(b0);
                 if (idx >= 4) {
                     d << "vv.v4.v["sv << vstd::to_string(idx - 4) << "]=vt."sv << name << ";\n"sv;
                 } else {
-                    d << "vv.v"sv << vstd::to_string(i);
-                    if (i < 2) {
+                    d << "vv.v"sv << vstd::to_string(idx);
+                    if (idx < 2) {
                         d << ".v"sv;
                     }
                     d << "=vt."sv << name << ";\n"sv;
@@ -2087,17 +2217,24 @@ uint iid:SV_INSTANCEID;
 
     opt->funcType = CodegenStackData::FuncType::Callable;
     if (nonEmptyCbuffer) {
-        GenerateCBuffer(funcs, varData);
+        GenerateCBuffer(funcs, varData, bind_count);
     }
     CodegenResult::Properties properties;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV);
-    CodegenProperties(properties, varData, vertFunc, 1, indexer);
-    CodegenProperties(properties, varData, pixelFunc, 1, indexer);
+    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV, bind_count);
+    CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
+    CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << incrementalFunc << codegenData;
+    if (bind_count >= 64) [[unlikely]] {
+        LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
+    } else if (bind_count > 16) [[unlikely]] {
+        if (!rootsig_exceed_warned.exchange(true)) {
+            LUISA_WARNING("Arguments binding size exceeds 16 32-bit unit (max 64 allowed). This may cause extra performance cost, try to use bindless instead.");
+        }
+    }
     return {
         std::move(finalResult),
         std::move(properties),

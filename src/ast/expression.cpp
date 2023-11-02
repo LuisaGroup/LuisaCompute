@@ -1,10 +1,13 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
-#include <luisa/ast/statement.h>
 #include <luisa/ast/function_builder.h>
 
 namespace luisa::compute {
+
+Expression::Expression(Expression::Tag tag, const Type *type) noexcept
+    : _type{type}, _tag{tag},
+      _builder{detail::FunctionBuilder::current()} {}
 
 void Expression::mark(Usage usage) const noexcept {
     if (auto a = to_underlying(_usage), u = a | to_underlying(usage); a != u) {
@@ -28,8 +31,9 @@ uint64_t Expression::hash() const noexcept {
 }
 
 void RefExpr::_mark(Usage usage) const noexcept {
-    detail::FunctionBuilder::current()->mark_variable_usage(
-        _variable.uid(), usage);
+    if (auto fb = detail::FunctionBuilder::current(); fb == builder()) {
+        fb->mark_variable_usage(_variable.uid(), usage);
+    }
 }
 
 uint64_t RefExpr::_compute_hash() const noexcept {
@@ -40,11 +44,13 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         switch (_op) {
             case CallOp::BUFFER_WRITE:
+            case CallOp::BINDLESS_BUFFER_WRITE:
             case CallOp::BYTE_BUFFER_WRITE:
             case CallOp::TEXTURE_WRITE:
             case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
             case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID:
             case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
             case CallOp::RAY_QUERY_TERMINATE:
@@ -59,9 +65,8 @@ void CallExpr::_mark() const noexcept {
             case CallOp::ATOMIC_FETCH_XOR:
             case CallOp::ATOMIC_FETCH_MIN:
             case CallOp::ATOMIC_FETCH_MAX:
-            case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
             case CallOp::INDIRECT_SET_DISPATCH_KERNEL:
-            case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL:
+            case CallOp::INDIRECT_SET_DISPATCH_COUNT:
                 _arguments[0]->mark(Usage::WRITE);
                 for (auto i = 1u; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);
@@ -127,6 +132,14 @@ Function CallExpr::custom() const noexcept {
 const ExternalFunction *CallExpr::external() const noexcept {
     LUISA_ASSERT(is_external(), "Not an external function.");
     return luisa::get<ExternalCallee>(_func);
+}
+
+void CallExpr::_unsafe_set_custom(CallExpr::CustomCallee callee) const noexcept {
+    auto f = luisa::get_if<CustomCallee>(&_func);
+    LUISA_ASSERT(f != nullptr && (*f)->hash() == callee->hash(),
+                 "Not a custom function with hash {}.",
+                 callee->hash());
+    const_cast<Callee &>(_func) = callee;
 }
 
 uint64_t UnaryExpr::_compute_hash() const noexcept {
@@ -207,6 +220,10 @@ uint64_t TypeIDExpr::_compute_hash() const noexcept {
     return _data_type->hash();
 }
 
+uint64_t StringIDExpr::_compute_hash() const noexcept {
+    return hash_value(_data);
+}
+
 void ExprVisitor::visit(const CpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend.");
 }
@@ -214,4 +231,5 @@ void ExprVisitor::visit(const CpuCustomOpExpr *) {
 void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
+
 }// namespace luisa::compute

@@ -9,7 +9,6 @@ namespace compute {
 class CallableLibrary;
 namespace detail {
 class FunctionBuilder;
-class SSABuilder;
 }// namespace detail
 
 /// Variable class
@@ -38,20 +37,20 @@ public:
         DISPATCH_ID,
         DISPATCH_SIZE,
         KERNEL_ID,
+        WARP_LANE_COUNT,
+        WARP_LANE_ID,
         OBJECT_ID
     };
 
 private:
-    const Type *_type;
-    uint32_t _uid;
-    Tag _tag;
+    const Type *_type{nullptr};
+    uint32_t _uid{};
+    Tag _tag{};
 
 private:
     friend class detail::FunctionBuilder;
-    friend class detail::SSABuilder;
     friend class CallableLibrary;
-    Variable(const Type *type, Tag tag, uint32_t uid) noexcept
-        : _type{type}, _uid{uid}, _tag{tag}{}
+    Variable(const Type *type, Tag tag, uint32_t uid) noexcept;
 
 public:
     Variable() noexcept = default;
@@ -75,6 +74,8 @@ public:
                _tag == Tag::DISPATCH_ID ||
                _tag == Tag::DISPATCH_SIZE ||
                _tag == Tag::KERNEL_ID ||
+               _tag == Tag::WARP_LANE_COUNT ||
+               _tag == Tag::WARP_LANE_ID ||
                _tag == Tag::OBJECT_ID;
     }
 };

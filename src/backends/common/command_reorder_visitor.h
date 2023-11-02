@@ -98,11 +98,59 @@ public:
     };
     struct RangeHandle : public ResourceHandle {
         using Map = vstd::ArenaHashMap<ArenaRef, Range, ResourceView, RangeHash>;
+    private:
+        ResourceView max_view;
         Map views;
+    public:
         RangeHandle(
             ArenaRef &&pool) : views(16, std::move(pool)) {}
-        auto try_emplace(Range const &r) {
-            return views.try_emplace(r);
+        auto get_max_write_layer(Range const &range) {
+            int64_t layer = -1;
+            for (auto &&r : views) {
+                if (r.first.collide(range)) {
+                    layer = std::max<int64_t>(layer, r.second.write_layer);
+                    if (layer >= max_view.write_layer) {
+                        return layer;
+                    }
+                }
+            }
+            return layer;
+        }
+        auto get_max_read_layer(Range const &range) {
+            int64_t layer = -1;
+            for (auto &&r : views) {
+                if (r.first.collide(range)) {
+                    layer = std::max<int64_t>(layer, r.second.read_layer);
+                    if (layer >= max_view.read_layer) {
+                        return layer;
+                    }
+                }
+            }
+            return layer;
+        }
+        void emplace_read_layer(Range const &range, int64_t layer) {
+            auto ite = views.try_emplace(range);
+            auto &read_layer = ite.first.value().read_layer;
+            if (ite.second) {
+                read_layer = layer;
+            } else {
+                read_layer = std::max<int64_t>(read_layer, layer);
+            }
+            max_view.read_layer = std::max(read_layer, max_view.read_layer);
+        }
+        void emplace_write_layer(Range const &range, int64_t layer) {
+            auto ite = views.try_emplace(range);
+            auto &read_layer = ite.first.value().read_layer;
+            auto &write_layer = ite.first.value().write_layer;
+            if (ite.second) {
+                read_layer = layer;
+                write_layer = layer;
+            } else {
+                read_layer = std::max<int64_t>(read_layer, layer);
+                write_layer = std::max<int64_t>(write_layer, layer);
+            }
+            max_view.read_layer = std::max(read_layer, max_view.read_layer);
+            max_view.write_layer = std::max(write_layer, max_view.write_layer);
         }
     };
     struct NoRangeHandle : public ResourceHandle {
@@ -120,16 +168,6 @@ private:
             return Range();
         }
     }
-    template<typename Func>
-        requires(std::is_invocable_v<Func, CommandReorderVisitor::ResourceView const &>)
-    void iterate_map(Func &&func, RangeHandle &handle, Range const &range) {
-        for (auto &&r : handle.views) {
-            if (r.first.collide(range)) {
-                func(r.second);
-            }
-        }
-    }
-
     vstd::DefaultMallocVisitor malloc_visitor;
     vstd::StackAllocator _arena;
     vstd::ArenaHashMap<ArenaRef, uint64_t, RangeHandle *> _res_map;
@@ -147,7 +185,7 @@ private:
     vstd::vector<CommandLink const *> _cmd_lists;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
-    size_t _dispatch_layer;
+    int64_t _dispatch_layer;
     bool _use_bindless_in_pass;
     bool _use_accel_in_pass;
     ResourceHandle *get_handle(
@@ -189,70 +227,56 @@ private:
         }
     }
     // Texture, Buffer
-    size_t get_last_layer_write(RangeHandle *handle, Range range) {
-        size_t layer = 0;
-        iterate_map(
-            [&](auto &&handle) {
-                layer = std::max<int64_t>(layer, std::max<int64_t>(handle.read_layer + 1, handle.write_layer + 1));
-            },
-            *handle,
-            range);
+    int64_t get_last_layer_write(RangeHandle *handle, Range range) {
+        int64_t layer = handle->get_max_read_layer(range);
         if (_bindless_max_layer >= layer) {
             for (auto &&i : _bindless_map) {
                 _func_table.lock_bindless(i.first);
-                auto unlocker = vstd::scope_exit([&] {
-                    _func_table.unlock_bindless(i.first);
-                });
                 if (_func_table.is_res_in_bindless(i.first, handle->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->view.read_layer + 1);
+                    layer = std::max<int64_t>(layer, i.second->view.read_layer);
                 }
+                _func_table.unlock_bindless(i.first);
             }
         }
-        return layer;
+        return layer + 1;
     }
     // Mesh, Accel
-    size_t get_last_layer_write(NoRangeHandle *handle) {
-        size_t layer = std::max<int64_t>(handle->view.read_layer + 1, handle->view.write_layer + 1);
+    int64_t get_last_layer_write(NoRangeHandle *handle) {
+        int64_t layer = std::max<int64_t>(handle->view.read_layer, handle->view.write_layer);
 
         switch (handle->type) {
             case ResourceType::Mesh: {
                 auto max_accel_level = std::max(_max_accel_read_level, _max_accel_write_level);
-                layer = std::max<int64_t>(layer, max_accel_level + 1);
+                layer = std::max<int64_t>(layer, max_accel_level);
             } break;
             case ResourceType::Accel: {
                 auto max_accel_level = std::max(_max_accel_read_level, _max_accel_write_level);
-                layer = std::max<int64_t>(layer, max_accel_level + 1);
-                layer = std::max<int64_t>(layer, _max_mesh_level + 1);
+                layer = std::max<int64_t>(layer, max_accel_level);
+                layer = std::max<int64_t>(layer, _max_mesh_level);
             } break;
             default: break;
         }
-        return layer;
+        return layer + 1;
     }
     // Bindless
-    size_t get_last_layer_write(BindlessHandle *handle) {
-        return std::max<int64_t>(handle->view.read_layer + 1, handle->view.write_layer + 1);
+    int64_t get_last_layer_write(BindlessHandle *handle) {
+        return std::max<int64_t>(handle->view.read_layer, handle->view.write_layer) + 1;
     }
-    size_t get_last_layer_read(RangeHandle *handle, Range range) {
-        size_t layer = 0;
-        iterate_map(
-            [&](auto &&handle) {
-                layer = std::max<int64_t>(layer, handle.write_layer + 1);
-            },
-            *handle,
-            range);
+    int64_t get_last_layer_read(RangeHandle *handle, Range range) {
+        int64_t layer = handle->get_max_write_layer(range) + 1;
         return layer;
     }
-    size_t get_last_layer_read(NoRangeHandle *handle) {
-        size_t layer = handle->view.write_layer + 1;
+    int64_t get_last_layer_read(NoRangeHandle *handle) {
+        int64_t layer = handle->view.write_layer;
         if (handle->type == ResourceType::Accel) {
-            layer = std::max<int64_t>(layer, _max_accel_write_level + 1);
+            layer = std::max<int64_t>(layer, _max_accel_write_level);
         }
-        return layer;
+        return layer + 1;
     }
-    size_t get_last_layer_read(BindlessHandle *handle) {
+    int64_t get_last_layer_read(BindlessHandle *handle) {
         return handle->view.write_layer + 1;
     }
-    void add_command(Command const *cmd, size_t layer) {
+    void add_command(Command const *cmd, int64_t layer) {
         if (_cmd_lists.size() <= layer) {
             _cmd_lists.resize(layer + 1);
         }
@@ -262,7 +286,7 @@ private:
         new_cmd_list->p_next = v;
         v = new_cmd_list;
     }
-    size_t set_read(
+    int64_t set_read(
         uint64_t handle,
         Range range,
         ResourceType type) {
@@ -271,10 +295,10 @@ private:
             type);
         return set_read(src_handle, range);
     }
-    size_t set_read(
+    int64_t set_read(
         ResourceHandle *src_handle,
         Range range) {
-        size_t layer = 0;
+        int64_t layer = 0;
         switch (src_handle->type) {
             case ResourceType::Mesh:
             case ResourceType::Accel: {
@@ -290,12 +314,7 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
                 layer = get_last_layer_read(handle, range);
-                auto ite = handle->views.try_emplace(range);
-                if (ite.second) {
-                    ite.first.value().read_layer = layer;
-                } else {
-                    ite.first.value().read_layer = std::max<int64_t>(ite.first.value().read_layer, layer);
-                }
+                handle->emplace_read_layer(range, layer);
             } break;
         }
         return layer;
@@ -316,12 +335,7 @@ private:
             } break;
             default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
-                auto ite = handle->views.try_emplace(range);
-                if (ite.second) {
-                    ite.first.value().read_layer = layer;
-                } else {
-                    ite.first.value().read_layer = std::max<int64_t>(ite.first.value().read_layer, layer);
-                }
+                handle->emplace_read_layer(range, layer);
             } break;
         }
     }
@@ -341,17 +355,16 @@ private:
             } break;
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
-                auto ite = handle->views.try_emplace(range);
-                ite.first.value().write_layer = layer;
+                handle->emplace_write_layer(range, layer);
                 _write_res_map.emplace(dst_handle->handle);
             } break;
         }
     }
 
-    size_t set_write(
+    int64_t set_write(
         ResourceHandle *dst_handle,
         Range range) {
-        size_t layer = 0;
+        int64_t layer = 0;
         switch (dst_handle->type) {
             case ResourceType::Mesh:
             case ResourceType::Accel: {
@@ -367,15 +380,14 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
                 layer = get_last_layer_write(handle, range);
-                auto ite = handle->views.try_emplace(range);
-                ite.first.value().write_layer = layer;
+                handle->emplace_write_layer(range, layer);
                 _write_res_map.emplace(dst_handle->handle);
             } break;
         }
 
         return layer;
     }
-    size_t set_write(
+    int64_t set_write(
         uint64_t handle,
         Range range,
         ResourceType type) {
@@ -384,7 +396,7 @@ private:
             type);
         return set_write(dst_handle, range);
     }
-    size_t set_rw(
+    int64_t set_rw(
         uint64_t read_handle,
         Range read_range,
         ResourceType read_type,
@@ -392,47 +404,26 @@ private:
         Range write_range,
         ResourceType write_type) {
 
-        size_t layer = 0;
+        int64_t layer = 0;
         auto src_handle = get_handle(
             read_handle,
             read_type);
         auto dst_handle = get_handle(
             write_handle,
             write_type);
-        luisa::move_only_function<void()> set_read_layer;
         switch (read_type) {
             case ResourceType::Mesh:
             case ResourceType::Accel: {
                 auto handle = static_cast<NoRangeHandle *>(src_handle);
                 layer = get_last_layer_read(handle);
-                set_read_layer = [&]() {
-                    auto handle = static_cast<NoRangeHandle *>(src_handle);
-                    handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
-                };
             } break;
             case ResourceType::Bindless: {
                 auto handle = static_cast<BindlessHandle *>(src_handle);
                 layer = get_last_layer_read(handle);
-                set_read_layer = [&]() {
-                    auto handle = static_cast<BindlessHandle *>(src_handle);
-                    handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
-                };
             } break;
             default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
                 layer = get_last_layer_read(handle, read_range);
-                auto ite = handle->views.try_emplace(read_range);
-                if (ite.second) {
-                    auto view_ptr = &ite.first.value();
-                    set_read_layer = [view_ptr, &layer]() {
-                        view_ptr->read_layer = layer;
-                    };
-                } else {
-                    auto view_ptr = &ite.first.value();
-                    set_read_layer = [view_ptr, &layer]() {
-                        view_ptr->read_layer = std::max<int64_t>(view_ptr->read_layer, layer);
-                    };
-                }
             } break;
         }
 
@@ -451,15 +442,29 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
                 layer = std::max<int64_t>(layer, get_last_layer_write(handle, write_range));
-                auto ite = handle->views.try_emplace(write_range);
-                ite.first.value().write_layer = layer;
+                handle->emplace_write_layer(write_range, layer);
                 _write_res_map.emplace(write_handle);
             } break;
         }
-        set_read_layer();
+        // set_read_layer
+        switch (read_type) {
+            case ResourceType::Mesh:
+            case ResourceType::Accel: {
+                auto handle = static_cast<NoRangeHandle *>(src_handle);
+                handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
+            }break;
+            case ResourceType::Bindless: {
+                auto handle = static_cast<BindlessHandle *>(src_handle);
+                handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
+            }break;
+            default:{
+                auto handle = static_cast<RangeHandle *>(src_handle);
+                handle->emplace_read_layer(read_range, layer);
+            }break;
+        }
         return layer;
     }
-    size_t set_mesh(
+    int64_t set_mesh(
         uint64_t handle,
         uint64_t vb,
         Range vb_range,
@@ -474,25 +479,18 @@ private:
             ResourceType::Mesh);
         auto layer = get_last_layer_read(static_cast<RangeHandle *>(vb_handle), vb_range);
         layer = std::max<int64_t>(layer, get_last_layer_write(static_cast<NoRangeHandle *>(mesh_handle)));
-        auto set_handle = [](auto &&handle, auto &&range, auto layer) {
-            auto ite = handle->views.try_emplace(range);
-            if (ite.second)
-                ite.first.value().read_layer = layer;
-            else
-                ite.first.value().read_layer = std::max<int64_t>(layer, ite.first.value().read_layer);
-        };
         auto ib_handle = get_handle(
             ib,
             ResourceType::Texture_Buffer);
         auto range_handle = static_cast<RangeHandle *>(ib_handle);
         layer = std::max<int64_t>(layer, get_last_layer_read(range_handle, ib_range));
-        set_handle(range_handle, ib_range, layer);
-        set_handle(static_cast<RangeHandle *>(vb_handle), vb_range, layer);
+        range_handle->emplace_read_layer(ib_range, layer);
+        static_cast<RangeHandle *>(vb_handle)->emplace_read_layer(vb_range, layer);
         static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
         _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
         return layer;
     }
-    size_t set_aabb(
+    int64_t set_aabb(
         uint64_t handle,
         uint64_t aabb_buffer,
         Range aabb_range) {
@@ -504,14 +502,7 @@ private:
             ResourceType::Mesh);
         auto layer = get_last_layer_read(static_cast<RangeHandle *>(vb_handle), aabb_range);
         layer = std::max<int64_t>(layer, get_last_layer_write(static_cast<NoRangeHandle *>(mesh_handle)));
-        auto set_handle = [](auto &&handle, auto &&range, auto layer) {
-            auto ite = handle->views.try_emplace(range);
-            if (ite.second)
-                ite.first.value().read_layer = layer;
-            else
-                ite.first.value().read_layer = std::max<int64_t>(layer, ite.first.value().read_layer);
-        };
-        set_handle(static_cast<RangeHandle *>(vb_handle), aabb_range, layer);
+        static_cast<RangeHandle *>(vb_handle)->emplace_read_layer(aabb_range, layer);
         static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
         _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
         return layer;

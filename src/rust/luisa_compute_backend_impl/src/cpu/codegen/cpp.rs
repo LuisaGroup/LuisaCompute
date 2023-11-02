@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    ffi::CString,
 };
 
 use indexmap::{IndexMap, IndexSet};
@@ -10,7 +9,7 @@ use luisa_compute_ir::{
     context::is_type_equal,
     ir::{self, *},
     transform::autodiff::grad_type_of,
-    CArc, CBoxedSlice, Pooled,
+    CArc, Pooled,
 };
 
 use super::sha256_short;
@@ -34,6 +33,8 @@ impl TypeGenInner {
         match t.as_ref() {
             Type::Primitive(t) => match t {
                 ir::Primitive::Bool => "bool".to_string(),
+                ir::Primitive::Int8 => "int8_t".to_string(),
+                ir::Primitive::Uint8 => "uint8_t".to_string(),
                 ir::Primitive::Int16 => "int16_t".to_string(),
                 ir::Primitive::Uint16 => "uint16_t".to_string(),
                 ir::Primitive::Int32 => "int32_t".to_string(),
@@ -45,7 +46,7 @@ impl TypeGenInner {
                 ir::Primitive::Float64 => "double".to_string(),
                 // crate::ir::Primitive::USize => format!("i{}", std::mem::size_of::<usize>() * 8),
             },
-            Type::Void => "()".to_string(),
+            Type::Void => "void".to_string(),
             Type::UserData => "lc_user_data_t".to_string(),
             Type::Struct(st) => {
                 let field_types: Vec<String> = st
@@ -112,6 +113,8 @@ impl TypeGenInner {
                 match vt.element {
                     VectorElementType::Scalar(s) => match s {
                         Primitive::Bool => format!("lc_bool{}", n),
+                        Primitive::Int8 => format!("lc_char{}", n),
+                        Primitive::Uint8 => format!("lc_uchar{}", n),
                         Primitive::Int16 => format!("lc_short{}", n),
                         Primitive::Uint16 => format!("lc_ushort{}", n),
                         Primitive::Int32 => format!("lc_int{}", n),
@@ -241,6 +244,20 @@ impl PhiCollector {
                     self.visit_block(*body);
                     self.visit_block(*update);
                 }
+                Instruction::RayQuery {
+                    ray_query: _,
+                    on_triangle_hit,
+                    on_procedural_hit,
+                } => {
+                    self.visit_block(*on_triangle_hit);
+                    self.visit_block(*on_procedural_hit);
+                }
+                Instruction::AdDetach(detach) => {
+                    self.visit_block(*detach);
+                }
+                Instruction::AdScope { body, .. } => {
+                    self.visit_block(*body);
+                }
                 _ => {}
             }
         }
@@ -289,7 +306,7 @@ impl<'a> FunctionEmitter<'a> {
     }
     fn write_ident(&mut self) {
         for _ in 0..self.indent {
-            write!(&mut self.body, "  ").unwrap();
+            write!(&mut self.body, "    ").unwrap();
         }
     }
     fn gen_node(&mut self, node: NodeRef) -> String {
@@ -335,7 +352,7 @@ impl<'a> FunctionEmitter<'a> {
                 ty = ty.extract(0)
             } else {
                 assert!(ty.is_struct());
-                let idx = node.get_i32() as usize;
+                let idx = index.get_i32() as usize;
                 var = format!("{}.f{}", var, idx);
                 ty = ty.extract(idx);
             }
@@ -404,7 +421,7 @@ impl<'a> FunctionEmitter<'a> {
         let fid = CArc::as_ptr(&f.0) as u64;
         if !self.globals.generated_callables.contains_key(&fid) {
             let mut callable_emitter = FunctionEmitter::new(&mut self.globals, &self.type_gen);
-
+            callable_emitter.indent = 2;
             let mut params = vec![];
             for (i, arg) in f.0.args.iter().enumerate() {
                 let mut param = String::new();
@@ -430,11 +447,11 @@ impl<'a> FunctionEmitter<'a> {
                         if *by_value {
                             write!(&mut param, "const {}& {}", ty, var).unwrap();
                         } else {
-                            write!(&mut param, "{}& {}", ty, var).unwrap();
+                            write!(&mut param, "{}* {}", ty, var).unwrap();
                         }
                     }
                     _ => {
-                        unreachable!()
+                        unreachable!("{:?}", arg.get().instruction.as_ref());
                     }
                 }
                 callable_emitter
@@ -445,13 +462,16 @@ impl<'a> FunctionEmitter<'a> {
             callable_emitter.gen_callable_module(&f.0);
             callable_emitter.indent += self.indent;
 
+            let ret_type = self.type_gen.gen_c_type(&f.0.ret_type);
+
             let fname = format!(
                 "callable_{}",
                 callable_emitter.globals.generated_callables.len()
             );
             let source = format!(
-                "[=]({}){{\n{}\n{};}}",
+                "[=]({}) -> {} {{\n{}\n{}    }}",
                 params.join(","),
+                ret_type,
                 callable_emitter.fwd_defs,
                 callable_emitter.body
             );
@@ -464,11 +484,10 @@ impl<'a> FunctionEmitter<'a> {
                     .insert(source.clone(), fname.clone());
                 writeln!(
                     &mut self.globals.callable_def,
-                    "const auto {} = {};\n",
+                    "    const auto {} = {};\n",
                     fname, source
                 )
                 .unwrap();
-                self.write_ident();
             }
         }
         let fname = &self.globals.generated_callables[&fid];
@@ -554,7 +573,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Log => Some("lc_log"),
             Func::Log2 => Some("lc_log2"),
             Func::Log10 => Some("lc_log10"),
-            Func::Powi => Some("lc_lc_powi"),
+            Func::Powi => Some("lc_powi"), // TODO: powi
             Func::Powf => Some("lc_pow"),
 
             Func::Sqrt => Some("lc_sqrt"),
@@ -574,6 +593,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Length => Some("lc_length"),
             Func::LengthSquared => Some("lc_length_squared"),
             Func::Normalize => Some("lc_normalize"),
+            Func::Distance => Some("lc_distance"),
             Func::Faceforward => Some("lc_faceforward"),
             Func::Reflect => Some("lc_reflect"),
             Func::Determinant => Some("lc_determinant"),
@@ -600,6 +620,25 @@ impl<'a> FunctionEmitter<'a> {
             Func::Lerp => Some("lc_lerp"),
             Func::Step => Some("lc_step"),
             Func::SmoothStep => Some("lc_smoothstep"),
+            Func::SynchronizeBlock => Some("lc_synchronize_block"),
+            Func::WarpIsFirstActiveLane => Some("lc_warp_is_first_active_lane"),
+            Func::WarpFirstActiveLane => Some("lc_warp_first_active_lane"),
+            Func::WarpActiveAllEqual => Some("lc_warp_active_all_equal"),
+            Func::WarpActiveBitAnd => Some("lc_warp_active_bit_and"),
+            Func::WarpActiveBitOr => Some("lc_warp_active_bit_or"),
+            Func::WarpActiveBitXor => Some("lc_warp_active_bit_xor"),
+            Func::WarpActiveCountBits => Some("lc_warp_active_count_bits"),
+            Func::WarpActiveMax => Some("lc_warp_active_max"),
+            Func::WarpActiveMin => Some("lc_warp_active_min"),
+            Func::WarpActiveProduct => Some("lc_warp_active_product"),
+            Func::WarpActiveSum => Some("lc_warp_active_sum"),
+            Func::WarpActiveAll => Some("lc_warp_active_all"),
+            Func::WarpActiveAny => Some("lc_warp_active_any"),
+            Func::WarpActiveBitMask => Some("lc_warp_active_bit_mask"),
+            Func::WarpPrefixSum => Some("lc_warp_prefix_sum"),
+            Func::WarpPrefixProduct => Some("lc_warp_prefix_product"),
+            Func::WarpReadLaneAt => Some("lc_warp_read_lane_at"),
+            Func::WarpReadFirstLane => Some("lc_warp_read_first_lane"),
             _ => None,
         };
         if let Some(func) = func {
@@ -626,6 +665,34 @@ impl<'a> FunctionEmitter<'a> {
         args_v: &Vec<String>,
     ) -> bool {
         match f {
+            Func::ByteBufferRead => {
+                writeln!(
+                    &mut self.body,
+                    "const auto {1} = lc_byte_buffer_read<{0}>(k_args, {2}, {3});",
+                    node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::ByteBufferWrite => {
+                let v_ty = self.type_gen.gen_c_type(args[2].type_());
+                writeln!(
+                    &mut self.body,
+                    "lc_byte_buffer_write<{}>(k_args, {}, {}, {});",
+                    v_ty, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::ByteBufferSize => {
+                writeln!(
+                    &mut self.body,
+                    "const {} {} = lc_buffer_size<uint8_t>(k_args, {});",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::BufferRead => {
                 let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
                 writeln!(
@@ -652,6 +719,25 @@ impl<'a> FunctionEmitter<'a> {
                     &mut self.body,
                     "const {} {} = lc_buffer_size<{}>(k_args, {});",
                     node_ty_s, var, buffer_ty, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessByteBufferRead => {
+                writeln!(
+                    &mut self.body,
+                    "const auto {1} = lc_bindless_byte_buffer_read<{0}>(k_args, {2}, {3}, {4});",
+                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessBufferWrite => {
+                let v_ty = self.type_gen.gen_c_type(args[3].type_());
+                writeln!(
+                    &mut self.body,
+                    "lc_bindless_buffer_write<{}>(k_args, {}, {}, {}, {});",
+                    v_ty, args_v[0], args_v[1], args_v[2], args_v[3]
                 )
                 .unwrap();
                 true
@@ -809,6 +895,24 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::Texture2dSize => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint2 {} = lc_texture2d_size(k_args, {});",
+                    var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
+            Func::Texture3dSize => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint3 {} = lc_texture3d_size(k_args, {});",
+                    var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::Texture2dRead => {
                 writeln!(
                     &mut self.body,
@@ -859,7 +963,9 @@ impl<'a> FunctionEmitter<'a> {
         args_v: &Vec<String>,
     ) -> bool {
         match f {
+            Func::PropagateGrad => true,
             Func::RequiresGradient => true,
+            Func::AtomicRef => panic!("AtomicRef should have been lowered"),
             Func::Assume => {
                 writeln!(&mut self.body, "lc_assume({});", args_v.join(", ")).unwrap();
                 true
@@ -871,11 +977,17 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "lc_assert({}, {});", args_v.join(", "), id).unwrap();
                 true
             }
+            Func::ShaderExecutionReorder => {
+                writeln!(
+                    &mut self.body,
+                    "lc_shader_execution_reorder({});",
+                    args_v.join(", ")
+                )
+                .unwrap();
+                true
+            }
             Func::Unreachable(msg) => {
-                let msg = CString::from_vec_with_nul(msg.to_vec())
-                    .unwrap()
-                    .into_string()
-                    .unwrap();
+                let msg = msg.to_string();
                 let id = self.globals.message.len();
                 self.globals.message.push(msg);
                 if !is_type_equal(node_ty, &Type::void()) {
@@ -886,71 +998,26 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::ExtractElement => {
-                // TODO: support array pls
-                if args[0].type_().is_array() || !args[1].is_const() {
-                    let i = self.gen_node(args[1]);
-                    writeln!(
-                        self.body,
-                        "const {} {} = {}[{}];",
-                        node_ty_s, var, args_v[0], i
-                    )
-                    .unwrap();
-                    return true;
-                } else {
-                    let i = args[1].get_i32();
-                    let field_name = Self::gep_field_name(args[0], i);
-                    writeln!(
-                        self.body,
-                        "const {} {} = {}.{};",
-                        node_ty_s, var, args_v[0], field_name
-                    )
-                    .unwrap();
-                    true
-                }
+                let indices = &args[1..];
+                let access_chain = self.access_chain(args_v[0].clone(), args[0], indices);
+                writeln!(self.body, "const {} {} = {};", node_ty_s, var, access_chain).unwrap();
+                true
             }
             Func::InsertElement => {
-                if args[0].type_().is_array() || !args[2].is_const() {
-                    let i = self.gen_node(args[2]);
-                    writeln!(
-                        self.body,
-                        "{0} _{1} = {2}; _{1}[{3}] = {4}; const auto {1} = _{1};",
-                        node_ty_s, var, args_v[0], i, args_v[1]
-                    )
-                    .unwrap();
-                } else {
-                    let i = args[2].get_i32();
-                    let field_name = Self::gep_field_name(args[0], i);
-                    writeln!(
-                        self.body,
-                        "{0} _{1} = {2}; _{1}.{3} = {4}; const auto {1} = _{1};",
-                        node_ty_s, var, args_v[0], field_name, args_v[1]
-                    )
-                    .unwrap();
-                }
+                let indices = &args[2..];
+                let access_chain = self.access_chain(format!("_{}", var), args[0], indices);
+                writeln!(
+                    self.body,
+                    "{0} _{1} = {2}; {3} = {4}; const auto& {1} = _{1};",
+                    node_ty_s, var, args_v[0], access_chain, args_v[1]
+                )
+                .unwrap();
                 true
             }
             Func::GetElementPtr => {
-                // TODO: fix this
-                if args[0].type_().is_array()
-                    || args[0].type_().is_vector()
-                    || args[0].type_().is_matrix()
-                {
-                    writeln!(
-                        self.body,
-                        "{}& {} = {}[{}];",
-                        node_ty_s, var, args_v[0], args_v[1]
-                    )
-                    .unwrap();
-                } else {
-                    let i = args[1].get_i32();
-                    let field_name = Self::gep_field_name(args[0], i);
-                    writeln!(
-                        self.body,
-                        "{} & {} = {}.{};",
-                        node_ty_s, var, args_v[0], field_name
-                    )
-                    .unwrap();
-                }
+                let indices = &args[1..];
+                let access_chain = self.access_chain(format!("(*{})", args_v[0]), args[0], indices);
+                writeln!(self.body, "{} * {} = &{};", node_ty_s, var, access_chain).unwrap();
                 true
             }
             Func::Struct | Func::Array => {
@@ -1049,7 +1116,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::Load => {
-                writeln!(self.body, "const {} {} = {};", node_ty_s, var, args_v[0]).unwrap();
+                writeln!(self.body, "const {} {} = *{};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
             Func::GradientMarker => {
@@ -1069,7 +1136,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Gradient => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = {2}_grad;",
+                    "const {0}& {1} = {2}_grad;",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
@@ -1078,7 +1145,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::AccGrad => {
                 writeln!(
                     self.body,
-                    "lc_accumulate_grad(&{0}, {1});",
+                    "lc_accumulate_grad({0}, {1});",
                     args_v[0], args_v[1]
                 )
                 .unwrap();
@@ -1103,7 +1170,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Bitcast => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>({2});",
+                    "const {0}& {1} = lc_bit_cast<{0}>({2});",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
@@ -1256,6 +1323,24 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::RayTracingInstanceVisibilityMask => {
+                writeln!(
+                    self.body,
+                    "const {0} {1} = lc_accel_instance_visibility_mask({2}, {3});",
+                    node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::RayTracingSetInstanceUserId => {
+                writeln!(
+                    self.body,
+                    "lc_set_instance_user_id({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
             Func::RayTracingSetInstanceTransform => {
                 writeln!(
                     self.body,
@@ -1369,6 +1454,12 @@ impl<'a> FunctionEmitter<'a> {
             Const::Bool(v) => {
                 writeln!(&mut self.body, "const bool {} = {};", var, *v).unwrap();
             }
+            Const::Int8(v) => {
+                writeln!(&mut self.body, "const int8_t {} = {};", var, *v).unwrap();
+            }
+            Const::Uint8(v) => {
+                writeln!(&mut self.body, "const uint8_t {} = {};", var, *v).unwrap();
+            }
             Const::Int16(v) => {
                 writeln!(&mut self.body, "const int16_t {} = {};", var, *v).unwrap();
             }
@@ -1417,7 +1508,6 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
             }
             Const::Generic(bytes, t) => {
-                self.write_ident();
                 writeln!(
                     &mut self.body,
                     "const {0} {1} = {2};",
@@ -1481,7 +1571,12 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 let var = self.gen_node(node);
                 let init_v = self.gen_node(*init);
-                writeln!(&mut self.body, "{0} {1} = {2};", node_ty_s, var, init_v).unwrap();
+                writeln!(
+                    &mut self.body,
+                    "{0} _{1} = {2};{0} * {1} = &_{1};",
+                    node_ty_s, var, init_v
+                )
+                .unwrap();
             }
             Instruction::Argument { by_value: _ } => todo!(),
             Instruction::UserData(_) => {}
@@ -1495,7 +1590,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 let value_v = self.gen_node(*value);
                 let var_v = self.gen_node(*var);
-                writeln!(&mut self.body, "{} = {};", var_v, value_v).unwrap();
+                writeln!(&mut self.body, "*{} = {};", var_v, value_v).unwrap();
             }
             Instruction::Call(f, args) => {
                 // println!("call: {:?}({:?})", f, args);
@@ -1649,7 +1744,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 writeln!(&mut self.body, "}}").unwrap();
             }
-            Instruction::AdScope { body } => {
+            Instruction::AdScope { body, .. } => {
                 writeln!(&mut self.body, "/* AdScope */").unwrap();
                 self.gen_block(*body);
                 self.write_ident();
@@ -1687,10 +1782,164 @@ impl<'a> FunctionEmitter<'a> {
             }
             Instruction::Comment(comment) => {
                 self.write_ident();
-                let comment = CString::new(comment.as_ref()).unwrap();
-                writeln!(&mut self.body, "/* {} */", comment.to_string_lossy()).unwrap();
+                writeln!(&mut self.body, "/* {} */", comment.to_string()).unwrap();
+            }
+            Instruction::Print { fmt, args } => {
+                self.print_impl(fmt.to_string(), args.as_ref());
             }
         }
+    }
+    fn print_impl(&mut self, fmt_s: String, args: &[NodeRef]) {
+        let mut printf_fmt = String::new();
+        let fmt = fmt_s.chars().collect::<Vec<_>>();
+        let mut printf_args = String::new();
+        let mut i = 0;
+        let mut arg_i = 0;
+        while i <= fmt.len() {
+            if fmt[i] != '{' && fmt[i] != '}' {
+                printf_fmt.push(fmt[i]);
+                i += 1;
+            } else {
+                if i + 1 >= fmt.len() {
+                    panic!("invalid format string: {}", fmt_s);
+                }
+                if fmt[i] == fmt[i + 1] {
+                    printf_fmt.push(fmt[i]);
+                    i += 2;
+                } else {
+                    assert!(
+                        fmt[i] == '{' && fmt[i + 1] == '}',
+                        "invalid format string: {}",
+                        fmt_s
+                    );
+                    match args[arg_i].type_().as_ref() {
+                        Type::Primitive(p) => match p {
+                            Primitive::Bool => {
+                                printf_fmt.push_str("%s");
+                                write!(
+                                    printf_args,
+                                    ",{} ? \"true\" : \"false\"",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int8 => {
+                                printf_fmt.push_str("%d");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_int>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint8 => {
+                                printf_fmt.push_str("%u");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_uint>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int16 => {
+                                printf_fmt.push_str("%d");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_int>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint16 => {
+                                printf_fmt.push_str("%u");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_uint>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int32 => {
+                                printf_fmt.push_str("%d");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_int>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint32 => {
+                                printf_fmt.push_str("%u");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_uint>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Int64 => {
+                                printf_fmt.push_str("%lld");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_long>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Uint64 => {
+                                printf_fmt.push_str("%llu");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<lc_ulong>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Float16 => {
+                                printf_fmt.push_str("%f");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<float>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Float32 => {
+                                printf_fmt.push_str("%f");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<float>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                            Primitive::Float64 => {
+                                printf_fmt.push_str("%f");
+                                write!(
+                                    printf_args,
+                                    ",static_cast<double>({})",
+                                    self.gen_node(args[arg_i])
+                                )
+                                .unwrap();
+                            }
+                        },
+                        _ => {
+                            panic!("frontend should lower print to primitive types")
+                        }
+                    }
+                    arg_i += 1;
+                    i += 2;
+                }
+            }
+        }
+        self.write_ident();
+        writeln!(
+            &mut self.body,
+            "lc_printf(\"{}\"{});",
+            printf_fmt.escape_default(),
+            printf_args
+        )
+        .unwrap();
     }
     fn gen_block_(&mut self, block: Pooled<ir::BasicBlock>) {
         for n in block.iter() {
@@ -1755,10 +2004,11 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
             }
             Instruction::Buffer => {
+                let ty_s = self.type_gen.gen_c_type(node.type_());
                 writeln!(
                     &mut self.fwd_defs,
-                    "    const BufferView& {} = {}[{}].buffer._0;",
-                    arg_name, arg_array, index
+                    "    const BufferView& {} = {}[{}].buffer._0; // {}",
+                    arg_name, arg_array, index, ty_s
                 )
                 .unwrap();
             }

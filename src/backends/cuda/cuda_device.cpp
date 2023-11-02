@@ -8,15 +8,17 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/binary_io.h>
+#include <luisa/core/string_scratch.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ir2ast.h>
+#include <luisa/ir/ast2ir.h>
+#include <luisa/ir/transform.h>
 #endif
 
-#include "../common/string_scratch.h"
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "cuda_buffer.h"
@@ -40,15 +42,24 @@
 #include "cuda_dstorage.h"
 #include "cuda_ext.h"
 
-#define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
-static const bool LUISA_CUDA_DUMP_SOURCE = ([]{
+#define LUISA_CUDA_KERNEL_DEBUG 1
+
+#ifndef NDEBUG
+#define LUISA_CUDA_DUMP_SOURCE 1
+#else
+static const bool LUISA_CUDA_DUMP_SOURCE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
     return std::string_view{env} == "1";
 })();
-#define LUISA_CUDA_KERNEL_DEBUG 1
-
+#endif
+static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = ([] {
+    // read env LUISA_OPTIX_VALIDATION
+    auto env = std::getenv("LUISA_OPTIX_VALIDATION");
+    if (env == nullptr) return false;
+    return std::string_view{env} == "1";
+})();
 namespace luisa::compute::cuda {
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
@@ -184,6 +195,14 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
         info.native_handle = reinterpret_cast<void *>(buffer->handle());
         info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
         info.total_size_bytes = buffer->size_bytes();
+    } else if (element == Type::of<void>()) {
+        info.element_stride = 1;
+        info.total_size_bytes = elem_count;
+        auto buffer = with_handle([size = info.total_size_bytes] {
+            return new_with_allocator<CUDABuffer>(size);
+        });
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = reinterpret_cast<void *>(buffer->handle());
     } else {
         info.element_stride = CUDACompiler::type_size(element);
         info.total_size_bytes = info.element_stride * elem_count;
@@ -200,6 +219,27 @@ BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, 
 #ifdef LUISA_ENABLE_IR
     auto type = IR2AST::get_type(element->get());
     return create_buffer(type, elem_count);
+#else
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
+#endif
+}
+
+BufferCreationInfo CUDADevice::create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept {
+    BufferCreationInfo info{};
+    info.element_stride = element ? 1u : CUDACompiler::type_size(element);
+    info.total_size_bytes = size_bytes;
+    info.native_handle = external_memory;
+    auto buffer = with_handle([p = reinterpret_cast<CUdeviceptr>(external_memory), size_bytes] {
+        return new_with_allocator<CUDABuffer>(p, size_bytes);
+    });
+    info.handle = reinterpret_cast<uint64_t>(buffer);
+    return info;
+}
+
+BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept {
+#ifdef LUISA_ENABLE_IR
+    auto type = IR2AST::get_type(element->get());
+    return create_buffer(type, external_memory, size_bytes);
 #else
     LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
 #endif
@@ -425,9 +465,14 @@ template<bool allow_update_expected_metadata>
         if (expected_metadata.checksum == 0u) { expected_metadata.checksum = metadata->checksum; }
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::UNKNOWN) { expected_metadata.kind = metadata->kind; }
         expected_metadata.enable_debug = metadata->enable_debug;
+        expected_metadata.requires_trace_closest = metadata->requires_trace_closest;
+        expected_metadata.requires_trace_any = metadata->requires_trace_any;
+        expected_metadata.requires_ray_query = metadata->requires_ray_query;
+        expected_metadata.requires_printing = metadata->requires_printing;
         if (all(expected_metadata.block_size == 0u)) { expected_metadata.block_size = metadata->block_size; }
         if (expected_metadata.argument_types.empty()) { expected_metadata.argument_types = metadata->argument_types; }
         if (expected_metadata.argument_usages.empty()) { expected_metadata.argument_usages = metadata->argument_usages; }
+        if (expected_metadata.format_types.empty()) { expected_metadata.format_types = metadata->format_types; }
     }
     // examine the metadata
     if (*metadata != expected_metadata) {
@@ -492,11 +537,11 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
             auto metadata = luisa::format("// METADATA: {}\n\n", serialize_cuda_shader_metadata(expected_metadata));
             luisa::span metadata_data{reinterpret_cast<const std::byte *>(metadata.data()), metadata.size()};
             if (uses_user_path) {
-                _io->write_shader_bytecode(name, ptx_data);
-                _io->write_shader_bytecode(metadata_name, metadata_data);
+                static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
+                static_cast<void>(_io->write_shader_bytecode(metadata_name, metadata_data));
             } else if (option.enable_cache) {
-                _io->write_shader_cache(name, ptx_data);
-                _io->write_shader_cache(metadata_name, metadata_data);
+                static_cast<void>(_io->write_shader_cache(name, ptx_data));
+                static_cast<void>(_io->write_shader_cache(metadata_name, metadata_data));
             }
         }
     }
@@ -514,9 +559,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
         }
         return new_with_allocator<CUDAShaderNative>(
             this, ptx.data(), ptx.size(), "kernel_main",
-            expected_metadata.block_size,
-            expected_metadata.argument_usages,
-            std::move(bound_arguments));
+            expected_metadata, std::move(bound_arguments));
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -530,7 +573,19 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
 
+    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
+#ifdef LUISA_ENABLE_IR
+        auto ir = AST2IR::build_kernel(kernel);
+        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
+        transform_ir_kernel_module_auto(ir->get());
+        return create_shader(option, ir->get());
+#else
+        LUISA_ERROR_WITH_LOCATION("Please enable IR for autodiff support");
+#endif
+    }
+
     // codegen
+
     Clock clk;
     StringScratch scratch;
     CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
@@ -592,6 +647,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG
         nvrtc_options.emplace_back("-DLUISA_DEBUG=1");
 #endif
+    } else if (LUISA_CUDA_DUMP_SOURCE) {
+        nvrtc_options.emplace_back("-lineinfo");
     }
     if (option.enable_fast_math) {
         nvrtc_options.emplace_back("-use_fast_math");
@@ -615,6 +672,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST),
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+        .requires_printing = kernel.requires_printing(),
         .block_size = kernel.block_size(),
         .argument_types = [kernel] {
             luisa::vector<luisa::string> types;
@@ -628,6 +686,13 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             std::transform(kernel.arguments().cbegin(), kernel.arguments().cend(), std::back_inserter(usages),
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
+        .format_types = [fmt = codegen.print_formats()] {
+            luisa::vector<std::pair<luisa::string, luisa::string>> t;
+            t.reserve(fmt.size());
+            for (auto &&[name, type] : fmt) {
+                t.emplace_back(name, type->description());
+            }
+            return t; }(),
     };
     return _create_shader(option.name, scratch.string(),
                           option, nvrtc_options,
@@ -692,8 +757,8 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
                 "__raygen__main", metadata);
         }
         return new_with_allocator<CUDAShaderNative>(
-            this, ptx.data(), ptx.size(), "kernel_main",
-            metadata.block_size, metadata.argument_usages);
+            this, ptx.data(), ptx.size(),
+            "kernel_main", metadata);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -870,6 +935,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     if (device_count == 0) {
         LUISA_ERROR_WITH_LOCATION("No available device found for CUDA backend.");
     }
+    if (index == std::numeric_limits<size_t>::max()) { index = 0; }
     if (index >= device_count) {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid device index {} (device count = {}). Limiting to {}.",
@@ -934,10 +1000,11 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     if (_optix_context == nullptr) [[unlikely]] {
         optix::DeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
-#if !defined(NDEBUG) && LUISA_CUDA_ENABLE_OPTIX_VALIDATION
-        // Disable due to too much overhead
-        optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
-#endif
+        if (LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
+            LUISA_WARNING("OptiX validation is enabled. This may cause significant performance degradation.");
+            // Disable due to too much overhead
+            optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+        }
         optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
             auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
             if (level >= 4) {

@@ -164,11 +164,13 @@ static const AccelBuildModificationFlags AccelBuildModificationFlags_TRANSFORM =
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 2) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 3) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 4) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_USER_ID = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 5) };
 
 struct AccelBuildModification {
     uint32_t index;
+    uint32_t user_id;
     AccelBuildModificationFlags flags;
-    uint8_t visibility;
+    uint32_t visibility;
     uint64_t mesh;
     float affine[12];
 };
@@ -526,6 +528,8 @@ struct DeviceInterface {
                                           uint32_t,
                                           uint32_t,
                                           bool);
+    void *(*native_handle)(Device);
+    uint32_t (*compute_warp_size)(Device);
     void (*destroy_texture)(Device, Texture);
     CreatedResourceInfo (*create_bindless_array)(Device, size_t);
     void (*destroy_bindless_array)(Device, BindlessArray);
@@ -573,6 +577,45 @@ struct LibInterface {
     void (*destroy_context)(Context);
     DeviceInterface (*create_device)(Context, const char*, const char*);
     void (*free_string)(char*);
+};
+
+struct ByteStream {
+    void (*dtor)(ByteStream*);
+    size_t (*length)(ByteStream*);
+    size_t (*pos)(ByteStream*);
+    size_t (*read)(ByteStream*, uint8_t*, size_t);
+};
+
+struct StringView {
+    const char *data;
+    size_t size;
+};
+
+struct StringViewMut {
+    char *data;
+    size_t size;
+};
+
+struct BinaryIo {
+    void (*dtor)(BinaryIo*);
+    ByteStream (*read_shader_bytecode)(BinaryIo*, StringView name);
+    ByteStream (*read_shader_cache)(BinaryIo*, StringView name);
+    ByteStream (*read_internal_shader_cache)(BinaryIo*, StringView name);
+    void (*write_shader_byte_code)(BinaryIo*,
+                                   StringView name,
+                                   const uint8_t *data,
+                                   size_t size,
+                                   StringViewMut out_path);
+    void (*write_shader_cache)(BinaryIo*,
+                               StringView name,
+                               const uint8_t *data,
+                               size_t size,
+                               StringViewMut out_path);
+    void (*write_internal_shader_cache)(BinaryIo*,
+                                        StringView name,
+                                        const uint8_t *data,
+                                        size_t size,
+                                        StringViewMut out_path);
 };
 
 } // namespace luisa::compute::api

@@ -41,8 +41,13 @@ float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
 struct _wbool3 {bool3 v; bool a;};
 struct _wfloat3 {float3 v; float a;};
+struct _wfloat16_t3 {float16_t3 v; float16_t a;};
 struct _wuint3 {uint3 v; uint a;};
+struct _wuint16_t3 {uint16_t3 v; uint16_t a;};
+struct _wuint64_t3 {uint64_t3 v; uint64_t a;};
 struct _wint3 {int3 v; int a;};
+struct _wint16_t3 {int16_t3 v; int16_t a;};
+struct _wint64_t3 {int64_t3 v; int64_t a;};
 struct _WrappedFloat2x2 {row_major float2x2 m;};
 struct _WrappedFloat3x3 {
 row_major float3x4 m;
@@ -56,12 +61,12 @@ row_major float4x4 m;
 #define _bfwrite(bf,idx,value) bf[idx]=value
 #define _bfwriteVec3(bf,idx,value,type) bf[idx]=type##4(value,0)
 #define _bfwriteMat(bf,idx,value) bf[idx].m=value
-#define _bytebfread(bf,type,idx) bf.Load<type>(idx)
-#define _bytebfreadVec3(bf,type,idx) bf.Load<type##4>(idx).xyz
-#define _bytebfreadMat(bf,type,idx) bf.Load<type>(idx).m
+#define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
+#define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz
+#define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
 #define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
-#define _bytebfwriteVec3(bf,type,idx,value) bf.Store<type##4>(idx,type##4(value,0))
-#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.Store<type>(idx,_tempm);}
+#define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
+#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
 #define _Smptx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
 template<typename T>
@@ -85,4 +90,5 @@ float4x4 _outer_product(float4 a,float4 b){return float4x4(a*b.x,a*b.y,a*b.z,a*b
 float2x2 _mat_comp_mul(float2x2 a,float2x2 b){return float2x2(a[0]*b[0],a[1]*b[1]);}
 float3x4 _mat_comp_mul(float3x4 a,float3x4 b){return float3x4(float4(a[0].xyz*b[0].xyz,0),float4(a[1].xyz*b[1].xyz,0),float4(a[2].xyz*b[2].xyz,0));}
 float4x4 _mat_comp_mul(float4x4 a,float4x4 b){return float4x4(a[0]*b[0],a[1]*b[1],a[2]*b[2],a[3]*b[3]);}
-
+#define _zero(type) ((type)0)
+#define _one(type) ((type)1)

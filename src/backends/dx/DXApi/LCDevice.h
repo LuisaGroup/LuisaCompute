@@ -58,6 +58,7 @@ public:
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
+    BufferCreationInfo create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept override;
     ShaderCreationInfo load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
@@ -95,7 +96,7 @@ public:
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
     ResourceCreationInfo allocate_sparse_buffer_heap(size_t byte_size) noexcept override;
     void deallocate_sparse_buffer_heap(uint64_t handle) noexcept override;
-    ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size) noexcept override;
+    ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept override;
     void deallocate_sparse_texture_heap(uint64_t handle) noexcept override;
     [[nodiscard]] SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept override;
     void destroy_sparse_buffer(uint64_t handle) noexcept override;
@@ -109,5 +110,6 @@ public:
         uint64_t stream_handle,
         luisa::vector<SparseUpdateTile> &&update_cmds) noexcept override;
     uint compute_warp_size() const noexcept override;
+    luisa::string query(luisa::string_view property) noexcept override;
 };
 }// namespace lc::dx

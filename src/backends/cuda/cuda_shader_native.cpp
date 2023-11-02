@@ -9,17 +9,21 @@
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
 #include "cuda_shader_native.h"
+#include "cuda_shader_printer.h"
 
 namespace luisa::compute::cuda {
 
 CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
                                    const char *ptx, size_t ptx_size,
-                                   const char *entry, uint3 block_size,
-                                   luisa::vector<Usage> argument_usages,
+                                   const char *entry,
+                                   const CUDAShaderMetadata &metadata,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : CUDAShader{std::move(argument_usages)},
+    : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
+                 metadata.argument_usages},
       _entry{entry},
-      _block_size{block_size.x, block_size.y, block_size.z},
+      _block_size{metadata.block_size.x,
+                  metadata.block_size.y,
+                  metadata.block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 
     auto load_ptx = [&](const char *ptx, size_t ptx_size) noexcept {
@@ -106,7 +110,7 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             case Tag::BUFFER: {
                 if (reinterpret_cast<const CUDABufferBase *>(arg.buffer.handle)->is_indirect()) {
                     auto buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(arg.buffer.handle);
-                    auto binding = buffer->binding();
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
                     auto ptr = allocate_argument(sizeof(binding));
                     std::memcpy(ptr, &binding, sizeof(binding));
                 } else {
@@ -148,17 +152,23 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
     };
     for (auto &&arg : _bound_arguments) { encode_argument(arg); }
     for (auto &&arg : command->arguments()) { encode_argument(arg); }
+    // printer
+    if (printer()) {
+        auto b = printer()->encode(encoder);
+        auto ptr = allocate_argument(sizeof(b));
+        std::memcpy(ptr, &b, sizeof(b));
+    }
     // launch
     auto cuda_stream = encoder.stream()->handle();
     if (command->is_indirect()) {
         LUISA_ASSERT(_indirect_function != nullptr,
                      "Indirect dispatch is not supported by this shader.");
-        auto indirect_buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(
-                                   command->indirect_dispatch().handle);
-        auto indirect_buffer_handle = indirect_buffer->handle();
-        void *arguments[] = {argument_buffer.data(), &indirect_buffer_handle};
+        auto indirect = command->indirect_dispatch();
+        auto indirect_buffer = reinterpret_cast<const CUDAIndirectDispatchBuffer *>(indirect.handle);
+        auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
+        void *arguments[] = {argument_buffer.data(), &indirect_binding};
         static constexpr auto block_size = 64u;
-        auto block_count = (indirect_buffer->capacity() + block_size - 1u) / block_size;
+        auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _indirect_function,
             static_cast<uint>(block_count), 1u, 1u,
@@ -166,21 +176,30 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             0u, cuda_stream, arguments, nullptr));
     } else {
         // the last argument is the launch size
-        auto launch_size_and_kernel_id = make_uint4(command->dispatch_size(), 0u);
-        auto ptr = allocate_argument(sizeof(launch_size_and_kernel_id));
-        std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
-        // launch configuration
-        auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-        auto blocks = (command->dispatch_size() + block_size - 1u) / block_size;
-        auto arguments = static_cast<void *>(argument_buffer.data());
-        LUISA_CHECK_CUDA(cuLaunchKernel(
-            _function,
-            blocks.x, blocks.y, blocks.z,
-            block_size.x, block_size.y, block_size.z,
-            0u, cuda_stream,
-            &arguments, nullptr));
+        auto ptr = allocate_argument(sizeof(uint4));
+        auto single_dispatch_size = make_uint3(0u);
+        luisa::span<const uint3> dispatch_sizes;
+        if (command->is_multiple_dispatch()) {
+            dispatch_sizes = command->dispatch_sizes();
+        } else {
+            single_dispatch_size = command->dispatch_size();
+            dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
+        }
+        for (auto dispatch_size : dispatch_sizes) {
+            auto launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
+            std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
+            // launch configuration
+            auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+            auto blocks = (command->dispatch_size() + block_size - 1u) / block_size;
+            auto arguments = static_cast<void *>(argument_buffer.data());
+            LUISA_CHECK_CUDA(cuLaunchKernel(
+                _function,
+                blocks.x, blocks.y, blocks.z,
+                block_size.x, block_size.y, block_size.z,
+                0u, cuda_stream,
+                &arguments, nullptr));
+        }
     }
 }
 
 }// namespace luisa::compute::cuda
-

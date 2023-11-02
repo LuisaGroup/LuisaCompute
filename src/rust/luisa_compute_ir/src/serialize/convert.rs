@@ -110,6 +110,8 @@ impl KernelSerializer {
             Const::Zero(t) => SerializedConst::Zero(self.serialize_type(t)),
             Const::One(t) => SerializedConst::One(self.serialize_type(t)),
             Const::Bool(v) => SerializedConst::Bool(*v),
+            Const::Int8(v) => SerializedConst::Int8(*v),
+            Const::Uint8(v) => SerializedConst::Uint8(*v),
             Const::Int16(v) => SerializedConst::Int16(*v),
             Const::Uint16(v) => SerializedConst::Uint16(*v),
             Const::Int32(v) => SerializedConst::Int32(*v),
@@ -231,9 +233,16 @@ impl KernelSerializer {
                     cases,
                 }
             }
-            Instruction::AdScope { body } => {
+            Instruction::AdScope {
+                body,
+                forward,
+                n_forward_grads: _,
+            } => {
                 let body = self.serialize_block(body);
-                SerializedInstruction::AdScope { body }
+                SerializedInstruction::AdScope {
+                    body,
+                    forward: *forward,
+                }
             }
             Instruction::AdDetach(b) => {
                 let b = self.serialize_block(b);
@@ -257,6 +266,7 @@ impl KernelSerializer {
                 let s = s.as_ref().to_vec();
                 SerializedInstruction::Comment(s)
             }
+            _ => todo!(),
         }
     }
     fn serialize_func(&mut self, func: &Func) -> SerializedFunc {
@@ -276,6 +286,10 @@ impl KernelSerializer {
             Func::AccGrad => SerializedFunc::AccGrad,
             Func::Detach => SerializedFunc::Detach,
             Func::RayTracingInstanceTransform => SerializedFunc::RayTracingInstanceTransform,
+            Func::RayTracingInstanceUserId => SerializedFunc::RayTracingInstanceUserId,
+            Func::RayTracingInstanceVisibilityMask => {
+                SerializedFunc::RayTracingInstanceVisibilityMask
+            }
             Func::RayTracingSetInstanceTransform => SerializedFunc::RayTracingSetInstanceTransform,
             Func::RayTracingSetInstanceOpacity => SerializedFunc::RayTracingSetInstanceOpacity,
             Func::RayTracingSetInstanceVisibility => {
@@ -293,8 +307,8 @@ impl KernelSerializer {
             Func::RayQueryCommitProcedural => SerializedFunc::RayQueryCommitProcedural,
             Func::RayQueryTerminate => SerializedFunc::RayQueryTerminate,
             Func::RasterDiscard => SerializedFunc::RasterDiscard,
-            Func::IndirectClearDispatchBuffer => SerializedFunc::IndirectClearDispatchBuffer,
-            Func::IndirectEmplaceDispatchKernel => SerializedFunc::IndirectEmplaceDispatchKernel,
+            Func::IndirectDispatchSetCount => SerializedFunc::IndirectDispatchSetCount,
+            Func::IndirectDispatchSetKernel => SerializedFunc::IndirectDispatchSetKernel,
             Func::Load => SerializedFunc::Load,
             Func::Cast => SerializedFunc::Cast,
             Func::Bitcast => SerializedFunc::Bitcast,
@@ -439,7 +453,31 @@ impl KernelSerializer {
             Func::Mat3 => SerializedFunc::Mat3,
             Func::Mat4 => SerializedFunc::Mat4,
             Func::Callable(_) => todo!(),
-            Func::CpuCustomOp(_) => panic!("cpu custom op not serializabl"),
+            Func::CpuCustomOp(_) => panic!("cpu custom op not serializable"),
+            Func::WarpSize => SerializedFunc::WarpSize,
+            Func::WarpLaneId => SerializedFunc::WarpLaneId,
+            Func::WarpIsFirstActiveLane => SerializedFunc::WarpIsFirstActiveLane,
+            Func::WarpFirstActiveLane => SerializedFunc::WarpFirstActiveLane,
+            Func::WarpActiveAllEqual => SerializedFunc::WarpActiveAllEqual,
+            Func::WarpActiveBitAnd => SerializedFunc::WarpActiveBitAnd,
+            Func::WarpActiveBitOr => SerializedFunc::WarpActiveBitOr,
+            Func::WarpActiveBitXor => SerializedFunc::WarpActiveBitXor,
+            Func::WarpActiveCountBits => SerializedFunc::WarpActiveCountBits,
+            Func::WarpActiveMax => SerializedFunc::WarpActiveMax,
+            Func::WarpActiveMin => SerializedFunc::WarpActiveMin,
+            Func::WarpActiveProduct => SerializedFunc::WarpActiveProduct,
+            Func::WarpActiveSum => SerializedFunc::WarpActiveSum,
+            Func::WarpActiveAll => SerializedFunc::WarpActiveAll,
+            Func::WarpActiveAny => SerializedFunc::WarpActiveAny,
+            Func::WarpActiveBitMask => SerializedFunc::WarpActiveBitMask,
+            Func::WarpPrefixCountBits => SerializedFunc::WarpPrefixCountBits,
+            Func::WarpPrefixSum => SerializedFunc::WarpPrefixSum,
+            Func::WarpPrefixProduct => SerializedFunc::WarpPrefixProduct,
+            Func::WarpReadLaneAt => SerializedFunc::WarpReadLaneAt,
+            Func::WarpReadFirstLane => SerializedFunc::WarpReadFirstLane,
+            Func::ShaderExecutionReorder => SerializedFunc::ShaderExecutionReorder,
+            Func::Unknown0 => todo!(),
+            Func::Unknown1 => todo!(),
             _ => todo!(),
         }
     }

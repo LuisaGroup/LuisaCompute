@@ -6,7 +6,7 @@
 #include <luisa/vstl/md5.h>
 namespace lc::dx {
 namespace ComputeShaderDetail {
-static const bool PRINT_CODE = ([]{
+static const bool PRINT_CODE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
@@ -69,9 +69,12 @@ ComputeShader *ComputeShader::CompileCompute(
         }
 
         if (PRINT_CODE) {
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            fwrite(str.result.data(), str.result.size(), 1, f);
-            fclose(f);
+            auto md5_str = md5.to_string();
+            auto dump_file_name = vstd::string("hlsl_output_") + md5_str + ".hlsl";
+            if (auto f = fopen(dump_file_name.c_str(), "wb")) {
+                fwrite(str.result.data(), str.result.size(), 1, f);
+                fclose(f);
+            }
         }
         auto compResult = Device::Compiler()->compile_compute(
             str.result.view(),
@@ -187,7 +190,7 @@ void ComputeShader::SaveCompute(
                 str.typeMD5,
                 bdlsBufferCount,
                 blockSize);
-            fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+            static_cast<void>(fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()}));
         },
         [](auto &&err) {
             LUISA_ERROR("DXC compute-shader compile error: {}", err);

@@ -19,13 +19,13 @@ int main(int argc, char *argv[]) {
     }
     Device device = context.create_device(argv[1]);
     Stream stream = device.create_stream();
-    Kernel1D clear_kernel = [](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
-        dispatch_buffer.clear();
-    };
     constexpr auto kernel_block_size = make_uint3(64, 1, 1);
     constexpr auto dispatch_count = 16u;
+    Kernel1D clear_kernel = [](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
+        dispatch_buffer.set_dispatch_count(dispatch_count);
+    };
     Kernel1D emplace_kernel = [&](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
-        dispatch_buffer.dispatch_kernel(kernel_block_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
+        dispatch_buffer.set_kernel(dispatch_id().x, kernel_block_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
     };
     Kernel1D set_kernel = [&](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
         dispatch_buffer.set_kernel(dispatch_id().x, kernel_block_size, make_uint3(dispatch_id().x, 1u, 1u), dispatch_id().x);
@@ -48,12 +48,11 @@ int main(int argc, char *argv[]) {
     cmdlist << clear_shader(dispatch_buffer).dispatch(1)
             << set_shader(dispatch_buffer).dispatch(dispatch_count);
     for (auto i = 0; i < 16; ++i) {
-        cmdlist << dispatch_shader(buffer).dispatch(dispatch_buffer, i);
+        cmdlist << dispatch_shader(buffer).dispatch(dispatch_buffer, i, 1);
     }
     // Dispatch all
-    cmdlist << clear_shader(dispatch_buffer).dispatch(1)
-            << emplace_shader(dispatch_buffer).dispatch(dispatch_count)
-            << dispatch_shader(buffer).dispatch(dispatch_buffer); 
+    cmdlist << emplace_shader(dispatch_buffer).dispatch(dispatch_count)
+            << dispatch_shader(buffer).dispatch(dispatch_buffer);
     //  dispatch
     cmdlist << buffer.copy_to(buffer_data.data());
     stream << cmdlist.commit() << synchronize();

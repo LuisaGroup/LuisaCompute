@@ -47,6 +47,7 @@ add_subdirectory(tensor)
 add_subdirectory(osl)
 add_subdirectory(gui)
 add_subdirectory(backends)
+add_subdirectory(ir_v2)
 
 add_library(compute INTERFACE)
 
@@ -60,7 +61,8 @@ target_link_libraries(compute INTERFACE
         luisa-compute-gui
         luisa-compute-api
         luisa-compute-backends
-        luisa-compute-ir)
+        luisa-compute-ir
+        luisa-compute-ir-v2)
 
 if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
     target_link_libraries(compute INTERFACE luisa-compute-cuda-ext-lcub)
@@ -82,7 +84,7 @@ install(TARGETS compute
         EXPORT LuisaComputeTargets
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
 
-if (SKBUILD)
+if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(py)
 endif ()
 

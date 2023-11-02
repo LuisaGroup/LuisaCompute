@@ -26,7 +26,19 @@ inline T lc_buffer_read(const KernelFnArgs *k_args, const BufferView &buffer, si
 #endif
     return *(reinterpret_cast<const T *>(buffer.data) + i);
 }
-
+template<class T>
+inline T lc_byte_buffer_read(const KernelFnArgs *k_args, const BufferView &buffer, size_t i) noexcept {
+#ifdef LUISA_DEBUG
+    if (i >= lc_buffer_size<uint8_t>(k_args, buffer) || i + sizeof(T) > lc_buffer_size<uint8_t>(k_args, buffer)) {
+        lc_abort_and_print_sll(k_args->internal_data, "ByteBuffer read out of bounds: {} >= {}", i,
+                               lc_buffer_size<T>(k_args, buffer));
+    }
+    if (i % alignof(T) != 0) {
+        lc_abort_and_print_sll(k_args->internal_data, "ByteBuffer read unaligned: {} % {}", i, alignof(T));
+    }
+#endif
+    return *(reinterpret_cast<const T *>(buffer.data + i));
+}
 template<class T>
 inline T *lc_buffer_ref(const KernelFnArgs *k_args, const BufferView &buffer, size_t i) noexcept {
 #ifdef LUISA_DEBUG
@@ -47,6 +59,19 @@ inline void lc_buffer_write(const KernelFnArgs *k_args, const BufferView &buffer
     }
 #endif
     *(reinterpret_cast<T *>(buffer.data) + i) = value;
+}
+template<class T>
+inline void lc_byte_buffer_write(const KernelFnArgs *k_args, const BufferView &buffer, size_t i, T value) noexcept {
+#ifdef LUISA_DEBUG
+   if (i >= lc_buffer_size<uint8_t>(k_args, buffer) || i + sizeof(T) > lc_buffer_size<uint8_t>(k_args, buffer)) {
+        lc_abort_and_print_sll(k_args->internal_data, "ByteBuffer write out of bounds: {} >= {}", i,
+                               lc_buffer_size<T>(k_args, buffer));
+    }
+    if (i % alignof(T) != 0) {
+        lc_abort_and_print_sll(k_args->internal_data, "ByteBuffer write unaligned: {} % {}", i, alignof(T));
+    }
+#endif
+    *(reinterpret_cast<T *>(buffer.data + i)) = value;
 }
 
 inline BufferView lc_buffer_arg(const KernelFnArgs *k_args, size_t i) noexcept {
@@ -125,7 +150,13 @@ lc_bindless_buffer(const KernelFnArgs *k_args, const BindlessArray &array, size_
                                array.buffers_count);
     }
 #endif
-    return array.buffers[buf_index];
+    auto buffer = array.buffers[buf_index];
+#ifdef LUISA_DEBUG
+    if (buffer.data == nullptr) {
+        lc_abort_and_print(k_args->internal_data, "Bindless buffer is null. Maybe slot is not bound?");
+    }
+#endif
+    return buffer;
 }
 
 inline uint64_t
@@ -133,7 +164,18 @@ lc_bindless_buffer_type(const KernelFnArgs *k_args, const BindlessArray &array, 
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     return buf.ty;
 }
-
+template<class T>
+inline T lc_bindless_byte_buffer_read(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
+                                      size_t element) noexcept {
+    auto buf = lc_bindless_buffer(k_args, array, buf_index);
+    return lc_byte_buffer_read<T>(k_args, buf, element);
+}
+template<class T>
+inline void lc_bindless_byte_buffer_write(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
+                                      size_t element, T value) noexcept {
+    auto buf = lc_bindless_buffer(k_args, array, buf_index);
+    lc_byte_buffer_write<T>(k_args, buf, element, value);
+}
 template<class T>
 inline T lc_bindless_buffer_read(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
                                  size_t element) noexcept {
@@ -152,10 +194,23 @@ inline T lc_atomic_compare_exchange(T *ptr, T expected, T desired) noexcept {
     __atomic_compare_exchange_n(ptr, &old, desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     return old;
 }
+template<>
+inline float lc_atomic_compare_exchange(float *ptr, float expected, float desired) noexcept {
+    auto int_ptr = reinterpret_cast<lc_int *>(ptr);
+    auto int_expected = lc_bit_cast<lc_int>(expected);
+    auto int_desired = lc_bit_cast<lc_int>(desired);
+    return lc_bit_cast<float>(lc_atomic_compare_exchange<lc_int>(int_ptr, int_expected, int_desired));
+}
 
 template<class T>
 inline T lc_atomic_exchange(T *ptr, T desired) noexcept {
     return __atomic_exchange_n(ptr, desired, __ATOMIC_SEQ_CST);
+}
+template<>
+inline float lc_atomic_exchange(float *ptr, float desired) noexcept {
+    auto int_ptr = reinterpret_cast<lc_int *>(ptr);
+    auto int_desired = lc_bit_cast<lc_int>(desired);
+    return lc_bit_cast<float>(lc_atomic_exchange<lc_int>(int_ptr, int_desired));
 }
 
 template<class T>
@@ -213,11 +268,11 @@ inline T lc_atomic_fetch_max(T *ptr, T value) noexcept {
     }
 }
 
-inline Hit lc_trace_closest(const Accel &accel, const Ray &ray, uint8_t mask) noexcept {
+inline Hit lc_trace_closest(const Accel &accel, const Ray &ray, lc_uint mask) noexcept {
     return accel.trace_closest(accel.handle, &ray, mask);
 }
 
-inline bool lc_trace_any(const Accel &accel, const Ray &ray, uint8_t mask) noexcept {
+inline bool lc_trace_any(const Accel &accel, const Ray &ray, lc_uint mask) noexcept {
     return accel.trace_any(accel.handle, &ray, mask);
 }
 
@@ -226,7 +281,15 @@ inline lc_float4x4 lc_accel_instance_transform(const Accel &accel, lc_uint inst_
     return lc_bit_cast<lc_float4x4>(m4);
 }
 
-inline void lc_set_instance_visibility(const Accel &accel, lc_uint inst_id, bool visible) noexcept {
+inline lc_uint lc_accel_instance_visibility_mask(const Accel &accel, lc_uint inst_id) noexcept {
+    return accel.instance_visibility_mask(accel.handle, inst_id);
+}
+
+inline lc_uint lc_accel_instance_user_id(const Accel &accel, lc_uint inst_id) noexcept {
+    return accel.instance_user_id(accel.handle, inst_id);
+}
+
+inline void lc_set_instance_visibility(const Accel &accel, lc_uint inst_id, lc_uint visible) noexcept {
     accel.set_instance_visibility(accel.handle, inst_id, visible);
 }
 
@@ -234,11 +297,12 @@ inline void lc_set_instance_transform(const Accel &accel, lc_uint inst_id, const
     auto m4 = lc_bit_cast<Mat4>(transform);
     accel.set_instance_transform(accel.handle, inst_id, &m4);
 }
+
 using LC_RayQueryAll = RayQuery;
 using LC_RayQueryAny = RayQuery;
 
 template<bool TERMINATE_ON_FISRST_HIT>
-inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint32_t mask) {
     RayQuery rq{};
     rq.hit.inst = ~0u;
     rq.hit.prim = ~0u;
@@ -250,10 +314,10 @@ inline RayQuery make_rq(const Accel &accel, const Ray &ray, uint8_t mask) {
     return rq;
 }
 
-inline LC_RayQueryAny lc_ray_query_any(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline LC_RayQueryAny lc_ray_query_any(const Accel &accel, const Ray &ray, uint32_t mask) {
     return make_rq<true>(accel, ray, mask);
 }
-inline LC_RayQueryAll lc_ray_query_all(const Accel &accel, const Ray &ray, uint8_t mask) {
+inline LC_RayQueryAll lc_ray_query_all(const Accel &accel, const Ray &ray, uint32_t mask) {
     return make_rq<false>(accel, ray, mask);
 }
 inline Ray lc_ray_query_world_space_ray(const RayQuery &rq) {
@@ -307,7 +371,6 @@ struct alignas(alignof(T) < 4u ? 4u : alignof(T)) LCPack {
     T value;
 };
 
-
 template<typename T>
 __device__ inline void lc_pack_to(const T &x, BufferView array, lc_uint idx) {
     constexpr lc_uint N = (sizeof(T) + 3u) / 4u;
@@ -318,22 +381,22 @@ __device__ inline void lc_pack_to(const T &x, BufferView array, lc_uint idx) {
         auto data = reinterpret_cast<const lc_uint *>(&pack);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
-            reinterpret_cast<lc_uint*>(array.data)[idx + i] = data[i];
+            reinterpret_cast<lc_uint *>(array.data)[idx + i] = data[i];
         }
     } else {
         // safe to reinterpret the pointer as lc_uint *
         auto data = reinterpret_cast<const lc_uint *>(&x);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
-            reinterpret_cast<lc_uint*>(array.data)[idx + i] = data[i];
+            reinterpret_cast<lc_uint *>(array.data)[idx + i] = data[i];
         }
     }
 }
 template<typename T>
 __device__ inline T lc_unpack_from(BufferView array, lc_uint idx) {
-     if constexpr (alignof(T) <= 4u) {
+    if constexpr (alignof(T) <= 4u) {
         // safe to reinterpret the pointer as T *
-        auto data = reinterpret_cast<const T *>(&reinterpret_cast<const lc_uint*>(array.data)[idx]);
+        auto data = reinterpret_cast<const T *>(&reinterpret_cast<const lc_uint *>(array.data)[idx]);
         return *data;
     } else {
         // copy to a temporary aligned buffer to avoid unaligned access
@@ -342,8 +405,78 @@ __device__ inline T lc_unpack_from(BufferView array, lc_uint idx) {
         auto data = reinterpret_cast<lc_uint *>(&x);
 #pragma unroll
         for (auto i = 0u; i < N; i++) {
-            data[i] = reinterpret_cast<const lc_uint*>(array.data)[idx + i];
+            data[i] = reinterpret_cast<const lc_uint *>(array.data)[idx + i];
         }
         return x.value;
     }
 }
+inline bool warp_is_first_active_lane() {
+    return true;
+}
+template<class T>
+inline bool warp_active_all_equal(T &&v) {
+    return true;
+}
+template<class T>
+inline T warp_active_bit_and(T &&v) {
+    return v;
+}
+template<class T>
+inline T warp_active_bit_or(T &&v) {
+    return v;
+}
+template<class T>
+inline T warp_active_bit_xor(T &&v) {
+    return v;
+}
+inline lc_uint warp_active_count_bits() {
+    return 1;
+}
+template<class T>
+inline T warp_active_max(T v) {
+    return v;
+}
+template<class T>
+inline T warp_active_min(T v) {
+    return v;
+}
+template<class T>
+inline T warp_active_product(T v) {
+    return v;
+}
+template<class T>
+inline T warp_active_sum(T v) {
+    return v;
+}
+
+inline lc_uint warp_all(bool v) {
+    return v;
+}
+
+inline lc_uint warp_any(bool v) {
+    return v;
+}
+
+inline lc_uint4 warp_active_bit_mask() {
+    return lc_make_uint4(1u, 0, 0, 0);
+}
+inline lc_uint warp_prefix_count_bits() {
+    return 0;
+}
+template<class T>
+inline T warp_prefix_sum(T &&) {
+    return lc_zero<T>();
+}
+template<class T>
+inline T warp_prefix_product(T &&) {
+    return lc_one<T>();
+}
+template<class T>
+inline T warp_read_lane_at(T &&v, lc_uint index) {
+    return v;
+}
+template<class T>
+inline T read_first_lane(T &&v) {
+    return v;
+}
+inline void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcept {}
