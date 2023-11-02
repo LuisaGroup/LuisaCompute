@@ -69,7 +69,8 @@ public:
         std::scoped_lock lock{_mutex};
         if (!_gdeflate) {
             _gdeflate = luisa::make_unique<nvcomp::GdeflateManager>(
-                nvcompGdeflateCompressionMaxAllowedChunkSize, 0,
+                nvcompGdeflateCompressionMaxAllowedChunkSize,
+                nvcompBatchedGdeflateDefaultOpts,
                 handle(), static_cast<int>(device()->handle().index()));
         }
         return _gdeflate.get();
@@ -78,8 +79,9 @@ public:
         std::scoped_lock lock{_mutex};
         if (!_cascaded) {
             _cascaded = luisa::make_unique<nvcomp::CascadedManager>(
-                nvcompBatchedCascadedDefaultOpts, handle(),
-                static_cast<int>(device()->handle().index()));
+                nvcompCascadedCompressionMaxAllowedChunkSize,
+                nvcompBatchedCascadedDefaultOpts,
+                handle(), static_cast<int>(device()->handle().index()));
         }
         return _cascaded.get();
     }
@@ -87,8 +89,9 @@ public:
         std::scoped_lock lock{_mutex};
         if (!_lz4) {
             _lz4 = luisa::make_unique<nvcomp::LZ4Manager>(
-                64_k, NVCOMP_TYPE_CHAR, handle(),
-                static_cast<int>(device()->handle().index()));
+                nvcompLZ4CompressionMaxAllowedChunkSize,
+                nvcompBatchedLZ4DefaultOpts,
+                handle(), static_cast<int>(device()->handle().index()));
         }
         return _lz4.get();
     }
@@ -96,7 +99,9 @@ public:
         std::scoped_lock lock{_mutex};
         if (!_snappy) {
             _snappy = luisa::make_unique<nvcomp::SnappyManager>(
-                64_k, handle(), static_cast<int>(device()->handle().index()));
+                nvcompSnappyCompressionMaxAllowedChunkSize,
+                nvcompBatchedSnappyDefaultOpts,
+                handle(), static_cast<int>(device()->handle().index()));
         }
         return _snappy.get();
     }
@@ -104,8 +109,9 @@ public:
         std::scoped_lock lock{_mutex};
         if (!_bitcomp) {
             _bitcomp = luisa::make_unique<nvcomp::BitcompManager>(
-                NVCOMP_TYPE_CHAR, 0, handle(),
-                static_cast<int>(device()->handle().index()));
+                nvcompBitcompCompressionMaxAllowedChunkSize,
+                nvcompBatchedBitcompDefaultOpts,
+                handle(), static_cast<int>(device()->handle().index()));
         }
         return _bitcomp.get();
     }
@@ -113,7 +119,9 @@ public:
         std::scoped_lock lock{_mutex};
         if (!_ans) {
             _ans = luisa::make_unique<nvcomp::ANSManager>(
-                64_k, handle(), static_cast<int>(device()->handle().index()));
+                nvcompANSCompressionMaxAllowedChunkSize,
+                nvcompBatchedANSDefaultOpts,
+                handle(), static_cast<int>(device()->handle().index()));
         }
         return _ans.get();
     }

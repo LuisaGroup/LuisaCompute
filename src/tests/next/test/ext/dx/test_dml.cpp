@@ -6,9 +6,10 @@
 */
 
 #include "common/config.h"
-
+#include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
 #include <luisa/backends/ext/dml_ext.h>
 #include <fstream>
 
