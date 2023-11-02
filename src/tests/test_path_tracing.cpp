@@ -71,7 +71,9 @@ int main(int argc, char *argv[]) {
 
     BindlessArray heap = device.create_bindless_array();
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
-    Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
+    Buffer<float3> real_vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto vertex_buffer = device.import_external_buffer<float3>(
+        real_vertex_buffer.native_handle(), vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     luisa::vector<Mesh> meshes;
     luisa::vector<Buffer<Triangle>> triangle_buffers;

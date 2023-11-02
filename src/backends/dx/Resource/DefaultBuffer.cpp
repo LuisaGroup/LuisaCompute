@@ -38,20 +38,13 @@ DefaultBuffer::DefaultBuffer(
 DefaultBuffer::DefaultBuffer(
     Device *device,
     uint64 byteSize,
-    ID3D12Heap *heap,
-    D3D12_RESOURCE_STATES initState,
-    bool shared_adaptor)
+    ID3D12Resource* resource,
+    D3D12_RESOURCE_STATES initState)
     : Buffer(device),
       allocHandle(nullptr),
       byteSize(byteSize),
       initState(initState) {
-    auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-    ThrowIfFailed(device->device->CreatePlacedResource(
-        heap, 0,
-        &buffer,
-        initState,
-        nullptr,
-        IID_PPV_ARGS(&allocHandle.resource)));
+    allocHandle.resource = resource;
 }
 vstd::optional<D3D12_SHADER_RESOURCE_VIEW_DESC> DefaultBuffer::GetColorSrvDesc(bool isRaw) const {
     return GetColorSrvDesc(0, byteSize, isRaw);

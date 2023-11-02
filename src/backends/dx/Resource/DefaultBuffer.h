@@ -27,9 +27,8 @@ public:
 	DefaultBuffer(
 		Device* device,
 		uint64 byteSize,
-		ID3D12Heap* heap,
-		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON,
-		bool shared_adaptor = false);
+		ID3D12Resource* resource,
+		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON);
 	D3D12_RESOURCE_STATES GetInitState() const override {
 		return initState;
 	}

@@ -15,9 +15,9 @@ public:
     }
     ~AllocHandle() {
         if (allocator) {
-            resource = nullptr;
             allocator->Release(allocateHandle);
         }
+        resource = nullptr;
     }
 };
 }// namespace lc::dx
