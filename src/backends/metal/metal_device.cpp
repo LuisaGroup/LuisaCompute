@@ -234,8 +234,11 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
                                               size_t elem_count,
                                               void *external_memory) noexcept {
     return with_autorelease_pool([=, this] {
-        // special handling of the indirect dispatch buffer
+        if (element == Type::of<void>()) {
+            return create_device_buffer(_handle, 1u, elem_count, external_memory);
+        }
         if (element->is_custom()) {
+            // special handling of the indirect dispatch buffer
             if (element == Type::of<IndirectKernelDispatch>()) {
                 LUISA_ASSERT(external_memory == nullptr,
                              "External memory is not supported "
@@ -250,9 +253,6 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
             }
             LUISA_ERROR_WITH_LOCATION("Invalid custom buffer type: {}",
                                       element->description());
-        }
-        if (element == Type::of<void>()) {
-            return create_device_buffer(_handle, 1u, elem_count, external_memory);
         }
         // normal buffer
         auto elem_size = MetalCodegenAST::type_size_bytes(element);
