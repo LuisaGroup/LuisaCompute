@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, basic_dtypes, dtype_of, BuiltinFuncBuilder
+from .types import to_lctype, from_lctype, basic_dtypes, dtype_of, BuiltinFuncBuilder
 from .types import vector_dtypes, matrix_dtypes, element_of, length_of
 from functools import cache
 from .mathtypes import *
@@ -154,10 +154,17 @@ class Buffer:
 
     @staticmethod
     def from_dlpack(arr):
-        raise NotImplementedError
-        # TODO
-        if hasattr(arr, '__dlpack__'):
-            pass
+        # verify device
+        backend_name = get_global_device().impl().backend_name()
+        device_id = 0  # TODO support multi device
+        device = lcapi.to_dlpack_device(backend_name, device_id)
+        # get dlpack
+        pack = arr.__dlpack__() if hasattr(arr, '__dlpack__') else arr
+        lctype, size, addr, ext_device = lcapi.from_dlpack(pack)
+        if device != ext_device:
+            raise RuntimeError('dlpack device mismatch')
+        dtype = from_lctype(lctype)
+        return Buffer(size=size, dtype=dtype, external_memory=addr)
 
 
 buffer = Buffer.buffer
