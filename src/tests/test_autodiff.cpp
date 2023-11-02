@@ -66,6 +66,18 @@ int main(int argc, char *argv[]) {
         y_grad_buffer.write(i, grad.yz());
     };
 
+    Kernel1D gg = [&]() noexcept {
+        Shared<float> s{1};
+        Float x = s[0];
+        $autodiff {
+            requires_grad(x);
+            Float z = x + 1.f;
+            backward(z);
+        };
+    };
+
+    auto kk = device.compile(gg);
+
     auto kernel_shader = device.compile(kernel);
     stream << kernel_shader(x_buffer, y_buffer, dx_buffer, dy_buffer).dispatch(n)
            << synchronize();
