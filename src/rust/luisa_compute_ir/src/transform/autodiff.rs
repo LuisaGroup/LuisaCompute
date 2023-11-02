@@ -329,8 +329,14 @@ impl<'a> StoreIntermediate<'a> {
                         self.final_grad.insert(args.as_ref()[0], i);
                     }
                 } else if *func == Func::GradientMarker {
-                    assert!(!self.final_grad.contains_key(&args.as_ref()[0]));
-                    self.grads.insert(args.as_ref()[0], args.as_ref()[1]);
+                    // assert!(!self.final_grad.contains_key(&args.as_ref()[0]));
+                    let mut g = args.as_ref()[1];
+                    if !g.is_lvalue() {
+                        let mut builder = IrBuilder::new_without_bb(self.module.pools.clone());
+                        builder.set_insert_point(g);
+                        g = builder.local(g);
+                    }
+                    self.grads.insert(args.as_ref()[0], g);
                     // self.final_grad.insert(args.as_ref()[0]);
                 }
             }
@@ -1800,7 +1806,7 @@ impl Backward {
                 .grads
                 .get(&n)
                 .cloned()
-                .unwrap_or_else(|| builder.zero_initializer(n.type_().clone()));
+                .unwrap_or_else(|| builder.local_zero_init(n.type_().clone()));
             // if grad.is_local() {
             //     grad = builder.call(Func::Load, &[grad], grad.type_().clone());
             // }
@@ -1902,7 +1908,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     }
                 }
                 let ad_block = ToSSA.transform(ad_block);
-               
+
                 // {
                 //     println!(
                 //         "After SSA:\n{}",
