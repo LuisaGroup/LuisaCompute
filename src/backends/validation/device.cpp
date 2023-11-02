@@ -47,13 +47,17 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
                 }}});
     }
 }
-BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept {
-    auto buffer = _native->create_buffer(element, elem_count);
+BufferCreationInfo Device::create_buffer(const Type *element,
+                                         size_t elem_count,
+                                         void *external_memory) noexcept {
+    auto buffer = _native->create_buffer(element, elem_count, external_memory);
     new Buffer{buffer.handle, 0};
     return buffer;
 }
-BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
-    auto buffer = _native->create_buffer(element, elem_count);
+BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element,
+                                         size_t elem_count,
+                                         void *external_memory) noexcept {
+    auto buffer = _native->create_buffer(element, elem_count, external_memory);
     new Buffer{buffer.handle, 0};
     return buffer;
 }

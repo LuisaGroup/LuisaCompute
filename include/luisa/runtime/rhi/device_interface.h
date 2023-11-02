@@ -48,7 +48,7 @@ public:
         uint64_t alignment,
         size_t size,
         luisa::string_view name,
-        luisa::vector<TraceItem>&& stacktrace) = 0;
+        luisa::vector<TraceItem> &&stacktrace) = 0;
     virtual void free(
         uint64_t handle) = 0;
 };
@@ -88,10 +88,12 @@ public:
     [[nodiscard]] virtual uint compute_warp_size() const noexcept = 0;
 
 public:
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept = 0;
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept;
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element,
+                                                           size_t elem_count,
+                                                           void *external_memory /* nullptr if now imported from external memory */) noexcept = 0;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
+                                                           size_t elem_count,
+                                                           void *external_memory /* nullptr if now imported from external memory */) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture

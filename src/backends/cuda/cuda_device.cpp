@@ -184,10 +184,15 @@ CUDADevice::~CUDADevice() noexcept {
     });
 }
 
-BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_count) noexcept {
+BufferCreationInfo CUDADevice::create_buffer(const Type *element,
+                                             size_t elem_count,
+                                             void *external_memory) noexcept {
     BufferCreationInfo info{};
     elem_count = std::max<size_t>(elem_count, 1u);
     if (element == Type::of<IndirectKernelDispatch>()) {
+        LUISA_ASSERT(external_memory == nullptr,
+                     "Indirect dispatch buffer cannot "
+                     "be created from external memory.");
         auto buffer = with_handle([elem_count] {
             return new_with_allocator<CUDAIndirectDispatchBuffer>(elem_count);
         });
@@ -198,16 +203,18 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
     } else if (element == Type::of<void>()) {
         info.element_stride = 1;
         info.total_size_bytes = elem_count;
-        auto buffer = with_handle([size = info.total_size_bytes] {
-            return new_with_allocator<CUDABuffer>(size);
+        auto buffer = with_handle([size = info.total_size_bytes, em = external_memory] {
+            return em ? new_with_allocator<CUDABuffer>(reinterpret_cast<CUdeviceptr>(em), size) :
+                        new_with_allocator<CUDABuffer>(size);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
         info.native_handle = reinterpret_cast<void *>(buffer->handle());
     } else {
         info.element_stride = CUDACompiler::type_size(element);
         info.total_size_bytes = info.element_stride * elem_count;
-        auto buffer = with_handle([size = info.total_size_bytes] {
-            return new_with_allocator<CUDABuffer>(size);
+        auto buffer = with_handle([size = info.total_size_bytes, em = external_memory] {
+            return em ? new_with_allocator<CUDABuffer>(reinterpret_cast<CUdeviceptr>(em), size) :
+                        new_with_allocator<CUDABuffer>(size);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
         info.native_handle = reinterpret_cast<void *>(buffer->handle());
@@ -215,31 +222,12 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
     return info;
 }
 
-BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element,
+                                             size_t elem_count,
+                                             void *external_memory) noexcept {
 #ifdef LUISA_ENABLE_IR
     auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count);
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-#endif
-}
-
-BufferCreationInfo CUDADevice::create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept {
-    BufferCreationInfo info{};
-    info.element_stride = element ? 1u : CUDACompiler::type_size(element);
-    info.total_size_bytes = size_bytes;
-    info.native_handle = external_memory;
-    auto buffer = with_handle([p = reinterpret_cast<CUdeviceptr>(external_memory), size_bytes] {
-        return new_with_allocator<CUDABuffer>(p, size_bytes);
-    });
-    info.handle = reinterpret_cast<uint64_t>(buffer);
-    return info;
-}
-
-BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, void *external_memory, size_t size_bytes) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, external_memory, size_bytes);
+    return create_buffer(type, elem_count, external_memory);
 #else
     LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
 #endif

@@ -55,9 +55,19 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.native_handle)(self.device.device) })
     }
     #[inline]
-    fn create_buffer(&self, ty: &CArc<Type>, count: usize) -> api::CreatedBufferInfo {
+    fn create_buffer(
+        &self,
+        ty: &CArc<Type>,
+        count: usize,
+        ext_mem: *mut c_void,
+    ) -> api::CreatedBufferInfo {
         catch_abort!({
-            (self.device.create_buffer)(self.device.device, ty as *const _ as *const c_void, count)
+            (self.device.create_buffer)(
+                self.device.device,
+                ty as *const _ as *const c_void,
+                count,
+                ext_mem,
+            )
         })
     }
     #[inline]

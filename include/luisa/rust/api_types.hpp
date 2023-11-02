@@ -518,7 +518,7 @@ using DispatchCallback = void(*)(uint8_t*);
 struct DeviceInterface {
     Device device;
     void (*destroy_device)(DeviceInterface);
-    CreatedBufferInfo (*create_buffer)(Device, const void*, size_t);
+    CreatedBufferInfo (*create_buffer)(Device, const void*, size_t, void*);
     void (*destroy_buffer)(Device, Buffer);
     CreatedResourceInfo (*create_texture)(Device,
                                           PixelFormat,

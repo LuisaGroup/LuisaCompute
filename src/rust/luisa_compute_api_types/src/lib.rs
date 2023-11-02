@@ -650,7 +650,8 @@ pub struct LibInterface {
 pub struct DeviceInterface {
     pub device: Device,
     pub destroy_device: unsafe extern "C" fn(DeviceInterface),
-    pub create_buffer: unsafe extern "C" fn(Device, *const c_void, usize) -> CreatedBufferInfo,
+    pub create_buffer:
+        unsafe extern "C" fn(Device, *const c_void, usize, *mut c_void) -> CreatedBufferInfo,
     pub destroy_buffer: unsafe extern "C" fn(Device, Buffer),
     pub create_texture: unsafe extern "C" fn(
         Device,

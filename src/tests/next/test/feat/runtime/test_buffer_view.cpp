@@ -11,6 +11,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
+#include <luisa/dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;

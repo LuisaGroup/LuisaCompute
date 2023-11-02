@@ -210,6 +210,8 @@ public:
 
     [[nodiscard]] ByteBuffer create_byte_buffer(size_t byte_size) noexcept;
 
+    [[nodiscard]] ByteBuffer import_external_byte_buffer(void *external_memory, size_t byte_size) noexcept;
+
     template<typename T>
         requires(!is_custom_struct_v<T>)//backend-specific type not allowed
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
@@ -218,8 +220,8 @@ public:
 
     template<typename T>
         requires(!is_custom_struct_v<T>)
-    [[nodiscard]] auto import_external_buffer(void *external_memory, size_t external_size_bytes) noexcept {
-        return _create<Buffer<T>>(impl()->create_buffer(Type::of<T>(), external_memory, external_size_bytes));
+    [[nodiscard]] auto import_external_buffer(void *external_memory, size_t elem_count) noexcept {
+        return _create<Buffer<T>>(impl()->create_buffer(Type::of<T>(), elem_count, external_memory));
     }
 
     template<typename T>

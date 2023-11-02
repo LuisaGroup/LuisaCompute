@@ -97,7 +97,7 @@ private:
                      if (size == 0) [[unlikely]] {
                          detail::error_buffer_size_is_zero();
                      }
-                     return device->create_buffer(Type::of<T>(), size);
+                     return device->create_buffer(Type::of<T>(), size, nullptr);
                  }()} {}
 
 public:

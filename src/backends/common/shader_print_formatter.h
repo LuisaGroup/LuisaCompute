@@ -36,7 +36,6 @@ public:
                          arg_pack->members()[0] == Type::of<uint>() &&
                          arg_pack->members()[1] == Type::of<uint>(),
                      "Invalid argument pack for shader printer.");
-        // TODO: parse the fmt string
         auto offset = static_cast<size_t>(8u);
         auto args = arg_pack->members().subspan(2u);
         luisa::string s;

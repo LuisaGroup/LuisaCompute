@@ -50,6 +50,7 @@ impl Backend for RustBackend {
         &self,
         ty: &CArc<ir::Type>,
         count: usize,
+        ext_mem: *mut c_void,
     ) -> luisa_compute_api_types::CreatedBufferInfo {
         let size_bytes = if ty == &ir::Type::void() {
             count
@@ -61,7 +62,12 @@ impl Backend for RustBackend {
         } else {
             ty.alignment()
         };
-        let buffer = Box::new(BufferImpl::new(size_bytes, alignment, type_hash(&ty)));
+        let buffer = Box::new(BufferImpl::new(
+            size_bytes,
+            alignment,
+            type_hash(&ty),
+            ext_mem,
+        ));
         let data = buffer.data;
         let ptr = Box::into_raw(buffer);
         CreatedBufferInfo {
