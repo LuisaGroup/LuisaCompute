@@ -451,7 +451,7 @@ typedef void (*LCDispatchCallback)(uint8_t*);
 typedef struct LCDeviceInterface {
     struct LCDevice device;
     void (*destroy_device)(struct LCDeviceInterface);
-    struct LCCreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t);
+    struct LCCreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t, void*);
     void (*destroy_buffer)(struct LCDevice, struct LCBuffer);
     struct LCCreatedResourceInfo (*create_texture)(struct LCDevice,
                                                    enum LCPixelFormat,

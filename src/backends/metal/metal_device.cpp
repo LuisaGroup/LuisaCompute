@@ -198,9 +198,18 @@ uint MetalDevice::compute_warp_size() const noexcept {
 
 [[nodiscard]] inline auto create_device_buffer(MTL::Device *device,
                                                size_t element_stride,
-                                               size_t element_count) noexcept {
+                                               size_t element_count,
+                                               void *external_memory) noexcept {
     auto buffer_size = element_stride * element_count;
-    auto buffer = new_with_allocator<MetalBuffer>(device, buffer_size);
+    auto buffer = [&] {
+        if (external_memory) {
+            auto mtl_buffer = reinterpret_cast<MTL::Buffer *>(external_memory);
+            LUISA_ASSERT(mtl_buffer->length() >= buffer_size,
+                         "External memory is not large enough.");
+            return new_with_allocator<MetalBuffer>(mtl_buffer);
+        }
+        return new_with_allocator<MetalBuffer>(device, buffer_size);
+    }();
     BufferCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(buffer);
     info.native_handle = buffer->handle();
@@ -222,60 +231,42 @@ uint MetalDevice::compute_warp_size() const noexcept {
 }
 
 BufferCreationInfo MetalDevice::create_buffer(const Type *element,
-                                              size_t elem_count) noexcept {
+                                              size_t elem_count,
+                                              void *external_memory) noexcept {
     return with_autorelease_pool([=, this] {
-        // special handling of the indirect dispatch buffer
-        if (element == Type::of<IndirectKernelDispatch>()) {
-            auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
-            BufferCreationInfo info{};
-            info.handle = reinterpret_cast<uint64_t>(p);
-            info.native_handle = p->dispatch_buffer();
-            info.element_stride = sizeof(MetalIndirectDispatchBuffer::Dispatch);
-            info.total_size_bytes = p->dispatch_buffer()->length();
-            return info;
-        }
         if (element == Type::of<void>()) {
-            return create_device_buffer(_handle, 1u, elem_count);
+            return create_device_buffer(_handle, 1u, elem_count, external_memory);
+        }
+        if (element->is_custom()) {
+            // special handling of the indirect dispatch buffer
+            if (element == Type::of<IndirectKernelDispatch>()) {
+                LUISA_ASSERT(external_memory == nullptr,
+                             "External memory is not supported "
+                             "for indirect dispatch buffer.");
+                auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
+                BufferCreationInfo info{};
+                info.handle = reinterpret_cast<uint64_t>(p);
+                info.native_handle = p->dispatch_buffer();
+                info.element_stride = sizeof(MetalIndirectDispatchBuffer::Dispatch);
+                info.total_size_bytes = p->dispatch_buffer()->length();
+                return info;
+            }
+            LUISA_ERROR_WITH_LOCATION("Invalid custom buffer type: {}",
+                                      element->description());
         }
         // normal buffer
         auto elem_size = MetalCodegenAST::type_size_bytes(element);
-        return create_device_buffer(_handle, elem_size, elem_count);
+        return create_device_buffer(_handle, elem_size, elem_count, external_memory);
     });
 }
 
 BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
-                                              size_t elem_count) noexcept {
+                                              size_t elem_count,
+                                              void *external_memory) noexcept {
 #ifdef LUISA_ENABLE_IR
     return with_autorelease_pool([=, this] {
         auto elem_size = MetalCodegenIR::type_size_bytes(element->get());
-        return create_device_buffer(_handle, elem_size, elem_count);
-    });
-#else
-    LUISA_WARNING_WITH_LOCATION("IR is not enabled. Returning an invalid buffer.");
-    return BufferCreationInfo::make_invalid();
-#endif
-}
-
-BufferCreationInfo MetalDevice::create_buffer(const Type *element,
-                                              void *external_memory,
-                                              size_t size_bytes) noexcept {
-    return with_autorelease_pool([=] {
-        auto buffer = reinterpret_cast<MTL::Buffer *>(external_memory);
-        LUISA_ASSERT(buffer->length() >= size_bytes, "External buffer size mismatch.");
-        auto elem_size = MetalCodegenAST::type_size_bytes(element);
-        return create_device_buffer_from_external_memory(buffer, size_bytes, elem_size);
-    });
-}
-
-BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
-                                              void *external_memory,
-                                              size_t size_bytes) noexcept {
-#ifdef LUISA_ENABLE_IR
-    return with_autorelease_pool([=] {
-        auto buffer = reinterpret_cast<MTL::Buffer *>(external_memory);
-        LUISA_ASSERT(buffer->length() >= size_bytes, "External buffer size mismatch.");
-        auto elem_size = MetalCodegenIR::type_size_bytes(element->get());
-        return create_device_buffer_from_external_memory(buffer, size_bytes, elem_size);
+        return create_device_buffer(_handle, elem_size, elem_count, external_memory);
     });
 #else
     LUISA_WARNING_WITH_LOCATION("IR is not enabled. Returning an invalid buffer.");

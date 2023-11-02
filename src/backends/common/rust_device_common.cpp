@@ -431,13 +431,17 @@ public:
         LUISA_NOT_IMPLEMENTED();
     }
 
-    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override {
+    BufferCreationInfo create_buffer(const Type *element,
+                                     size_t elem_count,
+                                     void *external_memory) noexcept override {
         auto type = AST2IR::build_type(element);
-        return create_buffer(&type, elem_count);
+        return create_buffer(&type, elem_count, external_memory);
     }
 
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override {
-        api::CreatedBufferInfo buffer = device.create_buffer(device.device, element, elem_count);
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
+                                     size_t elem_count,
+                                     void *external_memory) noexcept override {
+        api::CreatedBufferInfo buffer = device.create_buffer(device.device, element, elem_count, external_memory);
         BufferCreationInfo info{};
         info.element_stride = buffer.element_stride;
         info.total_size_bytes = buffer.total_size_bytes;

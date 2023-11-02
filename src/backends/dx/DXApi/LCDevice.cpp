@@ -107,61 +107,32 @@ LCDevice::~LCDevice() {
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device.Get();
 }
-
-BufferCreationInfo LCDevice::create_buffer(const Type *element, void *external_memory, size_t size_bytes) noexcept {
-    BufferCreationInfo info{};
-    Buffer *res{};
-    info.total_size_bytes = size_bytes;
-    if (element == Type::of<void>()) {
-        info.element_stride = 1u;
-        res = new DefaultBuffer(
-            &nativeDevice,
-            info.total_size_bytes,
-            reinterpret_cast<ID3D12Heap *>(external_memory));
-        info.handle = reinterpret_cast<uint64_t>(res);
-        info.native_handle = res->GetResource();
-        return info;
-    }
-    if (element->is_custom()) {
-        if (element == Type::of<IndirectKernelDispatch>()) {
-            info.element_stride = ComputeShader::DispatchIndirectStride;
-            res = static_cast<Buffer *>(
-                new DefaultBuffer(
-                    &nativeDevice,
-                    info.total_size_bytes,
-                    reinterpret_cast<ID3D12Heap *>(external_memory)));
-        } else {
-            LUISA_ERROR("Un-known custom type in dx-backend.");
-        }
-    } else {
-        res = static_cast<Buffer *>(
-            new DefaultBuffer(
-                &nativeDevice,
-                info.total_size_bytes,
-                reinterpret_cast<ID3D12Heap *>(external_memory)));
-        info.element_stride = element->size();
-    }
-    info.handle = resource_to_handle(res);
-    info.native_handle = res->GetResource();
-    return info;
-}
-
-BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
+BufferCreationInfo LCDevice::create_buffer(const Type *element,
+                                           size_t elem_count,
+                                           void *external_memory) noexcept {
     BufferCreationInfo info{};
     Buffer *res{};
     if (element == Type::of<void>()) {
         info.total_size_bytes = elem_count;
         info.element_stride = 1u;
-        res = new DefaultBuffer(
-            &nativeDevice,
-            info.total_size_bytes,
-            nativeDevice.defaultAllocator.get());
+        res = external_memory ?
+                  new DefaultBuffer(
+                      &nativeDevice,
+                      info.total_size_bytes,
+                      reinterpret_cast<ID3D12Heap *>(external_memory)) :
+                  new DefaultBuffer(
+                      &nativeDevice,
+                      info.total_size_bytes,
+                      nativeDevice.defaultAllocator.get());
         info.handle = reinterpret_cast<uint64_t>(res);
         info.native_handle = res->GetResource();
         return info;
     }
     if (element->is_custom()) {
         if (element == Type::of<IndirectKernelDispatch>()) {
+            LUISA_ASSERT(external_memory == nullptr,
+                         "IndirectKernelDispatch buffer cannot "
+                         "be created from external memory.");
             info.element_stride = ComputeShader::DispatchIndirectStride;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
             res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
@@ -170,11 +141,17 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
         }
     } else {
         info.total_size_bytes = element->size() * elem_count;
-        res = static_cast<Buffer *>(
-            new DefaultBuffer(
-                &nativeDevice,
-                info.total_size_bytes,
-                nativeDevice.defaultAllocator.get()));
+        res = external_memory ?
+                  static_cast<Buffer *>(
+                      new DefaultBuffer(
+                          &nativeDevice,
+                          info.total_size_bytes,
+                          reinterpret_cast<ID3D12Heap *>(external_memory))) :
+                  static_cast<Buffer *>(
+                      new DefaultBuffer(
+                          &nativeDevice,
+                          info.total_size_bytes,
+                          nativeDevice.defaultAllocator.get()));
         info.element_stride = element->size();
     }
     info.handle = resource_to_handle(res);
@@ -761,10 +738,12 @@ void LCDevice::update_sparse_resources(
     queuePtr.Signal();
 }
 
-BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element,
+                                           size_t elem_count,
+                                           void *external_memory) noexcept {
 #ifdef LUISA_ENABLE_IR
     auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count);
+    return create_buffer(type, elem_count, external_memory);
 #else
     LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
 #endif

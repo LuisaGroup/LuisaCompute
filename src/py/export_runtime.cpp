@@ -431,18 +431,18 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
-                auto info = d.create_buffer(type, size);
+                auto info = d.create_buffer(type, size, nullptr);
                 RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
                 return info;
             },
             pyref)
-        .def("import_external_buffer", [](DeviceInterface &d, const Type *type, uint64_t native_address, size_t size_bytes) noexcept {
-            auto info = d.create_buffer(type, reinterpret_cast<void *>(native_address), size_bytes);
+        .def("import_external_buffer", [](DeviceInterface &d, const Type *type, uint64_t native_address, size_t elem_count) noexcept {
+            auto info = d.create_buffer(type, elem_count, reinterpret_cast<void *>(native_address));
             RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return info;
         })
         .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
-            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size);
+            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size, nullptr);
             RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
         })

@@ -24,7 +24,7 @@
 
 #include "common/tiny_obj_loader.h"
 #include "common/test_math_util.h"
-#include "path_tracer_util.h"
+#include "util.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -108,15 +108,7 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
                                x <= 0.00031308f));
     };
 
-    Callable tea = [](UInt v0, UInt v1) noexcept {
-        UInt s0 = def(0u);
-        for (uint n = 0u; n < 4u; n++) {
-            s0 += 0x9e3779b9u;
-            v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
-            v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
-        }
-        return v0;
-    };
+    Callable tea = tea_callable();
 
     Kernel2D make_sampler_kernel = [&](ImageUInt seed_image) noexcept {
         UInt2 p = dispatch_id().xy();
@@ -125,15 +117,7 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
     };
 
     Callable lcg = lcg_callable();
-
-    Callable make_onb = [](const Float3 &normal) noexcept {
-        Float3 binormal = normalize(ite(
-            abs(normal.x) > abs(normal.z),
-            make_float3(-normal.y, normal.x, 0.0f),
-            make_float3(0.0f, -normal.z, normal.y)));
-        Float3 tangent = normalize(cross(binormal, normal));
-        return def<Onb>(tangent, binormal, normal);
-    };
+    Callable make_onb = make_onb_callable();
 
     Callable generate_ray = [](Float2 p) noexcept {
         static constexpr float fov = radians(27.8f);
@@ -143,16 +127,8 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
         return make_ray(origin, direction);
     };
 
-    Callable cosine_sample_hemisphere = [](Float2 u) noexcept {
-        Float r = sqrt(u.x);
-        Float phi = 2.0f * constants::pi * u.y;
-        return make_float3(r * cos(phi), r * sin(phi), sqrt(1.0f - u.x));
-    };
-
-    Callable balanced_heuristic = [](Float pdf_a, Float pdf_b) noexcept {
-        return pdf_a / max(pdf_a + pdf_b, 1e-4f);
-    };
-
+    Callable cosine_sample_hemisphere = cosine_sample_hemisphere_callable();
+    Callable balanced_heuristic = balanced_heuristic_callable();
     auto spp_per_dispatch = device.backend_name() == "metal" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
@@ -336,5 +312,5 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
 
 TEST_SUITE("gallary") {
     LUISA_TEST_CASE_WITH_DEVICE("path_tracer",
-        luisa::test::path_tracer(device, "path_tracer_" + device_name + ".png") == 0);
+                                luisa::test::path_tracer(device, "path_tracer_" + device_name + ".png") == 0);
 }
