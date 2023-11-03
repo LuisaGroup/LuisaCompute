@@ -42,6 +42,10 @@
 #include "cuda_dstorage.h"
 #include "cuda_ext.h"
 
+#ifdef LUISA_COMPUTE_ENABLE_NVTT
+#include "cuda_texture_compression.h"
+#endif
+
 #define LUISA_CUDA_KERNEL_DEBUG 1
 
 #ifndef NDEBUG
@@ -54,6 +58,7 @@ static const bool LUISA_CUDA_DUMP_SOURCE = ([] {
     return std::string_view{env} == "1";
 })();
 #endif
+
 static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = ([] {
     // read env LUISA_OPTIX_VALIDATION
     auto env = std::getenv("LUISA_OPTIX_VALIDATION");
@@ -871,6 +876,9 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
     }
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(Denoiser, _denoiser_ext)
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
+#ifdef LUISA_COMPUTE_ENABLE_NVTT
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(TexCompress, _tex_comp_ext)
+#endif
 #undef LUISA_COMPUTE_CREATE_CUDA_EXTENSION
 
     LUISA_WARNING_WITH_LOCATION("Unknown device extension '{}'.", name);

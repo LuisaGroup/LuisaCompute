@@ -21,8 +21,8 @@ public:
     Device *device;
     DxTexCompressExt(Device *device);
     ~DxTexCompressExt();
-    Result compress_bc6h(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept override;
-    Result compress_bc7(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept override;
+    Result compress_bc6h(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept override;
+    Result compress_bc7(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept override;
     Result check_builtin_shader() noexcept override;
 };
 struct NativeTextureDesc {

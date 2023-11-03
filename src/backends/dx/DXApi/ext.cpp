@@ -25,7 +25,7 @@ DxTexCompressExt::DxTexCompressExt(Device *device)
 }
 DxTexCompressExt::~DxTexCompressExt() {
 }
-TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept {
+TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
 
     TextureBase *srcTex = reinterpret_cast<TextureBase *>(src.handle());
@@ -39,7 +39,7 @@ TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<flo
     return Result::Success;
 }
 
-TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept {
+TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
     cmdBuffer->CompressBC(
         reinterpret_cast<TextureBase *>(src.handle()),

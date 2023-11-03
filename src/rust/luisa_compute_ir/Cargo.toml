@@ -25,7 +25,7 @@ log = "0.4"
 cbindgen = "0.24.3"
 
 [lib]
-crate-type = ["rlib", "staticlib", "cdylib"]
+crate-type = ["rlib", "staticlib"]
 name = "luisa_compute_ir"
 
 

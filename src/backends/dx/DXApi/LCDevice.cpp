@@ -119,7 +119,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element,
                   new DefaultBuffer(
                       &nativeDevice,
                       info.total_size_bytes,
-                      reinterpret_cast<ID3D12Heap *>(external_memory)) :
+                      reinterpret_cast<ID3D12Resource *>(external_memory)) :
                   new DefaultBuffer(
                       &nativeDevice,
                       info.total_size_bytes,
@@ -146,7 +146,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element,
                       new DefaultBuffer(
                           &nativeDevice,
                           info.total_size_bytes,
-                          reinterpret_cast<ID3D12Heap *>(external_memory))) :
+                          reinterpret_cast<ID3D12Resource *>(external_memory))) :
                   static_cast<Buffer *>(
                       new DefaultBuffer(
                           &nativeDevice,
