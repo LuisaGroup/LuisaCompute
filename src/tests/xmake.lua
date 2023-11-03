@@ -52,9 +52,9 @@ if get_config("enable_gui") then
 	-- all test suites for release
 	lc_add_app("test_all", "test", "all") -- all test
 	-- example app 
-	lc_add_app("gallary", "example", "gallary") -- gallary
+	lc_add_app("gallery", "example", "gallery") -- demo
 	lc_add_app("tutorial", "example", "use") -- basic use tutorial
-	if get_config("dx_backend") -- TODO: better way to check backends and extensions
+	if get_config("dx_backend") then -- TODO: better way to check backends and extensions
 	    lc_add_app("example_ext", "example", "ext") -- external extension examples
 	end
 end
