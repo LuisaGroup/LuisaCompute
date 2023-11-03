@@ -1795,7 +1795,7 @@ impl<'a> FunctionEmitter<'a> {
         let mut printf_args = String::new();
         let mut i = 0;
         let mut arg_i = 0;
-        while i <= fmt.len() {
+        while i < fmt.len() {
             if fmt[i] != '{' && fmt[i] != '}' {
                 printf_fmt.push(fmt[i]);
                 i += 1;
@@ -1812,121 +1812,11 @@ impl<'a> FunctionEmitter<'a> {
                         "invalid format string: {}",
                         fmt_s
                     );
-                    match args[arg_i].type_().as_ref() {
-                        Type::Primitive(p) => match p {
-                            Primitive::Bool => {
-                                printf_fmt.push_str("%s");
-                                write!(
-                                    printf_args,
-                                    ",{} ? \"true\" : \"false\"",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Int8 => {
-                                printf_fmt.push_str("%d");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_int>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Uint8 => {
-                                printf_fmt.push_str("%u");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_uint>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Int16 => {
-                                printf_fmt.push_str("%d");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_int>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Uint16 => {
-                                printf_fmt.push_str("%u");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_uint>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Int32 => {
-                                printf_fmt.push_str("%d");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_int>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Uint32 => {
-                                printf_fmt.push_str("%u");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_uint>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Int64 => {
-                                printf_fmt.push_str("%lld");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_long>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Uint64 => {
-                                printf_fmt.push_str("%llu");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<lc_ulong>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Float16 => {
-                                printf_fmt.push_str("%f");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<float>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Float32 => {
-                                printf_fmt.push_str("%f");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<float>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                            Primitive::Float64 => {
-                                printf_fmt.push_str("%f");
-                                write!(
-                                    printf_args,
-                                    ",static_cast<double>({})",
-                                    self.gen_node(args[arg_i])
-                                )
-                                .unwrap();
-                            }
-                        },
-                        _ => {
-                            panic!("frontend should lower print to primitive types")
-                        }
-                    }
+
+                    let arg = args[arg_i];
+                    let (fmt, args) = super::aggregate_printf(self.gen_node(arg), arg.type_());
+                    printf_fmt.push_str(&fmt);
+                    printf_args.push_str(&args);
                     arg_i += 1;
                     i += 2;
                 }
@@ -1935,7 +1825,7 @@ impl<'a> FunctionEmitter<'a> {
         self.write_ident();
         writeln!(
             &mut self.body,
-            "lc_printf(\"{}\"{});",
+            "lc_printf(\"{}\\n\"{});",
             printf_fmt.escape_default(),
             printf_args
         )
