@@ -54,7 +54,9 @@ if get_config("enable_gui") then
 	-- example app 
 	lc_add_app("gallary", "example", "gallary") -- gallary
 	lc_add_app("tutorial", "example", "use") -- basic use tutorial
-	lc_add_app("example_ext","example","ext") -- external extension examples
+	if get_config("dx_backend") -- TODO: better way to check backends and extensions
+	    lc_add_app("example_ext", "example", "ext") -- external extension examples
+	end
 end
 -- lc_add_app("test_io", "test", "io")
 ------------------------------------

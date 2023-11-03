@@ -1,9 +1,11 @@
 #pragma once
+
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/core/stl/functional.h>
 #include <d3d12.h>
 #include <dxgi1_2.h>
 #include <luisa/backends/ext/registry.h>
+
 namespace lc::dx {
 class LCCmdBuffer;
 class LCPreProcessVisitor;
@@ -11,7 +13,9 @@ class LCCmdVisitor;
 }// namespace lc::dx
 
 namespace luisa::compute {
+
 class DXCustomCmd : public CustomDispatchCommand {
+
 public:
     struct ResourceUsage {
         ResourceHandle resource;
@@ -75,4 +79,5 @@ public:
         return luisa::to_underlying(CustomCommandUUID::CUSTOM_DISPATCH);
     }
 };
+
 }// namespace luisa::compute
