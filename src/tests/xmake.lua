@@ -43,8 +43,6 @@ end
 
 -- temp test suites
 lc_add_app("test_feat", "test", "feat") -- core feature test
-lc_add_app("test_ext", "test", "ext") -- extension test
-
 -- for common features
 
 if get_config("enable_gui") then
@@ -54,10 +52,16 @@ if get_config("enable_gui") then
 	-- example app 
 	lc_add_app("gallery", "example", "gallery") -- demo
 	lc_add_app("tutorial", "example", "use") -- basic use tutorial
-	if get_config("dx_backend") then -- TODO: better way to check backends and extensions
-	    lc_add_app("example_ext", "example", "ext") -- external extension examples
-	end
 end
+
+-- for extensions
+
+if get_config("dx_backend") then
+	lc_add_app("test_ext_dx", "test", "ext/dx")
+end
+if get_config("cuda_backend") then 
+	lc_add_app("test_ext_cuda", "test", "ext/cuda")
+end 
 -- lc_add_app("test_io", "test", "io")
 ------------------------------------
 -- TEST MAIN end
