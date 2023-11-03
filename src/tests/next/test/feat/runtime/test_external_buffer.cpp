@@ -45,7 +45,7 @@ int test_external_buffer(Device &device) {
 TEST_SUITE("runtime") {
     TEST_CASE("external_buffer") {
         Context context{luisa::test::argv()[0]};
-        Device device = context.create_device("cuda");
+        Device device = context.create_device("dx");
         REQUIRE(luisa::test::test_external_buffer(device) == 0);
     }
 }
