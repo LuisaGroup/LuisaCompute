@@ -56,6 +56,16 @@ typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R32F,
     LC_PIXEL_FORMAT_RG32F,
     LC_PIXEL_FORMAT_RGBA32F,
+    LC_PIXEL_FORMAT_R10G10B10A2U_INT,
+    LC_PIXEL_FORMAT_R10G10B10A2U_NORM,
+    LC_PIXEL_FORMAT_R11G11B10F,
+    LC_PIXEL_FORMAT_BC1U_NORM,
+    LC_PIXEL_FORMAT_BC2U_NORM,
+    LC_PIXEL_FORMAT_BC3U_NORM,
+    LC_PIXEL_FORMAT_BC4U_NORM,
+    LC_PIXEL_FORMAT_BC5U_NORM,
+    LC_PIXEL_FORMAT_BC6HUF16,
+    LC_PIXEL_FORMAT_BC7U_NORM,
 } LCPixelFormat;
 
 typedef enum LCPixelStorage {
@@ -74,6 +84,15 @@ typedef enum LCPixelStorage {
     LC_PIXEL_STORAGE_FLOAT1,
     LC_PIXEL_STORAGE_FLOAT2,
     LC_PIXEL_STORAGE_FLOAT4,
+    LC_PIXEL_STORAGE_R10G10B10A2,
+    LC_PIXEL_STORAGE_R11G11B10,
+    LC_PIXEL_STORAGE_BC1,
+    LC_PIXEL_STORAGE_BC2,
+    LC_PIXEL_STORAGE_BC3,
+    LC_PIXEL_STORAGE_BC4,
+    LC_PIXEL_STORAGE_BC5,
+    LC_PIXEL_STORAGE_BC6,
+    LC_PIXEL_STORAGE_BC7,
 } LCPixelStorage;
 
 typedef enum LCSamplerAddress {
@@ -448,6 +467,20 @@ typedef struct LCShaderOption {
 
 typedef void (*LCDispatchCallback)(uint8_t*);
 
+typedef struct LCPinnedMemoryOption {
+    bool write_combined;
+} LCPinnedMemoryOption;
+
+typedef struct LCPinnedMemoryExt {
+    void *data;
+    void (*pin_host_memory)(struct LCPinnedMemoryExt*,
+                            const void*,
+                            size_t,
+                            void*,
+                            const struct LCPinnedMemoryOption*);
+    void (*allocate_pinned_memory)(struct LCPinnedMemoryExt*, size_t, void*);
+} LCPinnedMemoryExt;
+
 typedef struct LCDeviceInterface {
     struct LCDevice device;
     void (*destroy_device)(struct LCDeviceInterface);
@@ -505,6 +538,7 @@ typedef struct LCDeviceInterface {
     struct LCCreatedResourceInfo (*create_accel)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_accel)(struct LCDevice, struct LCAccel);
     char *(*query)(struct LCDevice, const char*);
+    struct LCPinnedMemoryExt (*pinned_memory_ext)(struct LCDevice);
 } LCDeviceInterface;
 
 typedef struct LCLoggerMessage {

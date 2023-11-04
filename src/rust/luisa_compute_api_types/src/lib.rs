@@ -214,6 +214,17 @@ pub enum PixelStorage {
     Float1,
     Float2,
     Float4,
+
+    R10G10B10A2,
+    R11G11B10,
+
+    Bc1,
+    Bc2,
+    Bc3,
+    Bc4,
+    Bc5,
+    Bc6,
+    Bc7,
 }
 
 impl PixelStorage {
@@ -234,6 +245,7 @@ impl PixelStorage {
             PixelStorage::Float1 => 4,
             PixelStorage::Float2 => 8,
             PixelStorage::Float4 => 16,
+            _ => todo!(),
         }
     }
 }
@@ -281,6 +293,18 @@ pub enum PixelFormat {
     R32f,
     Rg32f,
     Rgba32f,
+
+    R10G10B10A2UInt,
+    R10G10B10A2UNorm,
+    R11G11B10F,
+
+    BC1UNorm,
+    BC2UNorm,
+    BC3UNorm,
+    BC4UNorm,
+    BC5UNorm,
+    BC6HUF16,
+    BC7UNorm,
 }
 impl PixelFormat {
     pub fn storage(&self) -> PixelStorage {
@@ -310,6 +334,17 @@ impl PixelFormat {
             PixelFormat::Rg32f => PixelStorage::Float2,
             PixelFormat::Rgba32Sint | PixelFormat::Rgba32Uint => PixelStorage::Int4,
             PixelFormat::Rgba32f => PixelStorage::Float4,
+            PixelFormat::BC1UNorm => PixelStorage::Bc1,
+            PixelFormat::BC2UNorm => PixelStorage::Bc2,
+            PixelFormat::BC3UNorm => PixelStorage::Bc3,
+            PixelFormat::BC4UNorm => PixelStorage::Bc4,
+            PixelFormat::BC5UNorm => PixelStorage::Bc5,
+            PixelFormat::BC6HUF16 => PixelStorage::Bc6,
+            PixelFormat::BC7UNorm => PixelStorage::Bc7,
+            PixelFormat::R10G10B10A2UInt | PixelFormat::R10G10B10A2UNorm => {
+                PixelStorage::R10G10B10A2
+            }
+            PixelFormat::R11G11B10F => PixelStorage::R11G11B10,
         }
     }
 }
@@ -701,6 +736,7 @@ pub struct DeviceInterface {
     pub create_accel: unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_accel: unsafe extern "C" fn(Device, Accel),
     pub query: unsafe extern "C" fn(Device, *const c_char) -> *mut c_char,
+    pub pinned_memory_ext: unsafe extern "C" fn(Device) -> PinnedMemoryExt,
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -749,9 +785,35 @@ pub struct BinaryIo {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ByteStream {
+    pub data: *mut c_void,
     pub dtor: unsafe extern "C" fn(*mut ByteStream),
     pub length: unsafe extern "C" fn(*mut ByteStream) -> usize,
     pub pos: unsafe extern "C" fn(*mut ByteStream) -> usize,
     pub read: unsafe extern "C" fn(*mut ByteStream, *mut u8, usize) -> usize,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct PinnedMemoryOption {
+    pub write_combined: bool,
+}
+impl Default for PinnedMemoryOption {
+    fn default() -> Self {
+        Self {
+            write_combined: false,
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct PinnedMemoryExt {
+    pub data: *mut c_void,
+    pub pin_host_memory: unsafe extern "C" fn(
+        *mut PinnedMemoryExt,
+        *const c_void,
+        usize,
+        *mut c_void,
+        &PinnedMemoryOption,
+    ),
+    pub allocate_pinned_memory: unsafe extern "C" fn(*mut PinnedMemoryExt, usize, *mut c_void),
 }
 pub fn __dummy() {}

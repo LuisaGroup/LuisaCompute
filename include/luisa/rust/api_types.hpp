@@ -59,6 +59,16 @@ enum class PixelFormat {
     R32F,
     RG32F,
     RGBA32F,
+    R10G10B10A2U_INT,
+    R10G10B10A2U_NORM,
+    R11G11B10F,
+    BC1U_NORM,
+    BC2U_NORM,
+    BC3U_NORM,
+    BC4U_NORM,
+    BC5U_NORM,
+    BC6HUF16,
+    BC7U_NORM,
 };
 
 enum class PixelStorage {
@@ -77,6 +87,15 @@ enum class PixelStorage {
     FLOAT1,
     FLOAT2,
     FLOAT4,
+    R10G10B10A2,
+    R11G11B10,
+    BC1,
+    BC2,
+    BC3,
+    BC4,
+    BC5,
+    BC6,
+    BC7,
 };
 
 enum class SamplerAddress {
@@ -515,6 +534,16 @@ struct ShaderOption {
 
 using DispatchCallback = void(*)(uint8_t*);
 
+struct PinnedMemoryOption {
+    bool write_combined;
+};
+
+struct PinnedMemoryExt {
+    void *data;
+    void (*pin_host_memory)(PinnedMemoryExt*, const void*, size_t, void*, const PinnedMemoryOption*);
+    void (*allocate_pinned_memory)(PinnedMemoryExt*, size_t, void*);
+};
+
 struct DeviceInterface {
     Device device;
     void (*destroy_device)(DeviceInterface);
@@ -562,6 +591,7 @@ struct DeviceInterface {
     CreatedResourceInfo (*create_accel)(Device, const AccelOption*);
     void (*destroy_accel)(Device, Accel);
     char *(*query)(Device, const char*);
+    PinnedMemoryExt (*pinned_memory_ext)(Device);
 };
 
 struct LoggerMessage {
@@ -580,6 +610,7 @@ struct LibInterface {
 };
 
 struct ByteStream {
+    void *data;
     void (*dtor)(ByteStream*);
     size_t (*length)(ByteStream*);
     size_t (*pos)(ByteStream*);

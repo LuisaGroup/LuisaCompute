@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::proxy::ProxyBackend;
-use api::PixelFormat;
+use api::{PinnedMemoryExt, PixelFormat};
 use libc::{c_char, c_void};
 
 use luisa_compute_api_types as api;
@@ -522,6 +522,9 @@ extern "C" fn compute_warp_size<B: Backend>(device: api::Device) -> u32 {
     let backend: &B = get_backend(device);
     backend.compute_warp_size()
 }
+extern "C" fn pinned_memory_ext<B: Backend>(device: api::Device) -> PinnedMemoryExt {
+    todo!()
+}
 #[inline]
 pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
     let backend = Box::new(backend);
@@ -559,5 +562,6 @@ pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
         create_accel: create_accel::<B>,
         destroy_accel: destroy_accel::<B>,
         query: query::<B>,
+        pinned_memory_ext: pinned_memory_ext::<B>,
     }
 }
