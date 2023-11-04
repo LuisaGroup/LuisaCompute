@@ -432,7 +432,7 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
             }
             printf_fmt.push_str(">");
         }
-        _=>unreachable!()
+        _ => unreachable!(),
     }
     (printf_fmt, printf_args)
 }

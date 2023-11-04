@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     Kernel2D kernel = [&]() noexcept {
         UInt2 coord = dispatch_id().xy();
         $if (coord.x == 1) {
-            device_log("hello {}", coord);
+            device_log("hello {} {}", coord, make_float3x3());
         };
         $if (coord.x == coord.y) {
             Float2 v = make_float2(coord) / make_float2(dispatch_size().xy());

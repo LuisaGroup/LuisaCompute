@@ -73,7 +73,7 @@ public:
                             _offsets.push_back(offset);
                             _primitives.emplace_back(arg->tag());
                         } else if (arg->is_vector()) {
-                            s.push_back('<');
+                            s.push_back('(');
                             commit_s();
                             for (auto i = 0u; i < arg->dimension(); i++) {
                                 self(self, offset, arg->element());
@@ -83,7 +83,7 @@ public:
                                 }
                                 offset += arg->element()->size();
                             }
-                            s.push_back('>');
+                            s.push_back(')');
                             commit_s();
                         } else if (arg->is_array()) {
                             s.push_back('[');
@@ -99,7 +99,7 @@ public:
                             s.push_back(']');
                             commit_s();
                         } else if (arg->is_matrix()) {
-                            s.push_back('(');
+                            s.push_back('<');
                             commit_s();
                             auto column = Type::vector(arg->element(), arg->dimension());
                             for (auto i = 0u; i < arg->dimension(); i++) {
@@ -110,7 +110,7 @@ public:
                                 }
                                 offset += column->size();
                             }
-                            s.push_back(')');
+                            s.push_back('>');
                             commit_s();
                         } else if (arg->is_structure()) {
                             s.push_back('{');
