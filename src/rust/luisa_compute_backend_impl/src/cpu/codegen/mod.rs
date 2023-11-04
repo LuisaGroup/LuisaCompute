@@ -420,7 +420,7 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
                 VectorElementType::Scalar(p) => p,
                 _ => unreachable!(),
             };
-            let pt = context::register_type(Type::Primitive(p));
+            let pt = Type::vector(p, mt.dimension);
             printf_fmt.push_str("<");
             for i in 0..mt.dimension {
                 let (fmt, args) = aggregate_printf(format!("{}[{}]", var, i), &pt);
