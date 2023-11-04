@@ -404,7 +404,7 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
                 _ => unreachable!(),
             };
             let pt = context::register_type(Type::Primitive(p));
-            printf_fmt.push_str("<");
+            printf_fmt.push_str("(");
             for i in 0..v.length {
                 let (fmt, args) = aggregate_printf(format!("{}[{}]", var, i), &pt);
                 printf_fmt.push_str(&fmt);
@@ -413,7 +413,7 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
                     printf_fmt.push_str(", ");
                 }
             }
-            printf_fmt.push_str(">");
+            printf_fmt.push_str(")");
         }
         Type::Matrix(mt) => {
             let p = match mt.element {
@@ -421,7 +421,7 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
                 _ => unreachable!(),
             };
             let pt = context::register_type(Type::Primitive(p));
-            printf_fmt.push_str("(");
+            printf_fmt.push_str("<");
             for i in 0..mt.dimension {
                 let (fmt, args) = aggregate_printf(format!("{}[{}]", var, i), &pt);
                 printf_fmt.push_str(&fmt);
@@ -430,7 +430,7 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
                     printf_fmt.push_str(", ");
                 }
             }
-            printf_fmt.push_str(")");
+            printf_fmt.push_str(">");
         }
         _=>unreachable!()
     }
