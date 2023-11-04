@@ -25,6 +25,18 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 
 namespace luisa::compute::detail {
 
+template<typename Lhs, typename Rhs>
+[[deprecated(
+    "\n\n"
+    "Implicit conversion between floating-point and integral values detected.\n"
+    "LuisaCompute DSL will automatically insert type conversions to make the\n"
+    "code compile, but this is not recommended and could be error prone.\n"
+    "Please consider explicitly casting the operands of the binary operator.\n"
+    "\n")]]
+// empty function to generate a warning
+inline void
+dsl_binary_op_fp_integral_implicit_conversion_detected() noexcept {}
+
 template<BinaryOp op, typename Lhs, typename Rhs>
 constexpr auto// (ret, lhs_cast, rhs_cast)
 dsl_binary_op_return_type_helper() noexcept {
@@ -76,8 +88,10 @@ dsl_binary_op_return_type_helper() noexcept {
                       "or floating-point operands.");
         if constexpr (lhs_is_scalar && rhs_is_scalar) {
             if constexpr (lhs_is_integral && rhs_is_fp) {
+                dsl_binary_op_fp_integral_implicit_conversion_detected<Lhs, Rhs>();
                 return std::make_tuple(rhs, rhs, rhs);
             } else if constexpr (lhs_is_fp && rhs_is_integral) {
+                dsl_binary_op_fp_integral_implicit_conversion_detected<Lhs, Rhs>();
                 return std::make_tuple(lhs, lhs, lhs);
             } else {
                 auto ret = decltype(lhs * rhs){};
@@ -99,8 +113,10 @@ dsl_binary_op_return_type_helper() noexcept {
                          op == BinaryOp::GREATER_EQUAL) {
         if constexpr (lhs_is_scalar && rhs_is_scalar) {
             if constexpr (lhs_is_integral && rhs_is_fp) {
+                dsl_binary_op_fp_integral_implicit_conversion_detected<Lhs, Rhs>();
                 return std::make_tuple(bool{}, rhs, rhs);
             } else if constexpr (lhs_is_fp && rhs_is_integral) {
+                dsl_binary_op_fp_integral_implicit_conversion_detected<Lhs, Rhs>();
                 return std::make_tuple(bool{}, lhs, lhs);
             } else {
                 return std::make_tuple(bool{}, lhs, rhs);
