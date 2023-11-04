@@ -26,7 +26,8 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 namespace luisa::compute::detail {
 
 template<BinaryOp op, typename Lhs, typename Rhs>
-constexpr auto dsl_binary_op_return_type_helper() noexcept {
+constexpr auto// (ret, lhs_cast, rhs_cast)
+dsl_binary_op_return_type_helper() noexcept {
 
     static_assert(!any_dsl_v<Lhs, Rhs>);
 
@@ -73,18 +74,41 @@ constexpr auto dsl_binary_op_return_type_helper() noexcept {
                           (rhs_is_integral || rhs_is_fp),
                       "Arithmetic operator requires integral "
                       "or floating-point operands.");
-        return decltype(lhs * rhs){};
+        if constexpr (lhs_is_scalar && rhs_is_scalar) {
+            if constexpr (lhs_is_integral && rhs_is_fp) {
+                return std::make_tuple(rhs, rhs, rhs);
+            } else if constexpr (lhs_is_fp && rhs_is_integral) {
+                return std::make_tuple(lhs, lhs, lhs);
+            } else {
+                auto ret = decltype(lhs * rhs){};
+                return std::make_tuple(ret, ret, ret);
+            }
+        } else {
+            auto ret = decltype(lhs * rhs){};
+            return std::make_tuple(ret, lhs, rhs);
+        }
     } else if constexpr (op == BinaryOp::MOD) {
         static_assert(lhs_is_integral && rhs_is_integral,
                       "Modulo operator requires integral operands.");
-        return decltype(lhs % rhs){};
+        return std::make_tuple(decltype(lhs % rhs){}, lhs, rhs);
     } else if constexpr (op == BinaryOp::EQUAL ||
                          op == BinaryOp::NOT_EQUAL ||
                          op == BinaryOp::LESS ||
                          op == BinaryOp::LESS_EQUAL ||
                          op == BinaryOp::GREATER ||
                          op == BinaryOp::GREATER_EQUAL) {
-        return decltype(lhs == rhs){};
+        if constexpr (lhs_is_scalar && rhs_is_scalar) {
+            if constexpr (lhs_is_integral && rhs_is_fp) {
+                return std::make_tuple(bool{}, rhs, rhs);
+            } else if constexpr (lhs_is_fp && rhs_is_integral) {
+                return std::make_tuple(bool{}, lhs, lhs);
+            } else {
+                return std::make_tuple(bool{}, lhs, rhs);
+            }
+        } else {
+            auto ret = decltype(lhs == rhs){};
+            return std::make_tuple(ret, lhs, rhs);
+        }
     } else if constexpr (op == BinaryOp::BIT_AND ||
                          op == BinaryOp::BIT_OR ||
                          op == BinaryOp::BIT_XOR) {
@@ -93,48 +117,58 @@ constexpr auto dsl_binary_op_return_type_helper() noexcept {
                            rhs_is_scalar && rhs_is_boolean),
                       "Bitwise operator requires integral or boolean operands.");
         if constexpr (lhs_is_integral) {
-            return decltype(lhs & rhs){};
+            return std::make_tuple(decltype(lhs & rhs){}, lhs, rhs);
         } else {
-            return decltype(lhs && rhs){};
+            return std::make_tuple(decltype(lhs && rhs){}, lhs, rhs);
         }
     } else if constexpr (op == BinaryOp::AND ||
                          op == BinaryOp::OR) {
         static_assert(lhs_is_vector && rhs_is_vector &&
                           lhs_is_boolean && rhs_is_boolean,
                       "Logical operator requires boolean vector operands.");
-        return decltype(lhs && rhs){};
+        return std::make_tuple(decltype(lhs && rhs){}, lhs, rhs);
     } else if constexpr (op == BinaryOp::SHL ||
                          op == BinaryOp::SHR) {
         static_assert(lhs_is_integral && rhs_is_integral,
                       "Shift operator requires integral operands.");
-        return decltype(lhs << rhs){};
+        return std::make_tuple(decltype(lhs << rhs){}, lhs, rhs);
     } else {
         static_assert(always_false_v<Lhs>);
     }
 }
 
-template<BinaryOp op, typename Lhs, typename Rhs>
-using dsl_binary_op_return_type =
-    decltype(dsl_binary_op_return_type_helper<
-             op, expr_value_t<Lhs>, expr_value_t<Rhs>>());
-
 }// namespace luisa::compute::detail
 
 /// Define global binary operation of dsl objects
-#define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                              \
-    template<typename Lhs, typename Rhs>                                              \
-        requires luisa::compute::any_dsl_v<Lhs, Rhs> &&                               \
-                 luisa::is_basic_v<luisa::compute::expr_value_t<Lhs>> &&              \
-                 luisa::is_basic_v<luisa::compute::expr_value_t<Rhs>>                 \
-    [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {            \
-        using R = luisa::compute::detail::dsl_binary_op_return_type<                  \
-            luisa::compute::BinaryOp::op_tag_name, Lhs, Rhs>;                         \
-        return luisa::compute::dsl::def<R>(                                           \
-            luisa::compute::detail::FunctionBuilder::current()->binary(               \
-                luisa::compute::Type::of<R>(),                                        \
-                luisa::compute::BinaryOp::op_tag_name,                                \
-                luisa::compute::detail::extract_expression(std::forward<Lhs>(lhs)),   \
-                luisa::compute::detail::extract_expression(std::forward<Rhs>(rhs)))); \
+#define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                                     \
+    template<typename LhsT, typename RhsT>                                                   \
+        requires luisa::compute::any_dsl_v<LhsT, RhsT> &&                                    \
+                 luisa::is_basic_v<luisa::compute::expr_value_t<LhsT>> &&                    \
+                 luisa::is_basic_v<luisa::compute::expr_value_t<RhsT>>                       \
+    [[nodiscard]] inline auto operator op(LhsT &&lhs, RhsT &&rhs) noexcept {                 \
+        using Lhs = luisa::compute::expr_value_t<LhsT>;                                      \
+        using Rhs = luisa::compute::expr_value_t<RhsT>;                                      \
+        auto [ret, lhs_cast, rhs_cast] =                                                     \
+            luisa::compute::detail::dsl_binary_op_return_type_helper<                        \
+                luisa::compute::BinaryOp::op_tag_name, Lhs, Rhs>();                          \
+        using Ret = decltype(ret);                                                           \
+        using LhsCast = decltype(lhs_cast);                                                  \
+        using RhsCast = decltype(rhs_cast);                                                  \
+        auto lhs_expr = luisa::compute::detail::extract_expression(std::forward<LhsT>(lhs)); \
+        auto rhs_expr = luisa::compute::detail::extract_expression(std::forward<RhsT>(rhs)); \
+        auto fb = luisa::compute::detail::FunctionBuilder::current();                        \
+        if constexpr (!std::is_same_v<LhsCast, Lhs>) {                                       \
+            lhs_expr = fb->cast(luisa::compute::Type::of<LhsCast>(),                         \
+                                luisa::compute::CastOp::STATIC, lhs_expr);                   \
+        }                                                                                    \
+        if constexpr (!std::is_same_v<RhsCast, Rhs>) {                                       \
+            rhs_expr = fb->cast(luisa::compute::Type::of<RhsCast>(),                         \
+                                luisa::compute::CastOp::STATIC, rhs_expr);                   \
+        }                                                                                    \
+        return luisa::compute::dsl::def<Ret>(fb->binary(                                     \
+            luisa::compute::Type::of<Ret>(),                                                 \
+            luisa::compute::BinaryOp::op_tag_name,                                           \
+            lhs_expr, rhs_expr));                                                            \
     }
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(+, ADD)
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(-, SUB)
