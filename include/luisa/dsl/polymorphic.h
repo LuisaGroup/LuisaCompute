@@ -45,13 +45,11 @@ public:
             detail::polymorphic_warning_no_implementation_registered();
         }
         if (_impl.size() == 1u) {
-            outline([&] { f(impl(0u)); });
+            f(impl(0u));
         } else {
             detail::SwitchStmtBuilder{std::forward<Tag>(tag)} % [&] {
                 for (auto i = 0u; i < _impl.size(); i++) {
-                    detail::SwitchCaseStmtBuilder{i} % [&f, this, i] {
-                        outline([&] { f(impl(i)); });
-                    };
+                    detail::SwitchCaseStmtBuilder{i} % [&f, this, i] { f(impl(i)); };
                 }
                 detail::SwitchDefaultStmtBuilder{} %
                     [] { unreachable(); };
@@ -75,13 +73,11 @@ public:
             detail::polymorphic_warning_empty_tag_range(lo, hi);
         }
         if (hi == lo + 1u) {// only one implementation
-            outline([&] { f(impl(lo)); });
+            f(impl(lo));
         } else {
             detail::SwitchStmtBuilder{std::forward<Tag>(tag)} % [&] {
                 for (auto i = lo; i < hi; i++) {
-                    detail::SwitchCaseStmtBuilder{i} % [&f, this, i] {
-                        outline([&] { f(impl(i)); });
-                    };
+                    detail::SwitchCaseStmtBuilder{i} % [&f, this, i] { f(impl(i)); };
                 }
                 detail::SwitchDefaultStmtBuilder{} %
                     [] { unreachable(); };
@@ -112,13 +108,11 @@ public:
         }
         LUISA_ASSERT(group.size() > 0, "Empty polymorphic tag group.");
         if (tags.size() == 1u) {
-            outline([&] { f(impl(tags.front())); });
+            f(impl(tags.front()));
         } else {
             detail::SwitchStmtBuilder{std::forward<Tag>(tag)} % [&] {
                 for (auto t : tags) {
-                    detail::SwitchCaseStmtBuilder{t} % [&f, this, t] {
-                        outline([&] { f(impl(t)); });
-                    };
+                    detail::SwitchCaseStmtBuilder{t} % [&f, this, t] { f(impl(t)); };
                 }
                 detail::SwitchDefaultStmtBuilder{} %
                     [] { unreachable(); };
