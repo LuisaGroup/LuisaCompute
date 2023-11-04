@@ -28,7 +28,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
             /Zc:preprocessor
             /Zc:__cplusplus)
 elseif (MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(luisa-compute-include INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:/EHsc>)
+    target_compile_options(luisa-compute-include INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
             -Wno-invalid-offsetof
