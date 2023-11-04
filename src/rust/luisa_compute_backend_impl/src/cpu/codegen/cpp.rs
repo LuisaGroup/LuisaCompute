@@ -1825,7 +1825,7 @@ impl<'a> FunctionEmitter<'a> {
         self.write_ident();
         writeln!(
             &mut self.body,
-            "lc_printf(\"{}\\n\"{});",
+            "char print_buf[1024]; snprintf(print_buf, 1024, \"{}\"{}); device_log(print_buf);",
             printf_fmt.escape_default(),
             printf_args
         )

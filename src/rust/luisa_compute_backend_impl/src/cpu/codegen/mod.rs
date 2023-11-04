@@ -362,15 +362,15 @@ fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
                 write!(printf_args, ",static_cast<lc_ulong>({})", var).unwrap();
             }
             Primitive::Float16 => {
-                printf_fmt.push_str("%f");
+                printf_fmt.push_str("%g");
                 write!(printf_args, ",static_cast<float>({})", var).unwrap();
             }
             Primitive::Float32 => {
-                printf_fmt.push_str("%f");
+                printf_fmt.push_str("%g");
                 write!(printf_args, ",static_cast<float>({})", var).unwrap();
             }
             Primitive::Float64 => {
-                printf_fmt.push_str("%f");
+                printf_fmt.push_str("%g");
                 write!(printf_args, ",static_cast<double>({})", var).unwrap();
             }
         },
