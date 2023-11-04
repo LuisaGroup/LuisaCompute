@@ -1,9 +1,12 @@
-//
-// Created by Mike Smith on 2021/2/27.
-//
+/**
+ * @file test/feat/ast/test_calc.cpp
+ * @author sailing-innocent 
+ * @date 2023/08/04 based on by Mike Smith version on 2021/2/27.
+ * @brief the calculation in ast shaders
+*/
 
 #include "common/config.h"
-
+#include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/dsl/sugar.h>
@@ -11,6 +14,7 @@
 using namespace luisa;
 using namespace luisa::compute;
 namespace luisa::test {
+
 int test_ast(Device &device) {
     Stream stream = device.create_stream();
     // CHECK(Type::of<Buffer<int>>()->description() == doctest::Contains("buffer<int>"));
