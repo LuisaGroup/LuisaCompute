@@ -25,7 +25,7 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 
 namespace luisa::compute::detail {
 
-template<typename Lhs, typename Rhs>
+template<typename, typename>// for better warning messages
 [[deprecated(
     "\n\n"
     "Implicit conversion between floating-point and integral values detected.\n"
