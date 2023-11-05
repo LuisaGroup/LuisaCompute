@@ -660,9 +660,8 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                         input.prefilter_mode = DenoiserExt::PrefilterMode::ACCURATE;
                         break;
                     default:
-                        LUISA_ERROR_WITH_LOCATION("Invalid prefilter mode {}.", c_input->prefilter_mode);
+                        LUISA_ERROR_WITH_LOCATION("Invalid prefilter mode {}.", (int)c_input->prefilter_mode);
                 }
-                luisa::vector<DenoiserExt::Image> inputs{}, outputs{};
                 auto convert_format = [](LCImageFormat fmt)->DenoiserExt::ImageFormat {
                     switch(fmt){
                         case LC_IMAGE_FORMAT_FLOAT1:
@@ -711,16 +710,14 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                     };
                 };
                 for(auto i =0;i<c_input->inputs_count;i++) {
-                    inputs.push_back(convert_img(c_input->inputs[i]));
-                    outputs.push_back(convert_img(c_input->outputs[i]));
+                    input.inputs.push_back(convert_img(c_input->inputs[i]));
+                    input.outputs.push_back(convert_img(c_input->outputs[i]));
                 }
-                input.inputs = luisa::span{inputs.begin(), inputs.end()};
-                input.outputs = luisa::span{outputs.begin(), outputs.end()};
-                luisa::vector<DenoiserExt::Feature> features{};
+
                 for(auto i = 0;i<c_input->features_count;i++) {
                     auto &f = c_input->features[i];
-                    features.push_back(DenoiserExt::Feature{
-                        .name = luisa::string_view{f.name, f.name_len},
+                   input.features.push_back(DenoiserExt::Feature{
+                        .name = luisa::string{luisa::string_view{f.name, f.name_len}},
                        .image = convert_img(f.image),
                     });
                 }

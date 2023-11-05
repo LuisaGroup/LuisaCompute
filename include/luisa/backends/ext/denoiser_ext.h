@@ -46,15 +46,15 @@ public:
         float input_scale = 1.0f;
     };
     struct Feature {
-        luisa::string_view name;
+        luisa::string name;
         Image image;
     };
 
     struct DenoiserInput {
-        luisa::span<const Image> inputs;
-        luisa::span<const Image> outputs;
+        luisa::vector<Image> inputs;
+        luisa::vector<Image> outputs;
         // if prefilter is enabled, the feature images might be prefiltered **in-place**
-        luisa::span<const Feature> features;
+        luisa::vector<Feature> features;
         PrefilterMode prefilter_mode = PrefilterMode::NONE;
         bool noisy_features = false;
         uint32_t width = 0u;

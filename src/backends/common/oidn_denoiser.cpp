@@ -108,29 +108,37 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
     }
 }
 void OidnDenoiser::execute(bool async) noexcept {
+    static std::thread oidn_thread;
     auto lock = std::unique_lock{_mutex};
     auto cmd_list = CommandList{};
-    if (_albedo_prefilter) _albedo_prefilter.executeAsync();
-    if (_normal_prefilter) _normal_prefilter.executeAsync();
-    for (auto &f : _filters) {
-        f.executeAsync();
-    }
-    if (!async) {
-        _oidn_device.sync();
-    } else {
-        if (!_is_cpu) {
+    auto exec = [&] {
+        if (_albedo_prefilter) _albedo_prefilter.executeAsync();
+        if (_normal_prefilter) _normal_prefilter.executeAsync();
+        for (auto &f : _filters) {
+            f.executeAsync();
+        }
+    };
 
-            cmd_list.add_callback([lock = std::move(lock), this]() mutable {
-                lock.release();
-            });
-            _device->dispatch(_stream, std::move(cmd_list));
+    if (!_is_cpu) {
+        exec();
+        if (!async) {
+            _oidn_device.sync();
         } else {
             cmd_list.add_callback([lock = std::move(lock), this]() mutable {
-                _oidn_device.sync();
                 lock.release();
             });
             _device->dispatch(_stream, std::move(cmd_list));
         }
+    } else {
+        // On cpu, oidn does not execute in stream
+        // More over, oidn does not support async execution on cpu
+        // We execute oidn in callback just to block further stream operation until oidn finishes
+        cmd_list.add_callback([lock = std::move(lock), this, exec = std::move(exec)]() mutable {
+            exec();
+            _oidn_device.sync();
+            lock.release();
+        });
+        _device->dispatch(_stream, std::move(cmd_list));
     }
 }
 

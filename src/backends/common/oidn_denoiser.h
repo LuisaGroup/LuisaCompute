@@ -8,7 +8,7 @@
 
 namespace luisa::compute {
 
-class LC_BACKEND_API OidnDenoiser : public DenoiserExt::Denoiser {
+class OidnDenoiser : public DenoiserExt::Denoiser {
 protected:
     DeviceInterface *_device;
     oidn::DeviceRef _oidn_device;
