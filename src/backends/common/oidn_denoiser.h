@@ -1,3 +1,5 @@
+#pragma once
+#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
 #include <luisa/backends/ext/denoiser_ext.h>
 #include <OpenImageDenoise/oidn.hpp>
 #include <mutex>
@@ -19,3 +21,4 @@ public:
     ~OidnDenoiser() noexcept override = default;
 };
 }// namespace luisa::compute
+#endif

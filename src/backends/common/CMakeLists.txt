@@ -18,7 +18,7 @@ if(oidn_DOWNLOAD_URL)
     message(STATUS "OpenImageDenoise downloaded to ${openimagedenoise_SOURCE_DIR}")
     set(OpenImageDenoise_DIR ${openimagedenoise_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.1.0)
     find_package(OpenImageDenoise REQUIRED)
-    add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
+    add_library(luisa-compute-oidn-ext SHARED oidn_denoiser.cpp)
     target_link_libraries(luisa-compute-oidn-ext PUBLIC luisa-compute-runtime OpenImageDenoise)
     install(TARGETS luisa-compute-oidn-ext EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

@@ -19,6 +19,7 @@ using luisa::compute::ir::Type;
 
 // must go last to avoid name conflicts
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/backends/ext/denoiser_ext.h>
 
 #include "oidn_denoiser.h"
 
@@ -383,6 +384,7 @@ public:
         LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 };
+#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
 class CpuOidnDenoiserExt : public DenoiserExt {
     DeviceInterface *_device;
 public:
@@ -392,6 +394,7 @@ public:
         return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(), true);
     }
 };
+#endif
 
 // @Mike-Leo-Smith: fill-in the blanks pls
 class RustDevice final : public DeviceInterface {
@@ -402,7 +405,9 @@ class RustDevice final : public DeviceInterface {
     api::LibInterface (*luisa_compute_lib_interface)();
 
     api::Context api_ctx{};
+#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
     CpuOidnDenoiserExt _oidn_denoiser_ext;
+#endif
 
 public:
     ~RustDevice() noexcept override {
@@ -412,7 +417,12 @@ public:
 
     RustDevice(Context &&ctx, luisa::filesystem::path runtime_path, string_view name) noexcept
         : DeviceInterface(std::move(ctx)),
-          runtime_path(std::move(runtime_path)), _oidn_denoiser_ext(this) {
+          runtime_path(std::move(runtime_path))
+#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
+          ,
+          _oidn_denoiser_ext(this)
+#endif
+    {
         dll = DynamicModule::load(this->runtime_path, "luisa_compute_backend_impl");
         luisa_compute_lib_interface = dll.function<api::LibInterface()>("luisa_compute_lib_interface");
         lib = luisa_compute_lib_interface();
@@ -662,7 +672,11 @@ public:
     }
     DeviceExtension *extension(luisa::string_view name) noexcept {
         if (name == DenoiserExt::name) {
+#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
             return &_oidn_denoiser_ext;
+#else
+            return nullptr;
+#endif
         } else {
             return nullptr;
         }
