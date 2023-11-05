@@ -737,6 +737,7 @@ pub struct DeviceInterface {
     pub destroy_accel: unsafe extern "C" fn(Device, Accel),
     pub query: unsafe extern "C" fn(Device, *const c_char) -> *mut c_char,
     pub pinned_memory_ext: unsafe extern "C" fn(Device) -> PinnedMemoryExt,
+    pub denoiser_ext: unsafe extern "C" fn(Device) -> DenoiserExt,
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -816,4 +817,83 @@ pub struct PinnedMemoryExt {
     ),
     pub allocate_pinned_memory: unsafe extern "C" fn(*mut PinnedMemoryExt, usize, *mut c_void),
 }
+pub mod denoiser_ext {
+    #[repr(C)]
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum ImageColorSpace {
+        Hdr,
+        LdrLinear,
+        LdrSrgb,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum PrefilterMode {
+        None,
+        Fast,
+        Accurate,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum ImageFormat {
+        Float1,
+        Float2,
+        Float3,
+        Float4,
+        Half1,
+        Half2,
+        Half3,
+        Half4,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct Image {
+        pub format: ImageFormat,
+        pub buffer_handle: u64,
+        pub device_ptr: *mut std::ffi::c_void,
+        pub offset: usize,
+        pub size_bytes: usize,
+        pub color_space: ImageColorSpace,
+        pub input_scale: f32,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct Feature {
+        pub name: *const std::ffi::c_char,
+        pub name_size: usize,
+        pub image: Image,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct DenoiserInput {
+        pub inputs: *const Image,
+        pub inputs_count: usize,
+        pub outputs: *const Image,
+        pub features: *const Feature,
+        pub features_count: usize,
+        pub prefilter_mode: PrefilterMode,
+        pub noisy_features: bool,
+        pub width: u32,
+        pub height: u32,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct Denoiser {
+        _unused: [u8; 0],
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct DenoiserExt {
+        pub data: *mut std::ffi::c_void,
+        pub create: unsafe extern "C" fn(*mut DenoiserExt, stream: u64) -> *mut Denoiser,
+        pub init: unsafe extern "C" fn(*mut DenoiserExt, *mut Denoiser, &DenoiserInput),
+        pub execute: unsafe extern "C" fn(*mut DenoiserExt, *mut Denoiser, bool),
+        pub destroy: unsafe extern "C" fn(*mut DenoiserExt, *mut Denoiser),
+    }
+    impl DenoiserExt {
+        pub fn valid(&self) -> bool {
+            self.data != std::ptr::null_mut()
+        }
+    }
+}
+pub use denoiser_ext::DenoiserExt;
 pub fn __dummy() {}

@@ -391,7 +391,7 @@ public:
     explicit CpuOidnDenoiserExt(DeviceInterface *device) noexcept
         : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
-        return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(), true);
+        return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(), stream, true);
     }
 };
 #endif

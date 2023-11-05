@@ -25,6 +25,23 @@ typedef enum LCBindlessArrayUpdateOperation {
     LC_BINDLESS_ARRAY_UPDATE_OPERATION_REMOVE,
 } LCBindlessArrayUpdateOperation;
 
+typedef enum LCImageColorSpace {
+    LC_IMAGE_COLOR_SPACE_HDR,
+    LC_IMAGE_COLOR_SPACE_LDR_LINEAR,
+    LC_IMAGE_COLOR_SPACE_LDR_SRGB,
+} LCImageColorSpace;
+
+typedef enum LCImageFormat {
+    LC_IMAGE_FORMAT_FLOAT1,
+    LC_IMAGE_FORMAT_FLOAT2,
+    LC_IMAGE_FORMAT_FLOAT3,
+    LC_IMAGE_FORMAT_FLOAT4,
+    LC_IMAGE_FORMAT_HALF1,
+    LC_IMAGE_FORMAT_HALF2,
+    LC_IMAGE_FORMAT_HALF3,
+    LC_IMAGE_FORMAT_HALF4,
+} LCImageFormat;
+
 typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R8_SINT,
     LC_PIXEL_FORMAT_R8_UINT,
@@ -94,6 +111,12 @@ typedef enum LCPixelStorage {
     LC_PIXEL_STORAGE_BC6,
     LC_PIXEL_STORAGE_BC7,
 } LCPixelStorage;
+
+typedef enum LCPrefilterMode {
+    LC_PREFILTER_MODE_NONE,
+    LC_PREFILTER_MODE_FAST,
+    LC_PREFILTER_MODE_ACCURATE,
+} LCPrefilterMode;
 
 typedef enum LCSamplerAddress {
     LC_SAMPLER_ADDRESS_EDGE,
@@ -481,6 +504,46 @@ typedef struct LCPinnedMemoryExt {
     void (*allocate_pinned_memory)(struct LCPinnedMemoryExt*, size_t, void*);
 } LCPinnedMemoryExt;
 
+typedef struct LCDenoiser {
+    uint8_t _unused[0];
+} LCDenoiser;
+
+typedef struct LCImage {
+    enum LCImageFormat format;
+    uint64_t buffer_handle;
+    void *device_ptr;
+    size_t offset;
+    size_t size_bytes;
+    enum LCImageColorSpace color_space;
+    float input_scale;
+} LCImage;
+
+typedef struct LCFeature {
+    const char *name;
+    size_t name_size;
+    struct LCImage image;
+} LCFeature;
+
+typedef struct LCDenoiserInput {
+    const struct LCImage *inputs;
+    size_t inputs_count;
+    const struct LCImage *outputs;
+    const struct LCFeature *features;
+    size_t features_count;
+    enum LCPrefilterMode prefilter_mode;
+    bool noisy_features;
+    uint32_t width;
+    uint32_t height;
+} LCDenoiserInput;
+
+typedef struct LCDenoiserExt {
+    void *data;
+    struct LCDenoiser *(*create)(struct LCDenoiserExt*, uint64_t stream);
+    void (*init)(struct LCDenoiserExt*, struct LCDenoiser*, const struct LCDenoiserInput*);
+    void (*execute)(struct LCDenoiserExt*, struct LCDenoiser*, bool);
+    void (*destroy)(struct LCDenoiserExt*, struct LCDenoiser*);
+} LCDenoiserExt;
+
 typedef struct LCDeviceInterface {
     struct LCDevice device;
     void (*destroy_device)(struct LCDeviceInterface);
@@ -539,6 +602,7 @@ typedef struct LCDeviceInterface {
     void (*destroy_accel)(struct LCDevice, struct LCAccel);
     char *(*query)(struct LCDevice, const char*);
     struct LCPinnedMemoryExt (*pinned_memory_ext)(struct LCDevice);
+    struct LCDenoiserExt (*denoiser_ext)(struct LCDevice);
 } LCDeviceInterface;
 
 typedef struct LCLoggerMessage {

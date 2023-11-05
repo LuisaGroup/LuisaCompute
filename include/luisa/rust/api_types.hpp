@@ -28,6 +28,23 @@ enum class BindlessArrayUpdateOperation {
     REMOVE,
 };
 
+enum class ImageColorSpace {
+    HDR,
+    LDR_LINEAR,
+    LDR_SRGB,
+};
+
+enum class ImageFormat {
+    FLOAT1,
+    FLOAT2,
+    FLOAT3,
+    FLOAT4,
+    HALF1,
+    HALF2,
+    HALF3,
+    HALF4,
+};
+
 enum class PixelFormat {
     R8_SINT,
     R8_UINT,
@@ -96,6 +113,12 @@ enum class PixelStorage {
     BC5,
     BC6,
     BC7,
+};
+
+enum class PrefilterMode {
+    NONE,
+    FAST,
+    ACCURATE,
 };
 
 enum class SamplerAddress {
@@ -544,6 +567,46 @@ struct PinnedMemoryExt {
     void (*allocate_pinned_memory)(PinnedMemoryExt*, size_t, void*);
 };
 
+struct Denoiser {
+    uint8_t _unused[0];
+};
+
+struct Image {
+    ImageFormat format;
+    uint64_t buffer_handle;
+    void *device_ptr;
+    size_t offset;
+    size_t size_bytes;
+    ImageColorSpace color_space;
+    float input_scale;
+};
+
+struct Feature {
+    const char *name;
+    size_t name_size;
+    Image image;
+};
+
+struct DenoiserInput {
+    const Image *inputs;
+    size_t inputs_count;
+    const Image *outputs;
+    const Feature *features;
+    size_t features_count;
+    PrefilterMode prefilter_mode;
+    bool noisy_features;
+    uint32_t width;
+    uint32_t height;
+};
+
+struct DenoiserExt {
+    void *data;
+    Denoiser *(*create)(DenoiserExt*, uint64_t stream);
+    void (*init)(DenoiserExt*, Denoiser*, const DenoiserInput*);
+    void (*execute)(DenoiserExt*, Denoiser*, bool);
+    void (*destroy)(DenoiserExt*, Denoiser*);
+};
+
 struct DeviceInterface {
     Device device;
     void (*destroy_device)(DeviceInterface);
@@ -592,6 +655,7 @@ struct DeviceInterface {
     void (*destroy_accel)(Device, Accel);
     char *(*query)(Device, const char*);
     PinnedMemoryExt (*pinned_memory_ext)(Device);
+    DenoiserExt (*denoiser_ext)(Device);
 };
 
 struct LoggerMessage {

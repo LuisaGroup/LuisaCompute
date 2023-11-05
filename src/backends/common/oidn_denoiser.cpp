@@ -1,8 +1,8 @@
 #include "oidn_denoiser.h"
 #include <luisa/core/logging.h>
 namespace luisa::compute {
-OidnDenoiser::OidnDenoiser(DeviceInterface *device, oidn::DeviceRef &&oidn_device, bool is_cpu) noexcept
-    : _device(device), _oidn_device(std::move(oidn_device)), _is_cpu(is_cpu) {
+OidnDenoiser::OidnDenoiser(DeviceInterface *device, oidn::DeviceRef &&oidn_device, uint64_t stream, bool is_cpu) noexcept
+    : _device(device), _oidn_device(std::move(oidn_device)), _stream(stream), _is_cpu(is_cpu) {
     _oidn_device.setErrorFunction([](void *, oidn::Error err, const char *message) noexcept {
         switch (err) {
             case oidn::Error::None:
@@ -107,7 +107,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
         _filters.emplace_back(std::move(filter));
     }
 }
-void OidnDenoiser::execute(uint64_t stream_handle, bool async) noexcept {
+void OidnDenoiser::execute(bool async) noexcept {
     auto lock = std::unique_lock{_mutex};
     auto cmd_list = CommandList{};
     if (_albedo_prefilter) _albedo_prefilter.executeAsync();
@@ -120,16 +120,16 @@ void OidnDenoiser::execute(uint64_t stream_handle, bool async) noexcept {
     } else {
         if (!_is_cpu) {
 
-            cmd_list.add_callback([lock = std::move(lock), this, stream_handle]() mutable {
+            cmd_list.add_callback([lock = std::move(lock), this]() mutable {
                 lock.release();
             });
-            _device->dispatch(stream_handle, std::move(cmd_list));
+            _device->dispatch(_stream, std::move(cmd_list));
         } else {
-            cmd_list.add_callback([lock = std::move(lock), this, stream_handle]() mutable {
+            cmd_list.add_callback([lock = std::move(lock), this]() mutable {
                 _oidn_device.sync();
                 lock.release();
             });
-            _device->dispatch(stream_handle, std::move(cmd_list));
+            _device->dispatch(_stream, std::move(cmd_list));
         }
     }
 }

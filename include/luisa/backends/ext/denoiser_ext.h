@@ -63,7 +63,7 @@ public:
     class Denoiser : public luisa::enable_shared_from_this<Denoiser> {
     public:
         virtual void init(const DenoiserInput &input) noexcept = 0;
-        virtual void execute(uint64_t stream_handle, bool async = true) noexcept = 0;
+        virtual void execute(bool async = true) noexcept = 0;
         virtual ~Denoiser() noexcept = default;
     };
 };

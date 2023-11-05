@@ -461,6 +461,9 @@ impl Backend for RustBackend {
             _ => None,
         }
     }
+    fn denoiser_ext(&self) -> api::DenoiserExt {
+        unreachable!("implemented in c++")
+    }
 }
 impl RustBackend {
     pub fn new() -> Self {
