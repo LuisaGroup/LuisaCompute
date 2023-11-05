@@ -32,7 +32,6 @@ int test_shared_mem(Device &device) {
         (*s_data)[thread_idx] = static_cast<$int>(thread_idx);
         sync_block();
         arr->write(idx, (*s_data)[thread_idx]);
-        sync_block();
     };
     auto test_shader = device.compile(test_kernel);
     auto stream = device.create_stream();

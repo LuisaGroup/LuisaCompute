@@ -10,6 +10,8 @@ class DCUB_API DeviceRadixSort {
 public:
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
