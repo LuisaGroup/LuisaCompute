@@ -1,12 +1,17 @@
 # OIDN Denoiser Extension
-set (oidn_DOWNLOAD_VERSION 2.1.0)
+set(oidn_DOWNLOAD_VERSION 2.1.0)
 if (WIN32)
     set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x64.windows.zip")
 elseif (UNIX AND NOT APPLE)
     set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
 elseif (APPLE)
-    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.macos.tar.gz")
-    message(STATUS "OpenImageDenoise not available on Apple Silicon")
+    if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
+            CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+        set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.macos.tar.gz")
+    else ()
+        set(oidn_DOWNLOAD_URL "")
+        message(STATUS "OpenImageDenoise not available on Apple Silicon")
+    endif ()
 endif ()
 
 # TODO: Mike fix Apple Silicon pls
