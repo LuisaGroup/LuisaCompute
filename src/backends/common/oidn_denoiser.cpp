@@ -68,16 +68,16 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 LUISA_ASSERT(!has_albedo, "Albedo feature already set.");
                 LUISA_ASSERT(!_albedo_prefilter, "Albedo prefilter already set.");
                 _albedo_prefilter = _oidn_device.newFilter("RT");
-                _albedo_prefilter.setImage("color", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height);
-                _albedo_prefilter.setImage("output", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height);
+                _albedo_prefilter.setImage("color", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height, 0, f.image.pixel_stride, f.image.row_stride);
+                _albedo_prefilter.setImage("output", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height, 0, f.image.pixel_stride, f.image.row_stride);
                 _albedo_prefilter.commit();
                 has_albedo = true;
             } else if (f.name == "normal") {
                 LUISA_ASSERT(!has_normal, "Normal feature already set.");
                 LUISA_ASSERT(!_normal_prefilter, "Normal prefilter already set.");
                 _normal_prefilter = _oidn_device.newFilter("RT");
-                _normal_prefilter.setImage("color", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height);
-                _normal_prefilter.setImage("output", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height);
+                _normal_prefilter.setImage("color", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height, 0, f.image.pixel_stride, f.image.row_stride);
+                _normal_prefilter.setImage("output", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height, 0, f.image.pixel_stride, f.image.row_stride);
                 _normal_prefilter.commit();
                 has_normal = true;
             } else {
@@ -90,13 +90,13 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
         auto filter = _oidn_device.newFilter("RT");
         auto &in = input.inputs[i];
         auto &out = input.outputs[i];
-        filter.setImage("color", get_shared_buffer(in), get_format(in.format), input.width, input.height);
-        filter.setImage("output", get_shared_buffer(out), get_format(out.format), input.width, input.height);
+        filter.setImage("color", get_shared_buffer(in), get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
+        filter.setImage("output", get_shared_buffer(out), get_format(out.format), input.width, input.height, 0, out.pixel_stride, out.row_stride);
         if (has_albedo) {
-            filter.setImage("albedo", get_shared_buffer(in), get_format(in.format), input.width, input.height);
+            filter.setImage("albedo", get_shared_buffer(in), get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
         }
         if (has_normal) {
-            filter.setImage("normal", get_shared_buffer(in), get_format(in.format), input.width, input.height);
+            filter.setImage("normal", get_shared_buffer(in), get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
         }
         set_filter_properties(filter, in);
 

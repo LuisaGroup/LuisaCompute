@@ -576,6 +576,8 @@ struct Image {
     uint64_t buffer_handle;
     void *device_ptr;
     size_t offset;
+    size_t pixel_stride;
+    size_t row_stride;
     size_t size_bytes;
     ImageColorSpace color_space;
     float input_scale;
@@ -583,7 +585,7 @@ struct Image {
 
 struct Feature {
     const char *name;
-    size_t name_size;
+    size_t name_len;
     Image image;
 };
 

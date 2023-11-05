@@ -844,6 +844,21 @@ pub mod denoiser_ext {
         Half3,
         Half4,
     }
+    impl ImageFormat {
+        #[inline]
+        pub fn size(&self) -> usize {
+            match self {
+                ImageFormat::Float1 => 4,
+                ImageFormat::Float2 => 8,
+                ImageFormat::Float3 => 12,
+                ImageFormat::Float4 => 16,
+                ImageFormat::Half1 => 2,
+                ImageFormat::Half2 => 4,
+                ImageFormat::Half3 => 6,
+                ImageFormat::Half4 => 8,
+            }
+        }
+    }
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct Image {
@@ -851,6 +866,8 @@ pub mod denoiser_ext {
         pub buffer_handle: u64,
         pub device_ptr: *mut std::ffi::c_void,
         pub offset: usize,
+        pub pixel_stride: usize,
+        pub row_stride: usize,
         pub size_bytes: usize,
         pub color_space: ImageColorSpace,
         pub input_scale: f32,
@@ -859,7 +876,7 @@ pub mod denoiser_ext {
     #[derive(Copy, Clone)]
     pub struct Feature {
         pub name: *const std::ffi::c_char,
-        pub name_size: usize,
+        pub name_len: usize,
         pub image: Image,
     }
     #[repr(C)]

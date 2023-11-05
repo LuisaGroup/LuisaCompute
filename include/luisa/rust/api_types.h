@@ -513,6 +513,8 @@ typedef struct LCImage {
     uint64_t buffer_handle;
     void *device_ptr;
     size_t offset;
+    size_t pixel_stride;
+    size_t row_stride;
     size_t size_bytes;
     enum LCImageColorSpace color_space;
     float input_scale;
@@ -520,7 +522,7 @@ typedef struct LCImage {
 
 typedef struct LCFeature {
     const char *name;
-    size_t name_size;
+    size_t name_len;
     struct LCImage image;
 } LCFeature;
 

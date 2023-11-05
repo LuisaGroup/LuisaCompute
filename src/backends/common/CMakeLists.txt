@@ -29,13 +29,13 @@ if (oidn_DOWNLOAD_URL)
     file(GLOB oidn_RUNTIME_LIBS
             "${openimagedenoise_SOURCE_DIR}/bin/*.dll"
             "${openimagedenoise_SOURCE_DIR}/bin/*.so")
-    message(STATUS "OpenImageDenoise runtime libs: ${oidn_RUNTIME_LIBS}")
+    # message(STATUS "OpenImageDenoise runtime libs: ${oidn_RUNTIME_LIBS}")
     # copy the OpenImageDenoise dll to the output directory
     foreach (oidn_RUNTIME_LIB ${oidn_RUNTIME_LIBS})
         add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${oidn_RUNTIME_LIB}"
-                "$<TARGET_FILE_DIR:luisa-compute-oidn-ext>")
+                "$<TARGET_FILE_DIR:luisa-compute-core>")
     endforeach ()
     install(TARGETS luisa-compute-oidn-ext EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

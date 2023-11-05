@@ -39,6 +39,8 @@ public:
         uint64_t buffer_handle = -1;
         void *device_ptr = nullptr;
         size_t offset{};
+        size_t pixel_stride{};
+        size_t row_stride{};
         size_t size_bytes{};
         ImageColorSpace color_space = ImageColorSpace::HDR;
         float input_scale = 1.0f;
