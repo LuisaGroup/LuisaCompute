@@ -1,15 +1,16 @@
 # OIDN Denoiser Extension
-if(WIN32)
-    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v2.1.0/oidn-2.1.0.x64.windows.zip")
-elseif(UNIX AND NOT APPLE)
-    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v2.1.0/oidn-2.1.0.x86_64.linux.tar.gz")
-else()
-    set(oidn_DOWNLOAD_URL "")
+set (oidn_DOWNLOAD_VERSION 2.1.0)
+if (WIN32)
+    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x64.windows.zip")
+elseif (UNIX AND NOT APPLE)
+    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
+elseif (APPLE)
+    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.macos.tar.gz")
     message(STATUS "OpenImageDenoise not available on Apple Silicon")
-endif()
+endif ()
 
 # TODO: Mike fix Apple Silicon pls
-if(oidn_DOWNLOAD_URL)
+if (oidn_DOWNLOAD_URL)
     message(STATUS "Downloading OpenImageDenoise from ${oidn_DOWNLOAD_URL}")
   
     include(FetchContent)
@@ -18,30 +19,34 @@ if(oidn_DOWNLOAD_URL)
     FetchContent_GetProperties(OpenImageDenoise)
     # message(STATUS "openimagedenoise_BINARY_DIR: ${openimagedenoise_BINARY_DIR}")
     message(STATUS "OpenImageDenoise downloaded to ${openimagedenoise_SOURCE_DIR}")
-    set(OpenImageDenoise_DIR ${openimagedenoise_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.1.0)
-    find_package(OpenImageDenoise REQUIRED)
+    list(APPEND CMAKE_PREFIX_PATH ${openimagedenoise_SOURCE_DIR})
+    find_package(OpenImageDenoise CONFIG REQUIRED)
     add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
+    target_compile_definitions(luisa-compute-oidn-ext
+            PUBLIC LUISA_BACKEND_ENABLE_OIDN=1
+            PRIVATE LC_BACKEND_EXPORT_DLL)
     target_link_libraries(luisa-compute-oidn-ext PUBLIC luisa-compute-runtime OpenImageDenoise)
+    file(GLOB oidn_RUNTIME_LIBS
+            "${openimagedenoise_SOURCE_DIR}/bin/*.dll"
+            "${openimagedenoise_SOURCE_DIR}/bin/*.so")
+    message(STATUS "OpenImageDenoise runtime libs: ${oidn_RUNTIME_LIBS}")
+    # copy the OpenImageDenoise dll to the output directory
+    foreach (oidn_RUNTIME_LIB ${oidn_RUNTIME_LIBS})
+        add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${oidn_RUNTIME_LIB}"
+                "$<TARGET_FILE_DIR:luisa-compute-oidn-ext>")
+    endforeach ()
     install(TARGETS luisa-compute-oidn-ext EXPORT LuisaComputeTargets
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES ${oidn_RUNTIME_LIBS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif ()
 
-    # copy the  ${openimagedenoise_BINARY_DIR}/bin/*.dll to the build directory
-    file(GLOB OIDN_DLLS
-        ${openimagedenoise_SOURCE_DIR}/bin/*.dll
-        ${openimagedenoise_SOURCE_DIR}/bin/*.so
-        ${openimagedenoise_SOURCE_DIR}/bin/*.dylib)
-    message(STATUS "Copying ${OIDN_DLLS} to ${CMAKE_INSTALL_BINDIR}")
-    add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${OIDN_DLLS}
-        ${CMAKE_INSTALL_BINDIR})
-endif()
+if (LUISA_COMPUTE_ENABLE_CPU OR
+        LUISA_COMPUTE_ENABLE_CUDA OR
+        LUISA_COMPUTE_ENABLE_REMOTE)
 
-#
-if(LUISA_COMPUTE_ENABLE_CPU OR
-    LUISA_COMPUTE_ENABLE_CUDA OR
-    LUISA_COMPUTE_ENABLE_REMOTE)
     find_package(Vulkan)
 
     if(UNIX AND NOT APPLE)

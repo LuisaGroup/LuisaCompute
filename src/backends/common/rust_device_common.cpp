@@ -21,7 +21,9 @@ using luisa::compute::ir::Type;
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/backends/ext/denoiser_ext.h>
 
+#if LUISA_BACKEND_ENABLE_OIDN
 #include "oidn_denoiser.h"
+#endif
 
 namespace luisa::compute::rust {
 
@@ -384,7 +386,8 @@ public:
         LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 };
-#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
+
+#ifdef LUISA_BACKEND_ENABLE_OIDN
 class CpuOidnDenoiserExt : public DenoiserExt {
     DeviceInterface *_device;
 public:
@@ -405,7 +408,7 @@ class RustDevice final : public DeviceInterface {
     api::LibInterface (*luisa_compute_lib_interface)();
 
     api::Context api_ctx{};
-#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
+#ifdef LUISA_BACKEND_ENABLE_OIDN
     CpuOidnDenoiserExt _oidn_denoiser_ext;
 #endif
 
@@ -418,7 +421,7 @@ public:
     RustDevice(Context &&ctx, luisa::filesystem::path runtime_path, string_view name) noexcept
         : DeviceInterface(std::move(ctx)),
           runtime_path(std::move(runtime_path))
-#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
+#ifdef LUISA_BACKEND_ENABLE_OIDN
           ,
           _oidn_denoiser_ext(this)
 #endif
@@ -672,7 +675,7 @@ public:
     }
     DeviceExtension *extension(luisa::string_view name) noexcept {
         if (name == DenoiserExt::name) {
-#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
+#ifdef LUISA_BACKEND_ENABLE_OIDN
             return &_oidn_denoiser_ext;
 #else
             return nullptr;

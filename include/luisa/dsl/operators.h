@@ -62,16 +62,20 @@ dsl_binary_op_return_type_helper() noexcept {
     //  - scalars and vectors with the same element type
     //  - integral and floating-point scalars
     //  - equally sized integral scalars
+    //  - for SHL/SHR, rhs can be any integral scalar and will be cast to the same element type of lhs
     //  to avoid unexpected (and typically expensive) behaviors
     static_assert(
         // no conversion; or scalars and vectors with the same element type
         std::is_same_v<lhs_elem, rhs_elem> ||
             // integral and floating-point scalars
             (lhs_is_scalar && rhs_is_scalar &&
-             ((lhs_is_integral && rhs_is_fp) ||
-              (lhs_is_fp && rhs_is_integral) ||
-              (lhs_is_integral && rhs_is_integral &&
-               sizeof(lhs_elem) == sizeof(rhs_elem)))),
+                 ((lhs_is_integral && rhs_is_fp) ||
+                  (lhs_is_fp && rhs_is_integral) ||
+                  (lhs_is_integral && rhs_is_integral &&
+                   sizeof(lhs_elem) == sizeof(rhs_elem))) ||
+             // for SHL/SHR, the rhs might be any unsigned integer
+             ((op == BinaryOp::SHL || op == BinaryOp::SHR) &&
+              lhs_is_integral && rhs_is_scalar && rhs_is_integral)),
         "Binary operator requires operands "
         "of the same element type.");
 
@@ -147,7 +151,14 @@ dsl_binary_op_return_type_helper() noexcept {
                          op == BinaryOp::SHR) {
         static_assert(lhs_is_integral && rhs_is_integral,
                       "Shift operator requires integral operands.");
-        return std::make_tuple(decltype(lhs << rhs){}, lhs, rhs);
+        if constexpr (rhs_is_scalar) {
+            auto rhs_cast = lhs_elem{};
+            auto ret = decltype(lhs << rhs_cast){};
+            return std::make_tuple(ret, lhs, rhs_cast);
+        } else {
+            auto ret = decltype(lhs << rhs){};
+            return std::make_tuple(ret, lhs, rhs);
+        }
     } else {
         static_assert(always_false_v<Lhs>);
     }

@@ -1,11 +1,14 @@
 #pragma once
-#ifndef LUISA_COMPUTE_OIDN_UNSUPPORTED
+
+#include <luisa/core/platform.h>
 #include <luisa/backends/ext/denoiser_ext.h>
 #include <OpenImageDenoise/oidn.hpp>
 #include <luisa/core/dll_export.h>
 #include <mutex>
+
 namespace luisa::compute {
-class OidnDenoiser : public DenoiserExt::Denoiser {
+
+class LC_BACKEND_API OidnDenoiser : public DenoiserExt::Denoiser {
 protected:
     DeviceInterface *_device;
     oidn::DeviceRef _oidn_device;
@@ -22,5 +25,5 @@ public:
     void execute(bool async) noexcept override;
     ~OidnDenoiser() noexcept override = default;
 };
+
 }// namespace luisa::compute
-#endif
