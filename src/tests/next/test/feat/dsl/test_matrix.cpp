@@ -1,8 +1,8 @@
 /**
- * @file test/feat/common/test_matrix.cpp
+ * @file test/feat/dsl/test_matrix.cpp
  * @author sailing-innocent
  * @date 2023/08/26
- * @brief the matrix-relevant operations
+ * @brief the dsl matrix-relevant operations
 */
 
 #include "common/config.h"

@@ -1,8 +1,8 @@
 /**
- * @file test/feat/ast/test_calc.cpp
+ * @file test/feat/dsl/test_calc.cpp
  * @author sailing-innocent
  * @date 2023/11/04
- * @brief the calculation in ast shaders
+ * @brief the calculation in dsl types
 */
 
 #include "common/config.h"
