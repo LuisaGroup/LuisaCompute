@@ -8,10 +8,14 @@
 #include "cuda_stream.h"
 #include <luisa/runtime/stream.h>
 namespace luisa::compute::cuda {
+
+#if LUISA_BACKEND_ENABLE_OIDN
 luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream) noexcept {
     auto oidn_device = oidn::newCUDADevice(_device->handle().index(), reinterpret_cast<CUDAStream *>(stream)->handle());
     return luisa::make_shared<OidnDenoiser>(_device, std::move(oidn_device), stream);
 }
+#endif
+
 void CUDAOldDenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {
     _mode = mode;
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();

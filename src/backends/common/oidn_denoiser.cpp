@@ -124,6 +124,7 @@ void OidnDenoiser::execute(bool async) noexcept {
         if (!async) {
             _oidn_device.sync();
         } else {
+            // FIXME: This could deadlock the device
             cmd_list.add_callback([lock = std::move(lock), this]() mutable {
                 lock.release();
             });
