@@ -4,15 +4,15 @@
 #include <luisa/backends/ext/denoiser_ext.h>
 #include <OpenImageDenoise/oidn.hpp>
 #include <luisa/core/dll_export.h>
-#include <mutex>
+#include <shared_mutex>
 
 namespace luisa::compute {
 
-class OidnDenoiser : public DenoiserExt::Denoiser {
+class LC_BACKEND_API OidnDenoiser : public DenoiserExt::Denoiser {
 protected:
     DeviceInterface *_device;
     oidn::DeviceRef _oidn_device;
-    std::mutex _mutex;
+    std::shared_mutex _mutex;
     luisa::vector<oidn::FilterRef> _filters;
     oidn::FilterRef _albedo_prefilter;
     oidn::FilterRef _normal_prefilter;

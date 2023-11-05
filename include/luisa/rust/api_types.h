@@ -540,10 +540,10 @@ typedef struct LCDenoiserInput {
 
 typedef struct LCDenoiserExt {
     void *data;
-    struct LCDenoiser *(*create)(struct LCDenoiserExt*, uint64_t stream);
-    void (*init)(struct LCDenoiserExt*, struct LCDenoiser*, const struct LCDenoiserInput*);
-    void (*execute)(struct LCDenoiserExt*, struct LCDenoiser*, bool);
-    void (*destroy)(struct LCDenoiserExt*, struct LCDenoiser*);
+    struct LCDenoiser *(*create)(const struct LCDenoiserExt*, uint64_t stream);
+    void (*init)(const struct LCDenoiserExt*, struct LCDenoiser*, const struct LCDenoiserInput*);
+    void (*execute)(const struct LCDenoiserExt*, struct LCDenoiser*, bool);
+    void (*destroy)(const struct LCDenoiserExt*, struct LCDenoiser*);
 } LCDenoiserExt;
 
 typedef struct LCDeviceInterface {

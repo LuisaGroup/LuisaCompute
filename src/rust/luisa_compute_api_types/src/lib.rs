@@ -901,10 +901,10 @@ pub mod denoiser_ext {
     #[derive(Copy, Clone)]
     pub struct DenoiserExt {
         pub data: *mut std::ffi::c_void,
-        pub create: unsafe extern "C" fn(*mut DenoiserExt, stream: u64) -> *mut Denoiser,
-        pub init: unsafe extern "C" fn(*mut DenoiserExt, *mut Denoiser, &DenoiserInput),
-        pub execute: unsafe extern "C" fn(*mut DenoiserExt, *mut Denoiser, bool),
-        pub destroy: unsafe extern "C" fn(*mut DenoiserExt, *mut Denoiser),
+        pub create: unsafe extern "C" fn(*const DenoiserExt, stream: u64) -> *mut Denoiser,
+        pub init: unsafe extern "C" fn(*const DenoiserExt, *mut Denoiser, &DenoiserInput),
+        pub execute: unsafe extern "C" fn(*const DenoiserExt, *mut Denoiser, bool),
+        pub destroy: unsafe extern "C" fn(*const DenoiserExt, *mut Denoiser),
     }
     impl DenoiserExt {
         pub fn valid(&self) -> bool {

@@ -92,4 +92,4 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 endif ()
 
 # Open Image Denoise
-option(LUISA_COMPUTE_DOWNLOAD_OIDN "Download the Open Image Denoise library for image denoising" OFF)
+option(LUISA_COMPUTE_DOWNLOAD_OIDN "Download OpenImageDenoise for denoiser extension" OFF)

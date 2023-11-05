@@ -603,10 +603,10 @@ struct DenoiserInput {
 
 struct DenoiserExt {
     void *data;
-    Denoiser *(*create)(DenoiserExt*, uint64_t stream);
-    void (*init)(DenoiserExt*, Denoiser*, const DenoiserInput*);
-    void (*execute)(DenoiserExt*, Denoiser*, bool);
-    void (*destroy)(DenoiserExt*, Denoiser*);
+    Denoiser *(*create)(const DenoiserExt*, uint64_t stream);
+    void (*init)(const DenoiserExt*, Denoiser*, const DenoiserInput*);
+    void (*execute)(const DenoiserExt*, Denoiser*, bool);
+    void (*destroy)(const DenoiserExt*, Denoiser*);
 };
 
 struct DeviceInterface {

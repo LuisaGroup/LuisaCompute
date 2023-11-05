@@ -394,7 +394,7 @@ public:
     explicit CpuOidnDenoiserExt(DeviceInterface *device) noexcept
         : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
-        return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(), stream, true);
+        return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(oidn::DeviceType::CPU), stream, true);
     }
 };
 #endif
@@ -673,7 +673,7 @@ public:
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle,
                   luisa::string_view name) noexcept override {
     }
-    DeviceExtension *extension(luisa::string_view name) noexcept {
+    DeviceExtension *extension(luisa::string_view name) noexcept override {
         if (name == DenoiserExt::name) {
 #ifdef LUISA_BACKEND_ENABLE_OIDN
             return &_oidn_denoiser_ext;
@@ -681,6 +681,7 @@ public:
             return nullptr;
 #endif
         } else {
+            LUISA_WARNING_WITH_LOCATION("Unsupported device extension: {}.", name);
             return nullptr;
         }
     }

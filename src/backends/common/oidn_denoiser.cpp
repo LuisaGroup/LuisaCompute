@@ -1,6 +1,7 @@
 #include "oidn_denoiser.h"
 #include <luisa/core/logging.h>
 namespace luisa::compute {
+
 OidnDenoiser::OidnDenoiser(DeviceInterface *device, oidn::DeviceRef &&oidn_device, uint64_t stream, bool is_cpu) noexcept
     : _device(device), _oidn_device(std::move(oidn_device)), _stream(stream), _is_cpu(is_cpu) {
     _oidn_device.setErrorFunction([](void *, oidn::Error err, const char *message) noexcept {
@@ -14,6 +15,7 @@ OidnDenoiser::OidnDenoiser(DeviceInterface *device, oidn::DeviceRef &&oidn_devic
                 LUISA_ERROR_WITH_LOCATION("OIDN denoiser error {}: `{}`.", magic_enum::enum_name(err), message);
         }
     });
+    _oidn_device.commit();
 }
 
 void OidnDenoiser::reset() noexcept {
@@ -22,12 +24,13 @@ void OidnDenoiser::reset() noexcept {
     _normal_prefilter = {};
 }
 void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
-    std::scoped_lock lock{_mutex};
+    std::unique_lock lock{_mutex};
+
     reset();
-    auto get_shared_buffer = [&](const DenoiserExt::Image &img) noexcept {
+    auto get_shared_buffer = [&](const DenoiserExt::Image &img) noexcept -> void * {
         LUISA_ASSERT(img.buffer_handle != -1u, "Invalid buffer handle.");
         LUISA_ASSERT(img.device_ptr != nullptr, "Invalid device pointer.");
-        return _oidn_device.newBuffer((byte *)img.device_ptr + img.offset, img.size_bytes);
+        return (byte *)img.device_ptr + img.offset;
     };
     auto get_format = [](DenoiserExt::ImageFormat fmt) noexcept {
         if (fmt == DenoiserExt::ImageFormat::FLOAT1) return oidn::Format::Float;
@@ -62,6 +65,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
     };
     bool has_albedo = false;
     bool has_normal = false;
+    void *albedo, *normal;
     if (input.prefilter_mode != DenoiserExt::PrefilterMode::NONE) {
         for (auto &f : input.features) {
             if (f.name == "albedo") {
@@ -72,6 +76,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 _albedo_prefilter.setImage("output", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height, 0, f.image.pixel_stride, f.image.row_stride);
                 _albedo_prefilter.commit();
                 has_albedo = true;
+                albedo = get_shared_buffer(f.image);
             } else if (f.name == "normal") {
                 LUISA_ASSERT(!has_normal, "Normal feature already set.");
                 LUISA_ASSERT(!_normal_prefilter, "Normal prefilter already set.");
@@ -80,11 +85,13 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 _normal_prefilter.setImage("output", get_shared_buffer(f.image), get_format(f.image.format), input.width, input.height, 0, f.image.pixel_stride, f.image.row_stride);
                 _normal_prefilter.commit();
                 has_normal = true;
+                normal = get_shared_buffer(f.image);
             } else {
                 LUISA_ERROR_WITH_LOCATION("Invalid feature name: {}.", f.name);
             }
         }
     }
+    LUISA_ASSERT(!input.inputs.empty(), "Empty input.");
     LUISA_ASSERT(input.inputs.size() == input.outputs.size(), "Input/output count mismatch.");
     for (auto i = 0; i < input.inputs.size(); i++) {
         auto filter = _oidn_device.newFilter("RT");
@@ -93,14 +100,14 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
         filter.setImage("color", get_shared_buffer(in), get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
         filter.setImage("output", get_shared_buffer(out), get_format(out.format), input.width, input.height, 0, out.pixel_stride, out.row_stride);
         if (has_albedo) {
-            filter.setImage("albedo", get_shared_buffer(in), get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
+            filter.setImage("albedo", albedo, get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
         }
         if (has_normal) {
-            filter.setImage("normal", get_shared_buffer(in), get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
+            filter.setImage("normal", normal, get_format(in.format), input.width, input.height, 0, in.pixel_stride, in.row_stride);
         }
         set_filter_properties(filter, in);
 
-        if (input.prefilter_mode != DenoiserExt::PrefilterMode::NONE || input.noisy_features) {
+        if (input.prefilter_mode != DenoiserExt::PrefilterMode::NONE || !input.noisy_features) {
             filter.set("cleanAux", true);
         }
         filter.commit();
@@ -108,7 +115,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
     }
 }
 void OidnDenoiser::execute(bool async) noexcept {
-    auto lock = std::unique_lock{_mutex};
+    auto lock = luisa::make_unique<std::shared_lock<std::shared_mutex>>(_mutex);
     auto cmd_list = CommandList{};
     auto exec = [&] {
         if (_albedo_prefilter) _albedo_prefilter.executeAsync();
@@ -117,24 +124,29 @@ void OidnDenoiser::execute(bool async) noexcept {
             f.executeAsync();
         }
     };
-  if (!_is_cpu) {
+    if (!_is_cpu) {
         exec();
         if (!async) {
             _oidn_device.sync();
         } else {
-            cmd_list.add_callback([lock = std::move(lock), this]() mutable {
-                lock.release();
+            cmd_list.add_callback([lock_ = std::move(lock), this]() mutable {
+                LUISA_ASSERT(lock_, "Callback called twice.");
+                lock_.reset();
+                LUISA_VERBOSE_WITH_LOCATION("OIDN denoiser callback.");
             });
             _device->dispatch(_stream, std::move(cmd_list));
         }
     } else {
         // On cpu, oidn does not execute in stream
-        // More over, oidn does not support async execution on cpu
+        // Moreover, oidn does not support async execution on cpu
         // We execute oidn in callback just to block further stream operation until oidn finishes
-        cmd_list.add_callback([lock = std::move(lock), this, exec = std::move(exec)]() mutable {
+        cmd_list.add_callback([lock_ = std::move(lock), this, exec = std::move(exec)]() mutable {
             exec();
+
             _oidn_device.sync();
-            lock.release();
+            LUISA_ASSERT(lock_, "Callback called twice.");
+            lock_.reset();
+            LUISA_VERBOSE_WITH_LOCATION("OIDN denoiser callback.");
         });
         _device->dispatch(_stream, std::move(cmd_list));
     }

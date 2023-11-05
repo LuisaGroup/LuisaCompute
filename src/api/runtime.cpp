@@ -628,7 +628,7 @@ void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapcha
 }
 LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
     auto d = reinterpret_cast<DeviceInterface *>(device._0);
-    auto ext = d->extension(DenoiserExt::name);
+    auto ext = static_cast<DenoiserExt *>(d->extension(DenoiserExt::name));
     if (ext == nullptr) {
         auto ext = LCDenoiserExt{};
         ext.data = nullptr;
@@ -636,7 +636,7 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
     } else {
         return LCDenoiserExt{
             .data = ext,
-            .create = [](LCDenoiserExt *ext, uint64_t stream) -> LCDenoiser * {
+            .create = [](const LCDenoiserExt *ext, uint64_t stream) -> LCDenoiser * {
                 auto e = reinterpret_cast<DenoiserExt *>(ext->data);
                 auto denoiser = e->create(stream);
                 auto ptr = denoiser.get();
@@ -644,7 +644,7 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                 return reinterpret_cast<LCDenoiser *>(ptr);
             },
 
-            .init = [](LCDenoiserExt *ext, LCDenoiser *denoiser, const LCDenoiserInput *c_input) {
+            .init = [](const LCDenoiserExt *ext, LCDenoiser *denoiser, const LCDenoiserInput *c_input) {
                 DenoiserExt::DenoiserInput input{};
                 input.noisy_features = c_input->noisy_features;
                 input.width = c_input->width;
@@ -722,8 +722,8 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                     });
                 }
                 reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->init(input); },
-            .execute = [](LCDenoiserExt *_ext, LCDenoiser *denoiser, bool async) { reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->execute(async); },
-            .destroy = [](LCDenoiserExt *_ext, LCDenoiser *denoiser) { auto _d = reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->shared_from_this(); },
+            .execute = [](const LCDenoiserExt *_ext, LCDenoiser *denoiser, bool async) { reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->execute(async); },
+            .destroy = [](const LCDenoiserExt *_ext, LCDenoiser *denoiser) { auto _d = reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->shared_from_this(); },
         };
     }
 }
