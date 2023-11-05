@@ -108,7 +108,6 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
     }
 }
 void OidnDenoiser::execute(bool async) noexcept {
-    static std::thread oidn_thread;
     auto lock = std::unique_lock{_mutex};
     auto cmd_list = CommandList{};
     auto exec = [&] {
@@ -118,13 +117,11 @@ void OidnDenoiser::execute(bool async) noexcept {
             f.executeAsync();
         }
     };
-
-    if (!_is_cpu) {
+  if (!_is_cpu) {
         exec();
         if (!async) {
             _oidn_device.sync();
         } else {
-            // FIXME: This could deadlock the device
             cmd_list.add_callback([lock = std::move(lock), this]() mutable {
                 lock.release();
             });
