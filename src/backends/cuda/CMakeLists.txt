@@ -62,6 +62,10 @@ if (CUDAToolkit_FOUND)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
 
+    if (NOT APPLE)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-compute-oidn-ext)
+    endif()
+
     # nvCOMP
     if (LUISA_COMPUTE_DOWNLOAD_NVCOMP)
         if (WIN32)

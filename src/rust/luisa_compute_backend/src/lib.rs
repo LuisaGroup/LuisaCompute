@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::proxy::ProxyBackend;
-use api::{PinnedMemoryExt, PixelFormat};
+use api::PixelFormat;
 use libc::{c_char, c_void};
 
 use luisa_compute_api_types as api;
@@ -173,7 +173,7 @@ pub struct RustcInfo {
     pub version: &'static str,
     pub date: &'static str,
 }
-
+pub struct PinnedMemoryExt {}
 pub trait Backend: Sync + Send {
     fn native_handle(&self) -> *mut c_void;
     fn compute_warp_size(&self) -> u32;
@@ -522,7 +522,7 @@ extern "C" fn compute_warp_size<B: Backend>(device: api::Device) -> u32 {
     let backend: &B = get_backend(device);
     backend.compute_warp_size()
 }
-extern "C" fn pinned_memory_ext<B: Backend>(device: api::Device) -> PinnedMemoryExt {
+extern "C" fn pinned_memory_ext<B: Backend>(device: api::Device) -> api::PinnedMemoryExt {
     todo!()
 }
 #[inline]

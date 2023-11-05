@@ -5,4 +5,5 @@ luisa_compute_add_backend(cpu SOURCES ${LUISA_COMPUTE_CPU_SOURCES})
 target_link_libraries(luisa-compute-backend-cpu PRIVATE
         luisa-compute-vulkan-swapchain
         luisa-compute-rust-meta
-        luisa_compute_backend_impl)
+        luisa_compute_backend_impl
+        luisa-compute-oidn-ext)

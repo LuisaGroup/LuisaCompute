@@ -5,7 +5,7 @@
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/runtime/rtx/aabb.h>
 #include <luisa/api/api.h>
-
+#include <luisa/core/forget.h>
 #include <utility>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
@@ -313,9 +313,8 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
                                                       const char *name,
                                                       const char *properties) LUISA_NOEXCEPT {
     auto device = reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr);
-    std::aligned_storage_t<sizeof(Device), alignof(Device)> storage;
     auto handle = device.impl();
-    new (&storage) Device(std::move(device));
+    forget(std::move(device));
     return LCDevice{._0 = reinterpret_cast<uint64_t>(handle)};
 }
 

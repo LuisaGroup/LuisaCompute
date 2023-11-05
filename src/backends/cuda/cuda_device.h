@@ -13,6 +13,7 @@
 
 namespace luisa::compute::cuda {
 
+class CUDAOldDenoiserExt;
 class CUDADenoiserExt;
 class CUDADStorageExt;
 

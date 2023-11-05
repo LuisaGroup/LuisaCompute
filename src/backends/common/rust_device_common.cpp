@@ -20,6 +20,8 @@ using luisa::compute::ir::Type;
 // must go last to avoid name conflicts
 #include <luisa/runtime/rhi/resource.h>
 
+#include "oidn_denoiser.h"
+
 namespace luisa::compute::rust {
 
 class APICommandConverter final : public CommandVisitor {
@@ -381,6 +383,15 @@ public:
         LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
 };
+class CpuOidnDenoiserExt : public DenoiserExt {
+    DeviceInterface *_device;
+public:
+    explicit CpuOidnDenoiserExt(DeviceInterface *device) noexcept
+        : _device{device} {}
+    luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
+        return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(), true);
+    }
+};
 
 // @Mike-Leo-Smith: fill-in the blanks pls
 class RustDevice final : public DeviceInterface {
@@ -388,10 +399,10 @@ class RustDevice final : public DeviceInterface {
     api::LibInterface lib{};
     luisa::filesystem::path runtime_path;
     DynamicModule dll;
-
     api::LibInterface (*luisa_compute_lib_interface)();
 
     api::Context api_ctx{};
+    CpuOidnDenoiserExt _oidn_denoiser_ext;
 
 public:
     ~RustDevice() noexcept override {
@@ -401,7 +412,7 @@ public:
 
     RustDevice(Context &&ctx, luisa::filesystem::path runtime_path, string_view name) noexcept
         : DeviceInterface(std::move(ctx)),
-          runtime_path(std::move(runtime_path)) {
+          runtime_path(std::move(runtime_path)), _oidn_denoiser_ext(this) {
         dll = DynamicModule::load(this->runtime_path, "luisa_compute_backend_impl");
         luisa_compute_lib_interface = dll.function<api::LibInterface()>("luisa_compute_lib_interface");
         lib = luisa_compute_lib_interface();
@@ -648,6 +659,13 @@ public:
 
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle,
                   luisa::string_view name) noexcept override {
+    }
+    DeviceExtension *extension(luisa::string_view name) noexcept {
+        if (name == DenoiserExt::name) {
+            return &_oidn_denoiser_ext;
+        } else {
+            return nullptr;
+        }
     }
 };
 

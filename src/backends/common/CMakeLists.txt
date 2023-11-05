@@ -1,3 +1,31 @@
+# OIDN Denoiser Extension
+if (WIN32)
+    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v2.1.0/oidn-2.1.0.x64.windows.zip")
+elseif (UNIX AND NOT APPLE)
+    set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v2.1.0/oidn-2.1.0.x86_64.linux.tar.gz")
+else()
+    set(oidn_DOWNLOAD_URL "")
+    message(STATUS "OpenImageDenoise not available on Apple Silicon")
+endif()
+
+# TODO: Mike fix Apple Silicon pls
+if(oidn_DOWNLOAD_URL)
+    message(STATUS "Downloading OpenImageDenoise from ${oidn_DOWNLOAD_URL}")
+    include(FetchContent)
+    FetchContent_Declare(OpenImageDenoise URL ${oidn_DOWNLOAD_URL} DOWNLOAD_EXTRACT_TIMESTAMP ON)
+    FetchContent_MakeAvailable(OpenImageDenoise)
+    FetchContent_GetProperties(OpenImageDenoise)
+    message(STATUS "OpenImageDenoise downloaded to ${openimagedenoise_SOURCE_DIR}")
+    set(OpenImageDenoise_DIR ${openimagedenoise_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.1.0)
+    find_package(OpenImageDenoise REQUIRED)
+    add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
+    target_link_libraries(luisa-compute-oidn-ext PUBLIC luisa-compute-runtime OpenImageDenoise)
+    install(TARGETS luisa-compute-oidn-ext EXPORT LuisaComputeTargets
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+#
+
 if (LUISA_COMPUTE_ENABLE_CPU OR
         LUISA_COMPUTE_ENABLE_CUDA OR
         LUISA_COMPUTE_ENABLE_REMOTE)
