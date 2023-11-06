@@ -9,7 +9,6 @@ if (CUDAToolkit_FOUND)
             cuda_buffer.cpp cuda_buffer.h
             cuda_stream.cpp cuda_stream.h
             cuda_device.cpp cuda_device.h
-            cuda_dstorage.cpp cuda_dstorage.h
             cuda_event.cpp cuda_event.h
             cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h
             cuda_command_encoder.cpp cuda_command_encoder.h
@@ -25,7 +24,6 @@ if (CUDAToolkit_FOUND)
             cuda_shader_native.cpp cuda_shader_native.h
             cuda_shader_optix.cpp cuda_shader_optix.h
             cuda_shader_printer.cpp cuda_shader_printer.h
-            cuda_ext.cpp cuda_ext.h
             cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
@@ -33,6 +31,11 @@ if (CUDAToolkit_FOUND)
             default_binary_io.cpp)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+
+    # extensions
+    target_sources(luisa-compute-backend-cuda PRIVATE
+            extensions/cuda_dstorage.cpp extensions/cuda_dstorage.h
+            extensions/cuda_denoiser.cpp extensions/cuda_denoiser.h)
 
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
@@ -209,7 +212,9 @@ if (CUDAToolkit_FOUND)
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVTT=1)
             target_include_directories(luisa-compute-backend-cuda PRIVATE ${NVTT_INCLUDE_DIR})
             target_link_libraries(luisa-compute-backend-cuda PRIVATE "${NVTT_LINKER_LIB}")
-            target_sources(luisa-compute-backend-cuda PRIVATE cuda_texture_compression.cpp cuda_texture_compression.h)
+            target_sources(luisa-compute-backend-cuda PRIVATE
+                    extensions/cuda_texture_compression.cpp
+                    extensions/cuda_texture_compression.h)
             # The misplaced [[deprecated]] attributes in NVTT result in an error with Clang so we disable them.
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE "NVTT_DEPRECATED_API=")
             # TODO: fix rpath on Linux?

@@ -39,11 +39,11 @@
 #include "cuda_swapchain.h"
 #include "cuda_builtin_embedded.h"
 
-#include "cuda_dstorage.h"
-#include "cuda_ext.h"
+#include "extensions/cuda_dstorage.h"
+#include "extensions/cuda_denoiser.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
-#include "cuda_texture_compression.h"
+#include "extensions/cuda_texture_compression.h"
 #endif
 
 #define LUISA_CUDA_KERNEL_DEBUG 1

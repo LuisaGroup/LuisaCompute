@@ -18,7 +18,9 @@ if get_config("enable_ir") then
 end
 set_pcxxheader("pch.h")
 add_headerfiles("*.h", "../common/default_binary_io.h")
-add_files("*.cpp|cuda_texture_compression.cpp") -- TODO: support NVTT with XMake
+add_files("*.cpp", "extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp")
+
+-- TODO: support NVTT with XMake
 
 -- if has_config("cuda_ext_lcub") then
 -- 	add_files("lcub/*.cpp")

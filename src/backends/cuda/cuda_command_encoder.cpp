@@ -13,8 +13,9 @@
 #include "cuda_host_buffer_pool.h"
 #include "cuda_texture.h"
 #include "cuda_bindless_array.h"
-#include "cuda_dstorage.h"
 #include "cuda_command_encoder.h"
+
+#include "extensions/cuda_dstorage.h"
 
 namespace luisa::compute::cuda {
 

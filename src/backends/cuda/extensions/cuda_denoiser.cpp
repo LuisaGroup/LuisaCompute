@@ -1,12 +1,14 @@
 //
 // Created by Hercier on 2023/4/6.
 //
-#include "cuda_ext.h"
+
 #include <cuda.h>
-#include "cuda_device.h"
-#include "cuda_buffer.h"
-#include "cuda_stream.h"
 #include <luisa/runtime/stream.h>
+#include "../cuda_device.h"
+#include "../cuda_buffer.h"
+#include "../cuda_stream.h"
+#include "cuda_denoiser.h"
+
 namespace luisa::compute::cuda {
 
 #if LUISA_BACKEND_ENABLE_OIDN
