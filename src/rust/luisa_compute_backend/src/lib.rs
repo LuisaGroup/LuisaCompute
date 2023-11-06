@@ -492,10 +492,10 @@ extern "C" fn compute_warp_size<B: Backend>(device: api::Device) -> u32 {
     let backend: &B = get_backend(device);
     backend.compute_warp_size()
 }
-extern "C" fn pinned_memory_ext<B: Backend>(device: api::Device) -> api::PinnedMemoryExt {
+extern "C" fn pinned_memory_ext<B: Backend>(_device: api::Device) -> api::PinnedMemoryExt {
     todo!()
 }
-extern "C" fn denoiser_ext<B: Backend>(device: api::Device) -> api::DenoiserExt {
+extern "C" fn denoiser_ext<B: Backend>(_device: api::Device) -> api::DenoiserExt {
     todo!()
 }
 #[inline]
