@@ -169,7 +169,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
+    constexpr auto spp_per_dispatch = 1u;
 
     // Note: we disable NEE to deliberately introduce noise
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageFloat albedo_img, ImageFloat normal_img, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
@@ -294,9 +294,14 @@ int main(int argc, char *argv[]) {
                                   ImageFloat ldr_image,
                                   Float scale, Bool is_hdr) noexcept {
         UInt2 coord = dispatch_id().xy();
-        Float4 hdr = ite(coord.x < compare_x,
-                         noisy_hdr_image.read(coord),
-                         denoised_hdr_image.read(coord));
+        Float4 hdr;
+        $if (coord.x < compare_x) {
+            hdr = noisy_hdr_image.read(coord);
+        } $elif (coord.x == compare_x) {
+            hdr = make_float4(.2f);
+        } $else {
+            hdr = denoised_hdr_image.read(coord);
+        };
         Float3 ldr = hdr.xyz() * scale;
         $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
