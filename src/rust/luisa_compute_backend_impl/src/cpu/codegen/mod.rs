@@ -1,6 +1,6 @@
 use base64ct::Encoding;
 use half::f16;
-use luisa_compute_ir::CBoxedSlice;
+use luisa_compute_ir::{context, CArc, CBoxedSlice};
 use luisa_compute_ir_v2::{TypeRef, TypeTag};
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
@@ -318,6 +318,123 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
             todo!()
         }
     }
+}
+fn aggregate_printf(var: String, ty: &CArc<Type>) -> (String, String) {
+    use std::fmt::Write;
+    let mut printf_fmt = String::new();
+    let mut printf_args = String::new();
+    match ty.as_ref() {
+        Type::Primitive(p) => match p {
+            Primitive::Bool => {
+                printf_fmt.push_str("%s");
+                write!(printf_args, ",{} ? \"true\" : \"false\"", var).unwrap();
+            }
+            Primitive::Int8 => {
+                printf_fmt.push_str("%d");
+                write!(printf_args, ",static_cast<lc_int>({})", var).unwrap();
+            }
+            Primitive::Uint8 => {
+                printf_fmt.push_str("%u");
+                write!(printf_args, ",static_cast<lc_uint>({})", var).unwrap();
+            }
+            Primitive::Int16 => {
+                printf_fmt.push_str("%d");
+                write!(printf_args, ",static_cast<lc_int>({})", var).unwrap();
+            }
+            Primitive::Uint16 => {
+                printf_fmt.push_str("%u");
+                write!(printf_args, ",static_cast<lc_uint>({})", var).unwrap();
+            }
+            Primitive::Int32 => {
+                printf_fmt.push_str("%d");
+                write!(printf_args, ",static_cast<lc_int>({})", var).unwrap();
+            }
+            Primitive::Uint32 => {
+                printf_fmt.push_str("%u");
+                write!(printf_args, ",static_cast<lc_uint>({})", var).unwrap();
+            }
+            Primitive::Int64 => {
+                printf_fmt.push_str("%lld");
+                write!(printf_args, ",static_cast<lc_long>({})", var).unwrap();
+            }
+            Primitive::Uint64 => {
+                printf_fmt.push_str("%llu");
+                write!(printf_args, ",static_cast<lc_ulong>({})", var).unwrap();
+            }
+            Primitive::Float16 => {
+                printf_fmt.push_str("%g");
+                write!(printf_args, ",static_cast<float>({})", var).unwrap();
+            }
+            Primitive::Float32 => {
+                printf_fmt.push_str("%g");
+                write!(printf_args, ",static_cast<float>({})", var).unwrap();
+            }
+            Primitive::Float64 => {
+                printf_fmt.push_str("%g");
+                write!(printf_args, ",static_cast<double>({})", var).unwrap();
+            }
+        },
+        Type::Array(a) => {
+            printf_fmt.push_str("[");
+            for i in 0..a.length {
+                let (fmt, args) = aggregate_printf(format!("{}[{}]", var, i), &a.element);
+                printf_fmt.push_str(&fmt);
+                printf_args.push_str(&args);
+                if i != a.length - 1 {
+                    printf_fmt.push_str(", ");
+                }
+            }
+            printf_fmt.push_str("]");
+        }
+        Type::Struct(s) => {
+            printf_fmt.push_str("{");
+            for (i, f) in s.fields.as_ref().iter().enumerate() {
+                let (fmt, args) = aggregate_printf(format!("{}.f{}", var, i), f);
+                printf_fmt.push_str(&fmt);
+                printf_args.push_str(&args);
+                if i != s.fields.as_ref().len() - 1 {
+                    printf_fmt.push_str(", ");
+                }
+            }
+            printf_fmt.push_str("}");
+        }
+        Type::Vector(v) => {
+            let p = match v.element {
+                VectorElementType::Scalar(p) => p,
+                _ => unreachable!(),
+            };
+            let pt = context::register_type(Type::Primitive(p));
+            printf_fmt.push_str("(");
+            for i in 0..v.length {
+                let (fmt, args) = aggregate_printf(format!("{}[{}]", var, i), &pt);
+                printf_fmt.push_str(&fmt);
+                printf_args.push_str(&args);
+                if i != v.length - 1 {
+                    printf_fmt.push_str(", ");
+                }
+            }
+            printf_fmt.push_str(")");
+        }
+        Type::Matrix(mt) => {
+            let p = match mt.element {
+                VectorElementType::Scalar(p) => p,
+                _ => unreachable!(),
+            };
+            let pt = Type::vector(p, mt.dimension);
+            printf_fmt.push_str("<");
+            for i in 0..mt.dimension {
+                let (fmt, args) = aggregate_printf(format!("{}[{}]", var, i), &pt);
+                printf_fmt.push_str(&fmt);
+                printf_args.push_str(&args);
+                if i != mt.dimension - 1 {
+                    printf_fmt.push_str(", ");
+                }
+            }
+            printf_fmt.push_str(">");
+        }
+        _ => unreachable!(),
+    }
+    (printf_fmt, printf_args)
 }
 pub fn decode_const_data_v2(data: &[u8], ty: TypeRef) -> String {
     match ty.tag() {

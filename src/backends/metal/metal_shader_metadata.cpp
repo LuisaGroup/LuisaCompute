@@ -24,7 +24,7 @@ luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadat
     result.append(luisa::format("FORMAT_TYPES {} ", metadata.format_types.size()));
     for (auto &&[fmt, type] : metadata.format_types) {
         for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
-        result.append(" ").append(type);
+        result.append(" ").append(type).append(" ");
     }
     return result;
 }

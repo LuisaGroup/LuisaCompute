@@ -99,7 +99,7 @@ public:
                             s.push_back(']');
                             commit_s();
                         } else if (arg->is_matrix()) {
-                            s.push_back('(');
+                            s.push_back('<');
                             commit_s();
                             auto column = Type::vector(arg->element(), arg->dimension());
                             for (auto i = 0u; i < arg->dimension(); i++) {
@@ -110,7 +110,7 @@ public:
                                 }
                                 offset += column->size();
                             }
-                            s.push_back(')');
+                            s.push_back('>');
                             commit_s();
                         } else if (arg->is_structure()) {
                             s.push_back('{');

@@ -5,9 +5,36 @@
 #include <cuda.h>
 #include "cuda_device.h"
 #include "cuda_buffer.h"
+#include "cuda_stream.h"
 #include <luisa/runtime/stream.h>
 namespace luisa::compute::cuda {
-void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {
+
+#if LUISA_BACKEND_ENABLE_OIDN
+class CudaOidnDenoiser : public OidnDenoiser {
+public:
+    using OidnDenoiser::OidnDenoiser;
+    void execute(bool async) noexcept {
+        auto lock = luisa::make_unique<std::shared_lock<std::shared_mutex>>(_mutex);
+        exec_filters();
+        if (!async) {
+            _oidn_device.sync();
+        } else {
+            auto cmd_list = CommandList{};
+            cmd_list.add_callback([lock_ = std::move(lock), this]() mutable {
+                LUISA_ASSERT(lock_, "Callback called twice.");
+                lock_.reset();
+            });
+            _device->dispatch(_stream, std::move(cmd_list));
+        }
+    }
+};
+luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream) noexcept {
+    auto oidn_device = oidn::newCUDADevice(_device->handle().index(), reinterpret_cast<CUDAStream *>(stream)->handle());
+    return luisa::make_shared<CudaOidnDenoiser>(_device, std::move(oidn_device), stream);
+}
+#endif
+
+void CUDAOldDenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {
     _mode = mode;
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
     auto optix_ctx = _device->handle().optix_context();
@@ -97,22 +124,22 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
                                            data.beauty->size_bytes(), cuda_stream));
             LUISA_CHECK_CUDA(cuMemcpyAsync(layer.output.data, reinterpret_cast<CUDABuffer *>(data.beauty->handle())->handle(),
                                            data.beauty->size_bytes(), cuda_stream));
-        }      
+        }
         CUdeviceptr internalMemIn = 0;
         CUdeviceptr internalMemOut = 0;
-        size_t internalSize = out_scale * out_scale* resolution.x*resolution.y * denoiser_sizes.internalGuideLayerPixelSizeInBytes;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&internalMemIn, internalSize,cuda_stream));
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&internalMemOut, internalSize,cuda_stream));
+        size_t internalSize = out_scale * out_scale * resolution.x * resolution.y * denoiser_sizes.internalGuideLayerPixelSizeInBytes;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&internalMemIn, internalSize, cuda_stream));
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&internalMemOut, internalSize, cuda_stream));
         _guideLayer.previousOutputInternalGuideLayer.data = internalMemIn;
         _guideLayer.previousOutputInternalGuideLayer.width = out_scale * resolution.x;
         _guideLayer.previousOutputInternalGuideLayer.height = out_scale * resolution.y;
         _guideLayer.previousOutputInternalGuideLayer.pixelStrideInBytes = unsigned(denoiser_sizes.internalGuideLayerPixelSizeInBytes);
-        _guideLayer.previousOutputInternalGuideLayer.rowStrideInBytes = 
+        _guideLayer.previousOutputInternalGuideLayer.rowStrideInBytes =
             _guideLayer.previousOutputInternalGuideLayer.width * _guideLayer.previousOutputInternalGuideLayer.pixelStrideInBytes;
         _guideLayer.previousOutputInternalGuideLayer.format = optix::PIXEL_FORMAT_INTERNAL_GUIDE_LAYER;
         _guideLayer.outputInternalGuideLayer = _guideLayer.previousOutputInternalGuideLayer;
         _guideLayer.outputInternalGuideLayer.data = internalMemOut;
-        if( data.flowtrust )
+        if (data.flowtrust)
             _guideLayer.flowTrustworthiness = createOptixImage2D(*data.flowtrust);
     }
     _layers.push_back(layer);
@@ -138,7 +165,7 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
     }
     if (_mode.aov_reflection_id != -1) {
         _layers[_mode.aov_reflection_id].type = optix::DenoiserAOVType::DENOISER_AOV_TYPE_REFLECTION;
-	}
+    }
     if (_mode.aov_refract_id != -1) {
         _layers[_mode.aov_refract_id].type = optix::DenoiserAOVType::DENOISER_AOV_TYPE_REFRACTION;
     }
@@ -150,7 +177,7 @@ void CUDADenoiserExt::_init(Stream &stream, DenoiserMode mode, DenoiserInput dat
                                                  resolution.y + 2 * _overlap, _state, _state_size, _scratch, _scratch_size));
 }
 
-void CUDADenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
+void CUDAOldDenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
     // auto optix_ctx = _device->handle().optix_context();
     optix::DenoiserParams _params = {};
@@ -224,28 +251,28 @@ void CUDADenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
         _scratch_size));
 }
 
-void CUDADenoiserExt::_get_result(Stream &stream, Buffer<float> &output, int index) noexcept {
+void CUDAOldDenoiserExt::_get_result(Stream &stream, Buffer<float> &output, int index) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
     LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUDABuffer *>(output.handle())->handle(), _layers[index + 1].output.data, output.size_bytes(), cuda_stream));
 }
 
-void CUDADenoiserExt::_destroy(Stream &stream) noexcept {
+void CUDAOldDenoiserExt::_destroy(Stream &stream) noexcept {
     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
     LUISA_CHECK_OPTIX(optix::api().denoiserDestroy(_denoiser));
     LUISA_CHECK_CUDA(cuMemFreeAsync(_intensity, cuda_stream));
     LUISA_CHECK_CUDA(cuMemFreeAsync(_avg_color, cuda_stream));
     LUISA_CHECK_CUDA(cuMemFreeAsync(_scratch, cuda_stream));
     LUISA_CHECK_CUDA(cuMemFreeAsync(_state, cuda_stream));
-    LUISA_CHECK_CUDA(cuMemFreeAsync(_guideLayer.previousOutputInternalGuideLayer.data,cuda_stream));
-    LUISA_CHECK_CUDA(cuMemFreeAsync(_guideLayer.outputInternalGuideLayer.data,cuda_stream));
+    LUISA_CHECK_CUDA(cuMemFreeAsync(_guideLayer.previousOutputInternalGuideLayer.data, cuda_stream));
+    LUISA_CHECK_CUDA(cuMemFreeAsync(_guideLayer.outputInternalGuideLayer.data, cuda_stream));
     for (auto i = 0u; i < _layers.size(); i++) {
         LUISA_CHECK_CUDA(cuMemFreeAsync(_layers[i].output.data, cuda_stream));
         LUISA_CHECK_CUDA(cuMemFreeAsync(_layers[i].previousOutput.data, cuda_stream));
     }
 }
 
-void CUDADenoiserExt::denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
-                              Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> **aovs, uint aov_size) noexcept {
+void CUDAOldDenoiserExt::denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
+                                 Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> **aovs, uint aov_size) noexcept {
     DenoiserMode mode{};
     mode.alphamode = 0;
     mode.kernel_pred = 0;
@@ -268,20 +295,19 @@ void CUDADenoiserExt::denoise(Stream &stream, uint2 resolution, Buffer<float> co
     });
 }
 //initialize the denoiser. you should give valid data for the first pass, especially when using temporal mode.
-void CUDADenoiserExt::init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {
+void CUDAOldDenoiserExt::init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept {
     _device->with_handle([&] { _init(stream, mode, data, resolution); });
 }
 //process the given data.
-void CUDADenoiserExt::process(Stream &stream, DenoiserInput data) noexcept {
+void CUDAOldDenoiserExt::process(Stream &stream, DenoiserInput data) noexcept {
     _device->with_handle([&] { _process(stream, data); });
 }
 //require for result of certain aov layer. -1 for beauty pass
-void CUDADenoiserExt::get_result(Stream &stream, Buffer<float> &output, int index) noexcept {
+void CUDAOldDenoiserExt::get_result(Stream &stream, Buffer<float> &output, int index) noexcept {
     _device->with_handle([&] { _get_result(stream, output, index); });
 }
 //clear all the memory usage on device
-void CUDADenoiserExt::destroy(Stream &stream) noexcept {
+void CUDAOldDenoiserExt::destroy(Stream &stream) noexcept {
     _device->with_handle([&] { _destroy(stream); });
 }
 }// namespace luisa::compute::cuda
-

@@ -32,19 +32,31 @@
 #include <Resource/SparseHeap.h>
 
 #include <DXApi/dml_ext.h>
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+#include <DXApi/dx_oidn_denoiser_ext.h>
+#endif
 
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ir/ir2ast.h>
 #include <luisa/ir/transform.h>
 #endif
-
 namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       nativeDevice(Context{_ctx_impl}, settings) {
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+    exts.try_emplace(
+        DenoiserExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DXOidnDenoiserExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DXOidnDenoiserExt *>(ext);
+        });
+#endif
     exts.try_emplace(
         TexCompressExt::name,
         [](LCDevice *device) -> DeviceExtension * {

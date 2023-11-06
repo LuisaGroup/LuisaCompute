@@ -90,3 +90,6 @@ endif ()
 if (LUISA_COMPUTE_ENABLE_GUI)
     # currently nothing to check
 endif ()
+
+# Open Image Denoise
+option(LUISA_COMPUTE_DOWNLOAD_OIDN "Download OpenImageDenoise for denoiser extension" OFF)

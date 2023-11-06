@@ -282,4 +282,10 @@ impl Backend for ProxyBackend {
             Some(result_str)
         }}
     }
+    #[inline]
+    fn denoiser_ext(&self) -> api::DenoiserExt {
+        catch_abort! {{
+            (self.device.denoiser_ext)(self.device.device)
+        }}
+    }
 }

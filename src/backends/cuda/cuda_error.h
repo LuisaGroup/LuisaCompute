@@ -3,7 +3,6 @@
 #include <string_view>
 
 #include <cuda.h>
-#include <nvrtc.h>
 #include "optix_api.h"
 
 #include <luisa/core/logging.h>
@@ -18,15 +17,6 @@
             LUISA_ERROR_WITH_LOCATION(                   \
                 "{}: {}", err_name, err_string);         \
         }                                                \
-    } while (false)
-
-#define LUISA_CHECK_NVRTC(...)                            \
-    do {                                                  \
-        if (auto ec = __VA_ARGS__; ec != NVRTC_SUCCESS) { \
-            LUISA_ERROR_WITH_LOCATION(                    \
-                "NVRTC error: {}",                        \
-                nvrtcGetErrorString(ec));                 \
-        }                                                 \
     } while (false)
 
 #define LUISA_CHECK_OPTIX(...)                       \
