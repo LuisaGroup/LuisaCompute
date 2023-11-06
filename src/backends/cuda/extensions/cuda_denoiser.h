@@ -20,7 +20,7 @@ public:
     explicit CUDADenoiserExt(CUDADevice *device) noexcept : _device(device) {
     }
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override;
-    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept {
+    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept override {
         return create(stream.handle());
     }
 };
@@ -28,7 +28,8 @@ public:
 #endif
 
 namespace luisa::compute::cuda {
-class CUDAOldDenoiserExt final : public OldDenoiserExt {
+
+class [[deprecated]] CUDAOldDenoiserExt final : public OldDenoiserExt {
     CUDADevice *_device;
     std::vector<optix::DenoiserLayer> _layers;
     optix::Denoiser _denoiser = nullptr;

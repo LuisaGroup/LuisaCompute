@@ -70,6 +70,7 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
         add_dependencies(luisa-compute-oidn-ext OpenImageDenoise_device_cpu)
     else ()
         add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
+        set_target_properties(luisa-compute-oidn-ext PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif ()
     target_compile_definitions(luisa-compute-oidn-ext
             PUBLIC LUISA_BACKEND_ENABLE_OIDN=1
