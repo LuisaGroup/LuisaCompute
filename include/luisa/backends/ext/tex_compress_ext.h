@@ -1,7 +1,7 @@
 #pragma once
 
 #include <luisa/runtime/rhi/device_interface.h>
-
+#include <luisa/runtime/image.h>
 namespace luisa::compute {
 template<typename T>
 class BufferView;
