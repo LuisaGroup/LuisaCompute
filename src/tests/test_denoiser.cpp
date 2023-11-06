@@ -210,14 +210,15 @@ int main(int argc, char *argv[]) {
 
                 // hit light
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                    $if (depth == 0u) {
-                        radiance += light_emission;
-                    }
-                    $else {
-                        Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
-                        Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                        radiance += mis_weight * beta * light_emission;
-                    };
+                    // $if (depth == 0u) {
+                    //     radiance += light_emission;
+                    // }
+                    // $else {
+                    //     Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
+                    //     Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                    //     radiance += mis_weight * beta * light_emission;
+                    // };
+                    radiance += beta * light_emission;
                     $break;
                 };
 
@@ -234,13 +235,13 @@ int main(int argc, char *argv[]) {
                 Float cos_wi_light = dot(wi_light, n);
                 Float cos_light = -dot(light_normal, wi_light);
                 Float3 albedo = materials.read(hit.inst);
-                $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                    Float pdf_light = (d_light * d_light) / (light_area * cos_light);
-                    Float pdf_bsdf = cos_wi_light * inv_pi;
-                    Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                    Float3 bsdf = albedo * inv_pi * cos_wi_light;
-                    radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-                };
+                // $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                //     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
+                //     Float pdf_bsdf = cos_wi_light * inv_pi;
+                //     Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                //     Float3 bsdf = albedo * inv_pi * cos_wi_light;
+                //     radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+                // };
 
                 // sample BSDF
                 Var<Onb> onb = make_onb(n);

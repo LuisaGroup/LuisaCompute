@@ -122,10 +122,8 @@ public:
     };
     class Denoiser;
     virtual luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept = 0;
-    template<bool dummy = true>
-    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept {
-        return create(stream.handle());
-    }
+
+    virtual luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept = 0;
     class Denoiser : public luisa::enable_shared_from_this<Denoiser> {
     public:
         virtual void init(const DenoiserInput &input) noexcept = 0;

@@ -363,5 +363,8 @@ luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(uint64_t stre
     LUISA_ASSERT(device_id != -1, "device_id should not be -1.");
     return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newCUDADevice(device_id, 0), stream);
 }
+luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &stream) noexcept {
+    return create(stream.handle());
+}
 }// namespace lc::dx
 #endif

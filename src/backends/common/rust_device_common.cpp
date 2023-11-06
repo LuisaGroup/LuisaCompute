@@ -15,6 +15,7 @@ using luisa::compute::ir::Type;
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ir/transform.h>
 #include <luisa/runtime/rtx/aabb.h>
+#include <luisa/runtime/stream.h>
 #include "rust_device_common.h"
 
 // must go last to avoid name conflicts
@@ -418,6 +419,9 @@ public:
         : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
         return luisa::make_shared<CpuOidnDenoiser>(_device, oidn::newDevice(oidn::DeviceType::CPU), stream);
+    }
+    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept override{
+        return create(stream.handle());
     }
 };
 #endif

@@ -8,6 +8,7 @@
 #include <luisa/backends/ext/denoiser_ext.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/buffer.h>
+#include <luisa/runtime/stream.h>
 
 #if LUISA_BACKEND_ENABLE_OIDN
 #include "../common/oidn_denoiser.h"
@@ -18,6 +19,9 @@ public:
     explicit CUDADenoiserExt(CUDADevice *device) noexcept : _device(device) {
     }
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override;
+    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept {
+        return create(stream.handle());
+    }
 };
 }// namespace luisa::compute::cuda
 #endif
