@@ -20,17 +20,16 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
     if (oidn_DOWNLOAD_URL)
         message(STATUS "Downloading OpenImageDenoise from ${oidn_DOWNLOAD_URL}")
         include(FetchContent)
-        FetchContent_Declare(OpenImageDenoise
-                URL ${oidn_DOWNLOAD_URL}
-                DOWNLOAD_EXTRACT_TIMESTAMP ON
-                OVERRIDE_FIND_PACKAGE)
-        FetchContent_MakeAvailable(OpenImageDenoise)
-        FetchContent_GetProperties(OpenImageDenoise)
-        message(STATUS "OpenImageDenoise downloaded to ${openimagedenoise_SOURCE_DIR}")
         if (oidn_BUILD_FROM_SOURCE)
+            FetchContent_Declare(OpenImageDenoise
+                    URL ${oidn_DOWNLOAD_URL}
+                    DOWNLOAD_EXTRACT_TIMESTAMP ON
+                    OVERRIDE_FIND_PACKAGE)
             set(OIDN_INSTALL_DEPENDENCIES ON CACHE BOOL "" FORCE)
             set(OIDN_APPS OFF CACHE BOOL "" FORCE)
             find_package(OpenImageDenoise CONFIG REQUIRED)
+            FetchContent_GetProperties(OpenImageDenoise)
+            message(STATUS "OpenImageDenoise source downloaded to ${openimagedenoise_SOURCE_DIR}")
             string(REPLACE "." ";" oidn_DOWNLOAD_VERSION_LIST ${oidn_DOWNLOAD_VERSION})
             list(GET oidn_DOWNLOAD_VERSION_LIST 0 oidn_DOWNLOAD_VERSION_MAJOR)
             set(oidn_RUNTIME_LIBS
@@ -42,6 +41,12 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
                     "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise_device_cpu.${oidn_DOWNLOAD_VERSION}.dylib"
                     "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise_device_cpu.dylib")
         else ()
+            FetchContent_Declare(OpenImageDenoise
+                    URL ${oidn_DOWNLOAD_URL}
+                    DOWNLOAD_EXTRACT_TIMESTAMP ON)
+            FetchContent_MakeAvailable(OpenImageDenoise)
+            FetchContent_GetProperties(OpenImageDenoise)
+            message(STATUS "OpenImageDenoise binary downloaded to ${openimagedenoise_SOURCE_DIR}")
             list(APPEND CMAKE_PREFIX_PATH ${openimagedenoise_SOURCE_DIR})
             find_package(OpenImageDenoise CONFIG REQUIRED)
             file(GLOB oidn_RUNTIME_LIBS
@@ -54,6 +59,7 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
             # list(FILTER oidn_RUNTIME_LIBS EXCLUDE REGEX ".*_device_.*")
             # list(APPEND oidn_RUNTIME_LIBS ${oidn_RUNTIME_BACKEND_LIBS})
         endif ()
+
         if (oidn_BUILD_FROM_SOURCE)
             # FIXME: trouble linking the STATIC library on macOS with Apple Silicons, so SHARED here to workaround...
             add_library(luisa-compute-oidn-ext SHARED oidn_denoiser.cpp)
