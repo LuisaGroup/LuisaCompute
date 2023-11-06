@@ -105,6 +105,9 @@ public:
                 input_scale};
         }
     public:
+        DenoiserInput() noexcept = delete;
+        DenoiserInput(uint32_t width, uint32_t height) noexcept
+            : width{width}, height{height} {}
         template<class T, class U>
         void push_noisy_image(const BufferView<T> &input, const BufferView<U> &output, ImageFormat format, ImageColorSpace cs = ImageColorSpace::HDR, float input_scale = 1.0f) noexcept {
             inputs.push_back(buffer_to_image(input, format, cs, input_scale));

@@ -645,10 +645,8 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
             },
 
             .init = [](const LCDenoiserExt *ext, LCDenoiser *denoiser, const LCDenoiserInput *c_input) {
-                DenoiserExt::DenoiserInput input{};
+                DenoiserExt::DenoiserInput input{c_input->width, c_input->height};
                 input.noisy_features = c_input->noisy_features;
-                input.width = c_input->width;
-                input.height = c_input->height;
                 switch(c_input->prefilter_mode) {
                     case LC_PREFILTER_MODE_NONE:
                         input.prefilter_mode = DenoiserExt::PrefilterMode::NONE;
@@ -694,7 +692,7 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                         case LC_IMAGE_FORMAT_HALF4:
                             return DenoiserExt::ImageFormat::HALF4;
                         default:
-                            LUISA_ERROR_WITH_LOCATION("Invalid image format {}.", fmt);
+                            LUISA_ERROR_WITH_LOCATION("Invalid image format {}.", (int)fmt);
                     }
                 };
                 auto convert_color_space = [](LCImageColorSpace cs) {
@@ -706,7 +704,7 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                         case LC_IMAGE_COLOR_SPACE_LDR_SRGB:
                             return DenoiserExt::ImageColorSpace::LDR_SRGB;
                         default:
-                            LUISA_ERROR_WITH_LOCATION("Invalid image color space {}.", cs);
+                            LUISA_ERROR_WITH_LOCATION("Invalid image color space {}.", (int)cs);
                     }
                 };
                 auto convert_img = [&](LCImage img)->DenoiserExt::Image {

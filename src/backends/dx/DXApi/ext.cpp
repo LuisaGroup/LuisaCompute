@@ -356,7 +356,7 @@ DXOidnDenoiser::DXOidnDenoiser(LCDevice *_device, oidn::DeviceRef &&oidn_device,
 }
 DXOidnDenoiserExt::DXOidnDenoiserExt(LCDevice *device) noexcept
     : _device{device} {}
-luisa::shared_ptr<Denoiser> DXOidnDenoiserExt::create(uint64_t stream) noexcept override {
+luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(uint64_t stream) noexcept {
     DXGI_ADAPTER_DESC1 desc;
     _device->nativeDevice.adapter->GetDesc1(&desc);
     auto device_id = desc.DeviceId;

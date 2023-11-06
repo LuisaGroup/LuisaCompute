@@ -24,6 +24,6 @@ class DXOidnDenoiserExt : public DenoiserExt {
     LCDevice *_device;
 public:
     explicit DXOidnDenoiserExt(LCDevice *device) noexcept;
-    luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept;
+    luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override;
 };
 }// namespace lc::dx
