@@ -57,8 +57,14 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
     endif ()
 
     if (oidn_BUILD_FROM_SOURCE)
-        # FIXME: trouble linking the STATIC library on macOS with Apple Silicons, so SHARED here to workaround...
-        add_library(luisa-compute-oidn-ext SHARED oidn_denoiser.cpp)
+       
+        if(NOT oidn_BUILD_FROM_SOURCE)
+                # FIXME: trouble linking the SHARED library on linux, so STATIC here to workaround...
+                add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
+        else()
+                # FIXME: trouble linking the STATIC library on macOS with Apple Silicons, so SHARED here to workaround...
+                add_library(luisa-compute-oidn-ext SHARED oidn_denoiser.cpp)
+        endif()
         set_target_properties(luisa-compute-oidn-ext PROPERTIES OUTPUT_NAME lc-oidn-ext)
         # FIXME: ad-hoc fix for the missing dependency of the OpenImageDenoise_device_cpu library
         add_dependencies(luisa-compute-oidn-ext OpenImageDenoise_device_cpu)
