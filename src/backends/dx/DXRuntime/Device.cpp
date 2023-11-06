@@ -153,7 +153,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                         ThrowIfFailed(D3D12CreateDevice(
                             adapter.Get(), D3D_FEATURE_LEVEL_12_1,
                             IID_PPV_ARGS(device.GetAddressOf())));
-                        deviceId = desc.DeviceId;
                         adapterID = GenAdapterGUID(desc);
                         break;
                     }

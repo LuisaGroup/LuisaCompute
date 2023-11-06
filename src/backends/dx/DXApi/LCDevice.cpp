@@ -53,13 +53,12 @@ class DXOidnDenoiser : public OidnDenoiser {
     oidn::BufferRef get_buffer(const DenoiserExt::Image &img, bool read) noexcept override {
         auto interop_buffer = _interop->create_interop_buffer(nullptr, img.size_bytes);
         auto buffer = reinterpret_cast<DefaultBuffer *>(interop_buffer.handle);
+        uint64_t cuda_device_ptr, cuda_handle;
+        _interop->cuda_buffer(interop_buffer.handle, &cuda_device_ptr, &cuda_handle);
         auto oidn_buffer = _oidn_device.newBuffer(
-            buffer->IsHeapResource() ?
-                oidn::ExternalMemoryTypeFlag::D3D12Heap :
-                oidn::ExternalMemoryTypeFlag::D3D12Resource,
-            interop_buffer.native_handle,
-            nullptr,
+            (void *)cuda_device_ptr,
             buffer->GetByteSize());
+        LUISA_ASSERT(oidn_buffer, "OIDN buffer creation failed.");
         _interop_images.push_back(InteropImage{.img = img, .shared_buffer = interop_buffer, .read = read});
         return oidn_buffer;
     }
@@ -83,9 +82,8 @@ class DXOidnDenoiser : public OidnDenoiser {
                     img.img.size_bytes)));
             }
         }
-        if (!cmd_list.empty()) {
-            _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
-        }
+
+        _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
     }
     void post_sync() noexcept {
         auto cmd_list = CommandList{};
@@ -99,21 +97,19 @@ class DXOidnDenoiser : public OidnDenoiser {
                     img.img.size_bytes)));
             }
         }
-        if (!cmd_list.empty()) {
-            _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
-        }
+
+        _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
     }
     void execute(bool async) noexcept override {
         if (async) {
-            LUISA_ASSERT(false, "Async execution not implemented due to lacking cuda/dx event interop");
-        } else {
-            prepare();
-            _device->synchronize_stream(_stream);
-            exec_filters();
-            _oidn_device.sync();
-            post_sync();
-            _device->synchronize_stream(_stream);
+            LUISA_WARNING_WITH_LOCATION("Async execution not implemented due to lacking cuda/dx event interop");
         }
+        prepare();
+        _device->synchronize_stream(_stream);
+        exec_filters();
+        _oidn_device.sync();
+        post_sync();
+        _device->synchronize_stream(_stream);
     }
 public:
     DXOidnDenoiser(LCDevice *_device, oidn::DeviceRef &&oidn_device, uint64_t stream)
@@ -130,9 +126,11 @@ public:
     explicit DXOidnDenoiserExt(LCDevice *device) noexcept
         : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
-        auto device_id = _device->nativeDevice.deviceId;
+        DXGI_ADAPTER_DESC1 desc;
+        _device->nativeDevice.adapter->GetDesc1(&desc);
+        auto device_id = desc.DeviceId;
         LUISA_ASSERT(device_id != -1, "device_id should not be -1.");
-        return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newDevice(device_id), stream);
+        return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newCUDADevice(device_id, 0), stream);
     }
 };
 }// namespace lc::dx
