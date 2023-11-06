@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 
@@ -29,6 +30,28 @@ public:
         HALF3,
         HALF4,
     };
+    constexpr size_t size(ImageFormat fmt) {
+        switch (fmt) {
+            case ImageFormat::FLOAT1:
+                return 4;
+            case ImageFormat::FLOAT2:
+                return 8;
+            case ImageFormat::FLOAT3:
+                return 12;
+            case ImageFormat::FLOAT4:
+                return 16;
+            case ImageFormat::HALF1:
+                return 2;
+            case ImageFormat::HALF2:
+                return 4;
+            case ImageFormat::HALF3:
+                return 6;
+            case ImageFormat::HALF4:
+                return 8;
+            default:
+                return 0;
+        }
+    }
     enum class ImageColorSpace : uint32_t {
         HDR,
         LDR_LINEAR,
@@ -59,6 +82,33 @@ public:
         bool noisy_features = false;
         uint32_t width = 0u;
         uint32_t height = 0u;
+    private:
+        template<class T>
+        Image buffer_to_image(const BufferView<T> &buffer, ImageFormat format, ImageColorSpace cs, float input_scale) {
+            static_assert(size(format) <= sizeof(T));
+            LUISA_ASSERT(buffer.size() == width * height, "Buffer size mismatch.");
+            return Image{
+                format,
+                buffer.handle(),
+                buffer.native_handle(),
+                buffer.offset_bytes(),
+                buffer.stride_bytes(),
+                buffer.stride_bytes() * width,
+                cs,
+                input_scale};
+        }
+    public:
+        template<class T, class U>
+        void push_noisy_image(const BufferView<T> &input, const BufferView<U> &output, ImageFormat format, ImageColorSpace cs = ImageColorSpace::HDR, float input_scale = 1.0f) noexcept {
+            inputs.push_back(buffer_to_image(input, format, cs, input_scale));
+            outputs.push_back(buffer_to_image(output, format, cs, input_scale));
+        }
+        template<class T>
+        void push_feature_image(const luisa::string_view name, const BufferView<T> &feature, ImageFormat format, ImageColorSpace cs = ImageColorSpace::HDR, float input_scale = 1.0f) noexcept {
+            features.push_back(Feature{
+                name,
+                buffer_to_image(feature, format, cs, input_scale)});
+        }
     };
     class Denoiser;
     virtual luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept = 0;

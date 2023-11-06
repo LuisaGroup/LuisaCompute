@@ -388,13 +388,36 @@ public:
 };
 
 #ifdef LUISA_BACKEND_ENABLE_OIDN
+class CpuOidnDenoiser : public OidnDenoiser {
+public:
+    using OidnDenoiser::OidnDenoiser;
+    void execute(bool async) noexcept {
+        auto lock = luisa::make_unique<std::shared_lock<std::shared_mutex>>(_mutex);
+        if (!async) {
+            exec_filters();
+            _oidn_device.sync();
+        } else {
+            // On cpu, oidn does not execute in stream
+            // Moreover, oidn does not support async execution on cpu
+            // We execute oidn in callback just to block further stream operation until oidn finishes
+            auto cmd_list = CommandList{};
+            cmd_list.add_callback([lock_ = std::move(lock), this]() mutable {
+                exec_filters();
+                _oidn_device.sync();
+                LUISA_ASSERT(lock_, "Callback called twice.");
+                lock_.reset();
+            });
+            _device->dispatch(_stream, std::move(cmd_list));
+        }
+    }
+};
 class CpuOidnDenoiserExt : public DenoiserExt {
     DeviceInterface *_device;
 public:
     explicit CpuOidnDenoiserExt(DeviceInterface *device) noexcept
         : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
-        return luisa::make_shared<OidnDenoiser>(_device, oidn::newDevice(oidn::DeviceType::CPU), stream, true);
+        return luisa::make_shared<CpuOidnDenoiser>(_device, oidn::newDevice(oidn::DeviceType::CPU), stream);
     }
 };
 #endif

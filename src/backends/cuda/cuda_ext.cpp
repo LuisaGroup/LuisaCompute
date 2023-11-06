@@ -10,9 +10,27 @@
 namespace luisa::compute::cuda {
 
 #if LUISA_BACKEND_ENABLE_OIDN
+class CudaOidnDenoiser : public OidnDenoiser {
+public:
+    using OidnDenoiser::OidnDenoiser;
+    void execute(bool async) noexcept {
+        auto lock = luisa::make_unique<std::shared_lock<std::shared_mutex>>(_mutex);
+        exec_filters();
+        if (!async) {
+            _oidn_device.sync();
+        } else {
+            auto cmd_list = CommandList{};
+            cmd_list.add_callback([lock_ = std::move(lock), this]() mutable {
+                LUISA_ASSERT(lock_, "Callback called twice.");
+                lock_.reset();
+            });
+            _device->dispatch(_stream, std::move(cmd_list));
+        }
+    }
+};
 luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream) noexcept {
     auto oidn_device = oidn::newCUDADevice(_device->handle().index(), reinterpret_cast<CUDAStream *>(stream)->handle());
-    return luisa::make_shared<OidnDenoiser>(_device, std::move(oidn_device), stream);
+    return luisa::make_shared<CudaOidnDenoiser>(_device, std::move(oidn_device), stream);
 }
 #endif
 

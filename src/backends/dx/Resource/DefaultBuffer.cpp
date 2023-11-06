@@ -23,6 +23,7 @@ DefaultBuffer::DefaultBuffer(
             initState,
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
+        _is_heap_resource = true;
     } else {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
@@ -33,6 +34,7 @@ DefaultBuffer::DefaultBuffer(
             initState,
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
+        _is_heap_resource = false;
     }
 }
 DefaultBuffer::DefaultBuffer(

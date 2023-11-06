@@ -846,7 +846,7 @@ pub mod denoiser_ext {
     }
     impl ImageFormat {
         #[inline]
-        pub fn size(&self) -> usize {
+        pub const fn size(&self) -> usize {
             match self {
                 ImageFormat::Float1 => 4,
                 ImageFormat::Float2 => 8,

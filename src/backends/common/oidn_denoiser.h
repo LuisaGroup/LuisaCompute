@@ -8,21 +8,27 @@
 
 namespace luisa::compute {
 
-class LC_BACKEND_API OidnDenoiser : public DenoiserExt::Denoiser {
+class OidnDenoiser : public DenoiserExt::Denoiser {
 protected:
     DeviceInterface *_device;
     oidn::DeviceRef _oidn_device;
+    // shared access on ::execute
+    // exclusive access on ::init
     std::shared_mutex _mutex;
     luisa::vector<oidn::FilterRef> _filters;
+    luisa::vector<oidn::BufferRef> _input_buffers, _output_buffers;
+    oidn::BufferRef _albedo_buffer;
+    oidn::BufferRef _normal_buffer;
     oidn::FilterRef _albedo_prefilter;
     oidn::FilterRef _normal_prefilter;
     uint64_t _stream;
-    bool _is_cpu = false;
-    void reset() noexcept;
+    bool _executed_on_stream;
+    virtual void reset() noexcept;
+    virtual oidn::BufferRef get_buffer(const DenoiserExt::Image &img, bool read) noexcept;
+    void exec_filters() noexcept;
 public:
-    explicit OidnDenoiser(DeviceInterface *device, oidn::DeviceRef &&oidn_device, uint64_t stream, bool is_cpu = false) noexcept;
+    explicit OidnDenoiser(DeviceInterface *device, oidn::DeviceRef &&oidn_device, uint64_t stream) noexcept;
     void init(const DenoiserExt::DenoiserInput &input) noexcept override;
-    void execute(bool async) noexcept override;
     ~OidnDenoiser() noexcept override = default;
 };
 

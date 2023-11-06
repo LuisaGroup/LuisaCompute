@@ -39,12 +39,121 @@
 #include <luisa/ir/transform.h>
 #endif
 
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+#include "../common/oidn_denoiser.h"
+namespace lc::dx {
+class DXOidnDenoiser : public OidnDenoiser {
+    DxCudaInterop *_interop{};
+    struct InteropImage {
+        DenoiserExt::Image img;
+        BufferCreationInfo shared_buffer;
+        bool read;
+    };
+    luisa::vector<InteropImage> _interop_images;
+    oidn::BufferRef get_buffer(const DenoiserExt::Image &img, bool read) noexcept override {
+        auto interop_buffer = _interop->create_interop_buffer(nullptr, img.size_bytes);
+        auto buffer = reinterpret_cast<DefaultBuffer *>(interop_buffer.handle);
+        auto oidn_buffer = _oidn_device.newBuffer(
+            buffer->IsHeapResource() ?
+                oidn::ExternalMemoryTypeFlag::D3D12Heap :
+                oidn::ExternalMemoryTypeFlag::D3D12Resource,
+            interop_buffer.native_handle,
+            nullptr,
+            buffer->GetByteSize());
+        _interop_images.push_back(InteropImage{.img = img, .shared_buffer = interop_buffer, .read = read});
+        return oidn_buffer;
+    }
+    void reset() noexcept override {
+        OidnDenoiser::reset();
+        for (auto &&img : _interop_images) {
+            _device->destroy_buffer(img.shared_buffer.handle);
+        }
+        _interop_images.clear();
+    }
+
+    void prepare() noexcept {
+        auto cmd_list = CommandList{};
+        for (auto &&img : _interop_images) {
+            if (img.read) {
+                cmd_list.append(std::move(luisa::make_unique<BufferCopyCommand>(
+                    img.img.buffer_handle,
+                    img.shared_buffer.handle,
+                    img.img.offset,
+                    0ull,
+                    img.img.size_bytes)));
+            }
+        }
+        if (!cmd_list.empty()) {
+            _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
+        }
+    }
+    void post_sync() noexcept {
+        auto cmd_list = CommandList{};
+        for (auto &&img : _interop_images) {
+            if (!img.read) {
+                cmd_list.append(std::move(luisa::make_unique<BufferCopyCommand>(
+                    img.shared_buffer.handle,
+                    img.img.buffer_handle,
+                    0ull,
+                    img.img.offset,
+                    img.img.size_bytes)));
+            }
+        }
+        if (!cmd_list.empty()) {
+            _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
+        }
+    }
+    void execute(bool async) noexcept override {
+        if (async) {
+            LUISA_ASSERT(false, "Async execution not implemented due to lacking cuda/dx event interop");
+        } else {
+            prepare();
+            _device->synchronize_stream(_stream);
+            exec_filters();
+            _oidn_device.sync();
+            post_sync();
+            _device->synchronize_stream(_stream);
+        }
+    }
+public:
+    DXOidnDenoiser(LCDevice *_device, oidn::DeviceRef &&oidn_device, uint64_t stream)
+        : OidnDenoiser(static_cast<DeviceInterface *>(_device), std::move(oidn_device), stream) {
+        _interop = static_cast<DxCudaInterop *>(_device->extension(DxCudaInterop::name));
+        if (_interop == nullptr) {
+            LUISA_ERROR_WITH_LOCATION("DxCudaInterop not found. Cannot use OIDN denoiser.");
+        }
+    }
+};
+class DXOidnDenoiserExt : public DenoiserExt {
+    LCDevice *_device;
+public:
+    explicit DXOidnDenoiserExt(LCDevice *device) noexcept
+        : _device{device} {}
+    luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
+        auto device_id = _device->nativeDevice.deviceId;
+        LUISA_ASSERT(device_id != -1, "device_id should not be -1.");
+        return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newDevice(device_id), stream);
+    }
+};
+}// namespace lc::dx
+#endif
+
 namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       nativeDevice(Context{_ctx_impl}, settings) {
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+    exts.try_emplace(
+        DenoiserExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DXOidnDenoiserExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DXOidnDenoiserExt *>(ext);
+        });
+#endif
     exts.try_emplace(
         TexCompressExt::name,
         [](LCDevice *device) -> DeviceExtension * {

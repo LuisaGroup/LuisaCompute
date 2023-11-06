@@ -68,6 +68,8 @@ public:
     LazyLoadShader bc7TryMode02;
     LazyLoadShader bc7EncodeBlock;
 
+    uint32_t deviceId = -1;
+
     /*vstd::unique_ptr<ComputeShader> bc6_0;
     vstd::unique_ptr<ComputeShader> bc6_1;
     vstd::unique_ptr<ComputeShader> bc6_2;
