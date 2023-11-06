@@ -39,6 +39,7 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
+#if 0
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -718,3 +719,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_denoiser.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
+#else
+int main() {}
+
+#endif

@@ -46,14 +46,24 @@ if (CUDAToolkit_FOUND)
             $<TARGET_FILE_DIR:luisa-compute-core>)
     install(FILES "${CUDA_DEVICE_RUNTIME_LIBRARY}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-    if (WIN32)
-        # FIXME: trouble with nvrtc_static on Windows due to the mismatch of runtime library...
-        target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
+    # nvrtc
+    if (TARGET CUDA::nvrtc_static AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        # wrap the static nvrtc library in a shared library to avoid the dependency on the CUDA toolkit
+        add_library(luisa-compute-backend-cuda-nvrtc MODULE cuda_nvrtc.cpp)
+        target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
+        set_target_properties(luisa-compute-backend-cuda-nvrtc PROPERTIES
+                OUTPUT_NAME "lc-backend-cuda-nvrtc"
+                WINDOWS_EXPORT_ALL_SYMBOLS OFF
+                INTERPROCEDURAL_OPTIMIZATION OFF
+                LANGUAGE C)
+        install(TARGETS luisa-compute-backend-cuda-nvrtc DESTINATION ${CMAKE_INSTALL_BINDIR})
+        add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-nvrtc)
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_STANDALONE_NVRTC_DLL=1)
     else ()
-        if (TARGET CUDA::nvrtc_static)
+        target_sources(luisa-compute-backend-cuda PRIVATE cuda_nvrtc.cpp)
+        if (TARGET CUDA::nvrtc_static AND NOT WIN32)
             target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc_static)
         else ()
-            message(WARNING "CUDA::nvrtc_static not found. Using CUDA::nvrtc instead. This may cause DLL dependency issues.")
             target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::nvrtc)
         endif ()
     endif ()
@@ -61,6 +71,10 @@ if (CUDAToolkit_FOUND)
     if (WIN32)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
     endif ()
+
+    if (TARGET luisa-compute-oidn-ext)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-compute-oidn-ext)
+    endif()
 
     # nvCOMP
     if (LUISA_COMPUTE_DOWNLOAD_NVCOMP)
@@ -84,11 +98,11 @@ if (CUDAToolkit_FOUND)
     find_package(nvcomp CONFIG)
     set(_NVCOMP_WARNING_MSG "nvCOMP not found. The CUDA backend will be built without GPU compression support. You may want to set the LUISA_COMPUTE_DOWNLOAD_NVCOMP option to ON to let LuisaCompute automatically download it.")
     if (NOT nvcomp_FOUND)
-        message(WARNING  ${_NVCOMP_WARNING_MSG})
+        message(WARNING ${_NVCOMP_WARNING_MSG})
     else ()
         if (${nvcomp_VERSION} VERSION_LESS "3.0.0")
-            message(WARNING  ${_NVCOMP_WARNING_MSG})
-        else()
+            message(WARNING ${_NVCOMP_WARNING_MSG})
+        else ()
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVCOMP=1)
             set(NVCOMP_TARGETS
                     nvcomp::nvcomp
@@ -102,7 +116,7 @@ if (CUDAToolkit_FOUND)
                         $<TARGET_FILE_DIR:luisa-compute-core>)
                 install(FILES $<TARGET_FILE:${target}> DESTINATION ${CMAKE_INSTALL_BINDIR})
             endforeach ()
-        endif()       
+        endif ()
     endif ()
 
     # CUB LuisaCompute integration
@@ -191,7 +205,7 @@ if (CUDAToolkit_FOUND)
             endif ()
         endif ()
         if (NVTT_INCLUDE_DIR AND NVTT_VERSION AND NVTT_RUNTIME_LIB AND NVTT_LINKER_LIB)
-            message(STATUS "Found NVTT ${NVTT_VERSION}\n   NVTT_INCLUDE_DIR: ${NVTT_INCLUDE_DIR}\n   NVTT_LIBS: ${NVTT_LIBS}")
+            message(STATUS "Found NVTT ${NVTT_VERSION}\n   NVTT_INCLUDE_DIR: ${NVTT_INCLUDE_DIR}\n   NVTT_RUNTIME_LIB: ${NVTT_RUNTIME_LIB}\n   NVTT_LINKER_LIB: ${NVTT_LINKER_LIB}")
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVTT=1)
             target_include_directories(luisa-compute-backend-cuda PRIVATE ${NVTT_INCLUDE_DIR})
             target_link_libraries(luisa-compute-backend-cuda PRIVATE "${NVTT_LINKER_LIB}")

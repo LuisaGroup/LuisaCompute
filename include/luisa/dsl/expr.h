@@ -30,7 +30,7 @@ namespace detail {
 
 /// Extract or construct expression from given data
 template<typename T>
-[[nodiscard]] inline auto extract_expression(T &&v) noexcept {
+[[nodiscard]] inline auto extract_expression(T &&v) noexcept -> const Expression * {
     if constexpr (is_dsl_v<T>) {
         return std::forward<T>(v).expression();
     } else {

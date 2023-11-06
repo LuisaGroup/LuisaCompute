@@ -19,6 +19,11 @@ using luisa::compute::ir::Type;
 
 // must go last to avoid name conflicts
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/backends/ext/denoiser_ext.h>
+
+#if LUISA_BACKEND_ENABLE_OIDN
+#include "oidn_denoiser.h"
+#endif
 
 namespace luisa::compute::rust {
 
@@ -382,16 +387,53 @@ public:
     }
 };
 
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+class CpuOidnDenoiser : public OidnDenoiser {
+public:
+    using OidnDenoiser::OidnDenoiser;
+    void execute(bool async) noexcept {
+        auto lock = luisa::make_unique<std::shared_lock<std::shared_mutex>>(_mutex);
+        if (!async) {
+            exec_filters();
+            _oidn_device.sync();
+        } else {
+            // On cpu, oidn does not execute in stream
+            // Moreover, oidn does not support async execution on cpu
+            // We execute oidn in callback just to block further stream operation until oidn finishes
+            auto cmd_list = CommandList{};
+            cmd_list.add_callback([lock_ = std::move(lock), this]() mutable {
+                exec_filters();
+                _oidn_device.sync();
+                LUISA_ASSERT(lock_, "Callback called twice.");
+                lock_.reset();
+            });
+            _device->dispatch(_stream, std::move(cmd_list));
+        }
+    }
+};
+class CpuOidnDenoiserExt : public DenoiserExt {
+    DeviceInterface *_device;
+public:
+    explicit CpuOidnDenoiserExt(DeviceInterface *device) noexcept
+        : _device{device} {}
+    luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
+        return luisa::make_shared<CpuOidnDenoiser>(_device, oidn::newDevice(oidn::DeviceType::CPU), stream);
+    }
+};
+#endif
+
 // @Mike-Leo-Smith: fill-in the blanks pls
 class RustDevice final : public DeviceInterface {
     api::DeviceInterface device{};
     api::LibInterface lib{};
     luisa::filesystem::path runtime_path;
     DynamicModule dll;
-
     api::LibInterface (*luisa_compute_lib_interface)();
 
     api::Context api_ctx{};
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+    CpuOidnDenoiserExt _oidn_denoiser_ext;
+#endif
 
 public:
     ~RustDevice() noexcept override {
@@ -401,7 +443,12 @@ public:
 
     RustDevice(Context &&ctx, luisa::filesystem::path runtime_path, string_view name) noexcept
         : DeviceInterface(std::move(ctx)),
-          runtime_path(std::move(runtime_path)) {
+          runtime_path(std::move(runtime_path))
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+          ,
+          _oidn_denoiser_ext(this)
+#endif
+    {
         dll = DynamicModule::load(this->runtime_path, "luisa_compute_backend_impl");
         luisa_compute_lib_interface = dll.function<api::LibInterface()>("luisa_compute_lib_interface");
         lib = luisa_compute_lib_interface();
@@ -648,6 +695,18 @@ public:
 
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle,
                   luisa::string_view name) noexcept override {
+    }
+    DeviceExtension *extension(luisa::string_view name) noexcept override {
+        if (name == DenoiserExt::name) {
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+            return &_oidn_denoiser_ext;
+#else
+            return nullptr;
+#endif
+        } else {
+            LUISA_WARNING_WITH_LOCATION("Unsupported device extension: {}.", name);
+            return nullptr;
+        }
     }
 };
 

@@ -6,3 +6,7 @@ target_link_libraries(luisa-compute-backend-cpu PRIVATE
         luisa-compute-vulkan-swapchain
         luisa-compute-rust-meta
         luisa_compute_backend_impl)
+
+if (TARGET luisa-compute-oidn-ext)
+    target_link_libraries(luisa-compute-backend-cpu PRIVATE luisa-compute-oidn-ext)
+endif ()
