@@ -109,14 +109,22 @@ public:
         DenoiserInput(uint32_t width, uint32_t height) noexcept
             : width{width}, height{height} {}
         template<class T, class U>
-        void push_noisy_image(const BufferView<T> &input, const BufferView<U> &output, ImageFormat format, ImageColorSpace cs = ImageColorSpace::HDR, float input_scale = 1.0f) noexcept {
+        void push_noisy_image(const BufferView<T> &input,
+                              const BufferView<U> &output,
+                              ImageFormat format,
+                              ImageColorSpace cs = ImageColorSpace::HDR,
+                              float input_scale = 1.0f) noexcept {
             inputs.push_back(buffer_to_image(input, format, cs, input_scale));
             outputs.push_back(buffer_to_image(output, format, cs, input_scale));
         }
         template<class T>
-        void push_feature_image(const luisa::string &name, const BufferView<T> &feature, ImageFormat format, ImageColorSpace cs = ImageColorSpace::HDR, float input_scale = 1.0f) noexcept {
+        void push_feature_image(const luisa::string &feature_name,
+                                const BufferView<T> &feature,
+                                ImageFormat format,
+                                ImageColorSpace cs = ImageColorSpace::HDR,
+                                float input_scale = 1.0f) noexcept {
             features.push_back(Feature{
-                name,
+                feature_name,
                 buffer_to_image(feature, format, cs, input_scale)});
         }
     };
@@ -127,7 +135,8 @@ public:
     class Denoiser : public luisa::enable_shared_from_this<Denoiser> {
     public:
         virtual void init(const DenoiserInput &input) noexcept = 0;
-        virtual void execute(bool async = true) noexcept = 0;
+        virtual void execute(bool async) noexcept = 0;
+        void execute() noexcept { execute(true); }
         virtual ~Denoiser() noexcept = default;
     };
 };
