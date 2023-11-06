@@ -51,6 +51,8 @@ class DXOidnDenoiser : public OidnDenoiser {
     };
     luisa::vector<InteropImage> _interop_images;
     oidn::BufferRef get_buffer(const DenoiserExt::Image &img, bool read) noexcept override {
+        // TODO: fix this
+        // TODO: don't create shared buffer if given buffer is already shared
         auto interop_buffer = _interop->create_interop_buffer(nullptr, img.size_bytes);
         auto buffer = reinterpret_cast<DefaultBuffer *>(interop_buffer.handle);
         uint64_t cuda_device_ptr, cuda_handle;
