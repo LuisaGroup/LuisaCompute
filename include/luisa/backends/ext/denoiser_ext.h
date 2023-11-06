@@ -20,6 +20,11 @@ public:
         FAST,
         ACCURATE
     };
+    enum class FilterQuality : uint32_t {
+        DEFAULT,
+        FAST,
+        ACCURATE
+    };
     enum class ImageFormat : uint32_t {
         FLOAT1,
         FLOAT2,
@@ -79,6 +84,7 @@ public:
         // if prefilter is enabled, the feature images might be prefiltered **in-place**
         luisa::vector<Feature> features;
         PrefilterMode prefilter_mode = PrefilterMode::NONE;
+        FilterQuality filter_quality = FilterQuality::DEFAULT;
         bool noisy_features = false;
         uint32_t width = 0u;
         uint32_t height = 0u;

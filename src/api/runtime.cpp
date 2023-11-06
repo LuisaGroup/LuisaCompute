@@ -662,6 +662,19 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                     default:
                         LUISA_ERROR_WITH_LOCATION("Invalid prefilter mode {}.", (int)c_input->prefilter_mode);
                 }
+                  switch(c_input->filter_quality) {
+                    case LC_FILTER_QUALITY_DEFAULT:
+                        input.filter_quality = DenoiserExt::FilterQuality::DEFAULT;
+                        break;
+                    case LC_FILTER_QUALITY_FAST:
+                        input.filter_quality = DenoiserExt::FilterQuality::FAST;
+                        break;
+                    case LC_FILTER_QUALITY_ACCURATE:
+                        input.filter_quality = DenoiserExt::FilterQuality::ACCURATE;
+                        break;
+                    default:
+                        LUISA_ERROR_WITH_LOCATION("Invalid prefilter mode {}.", (int)c_input->prefilter_mode);
+                }
                 auto convert_format = [](LCImageFormat fmt)->DenoiserExt::ImageFormat {
                     switch(fmt){
                         case LC_IMAGE_FORMAT_FLOAT1:

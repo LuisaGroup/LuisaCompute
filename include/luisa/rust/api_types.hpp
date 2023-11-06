@@ -28,6 +28,12 @@ enum class BindlessArrayUpdateOperation {
     REMOVE,
 };
 
+enum class FilterQuality {
+    DEFAULT,
+    FAST,
+    ACCURATE,
+};
+
 enum class ImageColorSpace {
     HDR,
     LDR_LINEAR,
@@ -596,6 +602,7 @@ struct DenoiserInput {
     const Feature *features;
     size_t features_count;
     PrefilterMode prefilter_mode;
+    FilterQuality filter_quality;
     bool noisy_features;
     uint32_t width;
     uint32_t height;

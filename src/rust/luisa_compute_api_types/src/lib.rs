@@ -834,6 +834,13 @@ pub mod denoiser_ext {
     }
     #[repr(C)]
     #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum FilterQuality {
+        Default,
+        Fast,
+        Accurate,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, PartialEq, Eq)]
     pub enum ImageFormat {
         Float1,
         Float2,
@@ -888,6 +895,7 @@ pub mod denoiser_ext {
         pub features: *const Feature,
         pub features_count: usize,
         pub prefilter_mode: PrefilterMode,
+        pub filter_quality: FilterQuality,
         pub noisy_features: bool,
         pub width: u32,
         pub height: u32,

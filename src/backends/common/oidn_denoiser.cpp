@@ -66,6 +66,19 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
         if (image.input_scale != 1.0) {
             filter.set("inputScale", image.input_scale);
         }
+        if (input.filter_quality == DenoiserExt::FilterQuality::FAST) {
+            filter.set("filter", oidn::Quality::Balanced);
+        } else if (input.filter_quality == DenoiserExt::FilterQuality::ACCURATE) {
+            filter.set("filter", oidn::Quality::High);
+        }
+    };
+    auto set_prefilter_properties = [&](oidn::FilterRef &filter) noexcept {
+        if (input.prefilter_mode == DenoiserExt::PrefilterMode::NONE) return;
+        if (input.prefilter_mode == DenoiserExt::PrefilterMode::FAST) {
+            filter.set("quality", oidn::Quality::Balanced);
+        } else if (input.prefilter_mode == DenoiserExt::PrefilterMode::ACCURATE) {
+            filter.set("quality", oidn::Quality::High);
+        }
     };
     bool has_albedo = false;
     bool has_normal = false;
@@ -83,6 +96,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 _albedo_prefilter.commit();
                 has_albedo = true;
                 albedo_image = &f.image;
+                set_prefilter_properties(_albedo_prefilter);
 
             } else if (f.name == "normal") {
                 LUISA_ASSERT(!has_normal, "Normal feature already set.");
@@ -94,6 +108,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 _normal_prefilter.commit();
                 has_normal = true;
                 normal_image = &f.image;
+                set_prefilter_properties(_normal_prefilter);
 
             } else {
                 LUISA_ERROR_WITH_LOCATION("Invalid feature name: {}.", f.name);

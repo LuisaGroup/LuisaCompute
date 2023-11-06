@@ -54,7 +54,7 @@ class DXOidnDenoiser : public OidnDenoiser {
         // TODO: fix this
         // TODO: don't create shared buffer if given buffer is already shared
         auto interop_buffer = _interop->create_interop_buffer(nullptr, img.size_bytes);
-        auto buffer = reinterpret_cast<DefaultBuffer *>(interop_buffer.handle);
+        auto buffer = static_cast<DefaultBuffer*>(reinterpret_cast<Buffer *>(interop_buffer.handle));
         uint64_t cuda_device_ptr, cuda_handle;
         _interop->cuda_buffer(interop_buffer.handle, &cuda_device_ptr, &cuda_handle);
         auto oidn_buffer = _oidn_device.newBuffer(

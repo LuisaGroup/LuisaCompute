@@ -25,6 +25,12 @@ typedef enum LCBindlessArrayUpdateOperation {
     LC_BINDLESS_ARRAY_UPDATE_OPERATION_REMOVE,
 } LCBindlessArrayUpdateOperation;
 
+typedef enum LCFilterQuality {
+    LC_FILTER_QUALITY_DEFAULT,
+    LC_FILTER_QUALITY_FAST,
+    LC_FILTER_QUALITY_ACCURATE,
+} LCFilterQuality;
+
 typedef enum LCImageColorSpace {
     LC_IMAGE_COLOR_SPACE_HDR,
     LC_IMAGE_COLOR_SPACE_LDR_LINEAR,
@@ -533,6 +539,7 @@ typedef struct LCDenoiserInput {
     const struct LCFeature *features;
     size_t features_count;
     enum LCPrefilterMode prefilter_mode;
+    enum LCFilterQuality filter_quality;
     bool noisy_features;
     uint32_t width;
     uint32_t height;
