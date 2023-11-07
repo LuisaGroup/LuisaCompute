@@ -1204,7 +1204,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "WaveActiveProduct"sv;
             break;
         case CallOp::WARP_PREFIX_SUM:
-            str << "WavePrefixProduct"sv;
+            str << "WavePrefixSum"sv;
             break;
         case CallOp::WARP_ACTIVE_SUM:
             str << "WaveActiveSum"sv;

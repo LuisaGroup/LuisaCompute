@@ -4,6 +4,7 @@ pub use ffi::*;
 use half::f16;
 use serde::Serialize;
 use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
+pub mod analysis;
 mod ast2ir;
 pub mod context;
 mod display;

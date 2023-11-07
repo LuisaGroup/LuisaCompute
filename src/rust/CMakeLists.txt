@@ -42,7 +42,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endif ()
     endfunction()
 
-    luisa_compute_rust_fix_rpath(ir)
     luisa_compute_rust_fix_rpath(backend_impl)
 
     function(luisa_compute_install_rust target)

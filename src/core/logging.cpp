@@ -1,7 +1,8 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <luisa/core/logging.h>
 #include <luisa/vstl/functional.h>
-
+#include <luisa/core/magic_enum.h>
 #include <luisa/rust/api_types.h>
 
 namespace luisa {
@@ -36,10 +37,30 @@ static luisa::logger LOGGER = [] {
     spdlog::logger l{"console", sink};
     l.flush_on(spdlog::level::err);
 #ifndef NDEBUG
-    l.set_level(spdlog::level::debug);
+    spdlog::level::level_enum log_level = spdlog::level::debug;
 #else
-    l.set_level(spdlog::level::info);
+    spdlog::level::level_enum log_level = spdlog::level::info;
 #endif
+    if (auto env_level_c_str = getenv("LUISA_LOG_LEVEL")) {
+        luisa::string env_level{env_level_c_str};
+        for (auto &c : env_level) { c = static_cast<char>(tolower(c)); }
+        if (env_level == "verbose") {
+            log_level = spdlog::level::debug;
+        } else if (env_level == "info") {
+            log_level = spdlog::level::info;
+        } else if (env_level == "warning") {
+            log_level = spdlog::level::warn;
+        } else if (env_level == "error") {
+            log_level = spdlog::level::err;
+        } else {
+            LUISA_WARNING_WITH_LOCATION(
+                "Invalid log level '{}'. "
+                "Please choose from 'verbose', 'info', 'warning' and 'error'. "
+                "Fallback to default log level '{}'.",
+                env_level, luisa::to_string(log_level));
+        }
+    }
+    l.set_level(log_level);
     return l;
 }();
 
@@ -54,13 +75,13 @@ LC_CORE_API void set_sink(spdlog::sink_ptr sink) noexcept {
 }
 
 LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept {
-    return std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>([=](const char *level, const char* msg){
+    return std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>([=](const char *level, const char *msg) {
         LCLoggerMessage m{};
         m.level = level;
         m.message = msg;
         callback(m);
     });
- }
+}
 }// namespace detail
 
 void log_level_verbose() noexcept { detail::default_logger().set_level(spdlog::level::debug); }
@@ -71,4 +92,3 @@ void log_level_error() noexcept { detail::default_logger().set_level(spdlog::lev
 void log_flush() noexcept { detail::default_logger().flush(); }
 
 }// namespace luisa
-

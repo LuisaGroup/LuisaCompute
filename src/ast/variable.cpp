@@ -11,5 +11,10 @@ uint64_t Variable::hash() const noexcept {
     return hash_combine({u0 | (u1 << 32u), _type->hash()}, seed);
 }
 
+Variable::Variable(const Type *type,
+                   Variable::Tag tag,
+                   uint32_t uid) noexcept
+        : _type{type}, _uid{uid}, _tag{tag} {}
+
 }// namespace luisa::compute
 

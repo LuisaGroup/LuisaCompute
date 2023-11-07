@@ -25,7 +25,7 @@ DxTexCompressExt::DxTexCompressExt(Device *device)
 }
 DxTexCompressExt::~DxTexCompressExt() {
 }
-TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept {
+TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
 
     TextureBase *srcTex = reinterpret_cast<TextureBase *>(src.handle());
@@ -39,7 +39,7 @@ TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<flo
     return Result::Success;
 }
 
-TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept {
+TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
     cmdBuffer->CompressBC(
         reinterpret_cast<TextureBase *>(src.handle()),
@@ -281,3 +281,90 @@ void DStorageExtImpl::set_config(bool hdd) noexcept {
 }
 
 }// namespace lc::dx
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+#include <DXApi/dx_oidn_denoiser_ext.h>
+namespace lc::dx {
+auto DXOidnDenoiser::get_buffer(const DenoiserExt::Image &img, bool read) noexcept -> oidn::BufferRef {
+    // TODO: fix this
+    // TODO: don't create shared buffer if given buffer is already shared
+    auto interop_buffer = _interop->create_interop_buffer(nullptr, img.size_bytes);
+    auto buffer = static_cast<DefaultBuffer *>(reinterpret_cast<Buffer *>(interop_buffer.handle));
+    uint64_t cuda_device_ptr, cuda_handle;
+    _interop->cuda_buffer(interop_buffer.handle, &cuda_device_ptr, &cuda_handle);
+    auto oidn_buffer = _oidn_device.newBuffer(
+        (void *)cuda_device_ptr,
+        buffer->GetByteSize());
+    LUISA_ASSERT(oidn_buffer, "OIDN buffer creation failed.");
+    _interop_images.push_back(InteropImage{.img = img, .shared_buffer = interop_buffer, .read = read});
+    return oidn_buffer;
+}
+void DXOidnDenoiser::reset() noexcept {
+    OidnDenoiser::reset();
+    for (auto &&img : _interop_images) {
+        _device->destroy_buffer(img.shared_buffer.handle);
+    }
+    _interop_images.clear();
+}
+
+void DXOidnDenoiser::prepare() noexcept {
+    auto cmd_list = CommandList{};
+    for (auto &&img : _interop_images) {
+        if (img.read) {
+            cmd_list.append(std::move(luisa::make_unique<BufferCopyCommand>(
+                img.img.buffer_handle,
+                img.shared_buffer.handle,
+                img.img.offset,
+                0ull,
+                img.img.size_bytes)));
+        }
+    }
+
+    _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
+}
+void DXOidnDenoiser::post_sync() noexcept {
+    auto cmd_list = CommandList{};
+    for (auto &&img : _interop_images) {
+        if (!img.read) {
+            cmd_list.append(std::move(luisa::make_unique<BufferCopyCommand>(
+                img.shared_buffer.handle,
+                img.img.buffer_handle,
+                0ull,
+                img.img.offset,
+                img.img.size_bytes)));
+        }
+    }
+
+    _device->dispatch(_stream, std::move(cmd_list.commit()).command_list());
+}
+void DXOidnDenoiser::execute(bool async) noexcept {
+    if (async) {
+        LUISA_WARNING_WITH_LOCATION("Async execution not implemented due to lacking cuda/dx event interop");
+    }
+    prepare();
+    _device->synchronize_stream(_stream);
+    exec_filters();
+    _oidn_device.sync();
+    post_sync();
+    _device->synchronize_stream(_stream);
+}
+DXOidnDenoiser::DXOidnDenoiser(LCDevice *_device, oidn::DeviceRef &&oidn_device, uint64_t stream)
+    : OidnDenoiser(static_cast<DeviceInterface *>(_device), std::move(oidn_device), stream) {
+    _interop = static_cast<DxCudaInterop *>(_device->extension(DxCudaInterop::name));
+    if (_interop == nullptr) {
+        LUISA_ERROR_WITH_LOCATION("DxCudaInterop not found. Cannot use OIDN denoiser.");
+    }
+}
+DXOidnDenoiserExt::DXOidnDenoiserExt(LCDevice *device) noexcept
+    : _device{device} {}
+luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(uint64_t stream) noexcept {
+    DXGI_ADAPTER_DESC1 desc;
+    _device->nativeDevice.adapter->GetDesc1(&desc);
+    auto device_id = desc.DeviceId;
+    LUISA_ASSERT(device_id != -1, "device_id should not be -1.");
+    return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newCUDADevice(device_id, 0), stream);
+}
+luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &stream) noexcept {
+    return create(stream.handle());
+}
+}// namespace lc::dx
+#endif

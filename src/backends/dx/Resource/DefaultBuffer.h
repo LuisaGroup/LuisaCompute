@@ -7,7 +7,7 @@ private:
 	AllocHandle allocHandle;
 	uint64 byteSize;
 	D3D12_RESOURCE_STATES initState;
-
+	bool _is_heap_resource = false;
 public:
 	vstd::optional<D3D12_SHADER_RESOURCE_VIEW_DESC> GetColorSrvDesc(bool isRaw = false) const override;
 	vstd::optional<D3D12_UNORDERED_ACCESS_VIEW_DESC> GetColorUavDesc(bool isRaw = false) const override;
@@ -21,13 +21,22 @@ public:
 		Device* device,
 		uint64 byteSize,
 		GpuAllocator* allocator = nullptr,
-		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON);
+		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON,
+		bool shared_adaptor = false);
 	~DefaultBuffer();
+	DefaultBuffer(
+		Device* device,
+		uint64 byteSize,
+		ID3D12Resource* resource,
+		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON);
 	D3D12_RESOURCE_STATES GetInitState() const override {
 		return initState;
 	}
 	Tag GetTag() const override {
 		return Tag::DefaultBuffer;
+	}
+	bool IsHeapResource() const {
+		return _is_heap_resource;
 	}
 	DefaultBuffer(DefaultBuffer&&) = default;
 	KILL_COPY_CONSTRUCT(DefaultBuffer)

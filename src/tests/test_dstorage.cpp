@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     static constexpr uint32_t width = 4096;
     static constexpr uint32_t height = 4096;
     Stream dstorage_memory_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource});
-    Stream dstorage_file_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource,});
+    Stream dstorage_file_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource});
     Stream compute_stream = device.create_stream();
     TimelineEvent event = device.create_timeline_event();
     LUISA_INFO("Start test memory and buffer read.");

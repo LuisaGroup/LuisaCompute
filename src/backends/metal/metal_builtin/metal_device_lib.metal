@@ -1476,3 +1476,35 @@ template<typename T>
 [[nodiscard]] inline auto lc_warp_prefix_product(T x) {
     return simd_prefix_exclusive_product(x);
 }
+
+struct LCPrintBufferContent {
+    ulong size;
+    uchar data[1];
+};
+
+struct LCPrinterBuffer {
+    ulong capacity;
+    device LCPrintBufferContent *__restrict__ content;
+};
+
+[[nodiscard]] inline auto lc_u64_atomic_add(device ulong *ptr, uint x) {
+    auto p = reinterpret_cast<device atomic_uint *>(ptr);
+    auto lo = atomic_fetch_add_explicit(p, x, memory_order_relaxed);
+    auto carry = static_cast<ulong>(lo) + x >= 0xffffffffull ? 1u : 0u;
+    // we expect that the carry is very rare, so we don't consider data race here
+    auto hi = atomic_fetch_add_explicit(p + 1u, carry, memory_order_relaxed);
+    return (static_cast<ulong>(hi) << 32u) | lo;
+}
+
+template<typename T>
+inline void lc_print_impl(LCPrinterBuffer buffer, T value) {
+    if (buffer.capacity == 0u || buffer.content == nullptr) { return; }
+    auto offset = lc_u64_atomic_add(&buffer.content->size, sizeof(T));
+    if (offset + sizeof(T) > buffer.capacity) { return; }
+    static_assert(sizeof(T) % sizeof(uint) == 0u, "size of T must be multiple of uint");
+    constexpr auto n = sizeof(T) / sizeof(uint);
+    using A = array<uint, n>;
+    auto dst = reinterpret_cast<device A *>((&buffer.content->data[0]) + offset);
+    auto src = reinterpret_cast<thread const A *>(&value);
+    *dst = *src;
+}

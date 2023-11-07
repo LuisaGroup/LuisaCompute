@@ -303,6 +303,9 @@ void export_runtime(py::module &m) {
     //     });
 
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
+        .def("backend_name", [](DeviceInterface &self) {
+                return self.backend_name();
+            })
         .def(
             "create_shader", [](DeviceInterface &self, Function kernel) {
                 auto handle = self.create_shader({}, kernel).handle;
@@ -365,7 +368,7 @@ void export_runtime(py::module &m) {
                 return 6;
             }
             auto pixel_args = pixel.arguments();
-            if (pixel_args.size() < 1 || v2p != pixel_args[0].type()) {
+            if (pixel_args.empty() || v2p != pixel_args[0].type()) {
                 return 1;
             }
             auto pos = v2p;
@@ -428,13 +431,18 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
-                auto info = d.create_buffer(type, size);
+                auto info = d.create_buffer(type, size, nullptr);
                 RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
                 return info;
             },
             pyref)
+        .def("import_external_buffer", [](DeviceInterface &d, const Type *type, uint64_t native_address, size_t elem_count) noexcept {
+            auto info = d.create_buffer(type, elem_count, reinterpret_cast<void *>(native_address));
+            RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+            return info;
+        })
         .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
-            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size);
+            auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size, nullptr);
             RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
         })
@@ -722,6 +730,10 @@ void export_runtime(py::module &m) {
             },
             pyref)
         .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
+        .def("print_", [](FunctionBuilder &self, luisa::string_view format, const luisa::vector<const Expression *> &args){
+                self.print_(format, args);
+            },
+            pyref)
         // .def("meta") // unused
         .def("function", &FunctionBuilder::function);// returning object
 

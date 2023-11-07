@@ -607,9 +607,28 @@ _func_map["select"] = _select
 
 
 def _print(name, *args):
-    globalvars.printer.kernel_print(args)
-    globalvars.current_context.uses_printer = True
-    return None, None
+    format_str = ''
+    elements = []
+    def escape(s):
+        return s.replace('\\', '\\\\').replace('{','{{').replace('}','}}')
+    def add_element(node):
+        nonlocal format_str
+        if hasattr(node, "joined"): # f-string
+            for t in node.joined:
+                add_element(t)
+        elif node.dtype is str:
+            format_str += escape(node.expr)
+        elif node.dtype in basic_dtypes or type(node.dtype) is StructType:
+            format_str += '{}'
+            elements.append(node.expr)
+        else:
+            raise NotImplementedError(f"printing unsupported type {node.dtype}")
+    sep = ' '
+    for idx, node in enumerate(args):
+        if idx > 0:
+            format_str += escape(sep)
+        add_element(node)
+    return None, lcapi.builder().print_(format_str, elements)
 
 
 _func_map["print"] = _print
@@ -776,7 +795,6 @@ def callable_call(func, *args):
     if func is globalvars.current_context.func and arg_list == globalvars.current_context.argtypes:
         raise Exception("Recursion is not supported")
     f = func.get_compiled(func_type=1, allow_ref=True, argtypes=arg_list, arg_info=shared_dict, custom_key=globalvars.saved_shader_count)
-    globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument
     # call
     if getattr(f, "return_type", None) is None:

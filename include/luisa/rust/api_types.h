@@ -25,6 +25,29 @@ typedef enum LCBindlessArrayUpdateOperation {
     LC_BINDLESS_ARRAY_UPDATE_OPERATION_REMOVE,
 } LCBindlessArrayUpdateOperation;
 
+typedef enum LCFilterQuality {
+    LC_FILTER_QUALITY_DEFAULT,
+    LC_FILTER_QUALITY_FAST,
+    LC_FILTER_QUALITY_ACCURATE,
+} LCFilterQuality;
+
+typedef enum LCImageColorSpace {
+    LC_IMAGE_COLOR_SPACE_HDR,
+    LC_IMAGE_COLOR_SPACE_LDR_LINEAR,
+    LC_IMAGE_COLOR_SPACE_LDR_SRGB,
+} LCImageColorSpace;
+
+typedef enum LCImageFormat {
+    LC_IMAGE_FORMAT_FLOAT1,
+    LC_IMAGE_FORMAT_FLOAT2,
+    LC_IMAGE_FORMAT_FLOAT3,
+    LC_IMAGE_FORMAT_FLOAT4,
+    LC_IMAGE_FORMAT_HALF1,
+    LC_IMAGE_FORMAT_HALF2,
+    LC_IMAGE_FORMAT_HALF3,
+    LC_IMAGE_FORMAT_HALF4,
+} LCImageFormat;
+
 typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R8_SINT,
     LC_PIXEL_FORMAT_R8_UINT,
@@ -56,6 +79,16 @@ typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R32F,
     LC_PIXEL_FORMAT_RG32F,
     LC_PIXEL_FORMAT_RGBA32F,
+    LC_PIXEL_FORMAT_R10G10B10A2U_INT,
+    LC_PIXEL_FORMAT_R10G10B10A2U_NORM,
+    LC_PIXEL_FORMAT_R11G11B10F,
+    LC_PIXEL_FORMAT_BC1U_NORM,
+    LC_PIXEL_FORMAT_BC2U_NORM,
+    LC_PIXEL_FORMAT_BC3U_NORM,
+    LC_PIXEL_FORMAT_BC4U_NORM,
+    LC_PIXEL_FORMAT_BC5U_NORM,
+    LC_PIXEL_FORMAT_BC6HUF16,
+    LC_PIXEL_FORMAT_BC7U_NORM,
 } LCPixelFormat;
 
 typedef enum LCPixelStorage {
@@ -74,7 +107,22 @@ typedef enum LCPixelStorage {
     LC_PIXEL_STORAGE_FLOAT1,
     LC_PIXEL_STORAGE_FLOAT2,
     LC_PIXEL_STORAGE_FLOAT4,
+    LC_PIXEL_STORAGE_R10G10B10A2,
+    LC_PIXEL_STORAGE_R11G11B10,
+    LC_PIXEL_STORAGE_BC1,
+    LC_PIXEL_STORAGE_BC2,
+    LC_PIXEL_STORAGE_BC3,
+    LC_PIXEL_STORAGE_BC4,
+    LC_PIXEL_STORAGE_BC5,
+    LC_PIXEL_STORAGE_BC6,
+    LC_PIXEL_STORAGE_BC7,
 } LCPixelStorage;
+
+typedef enum LCPrefilterMode {
+    LC_PREFILTER_MODE_NONE,
+    LC_PREFILTER_MODE_FAST,
+    LC_PREFILTER_MODE_ACCURATE,
+} LCPrefilterMode;
 
 typedef enum LCSamplerAddress {
     LC_SAMPLER_ADDRESS_EDGE,
@@ -448,10 +496,67 @@ typedef struct LCShaderOption {
 
 typedef void (*LCDispatchCallback)(uint8_t*);
 
+typedef struct LCPinnedMemoryOption {
+    bool write_combined;
+} LCPinnedMemoryOption;
+
+typedef struct LCPinnedMemoryExt {
+    void *data;
+    void (*pin_host_memory)(struct LCPinnedMemoryExt*,
+                            const void*,
+                            size_t,
+                            void*,
+                            const struct LCPinnedMemoryOption*);
+    void (*allocate_pinned_memory)(struct LCPinnedMemoryExt*, size_t, void*);
+} LCPinnedMemoryExt;
+
+typedef struct LCDenoiser {
+    uint8_t _unused[0];
+} LCDenoiser;
+
+typedef struct LCImage {
+    enum LCImageFormat format;
+    uint64_t buffer_handle;
+    void *device_ptr;
+    size_t offset;
+    size_t pixel_stride;
+    size_t row_stride;
+    size_t size_bytes;
+    enum LCImageColorSpace color_space;
+    float input_scale;
+} LCImage;
+
+typedef struct LCFeature {
+    const char *name;
+    size_t name_len;
+    struct LCImage image;
+} LCFeature;
+
+typedef struct LCDenoiserInput {
+    const struct LCImage *inputs;
+    size_t inputs_count;
+    const struct LCImage *outputs;
+    const struct LCFeature *features;
+    size_t features_count;
+    enum LCPrefilterMode prefilter_mode;
+    enum LCFilterQuality filter_quality;
+    bool noisy_features;
+    uint32_t width;
+    uint32_t height;
+} LCDenoiserInput;
+
+typedef struct LCDenoiserExt {
+    void *data;
+    struct LCDenoiser *(*create)(const struct LCDenoiserExt*, uint64_t stream);
+    void (*init)(const struct LCDenoiserExt*, struct LCDenoiser*, const struct LCDenoiserInput*);
+    void (*execute)(const struct LCDenoiserExt*, struct LCDenoiser*, bool);
+    void (*destroy)(const struct LCDenoiserExt*, struct LCDenoiser*);
+} LCDenoiserExt;
+
 typedef struct LCDeviceInterface {
     struct LCDevice device;
     void (*destroy_device)(struct LCDeviceInterface);
-    struct LCCreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t);
+    struct LCCreatedBufferInfo (*create_buffer)(struct LCDevice, const void*, size_t, void*);
     void (*destroy_buffer)(struct LCDevice, struct LCBuffer);
     struct LCCreatedResourceInfo (*create_texture)(struct LCDevice,
                                                    enum LCPixelFormat,
@@ -505,6 +610,8 @@ typedef struct LCDeviceInterface {
     struct LCCreatedResourceInfo (*create_accel)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_accel)(struct LCDevice, struct LCAccel);
     char *(*query)(struct LCDevice, const char*);
+    struct LCPinnedMemoryExt (*pinned_memory_ext)(struct LCDevice);
+    struct LCDenoiserExt (*denoiser_ext)(struct LCDevice);
 } LCDeviceInterface;
 
 typedef struct LCLoggerMessage {

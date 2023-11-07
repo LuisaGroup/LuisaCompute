@@ -14,7 +14,7 @@ if __name__ == "__main__":
     base = realpath(dirname(realpath(__file__)) + "/../include/luisa").replace("\\", "/")
     # glob all headers
     headers = []
-    modules = [f for f in listdir(base) if isdir(f"{base}/{f}") and f not in ["api", "backends"]]
+    modules = [f for f in listdir(base) if isdir(f"{base}/{f}") and f not in ["api", "backends", "ir_v2"]]
     for module in modules:
         glob_headers(headers, f"{base}/{module}")
     headers = [relpath(header, base).replace("\\", "/") for header in headers if

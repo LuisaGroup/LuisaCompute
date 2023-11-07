@@ -32,19 +32,31 @@
 #include <Resource/SparseHeap.h>
 
 #include <DXApi/dml_ext.h>
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+#include <DXApi/dx_oidn_denoiser_ext.h>
+#endif
 
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ast2ir.h>
 #include <luisa/ir/ir2ast.h>
 #include <luisa/ir/transform.h>
 #endif
-
 namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       nativeDevice(Context{_ctx_impl}, settings) {
+#ifdef LUISA_BACKEND_ENABLE_OIDN
+    exts.try_emplace(
+        DenoiserExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DXOidnDenoiserExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DXOidnDenoiserExt *>(ext);
+        });
+#endif
     exts.try_emplace(
         TexCompressExt::name,
         [](LCDevice *device) -> DeviceExtension * {
@@ -85,6 +97,15 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         [](DeviceExtension *ext) {
             delete static_cast<DxDirectMLExt *>(ext);
         });
+
+    exts.try_emplace(
+        DxCudaInterop::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxCudaInteropImpl(*device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxCudaInteropImpl *>(ext);
+        });
 }
 LCDevice::~LCDevice() {
 }
@@ -98,23 +119,32 @@ LCDevice::~LCDevice() {
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device.Get();
 }
-
-BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
+BufferCreationInfo LCDevice::create_buffer(const Type *element,
+                                           size_t elem_count,
+                                           void *external_memory) noexcept {
     BufferCreationInfo info{};
     Buffer *res{};
     if (element == Type::of<void>()) {
         info.total_size_bytes = elem_count;
         info.element_stride = 1u;
-        res = new DefaultBuffer(
-            &nativeDevice,
-            info.total_size_bytes,
-            nativeDevice.defaultAllocator.get());
+        res = external_memory ?
+                  new DefaultBuffer(
+                      &nativeDevice,
+                      info.total_size_bytes,
+                      reinterpret_cast<ID3D12Resource *>(external_memory)) :
+                  new DefaultBuffer(
+                      &nativeDevice,
+                      info.total_size_bytes,
+                      nativeDevice.defaultAllocator.get());
         info.handle = reinterpret_cast<uint64_t>(res);
         info.native_handle = res->GetResource();
         return info;
     }
     if (element->is_custom()) {
         if (element == Type::of<IndirectKernelDispatch>()) {
+            LUISA_ASSERT(external_memory == nullptr,
+                         "IndirectKernelDispatch buffer cannot "
+                         "be created from external memory.");
             info.element_stride = ComputeShader::DispatchIndirectStride;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
             res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
@@ -123,11 +153,17 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
         }
     } else {
         info.total_size_bytes = element->size() * elem_count;
-        res = static_cast<Buffer *>(
-            new DefaultBuffer(
-                &nativeDevice,
-                info.total_size_bytes,
-                nativeDevice.defaultAllocator.get()));
+        res = external_memory ?
+                  static_cast<Buffer *>(
+                      new DefaultBuffer(
+                          &nativeDevice,
+                          info.total_size_bytes,
+                          reinterpret_cast<ID3D12Resource *>(external_memory))) :
+                  static_cast<Buffer *>(
+                      new DefaultBuffer(
+                          &nativeDevice,
+                          info.total_size_bytes,
+                          nativeDevice.defaultAllocator.get()));
         info.element_stride = element->size();
     }
     info.handle = resource_to_handle(res);
@@ -714,10 +750,12 @@ void LCDevice::update_sparse_resources(
     queuePtr.Signal();
 }
 
-BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element,
+                                           size_t elem_count,
+                                           void *external_memory) noexcept {
 #ifdef LUISA_ENABLE_IR
     auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count);
+    return create_buffer(type, elem_count, external_memory);
 #else
     LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
 #endif
@@ -735,7 +773,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
 }
 ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, "sparse buffer heap", byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);
@@ -749,7 +787,7 @@ void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
 }
 ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, byte_size, &heap->heap, &heap->offset, !is_compressed_type);
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, "sparse texture heap", byte_size, &heap->heap, &heap->offset, !is_compressed_type);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);

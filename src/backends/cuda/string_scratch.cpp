@@ -1,1 +1,0 @@
-#include "../common/string_scratch.cpp"

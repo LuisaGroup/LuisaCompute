@@ -87,6 +87,7 @@ private:
 private:
     friend class Device;
     friend class ResourceGenerator;
+    friend class DxCudaInterop;
     Buffer(DeviceInterface *device, const BufferCreationInfo &info) noexcept
         : Resource{device, Tag::BUFFER, info},
           _size{info.total_size_bytes / info.element_stride},
@@ -96,7 +97,7 @@ private:
                      if (size == 0) [[unlikely]] {
                          detail::error_buffer_size_is_zero();
                      }
-                     return device->create_buffer(Type::of<T>(), size);
+                     return device->create_buffer(Type::of<T>(), size, nullptr);
                  }()} {}
 
 public:

@@ -1,6 +1,5 @@
 use indexmap::{IndexMap, IndexSet};
 
-use bitflags::Flags;
 use core::panic;
 use half::f16;
 use std::ops::Deref;
@@ -11,17 +10,17 @@ use std::{
 
 use crate::context::is_type_equal;
 use crate::ir::{
-    new_node, CallableModuleRef, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming,
-    Primitive, SwitchCase,
+    new_node, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming, Primitive, SwitchCase,
 };
+use crate::transform::inliner;
 use crate::transform::ssa::ToSSA;
 use crate::{
-    context, ir,
+    context,
     ir::{
         ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
         StructType, Type, VectorElementType, VectorType,
     },
-    CBoxedSlice, TypeOf,
+    CBoxedSlice,
 };
 use crate::{CArc, Pooled};
 
@@ -330,8 +329,14 @@ impl<'a> StoreIntermediate<'a> {
                         self.final_grad.insert(args.as_ref()[0], i);
                     }
                 } else if *func == Func::GradientMarker {
-                    assert!(!self.final_grad.contains_key(&args.as_ref()[0]));
-                    self.grads.insert(args.as_ref()[0], args.as_ref()[1]);
+                    // assert!(!self.final_grad.contains_key(&args.as_ref()[0]));
+                    let mut g = args.as_ref()[1];
+                    if !g.is_lvalue() {
+                        let mut builder = IrBuilder::new_without_bb(self.module.pools.clone());
+                        builder.set_insert_point(g);
+                        g = builder.local(g);
+                    }
+                    self.grads.insert(args.as_ref()[0], g);
                     // self.final_grad.insert(args.as_ref()[0]);
                 }
             }
@@ -1801,7 +1806,7 @@ impl Backward {
                 .grads
                 .get(&n)
                 .cloned()
-                .unwrap_or_else(|| builder.zero_initializer(n.type_().clone()));
+                .unwrap_or_else(|| builder.local_zero_init(n.type_().clone()));
             // if grad.is_local() {
             //     grad = builder.call(Func::Load, &[grad], grad.type_().clone());
             // }
@@ -1889,7 +1894,21 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 //         })
                 //     );
                 // }
+                {
+                    let nodes = ad_block.collect_nodes();
+                    for n in nodes {
+                        let inst = n.get().instruction.as_ref();
+                        match inst {
+                            Instruction::Call(f, _) => match f {
+                                Func::Callable(_) => inliner::inline_callable(&ad_block, n, true),
+                                _ => {}
+                            },
+                            _ => {}
+                        }
+                    }
+                }
                 let ad_block = ToSSA.transform(ad_block);
+
                 // {
                 //     println!(
                 //         "After SSA:\n{}",
@@ -1939,7 +1958,11 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                             Instruction::Call(f, args) => {
                                 if *f == Func::Gradient {
                                     let grad = grads[&args[0]];
-                                    assert!(grad.is_lvalue(), "{:?}. Please don't call grad(out).", grad.get().instruction.as_ref());
+                                    assert!(
+                                        grad.is_lvalue(),
+                                        "{:?}. Please don't call grad(out).",
+                                        grad.get().instruction.as_ref()
+                                    );
                                     *inst =
                                         Instruction::Call(Func::Load, CBoxedSlice::new(vec![grad]));
                                 }

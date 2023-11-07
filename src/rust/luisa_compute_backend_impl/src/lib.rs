@@ -10,11 +10,13 @@ use luisa_compute_api_types::DeviceInterface;
 use luisa_compute_backend::create_device_interface;
 pub(crate) use luisa_compute_backend::Backend;
 pub(crate) use luisa_compute_ir::ir;
+use luisa_compute_ir_v2::IrV2BindingTable;
 use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::panic::Location;
 use std::path::{Path, PathBuf};
-use std::process::{exit};
+use std::process::exit;
+use std::sync::atomic::AtomicPtr;
 use std::sync::Arc;
 
 pub struct SwapChainForCpuContext {
@@ -31,7 +33,7 @@ pub struct SwapChainForCpuContext {
     pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
     pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
     pub cpu_swapchain_present:
-    unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
+        unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
 }
 
 unsafe impl Send for SwapChainForCpuContext {}
@@ -167,7 +169,7 @@ extern "C" fn destroy_context(ctx: api::Context) {
 unsafe extern "C" fn create_device(
     ctx: api::Context,
     device: *const c_char,
-    _config: *const c_char,// TODO: respect config
+    _config: *const c_char, // TODO: respect config
 ) -> DeviceInterface {
     let device = CStr::from_ptr(device).to_str().unwrap();
     // let config = CStr::from_ptr(config).to_str().unwrap();
@@ -189,7 +191,11 @@ unsafe extern "C" fn create_device(
                 let swapchain = lib_path.join(swapchain_dll);
                 let swapchain = SwapChainForCpuContext::new(&swapchain)
                     .map_err(|e| {
-                        eprintln!("failed to load swapchain: {}, path:{}", e, swapchain.display());
+                        eprintln!(
+                            "failed to load swapchain: {}, path:{}",
+                            e,
+                            swapchain.display()
+                        );
                         e
                     })
                     .ok()
@@ -231,4 +237,17 @@ pub extern "C" fn luisa_compute_lib_interface() -> api::LibInterface {
         create_device,
         free_string,
     }
+}
+
+const IR_V2_BINDING_TABLE: AtomicPtr<IrV2BindingTable> = AtomicPtr::new(std::ptr::null_mut());
+#[no_mangle]
+pub extern "C" fn luisa_compute_set_ir_v2_binding(table: *const IrV2BindingTable) {
+    IR_V2_BINDING_TABLE.store(
+        table as *mut IrV2BindingTable,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+pub fn ir_v2_binding() -> &'static IrV2BindingTable {
+    unsafe { &*IR_V2_BINDING_TABLE.load(std::sync::atomic::Ordering::SeqCst) }
 }

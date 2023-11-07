@@ -13,8 +13,9 @@
 #include "cuda_host_buffer_pool.h"
 #include "cuda_texture.h"
 #include "cuda_bindless_array.h"
-#include "cuda_dstorage.h"
 #include "cuda_command_encoder.h"
+
+#include "extensions/cuda_dstorage.h"
 
 namespace luisa::compute::cuda {
 
@@ -344,15 +345,8 @@ static void dstorage_decompress(DStorageCompression algorithm,
                      "Failed to get the compression manager for {}.",
                      luisa::to_string(algorithm));
         auto config = manager->configure_decompression(reinterpret_cast<const uint8_t *>(in_ptr));
-        auto temp_buffer = static_cast<CUdeviceptr>(0u);
-        if (auto temp_buffer_size = manager->get_required_scratch_buffer_size()) {
-            LUISA_VERBOSE("nvcomp gdeflate decompression temp buffer size = {} bytes.", temp_buffer_size);
-            LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, stream));
-            manager->set_scratch_buffer(reinterpret_cast<uint8_t *>(temp_buffer));
-        }
         manager->decompress(reinterpret_cast<uint8_t *>(out_ptr),
                             reinterpret_cast<const uint8_t *>(in_ptr), config);
-        if (temp_buffer) { LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, stream)); }
     };
 
     if (luisa::holds_alternative<DSBufferRequest>(output_request)) {
@@ -446,4 +440,3 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
 }
 
 }// namespace luisa::compute::cuda
-

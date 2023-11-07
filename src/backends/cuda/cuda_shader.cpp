@@ -2,12 +2,18 @@
 #include <nvtx3/nvToolsExtCuda.h>
 
 #include <luisa/core/logging.h>
+
+#include "cuda_shader_printer.h"
 #include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 
-CUDAShader::CUDAShader(luisa::vector<Usage> arg_usages) noexcept
-    : _argument_usages{std::move(arg_usages)} {}
+CUDAShader::CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,
+                       luisa::vector<Usage> arg_usages) noexcept
+    : _printer{std::move(printer)},
+      _argument_usages{std::move(arg_usages)} {}
+
+CUDAShader::~CUDAShader() noexcept = default;
 
 Usage CUDAShader::argument_usage(size_t i) const noexcept {
     LUISA_ASSERT(i < _argument_usages.size(),
@@ -33,4 +39,3 @@ void CUDAShader::launch(CUDACommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::cuda
-

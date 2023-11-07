@@ -34,21 +34,30 @@ int main(int argc, char *argv[]) {
     stream << synchronize();
     auto compress_time = clk.toc();
     LUISA_INFO("Compress {}x{} image spend {} ms", resolution.x, resolution.y, compress_time);
-    Kernel2D present_kernel = [&](ImageVar<float> image) {
+
+    BindlessArray array = device.create_bindless_array(2u);
+    constexpr auto bc6h_image_index = 0u;
+    constexpr auto bc7_image_index = 1u;
+    array.emplace_on_update(bc6h_image_index, bc6h_image, Sampler::linear_linear_mirror());
+    array.emplace_on_update(bc7_image_index, bc7_image, Sampler::linear_linear_mirror());
+    stream << array.update() << synchronize();
+
+    Kernel2D present_kernel = [&](UInt i) noexcept {
         Var coord = dispatch_id().xy();
-        byte4_image->write(coord, make_float4(image.read(coord).xyz(), 1.0f));
+        byte4_image->write(coord, make_float4(array->tex2d(i)->read(coord).xyz(), 1.0f));
     };
     auto present_shader = device.compile(present_kernel);
+
     luisa::vector<std::byte> host_image(byte4_image.view().size_bytes());
     stream
         << bc7_image.copy_from(bc7_buffer.view())
-        << present_shader(bc7_image).dispatch(resolution)
+        << present_shader(bc7_image_index).dispatch(resolution)
         << byte4_image.copy_to(host_image.data())
         << synchronize();
     stbi_write_png("test_bc7_compress.png", resolution.x, resolution.y, 4, host_image.data(), 0);
     stream
         << bc6h_image.copy_from(bc6h_buffer.view())
-        << present_shader(bc6h_image).dispatch(resolution)
+        << present_shader(bc6h_image_index).dispatch(resolution)
         << byte4_image.copy_to(host_image.data())
         << synchronize();
     stbi_write_png("test_bc6h_compress.png", resolution.x, resolution.y, 4, host_image.data(), 0);

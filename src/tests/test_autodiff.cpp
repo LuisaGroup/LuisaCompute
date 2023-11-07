@@ -47,22 +47,36 @@ int main(int argc, char *argv[]) {
         auto i = dispatch_x();
         auto x = x_buffer.read(i);
         auto y = y_buffer.read(i);
-        Callable callable = [](Float x, Float2 y) noexcept {
+        Callable callable = [](ArrayFloat<3> a) noexcept {
             auto x_grad = def(0.f);
             auto y_grad = def(make_float2(0.f));
             $autodiff {
-                requires_grad(x, y);
-                auto z = f(x, y);
+                requires_grad(a);
+                auto z = f(a[0], make_float2(a[1], a[2]));
                 backward(z);
-                x_grad = grad(x);
-                y_grad = grad(y);
+                auto a_grad = grad(a);
+                x_grad = a_grad[0];
+                y_grad = make_float2(a_grad[1], a_grad[2]);
             };
             return make_float3(x_grad, y_grad);
         };
-        auto grad = callable(x, y);
+        ArrayFloat<3> a{x, y.x, y.y};
+        auto grad = callable(a);
         x_grad_buffer.write(i, grad.x);
         y_grad_buffer.write(i, grad.yz());
     };
+
+    Kernel1D gg = [&]() noexcept {
+        Shared<float> s{1};
+        Float x = s[0];
+        $autodiff {
+            requires_grad(x);
+            Float z = x + 1.f;
+            backward(z);
+        };
+    };
+
+    auto kk = device.compile(gg);
 
     auto kernel_shader = device.compile(kernel);
     stream << kernel_shader(x_buffer, y_buffer, dx_buffer, dy_buffer).dispatch(n)

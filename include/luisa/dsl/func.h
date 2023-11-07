@@ -2,6 +2,7 @@
 
 #include <type_traits>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/device.h>
@@ -9,6 +10,7 @@
 #include <luisa/dsl/arg.h>
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/resource.h>
+#include <luisa/dsl/stmt.h>
 
 namespace luisa::compute {
 
@@ -567,5 +569,75 @@ Kernel3D(T &&) -> Kernel3D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
+
+namespace detail {
+
+struct CallableOutliner {
+    template<typename F>
+    void operator%(F &&body) && noexcept {
+        Callable{std::forward<F>(body)}();
+    }
+};
+
+}// namespace detail
+
+template<typename F>
+inline void outline(F &&f) noexcept {
+    Callable{std::forward<F>(f)}();
+}
+
+namespace detail {
+template<typename S>
+[[nodiscard]] inline auto outliner_with_comment(S &&s) noexcept {
+    comment(std::forward<S>(s));
+    return CallableOutliner{};
+}
+}// namespace detail
+
+template<typename F>
+class Lambda {
+
+private:
+    luisa::string _comment;
+    luisa::function<F> _f;
+
+public:
+    template<typename Func>
+    Lambda(Func &&f) noexcept : _f(std::forward<Func>(f)) {}
+
+    template<typename S, typename Func>
+    Lambda(S &&s, Func &&f) noexcept
+        : _comment{std::forward<S>(s)},
+          _f{std::forward<Func>(f)} {}
+
+    Lambda(Lambda &&) noexcept = default;
+    Lambda(const Lambda &) noexcept = default;
+    Lambda &operator=(Lambda &&) noexcept = default;
+    Lambda &operator=(const Lambda &) noexcept = default;
+
+    template<typename... Args>
+    auto operator()(Args &&...args) const noexcept {
+        using Ret = decltype(_f(std::forward<Args>(args)...));
+        if constexpr (std::is_same_v<Ret, void>) {
+            outline([&] {
+                if (!_comment.empty()) { detail::comment(_comment); }
+                _f(std::forward<Args>(args)...);
+            });
+        } else {
+            luisa::optional<Ret> ret;
+            outline([&] {
+                if (!_comment.empty()) { detail::comment(_comment); }
+                ret.emplace(_f(std::forward<Args>(args)...));
+            });
+            return std::move(ret).value();
+        }
+    }
+};
+
+template<typename F>
+Lambda(F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F>>>;
+
+template<typename S, typename F>
+Lambda(S &&, F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F>>>;
 
 }// namespace luisa::compute

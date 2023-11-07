@@ -66,7 +66,6 @@ class FuncInstanceInfo:
         self.func = func
         self.__name__ = func.__name__
         self.sourcelines = func.sourcelines
-        self.uses_printer = False
         # self.return_type is not defined until a return statement is met
         self.call_from_host = call_from_host
         self.argtypes = argtypes
@@ -393,7 +392,3 @@ class func:
         else:
             command.set_dispatch_size(*dispatch_size)
         stream.add(command.build())
-        if f.uses_printer:  # assume that this property doesn't change with argtypes
-            globalvars.printer.final_print()
-            # Note: printing will FORCE synchronize (#21)
-            globalvars.printer.reset()

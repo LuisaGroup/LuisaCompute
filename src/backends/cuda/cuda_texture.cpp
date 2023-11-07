@@ -7,7 +7,7 @@ namespace luisa::compute::cuda {
 
 CUDATexture::~CUDATexture() noexcept {
     for (auto i = 0u; i < _levels; i++) {
-        LUISA_CHECK_CUDA(cuSurfObjectDestroy(_mip_surfaces[i]));
+        if (_mip_surfaces[i]) { LUISA_CHECK_CUDA(cuSurfObjectDestroy(_mip_surfaces[i])); }
         LUISA_CHECK_CUDA(cuArrayDestroy(_mip_arrays[i]));
     }
     if (_levels > 1u) {
@@ -58,14 +58,15 @@ CUDATexture::CUDATexture(uint64_t array, uint3 size,
             static_cast<uint16_t>(size.z)},
       _format{static_cast<uint8_t>(format)},
       _levels{static_cast<uint8_t>(levels)} {
+    auto is_bc = is_block_compressed(format);
     if (_levels == 1u) {// not mip-mapped
         _mip_arrays[0] = reinterpret_cast<CUarray>(_base_array);
-        _mip_surfaces[0] = detail::create_surface_from_array(reinterpret_cast<CUarray>(_base_array));
+        if (!is_bc) { _mip_surfaces[0] = detail::create_surface_from_array(_mip_arrays[0]); }
     } else {
         for (auto i = 0u; i < _levels; i++) {
             _mip_arrays[i] = detail::create_array_from_mipmapped_array(
                 reinterpret_cast<CUmipmappedArray>(_base_array), i);
-            _mip_surfaces[i] = detail::create_surface_from_array(_mip_arrays[i]);
+            if (!is_bc) { _mip_surfaces[i] = detail::create_surface_from_array(_mip_arrays[i]); }
         }
     }
 }
@@ -75,4 +76,3 @@ void CUDATexture::set_name(luisa::string &&name) noexcept {
 }
 
 }// namespace luisa::compute::cuda
-

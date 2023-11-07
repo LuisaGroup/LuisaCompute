@@ -7,6 +7,7 @@
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
 #include "cuda_shader_optix.h"
+#include "cuda_shader_printer.h"
 
 namespace luisa::compute::cuda {
 
@@ -49,7 +50,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                                  const char *ptx, size_t ptx_size, const char *entry,
                                  const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : CUDAShader{metadata.argument_usages},
+    : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
+                 metadata.argument_usages},
       _bound_arguments{std::move(bound_arguments)} {
 
     // compute argument buffer size
@@ -77,6 +79,10 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                 _argument_buffer_size += type->size();
                 break;
         }
+        _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
+    }
+    if (metadata.requires_printing) {
+        _argument_buffer_size += sizeof(CUDAShaderPrinter::Binding);
         _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
     }
     // for dispatch size and kernel id
@@ -277,6 +283,13 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         // TODO: optimize this
         for (auto &&arg : _bound_arguments) { encode_argument(arg); }
         for (auto &&arg : command->arguments()) { encode_argument(arg); }
+        // printer
+        if (printer()) {
+            auto b = printer()->encode(encoder);
+            auto ptr = allocate_argument(sizeof(b));
+            std::memcpy(ptr, &b, sizeof(b));
+        }
+        // dispatch size and kernel id
         auto ptr = allocate_argument(sizeof(uint4));
         if (!command->is_indirect()) {
             auto ds_and_kid = make_uint4(0u);

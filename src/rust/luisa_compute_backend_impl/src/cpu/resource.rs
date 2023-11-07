@@ -1,8 +1,6 @@
-use std::{
-    alloc::Layout,
-    sync::atomic::{AtomicU64},
-};
+use std::{alloc::Layout, sync::atomic::AtomicU64};
 
+use libc::c_void;
 use luisa_compute_api_types::{BindlessArrayUpdateModification, BindlessArrayUpdateOperation};
 use luisa_compute_cpu_kernel_defs as defs;
 use parking_lot::{Condvar, Mutex};
@@ -24,7 +22,8 @@ impl EventImpl {
     }
     pub fn signal(&self, ticket: u64) {
         let _lk = self.mutex.lock();
-        self.device.fetch_max(ticket, std::sync::atomic::Ordering::SeqCst);
+        self.device
+            .fetch_max(ticket, std::sync::atomic::Ordering::SeqCst);
         self.on_signal.notify_all();
     }
     pub fn wait(&self, ticket: u64) {
@@ -49,6 +48,7 @@ pub struct BufferImpl {
     pub size: usize,
     pub align: usize,
     pub ty: u64,
+    pub is_external: bool,
 }
 #[repr(C)]
 pub struct BindlessArrayImpl {
@@ -123,20 +123,30 @@ impl BindlessArrayImpl {
     }
 }
 impl BufferImpl {
-    pub(super) fn new(size: usize, align: usize, ty: u64) -> Self {
-        let layout = Layout::from_size_align(size, align).unwrap();
-        let data = unsafe { std::alloc::alloc_zeroed(layout) };
+    pub(super) fn new(size: usize, align: usize, ty: u64, ext_mem: *mut c_void) -> Self {
+        let data = if ext_mem.is_null() {
+            let layout = Layout::from_size_align(size, align).unwrap();
+            let data = unsafe { std::alloc::alloc_zeroed(layout) };
+            data
+        } else {
+            ext_mem as *mut u8
+        };
+
         Self {
             data,
             size,
             align,
             ty,
+            is_external: !ext_mem.is_null(),
         }
     }
 }
 
 impl Drop for BufferImpl {
     fn drop(&mut self) {
+        if self.is_external {
+            return;
+        }
         let layout = Layout::from_size_align(self.size, self.align).unwrap();
         unsafe { std::alloc::dealloc(self.data, layout) };
     }

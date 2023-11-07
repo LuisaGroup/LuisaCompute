@@ -10,9 +10,22 @@
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/rust/ir.hpp>
 #include <luisa/ir/ir2ast.h>
-#include <luisa/ir/ir.h>
 
 namespace luisa::compute {
+
+namespace detail {
+
+template<typename T>
+    requires(sizeof(T) == 1u)
+[[nodiscard]] inline auto ir_slice_to_string(ir::CBoxedSlice<T> slice) noexcept {
+    if (slice.ptr == nullptr || slice.len == 0u) { return luisa::string_view{}; }
+    auto p = reinterpret_cast<const char *>(slice.ptr);
+    return p[slice.len - 1] == '\0' ?
+               luisa::string_view{p, slice.len - 1} :
+               luisa::string_view{p, slice.len};
+}
+
+}// namespace detail
 
 void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
     auto node_ref = block->first;
@@ -44,7 +57,7 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
             case ir::Instruction::Tag::RayQuery: _convert_instr_ray_query(node); break;
             case ir::Instruction::Tag::Comment: _convert_instr_comment(node); break;
-            case ir::Instruction::Tag::Print: LUISA_NOT_IMPLEMENTED();// TODO: print
+            case ir::Instruction::Tag::Print: _convert_instr_print(node); break;
             case ir::Instruction::Tag::Buffer: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Buffer' in function body."); break;
             case ir::Instruction::Tag::Bindless: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Bindless' in function body."); break;
             case ir::Instruction::Tag::Texture2D: LUISA_ERROR_WITH_LOCATION("Unexpected instruction 'Texture2D' in function body."); break;
@@ -59,8 +72,8 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
     if (auto iter = _ctx->block_to_phis.find(block);
         iter != _ctx->block_to_phis.end()) {
         for (auto phi : iter->second) {
-            _ctx->function_builder->comment_("phi node assignment");
-            _ctx->function_builder->assign(_convert_node(phi.dst), _convert_node(phi.src));
+            detail::FunctionBuilder::current()->comment_("phi node assignment");
+            detail::FunctionBuilder::current()->assign(_convert_node(phi.dst), _convert_node(phi.src));
         }
     }
 }
@@ -70,26 +83,27 @@ const Expression *IR2AST::_convert_node(ir::NodeRef node_ref) noexcept {
 }
 
 const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
-    if (auto iter = _ctx->node_to_exprs.find(node); iter != _ctx->node_to_exprs.end()) {
+    if (auto iter = _ctx->node_to_exprs.find(node);
+        iter != _ctx->node_to_exprs.end()) {
         return iter->second;
     }
     auto type = _convert_type(node->type_.get());
 
     auto expr = [&, index = _ctx->node_to_exprs.size()]() -> const Expression * {
         switch (node->instruction->tag) {
-            case ir::Instruction::Tag::Buffer: return _ctx->function_builder->buffer(Type::buffer(type));
-            case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
+            case ir::Instruction::Tag::Buffer: return detail::FunctionBuilder::current()->buffer(Type::buffer(type));
+            case ir::Instruction::Tag::Bindless: return detail::FunctionBuilder::current()->bindless_array();
             case ir::Instruction::Tag::Texture2D: [[fallthrough]];
             case ir::Instruction::Tag::Texture3D: {
                 // for Texture{2|3}D, type is vector<primitive,4>
                 // where primitive could be int, float or uint
                 auto dimension = node->instruction->tag == ir::Instruction::Tag::Texture2D ? 2u : 3u;
                 auto texture_type = Type::texture(type, dimension);
-                return _ctx->function_builder->texture(texture_type);
+                return detail::FunctionBuilder::current()->texture(texture_type);
             }
-            case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
-            case ir::Instruction::Tag::Shared: return _ctx->function_builder->shared(type);
-            case ir::Instruction::Tag::UserData: return _ctx->function_builder->literal(Type::of<float>(), 0.0f);
+            case ir::Instruction::Tag::Accel: return detail::FunctionBuilder::current()->accel();
+            case ir::Instruction::Tag::Shared: return detail::FunctionBuilder::current()->shared(type);
+            case ir::Instruction::Tag::UserData: return detail::FunctionBuilder::current()->literal(Type::of<float>(), 0.0f);
             case ir::Instruction::Tag::Const: return _convert_constant(node->instruction->const_._0);
             case ir::Instruction::Tag::Call: {
                 auto ret = _convert_instr_call(node);
@@ -103,21 +117,23 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
                                  "Type mismatch: expected {}, got {} (op = {}).",
                                  type->description(), ret->type()->description(),
                                  to_underlying(node->instruction->call._0.tag));
-                    auto local = _ctx->function_builder->local(type);
-                    _ctx->function_builder->assign(local, ret);
+                    auto local = detail::FunctionBuilder::current()->local(type);
+                    detail::FunctionBuilder::current()->assign(local, ret);
                     _ctx->node_to_exprs.emplace(node, local);
                     ret = local;
                 }
                 return ret;
             }
             case ir::Instruction::Tag::Phi: {
-                auto local = _ctx->function_builder->local(type);
+                auto local = detail::FunctionBuilder::current()->local(type);
                 _ctx->node_to_exprs.emplace(node, local);
                 return local;
             }
             default: break;
         }
-        LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid node type: {}.",
+            to_string(node->instruction->tag));
     }();
     return expr;
 }
@@ -130,7 +146,7 @@ void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
     auto expr = iter->second;
 
     // assign the init value to the variable
-    _ctx->function_builder->assign(expr, init);
+    detail::FunctionBuilder::current()->assign(expr, init);
 }
 
 void IR2AST::_convert_instr_user_data(const ir::Node *_user_data) noexcept {
@@ -147,7 +163,7 @@ void IR2AST::_convert_instr_const(const ir::Node *const_) noexcept {
 void IR2AST::_convert_instr_update(const ir::Node *node) noexcept {
     auto lhs = _convert_node(node->instruction->update.var);
     auto rhs = _convert_node(node->instruction->update.value);
-    _ctx->function_builder->assign(lhs, rhs);
+    detail::FunctionBuilder::current()->assign(lhs, rhs);
 }
 
 namespace detail {
@@ -332,69 +348,73 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             call_op == CallOp::RAY_TRACING_QUERY_ALL ||
             call_op == CallOp::RAY_TRACING_QUERY_ANY) {
             // converted_args[1] = detail::ir2ast_convert_ray_ir_type_2_ast_type(
-            //     _ctx->function_builder.get(),
+            //     detail::FunctionBuilder::current().get(),
             //     converted_args[1]);
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ANY) {
             auto type = Type::of<RayQueryAny>();
-            auto local = _ctx->function_builder->local(type);
-            auto call = _ctx->function_builder->call(type, call_op, converted_args);
-            _ctx->function_builder->assign(local, call);
+            auto local = detail::FunctionBuilder::current()->local(type);
+            auto call = detail::FunctionBuilder::current()->call(type, call_op, converted_args);
+            detail::FunctionBuilder::current()->assign(local, call);
             return local;
         }
         if (call_op == CallOp::RAY_TRACING_QUERY_ALL) {
             auto type = Type::of<RayQueryAll>();
-            auto local = _ctx->function_builder->local(type);
-            auto call = _ctx->function_builder->call(type, call_op, converted_args);
-            _ctx->function_builder->assign(local, call);
+            auto local = detail::FunctionBuilder::current()->local(type);
+            auto call = detail::FunctionBuilder::current()->call(type, call_op, converted_args);
+            detail::FunctionBuilder::current()->assign(local, call);
             return local;
         }
         if (call_op == CallOp::RAY_QUERY_WORLD_SPACE_RAY) {
-            auto ray = _ctx->function_builder->call(Type::of<Ray>(), call_op, converted_args);
-            return ray;//detail::ir2ast_convert_ray_ast_type_2_ir_type(_ctx->function_builder.get(), ray);
+            auto ray = detail::FunctionBuilder::current()->call(Type::of<Ray>(), call_op, converted_args);
+            return ray;//detail::ir2ast_convert_ray_ast_type_2_ir_type(detail::FunctionBuilder::current().get(), ray);
         }
         if (type == nullptr) {
-            _ctx->function_builder->call(
+            detail::FunctionBuilder::current()->call(
                 call_op, luisa::span{converted_args});
             return nullptr;
         } else {
             if (call_op == CallOp::RAY_TRACING_TRACE_CLOSEST) {
-                auto ret = _ctx->function_builder->call(
+                auto ret = detail::FunctionBuilder::current()->call(
                     Type::of<TriangleHit>(), call_op, converted_args);
                 return detail::ir2ast_convert_triangle_hit(
-                    _ctx->function_builder.get(), type, ret);
+                    detail::FunctionBuilder::current(), type, ret);
             }
             if (call_op == CallOp::RAY_QUERY_COMMITTED_HIT) {
-                auto ret = _ctx->function_builder->call(
+                auto ret = detail::FunctionBuilder::current()->call(
                     Type::of<CommittedHit>(), call_op, converted_args);
                 return detail::ir2ast_convert_committed_hit(
-                    _ctx->function_builder.get(), type, ret);
+                    detail::FunctionBuilder::current(), type, ret);
             }
-            auto ret = _ctx->function_builder->call(
+            auto ret = detail::FunctionBuilder::current()->call(
                 type, call_op, luisa::span{converted_args});
             return ret;
         }
     };
     auto unary_op = [&](UnaryOp un_op) -> const Expression * {
         LUISA_ASSERT(args.size() == 1u, "`{}` takes 1 argument, got {}.", function_name, args.size());
-        return _ctx->function_builder->unary(type, un_op, _convert_node(args[0]));
+        return detail::FunctionBuilder::current()->unary(type, un_op, _convert_node(args[0]));
     };
     auto binary_op = [&](BinaryOp bin_op) -> const Expression * {
         LUISA_ASSERT(args.size() == 2u, "`{}` takes 2 arguments, got {}.", function_name, args.size());
-        return _ctx->function_builder->binary(type, bin_op, _convert_node(args[0]), _convert_node(args[1]));
+        return detail::FunctionBuilder::current()->binary(type, bin_op, _convert_node(args[0]), _convert_node(args[1]));
     };
     auto make_vector = [&](size_t length) -> const Expression * {
         LUISA_ASSERT(args.size() == length, "`MakeVec` takes {} argument(s), got {}.", length, args.size());
         auto inner_type = ir::luisa_compute_ir_node_get(args[0])->type_.get();
-        LUISA_ASSERT(inner_type->tag == ir::Type::Tag::Primitive, "`MakeVec` supports primitive type only, got {}.", to_string(inner_type->tag));
-        LUISA_ASSERT(type->is_vector(), "`MakeVec` must return a vector, got {}.", type->description());
+        LUISA_ASSERT(inner_type->tag == ir::Type::Tag::Primitive,
+                     "`MakeVec` supports primitive type only, got {}.",
+                     to_string(inner_type->tag));
+        LUISA_ASSERT(type->is_vector(),
+                     "`MakeVec` must return a vector, got {}.",
+                     type->description());
 
         auto converted_args = luisa::vector<const Expression *>{};
         for (const auto &arg : args) {
             converted_args.push_back(_convert_node(arg));
         }
         auto vector_op = _decide_make_vector_op(_convert_primitive_type(inner_type->primitive._0), type->dimension());
-        return _ctx->function_builder->call(type, vector_op, luisa::span{converted_args});
+        return detail::FunctionBuilder::current()->call(type, vector_op, luisa::span{converted_args});
     };
     auto rotate = [&](BinaryOp this_op) -> const Expression * {
         LUISA_ASSERT(this_op == BinaryOp::SHL || this_op == BinaryOp::SHR, "rotate is only valid with SHL and SHR.");
@@ -407,23 +427,23 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
 
         // rot_left(a, b) = (a << b) | (a >> (bit_length(a) - b))
         // rot_right(a, b) = (a >> b) | (a << (bit_length(a) - b))
-        auto part1 = _ctx->function_builder->binary(
+        auto part1 = detail::FunctionBuilder::current()->binary(
             lhs->type(),
             this_op,
             lhs,
             rhs);
         // (a << b) for rot_left, (a >> b) for rot_right
-        auto shl_length = _ctx->function_builder->binary(
+        auto shl_length = detail::FunctionBuilder::current()->binary(
             rhs->type(),
             BinaryOp::SUB,
-            _ctx->function_builder->literal(rhs->type(), lhs_bit_length),
+            detail::FunctionBuilder::current()->literal(rhs->type(), lhs_bit_length),
             rhs);// bit_length(a) - b
-        auto part2 = _ctx->function_builder->binary(
+        auto part2 = detail::FunctionBuilder::current()->binary(
             lhs->type(),
             complement_op,
             lhs,
             shl_length);// (a >> (bit_length(a) - b)) for rot_left, (a << (bit_length(a) - b)) for rot_right
-        return _ctx->function_builder->binary(lhs->type(), BinaryOp::BIT_OR, part1, part2);
+        return detail::FunctionBuilder::current()->binary(lhs->type(), BinaryOp::BIT_OR, part1, part2);
     };
     auto make_matrix = [&](size_t dimension) -> const Expression * {
         LUISA_ASSERT(args.size() == dimension, "`Mat` takes {} argument(s), got {}.", dimension, args.size());
@@ -437,14 +457,14 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         if (dimension == 1u) {// Mat is a broadcasting operation in IR
             auto col_type = Type::vector(type->element(), type->dimension());
             auto vector_op = _decide_make_vector_op(type->element(), matrix_dimension);
-            auto col = _ctx->function_builder->call(col_type, vector_op, converted_args);
+            auto col = detail::FunctionBuilder::current()->call(col_type, vector_op, converted_args);
             converted_args.clear();
             converted_args.reserve(matrix_dimension);
             for (auto i = 0u; i < matrix_dimension; i++) {
                 converted_args.emplace_back(col);
             }
         }
-        return _ctx->function_builder->call(type, matrix_op, luisa::span{converted_args});
+        return detail::FunctionBuilder::current()->call(type, matrix_op, luisa::span{converted_args});
     };
 
     auto constant_index = [](ir::NodeRef index) noexcept -> uint64_t {
@@ -465,7 +485,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             case ir::Const::Tag::Uint64: return c.uint64._0;
             case ir::Const::Tag::Generic: {
                 auto t = node->type_.get();
-                LUISA_ASSERT(t->tag == ir::Type::Tag::Primitive, "Invalid index type: {}.", to_string(t->tag));
+                LUISA_ASSERT(t->tag == ir::Type::Tag::Primitive,
+                             "Invalid index type: {}.",
+                             to_string(t->tag));
                 auto do_cast = [&c]<typename T>() noexcept {
                     T x{};
                     std::memcpy(&x, c.generic._0.ptr, sizeof(T));
@@ -494,27 +516,27 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Assert: return builtin_func(1, CallOp::ASSERT);
         case ir::Func::Tag::ThreadId: {
             LUISA_ASSERT(args.empty(), "`ThreadId` takes no arguments.");
-            return _ctx->function_builder->thread_id();
+            return detail::FunctionBuilder::current()->thread_id();
         }
         case ir::Func::Tag::BlockId: {
             LUISA_ASSERT(args.empty(), "`BlockId` takes no arguments.");
-            return _ctx->function_builder->block_id();
+            return detail::FunctionBuilder::current()->block_id();
         }
         case ir::Func::Tag::DispatchId: {
             LUISA_ASSERT(args.empty(), "`DispatchId` takes no arguments.");
-            return _ctx->function_builder->dispatch_id();
+            return detail::FunctionBuilder::current()->dispatch_id();
         }
         case ir::Func::Tag::DispatchSize: {
             LUISA_ASSERT(args.empty(), "`DispatchSize` takes no arguments.");
-            return _ctx->function_builder->dispatch_size();
+            return detail::FunctionBuilder::current()->dispatch_size();
         }
         case ir::Func::Tag::WarpSize: {
             LUISA_ASSERT(args.empty(), "`WarpSize` takes no arguments.");
-            return _ctx->function_builder->warp_lane_count();
+            return detail::FunctionBuilder::current()->warp_lane_count();
         }
         case ir::Func::Tag::WarpLaneId: {
             LUISA_ASSERT(args.empty(), "`WarpLaneId` takes no arguments.");
-            return _ctx->function_builder->warp_lane_id();
+            return detail::FunctionBuilder::current()->warp_lane_id();
         }
         case ir::Func::Tag::RequiresGradient: return builtin_func(1, CallOp::REQUIRES_GRADIENT);
         case ir::Func::Tag::Gradient: return builtin_func(1, CallOp::GRADIENT);
@@ -556,14 +578,14 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                     auto primitive = type->element();
                     auto length = type->dimension();
                     auto vector_op = _decide_make_vector_op(primitive, length);
-                    return _ctx->function_builder->call(type, vector_op, {_convert_node(args[0])});
+                    return detail::FunctionBuilder::current()->call(type, vector_op, {_convert_node(args[0])});
                 }
-                default: return _ctx->function_builder->cast(type, CastOp::STATIC, _convert_node(args[0]));
+                default: return detail::FunctionBuilder::current()->cast(type, CastOp::STATIC, _convert_node(args[0]));
             }
         }
         case ir::Func::Tag::Bitcast: {
             LUISA_ASSERT(args.size() == 1u, "BitCast takes 1 argument.");
-            return _ctx->function_builder->cast(type, CastOp::BITWISE, _convert_node(args[0]));
+            return detail::FunctionBuilder::current()->cast(type, CastOp::BITWISE, _convert_node(args[0]));
         }
         case ir::Func::Tag::Add: return binary_op(BinaryOp::ADD);
         case ir::Func::Tag::Sub: return binary_op(BinaryOp::SUB);
@@ -574,10 +596,10 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 // implemented as x - y * trunc(x / y)
                 auto x = _convert_node(args[0]);
                 auto y = _convert_node(args[1]);
-                auto div = _ctx->function_builder->binary(type, BinaryOp::DIV, x, y);
-                auto trunc = _ctx->function_builder->call(type, CallOp::TRUNC, {div});
-                auto mul = _ctx->function_builder->binary(type, BinaryOp::MUL, y, trunc);
-                return _ctx->function_builder->binary(type, BinaryOp::SUB, x, mul);
+                auto div = detail::FunctionBuilder::current()->binary(type, BinaryOp::DIV, x, y);
+                auto trunc = detail::FunctionBuilder::current()->call(type, CallOp::TRUNC, {div});
+                auto mul = detail::FunctionBuilder::current()->binary(type, BinaryOp::MUL, y, trunc);
+                return detail::FunctionBuilder::current()->binary(type, BinaryOp::SUB, x, mul);
             }
             return binary_op(BinaryOp::MOD);
         }
@@ -610,7 +632,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             LUISA_ASSERT(args.size() == 3u, "Select takes 3 arguments.");
             // In IR the argument order is (condition, value_true, value_false)
             // However in AST it is (value_false, value_true, condition)
-            return _ctx->function_builder->call(
+            return detail::FunctionBuilder::current()->call(
                 type, CallOp::SELECT,
                 {
                     _convert_node(args[2]),
@@ -673,8 +695,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             auto a = _convert_node(args[0]);
             auto b = _convert_node(args[1]);
             LUISA_ASSERT(a->type() == b->type(), "Distance takes two arguments of the same type.");
-            auto diff = _ctx->function_builder->binary(a->type(), BinaryOp::SUB, a, b);
-            return _ctx->function_builder->call(a->type(), CallOp::LENGTH, {diff});
+            auto diff = detail::FunctionBuilder::current()->binary(a->type(), BinaryOp::SUB, a, b);
+            return detail::FunctionBuilder::current()->call(a->type(), CallOp::LENGTH, {diff});
         }
         case ir::Func::Tag::Length: return builtin_func(1, CallOp::LENGTH);
         case ir::Func::Tag::LengthSquared: return builtin_func(1, CallOp::LENGTH_SQUARED);
@@ -740,63 +762,65 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
 
             auto reconstruct_args = luisa::vector<const Expression *>{};
             for (auto i = 1u; i < args.size(); i++) {
-                auto reconstruct_arg = _ctx->function_builder->access(inner_type, src, _convert_node(args[i]));
+                auto reconstruct_arg = detail::FunctionBuilder::current()->access(inner_type, src, _convert_node(args[i]));
                 reconstruct_args.push_back(reconstruct_arg);
             }
             auto op = type->is_vector() ?
                           _decide_make_vector_op(inner_type, type->dimension()) :
                           _decide_make_matrix_op(type->dimension());
-            return _ctx->function_builder->call(type, op, luisa::span{reconstruct_args});
+            return detail::FunctionBuilder::current()->call(type, op, luisa::span{reconstruct_args});
         }
         case ir::Func::Tag::InsertElement: {
             // InsertElement(self, new_value, indices...)
             // First we make a copy of self, then we assign the new value to the specified index.
             LUISA_ASSERT(args.size() >= 3u, "`InsertElement` takes 3 arguments.");
             auto old = _convert_node(args[0]);
-            auto copy = _ctx->function_builder->local(old->type());
-            _ctx->function_builder->assign(copy, old);
+            auto copy = detail::FunctionBuilder::current()->local(old->type());
+            detail::FunctionBuilder::current()->assign(copy, old);
             auto self = static_cast<const Expression *>(copy);
             auto indices = args.subspan(2u);
             for (auto i : indices) {
                 if (auto self_type = self->type(); self_type->is_structure()) {
                     auto member_index = constant_index(i);
                     auto member_type = self_type->members()[member_index];
-                    self = _ctx->function_builder->member(member_type, self, member_index);
+                    self = detail::FunctionBuilder::current()->member(member_type, self, member_index);
                 } else if (self_type->is_array() || self_type->is_vector()) {
                     auto index = _convert_node(i);
                     auto inner_type = self_type->element();
-                    self = _ctx->function_builder->access(inner_type, self, index);
+                    self = detail::FunctionBuilder::current()->access(inner_type, self, index);
                 } else {
                     LUISA_ASSERT(self_type->is_matrix(), "Invalid type.");
                     auto index = _convert_node(i);
                     auto inner_type = Type::vector(self_type->element(), self_type->dimension());
-                    self = _ctx->function_builder->access(inner_type, self, index);
+                    self = detail::FunctionBuilder::current()->access(inner_type, self, index);
                 }
             }
             auto elem = _convert_node(args[1]);
             LUISA_ASSERT(self->type() == elem->type(), "Type mismatch.");
-            _ctx->function_builder->assign(self, elem);
+            detail::FunctionBuilder::current()->assign(self, elem);
             return copy;
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
-            LUISA_ASSERT(args.size() >= 2u, "{} takes at least 2 arguments.", to_string(func.tag));
+            LUISA_ASSERT(args.size() >= 2u,
+                         "{} takes at least 2 arguments.",
+                         to_string(func.tag));
             auto self = _convert_node(args[0]);
             auto indices = args.subspan(1u);
             for (auto i : indices) {
                 if (auto self_type = self->type(); self_type->is_structure()) {
                     auto member_index = constant_index(i);
                     auto member_type = self_type->members()[member_index];
-                    self = _ctx->function_builder->member(member_type, self, member_index);
+                    self = detail::FunctionBuilder::current()->member(member_type, self, member_index);
                 } else if (self_type->is_vector() || self_type->is_array()) {
                     auto index = _convert_node(i);
                     auto inner_type = self_type->element();
-                    self = _ctx->function_builder->access(inner_type, self, index);
+                    self = detail::FunctionBuilder::current()->access(inner_type, self, index);
                 } else {
                     LUISA_ASSERT(self_type->is_matrix(), "Invalid type.");
                     auto index = _convert_node(i);
                     auto inner_type = Type::vector(self_type->element(), self_type->dimension());
-                    self = _ctx->function_builder->access(inner_type, self, index);
+                    self = detail::FunctionBuilder::current()->access(inner_type, self, index);
                 }
             }
             LUISA_ASSERT(self->type() == type, "Type mismatch.");
@@ -812,24 +836,24 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             }
             auto struct_type = Type::structure(alignment, fields);
 
-            auto struct_instance = _ctx->function_builder->local(struct_type);
+            auto struct_instance = detail::FunctionBuilder::current()->local(struct_type);
             for (auto member_index = 0u; member_index < args.size(); member_index++) {
                 auto member_type = struct_type->members()[member_index];
-                auto access = _ctx->function_builder->member(member_type, struct_instance, member_index);
-                _ctx->function_builder->assign(access, _convert_node(args[member_index]));
+                auto access = detail::FunctionBuilder::current()->member(member_type, struct_instance, member_index);
+                detail::FunctionBuilder::current()->assign(access, _convert_node(args[member_index]));
             }
             return struct_instance;
         }
         case ir::Func::Tag::Array: {
             LUISA_ASSERT(type->is_array(), "Invalid array type.");
             auto element_type = type->element();
-            auto array_instance = _ctx->function_builder->local(type);
+            auto array_instance = detail::FunctionBuilder::current()->local(type);
             LUISA_ASSERT(args.size() == type->dimension(), "Array type inconsistent with arguments. Expected {}, found {}", type->count(), args.size());
             for (auto i = 0u; i < args.size(); i++) {
-                auto index = _ctx->function_builder->literal(Type::of<uint>(), i);
-                auto access = _ctx->function_builder->access(element_type, array_instance, index);
+                auto index = detail::FunctionBuilder::current()->literal(Type::of<uint>(), i);
+                auto access = detail::FunctionBuilder::current()->access(element_type, array_instance, index);
                 auto elem = _convert_node(args[i]);
-                _ctx->function_builder->assign(access, elem);
+                detail::FunctionBuilder::current()->assign(access, elem);
             }
             return array_instance;
         }
@@ -846,7 +870,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             }
             auto callable_fb = convert_callable(p_callable.get());
             auto callable = callable_fb->function();
-            return _ctx->function_builder->call(type, callable, luisa::span{converted_args});
+            return detail::FunctionBuilder::current()->call(type, callable, luisa::span{converted_args});
         }
         case ir::Func::Tag::CpuCustomOp:
             LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
@@ -886,9 +910,9 @@ void IR2AST::_convert_instr_phi(const ir::Node *phi) noexcept {
 
 void IR2AST::_convert_instr_return(const ir::Node *node) noexcept {
     if (auto ret = node->instruction->return_._0; ret != ir::INVALID_REF) {
-        _ctx->function_builder->return_(_convert_node(ret));
+        detail::FunctionBuilder::current()->return_(_convert_node(ret));
     } else {
-        _ctx->function_builder->return_(nullptr);
+        detail::FunctionBuilder::current()->return_(nullptr);
     }
 }
 
@@ -899,18 +923,18 @@ void IR2AST::_convert_instr_loop(const ir::Node *node) noexcept {
     //         break;
     //     }
     // }
-    auto loop_scope = _ctx->function_builder->loop_();
-    _ctx->function_builder->with(loop_scope->body(), [&] {
+    auto loop_scope = detail::FunctionBuilder::current()->loop_();
+    detail::FunctionBuilder::current()->with(loop_scope->body(), [&] {
         // body
         auto old_generic_loop_break = std::exchange(_ctx->generic_loop_break, nullptr);
         _convert_block(node->instruction->loop.body.get());
         _ctx->generic_loop_break = old_generic_loop_break;
         // if (!cond) break;
         auto cond = _convert_node(node->instruction->loop.cond);
-        auto not_cond = _ctx->function_builder->unary(Type::of<bool>(), UnaryOp::NOT, cond);
-        auto if_scope = _ctx->function_builder->if_(not_cond);
-        _ctx->function_builder->with(if_scope->true_branch(), [&] {
-            _ctx->function_builder->break_();
+        auto not_cond = detail::FunctionBuilder::current()->unary(Type::of<bool>(), UnaryOp::NOT, cond);
+        auto if_scope = detail::FunctionBuilder::current()->if_(not_cond);
+        detail::FunctionBuilder::current()->with(if_scope->true_branch(), [&] {
+            detail::FunctionBuilder::current()->break_();
         });
     });
 }
@@ -931,35 +955,35 @@ void IR2AST::_convert_instr_generic_loop(const ir::Node *node) noexcept {
     //     if (loop_break) break;
     //     update();
     // }
-    auto generic_loop_break = _ctx->function_builder->local(Type::of<bool>());
-    auto loop = _ctx->function_builder->loop_();
-    _ctx->function_builder->with(loop->body(), [&] {
+    auto generic_loop_break = detail::FunctionBuilder::current()->local(Type::of<bool>());
+    auto loop = detail::FunctionBuilder::current()->loop_();
+    detail::FunctionBuilder::current()->with(loop->body(), [&] {
         // bool loop_break = false;
-        auto false_ = _ctx->function_builder->literal(Type::of<bool>(), false);
-        _ctx->function_builder->assign(generic_loop_break, false_);
+        auto false_ = detail::FunctionBuilder::current()->literal(Type::of<bool>(), false);
+        detail::FunctionBuilder::current()->assign(generic_loop_break, false_);
         // prepare();
         _convert_block(node->instruction->generic_loop.prepare.get());
         // if (!cond()) break;
         auto cond = _convert_node(node->instruction->generic_loop.cond);
-        auto not_cond = _ctx->function_builder->unary(Type::of<bool>(), UnaryOp::NOT, cond);
-        auto if_ = _ctx->function_builder->if_(not_cond);
-        _ctx->function_builder->with(if_->true_branch(), [&] {
-            _ctx->function_builder->break_();
+        auto not_cond = detail::FunctionBuilder::current()->unary(Type::of<bool>(), UnaryOp::NOT, cond);
+        auto if_ = detail::FunctionBuilder::current()->if_(not_cond);
+        detail::FunctionBuilder::current()->with(if_->true_branch(), [&] {
+            detail::FunctionBuilder::current()->break_();
         });
         // loop
-        auto loop_once = _ctx->function_builder->loop_();
-        _ctx->function_builder->with(loop_once->body(), [&] {
+        auto loop_once = detail::FunctionBuilder::current()->loop_();
+        detail::FunctionBuilder::current()->with(loop_once->body(), [&] {
             // body
             auto old_generic_loop_break = std::exchange(_ctx->generic_loop_break, generic_loop_break);
             _convert_block(node->instruction->generic_loop.body.get());
             _ctx->generic_loop_break = old_generic_loop_break;
             // break;
-            _ctx->function_builder->break_();
+            detail::FunctionBuilder::current()->break_();
         });
         // if (loop_break) break;
-        auto if_break = _ctx->function_builder->if_(generic_loop_break);
-        _ctx->function_builder->with(if_break->true_branch(), [&] {
-            _ctx->function_builder->break_();
+        auto if_break = detail::FunctionBuilder::current()->if_(generic_loop_break);
+        detail::FunctionBuilder::current()->with(if_break->true_branch(), [&] {
+            detail::FunctionBuilder::current()->break_();
         });
         // update();
         _convert_block(node->instruction->generic_loop.update.get());
@@ -969,48 +993,48 @@ void IR2AST::_convert_instr_generic_loop(const ir::Node *node) noexcept {
 void IR2AST::_convert_instr_break(const ir::Node *node) noexcept {
     if (_ctx->generic_loop_break) {// inside generic loop
         // break => { loop_break = true; break; }
-        auto true_ = _ctx->function_builder->literal(Type::of<bool>(), true);
-        _ctx->function_builder->assign(_ctx->generic_loop_break, true_);
+        auto true_ = detail::FunctionBuilder::current()->literal(Type::of<bool>(), true);
+        detail::FunctionBuilder::current()->assign(_ctx->generic_loop_break, true_);
     }
-    _ctx->function_builder->break_();
+    detail::FunctionBuilder::current()->break_();
 }
 
 void IR2AST::_convert_instr_continue(const ir::Node *node) noexcept {
     if (_ctx->generic_loop_break) {// inside generic loop
         // continue => { break; }
-        _ctx->function_builder->break_();
+        detail::FunctionBuilder::current()->break_();
     } else {
-        _ctx->function_builder->continue_();
+        detail::FunctionBuilder::current()->continue_();
     }
 }
 
 void IR2AST::_convert_instr_if(const ir::Node *node) noexcept {
     auto cond = _convert_node(node->instruction->if_.cond);
-    auto if_scope = _ctx->function_builder->if_(cond);
-    _ctx->function_builder->with(if_scope->true_branch(), [&] {
+    auto if_scope = detail::FunctionBuilder::current()->if_(cond);
+    detail::FunctionBuilder::current()->with(if_scope->true_branch(), [&] {
         _convert_block(node->instruction->if_.true_branch.get());
     });
-    _ctx->function_builder->with(if_scope->false_branch(), [&] {
+    detail::FunctionBuilder::current()->with(if_scope->false_branch(), [&] {
         _convert_block(node->instruction->if_.false_branch.get());
     });
 }
 
 void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
     auto value = _convert_node(node->instruction->switch_.value);
-    auto switch_scope = _ctx->function_builder->switch_(value);
-    _ctx->function_builder->with(switch_scope->body(), [&] {
+    auto switch_scope = detail::FunctionBuilder::current()->switch_(value);
+    detail::FunctionBuilder::current()->with(switch_scope->body(), [&] {
         auto data = node->instruction->switch_.cases.ptr;
         auto len = node->instruction->switch_.cases.len;
         for (auto i = 0; i < len; i++) {
-            auto value = _ctx->function_builder->literal(Type::of<int>(), data[i].value);
-            auto case_scope = _ctx->function_builder->case_(value);
-            _ctx->function_builder->with(case_scope->body(), [&] {
+            auto value = detail::FunctionBuilder::current()->literal(Type::of<int>(), data[i].value);
+            auto case_scope = detail::FunctionBuilder::current()->case_(value);
+            detail::FunctionBuilder::current()->with(case_scope->body(), [&] {
                 _convert_block(data[i].block.get());
             });
         }
         if (node->instruction->switch_.default_.get() != nullptr) {
-            auto default_scope = _ctx->function_builder->default_();
-            _ctx->function_builder->with(default_scope->body(), [&] {
+            auto default_scope = detail::FunctionBuilder::current()->default_();
+            detail::FunctionBuilder::current()->with(default_scope->body(), [&] {
                 _convert_block(node->instruction->switch_.default_.get());
             });
         }
@@ -1018,41 +1042,53 @@ void IR2AST::_convert_instr_switch(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_ad_scope(const ir::Node *node) noexcept {
-    _ctx->function_builder->comment_("ADScope Begin");
+    detail::FunctionBuilder::current()->comment_("ADScope Begin");
     _convert_block(node->instruction->ad_scope.body.get());
-    _ctx->function_builder->comment_("ADScope End");
+    detail::FunctionBuilder::current()->comment_("ADScope End");
 }
 
 void IR2AST::_convert_instr_ad_detach(const ir::Node *node) noexcept {
-    _ctx->function_builder->comment_("AD Detach Begin");
+    detail::FunctionBuilder::current()->comment_("AD Detach Begin");
     _convert_block(node->instruction->ad_detach._0.get());
-    _ctx->function_builder->comment_("AD Detach End");
+    detail::FunctionBuilder::current()->comment_("AD Detach End");
 }
 void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
-    _ctx->function_builder->comment_("Ray Query Begin");
+    detail::FunctionBuilder::current()->comment_("Ray Query Begin");
     auto rq = static_cast<const RefExpr *>(_convert_node(node->instruction->ray_query.ray_query));
-    auto rq_scope = _ctx->function_builder->ray_query_(rq);
-    _ctx->function_builder->with(rq_scope->on_triangle_candidate(), [&] {
+    auto rq_scope = detail::FunctionBuilder::current()->ray_query_(rq);
+    detail::FunctionBuilder::current()->with(rq_scope->on_triangle_candidate(), [&] {
         _convert_block(node->instruction->ray_query.on_triangle_hit.get());
     });
-    _ctx->function_builder->with(rq_scope->on_procedural_candidate(), [&] {
+    detail::FunctionBuilder::current()->with(rq_scope->on_procedural_candidate(), [&] {
         _convert_block(node->instruction->ray_query.on_procedural_hit.get());
     });
 
-    _ctx->function_builder->comment_("Ray Query End");
+    detail::FunctionBuilder::current()->comment_("Ray Query End");
 }
 void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
     auto comment_body = node->instruction->comment._0;
     auto len = comment_body.ptr[comment_body.len - 1] == 0 ?
                    comment_body.len - 1 :
                    comment_body.len;
-    auto comment_content = luisa::string{reinterpret_cast<const char *>(comment_body.ptr), len};
-    _ctx->function_builder->comment_(comment_content);
+    auto comment_content = detail::ir_slice_to_string(comment_body);
+    detail::FunctionBuilder::current()->comment_(luisa::string{comment_content});
+}
+
+void IR2AST::_convert_instr_print(const ir::Node *node) noexcept {
+    auto fmt = detail::ir_slice_to_string(node->instruction->print.fmt);
+    auto args = luisa::span{node->instruction->print.args.ptr,
+                            node->instruction->print.args.len};
+    luisa::vector<const Expression *> converted_args;
+    converted_args.reserve(args.size());
+    for (auto arg : args) {
+        converted_args.push_back(_convert_node(arg));
+    }
+    detail::FunctionBuilder::current()->print_(fmt, converted_args);
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
 
-    auto b = _ctx->function_builder.get();
+    auto b = detail::FunctionBuilder::current();
     switch (const_.tag) {
         case ir::Const::Tag::Zero: return b->call(_convert_type(const_.zero._0.get()), CallOp::ZERO, {});
         case ir::Const::Tag::One: return b->call(_convert_type(const_.one._0.get()), CallOp::ONE, {});
@@ -1154,7 +1190,7 @@ const Type *IR2AST::_convert_type(const ir::Type *type) noexcept {
             return Type::structure(struct_type.alignment, fields);
         }
         case ir::Type::Tag::Opaque: {
-            auto opaque_type = luisa::string_view((const char *)type->opaque._0.ptr);
+            auto opaque_type = detail::ir_slice_to_string(type->opaque._0);
             return Type::custom(opaque_type);
         }
         case ir::Type::Tag::UserData: {
@@ -1233,7 +1269,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             case ir::Instruction::Tag::Uniform: break;
             case ir::Instruction::Tag::Local: {
                 auto type = _convert_type(node->type_.get());
-                auto variable = _ctx->function_builder->local(type);
+                auto variable = detail::FunctionBuilder::current()->local(type);
                 _ctx->node_to_exprs.emplace(node, variable);
                 break;
             }
@@ -1379,12 +1415,12 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
 [[nodiscard]] const RefExpr *IR2AST::_convert_argument(const ir::Node *node) noexcept {
     auto type = _convert_type(node->type_.get());
     switch (node->instruction->tag) {
-        case ir::Instruction::Tag::Uniform: return _ctx->function_builder->argument(type); ;
+        case ir::Instruction::Tag::Uniform: return detail::FunctionBuilder::current()->argument(type); ;
         case ir::Instruction::Tag::Argument: {
             if (node->instruction->argument.by_value) {
-                return _ctx->function_builder->argument(type);
+                return detail::FunctionBuilder::current()->argument(type);
             } else {
-                return _ctx->function_builder->reference(type);
+                return detail::FunctionBuilder::current()->reference(type);
             }
         }
         // Uniform is the argument of a kernel
@@ -1393,7 +1429,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         case ir::Instruction::Tag::Texture3D: {
             auto dimension = node->instruction->tag == ir::Instruction::Tag::Texture2D ? 2u : 3u;
             auto texture_type = Type::texture(type, dimension);
-            return _ctx->function_builder->texture(texture_type);
+            return detail::FunctionBuilder::current()->texture(texture_type);
         }
         case ir::Instruction::Tag::Buffer: {
             const luisa::compute::Type *buffer_type = nullptr;
@@ -1402,11 +1438,13 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             } else {
                 buffer_type = Type::buffer(type);
             }
-            return _ctx->function_builder->buffer(buffer_type);
+            return detail::FunctionBuilder::current()->buffer(buffer_type);
         }
-        case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
-        case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
-        default: LUISA_ERROR_WITH_LOCATION("Invalid argument type: {}.", to_string(node->instruction->tag));
+        case ir::Instruction::Tag::Bindless: return detail::FunctionBuilder::current()->bindless_array();
+        case ir::Instruction::Tag::Accel: return detail::FunctionBuilder::current()->accel();
+        default: LUISA_ERROR_WITH_LOCATION(
+            "Invalid argument type: {}.",
+            to_string(node->instruction->tag));
     }
 }
 
@@ -1422,54 +1460,54 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                 buffer_type = Type::buffer(type);
             }
             auto &&[handle, offset_bytes, size_bytes] = captured.binding.buffer._0;
-            return _ctx->function_builder->buffer_binding(buffer_type, handle, offset_bytes, size_bytes);
+            return detail::FunctionBuilder::current()->buffer_binding(buffer_type, handle, offset_bytes, size_bytes);
         }
         case ir::Binding::Tag::Accel: {
             auto handle = captured.binding.accel._0.handle;
-            return _ctx->function_builder->accel_binding(handle);
+            return detail::FunctionBuilder::current()->accel_binding(handle);
         }
         case ir::Binding::Tag::BindlessArray: {
             auto handle = captured.binding.bindless_array._0.handle;
-            return _ctx->function_builder->bindless_array_binding(handle);
+            return detail::FunctionBuilder::current()->bindless_array_binding(handle);
         }
         case ir::Binding::Tag::Texture: {
             auto dimension = [&]() {
                 switch (node->instruction->tag) {
                     case ir::Instruction::Tag::Texture2D: return 2u;
                     case ir::Instruction::Tag::Texture3D: return 3u;
-                    default: LUISA_ERROR_WITH_LOCATION("Binding tag {} inconsistent with instruction tag {}.",
-                                                       to_string(captured.binding.tag),
-                                                       to_string(node->instruction->tag));
+                    default: LUISA_ERROR_WITH_LOCATION(
+                        "Binding tag {} inconsistent with instruction tag {}.",
+                        to_string(captured.binding.tag),
+                        to_string(node->instruction->tag));
                 }
             }();
             auto texture_type = Type::texture(type, dimension);
             auto &&[handle, level] = captured.binding.texture._0;
-            return _ctx->function_builder->texture_binding(texture_type, handle, level);
+            return detail::FunctionBuilder::current()->texture_binding(texture_type, handle, level);
         }
-        default: LUISA_ERROR_WITH_LOCATION("Invalid binding tag {}.", to_string(captured.binding.tag));
+        default: LUISA_ERROR_WITH_LOCATION(
+            "Invalid binding tag {}.",
+            to_string(captured.binding.tag));
     }
 }
 
-[[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_kernel(const ir::KernelModule *kernel) noexcept {
+[[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder>
+IR2AST::convert_kernel(const ir::KernelModule *kernel) noexcept {
 
     LUISA_VERBOSE("IR2AST: converting kernel (ptr = {}).",
                   (void *)(kernel));
 
-    IR2ASTContext ctx{
-        .module = kernel->module,
-        .generic_loop_break = nullptr,
-        .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::KERNEL)};
-
     // do the conversion
-    {
+    auto f = detail::FunctionBuilder::define_kernel([&] {
+        IR2ASTContext ctx{.module = kernel->module,
+                          .generic_loop_break = nullptr};
         auto old_ctx = _ctx;
         _ctx = &ctx;
-        detail::FunctionBuilder::FunctionStackGuard guard{_ctx->function_builder.get()};
-        _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+        {
             auto entry = kernel->module.entry.get();
             _collect_phis(entry);
 
-            _ctx->function_builder->set_block_size(uint3{kernel->block_size[0], kernel->block_size[1], kernel->block_size[2]});
+            detail::FunctionBuilder::current()->set_block_size(uint3{kernel->block_size[0], kernel->block_size[1], kernel->block_size[2]});
 
             auto captures = kernel->captures;
             auto args = kernel->args;
@@ -1489,38 +1527,35 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             for (auto i = 0; i < shared.len; i++) {
                 auto shared_var = ir::luisa_compute_ir_node_get(shared.ptr[i]);
                 auto type = _convert_type(shared_var->type_.get());
-                auto shared_var_expr = _ctx->function_builder->shared(type);
+                auto shared_var_expr = detail::FunctionBuilder::current()->shared(type);
                 _ctx->node_to_exprs.emplace(shared_var, shared_var_expr);
             }
             _process_local_declarations(entry);
             _convert_block(entry);
-        });
+        }
         _ctx = old_ctx;
-    }
+    });
     LUISA_VERBOSE("IR2AST: converted kernel (ptr = {}, hash = {:016x}).",
-                  (void *)(kernel), ctx.function_builder->hash());
-    return ctx.function_builder;
+                  static_cast<const void *>(kernel), f->hash());
+    return f;
 }
 
-[[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
+[[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder>
+IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
     if (auto iter = _converted_callables.find(callable);
         iter != _converted_callables.end()) {
         return iter->second;
     }
     LUISA_VERBOSE("IR2AST: converting callable (ptr = {}).",
                   (void *)(callable), callable->captures.len);
-    IR2ASTContext ctx{
-        .module = callable->module,
-        .generic_loop_break = nullptr,
-        .function_builder = luisa::make_shared<detail::FunctionBuilder>(Function::Tag::CALLABLE)};
-    _converted_callables.emplace(callable, ctx.function_builder);
 
-    // do the conversion
-    {
+    auto f = detail::FunctionBuilder::define_callable([&] {
+        IR2ASTContext ctx{
+            .module = callable->module,
+            .generic_loop_break = nullptr};
         auto old_ctx = _ctx;
         _ctx = &ctx;
-        detail::FunctionBuilder::FunctionStackGuard guard{_ctx->function_builder.get()};
-        _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+        {
             for (auto i = 0; i < callable->captures.len; i++) {
                 auto captured = callable->captures.ptr[i];
                 auto node = ir::luisa_compute_ir_node_get(captured.node);
@@ -1535,23 +1570,21 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
             _collect_phis(entry);
             _process_local_declarations(entry);
             _convert_block(entry);
-        });
+        }
         _ctx = old_ctx;
-    }
-    auto callable_hash = ctx.function_builder->hash();
+    });
+    _converted_callables.emplace(callable, f);
     LUISA_VERBOSE("IR2AST: converted callable (ptr = {}, hash = {:016x}).",
-                  (void *)(callable), callable_hash,
-                  ctx.function_builder->arguments().size());
-    return std::move(ctx.function_builder);
+                  static_cast<const void *>(callable), f->hash());
+    return f;
 }
 
 const Type *IR2AST::get_type(const ir::Type *type) noexcept {
     return _convert_type(type);
 }
 
-[[nodiscard]] const Type *IR2AST::get_type(const ir::NodeRef node_ref) noexcept {
+[[nodiscard]] const Type *IR2AST::get_type(ir::NodeRef node_ref) noexcept {
     auto node = ir::luisa_compute_ir_node_get(node_ref);
-    //    LUISA_VERBOSE("node type is {}", luisa::to_underlying(node->instruction->tag));
     switch (node->instruction->tag) {
         case ir::Instruction::Tag::Buffer: return Type::buffer(_convert_type(node->type_.get()));
         case ir::Instruction::Tag::Texture2D: return Type::texture(_convert_type(node->type_.get()), 2u);
@@ -1562,12 +1595,14 @@ const Type *IR2AST::get_type(const ir::Type *type) noexcept {
     }
 }
 
-[[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::build(const ir::KernelModule *kernel) noexcept {
+[[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder>
+IR2AST::build(const ir::KernelModule *kernel) noexcept {
     IR2AST builder{};
     return builder.convert_kernel(kernel);
 }
 
-[[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::build(const ir::CallableModule *callable) noexcept {
+[[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder>
+IR2AST::build(const ir::CallableModule *callable) noexcept {
     IR2AST builder{};
     return builder.convert_callable(callable);
 }

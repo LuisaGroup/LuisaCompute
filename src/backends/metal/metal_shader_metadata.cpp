@@ -12,14 +12,19 @@ luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadat
     result.append(luisa::format("BLOCK_SIZE {} {} {} ", metadata.block_size.x, metadata.block_size.y, metadata.block_size.z));
     result.append(luisa::format("ARGUMENT_TYPES {} ", metadata.argument_types.size()));
     for (auto &&type : metadata.argument_types) { result.append(type).append(" "); }
-    result.append(luisa::format("ARGUMENT_USAGES {}", metadata.argument_usages.size()));
+    result.append(luisa::format("ARGUMENT_USAGES {} ", metadata.argument_usages.size()));
     for (auto usage : metadata.argument_usages) {
         switch (usage) {
-            case Usage::NONE: result.append(" NONE"); break;
-            case Usage::READ: result.append(" READ"); break;
-            case Usage::WRITE: result.append(" WRITE"); break;
-            case Usage::READ_WRITE: result.append(" READ_WRITE"); break;
+            case Usage::NONE: result.append("NONE "); break;
+            case Usage::READ: result.append("READ "); break;
+            case Usage::WRITE: result.append("WRITE "); break;
+            case Usage::READ_WRITE: result.append("READ_WRITE "); break;
         }
+    }
+    result.append(luisa::format("FORMAT_TYPES {} ", metadata.format_types.size()));
+    for (auto &&[fmt, type] : metadata.format_types) {
+        for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
+        result.append(" ").append(type).append(" ");
     }
     return result;
 }
@@ -62,6 +67,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
     luisa::optional<uint3> block_size;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
+    luisa::optional<luisa::vector<std::pair<luisa::string, luisa::string>>> format_types;
 
     for (;;) {
         auto token = read_token();
@@ -165,6 +171,61 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
                 }
             }
             argument_usages.emplace(std::move(usages));
+        } else if (token == "FORMAT_TYPES") {
+            if (format_types.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate format types in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid format types in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto count = x.value();
+            luisa::vector<std::pair<luisa::string, luisa::string>> types;
+            types.reserve(count);
+            for (auto i = 0u; i < count; i++) {
+                auto fmt_codes = read_token();
+                if (fmt_codes.size() % 2 != 0) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid format string '{}' "
+                        "in shader metadata.",
+                        fmt_codes);
+                    return luisa::nullopt;
+                }
+                luisa::string fmt;
+                fmt.reserve(fmt_codes.size() / 2);
+                for (auto j = 0u; j < fmt_codes.size(); j += 2) {
+                    auto hi = fmt_codes[j];
+                    auto lo = fmt_codes[j + 1];
+                    if (!isxdigit(hi) || !isxdigit(lo)) {
+                        LUISA_WARNING_WITH_LOCATION(
+                            "Invalid format string '{}' "
+                            "in shader metadata.",
+                            fmt_codes);
+                        return luisa::nullopt;
+                    }
+                    auto hex_to_dec = [](auto x) noexcept {
+                        return x >= '0' && x <= '9' ?
+                                   x - '0' :
+                                   x >= 'a' && x <= 'f' ?
+                                   x - 'a' + 10 :
+                                   x - 'A' + 10;
+                    };
+                    auto code = (hex_to_dec(hi) << 4u) | hex_to_dec(lo);
+                    fmt.push_back(static_cast<char>(code));
+                }
+                auto type = read_token();
+                if (type.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid format type in shader metadata.");
+                    return luisa::nullopt;
+                }
+                types.emplace_back(fmt, type);
+            }
+            format_types.emplace(std::move(types));
         } else {
             LUISA_WARNING_WITH_LOCATION(
                 "Invalid token in shader metadata: {}.", token);
@@ -201,12 +262,17 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
             "Argument count mismatch in shader metadata.");
         return luisa::nullopt;
     }
+    if (!format_types.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing format types in shader metadata.");
+        return luisa::nullopt;
+    }
     return MetalShaderMetadata{
         .checksum = checksum.value(),
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
-        .argument_usages = std::move(argument_usages.value())};
+        .argument_usages = std::move(argument_usages.value()),
+        .format_types = std::move(format_types.value())};
 }
 
 }// namespace luisa::compute::metal
-

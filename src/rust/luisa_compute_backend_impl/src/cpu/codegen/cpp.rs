@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    ffi::CString,
 };
 
 use indexmap::{IndexMap, IndexSet};
@@ -422,7 +421,7 @@ impl<'a> FunctionEmitter<'a> {
         let fid = CArc::as_ptr(&f.0) as u64;
         if !self.globals.generated_callables.contains_key(&fid) {
             let mut callable_emitter = FunctionEmitter::new(&mut self.globals, &self.type_gen);
-
+            callable_emitter.indent = 2;
             let mut params = vec![];
             for (i, arg) in f.0.args.iter().enumerate() {
                 let mut param = String::new();
@@ -452,7 +451,7 @@ impl<'a> FunctionEmitter<'a> {
                         }
                     }
                     _ => {
-                        unreachable!()
+                        unreachable!("{:?}", arg.get().instruction.as_ref());
                     }
                 }
                 callable_emitter
@@ -470,7 +469,7 @@ impl<'a> FunctionEmitter<'a> {
                 callable_emitter.globals.generated_callables.len()
             );
             let source = format!(
-                "[=]({}) -> {} {{\n{}\n{};}}",
+                "[=]({}) -> {} {{\n{}\n{}    }}",
                 params.join(","),
                 ret_type,
                 callable_emitter.fwd_defs,
@@ -485,11 +484,10 @@ impl<'a> FunctionEmitter<'a> {
                     .insert(source.clone(), fname.clone());
                 writeln!(
                     &mut self.globals.callable_def,
-                    "const auto {} = {};\n",
+                    "    const auto {} = {};\n",
                     fname, source
                 )
                 .unwrap();
-                self.write_ident();
             }
         }
         let fname = &self.globals.generated_callables[&fid];
@@ -575,7 +573,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Log => Some("lc_log"),
             Func::Log2 => Some("lc_log2"),
             Func::Log10 => Some("lc_log10"),
-            Func::Powi => Some("lc_lc_powi"),
+            Func::Powi => Some("lc_powi"), // TODO: powi
             Func::Powf => Some("lc_pow"),
 
             Func::Sqrt => Some("lc_sqrt"),
@@ -1787,9 +1785,51 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(&mut self.body, "/* {} */", comment.to_string()).unwrap();
             }
             Instruction::Print { fmt, args } => {
-                todo!()
+                self.print_impl(fmt.to_string(), args.as_ref());
             }
         }
+    }
+    fn print_impl(&mut self, fmt_s: String, args: &[NodeRef]) {
+        let mut printf_fmt = String::new();
+        let fmt = fmt_s.chars().collect::<Vec<_>>();
+        let mut printf_args = String::new();
+        let mut i = 0;
+        let mut arg_i = 0;
+        while i < fmt.len() {
+            if fmt[i] != '{' && fmt[i] != '}' {
+                printf_fmt.push(fmt[i]);
+                i += 1;
+            } else {
+                if i + 1 >= fmt.len() {
+                    panic!("invalid format string: {}", fmt_s);
+                }
+                if fmt[i] == fmt[i + 1] {
+                    printf_fmt.push(fmt[i]);
+                    i += 2;
+                } else {
+                    assert!(
+                        fmt[i] == '{' && fmt[i + 1] == '}',
+                        "invalid format string: {}",
+                        fmt_s
+                    );
+
+                    let arg = args[arg_i];
+                    let (fmt, args) = super::aggregate_printf(self.gen_node(arg), arg.type_());
+                    printf_fmt.push_str(&fmt);
+                    printf_args.push_str(&args);
+                    arg_i += 1;
+                    i += 2;
+                }
+            }
+        }
+        self.write_ident();
+        writeln!(
+            &mut self.body,
+            "char print_buf[1024]; snprintf(print_buf, 1024, \"{}\"{}); device_log(print_buf);",
+            printf_fmt.escape_default(),
+            printf_args
+        )
+        .unwrap();
     }
     fn gen_block_(&mut self, block: Pooled<ir::BasicBlock>) {
         for n in block.iter() {

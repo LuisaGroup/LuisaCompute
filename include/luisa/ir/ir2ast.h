@@ -37,7 +37,6 @@ public:
     struct IR2ASTContext {
         ir::Module module;
         const RefExpr *generic_loop_break;
-        luisa::shared_ptr<detail::FunctionBuilder> function_builder;
         luisa::unordered_map<const ir::Node *, const Expression *> node_to_exprs;
         luisa::unordered_map<const ir::BasicBlock *, luisa::vector<PhiAssignment>> block_to_phis;
     };
@@ -54,7 +53,9 @@ private:
     }
 
     IR2ASTContext *_ctx{nullptr};
-    luisa::unordered_map<const ir::CallableModule *, luisa::shared_ptr<detail::FunctionBuilder>> _converted_callables;
+    luisa::unordered_map<const ir::CallableModule *,
+                         luisa::shared_ptr<const detail::FunctionBuilder>>
+        _converted_callables;
 
     [[nodiscard]] static const Type *_convert_primitive_type(const ir::Primitive &type) noexcept;
     [[nodiscard]] static const Type *_convert_type(const ir::Type *type) noexcept;
@@ -86,18 +87,18 @@ private:
     void _convert_instr_ad_detach(const ir::Node *node) noexcept;
     void _convert_instr_ray_query(const ir::Node *node) noexcept;
     void _convert_instr_comment(const ir::Node *node) noexcept;
+    void _convert_instr_print(const ir::Node *node) noexcept;
     void _collect_phis(const ir::BasicBlock *bb) noexcept;
     void _process_local_declarations(const ir::BasicBlock *bb) noexcept;
 
-    [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_kernel(const ir::KernelModule *kernel) noexcept;
-    [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_callable(const ir::CallableModule *callable) noexcept;
+    [[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder> convert_kernel(const ir::KernelModule *kernel) noexcept;
+    [[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder> convert_callable(const ir::CallableModule *callable) noexcept;
 
 public:
-    [[nodiscard]] static const Type *get_type(const ir::NodeRef node) noexcept;
+    [[nodiscard]] static const Type *get_type(ir::NodeRef node) noexcept;
     [[nodiscard]] static const Type *get_type(const ir::Type *type) noexcept;
-    [[nodiscard]] static luisa::shared_ptr<detail::FunctionBuilder> build(const ir::KernelModule *kernel) noexcept;
-    [[nodiscard]] static luisa::shared_ptr<detail::FunctionBuilder> build(const ir::CallableModule *callable) noexcept;
+    [[nodiscard]] static luisa::shared_ptr<const detail::FunctionBuilder> build(const ir::KernelModule *kernel) noexcept;
+    [[nodiscard]] static luisa::shared_ptr<const detail::FunctionBuilder> build(const ir::CallableModule *callable) noexcept;
 };
 
 }// namespace luisa::compute
-

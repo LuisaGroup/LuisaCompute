@@ -1,7 +1,7 @@
 from .dylibs import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, basic_dtypes, dtype_of, BuiltinFuncBuilder
+from .types import to_lctype, from_lctype, basic_dtypes, dtype_of, BuiltinFuncBuilder
 from .types import vector_dtypes, matrix_dtypes, element_of, length_of
 from functools import cache
 from .mathtypes import *
@@ -12,21 +12,23 @@ from .atomic import int_atomic_functions, float_atomic_functions
 
 
 class Buffer:
-    def __init__(self, size, dtype):
-        if size == 0:
-            raise Exception("Buffer size must be non-zero")
+    def __init__(self, size, dtype, external_memory=None):
         if dtype not in basic_dtypes and type(dtype).__name__ not in {'StructType', 'ArrayType'}:
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
         self.write = self.bufferType.write
         self.dtype = dtype
-        self.size = size
         lc_type = to_lctype(self.dtype)
         self.stride = lc_type.size()
+        assert size > 0
+        self.size = size
         self.bytesize = size * self.stride
         # instantiate buffer on device
-        info = get_global_device().impl().create_buffer(lc_type, size)
+        if external_memory is None:  # owned memory
+            info = get_global_device().impl().create_buffer(lc_type, size)
+        else:  # unowned external memory
+            info = get_global_device().impl().import_external_buffer(lc_type, external_memory, size)
         self.handle = info.handle()
         self.native_handle = info.native_handle()
 
@@ -48,6 +50,10 @@ class Buffer:
     @staticmethod
     def empty(size, dtype):
         return Buffer(size, dtype)
+
+    @staticmethod
+    def import_external_memory(native_address, elem_count, dtype):
+        return Buffer(elem_count, dtype, external_memory=native_address)
 
     @staticmethod
     def from_list(arr):
@@ -134,6 +140,32 @@ class Buffer:
         elsize = to_lctype(self.dtype).size()
         return [from_bytes(self.dtype, packed_bytes[elsize * i: elsize * (i + 1)]) for i in range(self.size)]
 
+    def __dlpack_device__(self):
+        backend_name = get_global_device().impl().backend_name()
+        device_id = 0  # TODO support multi device
+        return lcapi.to_dlpack_device(backend_name, device_id)
+
+    def __dlpack__(self, stream=None):
+        backend_name = get_global_device().impl().backend_name()
+        device_id = 0  # TODO support multi device
+        globalvars.vars.stream.synchronize()
+        # TODO don't synchronize within the same stream
+        return lcapi.to_dlpack(self, self.native_handle, self.size, to_lctype(self.dtype), backend_name, device_id)
+
+    @staticmethod
+    def from_dlpack(arr):
+        # verify device
+        backend_name = get_global_device().impl().backend_name()
+        device_id = 0  # TODO support multi device
+        device = lcapi.to_dlpack_device(backend_name, device_id)
+        # get dlpack
+        pack = arr.__dlpack__() if hasattr(arr, '__dlpack__') else arr
+        lctype, size, addr, ext_device = lcapi.from_dlpack(pack)
+        if device != ext_device:
+            raise RuntimeError('dlpack device mismatch')
+        dtype = from_lctype(lctype)
+        return Buffer(size=size, dtype=dtype, external_memory=addr)
+
 
 buffer = Buffer.buffer
 
@@ -209,6 +241,7 @@ def from_bytes(dtype, packed):
         return dtype([from_bytes(el, packed[i * elsize: (i + 1) * elsize]) for i in range(0, dtype.size)])
     assert False
 
+
 class ByteBufferType:
     def __init__(self):
         self.luisa_type = lcapi.Type.from_("buffer<void>")
@@ -218,7 +251,7 @@ class ByteBufferType:
 
     def __hash__(self):
         return 415937298919836672
-    
+
     @BuiltinFuncBuilder
     def read(self, ele_type, idx):
         check_exact_signature([type, uint], [ele_type, idx], "byte_read")
@@ -231,7 +264,6 @@ class ByteBufferType:
         return None, lcapi.builder().call(lcapi.CallOp.BYTE_BUFFER_WRITE, [self.expr, idx.expr, value.expr])
 
 
-    
 class ByteBuffer:
     def __init__(self, size):
         if size == 0:
@@ -246,11 +278,13 @@ class ByteBuffer:
         info = get_global_device().impl().create_buffer(to_lctype(uint), size // 4)
         self.handle = info.handle()
         self.native_handle = info.native_handle()
+
     def __del__(self):
         if self.handle is not None:
             device = get_global_device()
             if device is not None:
                 device.impl().destroy_buffer(self.handle)
+
     @staticmethod
     def buffer(arr):
         if type(arr).__name__ == "ndarray":
@@ -263,7 +297,7 @@ class ByteBuffer:
     @staticmethod
     def empty(size):
         return ByteBuffer(size)
-    
+
     @staticmethod
     def from_list(arr):
         assert len(arr) > 0
@@ -347,6 +381,7 @@ class ByteBuffer:
         elsize = to_lctype(self.dtype).size()
         return [from_bytes(self.dtype, packed_bytes[elsize * i: elsize * (i + 1)]) for i in range(self.size)]
 
+
 class IndirectDispatchBuffer:
     def __init__(self, size: int):
         buffer = get_global_device().impl().create_dispatch_buffer(size)
@@ -355,11 +390,14 @@ class IndirectDispatchBuffer:
         self.stride = buffer.element_stride()
         # instantiate buffer on device
         self.handle = buffer.handle()
+
     @BuiltinFuncBuilder
     def set_dispatch_count(self, count):
         check_exact_signature([uint], [count], "set_dispatch_count")
         return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_SET_DISPATCH_COUNT, [self.expr, count.expr])
+
     @BuiltinFuncBuilder
     def set_kernel(self, offset, block_size, size, kernel_id):
         check_exact_signature([uint, uint3, uint3, uint], [offset, block_size, size, kernel_id], "set_kernel")
-        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_SET_DISPATCH_KERNEL, [self.expr, offset.expr, block_size.expr, size.expr, kernel_id.expr])
+        return None, lcapi.builder().call(lcapi.CallOp.INDIRECT_SET_DISPATCH_KERNEL,
+                                          [self.expr, offset.expr, block_size.expr, size.expr, kernel_id.expr])

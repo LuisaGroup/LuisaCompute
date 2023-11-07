@@ -24,8 +24,8 @@ private:
 public:
     CUDAShaderNative(CUDADevice *device,
                      const char *ptx, size_t ptx_size,
-                     const char *entry, uint3 block_size,
-                     luisa::vector<Usage> argument_usages,
+                     const char *entry,
+                     const CUDAShaderMetadata &metadata,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
     [[nodiscard]] void *handle() const noexcept override { return _function; }

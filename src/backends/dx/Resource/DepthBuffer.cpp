@@ -73,6 +73,7 @@ DepthBuffer::DepthBuffer(
         auto byteSize = allocateInfo.SizeInBytes;
         allocHandle.allocateHandle = alloc->AllocateTextureHeap(
             device,
+            "depth buffer",
             byteSize,
             &heap,
             &offset,

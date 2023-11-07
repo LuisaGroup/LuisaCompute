@@ -5,7 +5,8 @@
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/runtime/rtx/aabb.h>
 #include <luisa/api/api.h>
-
+#include <luisa/core/forget.h>
+#include <luisa/backends/ext/denoiser_ext.h>
 #include <utility>
 
 #define LUISA_RC_TOMBSTONE 0xdeadbeef
@@ -313,9 +314,8 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
                                                       const char *name,
                                                       const char *properties) LUISA_NOEXCEPT {
     auto device = reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr);
-    std::aligned_storage_t<sizeof(Device), alignof(Device)> storage;
     auto handle = device.impl();
-    new (&storage) Device(std::move(device));
+    forget(std::move(device));
     return LCDevice{._0 = reinterpret_cast<uint64_t>(handle)};
 }
 
@@ -331,10 +331,10 @@ LUISA_EXPORT_API void *luisa_compute_device_native_handle(LCDevice device) LUISA
 }
 
 LUISA_EXPORT_API LCCreatedBufferInfo
-luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count) LUISA_NOEXCEPT {
+luisa_compute_buffer_create(LCDevice device, const void *element_, size_t elem_count, void *ext_mem) LUISA_NOEXCEPT {
     auto element = reinterpret_cast<const ir::CArc<ir::Type> *>(element_);
     auto d = reinterpret_cast<DeviceInterface *>(device._0);
-    auto info = d->create_buffer(element, elem_count);
+    auto info = d->create_buffer(element, elem_count, ext_mem);
     return LCCreatedBufferInfo{
         .resource = LCCreatedResourceInfo{
             .handle = info.handle,
@@ -626,6 +626,118 @@ void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapcha
     auto d = reinterpret_cast<DeviceInterface *>(device._0);
     d->present_display_in_stream(stream._0, swapchain._0, image._0);
 }
+LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
+    auto d = reinterpret_cast<DeviceInterface *>(device._0);
+    auto ext = static_cast<DenoiserExt *>(d->extension(DenoiserExt::name));
+    if (ext == nullptr) {
+        auto ext = LCDenoiserExt{};
+        ext.data = nullptr;
+        return ext;
+    } else {
+        return LCDenoiserExt{
+            .data = ext,
+            .create = [](const LCDenoiserExt *ext, uint64_t stream) -> LCDenoiser * {
+                auto e = reinterpret_cast<DenoiserExt *>(ext->data);
+                auto denoiser = e->create(stream);
+                auto ptr = denoiser.get();
+                forget(std::move(denoiser));
+                return reinterpret_cast<LCDenoiser *>(ptr);
+            },
+
+            .init = [](const LCDenoiserExt *ext, LCDenoiser *denoiser, const LCDenoiserInput *c_input) {
+                DenoiserExt::DenoiserInput input{c_input->width, c_input->height};
+                input.noisy_features = c_input->noisy_features;
+                switch(c_input->prefilter_mode) {
+                    case LC_PREFILTER_MODE_NONE:
+                        input.prefilter_mode = DenoiserExt::PrefilterMode::NONE;
+                        break;
+                    case LC_PREFILTER_MODE_FAST:
+                        input.prefilter_mode = DenoiserExt::PrefilterMode::FAST;
+                        break;
+                    case LC_PREFILTER_MODE_ACCURATE:
+                        input.prefilter_mode = DenoiserExt::PrefilterMode::ACCURATE;
+                        break;
+                    default:
+                        LUISA_ERROR_WITH_LOCATION("Invalid prefilter mode {}.", (int)c_input->prefilter_mode);
+                }
+                  switch(c_input->filter_quality) {
+                    case LC_FILTER_QUALITY_DEFAULT:
+                        input.filter_quality = DenoiserExt::FilterQuality::DEFAULT;
+                        break;
+                    case LC_FILTER_QUALITY_FAST:
+                        input.filter_quality = DenoiserExt::FilterQuality::FAST;
+                        break;
+                    case LC_FILTER_QUALITY_ACCURATE:
+                        input.filter_quality = DenoiserExt::FilterQuality::ACCURATE;
+                        break;
+                    default:
+                        LUISA_ERROR_WITH_LOCATION("Invalid prefilter mode {}.", (int)c_input->prefilter_mode);
+                }
+                auto convert_format = [](LCImageFormat fmt)->DenoiserExt::ImageFormat {
+                    switch(fmt){
+                        case LC_IMAGE_FORMAT_FLOAT1:
+                            return DenoiserExt::ImageFormat::FLOAT1;
+                        case LC_IMAGE_FORMAT_FLOAT2:
+                            return DenoiserExt::ImageFormat::FLOAT2;
+                        case LC_IMAGE_FORMAT_FLOAT3:
+                            return DenoiserExt::ImageFormat::FLOAT3;
+                        case LC_IMAGE_FORMAT_FLOAT4:
+                            return DenoiserExt::ImageFormat::FLOAT4;
+                        case LC_IMAGE_FORMAT_HALF1:
+                            return DenoiserExt::ImageFormat::HALF1;
+                        case LC_IMAGE_FORMAT_HALF2:
+                            return DenoiserExt::ImageFormat::HALF2;
+                        case LC_IMAGE_FORMAT_HALF3:
+                            return DenoiserExt::ImageFormat::HALF3;
+                        case LC_IMAGE_FORMAT_HALF4:
+                            return DenoiserExt::ImageFormat::HALF4;
+                        default:
+                            LUISA_ERROR_WITH_LOCATION("Invalid image format {}.", (int)fmt);
+                    }
+                };
+                auto convert_color_space = [](LCImageColorSpace cs) {
+                    switch(cs) {
+                        case LC_IMAGE_COLOR_SPACE_HDR:
+                            return DenoiserExt::ImageColorSpace::HDR;
+                        case LC_IMAGE_COLOR_SPACE_LDR_LINEAR:
+                            return DenoiserExt::ImageColorSpace::LDR_LINEAR;
+                        case LC_IMAGE_COLOR_SPACE_LDR_SRGB:
+                            return DenoiserExt::ImageColorSpace::LDR_SRGB;
+                        default:
+                            LUISA_ERROR_WITH_LOCATION("Invalid image color space {}.", (int)cs);
+                    }
+                };
+                auto convert_img = [&](LCImage img)->DenoiserExt::Image {
+                    return DenoiserExt::Image{
+                        .format = convert_format(img.format),
+                        .buffer_handle = img.buffer_handle,
+                        .device_ptr = img.device_ptr,
+                        .offset = img.offset,
+                        .pixel_stride = img.pixel_stride,
+                        .row_stride = img.row_stride,
+                        .size_bytes = img.size_bytes,                      
+                        .color_space = convert_color_space(img.color_space),
+                        .input_scale = img.input_scale,
+                    };
+                };
+                for(auto i =0;i<c_input->inputs_count;i++) {
+                    input.inputs.push_back(convert_img(c_input->inputs[i]));
+                    input.outputs.push_back(convert_img(c_input->outputs[i]));
+                }
+
+                for(auto i = 0;i<c_input->features_count;i++) {
+                    auto &f = c_input->features[i];
+                   input.features.push_back(DenoiserExt::Feature{
+                        .name = luisa::string{luisa::string_view{f.name, f.name_len}},
+                       .image = convert_img(f.image),
+                    });
+                }
+                reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->init(input); },
+            .execute = [](const LCDenoiserExt *_ext, LCDenoiser *denoiser, bool async) { reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->execute(async); },
+            .destroy = [](const LCDenoiserExt *_ext, LCDenoiser *denoiser) { auto _d = reinterpret_cast<DenoiserExt::Denoiser *>(denoiser)->shared_from_this(); },
+        };
+    }
+}
 
 LUISA_EXPORT_API void luisa_compute_device_interface_destroy(LCDeviceInterface device) {
     luisa_compute_device_destroy(device.device);
@@ -663,6 +775,7 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.destroy_swapchain = luisa_compute_swapchain_destroy;
     interface.create_procedural_primitive = luisa_compute_procedural_primitive_create;
     interface.destroy_procedural_primitive = luisa_compute_procedural_primitive_destroy;
+    interface.denoiser_ext = luisa_compute_denoiser_ext;
     interface.query = [](LCDevice device, const char *query) -> char * {
         auto d = reinterpret_cast<DeviceInterface *>(device._0);
         auto result_s = d->query(luisa::string_view{query});

@@ -114,7 +114,7 @@ We are also making a C API for creating other language bindings and frontends (e
 ### Preparation
 - Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and CPU on all the major platforms. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
 
-- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.4, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.7+.
+- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 8, you may need to, for example, upgrade your VS to 2019 or 2022 and install CUDA 11.7+ and NVIDIA driver R535+.
 
 - Clone the repo with the `--recursive` option:
     ```bash
@@ -122,12 +122,16 @@ We are also making a C API for creating other language bindings and frontends (e
     ```
   Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required.
 
-### Build via the bootstrap script
+- Detailed requirements for each platform are listed in [BUILD.md](BUILD.md).
+
+### Build via the Bootstrap Script
 The easiest way to build LuisaCompute is to use the bootstrap script. It can even download and install the required dependencies and build the project.
 ```bash
 python bootstrap.py cmake -f cuda -b # build with CUDA backend using CMake
 python bootstrap.py cmake -f cuda -b -- -DCMAKE_BUILD_TYPE=RelWithDebInfo # everything after -- will be passed to CMake
 ```
+
+You may specify `-f all` to enable all available features on your platform.
 
 To install certain dependencies, you can use the `--install` or `-i` option. For example, to install Rust, you can use:
 ```bash
@@ -139,10 +143,10 @@ Alternatively, the bootstrap script can output a configuration file for build sy
 python bootstrap.py cmake -f cuda -c -o cmake-build-release # generate CMake configuration in ./cmake-build-release
 ```
 
-### Build from source using XMake/CMake
-LuisaCompute follows the standard [XMake](https://xmake.io/) and [CMake](https://cmake.org/) build process. 
+Please use `python bootstrap.py --help` for more details.
 
-See also [BUILD.md](BUILD.md) for details on platform requirements, configuration options, and other precautions.
+### Build from Source with XMake/CMake
+LuisaCompute follows the standard [XMake](https://xmake.io/) and [CMake](https://cmake.org/) build process. Please see also [BUILD.md](BUILD.md) for details on platform requirements, configuration options, and other precautions.
 
 ## Usage
 
@@ -160,6 +164,10 @@ Putting the above together, a minimal example program that write gradient color 
 ```cpp
 
 #include <luisa-compute.h>
+
+// For the DSL sugar macros like $if.
+// We exclude this header from <luisa-compute.h> to avoid pollution.
+// So you have to include it explicitly to use the sugar macros.
 #include <dsl/sugar.h>
 
 using namespace luisa;
@@ -179,7 +187,7 @@ int main(int argc, char *argv[]) {
     // Step 2.2: Create an 1024x1024 image with 4-channel 8-bit storage for each pixel; the template 
     //           argument `float` indicates that pixel values reading from or writing to the image
     //           are converted from `byte4` to `float4` or `float4` to `byte4` automatically
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
+    Image<float> device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
     
     // Step 3.1: Define kernels to describe the device-side computation
     // 
@@ -198,7 +206,7 @@ int main(int argc, char *argv[]) {
     Kernel2D fill_image_kernel = [&linear_to_srgb](ImageFloat /* alias for Var<Image<float>> */ image) noexcept {
         Var coord = dispatch_id().xy();
         Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
-        image.write(coord, linear_to_srgb(make_float4(rg, 1.0f, 1.0f)));
+        image->write(coord, linear_to_srgb(make_float4(rg, 1.0f, 1.0f)));
     };
     
     // Step 3.2: Compile the kernel into a shader (i.e., a runnable object on the device)
@@ -303,7 +311,7 @@ auto eq = v2 == v2; // Bool2(true, true)
 /* ... */
 ```
 
-> ⚠️ The only exception is that we disable `operator&&` and `operator||` in the DSL. This is because the DSL does not support the *short-circuit* semantics. We disable them to avoid ambiguity. Please use `operator&` and `operator|` instead, which have the consistent non-short-circuit semantics on both the host and device sides.
+> ⚠️ The only exception is that we disable `operator&&` and `operator||` in the DSL for scalars. This is because the DSL does not support the *short-circuit* semantics. We disable them to avoid ambiguity. Please use `operator&` and `operator|` instead, which have the consistent non-short-circuit semantics on both the host and device sides.
 
 Besides the `Var<T>` template, there's also an `Expr<T>`, which is to `Var<T>` what `const T &` is to `T` on the host side. In other words, `Expr<T>` stands for a const DSL variable reference, which does not create variables copies when passed around. However, note that the parameters of `Callable`/`Kernel` definition functions may only be `Var<T>`. This restriction might be removed in the future.
 
@@ -505,7 +513,7 @@ stream_b << event.wait()    // waits until the event signals
 event.synchronize();        // blocks until the event signals
 ```
 ### Automatic Differentiation
-We implemented reverse mode autodiff using source-to-source transformation. The autodiff supports control flows such as if-else and switch. The following example shows how to use the autodiff to compute the gradient of a function `f(t, x, y) = t < 1 ? x * y : x + y` with respect to `x` and `y`:
+We implemented reverse mode autodiff using source-to-source transformation. The autodiff supports control flows such as if-else and switch, as well as callables. The following example shows how to use the autodiff to compute the gradient of a function `f(t, x, y) = t < 1 ? x * y : x + y` with respect to `x` and `y`:
 ```cpp
 Var<float> x = ...;
 Var<float> y = ...;
@@ -517,7 +525,7 @@ $autodiff {
         auto no_grad = some_non_differentiable_function(x, y);
         z = x * y;
     }$else {
-        z = x + y;
+        z = callable(x, y);
     };
     backward(z);
     dx->write(tid, grad(x));
@@ -525,9 +533,8 @@ $autodiff {
 };
 ```
 
-Limitation: 
+Limitation (might be removed in the future): 
 - we don't support loop with dynamic iteration count. To differentiate a loop, users have to unroll it by using `for(auto i = 0;i <count;i++) { dsl_body(i); }`.  
-- Differentiation across callable boundaries is also not supported. You can have an autodiff section inside any callable but you cannot invoke another callable inside autodiff section. This is because reverse mode autodiff requires all intermediate values to be stored in memory. If we allow callable invocation inside autodiff section, the autodiff transformer essentially inlines every callable into the autodiff section. We choose to make user do this inline in DSL manually to warn them about the potential performance impact.
 
 ## Applications
 

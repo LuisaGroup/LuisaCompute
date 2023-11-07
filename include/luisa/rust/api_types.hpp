@@ -28,6 +28,29 @@ enum class BindlessArrayUpdateOperation {
     REMOVE,
 };
 
+enum class FilterQuality {
+    DEFAULT,
+    FAST,
+    ACCURATE,
+};
+
+enum class ImageColorSpace {
+    HDR,
+    LDR_LINEAR,
+    LDR_SRGB,
+};
+
+enum class ImageFormat {
+    FLOAT1,
+    FLOAT2,
+    FLOAT3,
+    FLOAT4,
+    HALF1,
+    HALF2,
+    HALF3,
+    HALF4,
+};
+
 enum class PixelFormat {
     R8_SINT,
     R8_UINT,
@@ -59,6 +82,16 @@ enum class PixelFormat {
     R32F,
     RG32F,
     RGBA32F,
+    R10G10B10A2U_INT,
+    R10G10B10A2U_NORM,
+    R11G11B10F,
+    BC1U_NORM,
+    BC2U_NORM,
+    BC3U_NORM,
+    BC4U_NORM,
+    BC5U_NORM,
+    BC6HUF16,
+    BC7U_NORM,
 };
 
 enum class PixelStorage {
@@ -77,6 +110,21 @@ enum class PixelStorage {
     FLOAT1,
     FLOAT2,
     FLOAT4,
+    R10G10B10A2,
+    R11G11B10,
+    BC1,
+    BC2,
+    BC3,
+    BC4,
+    BC5,
+    BC6,
+    BC7,
+};
+
+enum class PrefilterMode {
+    NONE,
+    FAST,
+    ACCURATE,
 };
 
 enum class SamplerAddress {
@@ -515,10 +563,63 @@ struct ShaderOption {
 
 using DispatchCallback = void(*)(uint8_t*);
 
+struct PinnedMemoryOption {
+    bool write_combined;
+};
+
+struct PinnedMemoryExt {
+    void *data;
+    void (*pin_host_memory)(PinnedMemoryExt*, const void*, size_t, void*, const PinnedMemoryOption*);
+    void (*allocate_pinned_memory)(PinnedMemoryExt*, size_t, void*);
+};
+
+struct Denoiser {
+    uint8_t _unused[0];
+};
+
+struct Image {
+    ImageFormat format;
+    uint64_t buffer_handle;
+    void *device_ptr;
+    size_t offset;
+    size_t pixel_stride;
+    size_t row_stride;
+    size_t size_bytes;
+    ImageColorSpace color_space;
+    float input_scale;
+};
+
+struct Feature {
+    const char *name;
+    size_t name_len;
+    Image image;
+};
+
+struct DenoiserInput {
+    const Image *inputs;
+    size_t inputs_count;
+    const Image *outputs;
+    const Feature *features;
+    size_t features_count;
+    PrefilterMode prefilter_mode;
+    FilterQuality filter_quality;
+    bool noisy_features;
+    uint32_t width;
+    uint32_t height;
+};
+
+struct DenoiserExt {
+    void *data;
+    Denoiser *(*create)(const DenoiserExt*, uint64_t stream);
+    void (*init)(const DenoiserExt*, Denoiser*, const DenoiserInput*);
+    void (*execute)(const DenoiserExt*, Denoiser*, bool);
+    void (*destroy)(const DenoiserExt*, Denoiser*);
+};
+
 struct DeviceInterface {
     Device device;
     void (*destroy_device)(DeviceInterface);
-    CreatedBufferInfo (*create_buffer)(Device, const void*, size_t);
+    CreatedBufferInfo (*create_buffer)(Device, const void*, size_t, void*);
     void (*destroy_buffer)(Device, Buffer);
     CreatedResourceInfo (*create_texture)(Device,
                                           PixelFormat,
@@ -562,6 +663,8 @@ struct DeviceInterface {
     CreatedResourceInfo (*create_accel)(Device, const AccelOption*);
     void (*destroy_accel)(Device, Accel);
     char *(*query)(Device, const char*);
+    PinnedMemoryExt (*pinned_memory_ext)(Device);
+    DenoiserExt (*denoiser_ext)(Device);
 };
 
 struct LoggerMessage {
@@ -577,6 +680,46 @@ struct LibInterface {
     void (*destroy_context)(Context);
     DeviceInterface (*create_device)(Context, const char*, const char*);
     void (*free_string)(char*);
+};
+
+struct ByteStream {
+    void *data;
+    void (*dtor)(ByteStream*);
+    size_t (*length)(ByteStream*);
+    size_t (*pos)(ByteStream*);
+    size_t (*read)(ByteStream*, uint8_t*, size_t);
+};
+
+struct StringView {
+    const char *data;
+    size_t size;
+};
+
+struct StringViewMut {
+    char *data;
+    size_t size;
+};
+
+struct BinaryIo {
+    void (*dtor)(BinaryIo*);
+    ByteStream (*read_shader_bytecode)(BinaryIo*, StringView name);
+    ByteStream (*read_shader_cache)(BinaryIo*, StringView name);
+    ByteStream (*read_internal_shader_cache)(BinaryIo*, StringView name);
+    void (*write_shader_byte_code)(BinaryIo*,
+                                   StringView name,
+                                   const uint8_t *data,
+                                   size_t size,
+                                   StringViewMut out_path);
+    void (*write_shader_cache)(BinaryIo*,
+                               StringView name,
+                               const uint8_t *data,
+                               size_t size,
+                               StringViewMut out_path);
+    void (*write_internal_shader_cache)(BinaryIo*,
+                                        StringView name,
+                                        const uint8_t *data,
+                                        size_t size,
+                                        StringViewMut out_path);
 };
 
 } // namespace luisa::compute::api

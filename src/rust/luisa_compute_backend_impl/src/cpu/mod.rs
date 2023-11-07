@@ -16,8 +16,8 @@ use libc::c_void;
 use log::debug;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{context::type_hash, ir, CArc, transform::luisa_compute_ir_transform_auto};
-use parking_lot::{Condvar, Mutex, RwLock};
+use luisa_compute_ir::{context::type_hash, ir, CArc};
+use parking_lot::RwLock;
 mod codegen;
 use codegen::sha256_short;
 mod accel;
@@ -50,6 +50,7 @@ impl Backend for RustBackend {
         &self,
         ty: &CArc<ir::Type>,
         count: usize,
+        ext_mem: *mut c_void,
     ) -> luisa_compute_api_types::CreatedBufferInfo {
         let size_bytes = if ty == &ir::Type::void() {
             count
@@ -61,7 +62,12 @@ impl Backend for RustBackend {
         } else {
             ty.alignment()
         };
-        let buffer = Box::new(BufferImpl::new(size_bytes, alignment, type_hash(&ty)));
+        let buffer = Box::new(BufferImpl::new(
+            size_bytes,
+            alignment,
+            type_hash(&ty),
+            ext_mem,
+        ));
         let data = buffer.data;
         let ptr = Box::into_raw(buffer);
         CreatedBufferInfo {
@@ -454,6 +460,9 @@ impl Backend for RustBackend {
             "device_name" => Some("cpu".to_string()),
             _ => None,
         }
+    }
+    fn denoiser_ext(&self) -> api::DenoiserExt {
+        unreachable!("implemented in c++")
     }
 }
 impl RustBackend {

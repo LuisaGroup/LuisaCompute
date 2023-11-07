@@ -53,7 +53,7 @@ pub(super) fn clang_args() -> Vec<&'static str> {
     }
     args.push("-march=native");
     args.push("-std=c++20");
-    args.push("-fno-math-errno");
+   
     if cfg!(target_arch = "x86_64") {
         args.push("-mavx2");
         args.push("-DLUISA_ARCH_X86_64");
@@ -62,7 +62,12 @@ pub(super) fn clang_args() -> Vec<&'static str> {
     } else {
         panic_abort!("unsupported target architecture");
     }
+    // clang is so smart that it bypass isinf/isnan
+    // DO NOT ENABLE fast-math
     // args.push("-ffast-math");
+    args.push("-fno-math-errno");
+    args.push("-fno-trapping-math");
+    args.push("-freciprocal-math");
     args.push("-fno-rtti");
     args.push("-fno-exceptions");
     args.push("-fno-stack-protector");

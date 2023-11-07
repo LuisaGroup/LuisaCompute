@@ -622,6 +622,8 @@ public:
     }
 
     template<typename Key>
+        requires(!std::is_same_v<std::remove_cvref_t<Key>, Index> &&
+                 !std::is_same_v<std::remove_cvref_t<Key>, NodePair>)
     void remove(Key &&key) noexcept {
         size_t hashOriginValue = hsFunc(key);
         size_t hashValue = GetHash(hashOriginValue, mCapacity);

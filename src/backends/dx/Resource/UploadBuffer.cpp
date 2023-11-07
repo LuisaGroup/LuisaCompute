@@ -11,7 +11,7 @@ UploadBuffer::UploadBuffer(
         ID3D12Heap *heap;
         uint64 offset;
         allocHandle.allocateHandle = allocator->AllocateBufferHeap(
-            device, byteSize, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset);
+            device, "upload buffer", byteSize, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset);
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize);
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap, offset,

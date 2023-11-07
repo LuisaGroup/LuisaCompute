@@ -18,17 +18,23 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
+    result.append(metadata.requires_printing ? "PRINTING TRUE " : "PRINTING FALSE ");
     result.append(luisa::format("BLOCK_SIZE {} {} {} ", metadata.block_size.x, metadata.block_size.y, metadata.block_size.z));
     result.append(luisa::format("ARGUMENT_TYPES {} ", metadata.argument_types.size()));
     for (auto &&type : metadata.argument_types) { result.append(type).append(" "); }
-    result.append(luisa::format("ARGUMENT_USAGES {}", metadata.argument_usages.size()));
+    result.append(luisa::format("ARGUMENT_USAGES {} ", metadata.argument_usages.size()));
     for (auto usage : metadata.argument_usages) {
         switch (usage) {
-            case Usage::NONE: result.append(" NONE"); break;
-            case Usage::READ: result.append(" READ"); break;
-            case Usage::WRITE: result.append(" WRITE"); break;
-            case Usage::READ_WRITE: result.append(" READ_WRITE"); break;
+            case Usage::NONE: result.append("NONE "); break;
+            case Usage::READ: result.append("READ "); break;
+            case Usage::WRITE: result.append("WRITE "); break;
+            case Usage::READ_WRITE: result.append("READ_WRITE "); break;
         }
+    }
+    result.append(luisa::format("FORMAT_TYPES {} ", metadata.format_types.size()));
+    for (auto &&[fmt, type] : metadata.format_types) {
+        for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
+        result.append(" ").append(type).append(" ");
     }
     return result;
 }
@@ -36,7 +42,6 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
 luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept {
 
     auto read_token = [&metadata] {
-
         auto is_blank = [](char c) noexcept {
             return isblank(c) || c == '\r' || c == '\n';
         };
@@ -78,8 +83,10 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<bool> requires_trace_closest;
     luisa::optional<bool> requires_trace_any;
     luisa::optional<bool> requires_ray_query;
+    luisa::optional<bool> requires_printing;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
+    luisa::optional<luisa::vector<std::pair<luisa::string, luisa::string>>> format_types;
 
     for (;;) {
         auto token = read_token();
@@ -126,8 +133,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid debug flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
-        }
-        else if (token == "TRACE_CLOSEST") {
+        } else if (token == "TRACE_CLOSEST") {
             if (requires_trace_closest.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Duplicate requires_trace_closest flag in shader metadata.");
@@ -143,8 +149,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid requires_trace_closest flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
-        }
-        else if (token == "TRACE_ANY") {
+        } else if (token == "TRACE_ANY") {
             if (requires_trace_any.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Duplicate requires_trace_any flag in shader metadata.");
@@ -160,8 +165,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid requires_trace_any flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
-        }
-        else if (token == "RAY_QUERY") {
+        } else if (token == "RAY_QUERY") {
             if (requires_ray_query.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Duplicate requires_ray_query flag in shader metadata.");
@@ -177,8 +181,23 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid requires_ray_query flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
-        }
-        else if (token == "BLOCK_SIZE") {
+        } else if (token == "PRINTING") {
+            if (requires_printing.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate requires_printing flag in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "TRUE") {
+                requires_printing.emplace(true);
+            } else if (x == "FALSE") {
+                requires_printing.emplace(false);
+            } else {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid requires_printing flag '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        } else if (token == "BLOCK_SIZE") {
             if (block_size.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Duplicate block size in shader metadata.");
@@ -265,6 +284,61 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 }
             }
             argument_usages.emplace(std::move(usages));
+        } else if (token == "FORMAT_TYPES") {
+            if (format_types.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate format types in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid format types in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto count = x.value();
+            luisa::vector<std::pair<luisa::string, luisa::string>> types;
+            types.reserve(count);
+            for (auto i = 0u; i < count; i++) {
+                auto fmt_codes = read_token();
+                if (fmt_codes.size() % 2 != 0) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid format string '{}' "
+                        "in shader metadata.",
+                        fmt_codes);
+                    return luisa::nullopt;
+                }
+                luisa::string fmt;
+                fmt.reserve(fmt_codes.size() / 2);
+                for (auto j = 0u; j < fmt_codes.size(); j += 2) {
+                    auto hi = fmt_codes[j];
+                    auto lo = fmt_codes[j + 1];
+                    if (!isxdigit(hi) || !isxdigit(lo)) {
+                        LUISA_WARNING_WITH_LOCATION(
+                            "Invalid format string '{}' "
+                            "in shader metadata.",
+                            fmt_codes);
+                        return luisa::nullopt;
+                    }
+                    auto hex_to_dec = [](auto x) noexcept {
+                        return x >= '0' && x <= '9' ?
+                                   x - '0' :
+                               x >= 'a' && x <= 'f' ?
+                                   x - 'a' + 10 :
+                                   x - 'A' + 10;
+                    };
+                    auto code = (hex_to_dec(hi) << 4u) | hex_to_dec(lo);
+                    fmt.push_back(static_cast<char>(code));
+                }
+                auto type = read_token();
+                if (type.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid format type in shader metadata.");
+                    return luisa::nullopt;
+                }
+                types.emplace_back(fmt, type);
+            }
+            format_types.emplace(std::move(types));
         } else {
             LUISA_WARNING_WITH_LOCATION(
                 "Invalid token in shader metadata: {}.", token);
@@ -294,6 +368,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     if (!requires_ray_query.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing requires_ray_query flag in shader metadata.");
+        return luisa::nullopt;
+    }
+    if (!requires_printing.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing requires_printing flag in shader metadata.");
         return luisa::nullopt;
     }
     if (!checksum.has_value()) {
@@ -326,6 +405,16 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Argument count mismatch in shader metadata.");
         return luisa::nullopt;
     }
+    if (!format_types.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing format types in shader metadata.");
+        return luisa::nullopt;
+    }
+    if (format_types->empty() == requires_printing.value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Format types and requires_printing mismatch in shader metadata.");
+        return luisa::nullopt;
+    }
     return CUDAShaderMetadata{
         .checksum = checksum.value(),
         .kind = kind,
@@ -333,10 +422,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .requires_trace_closest = requires_trace_closest.value(),
         .requires_trace_any = requires_trace_any.value(),
         .requires_ray_query = requires_ray_query.value(),
+        .requires_printing = requires_printing.value(),
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
-        .argument_usages = std::move(argument_usages.value())};
+        .argument_usages = std::move(argument_usages.value()),
+        .format_types = std::move(format_types.value())};
 }
 
 }// namespace luisa::compute::cuda
-
