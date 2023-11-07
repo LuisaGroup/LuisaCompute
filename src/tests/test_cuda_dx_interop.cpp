@@ -2,6 +2,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/runtime/event.h>
 #include <luisa/backends/ext/dx_cuda_interop.h>
 
 using namespace luisa;
@@ -25,4 +26,7 @@ int main(int argc, char *argv[]) {
     cuda_stream << cuda_buffer.copy_to(&output) << synchronize();
     LUISA_INFO("Result: {}", output);
     interop_ext->unmap(reinterpret_cast<void *>(cuda_ptr), reinterpret_cast<void *>(cuda_handle));
+    auto dx_event = dx_device.create_event();
+    auto cuda_semaphore_handle = interop_ext->cuda_event(dx_event.handle());
+    // TODO: cudaExternalSemaphore_t to lc-cuda event
 }
