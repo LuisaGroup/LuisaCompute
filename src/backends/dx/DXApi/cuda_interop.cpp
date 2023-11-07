@@ -159,7 +159,7 @@ BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element,
         res = new DefaultBuffer(
             &_device.nativeDevice,
             info.total_size_bytes,
-            _device.nativeDevice.defaultAllocator.get(),
+            nullptr,
             D3D12_RESOURCE_STATE_COMMON, true);
         info.handle = reinterpret_cast<uint64_t>(res);
         info.native_handle = res->GetResource();
@@ -169,7 +169,8 @@ BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element,
         if (element == Type::of<IndirectKernelDispatch>()) {
             info.element_stride = ComputeShader::DispatchIndirectStride;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
-            res = static_cast<Buffer *>(new DefaultBuffer(&_device.nativeDevice, info.total_size_bytes, _device.nativeDevice.defaultAllocator.get()));
+            res = static_cast<Buffer *>(new DefaultBuffer(&_device.nativeDevice, info.total_size_bytes,
+                                                          static_cast<GpuAllocator *>(nullptr)));
         } else {
             LUISA_ERROR("Un-known custom type in dx-backend.");
         }
@@ -179,7 +180,7 @@ BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element,
             new DefaultBuffer(
                 &_device.nativeDevice,
                 info.total_size_bytes,
-                _device.nativeDevice.defaultAllocator.get(),
+                nullptr,
                 D3D12_RESOURCE_STATE_COMMON, true));
         info.element_stride = element->size();
     }
@@ -203,7 +204,7 @@ ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
         mipmap_levels,
         allowUAV,
         simultaneous_access,
-        _device.nativeDevice.defaultAllocator.get(),
+        nullptr,
         true);
     info.handle = reinterpret_cast<uint64>(res);
     info.native_handle = res->GetResource();
