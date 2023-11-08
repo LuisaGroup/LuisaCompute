@@ -53,6 +53,7 @@ a = luisa.buffer([0.9, 1.0, 1.1])
 luisa.synchronize()
 b = lc_buffer_to_torch(a)
 b[1] = 2.0
+torch.cuda.synchronize()
 
 
 # del b
