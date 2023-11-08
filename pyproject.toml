@@ -40,4 +40,4 @@ wheel.packages = []
 
 [tool.scikit-build.cmake.define]
 LUISA_COMPUTE_BUILD_TESTS = "OFF"
-LUISA_COMPUTE_DOWNLOAD_NVCOMP = "ON"
+LUISA_COMPUTE_DOWNLOAD_NVCOMP = "OFF"
