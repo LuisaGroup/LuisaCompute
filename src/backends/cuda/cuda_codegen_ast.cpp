@@ -1969,6 +1969,11 @@ void CUDACodegenAST::_emit_string_ids(Function f) noexcept {
         }
         _scratch << "\n};\n\n";
 
+        if (string_data.size() > 1024 * 8) {
+            LUISA_ERROR_WITH_LOCATION(
+                "String data too large: {} bytes. Possible reason: LUISA_BACKTRACE enabled.",
+                string_data.size());
+        }
         // generate string data
         _scratch << "__constant__ LC_CONSTANT const char lc_string_data[] {";
         for (auto i = 0u; i < string_data.size(); i++) {
