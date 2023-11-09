@@ -58,6 +58,17 @@ inline void unreachable(luisa::string_view msg) noexcept {
     detail::FunctionBuilder::current()->call(CallOp::UNREACHABLE, {message});
 }
 
+/// Call assert in device code
+inline void device_assert(Expr<bool> pred) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::ASSERT, {pred.expression()});
+}
+
+inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
+    auto message = detail::FunctionBuilder::current()->string_id(luisa::string{msg});
+    detail::FunctionBuilder::current()->call(CallOp::ASSERT, {pred.expression(), message});
+}
+
 /// Get thread_id(uint3)
 [[nodiscard]] inline auto thread_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->thread_id());

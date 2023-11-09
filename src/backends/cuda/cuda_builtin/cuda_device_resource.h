@@ -20,12 +20,20 @@ inline __device__ void lc_assume(bool) noexcept {}
 
 template<typename T = void>
 [[noreturn]] inline __device__ T lc_unreachable(
-    const char *file, int line,
-    const char *user_msg = nullptr) noexcept {
+    const char *file, int line) noexcept {
 #if LC_NVRTC_VERSION < 110300 || defined(LUISA_DEBUG)
-    printf("Unreachable code reached: %s. [%s:%d]\n",
-           user_msg ? user_msg : "no user-specified message",
-           file, line);
+    printf("Unreachable code reached [%s:%d]\n", file, line);
+    lc_trap();
+#else
+    __builtin_unreachable();
+#endif
+}
+
+template<typename T = void>
+[[noreturn]] inline __device__ T lc_unreachable_with_message(
+    const char *file, int line, const char *msg) noexcept {
+#if LC_NVRTC_VERSION < 110300 || defined(LUISA_DEBUG)
+    printf("Unreachable code reached [%s:%d]\nMessage: %s\n", file, line, msg);
     lc_trap();
 #else
     __builtin_unreachable();
@@ -37,12 +45,20 @@ template<typename T = void>
 
 #ifdef LUISA_DEBUG
 
-#define lc_assert(x)                                                                    \
-    do {                                                                                \
-        if (!(x)) {                                                                     \
-            printf("Assertion failed: " #x "[" __FILE__ ":" STRINGIFY(__LINE__) "]\n"); \
-            lc_trap();                                                                  \
-        }                                                                               \
+#define lc_assert(x)                                                                     \
+    do {                                                                                 \
+        if (!(x)) {                                                                      \
+            printf("Assertion failed: " #x " [" __FILE__ ":" STRINGIFY(__LINE__) "]\n"); \
+            lc_trap();                                                                   \
+        }                                                                                \
+    } while (false)
+
+#define lc_assert_with_message(x, msg)                                                                     \
+    do {                                                                                                   \
+        if (!(x)) {                                                                                        \
+            printf("Assertion failed: " #x " [" __FILE__ ":" STRINGIFY(__LINE__) "]\nMessage: %s\n", msg); \
+            lc_trap();                                                                                     \
+        }                                                                                                  \
     } while (false)
 
 #define lc_check_in_bounds(size, max_size)                               \
@@ -59,6 +75,7 @@ template<typename T = void>
 
 #else
 inline __device__ void lc_assert(bool) noexcept {}
+inline __device__ void lc_assert_with_message(bool, const char *) noexcept {}
 #endif
 
 [[nodiscard]] __device__ inline auto lc_bits_to_half(lc_ushort bits) noexcept {
@@ -2870,3 +2887,5 @@ __device__ inline void lc_print_impl(LCPrintBuffer buffer, T value) noexcept {
         memcpy(ptr, &value, sizeof(T));
     }
 }
+
+#define LC_DECODE_STRING_FROM_ID(str_id) ((const char *)&(lc_string_data[lc_string_offsets[str_id]]))

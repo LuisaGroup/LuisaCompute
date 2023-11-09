@@ -507,13 +507,43 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         LUISA_ERROR_WITH_LOCATION("Invalid index.");
     };
+    auto to_string_id = [](auto msg) noexcept -> const StringIDExpr * {
+        if (msg.ptr == nullptr || msg.len == 0) { return nullptr; }
+        auto converted_msg = luisa::string_view{
+            reinterpret_cast<const char *>(msg.ptr), msg.len};
+        if (converted_msg.back() == '\0') {
+            converted_msg = converted_msg.substr(0, converted_msg.size() - 1);
+        }
+        if (converted_msg.empty()) { return nullptr; }
+        auto f = detail::FunctionBuilder::current();
+        auto string_id = detail::FunctionBuilder::current()->string_id(
+            luisa::string{converted_msg});
+        return string_id;
+    };
     switch (func.tag) {
         case ir::Func::Tag::Pack: return builtin_func(3, CallOp::PACK);
         case ir::Func::Tag::Unpack: return builtin_func(2, CallOp::UNPACK);
         case ir::Func::Tag::ZeroInitializer: return builtin_func(0, CallOp::ZERO);
         case ir::Func::Tag::Assume: return builtin_func(1, CallOp::ASSUME);
-        case ir::Func::Tag::Unreachable: { return builtin_func(0, CallOp::UNREACHABLE); }
-        case ir::Func::Tag::Assert: { return builtin_func(1, CallOp::ASSERT); }
+        case ir::Func::Tag::Unreachable: {
+            LUISA_ASSERT(args.empty(), "`Unreachable` takes no arguments.");
+            auto msg = to_string_id(node->instruction->call._0.unreachable._0);
+            if (msg == nullptr) {// no custom message
+                return builtin_func(0, CallOp::UNREACHABLE);
+            }
+            return detail::FunctionBuilder::current()->call(type, CallOp::UNREACHABLE, {msg});
+        }
+        case ir::Func::Tag::Assert: {
+            LUISA_ASSERT(args.size() == 1u, "`Assert` takes 1 argument, got {}.", args.size());
+            LUISA_ASSERT(type == Type::of<void>(), "`Assert` must return void.");
+            auto msg = to_string_id(node->instruction->call._0.assert._0);
+            if (msg == nullptr) {// no custom message
+                return builtin_func(1, CallOp::ASSERT);
+            }
+            auto v = _convert_node(args[0]);
+            detail::FunctionBuilder::current()->call(CallOp::ASSERT, {v, msg});
+            return nullptr;
+        }
         case ir::Func::Tag::ThreadId: {
             LUISA_ASSERT(args.empty(), "`ThreadId` takes no arguments.");
             return detail::FunctionBuilder::current()->thread_id();

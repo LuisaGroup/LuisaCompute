@@ -933,16 +933,16 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let msg = if args.len() > 1 {
                     decode_string_id_expr(&args[1])
                 } else {
-                    CBoxedSlice::from("Assertion failed!".as_bytes())
+                    CBoxedSlice::new(Vec::new())
                 };
                 Func::Assert(msg)
             }
             "ASSUME" => Func::Assume,
             "UNREACHABLE" => {
                 let msg = if args.len() > 0 {
-                    decode_string_id_expr(&args[1])
+                    decode_string_id_expr(&args[0])
                 } else {
-                    CBoxedSlice::from("Unreachable code!".as_bytes())
+                    CBoxedSlice::new(Vec::new())
                 };
                 Func::Unreachable(msg)
             }

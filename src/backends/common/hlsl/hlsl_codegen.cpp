@@ -225,6 +225,13 @@ void StringStateVisitor::visit(const LiteralExpr *expr) {
 void StringStateVisitor::visit(const CallExpr *expr) {
     util->GetFunctionName(expr, str, *this);
 }
+
+void StringStateVisitor::visit(const StringIDExpr *expr) {
+    str << "((";
+    util->GetTypeName(*expr->type(), str, Usage::READ);
+    str << ")" << luisa::hash_value(expr->data()) << "ull)";
+}
+
 void StringStateVisitor::visit(const CastExpr *expr) {
     if (expr->type() == expr->expression()->type()) [[unlikely]] {
         expr->expression()->accept(*this);
@@ -545,6 +552,7 @@ void StringStateVisitor::VisitFunction(
     }
     func.body()->accept(*this);
 }
+
 StringStateVisitor::~StringStateVisitor() = default;
 StringStateVisitor::Scope::Scope(StringStateVisitor *self)
     : self(self) {
