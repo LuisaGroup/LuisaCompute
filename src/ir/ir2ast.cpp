@@ -512,8 +512,8 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Unpack: return builtin_func(2, CallOp::UNPACK);
         case ir::Func::Tag::ZeroInitializer: return builtin_func(0, CallOp::ZERO);
         case ir::Func::Tag::Assume: return builtin_func(1, CallOp::ASSUME);
-        case ir::Func::Tag::Unreachable: return builtin_func(0, CallOp::UNREACHABLE);
-        case ir::Func::Tag::Assert: return builtin_func(1, CallOp::ASSERT);
+        case ir::Func::Tag::Unreachable: { return builtin_func(0, CallOp::UNREACHABLE); }
+        case ir::Func::Tag::Assert: { return builtin_func(1, CallOp::ASSERT); }
         case ir::Func::Tag::ThreadId: {
             LUISA_ASSERT(args.empty(), "`ThreadId` takes no arguments.");
             return detail::FunctionBuilder::current()->thread_id();

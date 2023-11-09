@@ -36,30 +36,6 @@ template<typename T = void>
 #define STRINGIFY(x) STRINGIFY2(x)
 
 #ifdef LUISA_DEBUG
-#if MIKE_HAS_FIXED_ASSERT
-#define lc_assert(x)                                    \
-    do {                                                \
-        if (!(x)) {                                     \
-            printf("Assertion failed: %s [%s:%d:%s]\n", \
-                   #x,                                  \
-                   __FILE__,                            \
-                   static_cast<int>(__LINE__),          \
-                   __FUNCTION__);                       \
-            lc_trap();                                  \
-        }                                               \
-    } while (false)
-#define lc_check_in_bounds(size, max_size)                               \
-    do {                                                                 \
-        if (!((size) < (max_size))) {                                    \
-            printf("Out of bounds: !(%s: %llu < %s: %llu) [%s:%d:%s]\n", \
-                   #size, static_cast<size_t>(size),                     \
-                   #max_size, static_cast<size_t>(max_size),             \
-                   __FILE__, static_cast<int>(__LINE__),                 \
-                   __FUNCTION__);                                        \
-            lc_trap();                                                   \
-        }                                                                \
-    } while (false)
-#else
 
 #define lc_assert(x)                                                                    \
     do {                                                                                \
@@ -68,6 +44,7 @@ template<typename T = void>
             lc_trap();                                                                  \
         }                                                                               \
     } while (false)
+
 #define lc_check_in_bounds(size, max_size)                               \
     do {                                                                 \
         if (!((size) < (max_size))) {                                    \
@@ -79,7 +56,6 @@ template<typename T = void>
             lc_trap();                                                   \
         }                                                                \
     } while (false)
-#endif
 
 #else
 inline __device__ void lc_assert(bool) noexcept {}

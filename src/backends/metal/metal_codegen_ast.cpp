@@ -1129,7 +1129,9 @@ void MetalCodegenAST::visit(const TypeIDExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const StringIDExpr *expr) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    _scratch << "(static_cast<";
+    _emit_type_name(expr->type());
+    _scratch << luisa::format(">(0x{:016x}ull))", luisa::hash_value(expr->data()));
 }
 
 void MetalCodegenAST::visit(const CastExpr *expr) noexcept {
