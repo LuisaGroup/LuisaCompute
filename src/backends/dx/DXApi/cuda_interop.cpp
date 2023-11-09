@@ -243,4 +243,4 @@ void DxCudaInteropImpl::unmap(void *cuda_ptr, void *cuda_handle) noexcept {
 }
 #undef LUISA_UNIMPL_ERROR
 #endif
-};// namespace lc::dx
+}// namespace lc::dx
