@@ -9,6 +9,11 @@ using namespace metal;
 #define lc_assert(...)// TODO: implement assert?
 
 template<typename T = void>
+[[noreturn]] inline T lc_unreachable() {
+    __builtin_unreachable();
+}
+
+template<typename T = void>
 [[noreturn]] inline T lc_unreachable(ulong /* message id ignored */) {
     __builtin_unreachable();
 }
