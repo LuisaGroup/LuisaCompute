@@ -23,6 +23,10 @@ void PyStream::add(Command *cmd) noexcept {
 void PyStream::add(luisa::unique_ptr<Command> &&cmd) noexcept {
     _data->buffer << std::move(cmd);
 }
+void PyStream::Data::sync() noexcept {
+    stream << buffer.commit() << synchronize();
+    uploadDisposer.clear();
+}
 
 void PyStream::execute() noexcept {
     _data->buffer.add_callback([d = _data.get(), delegates = std::move(delegates)] {
