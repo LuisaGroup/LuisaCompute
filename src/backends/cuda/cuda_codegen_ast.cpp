@@ -1943,9 +1943,9 @@ void CUDACodegenAST::_emit_string_ids(Function f) noexcept {
     };
 
     collect_string_ids(collect_string_ids, f);
-    for (auto &&[s, i] : _string_ids) {
-        LUISA_INFO("String ID: {} -> {}", s, i);
-    }
+    // for (auto &&[s, i] : _string_ids) {
+    //     LUISA_INFO("String ID: {} -> {}", s, i);
+    // }
 
     if (!_string_ids.empty()) {
         luisa::vector<luisa::string_view> strings;
