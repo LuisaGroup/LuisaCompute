@@ -1943,9 +1943,6 @@ void CUDACodegenAST::_emit_string_ids(Function f) noexcept {
     };
 
     collect_string_ids(collect_string_ids, f);
-    // for (auto &&[s, i] : _string_ids) {
-    //     LUISA_INFO("String ID: {} -> {}", s, i);
-    // }
 
     if (!_string_ids.empty()) {
         luisa::vector<luisa::string_view> strings;
@@ -1969,13 +1966,8 @@ void CUDACodegenAST::_emit_string_ids(Function f) noexcept {
         }
         _scratch << "\n};\n\n";
 
-        if (string_data.size() > 1024 * 8) {
-            LUISA_ERROR_WITH_LOCATION(
-                "String data too large: {} bytes. Possible reason: LUISA_BACKTRACE enabled.",
-                string_data.size());
-        }
         // generate string data
-        _scratch << "__constant__ LC_CONSTANT const char lc_string_data[] {";
+        _scratch << "static const char lc_string_data[] {";
         for (auto i = 0u; i < string_data.size(); i++) {
             if (i % 32u == 0u) { _scratch << "\n  "; }
             _scratch << luisa::format("0x{:02x}, ", static_cast<int>(string_data[i]));
