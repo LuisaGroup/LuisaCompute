@@ -641,7 +641,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     }
 
     // multithreaded compilation
-    if (_compiler->nvrtc_version() >= 120200) {
+    if (_handle.driver_version() >= 12030) {
         nvrtc_options.emplace_back("-split-compile=0");
     }
 
