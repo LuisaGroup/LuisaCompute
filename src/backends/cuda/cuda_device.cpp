@@ -635,6 +635,16 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
+    // generate time trace for optimization the compilation time
+    if (_compiler->nvrtc_version() >= 120100) {
+        nvrtc_options.emplace_back("-time=-");
+    }
+
+    // multithreaded compilation
+    if (_compiler->nvrtc_version() >= 120200) {
+        nvrtc_options.emplace_back("-split-compile=0");
+    }
+
     if (option.enable_debug_info) {
         nvrtc_options.emplace_back("-lineinfo");
 #if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG
