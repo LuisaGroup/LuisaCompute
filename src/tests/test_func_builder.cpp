@@ -37,6 +37,8 @@ int main(int argc, char *argv[]) {
             auto nv_member = cur->member(Type::of<int>(), nv, 0);
             cur->assign(nv_member, cur->literal(Type::of<int>(), int(2)));
             cur->call(CallOp::BUFFER_WRITE, {buffer, idx, nv});
+            cur->comment_("------------");
+            // cur->reference(Type::of<NVIDIA>());
         });
         device.impl()->create_shader(
             ShaderOption{

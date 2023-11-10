@@ -44,10 +44,10 @@ using uint4 = vec<uint32, 4>;
 template<typename Type = void, uint32 CacheFlags = 0>
 struct [[type("Buffer")]] Buffer
 {
-    [[builtin("Buffer::Load")]] Type load(int3 loc);
+    [[builtin("BUFFER_READ")]] Type load(int3 loc);
     Type operator[](uint2 loc) { return load(int3(loc, 0)); };
 
-    [[builtin("Buffer::Store")]] void store(uint32 loc, Type value);
+    [[builtin("BUFFER_WRITE")]] void store(uint32 loc, Type value);
 };
 
 }

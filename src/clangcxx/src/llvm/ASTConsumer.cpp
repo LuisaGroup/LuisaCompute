@@ -1,4 +1,5 @@
 #include "ASTConsumer.h"
+#include "clang/AST/Stmt.h"
 #include <iostream>
 
 namespace luisa::clangcxx {
@@ -96,7 +97,29 @@ void ASTConsumer::HandleRecord(clang::NamedDecl *decl, const clang::ASTRecordLay
 }
 
 void ASTConsumer::HandleFunction(clang::NamedDecl *decl, const clang::ASTRecordLayout *layout) {
-    std::cout << "function: " << decl->getDeclName().getAsString() << std::endl;
+    std::cout << "function: " << decl->getDeclName().getAsString();
+    auto funcDecl = static_cast<clang::FunctionDecl*>(decl);
+    if (auto def = funcDecl->getDefinition())
+    {
+        if (auto stmt = def->getBody())
+        {
+            using StmtClass = clang::Stmt::StmtClass;
+            if (stmt->getStmtClassName())
+                std::cout << ", stmt: " << stmt->getStmtClassName();
+            switch (stmt->getStmtClass())
+            {
+                case (StmtClass::CompoundStmtClass):
+                    if (auto compound = static_cast<clang::CompoundStmt*>(stmt))
+                    {
+                        compound->dump();
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    std::cout << std::endl;
 }
 
 }// namespace luisa::clangcxx
