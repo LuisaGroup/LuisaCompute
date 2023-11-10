@@ -636,7 +636,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     };
 
     // generate time trace for optimization the compilation time
-    if (_compiler->nvrtc_version() >= 120100) {
+    if (option.time_trace &&
+        _compiler->nvrtc_version() >= 120100 &&
+        _handle.driver_version() >= 12010) {
         nvrtc_options.emplace_back("-time=-");
     }
 
