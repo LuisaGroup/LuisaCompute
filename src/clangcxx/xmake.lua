@@ -1,5 +1,4 @@
 target("lc-clangcxx")
-    set_runtimes("MD")
     _config_project({
         project_kind = "shared",
         batch_size = 4
@@ -15,7 +14,7 @@ target("lc-clangcxx")
     end
     -- set_pcxxheader("pch.h")
     add_headerfiles("../../include/luisa/clangcxx/**.h")
-    add_files("**.cpp")
+    add_files("src/**.cpp")
     add_linkdirs("llvm/lib")
     add_includedirs("llvm/include")
     on_load(function (target, opt)
