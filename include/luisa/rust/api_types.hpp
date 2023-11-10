@@ -558,6 +558,8 @@ struct ShaderOption {
     bool enable_fast_math;
     bool enable_debug_info;
     bool compile_only;
+    bool time_trace;
+    uint32_t max_registers;
     const char *name;
 };
 

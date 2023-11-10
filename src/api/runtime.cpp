@@ -414,6 +414,8 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
         .enable_fast_math = option.enable_fast_math,
         .enable_debug_info = option.enable_debug_info,
         .compile_only = option.compile_only,
+        .max_registers = option.max_registers,
+        .time_trace = option.time_trace,
         .name = luisa::string{option.name}};
 
     auto info = d->create_shader(shader_option, ir);

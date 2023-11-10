@@ -262,7 +262,7 @@ impl Backend for RustBackend {
     fn create_shader(
         &self,
         kernel: &luisa_compute_ir::ir::KernelModule,
-        _options: &api::ShaderOption,
+        options: &api::ShaderOption,
     ) -> luisa_compute_api_types::CreatedShaderInfo {
         // let debug =
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
@@ -278,17 +278,20 @@ impl Backend for RustBackend {
             "Source generated in {:.3}ms",
             (std::time::Instant::now() - tic).as_secs_f64() * 1e3
         );
-        let args = clang_args();
+        let args = clang_args(options);
         let args = args.join(",");
         gened.source.push_str(&format!(
             "\n// clang args: {}\n// clang path: {}\n// llvm path:{}",
             args, LLVM_PATH.clang, LLVM_PATH.llvm
         ));
         let hash = sha256_short(&gened.source);
-        let gened_src = gened.source.replace("##kernel_fn##", &hash);
+        let kernel_name = format!("kernel_{}", hash);
+        let gened_src = gened
+            .source
+            .replace("##kernel_fn##", &kernel_name);
         let mut shader = None;
         for tries in 0..2 {
-            let lib_path = shader::compile(&hash, &gened_src, tries == 1).unwrap();
+            let lib_path = shader::compile(&hash, &gened_src, options, tries == 1).unwrap();
             let mut captures = vec![];
             let mut custom_ops = vec![];
             unsafe {
@@ -303,7 +306,7 @@ impl Backend for RustBackend {
                 }
             }
             shader = shader::ShaderImpl::new(
-                hash.clone(),
+                kernel_name.clone(),
                 lib_path,
                 captures,
                 custom_ops,

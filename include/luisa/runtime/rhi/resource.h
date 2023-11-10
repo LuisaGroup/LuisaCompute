@@ -113,6 +113,13 @@ struct ShaderOption {
     /// \details No shader object will be created if this field is set to
     ///   `true`. This field is useful for AOT compilation.
     bool compile_only{false};
+    /// @brief The maximum number of registers used by the shader.
+    /// \details If set to a positive value, the shader will be compiled with
+    ///   the specified number of registers. This field has no effect on CPU
+    ///   backend.
+    uint32_t max_registers{0};
+    /// \brief Whether to measure time spent on each compilation phase.
+    bool time_trace{false};
     /// \brief A user-defined name for the shader.
     /// \details If provided, the shader will be read from or written to disk
     ///   via the `BinaryIO` object (passed to backends on device creation)
