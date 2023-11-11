@@ -659,10 +659,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         nvrtc_options.emplace_back("-use_fast_math");
     }
 
+    // FIXME: OptiX IR disabled due to many internal compiler errors
     // TODO: use OptiX IR for ray tracing shaders
-    //    if (kernel.requires_raytracing()) {
-    //        nvrtc_options.emplace_back("--optix-ir");
-    //    }
+    //  if (kernel.requires_raytracing()) {
+    //      nvrtc_options.emplace_back("--optix-ir");
+    //  }
 
     // compute hash
     auto src_hash = _compiler->compute_hash(scratch.string(), nvrtc_options);

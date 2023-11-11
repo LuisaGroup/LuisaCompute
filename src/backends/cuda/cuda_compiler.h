@@ -8,6 +8,11 @@
 #include <luisa/runtime/context.h>
 #include "cuda_shader_metadata.h"
 
+extern "C" struct LUISA_NVRTC_StringBuffer {
+    char *data;
+    size_t size;
+};
+
 namespace luisa::compute::cuda {
 
 class CUDADevice;
@@ -25,9 +30,10 @@ public:
 
 private:
     using nvrtc_version_func = int();
-    using nvrtc_compile_func = char *(const char *filename, const char *src,
-                                      const char *const *options, size_t num_options);
-    using nvrtc_free_func = void(char *ptx);
+    using nvrtc_compile_func = LUISA_NVRTC_StringBuffer(
+        const char *filename, const char *src,
+        const char *const *options, size_t num_options);
+    using nvrtc_free_func = void(LUISA_NVRTC_StringBuffer buffer);
 
 private:
     const CUDADevice *_device;
