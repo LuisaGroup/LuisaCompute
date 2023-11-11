@@ -59,7 +59,8 @@ if (CUDAToolkit_FOUND)
                 WINDOWS_EXPORT_ALL_SYMBOLS OFF
                 INTERPROCEDURAL_OPTIMIZATION OFF
                 LANGUAGE C)
-        install(TARGETS luisa-compute-backend-cuda-nvrtc DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(TARGETS luisa-compute-backend-cuda-nvrtc
+                DESTINATION ${CMAKE_INSTALL_BINDIR})
         add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-nvrtc)
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_STANDALONE_NVRTC_DLL=1)
     else ()
