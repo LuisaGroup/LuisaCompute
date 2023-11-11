@@ -80,7 +80,7 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
       _cache{Cache::create(max_cache_item_count)} {
 
 #ifdef LUISA_COMPUTE_STANDALONE_NVRTC_DLL
-    _nvrtc_module = DynamicModule::load("lc-backend-cuda-nvrtc");
+    _nvrtc_module = DynamicModule::load("lc-cuda-nvrtc");
     LUISA_ASSERT(_nvrtc_module, "Failed to load CUDA NVRTC module.");
     _version_func = _nvrtc_module.function<nvrtc_version_func>("luisa_nvrtc_version");
     _compile_func = _nvrtc_module.function<nvrtc_compile_func>("luisa_nvrtc_compile_to_ptx");

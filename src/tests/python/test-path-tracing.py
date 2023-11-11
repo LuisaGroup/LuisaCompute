@@ -7,7 +7,7 @@ import aces
 import time
 import cornell_box
 import numpy as np
-init()
+init("cuda")
 
 Material = StructType(albedo=float3, emission=float3)
 Onb = StructType(tangent=float3, binormal=float3, normal=float3)
