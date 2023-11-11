@@ -25,7 +25,7 @@ using namespace luisa::compute;
 constexpr auto pyref = py::return_value_policy::reference;
 using luisa::compute::detail::FunctionBuilder;
 static vstd::vector<luisa::optional<ASTEvaluator>> analyzer;
-static PyStream::Data *default_stream_data = nullptr;
+static luisa::weak_ptr<PyStream::Data> default_stream_data;
 struct IntEval {
     int32_t value;
     bool exist;
@@ -283,7 +283,7 @@ void export_runtime(py::module &m) {
         .def(
             "create_stream", [](ManagedDevice &self, bool support_window) {
                 PyStream stream(self.device, support_window);
-                if (!default_stream_data) {
+                if (auto gs = default_stream_data.lock(); gs == nullptr) {
                     default_stream_data = stream.data();
                 }
                 return stream;
@@ -442,8 +442,10 @@ void export_runtime(py::module &m) {
                 RefCounter::current->AddObject(
                     info.handle,
                     {[](DeviceInterface *d, uint64 handle) {
-                         if (default_stream_data) {
-                             default_stream_data->sync();
+                         if (auto gs = default_stream_data.lock()) {
+                             gs->sync();
+                         } else {
+                             default_stream_data.reset();
                          }
                          d->destroy_buffer(handle);
                      },
@@ -454,8 +456,10 @@ void export_runtime(py::module &m) {
         .def("import_external_buffer", [](DeviceInterface &d, const Type *type, uint64_t native_address, size_t elem_count) noexcept {
             auto info = d.create_buffer(type, elem_count, reinterpret_cast<void *>(native_address));
             RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) {
-                if (default_stream_data) {
-                    default_stream_data->sync();
+                if (auto gs = default_stream_data.lock()) {
+                    gs->sync();
+                } else {
+                    default_stream_data.reset();
                 }
                  d->destroy_buffer(handle); }, &d});
             return info;
@@ -463,8 +467,10 @@ void export_runtime(py::module &m) {
         .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
             auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size, nullptr);
             RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) {
-                if (default_stream_data) {
-                    default_stream_data->sync();
+                if (auto gs = default_stream_data.lock()) {
+                    gs->sync();
+                } else {
+                    default_stream_data.reset();
                 }
                  d->destroy_buffer(handle); }, &d});
             return ptr;
@@ -476,8 +482,10 @@ void export_runtime(py::module &m) {
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
                 auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false);
                 RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { 
-                    if (default_stream_data) {
-                        default_stream_data->sync();
+                    if (auto gs = default_stream_data.lock()) {
+                        gs->sync();
+                    } else {
+                        default_stream_data.reset();
                     }
                     d->destroy_texture(handle); }, &d});
                 return info;
@@ -492,8 +500,10 @@ void export_runtime(py::module &m) {
             },
             pyref)// size
         .def("destroy_bindless_array", [](DeviceInterface &d, uint64 handle) {
-            if (default_stream_data) {
-                default_stream_data->sync();
+            if (auto gs = default_stream_data.lock()) {
+                gs->sync();
+            } else {
+                default_stream_data.reset();
             }
             delete_with_allocator(reinterpret_cast<ManagedBindless *>(handle));
         })

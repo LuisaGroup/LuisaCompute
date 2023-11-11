@@ -3,8 +3,7 @@
 namespace luisa::compute {
 
 PyStream::PyStream(Device &device, bool support_window) noexcept
-    : _data(new Data(device, support_window)) {
-}
+    : _data{luisa::make_shared<Data>(device, support_window)} {}
 
 PyStream::Data::Data(Device &device, bool support_window) noexcept
     : stream(device.create_stream(support_window ? StreamTag::GRAPHICS : StreamTag::COMPUTE)) {

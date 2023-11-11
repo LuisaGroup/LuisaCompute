@@ -24,7 +24,7 @@ class PyStream : public vstd::IOperatorNewBase {
         }
     };
 public:
-    struct Data : public vstd::IOperatorNewBase {
+    struct Data {
         Stream stream;
         CommandList buffer;
         vstd::vector<Disposer> uploadDisposer;
@@ -33,10 +33,10 @@ public:
         void sync() noexcept;
     };
 private:
-    vstd::unique_ptr<Data> _data;
+    luisa::shared_ptr<Data> _data;
 
 public:
-    [[nodiscard]] auto data() const { return _data.get(); }
+    [[nodiscard]] auto &data() const { return _data; }
     Stream &stream() const { return _data->stream; }
     PyStream(PyStream &&) noexcept;
     PyStream(PyStream const &) = delete;
