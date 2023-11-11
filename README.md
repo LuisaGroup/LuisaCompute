@@ -577,4 +577,4 @@ See [ROADMAP.md](ROADMAP.md).
 }
 ```
 
-The [publisher version](https://doi.org/10.1145/3550454.3555463) of the paper should be available soon before SIGGRAPH Asia 2022.
+The [publisher](https://doi.org/10.1145/3550454.3555463) version of the paper is open-access. You may download it for free.
