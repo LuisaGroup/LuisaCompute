@@ -86,6 +86,7 @@ luisa_compute_add_executable(test_soa_simple test_soa_simple.cpp)
 luisa_compute_add_executable(test_raytracing_weekend test_raytracing_weekend/main.cpp)
 luisa_compute_add_executable(test_dml test_dml.cpp)
 luisa_compute_add_executable(test_oso_parser test_oso_parser.cpp)
+luisa_compute_add_executable(test_cuda_dx_interop test_cuda_dx_interop.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_swapchain test_swapchain.cpp)

@@ -13,6 +13,11 @@ template<typename T = void>
     __builtin_unreachable();
 }
 
+template<typename T = void>
+[[noreturn]] inline T lc_unreachable(ulong /* message id ignored */) {
+    __builtin_unreachable();
+}
+
 template<typename... T>
 [[nodiscard]] inline auto make_float2x2(T... args) {
     return float2x2(args...);

@@ -32,6 +32,7 @@ public:
     ThreadPool &operator=(ThreadPool &&) noexcept = delete;
     ThreadPool &operator=(const ThreadPool &) noexcept = delete;
     /// Return global static ThreadPool instance
+    [[nodiscard]] static bool is_worker_thread() noexcept;
     [[nodiscard]] static uint worker_thread_index() noexcept;
 
 public:

@@ -55,7 +55,7 @@ if (CUDAToolkit_FOUND)
         add_library(luisa-compute-backend-cuda-nvrtc MODULE cuda_nvrtc.cpp)
         target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
         set_target_properties(luisa-compute-backend-cuda-nvrtc PROPERTIES
-                OUTPUT_NAME "lc-backend-cuda-nvrtc"
+                OUTPUT_NAME "lc-cuda-nvrtc"
                 WINDOWS_EXPORT_ALL_SYMBOLS OFF
                 INTERPROCEDURAL_OPTIMIZATION OFF
                 LANGUAGE C)

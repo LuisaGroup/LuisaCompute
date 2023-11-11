@@ -635,6 +635,19 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
+    // generate time trace for optimization the compilation time
+    if (option.time_trace &&
+        _compiler->nvrtc_version() >= 120100 &&
+        _handle.driver_version() >= 12010) {
+        nvrtc_options.emplace_back("-time=-");
+    }
+
+    // FIXME: disabled due to CUDA illegal memory access in LuisaRender
+    // multithreaded compilation
+    //    if (_handle.driver_version() >= 12030) {
+    //        nvrtc_options.emplace_back("-split-compile=0");
+    //    }
+
     if (option.enable_debug_info) {
         nvrtc_options.emplace_back("-lineinfo");
 #if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG

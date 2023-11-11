@@ -587,11 +587,15 @@ public:
 
     ShaderCreationInfo
     create_shader(const ShaderOption &option_, const ir::KernelModule *kernel) noexcept override {
-        api::ShaderOption option{};
-        option.compile_only = option_.compile_only;
-        option.enable_cache = option_.enable_cache;
-        option.enable_debug_info = option_.enable_debug_info;
-        option.enable_fast_math = option_.enable_fast_math;
+        api::ShaderOption option{
+            .enable_cache = option_.enable_cache,
+            .enable_fast_math = option_.enable_fast_math,
+            .enable_debug_info = option_.enable_debug_info,
+            .compile_only = option_.compile_only,
+            .time_trace = option_.time_trace,
+            .max_registers = option_.max_registers,
+            .name = option_.name.data()
+        };
         auto shader = device.create_shader(device.device, api::KernelModule{(uint64_t)kernel}, &option);
         ShaderCreationInfo info{};
         info.block_size[0] = shader.block_size[0];

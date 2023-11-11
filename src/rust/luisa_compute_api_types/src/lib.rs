@@ -65,6 +65,8 @@ pub struct ShaderOption {
     pub enable_fast_math: bool,
     pub enable_debug_info: bool,
     pub compile_only: bool,
+    pub time_trace: bool,
+    pub max_registers: u32,
     pub name: *const std::ffi::c_char,
 }
 unsafe impl Send for ShaderOption {}
@@ -76,6 +78,8 @@ impl Default for ShaderOption {
             enable_fast_math: true,
             enable_debug_info: false,
             compile_only: false,
+            time_trace: false,
+            max_registers: 0,
             name: std::ptr::null(),
         }
     }

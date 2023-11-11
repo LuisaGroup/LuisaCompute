@@ -27,6 +27,7 @@ private:
     luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
     luisa::unordered_map<const PrintStmt *, const Type *> _print_stmt_types;
     luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
+    luisa::unordered_map<luisa::string, uint> _string_ids;
     uint32_t _indent{0u};
     bool _allow_indirect_dispatch;
     bool _requires_printing{false};
@@ -74,6 +75,7 @@ private:
     void visit(const GpuCustomOpExpr *expr) override;
 
 private:
+    void _emit_string_ids(Function f) noexcept;
     void _emit_type_decl(Function f) noexcept;
     void _emit_variable_decl(Function f, Variable v, bool force_const) noexcept;
     void _emit_type_name(const Type *type, bool hack_float_to_int = false) noexcept;

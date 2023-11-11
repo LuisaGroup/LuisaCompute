@@ -65,7 +65,9 @@ jobs:
           vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.10
+        uses: Jimver/cuda-toolkit@v0.2.11
+        with:
+          cuda: 12.1.0
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:

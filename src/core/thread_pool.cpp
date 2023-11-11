@@ -162,7 +162,9 @@ ThreadPool::~ThreadPool() noexcept {
 uint ThreadPool::size() const noexcept {
     return static_cast<uint>(_impl->threads.size());
 }
-
+bool ThreadPool::is_worker_thread() noexcept {
+    return detail::is_worker_thread();
+}
 uint ThreadPool::worker_thread_index() noexcept {
     LUISA_ASSERT(detail::is_worker_thread(),
                  "ThreadPool::worker_thread_index() "
