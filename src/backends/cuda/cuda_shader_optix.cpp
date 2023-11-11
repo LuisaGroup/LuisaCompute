@@ -107,9 +107,13 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     payload_types[1].payloadSemantics = ray_query_payload_semantics.data();
 
     optix::ModuleCompileOptions module_compile_options{};
-    module_compile_options.maxRegisterCount = optix::COMPILE_DEFAULT_MAX_REGISTER_COUNT;
-    module_compile_options.debugLevel = metadata.enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
-                                                                optix::COMPILE_DEBUG_LEVEL_NONE;
+    module_compile_options.maxRegisterCount = static_cast<int>(
+        metadata.max_register_count == 0u ?
+            optix::COMPILE_DEFAULT_MAX_REGISTER_COUNT :
+            std::clamp(metadata.max_register_count, 0u, 255u));
+    module_compile_options.debugLevel = metadata.enable_debug ?
+                                            optix::COMPILE_DEBUG_LEVEL_MINIMAL :
+                                            optix::COMPILE_DEBUG_LEVEL_NONE;
     module_compile_options.optLevel = metadata.enable_debug ?
                                           optix::COMPILE_OPTIMIZATION_LEVEL_3 :
                                           optix::COMPILE_OPTIMIZATION_LEVEL_3;

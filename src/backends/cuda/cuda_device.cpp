@@ -462,6 +462,7 @@ template<bool allow_update_expected_metadata>
         expected_metadata.requires_trace_any = metadata->requires_trace_any;
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
         expected_metadata.requires_printing = metadata->requires_printing;
+        if (expected_metadata.max_register_count == 0u) { expected_metadata.max_register_count = metadata->max_register_count; }
         if (all(expected_metadata.block_size == 0u)) { expected_metadata.block_size = metadata->block_size; }
         if (expected_metadata.argument_types.empty()) { expected_metadata.argument_types = metadata->argument_types; }
         if (expected_metadata.argument_usages.empty()) { expected_metadata.argument_usages = metadata->argument_usages; }
@@ -635,6 +636,14 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
+    luisa::string max_reg_opt;
+    if (option.max_registers != 0u) {
+        max_reg_opt = luisa::format(
+            "-maxrregcount={}",
+            std::clamp(option.max_registers, 0u, 255u));
+        nvrtc_options.emplace_back(max_reg_opt.c_str());
+    }
+
     // generate time trace for optimization the compilation time
     if (option.time_trace &&
         _compiler->nvrtc_version() >= 120100 &&
@@ -679,6 +688,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
         .requires_printing = kernel.requires_printing(),
+        .max_register_count = std::clamp(option.max_registers, 0u, 255u),
         .block_size = kernel.block_size(),
         .argument_types = [kernel] {
             luisa::vector<luisa::string> types;
@@ -729,6 +739,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
     CUDAShaderMetadata metadata{
         .checksum = 0u,
         .kind = CUDAShaderMetadata::Kind::UNKNOWN,
+        .max_register_count = 0u,
         .block_size = uint3{1u, 1u, 1u},
         .argument_types = [arg_types] {
             luisa::vector<luisa::string> types;
