@@ -13,6 +13,10 @@ class BufferView;
 class Stream;
 
 class DenoiserExt : public DeviceExtension {
+
+protected:
+    ~DenoiserExt() noexcept = default;
+
 public:
     static constexpr luisa::string_view name = "DenoiserExt";
     enum class PrefilterMode : uint32_t {

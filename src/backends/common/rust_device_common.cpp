@@ -392,7 +392,7 @@ public:
 class CpuOidnDenoiser : public OidnDenoiser {
 public:
     using OidnDenoiser::OidnDenoiser;
-    void execute(bool async) noexcept {
+    void execute(bool async) noexcept override {
         auto lock = luisa::make_unique<std::shared_lock<std::shared_mutex>>(_mutex);
         if (!async) {
             exec_filters();
@@ -415,6 +415,7 @@ public:
 class CpuOidnDenoiserExt : public DenoiserExt {
     DeviceInterface *_device;
 public:
+    virtual ~CpuOidnDenoiserExt() noexcept = default;
     explicit CpuOidnDenoiserExt(DeviceInterface *device) noexcept
         : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {

@@ -22,7 +22,6 @@ protected:
     oidn::FilterRef _albedo_prefilter;
     oidn::FilterRef _normal_prefilter;
     uint64_t _stream;
-    bool _executed_on_stream;
     virtual void reset() noexcept;
     virtual oidn::BufferRef get_buffer(const DenoiserExt::Image &img, bool read) noexcept;
     void exec_filters() noexcept;
