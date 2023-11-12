@@ -1,6 +1,6 @@
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 //
-// Metal/MTLVersion.hpp
+// MetalFX/MTLFXDefines.hpp
 //
 // Copyright 2020-2023 Apple Inc.
 //
@@ -22,11 +22,20 @@
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-#define METALCPP_VERSION_MAJOR 341
-#define METALCPP_VERSION_MINOR 0
-#define METALCPP_VERSION_PATCH 0
+#include "../Foundation/NSDefines.hpp"
 
-#define METALCPP_SUPPORTS_VERSION(major, minor, patch) \
-    ((major < METALCPP_VERSION_MAJOR) || \
-    (major == METALCPP_VERSION_MAJOR && minor < METALCPP_VERSION_MINOR) || \
-    (major == METALCPP_VERSION_MAJOR && minor == METALCPP_VERSION_MINOR && patch <= METALCPP_VERSION_PATCH))
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#define _MTLFX_EXPORT                           _NS_EXPORT
+#define _MTLFX_EXTERN                           _NS_EXTERN
+#define _MTLFX_INLINE                           _NS_INLINE
+#define _MTLFX_PACKED                           _NS_PACKED
+
+#define _MTLFX_CONST( type, name )              _NS_CONST( type, name )
+#define _MTLFX_ENUM( type, name )               _NS_ENUM( type, name )
+#define _MTLFX_OPTIONS( type, name )            _NS_OPTIONS( type, name )
+
+#define _MTLFX_VALIDATE_SIZE( mtlfx, name )     _NS_VALIDATE_SIZE( mtlfx, name )
+#define _MTLFX_VALIDATE_ENUM( mtlfx, name )     _NS_VALIDATE_ENUM( mtlfx, name )
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------

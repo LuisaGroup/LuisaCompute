@@ -29,6 +29,8 @@
 
 namespace MTL
 {
+using IOCompresionContext=void*;
+
 _MTL_ENUM(NS::Integer, IOCompressionStatus) {
     IOCompressionStatusComplete = 0,
     IOCompressionStatusError = 1,
@@ -36,11 +38,11 @@ _MTL_ENUM(NS::Integer, IOCompressionStatus) {
 
 size_t IOCompressionContextDefaultChunkSize();
 
-void* IOCreateCompressionContext(const char* path, IOCompressionMethod type, size_t chunkSize);
+IOCompresionContext IOCreateCompressionContext(const char* path, IOCompressionMethod type, size_t chunkSize);
 
-void IOCompressionContextAppendData(void* context, const void* data, size_t size);
+void IOCompressionContextAppendData(IOCompresionContext context, const void* data, size_t size);
 
-IOCompressionStatus IOFlushAndDestroyCompressionContext(void* context);
+IOCompressionStatus IOFlushAndDestroyCompressionContext(IOCompresionContext context);
 
 }
 
@@ -90,4 +92,3 @@ _NS_EXPORT MTL::IOCompressionStatus MTL::IOFlushAndDestroyCompressionContext(voi
 }
 
 #endif
-

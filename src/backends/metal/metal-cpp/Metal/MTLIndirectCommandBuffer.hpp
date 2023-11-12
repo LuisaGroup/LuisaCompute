@@ -72,8 +72,14 @@ public:
     NS::UInteger                                  maxKernelBufferBindCount() const;
     void                                          setMaxKernelBufferBindCount(NS::UInteger maxKernelBufferBindCount);
 
+    NS::UInteger                                  maxKernelThreadgroupMemoryBindCount() const;
+    void                                          setMaxKernelThreadgroupMemoryBindCount(NS::UInteger maxKernelThreadgroupMemoryBindCount);
+
     bool                                          supportRayTracing() const;
     void                                          setSupportRayTracing(bool supportRayTracing);
+
+    bool                                          supportDynamicAttributeStride() const;
+    void                                          setSupportDynamicAttributeStride(bool supportDynamicAttributeStride);
 };
 
 class IndirectCommandBuffer : public NS::Referencing<IndirectCommandBuffer, Resource>
@@ -170,6 +176,17 @@ _MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setMaxKernelBufferBindCou
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMaxKernelBufferBindCount_), maxKernelBufferBindCount);
 }
 
+// property: maxKernelThreadgroupMemoryBindCount
+_MTL_INLINE NS::UInteger MTL::IndirectCommandBufferDescriptor::maxKernelThreadgroupMemoryBindCount() const
+{
+    return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(maxKernelThreadgroupMemoryBindCount));
+}
+
+_MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setMaxKernelThreadgroupMemoryBindCount(NS::UInteger maxKernelThreadgroupMemoryBindCount)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMaxKernelThreadgroupMemoryBindCount_), maxKernelThreadgroupMemoryBindCount);
+}
+
 // property: supportRayTracing
 _MTL_INLINE bool MTL::IndirectCommandBufferDescriptor::supportRayTracing() const
 {
@@ -179,6 +196,17 @@ _MTL_INLINE bool MTL::IndirectCommandBufferDescriptor::supportRayTracing() const
 _MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setSupportRayTracing(bool supportRayTracing)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setSupportRayTracing_), supportRayTracing);
+}
+
+// property: supportDynamicAttributeStride
+_MTL_INLINE bool MTL::IndirectCommandBufferDescriptor::supportDynamicAttributeStride() const
+{
+    return Object::sendMessageSafe<bool>(this, _MTL_PRIVATE_SEL(supportDynamicAttributeStride));
+}
+
+_MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setSupportDynamicAttributeStride(bool supportDynamicAttributeStride)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setSupportDynamicAttributeStride_), supportDynamicAttributeStride);
 }
 
 // property: size
@@ -210,4 +238,3 @@ _MTL_INLINE MTL::IndirectComputeCommand* MTL::IndirectCommandBuffer::indirectCom
 {
     return Object::sendMessage<MTL::IndirectComputeCommand*>(this, _MTL_PRIVATE_SEL(indirectComputeCommandAtIndex_), commandIndex);
 }
-

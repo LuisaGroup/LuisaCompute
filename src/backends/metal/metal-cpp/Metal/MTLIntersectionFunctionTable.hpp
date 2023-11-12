@@ -40,6 +40,8 @@ _MTL_OPTIONS(NS::UInteger, IntersectionFunctionSignature) {
     IntersectionFunctionSignatureInstanceMotion = 8,
     IntersectionFunctionSignaturePrimitiveMotion = 16,
     IntersectionFunctionSignatureExtendedLimits = 32,
+    IntersectionFunctionSignatureMaxLevels = 64,
+    IntersectionFunctionSignatureCurveData = 128,
 };
 
 class IntersectionFunctionTableDescriptor : public NS::Copying<IntersectionFunctionTableDescriptor>
@@ -71,6 +73,10 @@ public:
     void            setOpaqueTriangleIntersectionFunction(MTL::IntersectionFunctionSignature signature, NS::UInteger index);
 
     void            setOpaqueTriangleIntersectionFunction(MTL::IntersectionFunctionSignature signature, NS::Range range);
+
+    void            setOpaqueCurveIntersectionFunction(MTL::IntersectionFunctionSignature signature, NS::UInteger index);
+
+    void            setOpaqueCurveIntersectionFunction(MTL::IntersectionFunctionSignature signature, NS::Range range);
 
     void            setVisibleFunctionTable(const class VisibleFunctionTable* functionTable, NS::UInteger bufferIndex);
 
@@ -150,6 +156,18 @@ _MTL_INLINE void MTL::IntersectionFunctionTable::setOpaqueTriangleIntersectionFu
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setOpaqueTriangleIntersectionFunctionWithSignature_withRange_), signature, range);
 }
 
+// method: setOpaqueCurveIntersectionFunctionWithSignature:atIndex:
+_MTL_INLINE void MTL::IntersectionFunctionTable::setOpaqueCurveIntersectionFunction(MTL::IntersectionFunctionSignature signature, NS::UInteger index)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setOpaqueCurveIntersectionFunctionWithSignature_atIndex_), signature, index);
+}
+
+// method: setOpaqueCurveIntersectionFunctionWithSignature:withRange:
+_MTL_INLINE void MTL::IntersectionFunctionTable::setOpaqueCurveIntersectionFunction(MTL::IntersectionFunctionSignature signature, NS::Range range)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setOpaqueCurveIntersectionFunctionWithSignature_withRange_), signature, range);
+}
+
 // method: setVisibleFunctionTable:atBufferIndex:
 _MTL_INLINE void MTL::IntersectionFunctionTable::setVisibleFunctionTable(const MTL::VisibleFunctionTable* functionTable, NS::UInteger bufferIndex)
 {
@@ -161,4 +179,3 @@ _MTL_INLINE void MTL::IntersectionFunctionTable::setVisibleFunctionTables(const 
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVisibleFunctionTables_withBufferRange_), functionTables, bufferRange);
 }
-
