@@ -14,7 +14,8 @@ MetalSwapchain::MetalSwapchain(MetalDevice *device, uint64_t window_handle,
       _pipeline{allow_hdr ?
                     device->builtin_swapchain_present_hdr() :
                     device->builtin_swapchain_present_ldr()},
-      _render_pass_desc{MTL::RenderPassDescriptor::alloc()->init()} {
+      _render_pass_desc{MTL::RenderPassDescriptor::alloc()->init()},
+      _command_label{} {
     _layer->retain();
     auto attachment_desc = _render_pass_desc->colorAttachments()->object(0);
     attachment_desc->setLoadAction(MTL::LoadActionDontCare);
@@ -45,8 +46,8 @@ void MetalSwapchain::present(MTL::CommandQueue *queue, MTL::Texture *image) noex
         command_encoder->setVertexBytes(&vertices, sizeof(vertices), 0);
         command_encoder->setFragmentTexture(image, 0);
         command_encoder->drawPrimitives(MTL::PrimitiveTypeTriangleStrip,
-                                        static_cast<NS::Integer>(0u),
-                                        static_cast<NS::Integer>(4u));
+                                        static_cast<NS::UInteger>(0),
+                                        static_cast<NS::UInteger>(4));
         command_encoder->endEncoding();
         command_buffer->presentDrawable(drawable);
         if (_command_label) { command_buffer->setLabel(_command_label); }
@@ -71,4 +72,3 @@ void MetalSwapchain::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::metal
-
