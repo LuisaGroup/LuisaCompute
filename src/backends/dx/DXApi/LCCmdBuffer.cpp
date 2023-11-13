@@ -91,9 +91,10 @@ public:
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                     true);
             } else {
-                self->stateTracker->RecordState(
-                    res,
-                    self->stateTracker->ReadState(ResourceReadUsage::Srv));
+                if (res->GetTag() != Resource::Tag::UploadBuffer)
+                    self->stateTracker->RecordState(
+                        res,
+                        self->stateTracker->ReadState(ResourceReadUsage::Srv));
             }
             ++arg;
         }
