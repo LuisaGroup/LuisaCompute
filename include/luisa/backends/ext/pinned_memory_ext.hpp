@@ -56,7 +56,7 @@ public:
     [[nodiscard]] auto allocate_pinned_memory(size_t elem_count,
                                               PinnedMemoryOption option = {}) noexcept {
         auto elem_type = Type::of<T>();
-        auto info = _allocate_pinned_host_memory(elem_type, elem_count, option);
+        auto info = _allocate_pinned_memory(elem_type, elem_count, option);
         return Buffer<T>{device(), info};
     }
 };
