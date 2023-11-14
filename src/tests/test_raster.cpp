@@ -19,7 +19,7 @@ using namespace luisa::compute;
 struct v2p {
     float4 pos;
     float2 uv;
-    float color;
+    float4 color;
 };
 LUISA_STRUCT(v2p, pos, uv, color) {};
 struct Vertex {
@@ -36,18 +36,16 @@ int main(int argc, char *argv[]) {
         o.pos = make_float4(var.position, 1.f);
         $if (var.vertex_id >= 3) {
             o.pos.y += sin(time) * 0.1f;
-            o.color = 0.5f;
+            o.color = make_float4(0.3f, 0.6f, 0.7f, 1.0f);
         }
         $else {
-            o.color = 0.f;
+            o.color = make_float4(0.7f, 0.6f, 0.3f, 1.0f);
         };
         o.uv = float2(0.5);
         return o;
     };
-    RasterStageKernel pixel = [&](Var<v2p> i, Float time, BufferVar<float> img) {
-        // return make_float4(object_id().cast<float>() / 10.0f);
-        img.write(i.pos.x.cast<uint>() + i.pos.y.cast<uint>() * 1024u, 1.f);
-        return float4();
+    RasterStageKernel pixel = [&](Var<v2p> i, Float time) {
+        return i.color;
     };
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
         image.write(dispatch_id().xy(), make_float4(0.1f));
@@ -80,6 +78,7 @@ int main(int argc, char *argv[]) {
         true, false, 2)};
     Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
     PixelFormat img_format = out_img.format();
+    DepthBuffer depth_buffer = device.create_depth_buffer(DepthFormat::D32, uint2(width, height));
     auto shader = device.compile(
         kernel,
         mesh_format);
@@ -104,9 +103,12 @@ int main(int argc, char *argv[]) {
     luisa::vector<RasterMesh> meshes;
     RasterState state{
         .cull_mode = CullMode::None,
+        .depth_state = DepthState{
+            .enable_depth = true,
+            .comparison = Comparison::Less,
+            .write = true
+        },
         .conservative = true};
-    auto bf = device.create_buffer<float>(1024 * 1024);
-    float arr[10];
     while (!window.should_close()) {
         float time = clock.toc() / 1000.0f;
         // add triangle mesh
@@ -114,13 +116,9 @@ int main(int argc, char *argv[]) {
         stream
             // clear depth buffer
             << clear_shader(out_img).dispatch(width, height)
-            << shader(time, time * 5, bf).draw(std::move(meshes), Viewport{0.f, 0.f, float(width), float(height)}, state, nullptr)
-            << bf.view(0, 10).copy_to(&arr)
-            << swap_chain.present(out_img)
-            << synchronize();
-        for(auto&& i: arr){
-            LUISA_INFO("{}", i);
-        }
+            << depth_buffer.clear(1.0)
+            << shader(time, time * 5).draw(std::move(meshes), Viewport{0.f, 0.f, float(width), float(height)}, state, &depth_buffer, out_img)
+            << swap_chain.present(out_img);
         window.poll_events();
     }
     stream << synchronize();
