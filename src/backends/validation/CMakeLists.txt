@@ -8,6 +8,7 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         event.h
         mesh.h
         procedural_primitives.h
+        pinned_mem_impl.cpp pinned_mem_impl.h
         range.h
         raster_ext_impl.cpp raster_ext_impl.h
         resource.cpp resource.h
