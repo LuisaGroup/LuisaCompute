@@ -6,12 +6,9 @@
 #include <luisa/core/stl/lru_cache.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/context.h>
-#include "cuda_shader_metadata.h"
 
-extern "C" struct LUISA_NVRTC_StringBuffer {
-    char *data;
-    size_t size;
-};
+#include "cuda_shader_metadata.h"
+#include "cuda_nvrtc.h"
 
 namespace luisa::compute::cuda {
 
