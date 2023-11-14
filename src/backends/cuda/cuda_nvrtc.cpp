@@ -8,16 +8,13 @@
 
 #include <nvrtc.h>
 
+#include "cuda_nvrtc.h"
+
 #ifdef _MSC_VER
 #define LUISA_CUDA_NVRTC_EXPORT extern "C" __declspec(dllexport)
 #else
 #define LUISA_CUDA_NVRTC_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
-
-extern "C" struct LUISA_NVRTC_StringBuffer {
-    char *data;
-    size_t size;
-};
 
 #define LUISA_CHECK_NVRTC(...)                   \
     do {                                         \
