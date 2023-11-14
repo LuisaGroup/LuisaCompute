@@ -16,6 +16,7 @@
 #include <luisa/vstl/functional.h>
 #include <dxgi.h>
 #include <luisa/core/basic_types.h>
+#include <luisa/core/logging.h>
 #ifdef UNICODE
 using lcdx_pchar = LPCWSTR;
 #else

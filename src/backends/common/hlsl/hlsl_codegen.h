@@ -71,25 +71,28 @@ public:
 
     void GenerateCBuffer(
         std::initializer_list<vstd::IRange<Variable> *> f,
-        vstd::StringBuilder &result);
+        vstd::StringBuilder &result,
+        uint& bind_count);
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
         luisa::BinaryIO const *internalDataPath,
-        bool isSpirV);
+        bool isSpirV,
+        uint& bind_count);
     void PreprocessCodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         RegisterIndexer &registerCount,
         luisa::BinaryIO const *internalDataPath,
-        bool cbufferNonEmpty, bool isRaster, bool isSpirv);
+        bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count);
     void PostprocessCodegenProperties(vstd::StringBuilder &finalResult);
     void CodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         Function kernel,
         uint offset,
-        RegisterIndexer &registerCount);
+        RegisterIndexer &registerCount,
+        uint& bind_count);
     CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, uint custom_mask, bool isSpirV);
     CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,

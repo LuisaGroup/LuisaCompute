@@ -2,7 +2,7 @@
 
 #include <dxgi1_6.h>
 #include <Windows.h>
-
+#include <d3dx12.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/basic_traits.h>
 #include <luisa/core/basic_types.h>
@@ -18,7 +18,3 @@
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/functional.h>
-
-// This should go after <luisa/core/logging.h> because
-// @Tong made it depend on LUISA_ERROR_WITH_LOCATION...
-#include <d3dx12.h>

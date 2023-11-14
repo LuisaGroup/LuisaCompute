@@ -1677,7 +1677,8 @@ bool CodegenUtility::IsCBufferNonEmpty(Function f) {
 }
 void CodegenUtility::GenerateCBuffer(
     std::initializer_list<vstd::IRange<Variable> *> fs,
-    vstd::StringBuilder &result) {
+    vstd::StringBuilder &result,
+    uint &bind_count) {
     result << "struct _Args{\n"sv;
     size_t align = 0;
     size_t size = 0;
@@ -1702,12 +1703,14 @@ void CodegenUtility::GenerateCBuffer(
     result << R"(};
 StructuredBuffer<_Args> _Global:register(t0);
 )"sv;
+    bind_count += 2;
 }
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str,
     luisa::BinaryIO const *internalDataPath,
-    bool isSpirV) {
+    bool isSpirV,
+    uint &bind_count) {
     uint table_idx = isSpirV ? 2 : 1;
     auto add_prop = [&](ShaderVariableType svt) {
         properties.emplace_back(
@@ -1721,18 +1724,21 @@ void CodegenUtility::GenerateBindless(
         str << "ByteAddressBuffer bdls[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
         add_prop(ShaderVariableType::SRVBufferHeap);
         table_idx++;
+        bind_count += 1;
     }
     if (opt->useTex2DBindless) {
         str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
         str << CodegenUtility::ReadInternalHLSLFile("tex2d_bindless", internalDataPath);
+        bind_count += 1;
     }
     if (opt->useTex3DBindless) {
         str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
         str << CodegenUtility::ReadInternalHLSLFile("tex3d_bindless", internalDataPath);
+        bind_count += 1;
     }
 }
 
@@ -1742,7 +1748,7 @@ void CodegenUtility::PreprocessCodegenProperties(
     RegisterIndexer &registerCount,
     luisa::BinaryIO const *internalDataPath,
     bool cbufferNonEmpty,
-    bool isRaster, bool isSpirv) {
+    bool isRaster, bool isSpirv, uint &bind_count) {
     // 1,0,0
     registerCount.init();
     if (isSpirv) {
@@ -1777,7 +1783,7 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0,
                 1});
     }
-    GenerateBindless(properties, varData, internalDataPath, isSpirv);
+    GenerateBindless(properties, varData, internalDataPath, isSpirv, bind_count);
 }
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
@@ -1810,7 +1816,8 @@ void CodegenUtility::CodegenProperties(
     vstd::StringBuilder &varData,
     Function kernel,
     uint offset,
-    RegisterIndexer &registerCount) {
+    RegisterIndexer &registerCount,
+    uint &bind_count) {
     enum class RegisterType : uint8_t {
         CBV,
         UAV,
@@ -1856,6 +1863,22 @@ void CodegenUtility::CodegenProperties(
             vstd::to_string(r, varData);
             varData << ");\n"sv;
             r++;
+            switch (sT) {
+                case ShaderVariableType::ConstantBuffer:
+                case ShaderVariableType::StructuredBuffer:
+                case ShaderVariableType::RWStructuredBuffer:
+                case ShaderVariableType::ConstantValue:
+                case ShaderVariableType::SamplerHeap:
+                    bind_count += 2;
+                    break;
+                case ShaderVariableType::SRVTextureHeap:
+                case ShaderVariableType::UAVTextureHeap:
+                case ShaderVariableType::SRVBufferHeap:
+                case ShaderVariableType::UAVBufferHeap:
+                case ShaderVariableType::CBVBufferHeap:
+                    bind_count += 1;
+                    break;
+            }
         };
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
@@ -1950,25 +1973,33 @@ CodegenResult CodegenUtility::Codegen(
 
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::range_impl(vstd::cache_end_range(kernel.arguments()) | vstd::value_range());
+    uint bind_count = 2;
     if (nonEmptyCbuffer) {
-        GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData);
+        GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData, bind_count);
     }
     if (isSpirV) {
         varData << R"(cbuffer CB:register(b1){
 uint4 dsp_c;
 }
 )"sv;
+        bind_count += 2;
     } else {
         varData << "uint4 dsp_c:register(b0);\n"sv;
+        bind_count += 2;
     }
     CodegenResult::Properties properties;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV);
-    CodegenProperties(properties, varData, kernel, 0, indexer);
+    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV, bind_count);
+    CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << incrementalFunc << codegenData;
+    if (bind_count >= 64) [[unlikely]] {
+        LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
+    } else if (bind_count > 16) [[unlikely]] {
+        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
+    }
     return {
         std::move(finalResult),
         std::move(properties),
@@ -2029,15 +2060,18 @@ CodegenResult CodegenUtility::RasterCodegen(
     } else {
         LUISA_ERROR("Illegal vertex return type!");
     }
+    uint bind_count = 2;
     if (isSpirV) {
         codegenData << R"(};
 cbuffer CB:register(b1){
 uint obj_id;
 )"sv;
+        bind_count += 2;
     } else {
         codegenData << R"(};
 uint obj_id:register(b0);
 )"sv;
+        bind_count += 2;
     }
     codegenData << "#ifdef VS\n";
     std::bitset<kVertexAttributeCount> bits;
@@ -2132,17 +2166,22 @@ uint iid:SV_INSTANCEID;
 
     opt->funcType = CodegenStackData::FuncType::Callable;
     if (nonEmptyCbuffer) {
-        GenerateCBuffer(funcs, varData);
+        GenerateCBuffer(funcs, varData, bind_count);
     }
     CodegenResult::Properties properties;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV);
-    CodegenProperties(properties, varData, vertFunc, 1, indexer);
-    CodegenProperties(properties, varData, pixelFunc, 1, indexer);
+    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV, bind_count);
+    CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
+    CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << incrementalFunc << codegenData;
+    if (bind_count >= 64) [[unlikely]] {
+        LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
+    } else if (bind_count > 16) [[unlikely]] {
+        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
+    }
     return {
         std::move(finalResult),
         std::move(properties),
