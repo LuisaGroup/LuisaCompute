@@ -321,6 +321,9 @@ public:
             .index_stride = sizeof(Triangle)};
         _converted.emplace_back(converted);
     }
+    void visit(const CurveBuildCommand *) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
+    }
     void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
         api::Command converted{.tag = Tag::PROCEDURAL_PRIMITIVE_BUILD};
         converted.PROCEDURAL_PRIMITIVE_BUILD._0 = api::ProceduralPrimitiveBuildCommand{
@@ -421,7 +424,7 @@ public:
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override {
         return luisa::make_shared<CpuOidnDenoiser>(_device, oidn::newDevice(oidn::DeviceType::CPU), stream);
     }
-    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept override{
+    luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept override {
         return create(stream.handle());
     }
 };
@@ -595,8 +598,7 @@ public:
             .compile_only = option_.compile_only,
             .time_trace = option_.time_trace,
             .max_registers = option_.max_registers,
-            .name = option_.name.data()
-        };
+            .name = option_.name.data()};
         auto shader = device.create_shader(device.device, api::KernelModule{(uint64_t)kernel}, &option);
         ShaderCreationInfo info{};
         info.block_size[0] = shader.block_size[0];

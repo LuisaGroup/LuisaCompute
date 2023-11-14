@@ -243,6 +243,10 @@ void MetalCommandEncoder::visit(AccelBuildCommand *command) noexcept {
     accel->build(*this, command);
 }
 
+void MetalCommandEncoder::visit(CurveBuildCommand *) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+}
+
 void MetalCommandEncoder::visit(MeshBuildCommand *command) noexcept {
     _prepare_command_buffer();
     auto mesh = reinterpret_cast<MetalMesh *>(command->handle());

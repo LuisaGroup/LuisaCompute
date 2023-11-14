@@ -307,6 +307,7 @@ public:
                 aabbOptions,
                 bottomAccelDatas->emplace_back()));
     }
+    void visit(const CurveBuildCommand *) noexcept override { /* TODO */ }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
         arr->PreProcessStates(
@@ -684,6 +685,7 @@ public:
         accelScratchOffsets++;
         bottomAccelData++;
     }
+    void visit(const CurveBuildCommand *) noexcept override { /* TODO */ }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         BottomBuild(cmd->handle());
     }
