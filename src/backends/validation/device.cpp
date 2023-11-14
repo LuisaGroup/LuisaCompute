@@ -4,7 +4,6 @@
 #include "accel.h"
 #include "buffer.h"
 #include "texture.h"
-#include "depth_buffer.h"
 #include "bindless_array.h"
 #include "mesh.h"
 #include "procedural_primitives.h"
@@ -14,6 +13,7 @@
 #include <luisa/ast/function_builder.h>
 #include "raster_ext_impl.h"
 #include "dstorage_ext_impl.h"
+#include "pinned_mem_impl.h"
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/backends/ext/registry.h>
@@ -26,6 +26,7 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
       _native{std::move(native)} {
     auto raster_ext = static_cast<RasterExt *>(_native->extension(RasterExt::name));
     auto dstorage_ext = static_cast<DStorageExt *>(_native->extension(DStorageExt::name));
+    auto pinned_ext = static_cast<PinnedMemoryExt *>(_native->extension(PinnedMemoryExt::name));
     if (raster_ext) {
         auto raster_impl = new RasterExtImpl(raster_ext);
         exts.try_emplace(
@@ -44,6 +45,16 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
                 dstorage_impl,
                 detail::ext_deleter<DeviceExtension>{[](DeviceExtension *ptr) {
                     delete static_cast<DStorageExtImpl *>(ptr);
+                }}});
+    }
+    if(pinned_ext){
+        auto pinned_ext_impl = new PinnedMemoryExtImpl(pinned_ext);
+        exts.try_emplace(
+            PinnedMemoryExt::name,
+            ExtPtr{
+                pinned_ext_impl,
+                detail::ext_deleter<DeviceExtension>{[](DeviceExtension *ptr) {
+                    delete static_cast<PinnedMemoryExtImpl *>(ptr);
                 }}});
     }
 }

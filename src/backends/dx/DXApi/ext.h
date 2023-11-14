@@ -3,6 +3,7 @@
 #include <luisa/vstl/spin_mutex.h>
 #include <luisa/backends/ext/tex_compress_ext.h>
 #include <luisa/backends/ext/native_resource_ext_interface.h>
+#include <luisa/backends/ext/pinned_memory_ext.hpp>
 #include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/backends/ext/dx_cuda_interop.h>
 #include <luisa/backends/ext/dstorage_ext_interface.h>
@@ -211,5 +212,19 @@ public:
         const void *data, size_t size_bytes,
         Compression algorithm, CompressionQuality quality,
         luisa::vector<std::byte> &result) noexcept override;
+};
+class DxPinnedMemoryExt : public PinnedMemoryExt {
+    LCDevice *_device;
+protected:
+    [[nodiscard]] BufferCreationInfo _pin_host_memory(
+        const Type *elem_type, size_t elem_count,
+        void *host_ptr, const PinnedMemoryOption &option) noexcept override;
+
+    [[nodiscard]] BufferCreationInfo _allocate_pinned_memory(
+        const Type *elem_type, size_t elem_count,
+        const PinnedMemoryOption &option) noexcept override;
+public:
+    explicit DxPinnedMemoryExt(LCDevice *device) : _device(device) {}
+    [[nodiscard]] DeviceInterface *device() const noexcept override;
 };
 }// namespace lc::dx

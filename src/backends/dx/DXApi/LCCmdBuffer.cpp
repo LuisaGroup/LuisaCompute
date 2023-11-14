@@ -91,9 +91,10 @@ public:
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                     true);
             } else {
-                self->stateTracker->RecordState(
-                    res,
-                    self->stateTracker->ReadState(ResourceReadUsage::Srv));
+                if (res->GetTag() != Resource::Tag::UploadBuffer)
+                    self->stateTracker->RecordState(
+                        res,
+                        self->stateTracker->ReadState(ResourceReadUsage::Srv));
             }
             ++arg;
         }
@@ -188,7 +189,8 @@ public:
     void visit(const BufferCopyCommand *cmd) noexcept override {
         auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
         auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
-        stateTracker->RecordState(srcBf, stateTracker->ReadState(ResourceReadUsage::CopySource));
+        if (srcBf->GetTag() != Resource::Tag::UploadBuffer)
+            stateTracker->RecordState(srcBf, stateTracker->ReadState(ResourceReadUsage::CopySource));
         stateTracker->RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
@@ -197,10 +199,10 @@ public:
         stateTracker->RecordState(
             rt,
             D3D12_RESOURCE_STATE_COPY_DEST);
-
-        stateTracker->RecordState(
-            bf,
-            stateTracker->ReadState(ResourceReadUsage::CopySource));
+        if (bf->GetTag() != Resource::Tag::UploadBuffer)
+            stateTracker->RecordState(
+                bf,
+                stateTracker->ReadState(ResourceReadUsage::CopySource));
     }
 
     void visit(const TextureUploadCommand *cmd) noexcept override {

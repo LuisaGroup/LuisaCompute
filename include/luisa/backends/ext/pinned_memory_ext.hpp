@@ -3,7 +3,9 @@
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/buffer.h>
-
+namespace lc::validation {
+class PinnedMemoryExtImpl;
+}// namespace lc::validation
 namespace luisa::compute {
 
 struct PinnedMemoryOption {
@@ -11,7 +13,7 @@ struct PinnedMemoryOption {
 };
 
 class PinnedMemoryExt : public DeviceExtension {
-
+    friend class lc::validation::PinnedMemoryExtImpl;
 public:
     static constexpr luisa::string_view name = "PinnedMemoryExt";
 
@@ -56,7 +58,7 @@ public:
     [[nodiscard]] auto allocate_pinned_memory(size_t elem_count,
                                               PinnedMemoryOption option = {}) noexcept {
         auto elem_type = Type::of<T>();
-        auto info = _allocate_pinned_host_memory(elem_type, elem_count, option);
+        auto info = _allocate_pinned_memory(elem_type, elem_count, option);
         return Buffer<T>{device(), info};
     }
 };

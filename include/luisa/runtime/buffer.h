@@ -88,6 +88,7 @@ private:
     friend class Device;
     friend class ResourceGenerator;
     friend class DxCudaInterop;
+    friend class PinnedMemoryExt;
     Buffer(DeviceInterface *device, const BufferCreationInfo &info) noexcept
         : Resource{device, Tag::BUFFER, info},
           _size{info.total_size_bytes / info.element_stride},
