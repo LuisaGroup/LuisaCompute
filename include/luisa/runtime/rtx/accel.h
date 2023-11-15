@@ -24,7 +24,8 @@ public:
 
 private:
     luisa::unordered_map<size_t, Modification> _modifications;
-    size_t _mesh_size{};
+    size_t _instance_count{};
+
 private:
     friend class Device;
     friend class Mesh;
@@ -54,7 +55,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
-        return _mesh_size;
+        return _instance_count;
     }
 
     // host interfaces

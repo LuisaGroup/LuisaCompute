@@ -83,6 +83,10 @@ public:
         bs._set.set();
         return bs;
     }
+
+    [[nodiscard]] static auto make_none() noexcept {
+        return CurveBasisSet{};
+    }
 };
 
 }// namespace luisa::compute
