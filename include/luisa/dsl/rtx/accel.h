@@ -8,7 +8,7 @@
 namespace luisa::compute {
 
 struct AccelTraceOptions {
-    CurveBasisSet curve_bases{};
+    CurveBasisSet curve_bases{CurveBasisSet::make_none()};
     UInt visibility_mask{0xffu};
 };
 
@@ -36,6 +36,10 @@ public:
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
@@ -82,6 +86,10 @@ public:
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;

@@ -21,6 +21,7 @@ struct CommittedHit {
 };
 static_assert(sizeof(CommittedHit) == 24u, "CommittedHit size mismatch");
 static_assert(alignof(CommittedHit) == 8u, "CommittedHit align mismatch");
+
 // Return type of Accel::trace_closest() and RayQuery::triangle_candidate(), it represents a hit that can be a triangle or nothing
 struct TriangleHit {
     uint inst;
@@ -30,6 +31,7 @@ struct TriangleHit {
 };
 static_assert(sizeof(TriangleHit) == 24u, "TriangleHit size mismatch");
 static_assert(alignof(TriangleHit) == 8u, "TriangleHit align mismatch");
+
 // Return type of RayQuery::procedural_candidate(), it represents a hit of procedural-primitive
 struct ProceduralHit {
     uint inst;
