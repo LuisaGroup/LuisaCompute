@@ -54,8 +54,8 @@ public:
         bs._set = std::bitset<curve_basis_count>{v};
         return bs;
     }
-    [[nodiscard]] auto to_u64() const noexcept {
-        return static_cast<uint64_t>(_set.to_ullong());
+    [[nodiscard]] auto to_u64() const noexcept -> uint64_t {
+        return _set.to_ullong();
     }
     [[nodiscard]] static auto from_string(luisa::string_view s) noexcept {
         CurveBasisSet bs;
