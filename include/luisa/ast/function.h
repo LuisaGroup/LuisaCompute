@@ -9,6 +9,8 @@
 
 namespace luisa::compute {
 
+class CurveBasisSet;
+
 namespace detail {
 class FunctionBuilder;
 }
@@ -156,6 +158,8 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return whether the function requires printing
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return required curve bases
+    [[nodiscard]] CurveBasisSet required_curve_bases() const noexcept;
     /// Return function builder
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     /// Return shared pointer to function builder
