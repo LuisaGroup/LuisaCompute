@@ -1,6 +1,7 @@
 #include "ASTConsumer.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Expr.h"
+#include "AttributeHelpers.hpp"
 #include <iostream>
 
 namespace luisa::clangcxx {
@@ -39,17 +40,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         params = S->parameters();
         if (auto Anno = S->getAttr<clang::AnnotateAttr>())
         {
-            if (Anno->getAnnotation() == "luisa-shader")
-            {
-                if (Anno->args_size() == 1)
-                {
-                    auto arg = Anno->args_begin();
-                    if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts()))
-                    {
-                        ignore = (TypeLiterial->getString() == "ignore");
-                    }
-                }
-            }
+            ignore = isIgnore(Anno);
         }
         if (!ignore)
         {
