@@ -89,7 +89,7 @@ int main(int argc, char *argv[]) {
         // traversal aceeleration structure with ray-query
         Float3 sphere_color;
         Var<CommittedHit> hit = accel->query_all(ray)
-                       .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
+                       .on_triangle_candidate([&](SurfaceCandidate &candidate) noexcept {
                            Var<TriangleHit> h = candidate.hit();
                            Float3 uvw = make_float3(1.f - h.bary.x - h.bary.y, h.bary);
                            $if(length(uvw.xy()) < .8f &

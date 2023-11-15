@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
     Callable intersect = [&](Var<Ray> ray, Bool &valid) noexcept {
         auto sphere_normal = def(make_float3());
         auto hit = accel->query_all(ray)
-                       .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
+                       .on_triangle_candidate([&](SurfaceCandidate &candidate) noexcept {
                            auto h = candidate.hit();
                            auto uvw = make_float3(1.f - h.bary.x - h.bary.y, h.bary);
                            $if(length(uvw.xy()) < .8f &
