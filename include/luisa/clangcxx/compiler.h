@@ -8,6 +8,9 @@ struct LC_CLANGCXX_API Compiler
 {
     Compiler(const compute::ShaderOption &option, compute::Function kernel);
     compute::ShaderCreationInfo create_shader(compute::Device& device) LUISA_NOEXCEPT;
+    
+    compute::ShaderOption option;
+    compute::Function kernel;
 };
 
 }// namespace lc::clangcxx

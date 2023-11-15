@@ -5,19 +5,40 @@ namespace tooling = clang::tooling;
 
 namespace luisa::clangcxx {
 
-Compiler::Compiler(const compute::ShaderOption &option, compute::Function kernel) 
+Compiler::Compiler(const compute::ShaderOption& option, compute::Function kernel)
+    : option(option), kernel(kernel) 
 {
+
 }
 
-compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &device) LUISA_NOEXCEPT 
-{
+template<typename T>
+std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute::Device* device, compute::ShaderOption option, compute::Function kernel) {
+    class SimpleFrontendActionFactory2 : public FrontendActionFactory {
+    public:
+        SimpleFrontendActionFactory2(luisa::compute::Device* device, compute::ShaderOption option, compute::Function kernel)
+            : device(device), option(option), kernel(kernel)
+        {
+
+        }
+
+        std::unique_ptr<clang::FrontendAction> create() override {
+            return std::make_unique<T>(device, option, kernel);
+        }
+
+        luisa::compute::Device *device = nullptr;
+        compute::ShaderOption option;
+        compute::Function kernel;
+    };
+    return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory2(device, option, kernel));
+}
+
+compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &device) LUISA_NOEXCEPT {
     std::vector<std::string> args_holder = {
         "luisa_compiler",
         "C:/GitHub/LuisaCompute/src/clangcxx/shader/test_0.cpp",
         "--output=C:/LuisaCompute/src/clangcxx/shader",
         "--",
-        "-std=c++20"
-    };
+        "-std=c++20"};
     std::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
@@ -32,9 +53,9 @@ compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &devi
     }
     OptionsParser &OptionsParser = ExpectedParser.get();
     tooling::ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
-    auto rc = Tool.run(tooling::newFrontendActionFactory<FrontendAction>().get());
-    if (rc != 0)
-    {
+    auto factory = newFrontendActionFactory2<luisa::clangcxx::FrontendAction>(&device, option, kernel);
+    auto rc = Tool.run(factory.get());
+    if (rc != 0) {
         // ...
     }
     return {};

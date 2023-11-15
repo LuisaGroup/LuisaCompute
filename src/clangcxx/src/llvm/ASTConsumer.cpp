@@ -1,38 +1,81 @@
 #include "ASTConsumer.h"
 #include "clang/AST/Stmt.h"
+#include "clang/AST/Expr.h"
 #include <iostream>
 
 namespace luisa::clangcxx {
 
-ASTConsumer::ASTConsumer(std::string OutputPath)
-    : OutputPath(std::move(OutputPath)) {
+using namespace clang;
+using namespace clang::ast_matchers;
+
+bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt) {
+    if (!stmt)
+        return true;
+
+    for (Stmt::child_iterator i = stmt->child_begin(), e = stmt->child_end(); i != e; ++i) {
+        Stmt *currStmt = *i;
+        if (!currStmt)
+            continue;
+        if (isa<clang::DeclRefExpr>(currStmt)) {
+            auto* declRef = (DeclRefExpr *)currStmt;
+            bool found = false;
+            for (unsigned int paramIndex = 0; paramIndex < params.size(); paramIndex++) 
+            {
+
+            }
+        }
+
+        currStmt->dump();
+        recursiveVisit(currStmt);
+    }
+    return true;
 }
 
-void ASTConsumer::HandleTranslationUnit(clang::ASTContext &ctx) {
-    // 1. collect
-    _astContext = &ctx;
-    auto tuDecl = ctx.getTranslationUnitDecl();
-    for (clang::DeclContext::decl_iterator i = tuDecl->decls_begin();
-         i != tuDecl->decls_end(); ++i) {
-        auto *named_decl = llvm::dyn_cast<clang::NamedDecl>(*i);
-        if (named_decl == nullptr)
-            continue;
-
-        // Filter out unsupported decls at the global namespace level
-        clang::Decl::Kind kind = named_decl->getKind();
-        std::vector<std::string> newStack;
-        switch (kind) {
-            case (clang::Decl::Namespace):
-            case (clang::Decl::CXXRecord):
-            case (clang::Decl::Function):
-            case (clang::Decl::Enum):
-            case (clang::Decl::ClassTemplate):
-                HandleDecl(named_decl, nullptr);
-                break;
-            default:
-                break;
+void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
+    // The matched 'if' statement was bound to 'ifStmt'.
+    if (const auto *S = Result.Nodes.getNodeAs<clang::FunctionDecl>("FunctionDecl")) {
+        // S->dump();
+        bool ignore = false;
+        params = S->parameters();
+        if (auto Anno = S->getAttr<clang::AnnotateAttr>())
+        {
+            if (Anno->getAnnotation() == "luisa-shader")
+            {
+                if (Anno->args_size() == 1)
+                {
+                    auto arg = Anno->args_begin();
+                    if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts()))
+                    {
+                        ignore = (TypeLiterial->getString() == "ignore");
+                    }
+                }
+            }
+        }
+        if (!ignore)
+        {
+            std::cout << S->getName().data() << std::endl;
+    
+            Stmt *body = S->getBody();
+            recursiveVisit(body);
         }
     }
+}
+
+ASTConsumer::ASTConsumer(std::string OutputPath)
+    : OutputPath(std::move(OutputPath)) {
+
+    Matcher.addMatcher(functionDecl(
+                           isDefinition(),
+                           unless(isExpansionInSystemHeader()))
+                           .bind("FunctionDecl"),
+                       &HandlerForFuncionDecl);
+    // Matcher.addMatcher(stmt().bind("callExpr"), &HandlerForCallExpr);
+}
+
+void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
+    // 1. collect
+    astContext = &Context;
+    Matcher.matchAST(Context);
 }
 
 void Remove(std::string &str, const std::string &remove_str) {
@@ -46,80 +89,6 @@ std::string GetTypeName(clang::QualType type, clang::ASTContext *ctx) {
     Remove(baseName, "struct ");
     Remove(baseName, "class ");
     return baseName;
-}
-
-void ASTConsumer::HandleDecl(clang::NamedDecl *decl, const clang::ASTRecordLayout *layout) {
-    if (decl == nullptr)
-        return;
-    if (decl->isInvalidDecl())
-        return;
-
-    clang::ASTContext &ctx = *_astContext;
-    // Filter out unsupported decls at the global namespace level
-    clang::Decl::Kind kind = decl->getKind();
-    switch (kind) {
-        case (clang::Decl::Namespace): {
-            HandleNamespace(decl, nullptr);
-            clang::DeclContext *declContext = clang::NamedDecl::castToDeclContext(decl);
-            std::vector<std::string> newStack;
-            for (clang::DeclContext::decl_iterator i = declContext->decls_begin();
-                 i != declContext->decls_end(); ++i) {
-                if (auto *sub_decl = llvm::dyn_cast<clang::NamedDecl>(*i))
-                    HandleDecl(sub_decl, nullptr);
-            }
-            return;
-        } break;
-        case (clang::Decl::CXXRecord):
-            HandleRecord(decl, nullptr);
-            break;
-        case (clang::Decl::Function):
-            HandleFunction(decl, nullptr);
-            break;
-        case (clang::Decl::ParmVar):
-        case (clang::Decl::Enum):
-        case (clang::Decl::ClassTemplate):
-        case (clang::Decl::Field):
-        case (clang::Decl::Var):
-        case (clang::Decl::VarTemplateSpecialization):
-        default:
-            break;
-    }
-}
-
-void ASTConsumer::HandleNamespace(clang::NamedDecl *decl, const clang::ASTRecordLayout *layout) {
-    auto nspace = static_cast<clang::NamespaceDecl *>(decl);
-    std::cout << "namespace: " << nspace->getDeclName().getAsString() << std::endl;
-}
-
-void ASTConsumer::HandleRecord(clang::NamedDecl *decl, const clang::ASTRecordLayout *layout) {
-    auto record = static_cast<clang::CXXRecordDecl *>(decl);
-    std::cout << "record: " << record->getQualifiedNameAsString() << std::endl;
-}
-
-void ASTConsumer::HandleFunction(clang::NamedDecl *decl, const clang::ASTRecordLayout *layout) {
-    std::cout << "function: " << decl->getDeclName().getAsString();
-    auto funcDecl = static_cast<clang::FunctionDecl*>(decl);
-    if (auto def = funcDecl->getDefinition())
-    {
-        if (auto stmt = def->getBody())
-        {
-            using StmtClass = clang::Stmt::StmtClass;
-            if (stmt->getStmtClassName())
-                std::cout << ", stmt: " << stmt->getStmtClassName();
-            switch (stmt->getStmtClass())
-            {
-                case (StmtClass::CompoundStmtClass):
-                    if (auto compound = static_cast<clang::CompoundStmt*>(stmt))
-                    {
-                        compound->dump();
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-    std::cout << std::endl;
 }
 
 }// namespace luisa::clangcxx
