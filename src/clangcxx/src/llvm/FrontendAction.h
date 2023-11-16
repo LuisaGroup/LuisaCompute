@@ -11,8 +11,8 @@ namespace luisa::clangcxx {
 
 class FrontendAction : public clang::ASTFrontendAction {
 public:
-    FrontendAction(luisa::compute::Device* device, compute::ShaderOption option, compute::Function kernel)
-        : clang::ASTFrontendAction(), device(device), option(option), kernel(kernel)
+    FrontendAction(luisa::compute::Device* device, compute::ShaderOption option)
+        : clang::ASTFrontendAction(), device(device), option(option)
     {
 
     }
@@ -21,7 +21,6 @@ public:
     
     luisa::compute::Device* device = nullptr;
     compute::ShaderOption option;
-    compute::Function kernel;
 };
 
 }// namespace luisa::clangcxx

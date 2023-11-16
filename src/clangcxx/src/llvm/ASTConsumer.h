@@ -1,5 +1,7 @@
 #pragma once
 #include <utility>
+#include "luisa/core/dll_export.h"
+#include "luisa/runtime/device.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Decl.h"
@@ -18,16 +20,20 @@ public:
     bool recursiveVisit(clang::Stmt* stmt);
     void run(const MatchFinder::MatchResult &Result) final;
     
-    llvm::ArrayRef<clang::ParmVarDecl*> params;
+    luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
 };
 
 class ASTConsumer : public clang::ASTConsumer
 {
 public:
-    explicit ASTConsumer(std::string OutputPath);
+    explicit ASTConsumer(std::string OutputPath, luisa::compute::Device* device, compute::ShaderOption option);
+    ~ASTConsumer() override;
     void HandleTranslationUnit(clang::ASTContext& Context) override;
 
     std::string OutputPath;
+    luisa::compute::Device* device = nullptr;
+    compute::ShaderOption option;
+
     FunctionDeclStmtHandler HandlerForFuncionDecl;
     clang::ASTContext* astContext = nullptr;
     clang::ast_matchers::MatchFinder Matcher;

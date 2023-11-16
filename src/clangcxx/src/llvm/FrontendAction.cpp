@@ -13,7 +13,7 @@ std::unique_ptr<clang::ASTConsumer> FrontendAction::CreateASTConsumer(clang::Com
     clang::SourceManager &SM = PP.getSourceManager();
     auto &LO = CI.getLangOpts();
     LO.CommentOpts.ParseAllComments = true;
-    return std::make_unique<luisa::clangcxx::ASTConsumer>(OutputPath);
+    return std::make_unique<luisa::clangcxx::ASTConsumer>(OutputPath, device, option);
 }
 
 }

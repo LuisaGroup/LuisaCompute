@@ -6,11 +6,10 @@ namespace luisa::clangcxx {
 
 struct LC_CLANGCXX_API Compiler
 {
-    Compiler(const compute::ShaderOption &option, compute::Function kernel);
+    Compiler(const compute::ShaderOption &option);
     compute::ShaderCreationInfo create_shader(compute::Device& device) LUISA_NOEXCEPT;
     
     compute::ShaderOption option;
-    compute::Function kernel;
 };
 
 }// namespace lc::clangcxx
