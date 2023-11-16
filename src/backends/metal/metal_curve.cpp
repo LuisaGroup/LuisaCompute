@@ -32,19 +32,14 @@ void MetalCurve::build(MetalCommandEncoder &encoder, CurveBuildCommand *command)
     auto cp_buffer_handle = cp_buffer->handle();
     auto cp_buffer_offset = command->cp_buffer_offset();
     auto cp_stride = command->cp_stride();
-    LUISA_ASSERT(cp_stride >= sizeof(float) * 3u &&
+    LUISA_ASSERT(cp_stride >= sizeof(float4) &&
                      cp_buffer_offset + cp_count * cp_stride <=
                          cp_buffer_handle->length(),
                  "Invalid control point buffer size.");
 
-    auto radius_buffer = reinterpret_cast<MetalBuffer *>(command->radius_buffer());
-    auto radius_buffer_handle = radius_buffer->handle();
-    auto radius_buffer_offset = command->radius_buffer_offset();
-    auto radius_stride = command->radius_stride();
-    LUISA_ASSERT(radius_stride >= sizeof(float) &&
-                     radius_buffer_offset + cp_count * radius_stride <=
-                         radius_buffer_handle->length(),
-                 "Invalid radius buffer size.");
+    auto radius_buffer_handle = cp_buffer->handle();
+    auto radius_buffer_offset = cp_buffer_offset + sizeof(float) * 3u;
+    auto radius_stride = sizeof(float4);
 
     auto seg_buffer = reinterpret_cast<MetalBuffer *>(command->seg_buffer());
     auto seg_buffer_handle = seg_buffer->handle();

@@ -155,10 +155,9 @@ public:
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;
     // see definition in rtx/curve.h
-    template<typename CPBuffer, typename RadiusBuffer, typename SegmentBuffer>
+    template<typename CPBuffer, typename SegmentBuffer>
     [[nodiscard]] Curve create_curve(CurveBasis basis,
                                      CPBuffer &&control_points,
-                                     RadiusBuffer &&radii,
                                      SegmentBuffer &&segments,
                                      const AccelOption &option = {}) noexcept;
 

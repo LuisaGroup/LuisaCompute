@@ -19,40 +19,30 @@ int main(int argc, char *argv[]) {
     static constexpr auto control_points_per_segment = segment_control_point_count(curve_basis);
     static constexpr auto segment_count = control_point_count - control_points_per_segment + 1u;
 
-    luisa::vector<float3> control_points;
+    luisa::vector<float4> control_points;
     control_points.reserve(control_point_count);
     for (auto i = 0u; i < control_point_count; i++) {
         auto x = cos(i * pi / 5.f) * (1.f - .01f * i);
         auto y = i * .02f;
         auto z = sin(i * pi / 5.f) * (1.f - .01f * i);
-        control_points.emplace_back(make_float3(x, y, z));
+        auto t = static_cast<float>(i) / static_cast<float>(control_point_count - 1u);// [0, 1]
+        auto r = .015f + .015f * sin(t * 10.f * pi - .5f * pi);
+        control_points.emplace_back(make_float4(x, y, z, r));
     }
     luisa::vector<uint> segments;
     segments.reserve(segment_count);
     for (auto i = 0u; i < segment_count; i++) {
         segments.emplace_back(i);
     }
-    luisa::vector<float> radii;
-    radii.reserve(control_point_count);
-    for (auto i = 0u; i < control_point_count; i++) {
-        auto t = static_cast<float>(i) / static_cast<float>(control_point_count - 1u);// [0, 1]
-        auto r = .015f + .015f * sin(t * 10.f * pi - .5f * pi);
-        radii.emplace_back(r);
-    }
 
     auto control_point_buffer = device.create_buffer<float3>(control_point_count);
-    auto radius_buffer = device.create_buffer<float>(control_point_count);
     auto segment_buffer = device.create_buffer<uint>(segment_count);
 
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     stream << control_point_buffer.copy_from(control_points.data())
-           << radius_buffer.copy_from(radii.data())
            << segment_buffer.copy_from(segments.data());
 
-    auto curve = device.create_curve(curve_basis,
-                                     control_point_buffer,
-                                     radius_buffer,
-                                     segment_buffer);
+    auto curve = device.create_curve(curve_basis, control_point_buffer, segment_buffer);
     auto accel = device.create_accel();
     accel.emplace_back(curve);
 

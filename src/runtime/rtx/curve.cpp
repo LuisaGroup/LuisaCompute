@@ -27,7 +27,6 @@ luisa::unique_ptr<Command> Curve::build(BuildRequest request) noexcept {
         handle(), request,
         _basis, _cp_count, _seg_count,
         _cp_buffer, _cp_buffer_offset, _cp_stride,
-        _radius_buffer, _radius_buffer_offset, _radius_stride,
         _seg_buffer, _seg_buffer_offset);
 }
 

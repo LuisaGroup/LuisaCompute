@@ -452,14 +452,11 @@ private:
     uint64_t _handle{};
     AccelBuildRequest _request{};
     CurveBasis _basis{};
-    size_t _cp_count;
-    size_t _seg_count;
+    size_t _cp_count{};
+    size_t _seg_count{};
     uint64_t _cp_buffer{};
     size_t _cp_buffer_offset{};
     size_t _cp_stride{};
-    uint64_t _radius_buffer{};
-    size_t _radius_buffer_offset{};
-    size_t _radius_stride{};
     uint64_t _seg_buffer{};
     size_t _seg_buffer_offset{};
 
@@ -471,13 +468,11 @@ public:
     CurveBuildCommand(uint64_t handle, AccelBuildRequest request, CurveBasis basis,
                       size_t cp_count, size_t seg_count,
                       uint64_t cp_buffer, size_t cp_buffer_offset, size_t cp_stride,
-                      uint64_t radius_buffer, size_t radius_buffer_offset, size_t radius_stride,
                       uint64_t seg_buffer, size_t seg_buffer_offset) noexcept
         : Command{Command::Tag::ECurveBuildCommand},
           _handle{handle}, _request{request}, _basis{basis},
           _cp_count{cp_count}, _seg_count{seg_count},
           _cp_buffer{cp_buffer}, _cp_buffer_offset{cp_buffer_offset}, _cp_stride{cp_stride},
-          _radius_buffer{radius_buffer}, _radius_buffer_offset{radius_buffer_offset}, _radius_stride{radius_stride},
           _seg_buffer{seg_buffer}, _seg_buffer_offset{seg_buffer_offset} {}
 
 public:
@@ -489,9 +484,6 @@ public:
     [[nodiscard]] auto cp_buffer() const { return _cp_buffer; }
     [[nodiscard]] auto cp_buffer_offset() const { return _cp_buffer_offset; }
     [[nodiscard]] auto cp_stride() const { return _cp_stride; }
-    [[nodiscard]] auto radius_buffer() const { return _radius_buffer; }
-    [[nodiscard]] auto radius_buffer_offset() const { return _radius_buffer_offset; }
-    [[nodiscard]] auto radius_stride() const { return _radius_stride; }
     [[nodiscard]] auto seg_buffer() const { return _seg_buffer; }
     [[nodiscard]] auto seg_buffer_offset() const { return _seg_buffer_offset; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
