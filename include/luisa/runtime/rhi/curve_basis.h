@@ -61,8 +61,10 @@ public:
     [[nodiscard]] auto any() const noexcept { return _set.any(); }
     [[nodiscard]] auto all() const noexcept { return _set.all(); }
     [[nodiscard]] auto none() const noexcept { return _set.none(); }
+    [[nodiscard]] auto count() const noexcept { return _set.count(); }
     [[nodiscard]] auto test(CurveBasis basis) const noexcept { return _set.test(luisa::to_underlying(basis)); }
     [[nodiscard]] auto propagate(CurveBasisSet s) noexcept { _set |= s._set; }
+    [[nodiscard]] auto operator==(CurveBasisSet rhs) const noexcept { return _set == rhs._set; }
 
 public:
     [[nodiscard]] static auto from_u64(uint64_t v) noexcept {

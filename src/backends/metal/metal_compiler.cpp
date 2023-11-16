@@ -188,8 +188,10 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
 
     // check metadata (or complete it)
     if (metadata.checksum == 0ull) { metadata.checksum = file_metadata->checksum; }
+    if (metadata.curve_bases.none()) { metadata.curve_bases = file_metadata->curve_bases; }
     if (all(metadata.block_size == 0u)) { metadata.block_size = file_metadata->block_size; }
     if (metadata.checksum != file_metadata->checksum ||
+        metadata.curve_bases != file_metadata->curve_bases ||
         any(metadata.block_size != file_metadata->block_size)) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to load Metal shader "
