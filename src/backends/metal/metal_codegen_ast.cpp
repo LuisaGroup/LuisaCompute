@@ -669,6 +669,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
     // curve basis
     if (auto bases = kernel.required_curve_bases(); bases.any()) {
         _scratch << "#define LUISA_ENABLE_CURVE\n";
+        if (bases.count() > 1u) {
+            _scratch << "#define LUISA_ENABLE_CURVE_MULTIPLE\n";
+        }
         for (auto i = 0u; i < curve_basis_count; i++) {
             if (auto basis = static_cast<CurveBasis>(i); bases.test(basis)) {
                 _scratch << "#define LUISA_ENABLE_CURVE_" << luisa::to_string(basis) << "\n";

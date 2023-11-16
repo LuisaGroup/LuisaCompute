@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
             Float3 light_normal = normalize(cross(light_u, light_v));
             $for (depth, 10u) {
                 // trace
-                Var<TriangleHit> hit = accel.intersect(ray, {.curve_bases = {CurveBasis::BEZIER, CurveBasis::PIECEWISE_LINEAR}});
+                Var<TriangleHit> hit = accel.intersect(ray, {});
                 reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
                 Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
                 pdf_bsdf = cos_wi * inv_pi;
-                beta *= albedo; // * cos_wi * inv_pi / pdf_bsdf => * 1.f
+                beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
@@ -294,15 +294,10 @@ int main(int argc, char *argv[]) {
     };
 
     ShaderOption o{.enable_debug_info = false};
-    o.name = "clear";
     Shader2D<Image<float>> clear_shader = device.compile(clear_kernel, o);
-    o.name = "hdr2ldr";
     Shader2D<Image<float>, Image<float>, float, bool> hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
-    o.name = "accumulate";
     Shader2D<Image<float>, Image<float>> accumulate_shader = device.compile(accumulate_kernel, o);
-    o.name = "raytracing";
     Shader2D<Image<float>, Image<uint>, Accel, uint2> raytracing_shader = device.compile(raytracing_kernel, o);
-    o.name = "make_sampler";
     Shader2D<Image<uint>> make_sampler_shader = device.compile(make_sampler_kernel, o);
 
     static constexpr uint2 resolution = make_uint2(1024u);
