@@ -1016,6 +1016,13 @@ impl Context {
             add_symbol!(rsqrtf, rsqrtf);
             add_symbol!(sincosf, sincos_);
             add_symbol!(__sincosf_stret, sincos_stret);
+            add_symbol!(snprintf, snprintf);
+            extern "C" fn device_log(s: *const c_char) {
+                let s = unsafe { CStr::from_ptr(s) };
+                let s = s.to_str().unwrap();
+                log::info!(target: "DEVICE", "{}", s);
+            }
+            add_symbol!(device_log, device_log)
         }
         let work_dir = CString::new("").unwrap();
         let ident = CString::new("").unwrap();
@@ -1145,4 +1152,13 @@ extern "C" fn dump_objects(_: *mut c_void, obj_in_out: *mut LLVMMemoryBufferRef)
     let c = c.as_ref().unwrap();
     let dump = c.dump;
     unsafe { (c.lib.LLVMOrcDumpObjects_CallOperator)(dump, obj_in_out) }
+}
+
+extern "C" {
+    pub fn snprintf(
+        s: *mut libc::c_char,
+        n: libc::size_t,
+        format: *const libc::c_char,
+        ...
+    ) -> libc::c_int;
 }

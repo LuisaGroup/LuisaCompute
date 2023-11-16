@@ -27,7 +27,8 @@ ByteBuffer::ByteBuffer(DeviceInterface *device, size_t size_bytes) noexcept
               }
               return device->create_buffer(
                   Type::of<uint>(),
-                  (size_bytes + sizeof(uint) - 1u) / sizeof(uint));
+                  (size_bytes + sizeof(uint) - 1u) / sizeof(uint),
+                  nullptr);
           }()} {}
 
 ByteBuffer::~ByteBuffer() noexcept {
@@ -36,6 +37,13 @@ ByteBuffer::~ByteBuffer() noexcept {
 
 ByteBuffer Device::create_byte_buffer(size_t byte_size) noexcept {
     return ByteBuffer{impl(), byte_size};
+}
+
+ByteBuffer Device::import_external_byte_buffer(void *external_memory, size_t byte_size) noexcept {
+    auto info = impl()->create_buffer(Type::of<uint>(),
+                                      (byte_size + sizeof(uint) - 1u) / sizeof(uint),
+                                      external_memory);
+    return ByteBuffer{impl(), info};
 }
 
 namespace detail {

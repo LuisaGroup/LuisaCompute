@@ -54,6 +54,12 @@ MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimensi
         case PixelFormat::R32F: desc->setPixelFormat(MTL::PixelFormatR32Float); break;
         case PixelFormat::RG32F: desc->setPixelFormat(MTL::PixelFormatRG32Float); break;
         case PixelFormat::RGBA32F: desc->setPixelFormat(MTL::PixelFormatRGBA32Float); break;
+        case PixelFormat::R10G10B10A2UInt: desc->setPixelFormat(MTL::PixelFormatRGB10A2Uint); break;
+        case PixelFormat::R10G10B10A2UNorm: desc->setPixelFormat(MTL::PixelFormatRGB10A2Unorm); break;
+        case PixelFormat::R11G11B10F: desc->setPixelFormat(MTL::PixelFormatRG11B10Float); break;
+        case PixelFormat::BC1UNorm: desc->setPixelFormat(MTL::PixelFormatBC1_RGBA); break;
+        case PixelFormat::BC2UNorm: desc->setPixelFormat(MTL::PixelFormatBC2_RGBA); break;
+        case PixelFormat::BC3UNorm: desc->setPixelFormat(MTL::PixelFormatBC3_RGBA); break;
         case PixelFormat::BC4UNorm: desc->setPixelFormat(MTL::PixelFormatBC4_RUnorm); break;
         case PixelFormat::BC5UNorm: desc->setPixelFormat(MTL::PixelFormatBC5_RGUnorm); break;
         case PixelFormat::BC6HUF16: desc->setPixelFormat(MTL::PixelFormatBC6H_RGBUfloat); break;
@@ -66,7 +72,10 @@ MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimensi
     desc->setAllowGPUOptimizedContents(true);
     desc->setStorageMode(MTL::StorageModePrivate);
     desc->setHazardTrackingMode(MTL::HazardTrackingModeTracked);
-    desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    desc->setUsage(
+        is_block_compressed(format) ?
+            MTL::TextureUsageShaderRead /* BC textures cannot be written to */ :
+            MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     desc->setAllowGPUOptimizedContents(allow_simultaneous_access);
     _maps[0u] = device->newTexture(desc);
     desc->release();

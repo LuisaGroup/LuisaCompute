@@ -46,10 +46,11 @@ public:
     };
 
 private:
-    const Type *_type;
+    const Type *_type{nullptr};
     mutable uint64_t _hash{0u};
+    const detail::FunctionBuilder *_builder{nullptr};
     mutable bool _hash_computed{false};
-    Tag _tag;
+    Tag _tag{};
 
 protected:
     mutable Usage _usage{Usage::NONE};
@@ -64,8 +65,9 @@ public:
      * @param tag type of expression
      * @param type result type of expression
      */
-    explicit Expression(Tag tag, const Type *type) noexcept : _type{type}, _tag{tag} {}
+    Expression(Tag tag, const Type *type) noexcept;
     virtual ~Expression() noexcept = default;
+    [[nodiscard]] auto builder() const noexcept { return _builder; }
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto usage() const noexcept { return _usage; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
@@ -387,6 +389,10 @@ protected:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
+    // FIXME: too hacky
+    void _unsafe_set_custom(CustomCallee callee) const noexcept;
+
+public:
     /**
      * @brief Construct a new CallExpr object calling custom function
      * 
@@ -487,7 +493,7 @@ protected:
 
 public:
     explicit StringIDExpr(luisa::string data) noexcept
-        : Expression{Tag::TYPE_ID, Type::of<ulong>()}, _data{std::move(data)} {}
+        : Expression{Tag::STRING_ID, Type::of<ulong>()}, _data{std::move(data)} {}
     [[nodiscard]] auto data() const noexcept { return luisa::string_view{_data}; }
     LUISA_EXPRESSION_COMMON()
 };

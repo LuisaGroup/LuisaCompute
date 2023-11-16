@@ -797,6 +797,14 @@ private:
             ctx.j["return_type"] = _type_index(f.return_type());
         }
         ctx.j["body"] = _convert_stmt(f.body());
+        ctx.j["constants"] = [&] {
+            JSON::Array a;
+            a.reserve(f.constants().size());
+            for (auto &&c : f.constants()) {
+                a.emplace_back(_constant_index(c));
+            }
+            return a;
+        }();
         // pop the context and check the stack
         auto popped_ctx = std::exchange(_func_ctx, old_ctx);
         LUISA_ASSERT(popped_ctx == &ctx, "Function context stack corrupted.");
@@ -912,6 +920,7 @@ private:
             case Statement::Tag::COMMENT: _convert_comment_stmt(j, static_cast<const CommentStmt *>(stmt)); break;
             case Statement::Tag::RAY_QUERY: _convert_ray_query_stmt(j, static_cast<const RayQueryStmt *>(stmt)); break;
             case Statement::Tag::AUTO_DIFF: _convert_autodiff_stmt(j, static_cast<const AutoDiffStmt *>(stmt)); break;
+            case Statement::Tag::PRINT: _convert_print_stmt(j, static_cast<const PrintStmt *>(stmt)); break;
         }
         return j;
     }
@@ -987,6 +996,17 @@ private:
     }
     void _convert_autodiff_stmt(JSON &j, const AutoDiffStmt *stmt) noexcept {
         j["body"] = _convert_stmt(stmt->body());
+    }
+    void _convert_print_stmt(JSON &j, const PrintStmt *stmt) noexcept {
+        j["format"] = stmt->format();
+        j["arguments"] = [&] {
+            JSON::Array a;
+            a.reserve(stmt->arguments().size());
+            for (auto &&arg : stmt->arguments()) {
+                a.emplace_back(_convert_expr(arg));
+            }
+            return a;
+        }();
     }
 
 public:

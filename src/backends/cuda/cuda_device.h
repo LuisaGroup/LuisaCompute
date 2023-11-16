@@ -13,8 +13,14 @@
 
 namespace luisa::compute::cuda {
 
+class CUDAOldDenoiserExt;
 class CUDADenoiserExt;
 class CUDADStorageExt;
+
+#ifdef LUISA_COMPUTE_ENABLE_NVTT
+class CUDATexCompressExt;
+#endif
+
 class CUDATimelineEventPool;
 class CUDAEventManager;
 
@@ -95,8 +101,15 @@ private:
 private:
     // extensions
     std::mutex _ext_mutex;
-    luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
+
+#if LUISA_BACKEND_ENABLE_OIDN
+    luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
+#endif
+
+#ifdef LUISA_COMPUTE_ENABLE_NVTT
+    luisa::unique_ptr<CUDATexCompressExt> _tex_comp_ext;
+#endif
 
 private:
     [[nodiscard]] ShaderCreationInfo _create_shader(luisa::string name,
@@ -127,8 +140,8 @@ public:
     [[nodiscard]] auto event_manager() const noexcept { return _event_manager.get(); }
 
 public:
-    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
+    BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;

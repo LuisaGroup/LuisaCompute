@@ -18,6 +18,17 @@ if (WIN32)
                 m128_f32=vector4_f32
                 m128_u32=vector4_u32)
     endif ()
+
+    find_package(CUDAToolkit 11.7 QUIET)
+    if (CUDAToolkit_FOUND)
+        target_link_libraries(luisa-compute-backend-dx PRIVATE CUDA::cuda_driver)
+        target_compile_definitions(luisa-compute-backend-dx PRIVATE LCDX_ENABLE_CUDA)
+    endif ()
+
+    if (TARGET luisa-compute-oidn-ext)
+        target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-oidn-ext)
+    endif()
+
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "The DirectX backend will not be built on non-Windows platforms.")
 else ()

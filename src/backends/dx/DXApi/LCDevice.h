@@ -30,11 +30,11 @@ public:
     vstd::unordered_map<vstd::string, Ext> exts;
     //std::numeric_limits<size_t>::max();
     LCDevice(Context &&ctx, DeviceConfig const *settings);
-    ~LCDevice();
+    ~LCDevice() override;
     void *native_handle() const noexcept override;
     // buffer
-    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
+    BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     // texture
     ResourceCreationInfo create_texture(

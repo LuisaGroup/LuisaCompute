@@ -162,7 +162,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
         }
-        defaultAllocator = vstd::make_unique<GpuAllocator>(this);
+        defaultAllocator = vstd::make_unique<GpuAllocator>(this, settings ? settings->memory_profiler : nullptr);
         globalHeap = vstd::create_unique(
             new DescriptorHeap(
                 this,

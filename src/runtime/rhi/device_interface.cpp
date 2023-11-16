@@ -1,5 +1,6 @@
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/context.h>
+#include <luisa/core/logging.h>
 
 namespace luisa::compute {
 

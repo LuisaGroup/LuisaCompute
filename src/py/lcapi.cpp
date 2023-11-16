@@ -26,6 +26,7 @@ void export_img(py::module &m);
 void export_gui(py::module &m);
 void export_commands(py::module &m);
 void export_runtime(py::module &m);
+void export_dlpack(py::module &m);
 
 constexpr auto pyref = py::return_value_policy::reference;// object lifetime is managed on C++ side
 // Note: declare pointer & base class;
@@ -48,6 +49,7 @@ PYBIND11_MODULE(lcapi, m) {
     export_expr(m);
     // Shader
     export_runtime(m);
+    export_dlpack(m);
     // OPs
     export_op(m);// UnaryOp, BinaryOp, CallOp. def at export_op.hpp
 

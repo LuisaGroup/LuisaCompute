@@ -11,7 +11,7 @@ UploadBuffer::UploadBuffer(
         ID3D12Heap *heap;
         uint64 offset;
         allocHandle.allocateHandle = allocator->AllocateBufferHeap(
-            device, byteSize, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset);
+            device, "upload buffer", byteSize, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset);
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize);
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap, offset,
@@ -30,18 +30,28 @@ UploadBuffer::UploadBuffer(
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
+    D3D12_RANGE range;
+    range.Begin = 0;
+    range.End = byteSize;
+    ThrowIfFailed(allocHandle.resource->Map(0, &range, reinterpret_cast<void **>(&mappedPtr)));
 }
+UploadBuffer::UploadBuffer(UploadBuffer &&rhs)
+    : Buffer(std::move(rhs)),
+      allocHandle(std::move(rhs.allocHandle)),
+      byteSize(rhs.byteSize),
+      mappedPtr(rhs.mappedPtr) {
+    rhs.mappedPtr = nullptr;
+}
+
 UploadBuffer::~UploadBuffer() {
+    if (mappedPtr) {
+        D3D12_RANGE range;
+        range.Begin = 0;
+        range.End = byteSize;
+        allocHandle.resource->Unmap(0, &range);
+    }
 }
 void UploadBuffer::CopyData(uint64 offset, vstd::span<uint8_t const> data) const {
-    void *mappedPtr;
-    D3D12_RANGE range;
-    range.Begin = offset;
-    range.End = offset + data.size();
-    ThrowIfFailed(allocHandle.resource->Map(0, &range, reinterpret_cast<void **>(&mappedPtr)));
-    auto disp = vstd::scope_exit([&] {
-        allocHandle.resource->Unmap(0, &range);
-    });
     memcpy(reinterpret_cast<uint8_t *>(mappedPtr) + offset, data.data(), data.size());
 }
 

@@ -36,6 +36,13 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
             "Arguments and their bindings have different sizes ({} and {}).",
             f->_arguments.size(), f->_bound_arguments.size());
     }
+    // non-callables may not have internalizer arguments
+    if (f->tag() != Function::Tag::CALLABLE) {
+        LUISA_ASSERT(
+            f->_captured_external_variables.empty() &&
+                f->_internalizer_arguments.empty(),
+            "Non-callables may not have internalizer arguments.");
+    }
 
     // hash
     f->_compute_hash();
@@ -57,6 +64,16 @@ FunctionBuilder *FunctionBuilder::current() noexcept {
     return _function_stack().back();
 }
 
+FunctionBuilder *FunctionBuilder::current_or_null() noexcept {
+    return _function_stack().empty() ?
+               nullptr :
+               _function_stack().back();
+}
+
+luisa::span<const FunctionBuilder *const> FunctionBuilder::stack() noexcept {
+    return _function_stack();
+}
+
 void FunctionBuilder::_append(const Statement *statement) noexcept {
     if (_scope_stack.empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Scope stack is empty.");
@@ -73,6 +90,7 @@ void FunctionBuilder::continue_() noexcept {
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
+    expr = _internalize(expr);
     LUISA_ASSERT(_tag != Tag::KERNEL || expr == nullptr,
                  "Kernels cannot return non-void values.");
     if (_return_type) {// multiple return statements, check if they match
@@ -97,6 +115,8 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
 }
 
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
+    LUISA_ASSERT(query->builder() == this,
+                 "Ray query must be created by the same function builder.");
     return _create_and_append_statement<RayQueryStmt>(query);
 }
 
@@ -105,6 +125,7 @@ AutoDiffStmt *FunctionBuilder::autodiff_() noexcept {
 }
 
 IfStmt *FunctionBuilder::if_(const Expression *cond) noexcept {
+    cond = _internalize(cond);
     return _create_and_append_statement<IfStmt>(cond);
 }
 
@@ -113,14 +134,17 @@ LoopStmt *FunctionBuilder::loop_() noexcept {
 }
 
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
+    expr = _internalize(expr);
     if (expr != nullptr) { _create_and_append_statement<ExprStmt>(expr); }
 }
 
 SwitchStmt *FunctionBuilder::switch_(const Expression *expr) noexcept {
+    expr = _internalize(expr);
     return _create_and_append_statement<SwitchStmt>(expr);
 }
 
 SwitchCaseStmt *FunctionBuilder::case_(const Expression *expr) noexcept {
+    expr = _internalize(expr);
     return _create_and_append_statement<SwitchCaseStmt>(expr);
 }
 
@@ -129,6 +153,8 @@ SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
 }
 
 void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexcept {
+    lhs = _internalize(lhs);
+    rhs = _internalize(rhs);
     _create_and_append_statement<AssignStmt>(lhs, rhs);
 }
 
@@ -228,18 +254,23 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
 }
 
 const UnaryExpr *FunctionBuilder::unary(const Type *type, UnaryOp op, const Expression *expr) noexcept {
+    expr = _internalize(expr);
     return _create_expression<UnaryExpr>(type, op, expr);
 }
 
 const BinaryExpr *FunctionBuilder::binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept {
+    lhs = _internalize(lhs);
+    rhs = _internalize(rhs);
     return _create_expression<BinaryExpr>(type, op, lhs, rhs);
 }
 
 const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *self, size_t member_index) noexcept {
+    self = _internalize(self);
     return _create_expression<MemberExpr>(type, self, member_index);
 }
 
 const Expression *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+    self = _internalize(self);
     // special handling for literal swizzles
     if (self->tag() == Expression::Tag::LITERAL) {
         auto element = luisa::visit(
@@ -282,6 +313,8 @@ const Expression *FunctionBuilder::swizzle(const Type *type, const Expression *s
 }
 
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
+    range = _internalize(range);
+    index = _internalize(index);
     if (range->tag() == Expression::Tag::LITERAL) {
         auto v = local(range->type());
         assign(v, range);
@@ -291,11 +324,16 @@ const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *ra
 }
 
 const CastExpr *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
+    expr = _internalize(expr);
     return _create_expression<CastExpr>(type, op, expr);
 }
 
 const StringIDExpr *FunctionBuilder::string_id(luisa::string s) noexcept {
     return _create_expression<StringIDExpr>(std::move(s));
+}
+
+const TypeIDExpr *FunctionBuilder::type_id(const Type *payload) noexcept {
+    return _create_expression<TypeIDExpr>(payload);
 }
 
 const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
@@ -329,6 +367,9 @@ void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
 }
 
 ForStmt *FunctionBuilder::for_(const Expression *var, const Expression *condition, const Expression *update) noexcept {
+    var = _internalize(var);
+    condition = _internalize(condition);
+    update = _internalize(update);
     return _create_and_append_statement<ForStmt>(var, condition, update);
 }
 
@@ -490,8 +531,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
             _requires_atomic_float = true;
         }
     }
-    auto expr = _create_expression<CallExpr>(
-        type, call_op, CallExpr::ArgumentList{args.begin(), args.end()});
+    CallExpr::ArgumentList internalized_args;
+    internalized_args.reserve(args.size());
+    for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
+    auto expr = _create_expression<CallExpr>(type, call_op, internalized_args);
     if (type == nullptr) {
         _void_expr(expr);
         return nullptr;
@@ -502,9 +545,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
 const CallExpr *FunctionBuilder::call(const Type *type,
                                       luisa::shared_ptr<const ExternalFunction> func,
                                       luisa::span<const Expression *const> args) noexcept {
-    auto expr = _create_expression<CallExpr>(
-        type, func.get(),
-        CallExpr::ArgumentList{args.begin(), args.end()});
+    CallExpr::ArgumentList internalized_args;
+    internalized_args.reserve(args.size());
+    for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
+    auto expr = _create_expression<CallExpr>(type, func.get(), internalized_args);
     if (auto iter = std::find(_used_external_functions.cbegin(),
                               _used_external_functions.cend(), func);
         iter == _used_external_functions.cend()) {
@@ -533,7 +577,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
         if (auto arg = f->_arguments[i]; arg.is_builtin()) {
-            call_args[i] = _builtin(Type::of<uint3>(), arg.tag());
+            call_args[i] = _builtin(arg.type(), arg.tag());
         } else {
             call_args[i] = luisa::visit(
                 [&]<typename T>(T binding) noexcept -> const Expression * {
@@ -546,7 +590,16 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
                     } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
                         return accel_binding(binding.handle);
                     } else {
-                        return *(in_iter++);
+                        // if the argument is captured from the outer scope,
+                        // implicitly pass it to the callee with the captured value
+                        if (auto iter = f->_internalizer_arguments.find(arg);
+                            iter != f->_internalizer_arguments.end()) {
+                            return _internalize(iter->second);
+                        }
+                        // normal argument
+                        LUISA_ASSERT(in_iter != args.end(),
+                                     "Not enough arguments for custom callable.");
+                        return _internalize(*(in_iter++));
                     }
                 },
                 f->_bound_arguments[i]);
@@ -586,6 +639,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         // propagate used builtin/custom callables and constants
         _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
         _requires_atomic_float |= f->_requires_atomic_float;
+        _requires_printing |= f->_requires_printing;
     }
     if (type == nullptr) {
         _void_expr(expr);
@@ -613,6 +667,17 @@ void FunctionBuilder::comment_(luisa::string comment) noexcept {
     _create_and_append_statement<CommentStmt>(std::move(comment));
 }
 
+void FunctionBuilder::print_(luisa::string_view format,
+                             luisa::span<const Expression *const> args) noexcept {
+    CallExpr::ArgumentList internalized_args;
+    internalized_args.reserve(args.size());
+    for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
+    _create_and_append_statement<PrintStmt>(
+        luisa::string{format},
+        std::move(internalized_args));
+    _requires_printing = true;
+}
+
 void FunctionBuilder::set_block_size(uint3 size) noexcept {
     if (_tag == Tag::KERNEL) {
         auto kernel_size = size.x * size.y * size.z;
@@ -624,7 +689,7 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
             LUISA_ERROR("Function block size must be larger than 0, Current block size is: [{}, {}, {}].",
                         size.x, size.y, size.z);
         }
-        if(size.z > 64)[[unlikely]]{
+        if (size.z > 64) [[unlikely]] {
             LUISA_ERROR("Function block z-axis's size must be less or equal than 64, Current block size is: {}.",
                         size.z);
         }
@@ -653,6 +718,10 @@ bool FunctionBuilder::requires_autodiff() const noexcept {
     return _propagated_builtin_callables.uses_autodiff();
 }
 
+bool FunctionBuilder::requires_printing() const noexcept {
+    return _requires_printing;
+}
+
 void FunctionBuilder::sort_bindings() noexcept {
     luisa::vector<Variable> new_args;
     luisa::vector<Binding> new_bindings;
@@ -674,6 +743,178 @@ void FunctionBuilder::sort_bindings() noexcept {
     }
     _arguments = std::move(new_args);
     _bound_arguments = std::move(new_bindings);
+}
+
+static void check_expr_is_internalizable(const Expression *expr) noexcept {
+    // check if the expression can be internalized
+    switch (expr->tag()) {
+        case Expression::Tag::MEMBER: {
+            auto e = static_cast<const MemberExpr *>(expr);
+            check_expr_is_internalizable(e->self());
+            break;
+        }
+        case Expression::Tag::ACCESS: {
+            auto range = static_cast<const AccessExpr *>(expr)->range();
+            check_expr_is_internalizable(range);
+            break;
+        }
+        case Expression::Tag::REF: {
+            auto v = static_cast<const RefExpr *>(expr)->variable();
+            LUISA_ASSERT(v.tag() != Variable::Tag::SHARED,
+                         "Cannot internalize shared variable.");
+            break;
+        }
+        default: break;
+    }
+}
+
+[[nodiscard]] static bool expr_is_lvalue_local_variable(const Expression *expr) noexcept {
+    switch (expr->tag()) {
+        case Expression::Tag::MEMBER: {
+            auto e = static_cast<const MemberExpr *>(expr);
+            auto is_rvalue_swizzle = e->is_swizzle() && e->swizzle_size() != 1u;
+            return !is_rvalue_swizzle && expr_is_lvalue_local_variable(e->self());
+        }
+        case Expression::Tag::ACCESS: {
+            auto range = static_cast<const AccessExpr *>(expr)->range();
+            return expr_is_lvalue_local_variable(range);
+        }
+        case Expression::Tag::REF: {
+            auto v = static_cast<const RefExpr *>(expr)->variable();
+            return v.tag() == Variable::Tag::LOCAL ||
+                   v.tag() == Variable::Tag::REFERENCE;
+        }
+        default: break;
+    }
+    return false;
+}
+
+// internalize an expression that is captured by a callable
+const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept {
+    if (expr == nullptr || expr->builder() == this) { return expr; }
+    if (expr->type() == nullptr) {
+        LUISA_ASSERT(expr->builder() == this,
+                     "Cannot internalize expression with no type.");
+        return expr;
+    }
+    if (_tag != Function::Tag::CALLABLE) {
+        // must be a leak from a callable, so postpone
+        // the fix until the kernel is encoded
+        return expr;
+    }
+    // check if already internalized
+    if (auto iter = _captured_external_variables.find(expr);
+        iter != _captured_external_variables.end()) {
+        return iter->second;
+    }
+    // internalize
+    check_expr_is_internalizable(expr);
+    auto internalized = [this, external = expr]() noexcept -> const Expression * {
+        auto mark_internalizer_argument = [this, external](auto expr) noexcept -> const Expression * {
+            _internalizer_arguments.emplace(expr->variable(), external);
+            return expr;
+        };
+        auto internalize_rvalue = [this, external, mark_internalizer_argument] {
+            auto src = std::find(stack().crbegin(), stack().crend(), external->builder());
+            LUISA_ASSERT(src != stack().crend(),
+                         "Cannot internalize r-value expression "
+                         "that is not on the stack.");
+            return mark_internalizer_argument(argument(external->type()));
+        };
+        auto internalize_lvalue = [this, external, mark_internalizer_argument] {
+            auto src = std::find(stack().crbegin(), stack().crend(), external->builder());
+            auto on_stack = src != stack().crend();
+            // if the external expression is not on the stack, we defer
+            // the internalization until the full kernel is encoded
+            if (!on_stack) {
+                LUISA_ASSERT(external->tag() == Expression::Tag::REF,
+                             "Cannot internalize non-reference "
+                             "expression that is not on the stack.");
+                return external;
+            }
+            return mark_internalizer_argument(reference(external->type()));
+        };
+        switch (external->tag()) {
+            case Expression::Tag::MEMBER: {
+                if (expr_is_lvalue_local_variable(external)) {
+                    auto expr = static_cast<const MemberExpr *>(external);
+                    auto self = _internalize(expr->self());
+                    if (expr->is_swizzle()) {
+                        LUISA_ASSERT(expr->swizzle_size() == 1u,
+                                     "Cannot internalize r-value swizzle.");
+                        return swizzle(expr->type(), self, 1u, expr->swizzle_code());
+                    }
+                    return member(expr->type(), self, expr->member_index());
+                }
+                return internalize_rvalue();
+            }
+            case Expression::Tag::ACCESS: {
+                if (expr_is_lvalue_local_variable(external)) {
+                    auto expr = static_cast<const AccessExpr *>(external);
+                    auto range = _internalize(expr->range());
+                    auto index = _internalize(expr->index());
+                    return access(expr->type(), range, index);
+                }
+                return internalize_rvalue();
+            }
+            case Expression::Tag::LITERAL: {
+                auto expr = static_cast<const LiteralExpr *>(external);
+                return literal(expr->type(), expr->value());
+            }
+            case Expression::Tag::REF: {
+                auto expr = static_cast<const RefExpr *>(external);
+                auto v = expr->variable();
+                switch (v.tag()) {
+                    case Variable::Tag::LOCAL: [[fallthrough]];
+                    case Variable::Tag::REFERENCE: return internalize_lvalue();
+                    case Variable::Tag::BUFFER: return mark_internalizer_argument(buffer(v.type()));
+                    case Variable::Tag::TEXTURE: return mark_internalizer_argument(texture(v.type()));
+                    case Variable::Tag::BINDLESS_ARRAY: return mark_internalizer_argument(bindless_array());
+                    case Variable::Tag::ACCEL: return mark_internalizer_argument(accel());
+                    case Variable::Tag::THREAD_ID: [[fallthrough]];
+                    case Variable::Tag::BLOCK_ID: [[fallthrough]];
+                    case Variable::Tag::DISPATCH_ID: [[fallthrough]];
+                    case Variable::Tag::DISPATCH_SIZE: [[fallthrough]];
+                    case Variable::Tag::KERNEL_ID: [[fallthrough]];
+                    case Variable::Tag::WARP_LANE_COUNT: [[fallthrough]];
+                    case Variable::Tag::WARP_LANE_ID: [[fallthrough]];
+                    case Variable::Tag::OBJECT_ID: return _builtin(v.type(), v.tag());
+                    default: break;
+                }
+                LUISA_ERROR_WITH_LOCATION(
+                    "Cannot internalize reference to {} variable {}.",
+                    luisa::to_string(v.tag()), v.uid());
+            }
+            case Expression::Tag::CONSTANT: {
+                auto expr = static_cast<const ConstantExpr *>(external);
+                return constant(expr->data());
+            }
+            case Expression::Tag::UNARY: [[fallthrough]];
+            case Expression::Tag::BINARY: [[fallthrough]];
+            case Expression::Tag::CALL: [[fallthrough]];
+            case Expression::Tag::CAST: {// must be r-value
+                return internalize_rvalue();
+            }
+            case Expression::Tag::TYPE_ID: {
+                auto expr = static_cast<const TypeIDExpr *>(external);
+                return type_id(expr->data_type());
+            }
+            case Expression::Tag::STRING_ID: {
+                auto expr = static_cast<const StringIDExpr *>(external);
+                return string_id(luisa::string{expr->data()});
+            }
+            case Expression::Tag::CPUCUSTOM:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Cannot internalize CPU custom expression.");
+            case Expression::Tag::GPUCUSTOM:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Cannot internalize GPU custom expression.");
+        }
+        LUISA_ERROR_WITH_LOCATION("Invalid expression to internalize.");
+    }();
+    // cache the internalized expression
+    _captured_external_variables.emplace(expr, internalized);
+    return internalized;
 }
 
 }// namespace luisa::compute::detail

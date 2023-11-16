@@ -14,10 +14,12 @@ class ShaderDispatchCommand;
 namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
+class CUDAShaderPrinter;
 
 class CUDAShader {
 
 private:
+    luisa::unique_ptr<CUDAShaderPrinter> _printer;
     luisa::vector<Usage> _argument_usages;
     luisa::string _name;
     mutable spin_mutex _name_mutex;
@@ -27,13 +29,15 @@ private:
                          ShaderDispatchCommand *command) const noexcept = 0;
 
 public:
-    explicit CUDAShader(luisa::vector<Usage> arg_usages) noexcept;
+    CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,
+               luisa::vector<Usage> arg_usages) noexcept;
+    virtual ~CUDAShader() noexcept;
     CUDAShader(CUDAShader &&) noexcept = delete;
     CUDAShader(const CUDAShader &) noexcept = delete;
     CUDAShader &operator=(CUDAShader &&) noexcept = delete;
     CUDAShader &operator=(const CUDAShader &) noexcept = delete;
-    virtual ~CUDAShader() noexcept = default;
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
+    [[nodiscard]] auto printer() const noexcept { return _printer.get(); }
     [[nodiscard]] virtual void *handle() const noexcept = 0;
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;

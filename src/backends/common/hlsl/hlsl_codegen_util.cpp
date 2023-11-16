@@ -12,6 +12,7 @@
 #include <luisa/ast/external_function.h>
 static bool shown_buffer_warning = false;
 namespace lc::hlsl {
+static std::atomic_bool rootsig_exceed_warned = false;
 #ifdef LUISA_ENABLE_IR
 static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
     if (f.requires_autodiff())
@@ -111,11 +112,11 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
     }
-    if (ops.test(CallOp::ZERO) ||
-        ops.test(CallOp::ONE) ||
-        ops.test(CallOp::GRADIENT) ||
+    if (ops.test(CallOp::GRADIENT) ||
         ops.test(CallOp::ACCUMULATE_GRADIENT) ||
-        ops.test(CallOp::REQUIRES_GRADIENT)) {
+        ops.test(CallOp::REQUIRES_GRADIENT) ||
+        ops.test(CallOp::GRADIENT_MARKER) ||
+        ops.test(CallOp::DETACH)) {
         builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);
     }
     if (ops.test(CallOp::REDUCE_MAX) ||
@@ -1153,7 +1154,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_MARK_GRAD";
             break;
         case CallOp::ACCUMULATE_GRADIENT:
+            LUISA_ASSERT(args.size() == 2, "accumulate_gradient must have 2 arguments");
             str << "_accum_grad";
+            if (args[0]->type()->is_structure() || args[0]->type()->is_array()) {
+                str << luisa::format("_{:016X}", args[0]->type()->hash());
+            }
             break;
         case CallOp::DETACH:
             str << "_detach";
@@ -1199,7 +1204,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "WaveActiveProduct"sv;
             break;
         case CallOp::WARP_PREFIX_SUM:
-            str << "WavePrefixProduct"sv;
+            str << "WavePrefixSum"sv;
             break;
         case CallOp::WARP_ACTIVE_SUM:
             str << "WaveActiveSum"sv;
@@ -1785,6 +1790,25 @@ void CodegenUtility::PreprocessCodegenProperties(
     }
     GenerateBindless(properties, varData, internalDataPath, isSpirv, bind_count);
 }
+
+namespace detail {
+[[nodiscard]] static auto can_accum_grad(const Type *t) noexcept {
+    auto tt = t->tag();
+    if (tt == Type::Tag::FLOAT16 ||
+        tt == Type::Tag::FLOAT32 ||
+        tt == Type::Tag::FLOAT64 ||
+        tt == Type::Tag::STRUCTURE) {
+        return true;
+    }
+    if (tt == Type::Tag::ARRAY ||
+        tt == Type::Tag::VECTOR ||
+        tt == Type::Tag::MATRIX) {
+        return can_accum_grad(t->element());
+    }
+    return false;
+}
+}// namespace detail
+
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
         vstd::fixed_vector<StructGenerator *, 16> customStructVector;
@@ -1798,6 +1822,31 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
         for (auto v : customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
+            finalResult << "#ifdef _GRAD\n";
+            auto accum_grad = [&s = finalResult](luisa::string_view access, const Type *t) noexcept {
+                if (t->is_structure() || t->is_array()) {
+                    s << luisa::format("_accum_grad_{:016X}(x_grad{}, dx{});\n", t->hash(), access, access);
+                } else {
+                    s << luisa::format("_accum_grad(x_grad{}, dx{});\n", access, access);
+                }
+            };
+            if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
+                finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
+                                             t->hash(), v->GetStructName(), v->GetStructName());
+                if (t->is_structure()) {
+                    for (auto i = 0u; i < t->members().size(); i++) {
+                        if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
+                            accum_grad(luisa::format(".v{}", i), m);
+                        }
+                    }
+                } else if (detail::can_accum_grad(t->element())) {
+                    finalResult << luisa::format("for(uint i=0;i<{};++i){{", t->dimension());
+                    accum_grad(luisa::format(".v[i]"), t->element());
+                    finalResult << "}\n";
+                }
+                finalResult << "}\n";
+            }
+            finalResult << "#endif\n";
         }
     }
     for (auto &&kv : opt->sharedVariable) {
@@ -1998,7 +2047,9 @@ uint4 dsp_c;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     } else if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
+        if (!rootsig_exceed_warned.exchange(true)) {
+            LUISA_WARNING("Arguments binding size exceeds 16 32-bit unit (max 64 allowed). This may cause extra performance cost, try to use bindless instead.");
+        }
     }
     return {
         std::move(finalResult),
@@ -2180,7 +2231,9 @@ uint iid:SV_INSTANCEID;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     } else if (bind_count > 16) [[unlikely]] {
-        LUISA_WARNING("Arguments binding size: {} exceeds 16 32-bit units, this may cause extra performance cost, try to use bindless instead.", bind_count);
+        if (!rootsig_exceed_warned.exchange(true)) {
+            LUISA_WARNING("Arguments binding size exceeds 16 32-bit unit (max 64 allowed). This may cause extra performance cost, try to use bindless instead.");
+        }
     }
     return {
         std::move(finalResult),

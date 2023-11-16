@@ -8,6 +8,7 @@ end)
 
 add_rules("build_cargo")
 add_files("luisa_compute_ir/Cargo.toml")
+
 -- add_files("luisa_compute_backend/Cargo.toml")
 -- add_files("luisa_compute_backend_impl/Cargo.toml")
 -- add_files("luisa_compute_cpu_kernel_defs/Cargo.toml")

@@ -20,7 +20,8 @@ public:
         uint mip,
         bool allowUav,
         bool allowSimul,
-        GpuAllocator *allocator = nullptr);
+        GpuAllocator *allocator = nullptr,
+        bool shared_adaptor = false);
     ~RenderTexture();
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;
     ID3D12Resource *GetResource() const override {

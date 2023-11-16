@@ -3,6 +3,7 @@
 #include <luisa/vstl/spin_mutex.h>
 #include <luisa/backends/ext/tex_compress_ext.h>
 #include <luisa/backends/ext/native_resource_ext_interface.h>
+#include <luisa/backends/ext/pinned_memory_ext.hpp>
 #include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/backends/ext/dx_cuda_interop.h>
 #include <luisa/backends/ext/dstorage_ext_interface.h>
@@ -21,8 +22,8 @@ public:
     Device *device;
     DxTexCompressExt(Device *device);
     ~DxTexCompressExt();
-    Result compress_bc6h(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept override;
-    Result compress_bc7(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept override;
+    Result compress_bc6h(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept override;
+    Result compress_bc7(Stream &stream, ImageView<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept override;
     Result check_builtin_shader() noexcept override;
 };
 struct NativeTextureDesc {
@@ -161,13 +162,20 @@ public:
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
-    Device &_device;
+    LCDevice &_device;
 
 public:
-    uint64_t cuda_buffer(uint64_t dx_buffer) noexcept override;
+    DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {}
+    BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+    ResourceCreationInfo create_interop_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels, bool simultaneous_access) noexcept override;
+    void cuda_buffer(uint64_t dx_buffer, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;
-    DxCudaInteropImpl(Device &device) : _device{device} {}
+    virtual DeviceInterface *device() override;
+    void unmap(void *cuda_ptr, void *cuda_handle) noexcept override;
 };
 
 class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
@@ -204,5 +212,19 @@ public:
         const void *data, size_t size_bytes,
         Compression algorithm, CompressionQuality quality,
         luisa::vector<std::byte> &result) noexcept override;
+};
+class DxPinnedMemoryExt : public PinnedMemoryExt {
+    LCDevice *_device;
+protected:
+    [[nodiscard]] BufferCreationInfo _pin_host_memory(
+        const Type *elem_type, size_t elem_count,
+        void *host_ptr, const PinnedMemoryOption &option) noexcept override;
+
+    [[nodiscard]] BufferCreationInfo _allocate_pinned_memory(
+        const Type *elem_type, size_t elem_count,
+        const PinnedMemoryOption &option) noexcept override;
+public:
+    explicit DxPinnedMemoryExt(LCDevice *device) : _device(device) {}
+    [[nodiscard]] DeviceInterface *device() const noexcept override;
 };
 }// namespace lc::dx

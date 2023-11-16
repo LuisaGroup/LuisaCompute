@@ -515,9 +515,9 @@ texture_sample_point(TextureView view, LCSamplerAddress address, lc_float3 uvw) 
     auto B = -2.f * (dst0.x * dst0.y + dst1.x * dst1.y);
     auto C = sqr(dst0.x) + sqr(dst1.x) + 1.f;
     auto inv_f = 1.f / (A * C - sqr(B) * 0.25f);
-    A *= inv_f;
-    B *= inv_f;
-    C *= inv_f;
+    A = A * inv_f;
+    B = A * inv_f;
+    C = A * inv_f;
 
     // Compute the ellipse's $(s,t)$ bounding box in texture space
     auto det = -sqr(B) + 4.f * A * C;
@@ -543,8 +543,8 @@ texture_sample_point(TextureView view, LCSamplerAddress address, lc_float3 uvw) 
                 auto index = lc_clamp(rr * lut_size, 0.f, lut_size - 1.f);
                 auto weight = detail::ewa_filter_weight_lut[static_cast<int>(index)];
                 auto p = texture_coord_point(address, uv + lc_make_float2(ss, tt) * inv_size, size);
-                sum += weight * view.read2d<lc_float4, float>(lc_make_uint2(p));
-                sum_w += weight;
+                sum = sum + weight * view.read2d<lc_float4, float>(lc_make_uint2(p));
+                sum_w = sum_w + weight;
             }
         }
     }
@@ -769,8 +769,8 @@ lc_bindless_texture_3d(const KernelFnArgs *k_args, const BindlessArray &array, s
     auto s = shorter * max_anisotropy;
     if (s != 0.0 && s < longer) {
         auto scale = longer / s;
-        dpdy *= scale;
-        shorter *= scale;
+        dpdy = dpdy * scale;
+        shorter = shorter * scale;
     }
     auto last_level = static_cast<float>(tex->mip_levels - 1u);
     auto level = lc_clamp(last_level + log2f(shorter), 0.f, last_level);
@@ -809,8 +809,8 @@ lc_bindless_texture_3d(const KernelFnArgs *k_args, const BindlessArray &array, s
     auto s = shorter * max_anisotropy;
     if (s != 0.0 && s < longer) {
         auto scale = longer / s;
-        dpdy *= scale;
-        shorter *= scale;
+        dpdy = dpdy * scale;
+        shorter = shorter * scale;
     }
     auto last_level = static_cast<float>(tex->mip_levels - 1u);
     auto level = lc_clamp(last_level + log2f(shorter), 0.f, last_level);

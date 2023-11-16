@@ -8,7 +8,9 @@
 #include <luisa/core/concepts.h>
 
 namespace luisa::compute {
+
 class CallableLibrary;
+
 class LC_AST_API ConstantDecoder {
 
 protected:
@@ -33,6 +35,7 @@ protected:
     virtual void _decode(const Type *type, const std::byte *data) noexcept;
 
 public:
+    virtual ~ConstantDecoder() noexcept = default;
     virtual void decode(const Type *type, const std::byte *data) noexcept;
 };
 

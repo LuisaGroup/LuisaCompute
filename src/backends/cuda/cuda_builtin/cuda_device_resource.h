@@ -1,5 +1,6 @@
 #pragma once
 
+[[nodiscard]] __device__ constexpr auto lc_infinity_half() noexcept { return __ushort_as_half(static_cast<unsigned short>(0x7c00u)); }
 [[nodiscard]] __device__ constexpr auto lc_infinity_float() noexcept { return __int_as_float(0x7f800000u); }
 [[nodiscard]] __device__ constexpr auto lc_infinity_double() noexcept { return __longlong_as_double(0x7ff0000000000000ull); }
 
@@ -19,12 +20,20 @@ inline __device__ void lc_assume(bool) noexcept {}
 
 template<typename T = void>
 [[noreturn]] inline __device__ T lc_unreachable(
-    const char *file, int line,
-    const char *user_msg = nullptr) noexcept {
+    const char *file, int line) noexcept {
 #if LC_NVRTC_VERSION < 110300 || defined(LUISA_DEBUG)
-    printf("Unreachable code reached: %s. [%s:%d]\n",
-           user_msg ? user_msg : "no user-specified message",
-           file, line);
+    printf("Unreachable code reached [%s:%d]\n", file, line);
+    lc_trap();
+#else
+    __builtin_unreachable();
+#endif
+}
+
+template<typename T = void>
+[[noreturn]] inline __device__ T lc_unreachable_with_message(
+    const char *file, int line, const char *msg) noexcept {
+#if LC_NVRTC_VERSION < 110300 || defined(LUISA_DEBUG)
+    printf("Unreachable code reached [%s:%d]\nMessage: %s\n", file, line, msg);
     lc_trap();
 #else
     __builtin_unreachable();
@@ -35,38 +44,23 @@ template<typename T = void>
 #define STRINGIFY(x) STRINGIFY2(x)
 
 #ifdef LUISA_DEBUG
-#if MIKE_HAS_FIXED_ASSERT
-#define lc_assert(x)                                    \
-    do {                                                \
-        if (!(x)) {                                     \
-            printf("Assertion failed: %s [%s:%d:%s]\n", \
-                   #x,                                  \
-                   __FILE__,                            \
-                   static_cast<int>(__LINE__),          \
-                   __FUNCTION__);                       \
-            lc_trap();                                  \
-        }                                               \
-    } while (false)
-#define lc_check_in_bounds(size, max_size)                               \
-    do {                                                                 \
-        if (!((size) < (max_size))) {                                    \
-            printf("Out of bounds: !(%s: %llu < %s: %llu) [%s:%d:%s]\n", \
-                   #size, static_cast<size_t>(size),                     \
-                   #max_size, static_cast<size_t>(max_size),             \
-                   __FILE__, static_cast<int>(__LINE__),                 \
-                   __FUNCTION__);                                        \
-            lc_trap();                                                   \
-        }                                                                \
-    } while (false)
-#else
 
-#define lc_assert(x)                                                                    \
-    do {                                                                                \
-        if (!(x)) {                                                                     \
-            printf("Assertion failed: " #x "[" __FILE__ ":" STRINGIFY(__LINE__) "]\n"); \
-            lc_trap();                                                                  \
-        }                                                                               \
+#define lc_assert(x)                                                                     \
+    do {                                                                                 \
+        if (!(x)) {                                                                      \
+            printf("Assertion failed: " #x " [" __FILE__ ":" STRINGIFY(__LINE__) "]\n"); \
+            lc_trap();                                                                   \
+        }                                                                                \
     } while (false)
+
+#define lc_assert_with_message(x, msg)                                                                     \
+    do {                                                                                                   \
+        if (!(x)) {                                                                                        \
+            printf("Assertion failed: " #x " [" __FILE__ ":" STRINGIFY(__LINE__) "]\nMessage: %s\n", msg); \
+            lc_trap();                                                                                     \
+        }                                                                                                  \
+    } while (false)
+
 #define lc_check_in_bounds(size, max_size)                               \
     do {                                                                 \
         if (!((size) < (max_size))) {                                    \
@@ -78,38 +72,18 @@ template<typename T = void>
             lc_trap();                                                   \
         }                                                                \
     } while (false)
-#endif
 
 #else
 inline __device__ void lc_assert(bool) noexcept {}
+inline __device__ void lc_assert_with_message(bool, const char *) noexcept {}
 #endif
 
-struct lc_half {
-    unsigned short bits;
-};
-
-struct alignas(4) lc_half2 {
-    lc_half x, y;
-};
-
-struct alignas(8) lc_half4 {
-    lc_half x, y, z, w;
-};
-
-[[nodiscard]] __device__ inline auto lc_half_to_float(lc_half x) noexcept {
-    lc_float val;
-    asm("{  cvt.f32.f16 %0, %1;}\n"
-        : "=f"(val)
-        : "h"(x.bits));
-    return val;
+[[nodiscard]] __device__ inline auto lc_bits_to_half(lc_ushort bits) noexcept {
+    return *reinterpret_cast<const lc_half *>(&bits);
 }
 
-[[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
-    lc_half val;
-    asm("{  cvt.rn.f16.f32 %0, %1;}\n"
-        : "=h"(val.bits)
-        : "f"(x));
-    return val;
+[[nodiscard]] __device__ inline auto lc_half_to_bits(lc_half h) noexcept {
+    return *reinterpret_cast<const lc_ushort *>(&h);
 }
 
 template<size_t alignment, size_t size>
@@ -245,7 +219,7 @@ template<typename P>
     } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<unsigned short>(x) * (1.0f / 65535.0f);
     } else if constexpr (lc_is_same<P, lc_half>::value()) {
-        return lc_half_to_float(x);
+        return static_cast<float>(x);
     } else if constexpr (lc_is_same<P, lc_float>::value()) {
         return x;
     }
@@ -296,7 +270,7 @@ template<typename P>
     } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<short>(static_cast<unsigned short>(lc_round(lc_saturate(x) * 65535.0f)));
     } else if constexpr (lc_is_same<P, lc_half>::value()) {
-        return lc_float_to_half(x);
+        return static_cast<lc_half>(x);
     } else if constexpr (lc_is_same<P, lc_float>::value()) {
         return x;
     }
@@ -464,7 +438,7 @@ template<typename T>
                 : "=r"(x)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.x = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(x)));
             break;
         }
         case LCPixelStorage::HALF2: {
@@ -473,8 +447,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
-            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
+            result.x = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(x)));
+            result.y = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(y)));
             break;
         }
         case LCPixelStorage::HALF4: {
@@ -483,10 +457,10 @@ template<typename T>
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
-            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
-            result.z = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(z)});
-            result.w = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(w)});
+            result.x = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(x)));
+            result.y = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(y)));
+            result.z = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(z)));
+            result.w = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(w)));
             break;
         }
         case LCPixelStorage::FLOAT1: {
@@ -613,7 +587,7 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF1: {
-            lc_uint v = lc_texel_write_convert<lc_half>(value.x).bits;
+            lc_uint v = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.x));
             asm volatile("sust.b.2d.b16.zero [%0, {%1, %2}], %3;"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half))), "r"(p.y), "r"(v)
@@ -621,8 +595,8 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF2: {
-            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
-            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
+            lc_uint vx = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.x));
+            lc_uint vy = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.y));
             asm volatile("sust.b.2d.v2.b16.zero [%0, {%1, %2}], {%3, %4};"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half2))), "r"(p.y), "r"(vx), "r"(vy)
@@ -630,10 +604,10 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF4: {
-            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
-            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
-            lc_uint vz = lc_texel_write_convert<lc_half>(value.z).bits;
-            lc_uint vw = lc_texel_write_convert<lc_half>(value.w).bits;
+            lc_uint vx = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.x));
+            lc_uint vy = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.y));
+            lc_uint vz = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.z));
+            lc_uint vw = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.w));
             asm volatile("sust.b.2d.v4.b16.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
@@ -775,7 +749,7 @@ template<typename T>
                 : "=r"(x)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.x = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(x)));
             break;
         }
         case LCPixelStorage::HALF2: {
@@ -784,8 +758,8 @@ template<typename T>
                 : "=r"(x), "=r"(y)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
-            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
+            result.x = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(x)));
+            result.y = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(y)));
             break;
         }
         case LCPixelStorage::HALF4: {
@@ -794,10 +768,10 @@ template<typename T>
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
                 : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
-            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
-            result.z = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(z)});
-            result.w = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(w)});
+            result.x = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(x)));
+            result.y = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(y)));
+            result.z = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(z)));
+            result.w = lc_texel_read_convert<T, lc_half>(lc_bits_to_half(static_cast<lc_ushort>(w)));
             break;
         }
         case LCPixelStorage::FLOAT1: {
@@ -924,7 +898,7 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF1: {
-            lc_uint v = lc_texel_write_convert<lc_half>(value.x).bits;
+            lc_uint v = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.x));
             asm volatile("sust.b.3d.b16.zero [%0, {%1, %2, %3, %4}], %5;"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
@@ -932,8 +906,8 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF2: {
-            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
-            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
+            lc_uint vx = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.x));
+            lc_uint vy = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.y));
             asm volatile("sust.b.3d.v2.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy)
@@ -941,10 +915,10 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF4: {
-            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
-            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
-            lc_uint vz = lc_texel_write_convert<lc_half>(value.z).bits;
-            lc_uint vw = lc_texel_write_convert<lc_half>(value.w).bits;
+            lc_uint vx = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.x));
+            lc_uint vy = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.y));
+            lc_uint vz = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.z));
+            lc_uint vw = lc_half_to_bits(lc_texel_write_convert<lc_half>(value.w));
             asm volatile("sust.b.3d.v4.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
@@ -2403,6 +2377,9 @@ __device__ inline void lc_byte_buffer_write(LCBuffer<lc_ubyte> buffer, lc_ulong 
 }
 
 #if __CUDA_ARCH__ >= 700
+[[nodiscard]] __device__ inline auto __match_all_sync(unsigned int mask, lc_half x, int *pred) noexcept {
+    return __match_all_sync(mask, static_cast<float>(x), pred);
+}
 #define LC_WARP_ALL_EQ_SCALAR(T)                                                  \
     [[nodiscard]] __device__ inline auto lc_warp_active_all_equal(T x) noexcept { \
         auto mask = LC_WARP_ACTIVE_MASK;                                          \
@@ -2455,7 +2432,7 @@ LC_WARP_ALL_EQ(lc_uint)
 LC_WARP_ALL_EQ(lc_long)
 LC_WARP_ALL_EQ(lc_ulong)
 LC_WARP_ALL_EQ(lc_float)
-//LC_WARP_ALL_EQ(lc_half)// TODO
+LC_WARP_ALL_EQ(lc_half)
 //LC_WARP_ALL_EQ(lc_double)// TODO
 
 #undef LC_WARP_ALL_EQ_SCALAR
@@ -2618,7 +2595,7 @@ LC_WARP_READ_LANE(uint)
 LC_WARP_READ_LANE(long)
 LC_WARP_READ_LANE(ulong)
 LC_WARP_READ_LANE(float)
-//LC_WARP_READ_LANE(half)// TODO
+LC_WARP_READ_LANE(half)
 //LC_WARP_READ_LANE(double)// TODO
 
 #undef LC_WARP_READ_LANE_SCALAR
@@ -2652,11 +2629,11 @@ template<typename T>
 
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_warp_active_min_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return min(a, b); });
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return lc_min(a, b); });
 }
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_warp_active_max_impl(T x) noexcept {
-    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return max(a, b); });
+    return lc_warp_active_reduce_impl(x, [](T a, T b) noexcept { return lc_max(a, b); });
 }
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_warp_active_sum_impl(T x) noexcept {
@@ -2740,11 +2717,11 @@ LC_WARP_ACTIVE_REDUCE_SCALAR(min, float)
 LC_WARP_ACTIVE_REDUCE_SCALAR(max, float)
 LC_WARP_ACTIVE_REDUCE_SCALAR(sum, float)
 LC_WARP_ACTIVE_REDUCE_SCALAR(product, float)
-// TODO: half and double
-// LC_WARP_ACTIVE_REDUCE_SCALAR(min, half)
-// LC_WARP_ACTIVE_REDUCE_SCALAR(max, half)
-// LC_WARP_ACTIVE_REDUCE_SCALAR(sum, half)
-// LC_WARP_ACTIVE_REDUCE_SCALAR(product, half)
+LC_WARP_ACTIVE_REDUCE_SCALAR(min, half)
+LC_WARP_ACTIVE_REDUCE_SCALAR(max, half)
+LC_WARP_ACTIVE_REDUCE_SCALAR(sum, half)
+LC_WARP_ACTIVE_REDUCE_SCALAR(product, half)
+// TODO: double
 // LC_WARP_ACTIVE_REDUCE_SCALAR(min, double)
 // LC_WARP_ACTIVE_REDUCE_SCALAR(max, double)
 // LC_WARP_ACTIVE_REDUCE_SCALAR(sum, double)
@@ -2794,7 +2771,7 @@ LC_WARP_ACTIVE_REDUCE(short)
 LC_WARP_ACTIVE_REDUCE(ulong)
 LC_WARP_ACTIVE_REDUCE(long)
 LC_WARP_ACTIVE_REDUCE(float)
-//LC_WARP_ACTIVE_REDUCE(half)// TODO
+LC_WARP_ACTIVE_REDUCE(half)
 //LC_WARP_ACTIVE_REDUCE(double)// TODO
 
 #undef LC_WARP_ACTIVE_REDUCE_VECTOR2
@@ -2876,7 +2853,7 @@ LC_WARP_PREFIX_REDUCE(short)
 LC_WARP_PREFIX_REDUCE(ulong)
 LC_WARP_PREFIX_REDUCE(long)
 LC_WARP_PREFIX_REDUCE(float)
-//LC_WARP_PREFIX_REDUCE(half)// TODO
+LC_WARP_PREFIX_REDUCE(half)
 //LC_WARP_PREFIX_REDUCE(double)// TODO
 
 #undef LC_WARP_PREFIX_REDUCE_SCALAR
@@ -2884,3 +2861,31 @@ LC_WARP_PREFIX_REDUCE(float)
 #undef LC_WARP_PREFIX_REDUCE_VECTOR3
 #undef LC_WARP_PREFIX_REDUCE_VECTOR4
 #undef LC_WARP_PREFIX_REDUCE
+
+struct LCPrintBufferContent {
+    lc_ulong size;
+    lc_ubyte data[1];
+};
+
+struct LCPrintBuffer {
+    lc_ulong capacity;
+    LCPrintBufferContent *__restrict__ content;
+};
+
+#ifdef LUISA_ENABLE_OPTIX
+#define LC_PRINT_BUFFER (params.print_buffer)
+#else
+#define LC_PRINT_BUFFER (print_buffer)
+#endif
+
+template<typename T>
+__device__ inline void lc_print_impl(LCPrintBuffer buffer, T value) noexcept {
+    if (buffer.capacity == 0u || buffer.content == nullptr) { return; }
+    auto offset = atomicAdd(&buffer.content->size, sizeof(T));
+    if (offset + sizeof(T) <= buffer.capacity) {
+        auto ptr = buffer.content->data + offset;
+        memcpy(ptr, &value, sizeof(T));
+    }
+}
+
+#define LC_DECODE_STRING_FROM_ID(str_id) ((const char *)&(lc_string_data[lc_string_offsets[str_id]]))

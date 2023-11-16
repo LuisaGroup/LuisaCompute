@@ -158,8 +158,9 @@ void test_ad_helper(luisa::string_view name, Device &device, F &&f_, AdCheckOpti
 struct Foo {
     float3 v;
     float f;
+    uint z[2];
 };
-LUISA_STRUCT(Foo, v, f) {};
+LUISA_STRUCT(Foo, v, f, z) {};
 
 int main(int argc, char *argv[]) {
 
@@ -214,6 +215,19 @@ int main(int argc, char *argv[]) {
     {
         test_ad_helper<3>("if", device, [](auto a, auto b, auto c) {
             Var<Foo> foo{make_float3(a, b, c), a + b + c};
+            auto zero = def(0u);
+            $if (foo.v.x > 3.0f) {
+                foo.v[zero] -= 1.0f;
+            }
+            $else {
+                foo.v[zero + 1u] -= foo.f;
+            };
+            return foo.v.x * foo.v.y + foo.v.z * foo.f;
+        });
+    }
+    {
+        test_ad_helper<3>("if2", device, [](auto a, auto b, auto c) {
+            Var<Foo> foo{make_float3(a, b, c), a + b + c};
             $if (foo.v.x > 3.0f) {
                 foo.v.x -= 1.0f;
             }
@@ -221,6 +235,18 @@ int main(int argc, char *argv[]) {
                 foo.v.x -= foo.f;
             };
             return foo.v.x * foo.v.y + foo.v.z * foo.f;
+        });
+    }
+    {
+        test_ad_helper<3>("array_sum", device, [](auto a, auto b, auto c) {
+            ArrayFloat<3> arr{a, b, c};
+            return arr[0] + arr[1] + arr[2];
+        });
+    }
+    {
+        test_ad_helper<3>("array_sum2", device, [](auto a, auto b, auto c) {
+            ArrayFloat<2> arr{a, b};
+            return arr[0] + arr[1];
         });
     }
 }

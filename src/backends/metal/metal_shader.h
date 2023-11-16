@@ -8,6 +8,7 @@ namespace luisa::compute::metal {
 
 class MetalDevice;
 class MetalCommandEncoder;
+class MetalShaderPrinter;
 
 struct MetalShaderHandle {
     NS::SharedPtr<MTL::ComputePipelineState> entry;
@@ -28,12 +29,14 @@ private:
     NS::String *_name{nullptr};
     NS::String *_indirect_name{nullptr};
     MTL::ComputePipelineState *_prepare_indirect;
+    luisa::unique_ptr<MetalShaderPrinter> _printer;
 
 public:
     MetalShader(MetalDevice *device,
                 MetalShaderHandle handle,
                 luisa::vector<Usage> argument_usages,
                 luisa::vector<Argument> bound_arguments,
+                luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
                 uint3 block_size) noexcept;
     ~MetalShader() noexcept;
     void launch(MetalCommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept;

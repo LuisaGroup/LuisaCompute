@@ -112,7 +112,7 @@ target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 target_link_libraries(luisa-compute-ext INTERFACE half)
 luisa_compute_install_extension(half INCLUDE half/include)
 
-if (SKBUILD)
+if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
 

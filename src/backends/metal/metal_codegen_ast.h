@@ -3,7 +3,7 @@
 #include <luisa/ast/function.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/expression.h>
-#include "../common/string_scratch.h"
+#include <luisa/core/string_scratch.h>
 
 namespace luisa::compute::metal {
 
@@ -17,6 +17,7 @@ private:
     StringScratch &_scratch;
     Function _function;
     uint _indention{0u};
+    bool _uses_printing{false};
     const Type *_ray_type;
     const Type *_triangle_hit_type;
     const Type *_procedural_hit_type;
@@ -24,6 +25,7 @@ private:
     const Type *_ray_query_all_type;
     const Type *_ray_query_any_type;
     const Type *_indirect_dispatch_buffer_type;
+    luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
 
 private:
     void visit(const UnaryExpr *expr) noexcept override;
@@ -36,6 +38,7 @@ private:
     void visit(const CastExpr *expr) noexcept override;
     void visit(const TypeIDExpr *expr) noexcept override;
     void visit(const StringIDExpr *expr) noexcept override;
+    void visit(const ConstantExpr *expr) noexcept override;
     void visit(const BreakStmt *stmt) noexcept override;
     void visit(const ContinueStmt *stmt) noexcept override;
     void visit(const ReturnStmt *stmt) noexcept override;
@@ -49,9 +52,9 @@ private:
     void visit(const AutoDiffStmt *stmt) noexcept override;
     void visit(const AssignStmt *stmt) noexcept override;
     void visit(const ForStmt *stmt) noexcept override;
-    void visit(const ConstantExpr *expr) noexcept override;
     void visit(const CommentStmt *stmt) noexcept override;
     void visit(const RayQueryStmt *stmt) noexcept override;
+    void visit(const PrintStmt *stmt) noexcept override;
     void visit(const CpuCustomOpExpr *expr) noexcept override;
     void visit(const GpuCustomOpExpr *expr) noexcept override;
 
@@ -68,6 +71,9 @@ public:
     explicit MetalCodegenAST(StringScratch &scratch) noexcept;
     void emit(Function kernel, luisa::string_view native_include) noexcept;
     [[nodiscard]] static size_t type_size_bytes(const Type *type) noexcept;
+
+public:
+    [[nodiscard]] auto print_formats() const noexcept { return luisa::span{_print_formats}; }
 };
 
 }// namespace luisa::compute::metal

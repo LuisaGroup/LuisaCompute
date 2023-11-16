@@ -91,6 +91,7 @@ void export_gui(py::module &m) {
                         case PyWindow::KeyState::Down:
                             iter->second = PyWindow::KeyState::Keep;
                             break;
+                        default: break;
                     }
                 } else if (action == kRelease) {
                     switch (iter->second) {
@@ -99,6 +100,7 @@ void export_gui(py::module &m) {
                         case PyWindow::KeyState::Keep:
                             iter->second = PyWindow::KeyState::Up;
                             break;
+                        default: break;
                     }
                 }
             };
@@ -133,6 +135,8 @@ void export_gui(py::module &m) {
                             break;
                         case PyWindow::KeyState::Up:
                             i.second = PyWindow::KeyState::None;
+                            break;
+                        default:
                             break;
                     }
                     if (i.second == PyWindow::KeyState::None) {

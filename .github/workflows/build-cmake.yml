@@ -84,7 +84,8 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja llvm sccache glfw
+          brew install --overwrite python@3.11
+          brew install --overwrite cmake ninja llvm sccache glfw molten-vk
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
@@ -116,7 +117,7 @@ jobs:
         with:
           submodules: recursive
       - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.10
+        uses: Jimver/cuda-toolkit@v0.2.11
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:

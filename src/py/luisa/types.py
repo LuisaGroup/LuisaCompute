@@ -232,7 +232,7 @@ class BuiltinFuncBuilder:
         self.builder = builder
         self.__name__ = builder.__name__
 
-    def __call__(self, *args, DO_NOT_CALL):
+    def __call__(self, *args):
         pass
 
 

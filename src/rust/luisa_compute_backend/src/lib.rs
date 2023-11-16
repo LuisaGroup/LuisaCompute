@@ -94,15 +94,14 @@ impl BackendProvider {
 }
 
 pub struct Context {
-    pub(crate) cpp: std::result::Result<BackendProvider, libloading::Error>,
-    pub(crate) rust: std::result::Result<BackendProvider, libloading::Error>,
+    pub(crate) provider: std::result::Result<BackendProvider, libloading::Error>,
 }
 
 impl Context {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         unsafe {
             let lib_path = path.as_ref().to_path_buf();
-            let cpp_dll = if cfg!(target_os = "windows") {
+            let provider_dll = if cfg!(target_os = "windows") {
                 lib_path.join("lc-api.dll")
             } else if cfg!(target_os = "linux") {
                 lib_path.join("liblc-api.so")
@@ -111,58 +110,28 @@ impl Context {
             } else {
                 todo!()
             };
-            let rust_dll = if cfg!(target_os = "windows") {
-                lib_path.join("luisa_compute_backend_impl.dll")
-            } else if cfg!(target_os = "linux") {
-                lib_path.join("libluisa_compute_backend_impl.so")
-            } else if cfg!(target_os = "macos") {
-                lib_path.join("libluisa_compute_backend_impl.dylib")
-            } else {
-                todo!()
-            };
-            let cpp = BackendProvider::new(&cpp_dll);
-            let rust = BackendProvider::new(&rust_dll);
-            Self { cpp, rust }
+            let provider = BackendProvider::new(&provider_dll);
+            Self { provider }
         }
     }
 
     pub fn create_device(&self, device: &str, config: serde_json::Value) -> ProxyBackend {
-        match device {
-            "cpu" | "remote" => match &self.rust {
-                Ok(provider) => ProxyBackend::new(provider, device, config),
-                Err(err) => {
-                    let libname = if cfg!(target_os = "windows") {
-                        "luisa_compute_backend_impl.dll"
-                    } else if cfg!(target_os = "linux") {
-                        "libluisa_compute_backend_impl.so"
-                    } else if cfg!(target_os = "macos") {
-                        "libluisa_compute_backend_impl.dylib"
-                    } else {
-                        todo!()
-                    };
+        match &self.provider {
+            Ok(provider) => ProxyBackend::new(provider, device, config),
+            Err(err) => {
+                let libname = if cfg!(target_os = "windows") {
+                    "lc-api.dll"
+                } else if cfg!(target_os = "linux") {
+                    "liblc-api.so"
+                } else if cfg!(target_os = "macos") {
+                    "liblc-api.dylib"
+                } else {
+                    todo!()
+                };
 
-                    let err = err.to_string();
-                    panic!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err);
-                }
-            },
-            "cuda" | "dx" | "metal" => match &self.cpp {
-                Ok(provider) => ProxyBackend::new(provider, device, config),
-                Err(err) => {
-                    let libname = if cfg!(target_os = "windows") {
-                        "lc-api.dll"
-                    } else if cfg!(target_os = "linux") {
-                        "liblc-api.so"
-                    } else if cfg!(target_os = "macos") {
-                        "liblc-api.dylib"
-                    } else {
-                        todo!()
-                    };
-
-                    let err = err.to_string();
-                    panic!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err);
-                }
-            },
-            _ => panic!("unsupported device: {}", device),
+                let err = err.to_string();
+                panic!("device {0} not found. {0} device may not be enabled or {1} is not found. detailed error: {2}", device, libname, err);
+            }
         }
     }
 }
@@ -177,7 +146,12 @@ pub struct RustcInfo {
 pub trait Backend: Sync + Send {
     fn native_handle(&self) -> *mut c_void;
     fn compute_warp_size(&self) -> u32;
-    fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> api::CreatedBufferInfo;
+    fn create_buffer(
+        &self,
+        ty: &CArc<ir::Type>,
+        count: usize,
+        ext_mem: *mut c_void,
+    ) -> api::CreatedBufferInfo;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
         &self,
@@ -238,6 +212,7 @@ pub trait Backend: Sync + Send {
     fn create_accel(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
     fn destroy_accel(&self, accel: api::Accel);
     fn query(&self, property: &str) -> Option<String>;
+    fn denoiser_ext(&self) -> api::DenoiserExt;
 }
 
 // #[no_mangle]
@@ -269,10 +244,11 @@ extern "C" fn create_buffer<B: Backend>(
     backend: api::Device,
     ty: *const c_void,
     count: usize,
+    ext_mem: *mut c_void,
 ) -> api::CreatedBufferInfo {
     let backend: &B = get_backend(backend);
     let ty = unsafe { &*(ty as *const CArc<ir::Type>) };
-    backend.create_buffer(ty, count)
+    backend.create_buffer(ty, count, ext_mem)
 }
 
 pub extern "C" fn destroy_buffer<B: Backend>(backend: api::Device, buffer: api::Buffer) {
@@ -516,6 +492,12 @@ extern "C" fn compute_warp_size<B: Backend>(device: api::Device) -> u32 {
     let backend: &B = get_backend(device);
     backend.compute_warp_size()
 }
+extern "C" fn pinned_memory_ext<B: Backend>(_device: api::Device) -> api::PinnedMemoryExt {
+    todo!()
+}
+extern "C" fn denoiser_ext<B: Backend>(_device: api::Device) -> api::DenoiserExt {
+    todo!()
+}
 #[inline]
 pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
     let backend = Box::new(backend);
@@ -553,5 +535,7 @@ pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
         create_accel: create_accel::<B>,
         destroy_accel: destroy_accel::<B>,
         query: query::<B>,
+        pinned_memory_ext: pinned_memory_ext::<B>,
+        denoiser_ext: denoiser_ext::<B>,
     }
 }

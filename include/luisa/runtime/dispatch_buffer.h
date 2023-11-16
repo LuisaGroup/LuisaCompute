@@ -36,7 +36,7 @@ private:
 public:
     IndirectDispatchBuffer(DeviceInterface *device, size_t capacity) noexcept
         : IndirectDispatchBuffer{device, capacity,
-                                 device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity)} {
+                                 device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity, nullptr)} {
     }
     IndirectDispatchBuffer() noexcept = default;
     ~IndirectDispatchBuffer() noexcept override;

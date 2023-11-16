@@ -3,11 +3,14 @@
 
 namespace luisa::compute::metal {
 
-metal::MetalBuffer::MetalBuffer(MTL::Device *device, size_t size) noexcept
+MetalBuffer::MetalBuffer(MTL::Device *device, size_t size) noexcept
     : _handle{device->newBuffer(size, MTL::ResourceStorageModePrivate |
                                           MTL::ResourceHazardTrackingModeTracked)} {}
 
-metal::MetalBuffer::~MetalBuffer() noexcept {
+MetalBuffer::MetalBuffer(MTL::Buffer *external) noexcept
+    : _handle{external->retain()} {}
+
+MetalBuffer::~MetalBuffer() noexcept {
     _handle->release();
 }
 
@@ -88,4 +91,3 @@ void MetalIndirectDispatchBuffer::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::metal
-

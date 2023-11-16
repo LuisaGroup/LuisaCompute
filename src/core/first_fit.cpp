@@ -47,7 +47,7 @@ FirstFit::Node *FirstFit::allocate(size_t size) noexcept {
         if (auto node = p->_next; node->_size > size) {
             // compute aligned size
             auto mask = _alignment - 1u;
-            auto aligned_size = (size & mask) == 0u ? size : (size & ~mask) + _alignment;
+            auto aligned_size = (size + mask) & ~mask;
             // has remaining size, split the node
             if (node->_size > aligned_size) {
                 auto alloc_node = detail::first_fit_node_pool().create();

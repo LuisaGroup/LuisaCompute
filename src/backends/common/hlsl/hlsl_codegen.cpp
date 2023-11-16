@@ -225,6 +225,13 @@ void StringStateVisitor::visit(const LiteralExpr *expr) {
 void StringStateVisitor::visit(const CallExpr *expr) {
     util->GetFunctionName(expr, str, *this);
 }
+
+void StringStateVisitor::visit(const StringIDExpr *expr) {
+    str << "((";
+    util->GetTypeName(*expr->type(), str, Usage::READ);
+    str << ")" << luisa::hash_value(expr->data()) << "ull)";
+}
+
 void StringStateVisitor::visit(const CastExpr *expr) {
     if (expr->type() == expr->expression()->type()) [[unlikely]] {
         expr->expression()->accept(*this);
@@ -435,9 +442,34 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {
-    state->lhs()->accept(*this);
+    auto is_shared = [&](const Expression *x) noexcept {
+        if (x->tag() == Expression::Tag::REF) {
+            auto v = static_cast<RefExpr const *>(x)->variable();
+            if (v.tag() == Variable::Tag::SHARED) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // shared variables are not wrapped in array
+    // structs, so some hack is necessary
+    auto lhs_is_shared = is_shared(state->lhs());
+    auto rhs_is_shared = is_shared(state->rhs());
+    if (!lhs_is_shared && rhs_is_shared) {
+        str << "(";
+        state->lhs()->accept(*this);
+        str << ").v";
+    } else {
+        state->lhs()->accept(*this);
+    }
     str << '=';
-    state->rhs()->accept(*this);
+    if (lhs_is_shared && !rhs_is_shared) {
+        str << "(";
+        state->rhs()->accept(*this);
+        str << ").v";
+    } else {
+        state->rhs()->accept(*this);
+    }
     str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
@@ -520,6 +552,7 @@ void StringStateVisitor::VisitFunction(
     }
     func.body()->accept(*this);
 }
+
 StringStateVisitor::~StringStateVisitor() = default;
 StringStateVisitor::Scope::Scope(StringStateVisitor *self)
     : self(self) {

@@ -13,7 +13,6 @@ from .image3d import image3d, Image3D, Texture3DType
 from .dylibs.lcapi import PixelStorage
 from .gui import GUI
 
-from .printer import Printer
 from .accel import Accel, make_ray, inf_ray, offset_ray_origin
 from .hit import TriangleHit, CommittedHit, ProceduralHit
 from .rayquery import RayQueryAllType, RayQueryAnyType, is_triangle, is_procedural, Ray
@@ -24,34 +23,34 @@ from .meshformat import MeshFormat
 from .dylibs.lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
 from os.path import realpath
 import platform
+import sys
+from os import environ
+
 
 def _select_backend(backends):
+    if "LUSIA_BACKEND" in environ:
+        backend_name = environ["LUSIA_BACKEND"].lower()
+        if backend_name in backends:
+            print(f"Detected backends: {backends}.",
+                  f"Selecting {backend_name} according to environment variable `LUISA_BACKEND`.")
+            return backend_name
+        else:
+            print(f"Detected backends: {backends}.",
+                  f"Environment variable `LUISA_BACKEND` is set to {backend_name}, but it is not installed.",
+                  f"LuisaCompute will select an alternative backend automatically.",
+                  file=sys.stderr)
     platform_str = str(platform.platform()).lower()
     if platform_str.find("windows") >= 0:
-        for i in backends:
-            if i == "dx":
-                backend_name = "dx"
-                break
-        if backend_name is None:
-            backend_name = backends[0]
+        backend_name = "dx" if "dx" in backends else backends[0]
     elif platform_str.find("linux") >= 0:
-        for i in backends:
-            if i == "cuda":
-                backend_name = "cuda"
-                break
-        if backend_name is None:
-            backend_name = backends[0]
+        backend_name = "cuda" if "cuda" in backends else backends[0]
     elif platform_str.find("macos") >= 0:
-        for i in backends:
-            if i == "metal":
-                backend_name = "metal"
-                break
-        if backend_name is None:
-            backend_name = backends[0]
+        backend_name = "metal" if "metal" in backends else backends[0]
     else:
         backend_name = backends[0]
-    print(f"detected backends: {backends}. Selecting {backend_name}.")
+    print(f"Detected backends: {backends}. Selecting {backend_name}.")
     return backend_name
+
 
 def init(backend_name=None, shader_path=None, support_gui=True):
     if globalvars.vars is not None:

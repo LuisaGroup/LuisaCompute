@@ -7,6 +7,7 @@ import aces
 import time
 import cornell_box
 import numpy as np
+
 init()
 
 Material = StructType(albedo=float3, emission=float3)
@@ -19,6 +20,7 @@ def to_world(self, v: float3):
 
 
 Onb.add_method(to_world, "to_world")
+
 
 @func
 def make_onb(normal: float3):
@@ -143,7 +145,7 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
             bsdf = float3(material.albedo * (1 / 3.1415926) * cos_wi_light)
             # radiance += beta * bsdf * light_emission
             radiance += beta * bsdf * mis_weight * \
-                light_emission / float(max(pdf_light, 1e-4))
+                        light_emission / float(max(pdf_light, 1e-4))
 
         # sample BSDF
         onb = make_onb(n)
@@ -255,7 +257,6 @@ seed_image = Image2D(*res, 1, uint, storage="INT")
 ldr_image = Image2D(*res, 4, float, storage="BYTE")
 
 clear_kernel(accum_image, dispatch_size=[*res, 1])
-
 
 t0 = time.time()
 frame_index = 0

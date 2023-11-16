@@ -42,7 +42,7 @@ template<typename... Args>
     for (auto i = 0u; i < trace.size(); i++) {
         auto &&t = trace[i];
         using namespace std::string_view_literals;
-        error_message.append(fmt::format(
+        error_message.append(luisa::format(
             FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"sv),
             i, t.address, t.module, t.symbol, t.offset));
     }
