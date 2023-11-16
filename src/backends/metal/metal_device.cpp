@@ -19,6 +19,7 @@
 #include "metal_bindless_array.h"
 #include "metal_accel.h"
 #include "metal_mesh.h"
+#include "metal_curve.h"
 #include "metal_procedural_primitive.h"
 #include "metal_shader.h"
 #include "metal_device.h"
@@ -674,6 +675,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 mesh->set_name(name);
                 break;
             }
+            case Resource::Tag::CURVE: {
+                auto curve = reinterpret_cast<MetalCurve *>(resource_handle);
+                curve->set_name(name);
+                break;
+            }
             case Resource::Tag::PROCEDURAL_PRIMITIVE: {
                 auto prim = reinterpret_cast<MetalProceduralPrimitive *>(resource_handle);
                 prim->set_name(name);
@@ -724,6 +730,8 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
             }
             case Resource::Tag::SPARSE_BUFFER: break;
             case Resource::Tag::SPARSE_TEXTURE: break;
+            case Resource::Tag::SPARSE_BUFFER_HEAP: break;
+            case Resource::Tag::SPARSE_TEXTURE_HEAP: break;
         }
     });
 }

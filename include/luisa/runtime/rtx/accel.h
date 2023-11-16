@@ -3,8 +3,8 @@
 #include <luisa/core/dll_export.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/unordered_map.h>
-#include <luisa/runtime/rtx/ray.h>
 #include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/curve.h>
 #include <luisa/runtime/rtx/procedural_primitive.h>
 
 namespace luisa::compute {
@@ -68,6 +68,14 @@ public:
         _emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
 
+    void emplace_back(const Curve &curve,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        _emplace_back_handle(curve.handle(), transform, visibility_mask, opaque, user_id);
+    }
+
     void emplace_back(const ProceduralPrimitive &prim,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
@@ -84,7 +92,13 @@ public:
              uint user_id = 0) noexcept {
         _set_handle(index, mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
-
+    void set(size_t index, const Curve &curve,
+             float4x4 transform = make_float4x4(1.f),
+             uint8_t visibility_mask = 0xffu,
+             bool opaque = true,
+             uint user_id = 0) noexcept {
+        _set_handle(index, curve.handle(), transform, visibility_mask, opaque, user_id);
+    }
     void set(size_t index, const ProceduralPrimitive &prim,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
@@ -93,6 +107,9 @@ public:
     }
     void set_mesh(size_t index, const Mesh &mesh) noexcept {
         _set_prim_handle(index, mesh.handle());
+    }
+    void set_curve(size_t index, const Curve &curve) noexcept {
+        _set_prim_handle(index, curve.handle());
     }
     void set_procedural_primitive(size_t index, const ProceduralPrimitive &prim) noexcept {
         _set_prim_handle(index, prim.handle());

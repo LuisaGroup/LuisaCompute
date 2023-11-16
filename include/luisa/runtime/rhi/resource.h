@@ -146,6 +146,7 @@ public:
         TEXTURE,
         BINDLESS_ARRAY,
         MESH,
+        CURVE,
         PROCEDURAL_PRIMITIVE,
         ACCEL,
         STREAM,

@@ -27,9 +27,71 @@ private:
     uint64_t _seg_buffer{};
     size_t _seg_buffer_offset{};
 
+private:
+    friend class Device;
+
+    template<typename CPBuffer,
+             typename RBuffer,
+             typename SegBuffer>
+        requires is_buffer_or_view_v<CPBuffer> &&
+                 is_buffer_or_view_v<RBuffer> &&
+                 is_buffer_or_view_v<SegBuffer> &&
+                 std::same_as<buffer_element_t<RBuffer>, float> &&
+                 std::same_as<buffer_element_t<SegBuffer>, uint>
+    [[nodiscard]] static ResourceCreationInfo _create_resource(
+        DeviceInterface *device, const AccelOption &option,
+        const CPBuffer &control_point_buffer [[maybe_unused]],
+        const RBuffer &radius_buffer [[maybe_unused]],
+        const SegBuffer &segment_buffer [[maybe_unused]]) noexcept {
+        return device->create_curve(option);
+    }
+
+private:
+    template<typename CPBuffer,
+             typename RBuffer,
+             typename SegBuffer>
+    Curve(DeviceInterface *device,
+          CurveBasis basis,
+          const CPBuffer &control_point_buffer,
+          const RBuffer &radius_buffer,
+          const SegBuffer &segment_buffer,
+          const AccelOption &option) noexcept
+        : Resource{device, Resource::Tag::CURVE,
+                   _create_resource(device, option,
+                                    control_point_buffer,
+                                    radius_buffer,
+                                    segment_buffer)},
+          _basis{basis},
+          _cp_count{control_point_buffer.size()},
+          _seg_count{segment_buffer.size()},
+          _cp_buffer{BufferView{control_point_buffer}.handle()},
+          _cp_buffer_offset{BufferView{control_point_buffer}.offset_bytes()},
+          _cp_stride{control_point_buffer.stride()},
+          _radius_buffer{BufferView{radius_buffer}.handle()},
+          _radius_buffer_offset{BufferView{radius_buffer}.offset_bytes()},
+          _radius_stride{radius_buffer.stride()},
+          _seg_buffer{BufferView{segment_buffer}.handle()},
+          _seg_buffer_offset{BufferView{segment_buffer}.offset_bytes()} {}
+
 public:
+    Curve() noexcept = default;
+    ~Curve() noexcept override;
+    Curve(Curve &&) noexcept = default;
+    Curve(const Curve &) noexcept = delete;
+    Curve &operator=(Curve &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
+    Curve &operator=(const Curve &) noexcept = delete;
+    using Resource::operator bool;
 
+public:
+    [[nodiscard]] CurveBasis basis() const noexcept;
+    [[nodiscard]] size_t control_point_count() const noexcept;
+    [[nodiscard]] size_t segment_count() const noexcept;
 
+public:
+    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
 };
 
 }// namespace luisa::compute
