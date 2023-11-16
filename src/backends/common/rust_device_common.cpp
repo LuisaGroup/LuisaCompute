@@ -321,8 +321,21 @@ public:
             .index_stride = sizeof(Triangle)};
         _converted.emplace_back(converted);
     }
-    void visit(const CurveBuildCommand *) noexcept override {
-        LUISA_NOT_IMPLEMENTED();
+    void visit(const CurveBuildCommand *command) noexcept override {
+        api::Command converted{.tag = Tag::CURVE_BUILD};
+        converted.CURVE_BUILD._0 = api::CurveBuildCommand {
+            .curve = {command->handle()},
+            .request = _convert_accel_build_request(command->request()),
+            .basis = static_cast<api::CurveBasis>(command->basis()),
+            .cp_count = command->cp_count(),
+            .seg_count = command->seg_count(),
+            .cp_buffer = {command->cp_buffer()},
+            .cp_buffer_offset = command->cp_buffer_offset(),
+            .cp_buffer_stride = command->cp_stride(),
+            .seg_buffer = {command->seg_buffer()},
+            .seg_buffer_offset = command->seg_buffer_offset(),
+        };
+        _converted.emplace_back(converted);
     }
     void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
         api::Command converted{.tag = Tag::PROCEDURAL_PRIMITIVE_BUILD};

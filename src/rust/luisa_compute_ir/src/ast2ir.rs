@@ -2,13 +2,13 @@ use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 
+use bitflags::Flags;
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
+use log::warn;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;
-use bitflags::Flags;
-use log::warn;
 
 struct AST2IRCtx<'a> {
     j: &'a JSON,
@@ -505,7 +505,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         if t_ret.as_ref() != t.as_ref() {
             warn!(
                 "Mismatched result types in binary operator '{}': {} vs {}. Trying to cast.",
-                op, t_ret.as_ref(), t.as_ref());
+                op,
+                t_ret.as_ref(),
+                t.as_ref()
+            );
         }
         // assert_eq!(
         //     t_ret.as_ref(),
@@ -1443,8 +1446,12 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                     for arg in args {
                         if arg.type_().is_primitive() {
                             if arg.type_().as_ref() != elem.as_ref() {
-                                warn!("Implicit cast from {:?} to {:?} in {}.",
-                                    arg.type_().as_ref(), elem.as_ref(), f);
+                                warn!(
+                                    "Implicit cast from {:?} to {:?} in {}.",
+                                    arg.type_().as_ref(),
+                                    elem.as_ref(),
+                                    f
+                                );
                                 let arg = Self::_cast(builder, &elem, arg);
                                 scalars.push(arg);
                             } else {
@@ -1453,9 +1460,14 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                         } else {
                             assert!(arg.type_().is_vector());
                             let arg = if arg.type_().element().as_ref() != elem.as_ref() {
-                                let elem_vec = Type::vector_of(elem.clone(), arg.type_().dimension() as u32);
-                                warn!("Implicit cast from {:?} to {:?} in {}.",
-                                    arg.type_().as_ref(), elem_vec.as_ref(), f);
+                                let elem_vec =
+                                    Type::vector_of(elem.clone(), arg.type_().dimension() as u32);
+                                warn!(
+                                    "Implicit cast from {:?} to {:?} in {}.",
+                                    arg.type_().as_ref(),
+                                    elem_vec.as_ref(),
+                                    f
+                                );
                                 Self::_cast(builder, &elem_vec, arg)
                             } else {
                                 arg
@@ -1478,7 +1490,9 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                     let is_lval: Vec<_> = (0..n * n).map(|_| false).collect();
                     let elem_type = ret.element();
                     let args = convert_args(is_lval.as_slice());
-                    assert!(args.iter().all(|arg| arg.type_().as_ref() == elem_type.as_ref()));
+                    assert!(args
+                        .iter()
+                        .all(|arg| arg.type_().as_ref() == elem_type.as_ref()));
                     // convert to columns
                     let (builder, ..) = self.unwrap_ctx();
                     let col_type = match t.as_ref() {
@@ -1487,21 +1501,47 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                     };
                     match n {
                         2 => {
-                            let col0 = builder.call(Func::Vec2, &[args[0], args[1]], col_type.clone());
+                            let col0 =
+                                builder.call(Func::Vec2, &[args[0], args[1]], col_type.clone());
                             let col1 = builder.call(Func::Vec2, &[args[2], args[3]], col_type);
                             vec![col0, col1]
                         }
                         3 => {
-                            let col0 = builder.call(Func::Vec3, &[args[0], args[1], args[2]], col_type.clone());
-                            let col1 = builder.call(Func::Vec3, &[args[3], args[4], args[5]], col_type.clone());
-                            let col2 = builder.call(Func::Vec3, &[args[6], args[7], args[8]], col_type);
+                            let col0 = builder.call(
+                                Func::Vec3,
+                                &[args[0], args[1], args[2]],
+                                col_type.clone(),
+                            );
+                            let col1 = builder.call(
+                                Func::Vec3,
+                                &[args[3], args[4], args[5]],
+                                col_type.clone(),
+                            );
+                            let col2 =
+                                builder.call(Func::Vec3, &[args[6], args[7], args[8]], col_type);
                             vec![col0, col1, col2]
                         }
                         4 => {
-                            let col0 = builder.call(Func::Vec4, &[args[0], args[1], args[2], args[3]], col_type.clone());
-                            let col1 = builder.call(Func::Vec4, &[args[4], args[5], args[6], args[7]], col_type.clone());
-                            let col2 = builder.call(Func::Vec4, &[args[8], args[9], args[10], args[11]], col_type.clone());
-                            let col3 = builder.call(Func::Vec4, &[args[12], args[13], args[14], args[15]], col_type);
+                            let col0 = builder.call(
+                                Func::Vec4,
+                                &[args[0], args[1], args[2], args[3]],
+                                col_type.clone(),
+                            );
+                            let col1 = builder.call(
+                                Func::Vec4,
+                                &[args[4], args[5], args[6], args[7]],
+                                col_type.clone(),
+                            );
+                            let col2 = builder.call(
+                                Func::Vec4,
+                                &[args[8], args[9], args[10], args[11]],
+                                col_type.clone(),
+                            );
+                            let col3 = builder.call(
+                                Func::Vec4,
+                                &[args[12], args[13], args[14], args[15]],
+                                col_type,
+                            );
                             vec![col0, col1, col2, col3]
                         }
                         _ => panic!("Invalid matrix dimension {}.", n),
@@ -2098,6 +2138,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         // finalize
         let entry = builder.finish();
         Module {
+            curve_basis_set: CurveBasisSet::all(), // @Mike: fix pls
             kind,
             entry,
             pools: self.pools.clone(),

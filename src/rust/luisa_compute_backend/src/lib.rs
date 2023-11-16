@@ -207,6 +207,8 @@ pub trait Backend: Sync + Send {
     fn is_event_completed(&self, event: api::Event, value: u64) -> bool;
     fn create_mesh(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
     fn create_procedural_primitive(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
+    fn create_curve(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
+    fn destroy_curve(&self, curve: api::Curve);
     fn destroy_mesh(&self, mesh: api::Mesh);
     fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive);
     fn create_accel(&self, option: api::AccelOption) -> api::CreatedResourceInfo;
@@ -414,6 +416,18 @@ extern "C" fn destroy_mesh<B: Backend>(backend: api::Device, mesh: api::Mesh) {
     let backend: &B = get_backend(backend);
     backend.destroy_mesh(mesh)
 }
+extern "C" fn create_curve<B: Backend>(
+    backend: api::Device,
+    option: &api::AccelOption,
+) -> api::CreatedResourceInfo {
+    let backend: &B = get_backend(backend);
+    backend.create_curve(*option)
+}
+
+extern "C" fn destroy_curve<B: Backend>(backend: api::Device, curve: api::Curve) {
+    let backend: &B = get_backend(backend);
+    backend.destroy_curve(curve)
+}
 
 extern "C" fn create_procedural_primitive<B: Backend>(
     backend: api::Device,
@@ -530,6 +544,8 @@ pub fn create_device_interface<B: Backend>(backend: B) -> api::DeviceInterface {
         is_event_completed: is_event_completed::<B>,
         create_mesh: create_mesh::<B>,
         destroy_mesh: destroy_mesh::<B>,
+        create_curve: create_curve::<B>,
+        destroy_curve: destroy_curve::<B>,
         create_procedural_primitive: create_procedural_primitive::<B>,
         destroy_procedural_primitive: destroy_procedural_primitive::<B>,
         create_accel: create_accel::<B>,

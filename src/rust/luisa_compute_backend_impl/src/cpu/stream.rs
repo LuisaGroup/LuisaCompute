@@ -403,6 +403,10 @@ impl StreamImpl {
                         let mesh = &mut *(mesh_build.mesh.0 as *mut GeometryImpl);
                         mesh.build_mesh(mesh_build);
                     }
+                    api::Command::CurveBuild(curve_build) => {
+                        let mesh = &mut *(curve_build.curve.0 as *mut GeometryImpl);
+                        mesh.build_curve(curve_build);
+                    }
                     api::Command::AccelBuild(accel_build) => {
                         let accel = &mut *(accel_build.accel.0 as *mut AccelImpl);
                         accel.update(
