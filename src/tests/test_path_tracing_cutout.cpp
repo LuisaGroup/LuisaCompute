@@ -232,7 +232,7 @@ int main(int argc, char *argv[]) {
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
                 Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
+                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 p = (m * make_float4(p, 1.f)).xyz();
                 Float3 ng = normalize(cross(p1 - p0, p2 - p0));
                 ng = (m * make_float4(ng, 0.f)).xyz();

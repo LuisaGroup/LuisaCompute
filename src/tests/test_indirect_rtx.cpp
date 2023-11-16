@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
             constexpr float3 red = float3(1.0f, 0.0f, 0.0f);
             constexpr float3 green = float3(0.0f, 1.0f, 0.0f);
             constexpr float3 blue = float3(0.0f, 0.0f, 1.0f);
-            color = hit->interpolate(red, green, blue);
+            color = triangle_interpolate(hit.bary, red, green, blue);
         };
         Float3 old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
         Float t = 1.0f / (frame_index + 1.0f);

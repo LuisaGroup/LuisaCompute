@@ -7,11 +7,10 @@ namespace luisa::compute {
 enum class HitType : uint32_t {
     Miss = 0,
     Surface = 1,// triangle or curve
-    AABB = 2,   // bounding box (for procedural primitives)
+    Procedural = 2,   // bounding box (for procedural primitives)
 
     // legacy names
     Triangle = Surface,
-    Procedural = AABB,
 };
 
 // Hit classes used by DSL, DSL module see src/dsl/rtx/ray_query.h
@@ -27,6 +26,7 @@ static_assert(sizeof(CommittedHit) == 24u, "CommittedHit size mismatch");
 static_assert(alignof(CommittedHit) == 8u, "CommittedHit align mismatch");
 
 // Return type of Accel::trace_closest() and RayQuery::triangle_candidate(), it represents a hit that can be a triangle or curve
+// if bary.v < 0.f then it's a curve hit, otherwise it's a triangle hit
 struct SurfaceHit {
     uint inst;
     uint prim;

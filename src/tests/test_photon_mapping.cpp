@@ -267,7 +267,7 @@ int main(int argc, char *argv[]) {
             Float3 p0 = vertex_buffer->read(triangle.i0);
             Float3 p1 = vertex_buffer->read(triangle.i1);
             Float3 p2 = vertex_buffer->read(triangle.i2);
-            Float3 p = hit->interpolate(p0, p1, p2);
+            Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
             Float3 n = normalize(cross(p1 - p0, p2 - p0));
             Float cos_wi = dot(-light_ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
@@ -407,7 +407,7 @@ int main(int argc, char *argv[]) {
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
                 Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
+                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
                 Var<Material> material = material_buffer->read(hit.inst);
                 Float cos_wi = dot(-ray->direction(), n);
@@ -450,7 +450,7 @@ int main(int argc, char *argv[]) {
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
                 Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
+                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
                 Float cos_wi = dot(-ray->direction(), n);
                 $if(cos_wi > 1e-4f) {
