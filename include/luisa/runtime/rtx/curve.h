@@ -94,4 +94,19 @@ public:
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
 };
 
+template<typename CPBuffer,
+         typename RadiusBuffer,
+         typename SegmentBuffer>
+Curve Device::create_curve(CurveBasis basis,
+                           CPBuffer &&control_points,
+                           RadiusBuffer &&radii,
+                           SegmentBuffer &&segments,
+                           const AccelOption &option) noexcept {
+    return this->_create<Curve>(basis,
+                                std::forward<CPBuffer>(control_points),
+                                std::forward<RadiusBuffer>(radii),
+                                std::forward<SegmentBuffer>(segments),
+                                option);
+}
+
 }// namespace luisa::compute

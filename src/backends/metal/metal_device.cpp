@@ -615,6 +615,23 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     });
 }
 
+ResourceCreationInfo MetalDevice::create_curve(const AccelOption &option) noexcept {
+    return with_autorelease_pool([=, this] {
+        auto curve = new_with_allocator<MetalCurve>(_handle, option);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(curve);
+        info.native_handle = curve->pointer_to_handle();
+        return info;
+    });
+}
+
+void MetalDevice::destroy_curve(uint64_t handle) noexcept {
+    with_autorelease_pool([=] {
+        auto curve = reinterpret_cast<MetalCurve *>(handle);
+        delete_with_allocator(curve);
+    });
+}
+
 ResourceCreationInfo MetalDevice::create_procedural_primitive(const AccelOption &option) noexcept {
     return with_autorelease_pool([=, this] {
         auto primitive = new_with_allocator<MetalProceduralPrimitive>(_handle, option);
