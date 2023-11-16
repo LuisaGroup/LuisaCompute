@@ -42,15 +42,17 @@ int main(int argc, char *argv[]) {
         });
         device.impl()->create_shader(
             ShaderOption{
-                .name = "test.bin",
-                .compile_only = true},
+                .compile_only = true,
+                .name = "test.bin"
+                },
             Function{builder_ptr.get()});
     }
     {
         auto compiler = luisa::clangcxx::Compiler(
             ShaderOption{
-                .name = "test.bin",
-                .compile_only = true},
+                .compile_only = true,
+                .name = "test.bin"
+                },
             Function{});
         compiler.create_shader(device);
     }
