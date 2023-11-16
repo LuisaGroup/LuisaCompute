@@ -26,10 +26,10 @@ typedef enum LCBindlessArrayUpdateOperation {
 } LCBindlessArrayUpdateOperation;
 
 typedef enum LCCurveBasis {
-    LC_CURVE_BASIS_PIECEWISE_LINEAR,
-    LC_CURVE_BASIS_CUBIC_B_SPLINE,
-    LC_CURVE_BASIS_CATMULL_ROM,
-    LC_CURVE_BASIS_BEZIER,
+    LC_CURVE_BASIS_PIECEWISE_LINEAR = 0,
+    LC_CURVE_BASIS_CUBIC_B_SPLINE = 1,
+    LC_CURVE_BASIS_CATMULL_ROM = 2,
+    LC_CURVE_BASIS_BEZIER = 3,
 } LCCurveBasis;
 
 typedef enum LCFilterQuality {

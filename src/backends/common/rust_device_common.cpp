@@ -323,7 +323,7 @@ public:
     }
     void visit(const CurveBuildCommand *command) noexcept override {
         api::Command converted{.tag = Tag::CURVE_BUILD};
-        converted.CURVE_BUILD._0 = api::CurveBuildCommand {
+        converted.CURVE_BUILD._0 = api::CurveBuildCommand{
             .curve = {command->handle()},
             .request = _convert_accel_build_request(command->request()),
             .basis = static_cast<api::CurveBasis>(command->basis()),
@@ -685,6 +685,21 @@ public:
         device.destroy_mesh(device.device, api::Mesh{handle});
     }
 
+    ResourceCreationInfo create_curve(const AccelOption &option_) noexcept override {
+        api::AccelOption option{};
+        option.allow_compaction = option_.allow_compaction;
+        option.allow_update = option_.allow_update;
+        option.hint = static_cast<api::AccelUsageHint>(option_.hint);
+        auto mesh = device.create_curve(device.device, &option);
+        ResourceCreationInfo info{};
+        info.handle = mesh.handle;
+        info.native_handle = mesh.native_handle;
+        return info;
+    }
+
+    void destroy_curve(uint64_t handle) noexcept override {
+        device.destroy_curve(device.device, api::Curve{handle});
+    }
     ResourceCreationInfo create_procedural_primitive(const AccelOption &option_) noexcept override {
         api::AccelOption option{};
         option.allow_compaction = option_.allow_compaction;

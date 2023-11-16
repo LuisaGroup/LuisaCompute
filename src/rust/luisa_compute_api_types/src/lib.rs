@@ -160,10 +160,10 @@ pub enum AccelBuildRequest {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum CurveBasis {
-    PiecewiseLinear,
-    CubicBSpline,
-    CatmullRom,
-    Bezier,
+    PiecewiseLinear = 0,
+    CubicBSpline = 1,
+    CatmullRom = 2,
+    Bezier = 3,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]

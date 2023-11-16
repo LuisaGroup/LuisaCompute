@@ -29,10 +29,10 @@ enum class BindlessArrayUpdateOperation {
 };
 
 enum class CurveBasis {
-    PIECEWISE_LINEAR,
-    CUBIC_B_SPLINE,
-    CATMULL_ROM,
-    BEZIER,
+    PIECEWISE_LINEAR = 0,
+    CUBIC_B_SPLINE = 1,
+    CATMULL_ROM = 2,
+    BEZIER = 3,
 };
 
 enum class FilterQuality {

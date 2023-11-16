@@ -136,6 +136,7 @@ impl GeometryImpl {
             let geometry = sys::rtcNewGeometry(device, geometry_type);
             let vbuffer = &*(cmd.cp_buffer.0 as *const BufferImpl);
             let ibuffer = &*(cmd.seg_buffer.0 as *const BufferImpl);
+            assert!(cmd.cp_buffer_stride >= 16, "cp buffer stride must be >= 16");
             sys::rtcSetSharedGeometryBuffer(
                 geometry,
                 sys::RTC_BUFFER_TYPE_VERTEX,
@@ -151,10 +152,10 @@ impl GeometryImpl {
                 geometry,
                 sys::RTC_BUFFER_TYPE_INDEX,
                 0,
-                sys::RTC_FORMAT_UINT3,
+                sys::RTC_FORMAT_UINT,
                 ibuffer.data as *const c_void,
                 cmd.seg_buffer_offset,
-                12,
+                4,
                 cmd.seg_count,
             );
             check_error!(device);
