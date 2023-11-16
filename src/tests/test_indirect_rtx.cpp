@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
         Var<Ray> ray = make_ray(
             make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
             make_float3(0.0f, 0.0f, -1.0f));
-        Var<TriangleHit> hit = accel.trace_closest(ray);
+        Var<TriangleHit> hit = accel.intersect(ray, {});
         $if(!hit->miss()) {
             constexpr float3 red = float3(1.0f, 0.0f, 0.0f);
             constexpr float3 green = float3(0.0f, 1.0f, 0.0f);
