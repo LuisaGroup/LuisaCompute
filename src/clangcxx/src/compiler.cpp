@@ -35,7 +35,7 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
 compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &device) LUISA_NOEXCEPT {
     std::vector<std::string> args_holder = {
         "luisa_compiler",
-        "C:/GitHub/LuisaCompute/src/clangcxx/shader/test_0.cpp",
+        "./../../../LuisaCompute/src/clangcxx/shader/test_0.cpp",
         "--output=C:/LuisaCompute/src/clangcxx/shader",
         "--",
         "-std=c++20"};
