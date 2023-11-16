@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         segments.emplace_back(i);
     }
 
-    auto control_point_buffer = device.create_buffer<float3>(control_point_count);
+    auto control_point_buffer = device.create_buffer<float4>(control_point_count);
     auto segment_buffer = device.create_buffer<uint>(segment_count);
 
     auto stream = device.create_stream(StreamTag::GRAPHICS);
