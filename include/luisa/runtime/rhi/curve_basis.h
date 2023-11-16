@@ -8,17 +8,33 @@
 #include <luisa/core/stl/hash.h>
 
 namespace luisa::compute {
-
 enum class CurveBasis : uint32_t {
+    /// Piecewise linear curve cone with spherical end caps.
+    /// Each curve segment needs to have two control points.
     PIECEWISE_LINEAR,
-    QUADRATIC_BSPLINE,
+    /// Cubic B-spline curve cone with open ends (i.e., no end caps).
+    /// Each curve segment needs to have four control points.
     CUBIC_BSPLINE,
+    /// Cubic Catmull-Rom curve cone with open ends (i.e., no end caps).
+    /// Each curve segment needs to have four control points.
     CATMULL_ROM,
+    /// Cubic Hermite curve cone with open ends (i.e., no end caps).
+    /// Each curve segment needs to have four control points.
     BEZIER
 };
 
 static constexpr auto curve_basis_count =
     luisa::to_underlying(CurveBasis::BEZIER) + 1u;
+
+[[nodiscard]] constexpr auto segment_control_point_count(CurveBasis b) noexcept {
+    switch (b) {
+        case CurveBasis::PIECEWISE_LINEAR: return 2u;
+        case CurveBasis::CUBIC_BSPLINE: return 4u;
+        case CurveBasis::CATMULL_ROM: return 4u;
+        case CurveBasis::BEZIER: return 4u;
+    }
+    return 0u;
+}
 
 // *** IMPORTANCE NOTICE ***
 // DO NOT SPLIT THIS CLASS INTO HEADER AND SOURCE FILES.

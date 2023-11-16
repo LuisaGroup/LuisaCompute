@@ -14,6 +14,7 @@ MetalMesh::~MetalMesh() noexcept {
 }
 
 void MetalMesh::_do_add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept {
+    LUISA_ASSERT(_descriptor != nullptr, "Mesh not built.");
     auto mesh_desc = _descriptor->geometryDescriptors()
                          ->object<MTL::AccelerationStructureTriangleGeometryDescriptor>(0u);
     resources.emplace_back(mesh_desc->vertexBuffer());
