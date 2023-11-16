@@ -666,6 +666,17 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
 
     _uses_printing = kernel.requires_printing();
 
+    // curve basis
+    if (auto bases = kernel.required_curve_bases(); bases.any()) {
+        _scratch << "#define LUISA_ENABLE_CURVE\n";
+        for (auto i = 0u; i < curve_basis_count; i++) {
+            if (auto basis = static_cast<CurveBasis>(i); bases.test(basis)) {
+                _scratch << "#define LUISA_ENABLE_CURVE_" << luisa::to_string(basis) << "\n";
+            }
+        }
+        _scratch << "\n";
+    }
+
     // emit device library
     _scratch << luisa::string_view{luisa_metal_builtin_metal_device_lib,
                                    sizeof(luisa_metal_builtin_metal_device_lib)}

@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
             Float3 light_normal = normalize(cross(light_u, light_v));
             $for (depth, 10u) {
                 // trace
-                Var<TriangleHit> hit = accel.intersect(ray, {});
+                Var<TriangleHit> hit = accel.intersect(ray, {.curve_bases = {CurveBasis::BEZIER, CurveBasis::PIECEWISE_LINEAR}});
                 reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);

@@ -18,7 +18,7 @@ enum class CurveBasis : uint32_t {
     /// Cubic Catmull-Rom curve cone with open ends (i.e., no end caps).
     /// Each curve segment needs to have four control points.
     CATMULL_ROM,
-    /// Cubic Hermite curve cone with open ends (i.e., no end caps).
+    /// Cubic Bezier curve cone with open ends (i.e., no end caps).
     /// Each curve segment needs to have four control points.
     BEZIER
 };
@@ -48,6 +48,10 @@ private:
 
 public:
     CurveBasisSet() noexcept : _set{0} {}
+    CurveBasisSet(const std::initializer_list<CurveBasis> bases) noexcept {
+        _set.reset();
+        for (auto b : bases) { mark(b); }
+    }
     ~CurveBasisSet() noexcept = default;
     CurveBasisSet(CurveBasisSet const &) noexcept = default;
     CurveBasisSet(CurveBasisSet &&) noexcept = default;

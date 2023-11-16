@@ -36,7 +36,7 @@ public:
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] Var<TriangleHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
@@ -86,7 +86,7 @@ public:
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] Var<TriangleHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;

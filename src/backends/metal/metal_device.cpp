@@ -29,13 +29,39 @@
 #include "metal_pinned_memory.h"
 #include "metal_debug_capture.h"
 
+#include <cstdlib>
+
 namespace luisa::compute::metal {
 
 MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
-    : DeviceInterface{std::move(ctx)},
-      _io{nullptr},
+    : DeviceInterface{std::move(ctx)}, _io{nullptr},
       _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
-    auto device_index = config == nullptr || config->device_index == std::numeric_limits<size_t>::max() ?
+
+    {
+        auto o = MTL::CompileOptions::alloc()->init();
+        auto version = [o] {
+            using namespace std::string_view_literals;
+            switch (auto v [[maybe_unused]] = o->languageVersion()) {
+                case MTL::LanguageVersion1_0: return "1.0"sv;
+                case MTL::LanguageVersion1_1: return "1.1"sv;
+                case MTL::LanguageVersion1_2: return "1.2"sv;
+                case MTL::LanguageVersion2_0: return "2.0"sv;
+                case MTL::LanguageVersion2_1: return "2.1"sv;
+                case MTL::LanguageVersion2_2: return "2.2"sv;
+                case MTL::LanguageVersion2_3: return "2.3"sv;
+                case MTL::LanguageVersion2_4: return "2.4"sv;
+                default: break;
+            }
+            return "adequate"sv;
+        }();
+        o->release();
+        LUISA_ASSERT(version == "adequate",
+                     "Metal 3.0 and higher is required for LuisaCompute (detected: {}).",
+                     version);
+    }
+
+    auto device_index = config == nullptr ||
+                                config->device_index == std::numeric_limits<size_t>::max() ?
                             0u :
                             config->device_index;
     auto all_devices = MTL::CopyAllDevices();
