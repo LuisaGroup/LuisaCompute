@@ -58,8 +58,7 @@ template<typename T, uint64 N>
 struct [[type_ex("vec", N)]] vec {
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
-    [[ignore]] explicit vec(Args &&...args) {
-    }
+    [[ignore]] explicit vec(Args &&...args) {}
 };
 
 using float2 = vec<float, 2>;

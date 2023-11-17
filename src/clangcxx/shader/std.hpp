@@ -11,7 +11,7 @@ namespace luisa::shader {
 template<typename Type = void, uint32 CacheFlags = 0>
 struct [[type("Buffer")]] Buffer {
     [[builtin("BUFFER_READ")]] Type load(uint3 loc);
-    Type operator[](uint2 loc) { return load(uint3(loc, 0)); };
+    [[ignore]] Type operator[](uint2 loc) { return load(uint3(loc, 0)); };
 
     [[builtin("BUFFER_WRITE")]] void store(uint32 loc, Type value);
 };
