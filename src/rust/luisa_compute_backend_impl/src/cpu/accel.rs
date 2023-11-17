@@ -139,7 +139,7 @@ impl GeometryImpl {
 
         if need_rebuild {
             let geometry_type = match cmd.basis {
-                api::CurveBasis::PiecewiseLinear => sys::RTC_GEOMETRY_TYPE_FLAT_LINEAR_CURVE,
+                api::CurveBasis::PiecewiseLinear => sys::RTC_GEOMETRY_TYPE_ROUND_LINEAR_CURVE,
                 api::CurveBasis::CubicBSpline => sys::RTC_GEOMETRY_TYPE_ROUND_BSPLINE_CURVE,
                 api::CurveBasis::CatmullRom => sys::RTC_GEOMETRY_TYPE_ROUND_CATMULL_ROM_CURVE,
                 api::CurveBasis::Bezier => sys::RTC_GEOMETRY_TYPE_ROUND_BEZIER_CURVE,
