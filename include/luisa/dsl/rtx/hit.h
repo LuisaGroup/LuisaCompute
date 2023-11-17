@@ -48,6 +48,7 @@ LUISA_STRUCT(luisa::compute::CommittedHit, inst, prim, bary, hit_type, committed
     [[nodiscard]] auto is_procedural() const noexcept {
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Procedural);
     }
+    [[nodiscard]] auto distance() const noexcept { return committed_ray_t; }
     [[nodiscard]] auto triangle_barycentric_coord() const noexcept { return bary; }
     [[nodiscard]] auto curve_parameter() const noexcept { return bary.x; }
 
@@ -64,6 +65,7 @@ LUISA_STRUCT(luisa::compute::CommittedHit, inst, prim, bary, hit_type, committed
 LUISA_STRUCT(luisa::compute::SurfaceHit, inst, prim, bary, committed_ray_t) {
 
     [[nodiscard]] auto miss() const noexcept { return inst == std::numeric_limits<uint32_t>::max(); }
+    [[nodiscard]] auto distance() const noexcept { return committed_ray_t; }
     [[nodiscard]] auto is_curve() const noexcept { return bary.y < 0.f; }
     [[nodiscard]] auto is_triangle() const noexcept { return !is_curve(); }
     [[nodiscard]] auto triangle_barycentric_coord() const noexcept { return bary; }

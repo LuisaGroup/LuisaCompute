@@ -63,6 +63,7 @@
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/rtx/aabb.h>
 #include <luisa/dsl/rtx/accel.h>
+#include <luisa/dsl/rtx/curve.h>
 #include <luisa/dsl/rtx/hit.h>
 #include <luisa/dsl/rtx/ray.h>
 #include <luisa/dsl/rtx/ray_query.h>
