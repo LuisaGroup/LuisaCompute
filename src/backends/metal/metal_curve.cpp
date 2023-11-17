@@ -39,7 +39,7 @@ void MetalCurve::build(MetalCommandEncoder &encoder, CurveBuildCommand *command)
 
     auto radius_buffer_handle = cp_buffer->handle();
     auto radius_buffer_offset = cp_buffer_offset + sizeof(float) * 3u;
-    auto radius_stride = sizeof(float4);
+    auto radius_stride = command->cp_stride();
 
     auto seg_buffer = reinterpret_cast<MetalBuffer *>(command->seg_buffer());
     auto seg_buffer_handle = seg_buffer->handle();
