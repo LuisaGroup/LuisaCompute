@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(argv[1]);
 
     static constexpr auto control_point_count = 50u;
-    static constexpr auto curve_basis = CurveBasis::CATMULL_ROM;
+    static constexpr auto curve_basis = CurveBasis::CUBIC_BSPLINE;
     static constexpr auto control_points_per_segment = segment_control_point_count(curve_basis);
     static constexpr auto segment_count = control_point_count - control_points_per_segment + 1u;
 
@@ -111,11 +111,19 @@ int main(int argc, char *argv[]) {
             $if (!hit->miss()) {
                 auto u = hit->curve_parameter();
                 auto i0 = hit->prim;
-                auto p0 = control_point_buffer->read(i0 + 0u);
-                auto p1 = control_point_buffer->read(i0 + 1u);
-                auto p2 = control_point_buffer->read(i0 + 2u);
-                auto p3 = control_point_buffer->read(i0 + 3u);
-                auto c = CurveInterpolator::create(curve_basis, p0, p1, p2, p3);
+                auto c = [&] {
+                    if constexpr (curve_basis == CurveBasis::PIECEWISE_LINEAR) {
+                        auto p0 = control_point_buffer->read(i0 + 0u);
+                        auto p1 = control_point_buffer->read(i0 + 1u);
+                        return CurveInterpolator::create(curve_basis, p0, p1);
+                    } else {
+                        auto p0 = control_point_buffer->read(i0 + 0u);
+                        auto p1 = control_point_buffer->read(i0 + 1u);
+                        auto p2 = control_point_buffer->read(i0 + 2u);
+                        auto p3 = control_point_buffer->read(i0 + 3u);
+                        return CurveInterpolator::create(curve_basis, p0, p1, p2, p3);
+                    }
+                }();
                 auto ps = ray->origin() + hit->distance() * ray->direction();
                 auto [p, n] = c->surface_position_and_normal(u, ps);
                 color = n * .5f + .5f;
