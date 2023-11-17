@@ -406,6 +406,7 @@ impl Backend for RustBackend {
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
+                accel::GeometryType::Mesh,
             ));
             let mesh = Box::into_raw(mesh);
             api::CreatedResourceInfo {
@@ -420,6 +421,7 @@ impl Backend for RustBackend {
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
+                accel::GeometryType::Procedural,
             ));
             let mesh = Box::into_raw(mesh);
             api::CreatedResourceInfo {
@@ -434,6 +436,7 @@ impl Backend for RustBackend {
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
+                accel::GeometryType::Curve,
             ));
             let mesh = Box::into_raw(mesh);
             api::CreatedResourceInfo {

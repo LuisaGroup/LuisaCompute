@@ -24,8 +24,15 @@ fn init_device() {
         device.0 = unsafe { sys::rtcNewDevice(std::ptr::null()) }
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GeometryType {
+    Mesh,
+    Curve,
+    Procedural,
+}
 pub struct GeometryImpl {
     pub(crate) handle: sys::RTCScene,
+    pub(crate) ty: GeometryType,
     #[allow(dead_code)]
     usage: AccelUsageHint,
     built: bool,
@@ -44,6 +51,7 @@ impl GeometryImpl {
         hint: api::AccelUsageHint,
         _allow_compact: bool,
         _allow_update: bool,
+        ty: GeometryType,
     ) -> Self {
         init_device();
         let device = DEVICE.lock();
@@ -56,6 +64,7 @@ impl GeometryImpl {
         sys::rtcSetSceneFlags(handle, flags);
 
         Self {
+            ty,
             handle,
             usage: hint,
             built: false,
@@ -63,6 +72,7 @@ impl GeometryImpl {
         }
     }
     pub unsafe fn build_procedural(&mut self, cmd: &ProceduralPrimitiveBuildCommand) {
+        assert_eq!(self.ty, GeometryType::Procedural);
         let device = DEVICE.lock();
         let device = device.0;
         let _lk = self.lock.lock();
@@ -120,6 +130,7 @@ impl GeometryImpl {
         check_error!(device);
     }
     pub unsafe fn build_curve(&mut self, cmd: &CurveBuildCommand) {
+        assert_eq!(self.ty, GeometryType::Curve);
         let device = DEVICE.lock();
         let device = device.0;
         let _lk = self.lock.lock();
@@ -182,6 +193,7 @@ impl GeometryImpl {
         check_error!(device);
     }
     pub unsafe fn build_mesh(&mut self, cmd: &MeshBuildCommand) {
+        assert_eq!(self.ty, GeometryType::Mesh);
         let device = DEVICE.lock();
         let device = device.0;
         let _lk = self.lock.lock();
@@ -252,6 +264,7 @@ struct Instance {
     opaque: bool,
     dirty: bool,
     geometry: sys::RTCGeometry,
+    geomerty_impl: *const GeometryImpl,
 }
 impl Instance {
     pub fn valid(&self) -> bool {
@@ -267,6 +280,7 @@ impl Default for Instance {
             opaque: true,
             dirty: false,
             geometry: std::ptr::null_mut(),
+            geomerty_impl: std::ptr::null(),
         }
     }
 }
@@ -282,6 +296,7 @@ struct RayQueryContext {
     rq: *mut defs::RayQuery,
     on_triangle_hit: defs::OnHitCallback,
     on_procedural_hit: defs::OnHitCallback,
+    accel: *const AccelImpl,
 }
 impl AccelImpl {
     pub unsafe fn new() -> Self {
@@ -344,6 +359,7 @@ impl AccelImpl {
                         opaque: true,
                         dirty: false,
                         geometry,
+                        geomerty_impl: mesh,
                     };
                 }
             }
@@ -455,10 +471,19 @@ impl AccelImpl {
 
         sys::rtcIntersect1(self.handle, &mut rayhit as *mut _, &mut args as *mut _);
         if rayhit.hit.geomID != u32::MAX && rayhit.hit.primID != u32::MAX {
+            let inst_id = rayhit.hit.instID[0];
+            let u = rayhit.hit.u;
+            let mut v = rayhit.hit.v;
+            let instance = &*self.instances[inst_id as usize].data_ptr();
+            let geometry = &*instance.geomerty_impl;
+            let is_curve = geometry.ty == GeometryType::Curve;
+            if is_curve {
+                v = -1.0;
+            }
             defs::TriangleHit {
-                inst: rayhit.hit.instID[0],
+                inst: inst_id,
                 prim: rayhit.hit.primID,
-                bary: [rayhit.hit.u, rayhit.hit.v],
+                bary: [u, v],
                 committed_ray_t: rayhit.ray.tfar,
             }
         } else {
@@ -570,6 +595,7 @@ impl AccelImpl {
             rq,
             on_procedural_hit,
             on_triangle_hit,
+            accel: self,
         };
 
         /* Helper functions to access ray packets of runtime size N */
@@ -614,7 +640,14 @@ impl AccelImpl {
             let geom_id = *hit.add(6);
             let inst_id = *hit.add(7);
             let hit_u = *(args.hit as *mut f32).add(3);
-            let hit_v = *(args.hit as *mut f32).add(4);
+            let mut hit_v = *(args.hit as *mut f32).add(4);
+            let accel = &*ctx.accel;
+            let instance = &*accel.instances[inst_id as usize].data_ptr();
+            let geometry = &*instance.geomerty_impl;
+            let is_curve = geometry.ty == GeometryType::Curve;
+            if is_curve {
+                hit_v = -1.0;
+            }
             let t_far = &mut *(args.ray as *mut f32).add(8);
             debug_assert!(prim_id != u32::MAX && geom_id != u32::MAX);
             let rq = &mut *ctx.rq;
