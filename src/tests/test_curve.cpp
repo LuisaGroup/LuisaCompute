@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
         auto y = i * .02f;
         auto z = sin(i * pi / 5.f) * (1.f - .01f * i);
         auto t = static_cast<float>(i) / static_cast<float>(control_point_count - 1u);// [0, 1]
-        auto r = .015f + .015f * sin(t * 10.f * pi - .5f * pi);
+        auto r = .03f + .03f * sin(t * 10.f * pi - .5f * pi);
         control_points.emplace_back(make_float4(x, y, z, r));
     }
     luisa::vector<uint> segments;
@@ -109,7 +109,16 @@ int main(int argc, char *argv[]) {
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
             $if (!hit->miss()) {
-                color = make_float3(.5f, .5f, hit->curve_parameter());
+                auto u = hit->curve_parameter();
+                auto i0 = hit->prim;
+                auto p0 = control_point_buffer->read(i0 + 0u);
+                auto p1 = control_point_buffer->read(i0 + 1u);
+                auto p2 = control_point_buffer->read(i0 + 2u);
+                auto p3 = control_point_buffer->read(i0 + 3u);
+                CatmullRomCurve c{p0, p1, p2, p3};
+                auto ps = ray->origin() + hit->distance() * ray->direction();
+                auto [p, n] = c.surface_position_and_normal(u, ps);
+                color = n * .5f + .5f;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
