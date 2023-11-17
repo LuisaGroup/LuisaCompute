@@ -1,20 +1,19 @@
-#include <cuda.h>
-
 #include "cuda_error.h"
 #include "cuda_buffer.h"
-#include "cuda_mesh.h"
 #include "cuda_command_encoder.h"
 #include "cuda_stream.h"
 #include "cuda_device.h"
+#include "cuda_mesh.h"
 
 namespace luisa::compute::cuda {
 
 CUDAMesh::CUDAMesh(const AccelOption &option) noexcept
-    : CUDAPrimitive{Tag::MESH, option} {}
+    : CUDAPrimitive{Tag::BUILTIN, option} {}
 
 inline optix::BuildInput CUDAMesh::_make_build_input() const noexcept {
     optix::BuildInput build_input{};
-    static const auto geometry_flag = static_cast<uint32_t>(optix::GEOMETRY_FLAG_DISABLE_ANYHIT);
+    static const auto geometry_flag = optix::GEOMETRY_FLAG_DISABLE_ANYHIT |
+                                      optix::GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
     build_input.type = optix::BUILD_INPUT_TYPE_TRIANGLES;
     build_input.triangleArray.flags = &geometry_flag;
     build_input.triangleArray.vertexFormat = optix::VERTEX_FORMAT_FLOAT3;
@@ -70,4 +69,3 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
 }
 
 }// namespace luisa::compute::cuda
-

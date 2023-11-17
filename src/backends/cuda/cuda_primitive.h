@@ -12,7 +12,7 @@ class CUDAPrimitive {
 
 public:
     enum struct Tag : uint8_t {
-        MESH,
+        BUILTIN,
         PROCEDURAL,
     };
 

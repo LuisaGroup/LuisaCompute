@@ -124,9 +124,20 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
     pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
     pipeline_compile_options.numPayloadValues = 0u;
-    auto primitive_flags = metadata.requires_ray_query ? (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM |
-                                                          optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
-                                                         optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+    auto primitive_flags = metadata.requires_ray_query ?
+                               (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM | optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
+                               optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+    for (auto i = 0u; i < curve_basis_count; i++) {
+        if (auto basis = static_cast<CurveBasis>(i);
+            metadata.curve_bases.test(basis)) {
+            switch (basis) {
+                case CurveBasis::PIECEWISE_LINEAR: primitive_flags |= optix::PRIMITIVE_TYPE_FLAGS_ROUND_LINEAR; break;
+                case CurveBasis::CUBIC_BSPLINE: primitive_flags |= optix::PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BSPLINE; break;
+                case CurveBasis::CATMULL_ROM: primitive_flags |= optix::PRIMITIVE_TYPE_FLAGS_ROUND_CATMULLROM; break;
+                case CurveBasis::BEZIER: primitive_flags |= optix::PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BEZIER; break;
+            }
+        }
+    }
     pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
