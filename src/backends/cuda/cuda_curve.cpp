@@ -8,7 +8,7 @@
 namespace luisa::compute::cuda {
 
 CUDACurve::CUDACurve(const AccelOption &option) noexcept
-    : CUDAPrimitive{Tag::BUILTIN, option} {}
+    : CUDAPrimitive{Tag::CURVE, option} {}
 
 optix::BuildInput CUDACurve::_make_build_input() const noexcept {
     optix::BuildInput build_input{};

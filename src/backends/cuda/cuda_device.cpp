@@ -1076,6 +1076,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 reinterpret_cast<CUDABindlessArray *>(handle)->set_name(std::move(name));
                 break;
             case Resource::Tag::MESH: [[fallthrough]];
+            case Resource::Tag::CURVE: [[fallthrough]];
             case Resource::Tag::PROCEDURAL_PRIMITIVE:
                 reinterpret_cast<CUDAPrimitive *>(handle)->set_name(std::move(name));
                 break;

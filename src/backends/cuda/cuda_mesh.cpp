@@ -8,7 +8,7 @@
 namespace luisa::compute::cuda {
 
 CUDAMesh::CUDAMesh(const AccelOption &option) noexcept
-    : CUDAPrimitive{Tag::BUILTIN, option} {}
+    : CUDAPrimitive{Tag::MESH, option} {}
 
 inline optix::BuildInput CUDAMesh::_make_build_input() const noexcept {
     optix::BuildInput build_input{};

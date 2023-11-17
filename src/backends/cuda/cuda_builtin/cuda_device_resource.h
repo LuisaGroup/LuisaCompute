@@ -1279,7 +1279,7 @@ struct LCProceduralHit {
 
 enum struct LCHitType {
     MISS = 0,
-    TRIANGLE = 1,
+    BUILTIN = 1,
     PROCEDURAL = 2,
 };
 
@@ -1479,6 +1479,14 @@ template<lc_uint i>
     return lc_make_float2(f0, f1);
 }
 
+[[nodiscard]] inline auto lc_get_curve_parameter() noexcept {
+    float f0;
+    asm("call (%0), _optix_get_curve_parameter, ();"
+        : "=f"(f0)
+        :);
+    return f0;
+}
+
 [[nodiscard]] inline auto lc_get_hit_distance() noexcept {
     float f0;
     asm("call (%0), _optix_get_ray_tmax, ();"
@@ -1517,6 +1525,15 @@ __device__ inline lc_float2 lc_hit_object_triangle_bary() noexcept {
         : "=r"(v_bits)
         : "r"(1));
     return lc_make_float2(__int_as_float(u_bits), __int_as_float(v_bits));
+}
+
+__device__ inline lc_float lc_hit_object_curve_parameter() noexcept {
+    lc_uint u_bits, v_bits;
+    asm volatile(
+        "call (%0), _optix_hitobject_get_attribute, (%1);"
+        : "=r"(u_bits)
+        : "r"(0));
+    return __int_as_float(u_bits);
 }
 
 __device__ inline bool lc_hit_object_is_hit() noexcept {
@@ -1576,7 +1593,16 @@ enum LCRayFlags : lc_uint {
     LC_RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7u,
 };
 
-template<lc_uint payload_type, lc_uint reg_count = 0u>
+// ray query
+enum LCHitKind : lc_uint {
+    LC_HIT_KIND_NONE = 0x00u,
+    LC_HIT_KIND_PROCEDURAL = 0x01u,
+    LC_HIT_KIND_PROCEDURAL_TERMINATED = 0x02u,
+    LC_HIT_KIND_TRIANGLE_FRONT_FACE = 0xfeu,
+    LC_HIT_KIND_TRIANGLE_BACK_FACE = 0xffu,
+};
+
+template<lc_uint payload_type, lc_uint sbt_offset, lc_uint reg_count = 0u>
 inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
                             LCRay ray, lc_uint mask,
                             lc_uint r0 = lc_undef(),
@@ -1611,7 +1637,7 @@ inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(0.f), "r"(mask & 0xffu), "r"(flags), "r"(0u), "r"(0u),
+          "f"(t_max), "f"(0.f), "r"(mask & 0xffu), "r"(flags), "r"(sbt_offset), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
@@ -1621,12 +1647,20 @@ inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
 template<lc_uint flags>
 [[nodiscard]] inline auto lc_accel_trace_closest_impl(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE>(flags, accel, ray, mask);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE, 0u>(flags, accel, ray, mask);
     // decode the hit
     auto hit = [] {
         auto inst = lc_hit_object_instance_index();
         auto prim = lc_hit_object_primitive_index();
+#ifdef LUISA_ENABLE_OPTIX_CURVE
+        auto hit_kind = lc_hit_object_hit_kind();
+        auto bary = hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                      hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                    lc_hit_object_triangle_bary() :
+                    lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
+#else
         auto bary = lc_hit_object_triangle_bary();
+#endif
         auto t = lc_hit_object_ray_t_max();
         return LCTriangleHit{inst, prim, bary, t};
     }();
@@ -1638,7 +1672,7 @@ template<lc_uint flags>
 template<lc_uint flags>
 [[nodiscard]] inline auto lc_accel_trace_any_impl(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE>(flags, accel, ray, mask);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE, 0u>(flags, accel, ray, mask);
     // decode if hit
     auto is_hit = lc_hit_object_is_hit();
     lc_hit_object_reset();
@@ -1651,40 +1685,10 @@ template<lc_uint flags>
     return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
 }
 
-[[nodiscard]] inline auto lc_accel_trace_closest_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
-    return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
-}
-
-[[nodiscard]] inline auto lc_accel_trace_closest_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
-    return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
-}
-
 [[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
                            LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
                            LC_RAY_FLAG_DISABLE_CLOSESTHIT;
-    return lc_accel_trace_any_impl<flags>(accel, ray, mask);
-}
-
-[[nodiscard]] inline auto lc_accel_trace_any_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
-                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
-    return lc_accel_trace_any_impl<flags>(accel, ray, mask);
-}
-
-[[nodiscard]] inline auto lc_accel_trace_any_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
-                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
     return lc_accel_trace_any_impl<flags>(accel, ray, mask);
 }
 
@@ -1726,15 +1730,6 @@ template<lc_uint flags>
     return lc_dispatch_id() / lc_block_size();
 }
 
-// ray query
-enum LCHitKind : lc_uint {
-    LC_HIT_KIND_NONE = 0x00u,
-    LC_HIT_KIND_PROCEDURAL = 0x01u,
-    LC_HIT_KIND_PROCEDURAL_TERMINATED = 0x02u,
-    LC_HIT_KIND_TRIANGLE_FRONT_FACE = 0xfeu,
-    LC_HIT_KIND_TRIANGLE_BACK_FACE = 0xffu,
-};
-
 [[nodiscard]] inline auto lc_get_hit_kind() noexcept {
     auto u0 = 0u;
     asm("call (%0), _optix_get_hit_kind, ();"
@@ -1764,11 +1759,17 @@ using LCRayQueryAny = LCRayQuery;
     auto hit = [] {// found closest hit
         auto inst = lc_hit_object_instance_index();
         auto prim = lc_hit_object_primitive_index();
-        auto bary = lc_hit_object_triangle_bary();
         auto hit_kind = lc_hit_object_hit_kind();
-        auto kind = (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                     hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) ?
-                        static_cast<lc_uint>(LCHitType::TRIANGLE) :
+#ifdef LUISA_ENABLE_OPTIX_CURVE
+        auto bary = hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                        hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                    lc_hit_object_triangle_bary() :
+                    lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
+#else
+        auto bary = lc_hit_object_triangle_bary();
+#endif
+        auto kind = hit_kind > 127u ?
+                        static_cast<lc_uint>(LCHitType::BUILTIN) :
                         static_cast<lc_uint>(LCHitType::PROCEDURAL);
         auto dist = lc_hit_object_ray_t_max();
         return LCCommittedHit{inst, prim, bary, kind, dist};
@@ -1785,7 +1786,7 @@ inline void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexc
     auto r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
     auto r1 = static_cast<lc_uint>(p_ctx);
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_QUERY, 2u>(q.flags, q.accel, q.ray, q.mask, r0, r1);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_QUERY, 5u, 2u>(q.flags, q.accel, q.ray, q.mask, r0, r1);
     q.hit = lc_ray_query_decode_hit();
 }
 
@@ -1800,32 +1801,6 @@ inline void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexc
     return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
 }
 
-[[nodiscard]] inline auto lc_accel_query_all_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
-    return LCRayQueryAll{accel, ray, mask, flags, LCCommittedHit{}};
-}
-
-[[nodiscard]] inline auto lc_accel_query_any_cull_frontface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
-    return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
-}
-
-[[nodiscard]] inline auto lc_accel_query_all_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
-    return LCRayQueryAll{accel, ray, mask, flags, LCCommittedHit{}};
-}
-
-[[nodiscard]] inline auto lc_accel_query_any_cull_backface(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                           LC_RAY_FLAG_DISABLE_CLOSESTHIT |
-                           LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
-    return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
-}
-
 [[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery q) noexcept {
     return q.hit;
 }
@@ -1833,7 +1808,15 @@ inline void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexc
 [[nodiscard]] inline auto lc_ray_query_triangle_candidate() noexcept {
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
+#ifdef LUISA_ENABLE_OPTIX_CURVE
+    auto kind = lc_get_hit_kind();
+    auto bary = kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                  kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                lc_get_bary_coords() :
+                lc_make_float2(lc_get_curve_parameter(), -1.f);
+#else
     auto bary = lc_get_bary_coords();
+#endif
     auto t_hit = lc_get_hit_distance();
     return LCTriangleHit{inst, prim, bary, t_hit};
 }
@@ -2122,8 +2105,7 @@ extern "C" __global__ void __anyhit__ray_query() {
     lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
     auto hit_kind = lc_get_hit_kind();
     auto should_terminate = false;
-    if (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-        hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) {// triangle
+    if (hit_kind > 127u) {// triangle
         auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
         auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
         auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);

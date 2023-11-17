@@ -32,6 +32,8 @@ public:
     void build(CUDACommandEncoder &encoder,
                CurveBuildCommand *command) noexcept;
 
+public:
+    [[nodiscard]] auto basis() const noexcept { return _basis; }
 };
 
 }// namespace luisa::compute::cuda
