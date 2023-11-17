@@ -8,6 +8,7 @@
 #include <luisa/core/shared_function.h>
 
 namespace luisa {
+
 /// Thread pool class
 class LC_CORE_API ThreadPool {
 
@@ -98,6 +99,7 @@ public:
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }
+
     template<typename F>
         requires std::is_invocable_v<F, uint>
     auto async_parallel(uint n, F &&f) noexcept {
@@ -122,12 +124,13 @@ public:
                     _task_count.fetch_sub(1u);
                 }
                 if (counter->second.fetch_add(dispatched_count) + dispatched_count == n) {
-                    promise->set_value();                    
+                    promise->set_value();
                 }
             },
             n);
         return future;
     }
+
     /// Run a function 2D parallel
     template<typename F>
         requires std::is_invocable_v<F, uint, uint>
