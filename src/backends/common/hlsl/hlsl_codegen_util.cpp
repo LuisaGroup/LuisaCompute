@@ -70,7 +70,7 @@ namespace detail {
 static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
     builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
     size_t immutable_size = builder.size();
-    if (ops.uses_raytracing()) {
+    if (ops.uses_raytracing() || ops.uses_ray_query()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
     }
     if (ops.test(CallOp::DETERMINANT)) {
@@ -112,11 +112,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
         builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
     }
-    if (ops.test(CallOp::GRADIENT) ||
-        ops.test(CallOp::ACCUMULATE_GRADIENT) ||
-        ops.test(CallOp::REQUIRES_GRADIENT) ||
-        ops.test(CallOp::GRADIENT_MARKER) ||
-        ops.test(CallOp::DETACH)) {
+    if (ops.uses_autodiff()) {
         builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);
     }
     if (ops.test(CallOp::REDUCE_MAX) ||
@@ -1809,7 +1805,7 @@ namespace detail {
 }
 }// namespace detail
 
-void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
+void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult, bool use_autodiff) {
     if (!opt->customStruct.empty()) {
         vstd::fixed_vector<StructGenerator *, 16> customStructVector;
         customStructVector.reserve(opt->customStruct.size());
@@ -1822,31 +1818,32 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
         for (auto v : customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
-            finalResult << "#ifdef _GRAD\n";
-            auto accum_grad = [&s = finalResult](luisa::string_view access, const Type *t) noexcept {
-                if (t->is_structure() || t->is_array()) {
-                    s << luisa::format("_accum_grad_{:016X}(x_grad{}, dx{});\n", t->hash(), access, access);
-                } else {
-                    s << luisa::format("_accum_grad(x_grad{}, dx{});\n", access, access);
-                }
-            };
-            if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
-                finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
-                                             t->hash(), v->GetStructName(), v->GetStructName());
-                if (t->is_structure()) {
-                    for (auto i = 0u; i < t->members().size(); i++) {
-                        if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
-                            accum_grad(luisa::format(".v{}", i), m);
-                        }
+            // accum grad while using autodiff
+            if (use_autodiff) {
+                auto accum_grad = [&s = finalResult](luisa::string_view access, const Type *t) noexcept {
+                    if (t->is_structure() || t->is_array()) {
+                        s << luisa::format("_accum_grad_{:016X}(x_grad{}, dx{});\n", t->hash(), access, access);
+                    } else {
+                        s << luisa::format("_accum_grad(x_grad{}, dx{});\n", access, access);
                     }
-                } else if (detail::can_accum_grad(t->element())) {
-                    finalResult << luisa::format("for(uint i=0;i<{};++i){{", t->dimension());
-                    accum_grad(luisa::format(".v[i]"), t->element());
+                };
+                if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
+                    finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
+                                                 t->hash(), v->GetStructName(), v->GetStructName());
+                    if (t->is_structure()) {
+                        for (auto i = 0u; i < t->members().size(); i++) {
+                            if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
+                                accum_grad(luisa::format(".v{}", i), m);
+                            }
+                        }
+                    } else if (detail::can_accum_grad(t->element())) {
+                        finalResult << luisa::format("for(uint i=0;i<{};++i){{", t->dimension());
+                        accum_grad(luisa::format(".v[i]"), t->element());
+                        finalResult << "}\n";
+                    }
                     finalResult << "}\n";
                 }
-                finalResult << "}\n";
             }
-            finalResult << "#endif\n";
         }
     }
     for (auto &&kv : opt->sharedVariable) {
@@ -2042,7 +2039,7 @@ uint4 dsp_c;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
     PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV, bind_count);
     CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
-    PostprocessCodegenProperties(finalResult);
+    PostprocessCodegenProperties(finalResult, kernel.requires_autodiff());
     finalResult << varData << incrementalFunc << codegenData;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
@@ -2226,7 +2223,7 @@ uint iid:SV_INSTANCEID;
     PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV, bind_count);
     CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
-    PostprocessCodegenProperties(finalResult);
+    PostprocessCodegenProperties(finalResult, false);
     finalResult << varData << incrementalFunc << codegenData;
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
