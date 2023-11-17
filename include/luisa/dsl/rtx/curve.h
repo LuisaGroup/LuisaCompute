@@ -1,0 +1,106 @@
+#pragma once
+
+#include <luisa/core/stl/memory.h>
+#include <luisa/dsl/var.h>
+
+namespace luisa::compute {
+
+class LC_DSL_API CurveInterpolator {
+
+public:
+    virtual ~CurveInterpolator() noexcept = default;
+    [[nodiscard]] virtual Float4 position(Expr<float> u) const noexcept = 0;
+    [[nodiscard]] virtual Float4 derivative(Expr<float> u) const noexcept = 0;
+    [[nodiscard]] virtual Float4 second_derivative(Expr<float> u) const noexcept = 0;
+    [[nodiscard]] virtual std::pair<Float3, Float3> surface_position_and_normal(Expr<float> u, Expr<float3> ps) const noexcept;
+    [[nodiscard]] virtual Float3 tangent(Expr<float> u) const noexcept;
+
+public:
+    template<typename... P>
+        requires std::conjunction_v<std::is_same<expr_value_t<P>, float4>...>
+    [[nodiscard]] static luisa::unique_ptr<CurveInterpolator> create(CurveBasis basis, P &&...p) noexcept;
+};
+
+class LC_DSL_API PiecewiseLinearCurve final : public CurveInterpolator {
+
+private:
+    Float4 _p0;
+    Float4 _p1;
+
+public:
+    PiecewiseLinearCurve(Expr<float4> q0, Expr<float4> q1) noexcept;
+    [[nodiscard]] Float4 position(Expr<float> u) const noexcept override;
+    [[nodiscard]] Float4 derivative(Expr<float> u) const noexcept override;
+    [[nodiscard]] Float4 second_derivative(Expr<float> u) const noexcept override;
+    [[nodiscard]] std::pair<Float3, Float3> surface_position_and_normal(Expr<float> u, Expr<float3> ps) const noexcept override;
+};
+
+class LC_DSL_API CubicCurve : public CurveInterpolator {
+
+private:
+    Float4 _p0;
+    Float4 _p1;
+    Float4 _p2;
+    Float4 _p3;
+
+protected:
+    CubicCurve(Float4 p0, Float4 p1, Float4 p2, Float4 p3) noexcept;
+
+public:
+    [[nodiscard]] Float4 position(Expr<float> u) const noexcept override;
+    [[nodiscard]] Float4 derivative(Expr<float> u) const noexcept override;
+    [[nodiscard]] Float4 second_derivative(Expr<float> u) const noexcept override;
+};
+
+class LC_DSL_API CubicBSplineCurve final : public CubicCurve {
+public:
+    CubicBSplineCurve(Expr<float4> q0,
+                      Expr<float4> q1,
+                      Expr<float4> q2,
+                      Expr<float4> q3) noexcept;
+};
+
+class LC_DSL_API CatmullRomCurve final : public CubicCurve {
+public:
+    CatmullRomCurve(Expr<float4> q0,
+                    Expr<float4> q1,
+                    Expr<float4> q2,
+                    Expr<float4> q3) noexcept;
+};
+
+class LC_DSL_API BezierCurve final : public CubicCurve {
+
+public:
+    BezierCurve(Expr<float4> q0,
+                Expr<float4> q1,
+                Expr<float4> q2,
+                Expr<float4> q3) noexcept;
+};
+
+template<typename... P>
+    requires std::conjunction_v<std::is_same<expr_value_t<P>, float4>...>
+luisa::unique_ptr<CurveInterpolator> CurveInterpolator::create(CurveBasis basis, P &&...p) noexcept {
+    if constexpr (sizeof...(P) == 2u) {
+        switch (basis) {
+            case CurveBasis::PIECEWISE_LINEAR:
+                return luisa::make_unique<PiecewiseLinearCurve>(std::forward<P>(p)...);
+            default: break;
+        }
+        return nullptr;
+    } else if constexpr (sizeof...(P) == 4u) {
+        switch (basis) {
+            case CurveBasis::CUBIC_BSPLINE:
+                return luisa::make_unique<CubicBSplineCurve>(std::forward<P>(p)...);
+            case CurveBasis::CATMULL_ROM:
+                return luisa::make_unique<CatmullRomCurve>(std::forward<P>(p)...);
+            case CurveBasis::BEZIER:
+                return luisa::make_unique<BezierCurve>(std::forward<P>(p)...);
+            default: break;
+        }
+        return nullptr;
+    } else {
+        return nullptr;
+    }
+}
+
+}// namespace luisa::compute

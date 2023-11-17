@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(argv[1]);
 
     static constexpr auto control_point_count = 50u;
-    static constexpr auto curve_basis = CurveBasis::CATMULL_ROM;
+    static constexpr auto curve_basis = CurveBasis::CUBIC_BSPLINE;
     static constexpr auto control_points_per_segment = segment_control_point_count(curve_basis);
     static constexpr auto segment_count = control_point_count - control_points_per_segment + 1u;
 
@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
         auto y = i * .02f;
         auto z = sin(i * pi / 5.f) * (1.f - .01f * i);
         auto t = static_cast<float>(i) / static_cast<float>(control_point_count - 1u);// [0, 1]
-        auto r = .015f + .015f * sin(t * 10.f * pi - .5f * pi);
+        auto r = .03f + .03f * sin(t * 10.f * pi - .5f * pi);
         control_points.emplace_back(make_float4(x, y, z, r));
     }
     luisa::vector<uint> segments;
@@ -109,7 +109,24 @@ int main(int argc, char *argv[]) {
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
             $if (!hit->miss()) {
-                color = make_float3(.5f, .5f, hit->curve_parameter());
+                auto u = hit->curve_parameter();
+                auto i0 = hit->prim;
+                auto c = [&] {
+                    if constexpr (curve_basis == CurveBasis::PIECEWISE_LINEAR) {
+                        auto p0 = control_point_buffer->read(i0 + 0u);
+                        auto p1 = control_point_buffer->read(i0 + 1u);
+                        return CurveInterpolator::create(curve_basis, p0, p1);
+                    } else {
+                        auto p0 = control_point_buffer->read(i0 + 0u);
+                        auto p1 = control_point_buffer->read(i0 + 1u);
+                        auto p2 = control_point_buffer->read(i0 + 2u);
+                        auto p3 = control_point_buffer->read(i0 + 3u);
+                        return CurveInterpolator::create(curve_basis, p0, p1, p2, p3);
+                    }
+                }();
+                auto ps = ray->origin() + hit->distance() * ray->direction();
+                auto [p, n] = c->surface_position_and_normal(u, ps);
+                color = n * .5f + .5f;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));

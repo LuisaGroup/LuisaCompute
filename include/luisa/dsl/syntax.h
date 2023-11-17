@@ -21,6 +21,7 @@
 #include <luisa/dsl/rtx/ray.h>
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/dsl/rtx/triangle.h>
+#include <luisa/dsl/rtx/curve.h>
 
 #include <luisa/dsl/dispatch_indirect.h>
 
