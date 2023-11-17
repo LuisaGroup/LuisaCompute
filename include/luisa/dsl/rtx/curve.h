@@ -4,7 +4,7 @@
 
 namespace luisa::compute {
 
-struct CurveInterpolator {
+struct LC_DSL_API CurveInterpolator {
 
 protected:
     ~CurveInterpolator() noexcept = default;
@@ -17,7 +17,7 @@ public:
     [[nodiscard]] virtual Float3 tangent(Expr<float> u) const noexcept;
 };
 
-class PiecewiseLinearCurve final : public CurveInterpolator {
+class LC_DSL_API PiecewiseLinearCurve final : public CurveInterpolator {
 
 private:
     Float4 _p0;
@@ -31,7 +31,7 @@ public:
     [[nodiscard]] std::pair<Float3, Float3> surface_position_and_normal(Expr<float> u, Expr<float3> ps) const noexcept override;
 };
 
-class CubicCurve : public CurveInterpolator {
+class LC_DSL_API CubicCurve : public CurveInterpolator {
 
 private:
     Float4 _p0;
@@ -49,7 +49,7 @@ public:
     [[nodiscard]] Float4 second_derivative(Expr<float> u) const noexcept override;
 };
 
-class CubicBSplineCurve final : public CubicCurve {
+class LC_DSL_API CubicBSplineCurve final : public CubicCurve {
 public:
     CubicBSplineCurve(Expr<float4> q0,
                       Expr<float4> q1,
@@ -57,7 +57,7 @@ public:
                       Expr<float4> q3) noexcept;
 };
 
-class CatmullRomCurve final : public CubicCurve {
+class LC_DSL_API CatmullRomCurve final : public CubicCurve {
 public:
     CatmullRomCurve(Expr<float4> q0,
                     Expr<float4> q1,
