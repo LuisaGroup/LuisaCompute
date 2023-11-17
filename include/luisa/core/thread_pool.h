@@ -109,14 +109,20 @@ public:
             return future;
         }
         _task_count.fetch_add(1u);
-        auto counter = luisa::make_unique<std::atomic_uint>(0u);
+        auto counter = luisa::make_unique<std::pair<std::atomic_uint, std::atomic_uint>>(0u, 0u);
         _dispatch_all(
             [counter = std::move(counter), promise = std::move(promise), n, f = std::forward<F>(f), this]() mutable noexcept {
                 auto i = 0u;
-                while ((i = counter->fetch_add(1u)) < n) { f(i); }
+                auto dispatched_count = 0u;
+                while ((i = counter->first.fetch_add(1u)) < n) {
+                    f(i);
+                    ++dispatched_count;
+                }
                 if (i == n) {
                     _task_count.fetch_sub(1u);
-                    promise->set_value();
+                }
+                if (counter->second.fetch_add(dispatched_count) + dispatched_count == n) {
+                    promise->set_value();                    
                 }
             },
             n);
