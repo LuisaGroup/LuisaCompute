@@ -6,6 +6,7 @@ use bitflags::Flags;
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use log::warn;
+use luisa_compute_api_types::CurveBasis;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;
@@ -2137,8 +2138,30 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         self._curr_ctx_mut().builder = old_builder;
         // finalize
         let entry = builder.finish();
+        let curve_bases = {
+            let mut bases = CurveBasisSet::empty();
+            self._curr_ctx().j["curve_bases"].members().for_each(|b| {
+                let b = b.as_str().unwrap();
+                match b {
+                    "PIECEWISE_LINEAR" => {
+                        bases.insert(CurveBasisSet::PIECEWISE_LINEAR);
+                    }
+                    "CUBIC_BSPLINE" => {
+                        bases.insert(CurveBasisSet::CUBIC_BSPLINE);
+                    }
+                    "CATMULL_ROM" => {
+                        bases.insert(CurveBasisSet::CATMULL_ROM);
+                    }
+                    "BEZIER" => {
+                        bases.insert(CurveBasisSet::BEZIER);
+                    }
+                    _ => panic!("Invalid curve basis: {}", b),
+                }
+            });
+            bases
+        };
         Module {
-            curve_basis_set: CurveBasisSet::all(), // @Mike: fix pls
+            curve_basis_set: curve_bases,
             kind,
             entry,
             pools: self.pools.clone(),
