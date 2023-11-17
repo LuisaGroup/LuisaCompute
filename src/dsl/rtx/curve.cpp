@@ -120,4 +120,13 @@ CatmullRomCurve::CatmullRomCurve(Expr<float4> q0,
                  (-1.f * q0 + (1.f) * q2) / 2.f,
                  ((2.f) * q1) / 2.f} {}
 
+BezierCurve::BezierCurve(Expr<float4> q0,
+                         Expr<float4> q1,
+                         Expr<float4> q2,
+                         Expr<float4> q3) noexcept
+    : CubicCurve{-q0 + 3.f * q1 - 3.f * q2 + q3,
+                 3.f * q0 - 6.f * q1 + 3.f * q2,
+                 -3.f * q0 + 3.f * q1,
+                 q0} {}
+
 }// namespace luisa::compute

@@ -65,4 +65,13 @@ public:
                     Expr<float4> q3) noexcept;
 };
 
+class LC_DSL_API BezierCurve final : public CubicCurve {
+
+public:
+    BezierCurve(Expr<float4> q0,
+                Expr<float4> q1,
+                Expr<float4> q2,
+                Expr<float4> q3) noexcept;
+};
+
 }// namespace luisa::compute
