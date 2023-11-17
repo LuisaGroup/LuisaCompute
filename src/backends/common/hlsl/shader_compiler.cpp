@@ -3,6 +3,16 @@
 #include <luisa/vstl/string_utility.h>
 #include <luisa/core/logging.h>
 namespace lc::hlsl {
+class ShaderCompilerModule : public vstd::IOperatorNewBase {
+public:
+    luisa::DynamicModule dxil;
+    luisa::DynamicModule dxcCompiler;
+    IDxcCompiler3 *comp;
+    ShaderCompilerModule(std::filesystem::path const &path);
+    ~ShaderCompilerModule();
+};
+static vstd::unique_ptr<ShaderCompilerModule> dxc_module;
+
 #ifndef LC_DXC_THROW_IF_FAILED
 #define LC_DXC_THROW_IF_FAILED(x)                  \
     {                                              \
@@ -30,11 +40,12 @@ static vstd::wstring GetSM(uint shaderModel) {
 }
 IDxcCompiler3 *ShaderCompiler::compiler() {
     std::lock_guard lck{moduleInstantiateMtx};
-    if (module) return module->comp.Get();
-    module.create(path);
-    return module->comp.Get();
+    if (dxc_module) return dxc_module->comp;
+    dxc_module = vstd::make_unique<ShaderCompilerModule>(path);
+    return dxc_module->comp;
 }
-ShaderCompiler::~ShaderCompiler() {}
+ShaderCompiler::~ShaderCompiler() {
+}
 ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path)
     : dxil(luisa::DynamicModule::load(path, "dxil")),
       dxcCompiler(luisa::DynamicModule::load(path, "dxcompiler")) {
@@ -48,10 +59,11 @@ ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path)
     HRESULT(WINAPI * DxcCreateInstance)
     (const IID &, const IID &, LPVOID *) =
         reinterpret_cast<HRESULT(WINAPI *)(const IID &, const IID &, LPVOID *)>(voidPtr);
-    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(comp.GetAddressOf()));
+    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&comp));
 }
 ShaderCompilerModule::~ShaderCompilerModule() {
-    comp = nullptr;
+    // TODO: directx-compiler may crash here
+    // comp->Release();
 }
 ShaderCompiler::ShaderCompiler(std::filesystem::path const &path)
     : path(path) {}

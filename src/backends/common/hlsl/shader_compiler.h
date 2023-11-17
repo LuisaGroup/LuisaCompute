@@ -25,17 +25,8 @@ struct RasterBin {
     CompileResult vertex;
     CompileResult pixel;
 };
-class ShaderCompilerModule {
-public:
-    luisa::DynamicModule dxil;
-    luisa::DynamicModule dxcCompiler;
-    ComPtr<IDxcCompiler3> comp;
-    ShaderCompilerModule(std::filesystem::path const &path);
-    ~ShaderCompilerModule();
-};
 class ShaderCompiler final : public vstd::IOperatorNewBase {
 private:
-    vstd::optional<ShaderCompilerModule> module;
     std::mutex moduleInstantiateMtx;
     std::filesystem::path path;
     CompileResult compile(
