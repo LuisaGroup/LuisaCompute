@@ -8,7 +8,6 @@
 #include <luisa/core/shared_function.h>
 
 namespace luisa {
-
 /// Thread pool class
 class LC_CORE_API ThreadPool {
 
@@ -70,17 +69,16 @@ public:
     template<typename F>
         requires std::is_invocable_v<F, uint>
     void parallel(uint n, F &&f) noexcept {
-        if (n > 0u) {
-            _task_count.fetch_add(1u);
-            auto counter = luisa::make_unique<std::atomic_uint>(0u);
-            _dispatch_all(
-                [counter = std::move(counter), n, f = std::forward<F>(f), this]() mutable noexcept {
-                    auto i = 0u;
-                    while ((i = counter->fetch_add(1u)) < n) { f(i); }
-                    if (i == n) { _task_count.fetch_sub(1u); }
-                },
-                n);
-        }
+        if (n == 0u) return;
+        _task_count.fetch_add(1u);
+        auto counter = luisa::make_unique<std::atomic_uint>(0u);
+        _dispatch_all(
+            [counter = std::move(counter), n, f = std::forward<F>(f), this]() mutable noexcept {
+                auto i = 0u;
+                while ((i = counter->fetch_add(1u)) < n) { f(i); }
+                if (i == n) { _task_count.fetch_sub(1u); }
+            },
+            n);
     }
 
     /// Run a function 2D parallel
@@ -100,7 +98,47 @@ public:
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }
+    template<typename F>
+        requires std::is_invocable_v<F, uint>
+    auto async_parallel(uint n, F &&f) noexcept {
+        auto promise = luisa::make_unique<std::promise<void>>(
+            std::allocator_arg, luisa::allocator{});
+        auto future = promise->get_future().share();
+        if (n == 0u) {
+            promise->set_value();
+            return future;
+        }
+        _task_count.fetch_add(1u);
+        auto counter = luisa::make_unique<std::atomic_uint>(0u);
+        _dispatch_all(
+            [counter = std::move(counter), promise = std::move(promise), n, f = std::forward<F>(f), this]() mutable noexcept {
+                auto i = 0u;
+                while ((i = counter->fetch_add(1u)) < n) { f(i); }
+                if (i == n) {
+                    _task_count.fetch_sub(1u);
+                    promise->set_value();
+                }
+            },
+            n);
+        return future;
+    }
+    /// Run a function 2D parallel
+    template<typename F>
+        requires std::is_invocable_v<F, uint, uint>
+    auto async_parallel(uint nx, uint ny, F &&f) noexcept {
+        return async_parallel(nx * ny, [nx, f = std::forward<F>(f)](auto i) mutable noexcept {
+            f(i % nx, i / nx);
+        });
+    }
+
+    /// Run a function 3D parallel
+    template<typename F>
+        requires std::is_invocable_v<F, uint, uint, uint>
+    auto async_parallel(uint nx, uint ny, uint nz, F &&f) noexcept {
+        return async_parallel(nx * ny * nz, [nx, ny, f = std::forward<F>(f)](auto i) mutable noexcept {
+            f(i % nx, i / nx % ny, i / nx / ny);
+        });
+    }
 };
 
 }// namespace luisa
-
