@@ -244,4 +244,3 @@ _MTL_INLINE void MTL::BlitCommandEncoder::resolveCounters(const MTL::CounterSamp
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(resolveCounters_inRange_destinationBuffer_destinationOffset_), sampleBuffer, range, destinationBuffer, destinationOffset);
 }
-

@@ -129,4 +129,3 @@ _CA_INLINE CA::MetalDrawable* CA::MetalLayer::nextDrawable()
     return Object::sendMessage<MetalDrawable*>(this,
         _CA_PRIVATE_SEL(nextDrawable));
 }
-

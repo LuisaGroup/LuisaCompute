@@ -14,6 +14,7 @@ public:
     enum struct Tag : uint8_t {
         MESH,
         PROCEDURAL,
+        CURVE,
     };
 
 private:

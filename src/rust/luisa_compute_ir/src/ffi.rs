@@ -231,13 +231,13 @@ impl<T> std::ops::Deref for CArc<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         assert!(!self.is_null());
-        unsafe { &*(*self.inner).ptr }
+        unsafe { (*self.inner).ptr.as_ref().unwrap() }
     }
 }
 impl<T> AsRef<T> for CArc<T> {
     fn as_ref(&self) -> &T {
         assert!(!self.is_null());
-        unsafe { &mut *(*self.inner).ptr }
+        unsafe { (*self.inner).ptr.as_ref().unwrap() }
     }
 }
 #[repr(C)]

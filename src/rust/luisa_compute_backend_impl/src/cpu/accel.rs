@@ -4,7 +4,7 @@ use super::resource::BufferImpl;
 use crate::panic_abort;
 use api::{
     AccelBuildModification, AccelBuildModificationFlags, AccelBuildRequest, AccelUsageHint,
-    MeshBuildCommand, ProceduralPrimitiveBuildCommand,
+    CurveBuildCommand, MeshBuildCommand, ProceduralPrimitiveBuildCommand,
 };
 use embree_sys as sys;
 use lazy_static::lazy_static;
@@ -112,6 +112,68 @@ impl GeometryImpl {
                 Some(bounds_func),
                 (aabb_buffer.data as *mut u8).add(cmd.aabb_buffer_offset) as *mut c_void,
             );
+            check_error!(device);
+            sys::rtcCommitGeometry(geometry);
+            check_error!(device);
+        }
+        sys::rtcCommitScene(self.handle);
+        check_error!(device);
+    }
+    pub unsafe fn build_curve(&mut self, cmd: &CurveBuildCommand) {
+        let device = DEVICE.lock();
+        let device = device.0;
+        let _lk = self.lock.lock();
+        let request = cmd.request;
+        let need_rebuild = request == AccelBuildRequest::ForceBuild || !self.built;
+
+        if need_rebuild {
+            let geometry_type = match cmd.basis {
+                api::CurveBasis::PiecewiseLinear => sys::RTC_GEOMETRY_TYPE_FLAT_LINEAR_CURVE,
+                api::CurveBasis::CubicBSpline => sys::RTC_GEOMETRY_TYPE_ROUND_BSPLINE_CURVE,
+                api::CurveBasis::CatmullRom => sys::RTC_GEOMETRY_TYPE_ROUND_CATMULL_ROM_CURVE,
+                api::CurveBasis::Bezier => sys::RTC_GEOMETRY_TYPE_ROUND_BEZIER_CURVE,
+            };
+            let geometry = sys::rtcNewGeometry(device, geometry_type);
+            let vbuffer = &*(cmd.cp_buffer.0 as *const BufferImpl);
+            let ibuffer = &*(cmd.seg_buffer.0 as *const BufferImpl);
+            assert!(cmd.cp_buffer_stride >= 16, "cp buffer stride must be >= 16");
+            sys::rtcSetSharedGeometryBuffer(
+                geometry,
+                sys::RTC_BUFFER_TYPE_VERTEX,
+                0,
+                sys::RTC_FORMAT_FLOAT4,
+                vbuffer.data as *const c_void,
+                cmd.cp_buffer_offset,
+                cmd.cp_buffer_stride,
+                cmd.cp_count,
+            );
+            check_error!(device);
+            sys::rtcSetSharedGeometryBuffer(
+                geometry,
+                sys::RTC_BUFFER_TYPE_INDEX,
+                0,
+                sys::RTC_FORMAT_UINT,
+                ibuffer.data as *const c_void,
+                cmd.seg_buffer_offset,
+                4,
+                cmd.seg_count,
+            );
+            check_error!(device);
+            sys::rtcCommitGeometry(geometry);
+            check_error!(device);
+            if self.built {
+                sys::rtcDetachGeometry(self.handle, 0);
+                check_error!(device);
+            } else {
+                self.built = true;
+            }
+            sys::rtcAttachGeometryByID(self.handle, geometry, 0);
+            check_error!(device);
+            sys::rtcReleaseGeometry(geometry);
+            check_error!(device);
+        } else {
+            let geometry = sys::rtcGetGeometry(self.handle, 0);
+            sys::rtcUpdateGeometryBuffer(geometry, sys::RTC_BUFFER_TYPE_VERTEX, 0);
             check_error!(device);
             sys::rtcCommitGeometry(geometry);
             check_error!(device);

@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 use crate::{
     ir::{
         BasicBlock, Const, Func, Instruction, IrBuilder, Module, ModuleFlags, ModuleKind,
-        ModulePools, NodeRef, PhiIncoming, SwitchCase,
+        ModulePools, NodeRef, PhiIncoming, SwitchCase, CurveBasisSet,
     },
     *,
 };
@@ -648,6 +648,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     continue;
                 }
                 let ad_block = Module {
+                    curve_basis_set: CurveBasisSet::NONE,
                     kind: ModuleKind::Block,
                     entry: body.clone(),
                     pools: pools.clone(),

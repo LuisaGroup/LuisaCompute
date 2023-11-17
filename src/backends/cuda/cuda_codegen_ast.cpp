@@ -1263,6 +1263,9 @@ void CUDACodegenAST::emit(Function f,
 
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
+        if (f.required_curve_bases().any()) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_CURVE\n";
+        }
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
             _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_CLOSEST\n";
         }

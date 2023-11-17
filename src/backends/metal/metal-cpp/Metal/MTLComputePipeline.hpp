@@ -371,4 +371,3 @@ _MTL_INLINE MTL::IntersectionFunctionTable* MTL::ComputePipelineState::newInters
 {
     return Object::sendMessage<MTL::IntersectionFunctionTable*>(this, _MTL_PRIVATE_SEL(newIntersectionFunctionTableWithDescriptor_), descriptor);
 }
-

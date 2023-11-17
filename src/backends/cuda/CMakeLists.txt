@@ -18,6 +18,7 @@ if (CUDAToolkit_FOUND)
             cuda_accel.cpp cuda_accel.h
             cuda_primitive.cpp cuda_primitive.h
             cuda_procedural_primitive.cpp cuda_procedural_primitive.h
+            cuda_curve.cpp cuda_curve.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_shader.cpp cuda_shader.h
             cuda_shader_metadata.cpp cuda_shader_metadata.h

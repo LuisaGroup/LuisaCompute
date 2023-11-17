@@ -142,13 +142,14 @@ public:
     virtual void synchronize_event(uint64_t handle, uint64_t fence_value) noexcept = 0;
 
     // accel
-    [[nodiscard]] virtual ResourceCreationInfo create_mesh(
-        const AccelOption &option) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_mesh(const AccelOption &option) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
-    [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(
-        const AccelOption &option) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept = 0;
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
+
+    [[nodiscard]] virtual ResourceCreationInfo create_curve(const AccelOption &option) noexcept;
+    virtual void destroy_curve(uint64_t handle) noexcept;
 
     [[nodiscard]] virtual ResourceCreationInfo create_accel(const AccelOption &option) noexcept = 0;
     virtual void destroy_accel(uint64_t handle) noexcept = 0;

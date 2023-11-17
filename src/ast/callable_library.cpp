@@ -715,6 +715,7 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     detail::callable_library_function_builder_deserialize_stack_push(&builder);
     using namespace detail;
     using namespace std::string_view_literals;
+    builder._required_curve_bases = CurveBasisSet::from_u64(deser_value<uint64_t>(ptr, pack));
     builder._return_type = deser_value<Type const *>(ptr, pack);
     builder._builtin_variables.push_back_uninitialized(deser_value<size_t>(ptr, pack));
     for (auto &&i : builder._builtin_variables) {
@@ -768,6 +769,7 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
                      "Callable cannot contain bound-argument.");
     }
     LUISA_ASSERT(builder._used_external_functions.empty(), "Callable cannot contain external-function.");
+    ser_value(builder.required_curve_bases().to_u64(), vec);
     // return type
     if (builder._return_type)
         ser_value(builder._return_type.value(), vec);

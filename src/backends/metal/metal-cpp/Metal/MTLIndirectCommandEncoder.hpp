@@ -41,6 +41,8 @@ public:
 
     void setFragmentBuffer(const class Buffer* buffer, NS::UInteger offset, NS::UInteger index);
 
+    void setVertexBuffer(const class Buffer* buffer, NS::UInteger offset, NS::UInteger stride, NS::UInteger index);
+
     void drawPatches(NS::UInteger numberOfPatchControlPoints, NS::UInteger patchStart, NS::UInteger patchCount, const class Buffer* patchIndexBuffer, NS::UInteger patchIndexBufferOffset, NS::UInteger instanceCount, NS::UInteger baseInstance, const class Buffer* buffer, NS::UInteger offset, NS::UInteger instanceStride);
 
     void drawIndexedPatches(NS::UInteger numberOfPatchControlPoints, NS::UInteger patchStart, NS::UInteger patchCount, const class Buffer* patchIndexBuffer, NS::UInteger patchIndexBufferOffset, const class Buffer* controlPointIndexBuffer, NS::UInteger controlPointIndexBufferOffset, NS::UInteger instanceCount, NS::UInteger baseInstance, const class Buffer* buffer, NS::UInteger offset, NS::UInteger instanceStride);
@@ -58,6 +60,8 @@ public:
     void setComputePipelineState(const class ComputePipelineState* pipelineState);
 
     void setKernelBuffer(const class Buffer* buffer, NS::UInteger offset, NS::UInteger index);
+
+    void setKernelBuffer(const class Buffer* buffer, NS::UInteger offset, NS::UInteger stride, NS::UInteger index);
 
     void concurrentDispatchThreadgroups(MTL::Size threadgroupsPerGrid, MTL::Size threadsPerThreadgroup);
 
@@ -94,6 +98,12 @@ _MTL_INLINE void MTL::IndirectRenderCommand::setVertexBuffer(const MTL::Buffer* 
 _MTL_INLINE void MTL::IndirectRenderCommand::setFragmentBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger index)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setFragmentBuffer_offset_atIndex_), buffer, offset, index);
+}
+
+// method: setVertexBuffer:offset:attributeStride:atIndex:
+_MTL_INLINE void MTL::IndirectRenderCommand::setVertexBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger stride, NS::UInteger index)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVertexBuffer_offset_attributeStride_atIndex_), buffer, offset, stride, index);
 }
 
 // method: drawPatches:patchStart:patchCount:patchIndexBuffer:patchIndexBufferOffset:instanceCount:baseInstance:tessellationFactorBuffer:tessellationFactorBufferOffset:tessellationFactorBufferInstanceStride:
@@ -136,6 +146,12 @@ _MTL_INLINE void MTL::IndirectComputeCommand::setComputePipelineState(const MTL:
 _MTL_INLINE void MTL::IndirectComputeCommand::setKernelBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger index)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setKernelBuffer_offset_atIndex_), buffer, offset, index);
+}
+
+// method: setKernelBuffer:offset:attributeStride:atIndex:
+_MTL_INLINE void MTL::IndirectComputeCommand::setKernelBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger stride, NS::UInteger index)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setKernelBuffer_offset_attributeStride_atIndex_), buffer, offset, stride, index);
 }
 
 // method: concurrentDispatchThreadgroups:threadsPerThreadgroup:
@@ -185,4 +201,3 @@ _MTL_INLINE void MTL::IndirectComputeCommand::setStageInRegion(MTL::Region regio
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setStageInRegion_), region);
 }
-

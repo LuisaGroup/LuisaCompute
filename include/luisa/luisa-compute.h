@@ -119,6 +119,7 @@
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/runtime/rhi/curve_basis.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -127,6 +128,7 @@
 #include <luisa/runtime/rhi/tile_modification.h>
 #include <luisa/runtime/rtx/aabb.h>
 #include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/curve.h>
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/procedural_primitive.h>

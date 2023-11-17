@@ -55,4 +55,3 @@ _MTL_INLINE void MTL::Fence::setLabel(const NS::String* label)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setLabel_), label);
 }
-

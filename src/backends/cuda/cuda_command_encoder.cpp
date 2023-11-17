@@ -5,6 +5,7 @@
 #include "cuda_error.h"
 #include "cuda_buffer.h"
 #include "cuda_mesh.h"
+#include "cuda_curve.h"
 #include "cuda_procedural_primitive.h"
 #include "cuda_accel.h"
 #include "cuda_stream.h"
@@ -238,6 +239,11 @@ void CUDACommandEncoder::visit(AccelBuildCommand *command) noexcept {
 void CUDACommandEncoder::visit(MeshBuildCommand *command) noexcept {
     auto mesh = reinterpret_cast<CUDAMesh *>(command->handle());
     mesh->build(*this, command);
+}
+
+void CUDACommandEncoder::visit(CurveBuildCommand *command) noexcept {
+    auto curve = reinterpret_cast<CUDACurve *>(command->handle());
+    curve->build(*this, command);
 }
 
 void CUDACommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
