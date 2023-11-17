@@ -115,9 +115,9 @@ int main(int argc, char *argv[]) {
                 auto p1 = control_point_buffer->read(i0 + 1u);
                 auto p2 = control_point_buffer->read(i0 + 2u);
                 auto p3 = control_point_buffer->read(i0 + 3u);
-                CatmullRomCurve c{p0, p1, p2, p3};
+                auto c = CurveInterpolator::create(curve_basis, p0, p1, p2, p3);
                 auto ps = ray->origin() + hit->distance() * ray->direction();
-                auto [p, n] = c.surface_position_and_normal(u, ps);
+                auto [p, n] = c->surface_position_and_normal(u, ps);
                 color = n * .5f + .5f;
             };
             auto old = image.read(coord);

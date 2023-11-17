@@ -1,3 +1,4 @@
+#include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/rtx/curve.h>
