@@ -85,7 +85,7 @@ public:
         RegisterIndexer &registerCount,
         luisa::BinaryIO const *internalDataPath,
         bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count);
-    void PostprocessCodegenProperties(vstd::StringBuilder &finalResult);
+    void PostprocessCodegenProperties(vstd::StringBuilder &finalResult, bool use_autodiff);
     void CodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
