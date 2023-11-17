@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
             auto ray = generate_ray(pixel);
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
-            $if (!hit->miss()) {
+            $if (hit->is_curve()) {
                 auto u = hit->curve_parameter();
                 auto i0 = hit->prim;
                 auto c = [&] {
