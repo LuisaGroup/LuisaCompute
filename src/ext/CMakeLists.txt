@@ -69,14 +69,7 @@ luisa_compute_install_extension(stb HEADER_FILES
 add_library(magic_enum INTERFACE)
 target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
 target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
-luisa_compute_install_extension(magic_enum HEADER_FILES
-        magic_enum/include/magic_enum.hpp
-        magic_enum/include/magic_enum_containers.hpp
-        magic_enum/include/magic_enum_flags.hpp
-        magic_enum/include/magic_enum_format.hpp
-        magic_enum/include/magic_enum_fuse.hpp
-        magic_enum/include/magic_enum_iostream.hpp
-        magic_enum/include/magic_enum_switch.hpp)
+luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
