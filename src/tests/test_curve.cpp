@@ -115,13 +115,13 @@ int main(int argc, char *argv[]) {
                     if constexpr (curve_basis == CurveBasis::PIECEWISE_LINEAR) {
                         auto p0 = control_point_buffer->read(i0 + 0u);
                         auto p1 = control_point_buffer->read(i0 + 1u);
-                        return CurveInterpolator::create(curve_basis, p0, p1);
+                        return CurveEvaluator::create(curve_basis, p0, p1);
                     } else {
                         auto p0 = control_point_buffer->read(i0 + 0u);
                         auto p1 = control_point_buffer->read(i0 + 1u);
                         auto p2 = control_point_buffer->read(i0 + 2u);
                         auto p3 = control_point_buffer->read(i0 + 3u);
-                        return CurveInterpolator::create(curve_basis, p0, p1, p2, p3);
+                        return CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
                     }
                 }();
                 auto ps = ray->origin() + hit->distance() * ray->direction();

@@ -6,7 +6,7 @@
 namespace luisa::compute {
 
 std::pair<Float3, Float3>
-CurveInterpolator::surface_position_and_normal(Expr<float> u, Expr<float3> ps_in) const noexcept {
+CurveEvaluator::surface_position_and_normal(Expr<float> u, Expr<float3> ps_in) const noexcept {
     auto ps = def(ps_in);
     auto normal = def(make_float3());
     $outline {
@@ -35,7 +35,7 @@ CurveInterpolator::surface_position_and_normal(Expr<float> u, Expr<float3> ps_in
     return std::make_pair(ps, normalize(normal));
 }
 
-Float3 CurveInterpolator::tangent(Expr<float> u) const noexcept {
+Float3 CurveEvaluator::tangent(Expr<float> u) const noexcept {
     return normalize(derivative(u).xyz());
 }
 

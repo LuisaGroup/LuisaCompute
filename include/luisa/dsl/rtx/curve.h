@@ -5,10 +5,10 @@
 
 namespace luisa::compute {
 
-class LC_DSL_API CurveInterpolator {
+class LC_DSL_API CurveEvaluator {
 
 public:
-    virtual ~CurveInterpolator() noexcept = default;
+    virtual ~CurveEvaluator() noexcept = default;
     [[nodiscard]] virtual Float4 position(Expr<float> u) const noexcept = 0;
     [[nodiscard]] virtual Float4 derivative(Expr<float> u) const noexcept = 0;
     [[nodiscard]] virtual Float4 second_derivative(Expr<float> u) const noexcept = 0;
@@ -18,10 +18,10 @@ public:
 public:
     template<typename... P>
         requires std::conjunction_v<std::is_same<expr_value_t<P>, float4>...>
-    [[nodiscard]] static luisa::unique_ptr<CurveInterpolator> create(CurveBasis basis, P &&...p) noexcept;
+    [[nodiscard]] static luisa::unique_ptr<CurveEvaluator> create(CurveBasis basis, P &&...p) noexcept;
 };
 
-class LC_DSL_API PiecewiseLinearCurve final : public CurveInterpolator {
+class LC_DSL_API PiecewiseLinearCurve final : public CurveEvaluator {
 
 private:
     Float4 _p0;
@@ -35,7 +35,7 @@ public:
     [[nodiscard]] std::pair<Float3, Float3> surface_position_and_normal(Expr<float> u, Expr<float3> ps) const noexcept override;
 };
 
-class LC_DSL_API CubicCurve : public CurveInterpolator {
+class LC_DSL_API CubicCurve : public CurveEvaluator {
 
 private:
     Float4 _p0;
@@ -79,7 +79,7 @@ public:
 
 template<typename... P>
     requires std::conjunction_v<std::is_same<expr_value_t<P>, float4>...>
-luisa::unique_ptr<CurveInterpolator> CurveInterpolator::create(CurveBasis basis, P &&...p) noexcept {
+luisa::unique_ptr<CurveEvaluator> CurveEvaluator::create(CurveBasis basis, P &&...p) noexcept {
     if constexpr (sizeof...(P) == 2u) {
         switch (basis) {
             case CurveBasis::PIECEWISE_LINEAR:
