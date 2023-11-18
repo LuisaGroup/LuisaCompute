@@ -298,4 +298,5 @@ int main(int argc, char *argv[]) {
         framerate.record();
         LUISA_INFO("FPS: {}", framerate.report());
     }
+    stream << synchronize();
 }
