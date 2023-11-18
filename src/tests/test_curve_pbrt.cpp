@@ -92,7 +92,7 @@ using namespace luisa::compute;
                     skip_whitespaces();
                 }
             } else if (prop == "float width") {
-                radius = read_float() * .5f;
+                radius = read_float();
             } else {
                 while (peek() != ']') { pop(); }
             }
@@ -103,8 +103,11 @@ using namespace luisa::compute;
         LUISA_ASSERT(!vertices.empty(), "Empty curve.");
         LUISA_ASSERT(radius > 0.f, "Invalid curve radius: {}", radius);
         auto offset = static_cast<uint>(control_points.size());
-        for (auto v : vertices) {
-            control_points.emplace_back(make_float4(v, radius));
+        auto n = static_cast<double>(vertices.size() - 1u);
+        for (auto i = 0u; i < vertices.size(); i++) {
+            auto v = vertices[i];
+            auto r = std::lerp(radius, 0., i / n);
+            control_points.emplace_back(make_float4(v, static_cast<float>(r)));
         }
         for (auto i = 0u; i < vertices.size() - 3u; i++) {
             segments.emplace_back(offset + i);
@@ -141,7 +144,7 @@ int main(int argc, char *argv[]) {
     auto invM = inverse(M);
     auto N = transpose(inverse(make_float3x3(M)));
 
-    static constexpr auto curve_basis = CurveBasis::CUBIC_BSPLINE;
+    static constexpr auto curve_basis = CurveBasis::CATMULL_ROM;
     auto control_point_buffer = device.create_buffer<float4>(control_point_count);
     auto segment_buffer = device.create_buffer<uint>(segment_count);
 
