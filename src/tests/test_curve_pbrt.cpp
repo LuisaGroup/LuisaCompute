@@ -147,7 +147,10 @@ int main(int argc, char *argv[]) {
 
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     stream << control_point_buffer.copy_from(control_points.data())
-           << segment_buffer.copy_from(segments.data());
+           << segment_buffer.copy_from(segments.data())
+           << synchronize();
+    control_points = {};
+    segments = {};
 
     auto curve = device.create_curve(curve_basis, control_point_buffer, segment_buffer);
     auto accel = device.create_accel();
