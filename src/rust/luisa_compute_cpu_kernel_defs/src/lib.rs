@@ -67,14 +67,14 @@ pub enum HitType {
 
 #[repr(C, align(8))]
 #[derive(Copy, Clone, Default, Debug)]
-pub struct CommitedHit {
+pub struct CommittedHit {
     pub inst: u32,
     pub prim: u32,
     pub bary: [f32; 2],
     pub hit_type: u32,
     pub committed_ray_t: f32,
 }
-impl CommitedHit {
+impl CommittedHit {
     pub fn set_from_triangle_hit(&mut self, hit: TriangleHit) {
         self.inst = hit.inst;
         self.prim = hit.prim;
@@ -127,7 +127,7 @@ pub struct Accel {
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]
 pub struct RayQuery {
-    pub hit: CommitedHit,
+    pub hit: CommittedHit,
     pub ray: Ray,
     pub mask: u32,
     pub cur_committed_ray_t: f32,

@@ -2,11 +2,11 @@ use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 
-use bitflags::Flags;
+
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use log::warn;
-use luisa_compute_api_types::CurveBasis;
+
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;

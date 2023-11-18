@@ -24,7 +24,7 @@ struct alignas(16) Mat4 {
     float _0[16];
 };
 
-struct alignas(8) CommitedHit {
+struct alignas(8) CommittedHit {
     uint32_t inst;
     uint32_t prim;
     float bary[2];
@@ -38,7 +38,7 @@ struct ProceduralHit {
 };
 
 struct alignas(16) RayQuery {
-    CommitedHit hit;
+    CommittedHit hit;
     Ray ray;
     uint32_t mask;
     float cur_committed_ray_t;
