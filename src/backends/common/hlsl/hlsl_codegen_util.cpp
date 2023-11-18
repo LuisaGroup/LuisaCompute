@@ -1,12 +1,10 @@
 #include "hlsl_codegen.h"
 #include <luisa/vstl/string_utility.h>
-#include "variant_util.h"
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/ast/function_builder.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
-#include <luisa/vstl/pdqsort.h>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
@@ -1807,15 +1805,7 @@ namespace detail {
 
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult, bool use_autodiff) {
     if (!opt->customStruct.empty()) {
-        vstd::fixed_vector<StructGenerator *, 16> customStructVector;
-        customStructVector.reserve(opt->customStruct.size());
-        for (auto &&i : opt->customStruct) {
-            customStructVector.emplace_back(i.second.get());
-        }
-        pdqsort(customStructVector.begin(), customStructVector.end(), [](auto lhs, auto rhs) noexcept {
-            return lhs->GetType()->index() < rhs->GetType()->index();
-        });
-        for (auto v : customStructVector) {
+        for (auto v : opt->customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
             // accum grad while using autodiff

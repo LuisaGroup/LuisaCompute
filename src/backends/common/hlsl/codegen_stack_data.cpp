@@ -27,6 +27,7 @@ void CodegenStackData::Clear() {
     constTypes.clear();
     funcTypes.clear();
     customStruct.clear();
+    customStructVector.clear();
     atomicsFuncs.clear();
     sharedVariable.clear();
     constCount = 0;
@@ -62,6 +63,7 @@ vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
     if (ite.second) {
         auto newPtr = ite.first.value().get();
         newPtr->Init(generateStruct);
+        customStructVector.emplace_back(ite.first.value().get());
     }
     return ite.first.value()->GetStructName();
 }
