@@ -52,17 +52,17 @@ LUISA_NVRTC_StringBuffer luisa_nvrtc_compile(
         }
     }
     LUISA_NVRTC_StringBuffer buffer{};
-    if (is_optix_ir) {
-        LUISA_CHECK_NVRTC(nvrtcGetOptiXIRSize(prog, &buffer.size));
-        buffer.data = (char *)malloc(buffer.size);
-        LUISA_CHECK_NVRTC(nvrtcGetOptiXIR(prog, buffer.data));
-        LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
-    } else {
-        LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &buffer.size));
-        buffer.data = (char *)malloc(buffer.size);
-        LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, buffer.data));
-        LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
-    }
+    // if (is_optix_ir) {
+    //     LUISA_CHECK_NVRTC(nvrtcGetOptiXIRSize(prog, &buffer.size));
+    //     buffer.data = (char *)malloc(buffer.size);
+    //     LUISA_CHECK_NVRTC(nvrtcGetOptiXIR(prog, buffer.data));
+    //     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
+    //     return buffer;
+    // }
+    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &buffer.size));
+    buffer.data = (char *)malloc(buffer.size);
+    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, buffer.data));
+    LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
     return buffer;
 }
 
