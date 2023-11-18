@@ -7,13 +7,13 @@ from .builtin import check_exact_signature
 # because indexed access of buffer isn't officially supported (by astbuilder),
 # here we provide the buffer access function for atomic operations
 
-# ======================= int buffer atomic operations ========================
-def _atomic_call(*args):
-    op = getattr(lcapi.CallOp, args[1])
+def _atomic_call(dtype, op_name, *args):
+    op = getattr(lcapi.CallOp, op_name)
     chain = lcapi.AtomicAccessChain()
-    chain.create(args[2].expr)
-    chain.access(args[3].expr)
-    return args[0], chain.operate(op, [x.expr for x in args[4:]])
+    chain.create(args[0].expr)
+    chain.access(args[1].expr)
+    return dtype, chain.operate(op, [x.expr for x in args[2:]])
+# ======================= int buffer atomic operations ========================
 
 
 @BuiltinFuncBuilder
@@ -145,4 +145,30 @@ float_atomic_functions = [
     atomic_fetch_max
 ]
 
-__all__ = ["int_atomic_functions", "float_atomic_functions"]
+
+@BuiltinFuncBuilder
+def _atomic_access_call(n_dtype, n_op_name, buf, idx, member_nest_level, *args):
+    """
+    example:
+        buf = luisa.Buffer(10000, luisa.StructType(k=float, a=float4))
+        # buf[i].a.w += k (atomic)
+        _ = _atomic_access_call(float, "ATOMIC_FETCH_ADD", buf, idx, 2, 1, 3, k)
+    """
+    assert n_dtype.dtype is type
+    assert n_op_name.dtype is str
+    assert type(buf.dtype).__name__ == "BufferType"
+    assert idx.dtype is int
+    dtype = n_dtype.expr
+    op_name = n_op_name.expr
+    op = getattr(lcapi.CallOp, op_name)
+    chain = lcapi.AtomicAccessChain()
+    chain.create(buf.expr)
+    chain.access(idx.expr)
+    assert type(member_nest_level).__name__ == "Constant"
+    for l in range(member_nest_level.value):
+        assert type(args[l]).__name__ == "Constant"
+        chain.member(args[l].value)
+    return dtype, chain.operate(op, [x.expr for x in args[member_nest_level.value:]])
+    
+
+__all__ = ["int_atomic_functions", "float_atomic_functions", "_atomic_access_call"]
