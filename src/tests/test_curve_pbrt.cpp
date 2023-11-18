@@ -189,10 +189,10 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto resolution = make_uint2(1024u);
 
-    Callable generate_ray = [](Float2 p) noexcept {
-        constexpr auto origin = make_float3(0.f, 0.f, -2.f);
-        constexpr auto target = make_float3(0.f, 0.f, 0.f);
-        auto up = make_float3(0.f, 1.f, 0.f);
+    Callable generate_ray = [](Float2 p, Float angle) noexcept {
+        auto origin = make_float3(sin(angle) * 2.f, 0.f, cos(angle) * 2.f);
+        auto target = make_float3(0.f, 0.f, 0.f);
+        auto up = def(make_float3(0.f, 1.f, 0.f));
         auto front = normalize(target - origin);
         auto right = normalize(cross(front, up));
         up = cross(right, front);
@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
     };
 
     auto render = device.compile<2u>(
-        [&](AccelVar accel, ImageFloat image, ImageUInt seed_image) noexcept {
+        [&](AccelVar accel, ImageFloat image, ImageUInt seed_image, Float view_angle) noexcept {
             set_block_size(16u, 16u, 1u);
             auto coord = dispatch_id().xy();
             auto state = seed_image.read(coord).x;
@@ -218,7 +218,7 @@ int main(int argc, char *argv[]) {
             auto uy = lcg(state);
             seed_image.write(coord, make_uint4(state));
             auto pixel = make_float2(coord) + make_float2(ux, uy);
-            auto ray = generate_ray(pixel);
+            auto ray = generate_ray(pixel, view_angle);
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
             $if (hit->is_curve()) {
@@ -266,14 +266,32 @@ int main(int argc, char *argv[]) {
         window.native_handle(), stream, resolution,
         false, false, 3);
 
-    stream << clear(hdr_image).dispatch(resolution)
-           << make_sampler_kernel(seed_image).dispatch(resolution);
+    Clock clock;
+    auto viewing_angle = 0.f;
+    auto dirty = true;
+    auto last_time = 0.;
+    stream << make_sampler_kernel(seed_image).dispatch(resolution);
     Framerate framerate;
     while (!window.should_close()) {
-        stream << render(accel, hdr_image, seed_image).dispatch(resolution)
+        if (dirty) {
+            stream << clear(hdr_image).dispatch(resolution);
+            dirty = false;
+        }
+        stream << render(accel, hdr_image, seed_image, viewing_angle).dispatch(resolution)
                << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
                << swap_chain.present(ldr_image);
         window.poll_events();
+        static constexpr auto speed = 1e-3f;
+        auto curr_time = clock.toc();
+        auto delta_time = curr_time - last_time;
+        last_time = curr_time;
+        if (window.is_key_down(KEY_LEFT)) {
+            viewing_angle = static_cast<float>(viewing_angle - speed * delta_time);
+            dirty = true;
+        } else if (window.is_key_down(KEY_RIGHT)) {
+            viewing_angle = static_cast<float>(viewing_angle + speed * delta_time);
+            dirty = true;
+        }
         framerate.record();
         LUISA_INFO("FPS: {}", framerate.report());
     }
