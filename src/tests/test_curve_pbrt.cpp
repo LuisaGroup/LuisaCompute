@@ -1,0 +1,274 @@
+#include <fstream>
+#include <luisa/luisa-compute.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+
+[[nodiscard]] auto parse_pbrt_curve_file(const std::filesystem::path &path) noexcept {
+    std::ifstream file{path};
+    if (!file.is_open()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to open curve file: {}",
+            path.string());
+    }
+    luisa::vector<float4> control_points;
+    luisa::vector<uint> segments;
+    static constexpr auto inf = std::numeric_limits<float>::infinity();
+    auto aabb_min = make_float3(inf);
+    auto aabb_max = make_float3(-inf);
+
+    auto eof = [&] { return file.peek() == EOF; };
+    auto peek = [&] {
+        LUISA_ASSERT(!eof(), "Unexpected EOF.");
+        return static_cast<char>(file.peek());
+    };
+    auto pop = [&] {
+        LUISA_ASSERT(!eof(), "Unexpected EOF.");
+        return static_cast<char>(file.get());
+    };
+    auto match = [&](char c) noexcept {
+        auto x = pop();
+        LUISA_ASSERT(x == c,
+                     "Unexpected character: {} (expected {})",
+                     x, c);
+    };
+    auto skip_whitespaces = [&] {
+        while (!eof() && std::isspace(peek())) { pop(); }
+    };
+    auto read_string = [&] {
+        skip_whitespaces();
+        match('"');
+        static std::string s;
+        s.clear();
+        while (peek() != '"') { s.push_back(pop()); }
+        match('"');
+        return s;
+    };
+    auto read_token = [&] {
+        skip_whitespaces();
+        static std::string s;
+        s.clear();
+        while (!eof() && !std::isspace(peek())) { s.push_back(pop()); }
+        return s;
+    };
+    auto read_float = [&]() noexcept {
+        skip_whitespaces();
+        static std::string s;
+        s.clear();
+        auto is_digit = [](char c) noexcept {
+            return std::isdigit(c) || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E';
+        };
+        while (!eof() && is_digit(peek())) { s.push_back(pop()); }
+        auto p = static_cast<size_t>(0u);
+        auto x = std::stof(s, &p);
+        LUISA_ASSERT(p == s.size(), "Failed to parse float: {}", s);
+        return x;
+    };
+
+    auto parse_curve = [&]() noexcept -> bool {
+        skip_whitespaces();
+        if (eof()) { return false; }
+        auto token = read_token();
+        LUISA_ASSERT(token == "Shape", "Unexpected token: {}", token);
+        LUISA_ASSERT(read_string() == "curve", "Unexpected shape: {}", token);
+        static luisa::vector<float3> vertices;
+        vertices.clear();
+        auto radius = 0.f;
+        skip_whitespaces();
+        while (!eof() && peek() == '"') {
+            auto prop = read_string();
+            skip_whitespaces();
+            match('[');
+            if (prop == "point3 P") {
+                skip_whitespaces();
+                while (peek() != ']') {
+                    auto x = read_float();
+                    auto y = read_float();
+                    auto z = read_float();
+                    auto p = make_float3(x, y, z);
+                    aabb_min = min(aabb_min, p);
+                    aabb_max = max(aabb_max, p);
+                    vertices.emplace_back(make_float3(x, y, z));
+                    skip_whitespaces();
+                }
+            } else if (prop == "float width") {
+                radius = read_float() * .5f;
+            } else {
+                while (peek() != ']') { pop(); }
+            }
+            skip_whitespaces();
+            match(']');
+            skip_whitespaces();
+        }
+        LUISA_ASSERT(!vertices.empty(), "Empty curve.");
+        LUISA_ASSERT(radius > 0.f, "Invalid curve radius: {}", radius);
+        auto offset = static_cast<uint>(control_points.size());
+        for (auto v : vertices) {
+            control_points.emplace_back(make_float4(v, radius));
+        }
+        for (auto i = 0u; i < vertices.size() - 3u; i++) {
+            segments.emplace_back(offset + i);
+        }
+        return true;
+    };
+    while (parse_curve()) {}
+    return std::make_tuple(std::move(control_points), std::move(segments), aabb_min, aabb_max);
+}
+
+int main(int argc, char *argv[]) {
+
+    log_level_verbose();
+    Context context{argv[0]};
+
+    if (argc < 3) {
+        LUISA_INFO("Usage: {} <backend> <pbrt-curve-file>. "
+                   "<backend>: cuda, dx, cpu, metal",
+                   argv[0]);
+        exit(1);
+    }
+
+    auto device = context.create_device(argv[1]);
+    auto [control_points, segments, aabb_min, aabb_max] = parse_pbrt_curve_file(argv[2]);
+    auto control_point_count = static_cast<uint>(control_points.size());
+    auto segment_count = static_cast<uint>(segments.size());
+    auto extent = aabb_max - aabb_min;
+    auto center = (aabb_max + aabb_min) * .5f;
+    auto scaling_factor = std::max({extent.x, extent.y, extent.z});
+    LUISA_INFO("Control Points: {}, Segments: {}, AABB: {} -> {}, Extent = {}, Scaling Factor = {}",
+               control_point_count, segment_count, aabb_min, aabb_max, extent, scaling_factor);
+
+    auto M = scaling(1.f / scaling_factor) * translation(-center);
+    auto invM = inverse(M);
+    auto N = transpose(inverse(make_float3x3(M)));
+
+    static constexpr auto curve_basis = CurveBasis::CUBIC_BSPLINE;
+    auto control_point_buffer = device.create_buffer<float4>(control_point_count);
+    auto segment_buffer = device.create_buffer<uint>(segment_count);
+
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    stream << control_point_buffer.copy_from(control_points.data())
+           << segment_buffer.copy_from(segments.data());
+
+    auto curve = device.create_curve(curve_basis, control_point_buffer, segment_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(curve, M);
+
+    stream << curve.build()
+           << accel.build()
+           << synchronize();
+
+    Callable tea = [](UInt v0, UInt v1) noexcept {
+        UInt s0 = def(0u);
+        for (uint n = 0u; n < 4u; n++) {
+            s0 += 0x9e3779b9u;
+            v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
+            v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
+        }
+        return v0;
+    };
+
+    auto make_sampler_kernel = device.compile<2u>([&](ImageUInt seed_image) noexcept {
+        UInt2 p = dispatch_id().xy();
+        UInt state = tea(p.x, p.y);
+        seed_image.write(p, make_uint4(state));
+    });
+
+    Callable lcg = [](UInt &state) noexcept {
+        constexpr uint lcg_a = 1664525u;
+        constexpr uint lcg_c = 1013904223u;
+        state = lcg_a * state + lcg_c;
+        return cast<float>(state & 0x00ffffffu) *
+               (1.0f / static_cast<float>(0x01000000u));
+    };
+
+    static constexpr auto resolution = make_uint2(1024u);
+
+    Callable generate_ray = [](Float2 p) noexcept {
+        constexpr auto origin = make_float3(0.f, 0.f, -2.f);
+        constexpr auto target = make_float3(0.f, 0.f, 0.f);
+        auto up = make_float3(0.f, 1.f, 0.f);
+        auto front = normalize(target - origin);
+        auto right = normalize(cross(front, up));
+        up = cross(right, front);
+        auto fov = radians(35.f);
+        auto aspect = static_cast<float>(resolution.x) /
+                      static_cast<float>(resolution.y);
+        auto image_plane_height = tan(fov / 2.f);
+        auto image_plane_width = aspect * image_plane_height;
+        up *= image_plane_height;
+        right *= image_plane_width;
+        auto uv = p / make_float2(resolution) * 2.f - 1.f;
+        auto ray_origin = origin;
+        auto ray_direction = normalize(uv.x * right - uv.y * up + front);
+        return make_ray(ray_origin, ray_direction);
+    };
+
+    auto render = device.compile<2u>(
+        [&](AccelVar accel, ImageFloat image, ImageUInt seed_image) noexcept {
+            set_block_size(16u, 16u, 1u);
+            auto coord = dispatch_id().xy();
+            auto state = seed_image.read(coord).x;
+            auto ux = lcg(state);
+            auto uy = lcg(state);
+            seed_image.write(coord, make_uint4(state));
+            auto pixel = make_float2(coord) + make_float2(ux, uy);
+            auto ray = generate_ray(pixel);
+            auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
+            auto color = def(make_float3());
+            $if (hit->is_curve()) {
+                auto u = hit->curve_parameter();
+                auto i0 = hit->prim;
+                auto p0 = control_point_buffer->read(i0 + 0u);
+                auto p1 = control_point_buffer->read(i0 + 1u);
+                auto p2 = control_point_buffer->read(i0 + 2u);
+                auto p3 = control_point_buffer->read(i0 + 3u);
+                auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
+                auto ps = make_float3(invM * make_float4(ray->origin() + hit->distance() * ray->direction(), 1.f));
+                auto [p, n] = c->surface_position_and_normal(u, ps);
+                color = normalize(N * n) * .5f + .5f;
+            };
+            auto old = image.read(coord);
+            image.write(coord, old + make_float4(color, 1.f));
+        });
+
+    auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
+    auto hdr_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
+
+    auto clear = device.compile<2>([&](ImageFloat image) noexcept {
+        image.write(dispatch_id().xy(), make_float4(0.f));
+    });
+
+    Callable linear_to_srgb = [&](Var<float3> x) noexcept {
+        return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                               12.92f * x,
+                               x <= 0.00031308f));
+    };
+
+    auto hdr2ldr = device.compile<2>([&](ImageFloat hdr_image, ImageFloat ldr_image, Bool is_hdr) noexcept {
+        UInt2 coord = dispatch_id().xy();
+        Float4 hdr = hdr_image.read(coord);
+        Float3 ldr = hdr.xyz() / hdr.w;
+        $if (!is_hdr) {
+            ldr = linear_to_srgb(ldr);
+        };
+        ldr_image.write(coord, make_float4(ldr, 1.0f));
+    });
+
+    Window window{"Display", resolution};
+    auto swap_chain = device.create_swapchain(
+        window.native_handle(), stream, resolution,
+        false, false, 3);
+
+    stream << clear(hdr_image).dispatch(resolution)
+           << make_sampler_kernel(seed_image).dispatch(resolution);
+    Framerate framerate;
+    while (!window.should_close()) {
+        stream << render(accel, hdr_image, seed_image).dispatch(resolution)
+               << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
+               << swap_chain.present(ldr_image);
+        window.poll_events();
+        framerate.record();
+        LUISA_INFO("FPS: {}", framerate.report());
+    }
+}
