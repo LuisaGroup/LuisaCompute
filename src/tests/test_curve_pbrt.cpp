@@ -73,7 +73,8 @@ using namespace luisa::compute;
         LUISA_ASSERT(read_string() == "curve", "Unexpected shape: {}", token);
         static luisa::vector<float3> vertices;
         vertices.clear();
-        auto radius = 0.f;
+        auto radius_max = 0.f;
+        auto radius_min = 0.f;
         skip_whitespaces();
         while (!eof() && peek() == '"') {
             auto prop = read_string();
@@ -91,8 +92,10 @@ using namespace luisa::compute;
                     vertices.emplace_back(make_float3(x, y, z));
                     skip_whitespaces();
                 }
-            } else if (prop == "float width") {
-                radius = read_float();
+            } else if (prop == "float width" || prop == "float width0") {
+                radius_max = read_float();
+            } else if (prop == "float width1") {
+                radius_min = read_float();
             } else {
                 while (peek() != ']') { pop(); }
             }
@@ -101,12 +104,12 @@ using namespace luisa::compute;
             skip_whitespaces();
         }
         LUISA_ASSERT(!vertices.empty(), "Empty curve.");
-        LUISA_ASSERT(radius > 0.f, "Invalid curve radius: {}", radius);
+        LUISA_ASSERT(radius_max > 0.f, "Invalid curve radius: {}", radius_max);
         auto offset = static_cast<uint>(control_points.size());
         auto n = static_cast<double>(vertices.size() - 1u);
         for (auto i = 0u; i < vertices.size(); i++) {
             auto v = vertices[i];
-            auto r = std::lerp(radius, 0., i / n);
+            auto r = std::lerp(radius_max, radius_min, i / n);
             control_points.emplace_back(make_float4(v, static_cast<float>(r)));
         }
         for (auto i = 0u; i < vertices.size() - 3u; i++) {
