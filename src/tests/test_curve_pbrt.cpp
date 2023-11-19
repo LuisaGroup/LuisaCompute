@@ -514,7 +514,7 @@ int main(int argc, char *argv[]) {
                         Float z = 1.f - 2.f * u.x;
                         Float r = sqrt(1.f - sqr(z));
                         Float phi = 2.f * pi * u.y;
-                        return make_float3(cos(phi), sin(phi), z);
+                        return make_float3(r * cos(phi), r * sin(phi), z);
                     }();
                     auto f = bsdf.f(wo_local, wi_local);
                     beta = beta * f * abs(wi_local.z) * 4.f * pi;
