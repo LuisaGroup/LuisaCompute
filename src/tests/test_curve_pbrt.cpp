@@ -511,7 +511,7 @@ int main(int argc, char *argv[]) {
                     // device_log("bsdf.f = {}", f);
                     auto shadow_ray = make_ray(p + n * 1e-4f, light_dir);
                     auto occluded = accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}});
-                    color += ite(isnan(reduce_sum(direct)), 0.f, direct);
+                    color += ite(dsl::isnan(reduce_sum(direct)), 0.f, direct);
                 }
                 color = t_local * .5f + .5f;
             };
