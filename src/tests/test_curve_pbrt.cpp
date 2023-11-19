@@ -468,7 +468,7 @@ int main(int argc, char *argv[]) {
                 auto ps = make_float3(invM * make_float4(ray->origin() + hit->distance() * ray->direction(), 1.f));
                 auto [p, n] = c->surface_position_and_normal(u, ps);
                 n = normalize(N * n);
-                p = make_float3x3(M) * p;
+                p = make_float3(M * make_float4(p, 1.f));
                 Float h = 0.2f;// is this correct?
                 Float eta = 1.55f;
                 Float beta_m = 0.3f;
@@ -502,11 +502,11 @@ int main(int argc, char *argv[]) {
                 auto dist2 = length_squared(light_pos - p);
                 auto direct = light_color * abs(dot(n, wi)) / dist2 * bsdf.f(wo_local, wi_local);
                 // device_log("bsdf.f", bsdf.f(wo, wi));
-                auto shadow_ray = make_ray(p + wi * 1e-3f, wi);
-                $if(accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}})) {
-                    direct = make_float3(0.f);
-                };
-                color = direct;
+                // auto shadow_ray = make_ray(p + wi * 1e-3f, wi);
+                // $if (accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}})) {
+                //     direct = make_float3(0.f);
+                // };
+                color = direct;// + make_float3(0.1f);
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
@@ -542,7 +542,7 @@ int main(int argc, char *argv[]) {
         false, false, 3);
 
     Clock clock;
-    auto viewing_angle = 0.f;
+    auto viewing_angle = PI;
     auto dirty = true;
     auto last_time = 0.;
     stream << make_sampler_kernel(seed_image).dispatch(resolution);
