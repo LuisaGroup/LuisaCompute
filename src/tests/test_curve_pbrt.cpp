@@ -98,10 +98,11 @@ class HairBsdf {
     Float beta_n;
     Float alpha;
     Float s;
-    std::array<Float, pMax> sin2kAlpha, cos2kAlpha;
-    std::array<Float, pMax + 1> v;
+    std::array<Float, pMax> sin2kAlpha{}, cos2kAlpha{};
+    std::array<Float, pMax + 1> v{};
 public:
-    HairBsdf(Float h, Float eta, Float3 sigma_a, Float beta_m, Float beta_n, Float alpha) {
+    HairBsdf(Float h, Float eta, Float3 sigma_a, Float beta_m, Float beta_n, Float alpha)
+        : h{h}, eta{eta}, sigma_a{sigma_a}, beta_m{beta_m}, beta_n{beta_n}, alpha{alpha} {
         v[0] = sqr(0.726f * beta_m + 0.812f * sqr(beta_m) + 3.7f * powi(beta_m, 20));
         v[1] = .25f * v[0];
         v[2] = 4.f * v[0];
@@ -130,7 +131,7 @@ public:
     static std::array<Float3, pMax + 1> Ap(Float cosTheta_o,
                                            Float eta, Float h,
                                            Float3 T) {
-        std::array<Float3, pMax + 1> ap;
+        std::array<Float3, pMax + 1> ap{};
         // Compute $p=0$ attenuation at initial cylinder intersection
         Float cosGamma_o = sqrt(1.f - sqr(h));
         Float cosTheta = cosTheta_o * cosGamma_o;
@@ -455,7 +456,7 @@ int main(int argc, char *argv[]) {
             auto ray = generate_ray(pixel, view_angle);
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
-            auto light_color = make_float3(1.f);
+            auto light_color = make_float3(100.f);
             $if (hit->is_curve()) {
                 auto u = hit->curve_parameter();
                 auto i0 = hit->prim;
@@ -471,21 +472,17 @@ int main(int argc, char *argv[]) {
                 auto p = make_float3(M * make_float4(p_local, 1.f));
                 auto n = normalize(N * n_local);
                 auto t = normalize(N * t_local);
-                Float h = 0.2f;// is this correct?
+                Float h = clamp(dot(-ray->direction(), n), -1.f, 1.f);
                 Float eta = 1.55f;
                 Float beta_m = 0.3f;
                 Float beta_n = 0.3f;
                 Float alpha = 2.0f;
                 Float3 sigma_a = ([&] {
-                    Float3 c = make_float3(0.2f);
-                    Float3 sigma_a;
-                    for (int i = 0; i < 3; ++i) {
-                        sigma_a[i] =
-                            sqr(log(c[i]) / (5.969f - 0.215f * beta_n + 2.532f * sqr(beta_n) -
-                                             10.73f * powi(beta_n, 3) + 5.574f * powi(beta_n, 4) +
-                                             0.245f * powi(beta_n, 5)));
-                    }
-                    return sigma_a;
+                    auto eumelaninSigma_a = make_float3(0.419f, 0.697f, 1.37f);
+                    auto pheomelaninSigma_a = make_float3(0.187f, 0.4f, 1.05f);
+                    auto ce = 0.5f;
+                    auto cp = 0.2f;
+                    return ce * eumelaninSigma_a + cp * pheomelaninSigma_a;
                 })();
                 Callable make_onb = [](Float3 normal, Float3 tangent) noexcept {
                     auto binormal = normalize(cross(normal, tangent));
@@ -498,13 +495,13 @@ int main(int argc, char *argv[]) {
                 auto wo_local = onb->to_local(wo);
                 std::array light_dirs{
                     make_float3(1.f, 1.f, 1.f),
-                    make_float3(-1.f, 1.f, 1.f),
-                    make_float3(1.f, -1.f, 1.f),
-                    make_float3(-1.f, -1.f, 1.f),
-                    make_float3(1.f, 1.f, -1.f),
-                    make_float3(-1.f, 1.f, -1.f),
-                    make_float3(1.f, -1.f, -1.f),
-                    make_float3(-1.f, -1.f, -1.f),
+                    // make_float3(-1.f, 1.f, 1.f),
+                    // make_float3(1.f, -1.f, 1.f),
+                    // make_float3(-1.f, -1.f, 1.f),
+                    // make_float3(1.f, 1.f, -1.f),
+                    // make_float3(-1.f, 1.f, -1.f),
+                    // make_float3(1.f, -1.f, -1.f),
+                    // make_float3(-1.f, -1.f, -1.f),
                 };
                 for (auto light_dir : light_dirs) {
                     auto wi_local = normalize(onb->to_local(light_dir));
