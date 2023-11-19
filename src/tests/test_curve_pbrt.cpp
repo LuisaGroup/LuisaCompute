@@ -455,7 +455,6 @@ int main(int argc, char *argv[]) {
             auto ray = generate_ray(pixel, view_angle);
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
-            auto light_dir = normalize(make_float3(1.f));
             auto light_color = make_float3(1.f);
             $if (hit->is_curve()) {
                 auto u = hit->curve_parameter();
@@ -465,8 +464,9 @@ int main(int argc, char *argv[]) {
                 auto p2 = control_point_buffer->read(i0 + 2u);
                 auto p3 = control_point_buffer->read(i0 + 3u);
                 auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
-                auto ps = make_float3(invM * make_float4(ray->origin() + hit->distance() * ray->direction(), 1.f));
-                auto [p_local, n_local] = c->surface_position_and_normal(u, ps);
+                auto ps_local = ray->origin() + hit->distance() * ray->direction();
+                auto ps = make_float3(invM * make_float4(ps_local, 1.f));
+                auto [p_local, n_local] = c->surface_position_and_normal(u, ps_local);
                 auto t_local = c->tangent(u);
                 auto p = make_float3(M * make_float4(p_local, 1.f));
                 auto n = normalize(N * n_local);
@@ -487,7 +487,6 @@ int main(int argc, char *argv[]) {
                     }
                     return sigma_a;
                 })();
-
                 Callable make_onb = [](Float3 normal, Float3 tangent) noexcept {
                     auto binormal = normalize(cross(normal, tangent));
                     return def<Onb>(tangent, binormal, normal);
@@ -497,16 +496,26 @@ int main(int argc, char *argv[]) {
                 auto wo = -ray->direction();
                 // auto wi = normalize(light_pos - p);
                 auto wo_local = onb->to_local(wo);
-                // auto wi_local = onb->to_local(wi);
-                auto wi_local = normalize(onb->to_local(light_dir));
-                // auto dist2 = length_squared(light_pos - p);
-                auto f = bsdf.f(wo_local, wi_local);
-                auto direct = light_color * abs(wi_local.z) * f;
-                // device_log("bsdf.f = {}", f);
-                auto shadow_ray = make_ray(p + n * 1e-4f, light_dir);
-                auto occluded = accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}});
-                direct = ite(isnan(reduce_sum(direct)), 0.f, direct);
-                color = direct * ite(occluded, .8f, 1.f);
+                std::array light_dirs{
+                    make_float3(1.f, 1.f, 1.f),
+                    make_float3(-1.f, 1.f, 1.f),
+                    make_float3(1.f, -1.f, 1.f),
+                    make_float3(-1.f, -1.f, 1.f),
+                    make_float3(1.f, 1.f, -1.f),
+                    make_float3(-1.f, 1.f, -1.f),
+                    make_float3(1.f, -1.f, -1.f),
+                    make_float3(-1.f, -1.f, -1.f),
+                };
+                for (auto light_dir : light_dirs) {
+                    auto wi_local = normalize(onb->to_local(light_dir));
+                    // auto dist2 = length_squared(light_pos - p);
+                    auto f = bsdf.f(wo_local, wi_local);
+                    auto direct = light_color * abs(wi_local.z) * f;
+                    // device_log("bsdf.f = {}", f);
+                    auto shadow_ray = make_ray(p + n * 1e-4f, light_dir);
+                    auto occluded = accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}});
+                    color += ite(isnan(reduce_sum(direct)), 0.f, direct);
+                }
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
