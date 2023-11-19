@@ -3,6 +3,237 @@
 
 using namespace luisa;
 using namespace luisa::compute;
+constexpr static float PI = 3.14159265358979323846f;
+auto sqr(auto x) noexcept {
+    return x * x;
+}
+auto powi(Float x, uint32_t i) noexcept {
+    Float y = x;
+    Float z = 1.0f;
+    while (i > 0) {
+        if (i & 1) { z *= y; }
+        y *= y;
+        i >>= 1;
+    }
+    return z;
+}
+auto abs_cos_theta(Float3 w) noexcept {
+    return abs(w.z);
+}
+Float I0(Float x) noexcept {
+    Float val = 0;
+    Float x2i = 1;
+    int64_t ifact = 1;
+    int i4 = 1;
+    // I0(x) \approx Sum_i x^(2i) / (4^i (i!)^2)
+    for (int i = 0; i < 10; ++i) {
+        if (i > 1)
+            ifact *= i;
+        val += x2i / (i4 * sqr(ifact));
+        x2i *= x * x;
+        i4 *= 4;
+    }
+    return val;
+}
+inline Float Logistic(Float x, Float s) noexcept {
+    x = abs(x);
+    return exp(-x / s) / (s * sqr(1 + exp(-x / s)));
+}
+
+inline Float LogisticCDF(Float x, Float s) noexcept {
+    return 1 / (1 + exp(-x / s));
+}
+
+inline Float TrimmedLogistic(Float x, Float s, Float a, Float b) noexcept {
+    return Logistic(x, s) / (LogisticCDF(b, s) - LogisticCDF(a, s));
+}
+
+inline Float FrDielectric(Float cosTheta_i, Float eta) noexcept {
+    cosTheta_i = clamp(cosTheta_i, -1.0f, 1.0f);
+    // Potentially flip interface orientation for Fresnel equations
+    $if (cosTheta_i < 0.0f) {
+        eta = 1 / eta;
+        cosTheta_i = -cosTheta_i;
+    };
+
+    // Compute $\cos\,\theta_\roman{t}$ for Fresnel equations using Snell's law
+    Float sin2Theta_i = 1.0f - sqr(cosTheta_i);
+    Float sin2Theta_t = sin2Theta_i / sqr(eta);
+    Float ret;
+    $if (sin2Theta_t >= 1) {
+        ret = 1.f;
+    }
+    $else {
+        Float cosTheta_t = sqrt(1 - sin2Theta_t);
+
+        Float r_parl = (eta * cosTheta_i - cosTheta_t) / (eta * cosTheta_i + cosTheta_t);
+        Float r_perp = (cosTheta_i - eta * cosTheta_t) / (cosTheta_i + eta * cosTheta_t);
+        ret = (sqr(r_parl) + sqr(r_perp)) / 2;
+    };
+    return ret;
+}
+
+struct Onb {
+    float3 tangent;
+    float3 binormal;
+    float3 normal;
+};
+
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
+    [[nodiscard]] Float3 to_world(Expr<float3> v) const noexcept {
+        return v.x * tangent + v.y * binormal + v.z * normal;
+    }
+    [[nodiscard]] Float3 to_local(Expr<float3> v) const noexcept {
+        return make_float3(dot(v, tangent), dot(v, binormal), dot(v, normal));
+    }
+};
+
+// From PBRT-v4
+class HairBsdf {
+    static constexpr int pMax = 3;
+    Float h;
+    Float eta;
+    Float3 sigma_a;
+    Float beta_m;
+    Float beta_n;
+    Float alpha;
+    Float s;
+    std::array<Float, pMax> sin2kAlpha, cos2kAlpha;
+    std::array<Float, pMax + 1> v;
+public:
+    HairBsdf(Float h, Float eta, Float3 sigma_a, Float beta_m, Float beta_n, Float alpha) {
+        v[0] = sqr(0.726f * beta_m + 0.812f * sqr(beta_m) + 3.7f * powi(beta_m, 20));
+        v[1] = .25f * v[0];
+        v[2] = 4.f * v[0];
+        for (int p = 3; p <= pMax; ++p)
+            v[p] = v[2];
+
+        static const Float SqrtPiOver8 = 0.626657069f;
+        s = SqrtPiOver8 * (0.265f * beta_n + 1.194f * sqr(beta_n) + 5.372f * powi(beta_n, 22));
+
+        sin2kAlpha[0] = sin(radians(alpha));
+        cos2kAlpha[0] = sqrt(1.0f - sqr(sin2kAlpha[0]));
+        for (int i = 1; i < pMax; ++i) {
+            sin2kAlpha[i] = 2 * cos2kAlpha[i - 1] * sin2kAlpha[i - 1];
+            cos2kAlpha[i] = sqr(cos2kAlpha[i - 1]) - sqr(sin2kAlpha[i - 1]);
+        }
+    }
+    static Float Mp(Float cosTheta_i, Float cosTheta_o, Float sinTheta_i,
+                    Float sinTheta_o, Float v) {
+        Float a = cosTheta_i * cosTheta_o / v, b = sinTheta_i * sinTheta_o / v;
+        Float mp = ite(v <= .1f,
+                       (exp(log10(a) - b - 1 / v + 0.6931f + log(1 / (2 * v)))),
+                       (exp(-b) * I0(a)) / (sinh(1 / v) * 2 * v));
+        return mp;
+    }
+
+    static std::array<Float3, pMax + 1> Ap(Float cosTheta_o,
+                                           Float eta, Float h,
+                                           Float3 T) {
+        std::array<Float3, pMax + 1> ap;
+        // Compute $p=0$ attenuation at initial cylinder intersection
+        Float cosGamma_o = sqrt(1 - sqr(h));
+        Float cosTheta = cosTheta_o * cosGamma_o;
+        Float f = FrDielectric(cosTheta, eta);
+        ap[0] = make_float3(f);
+
+        // Compute $p=1$ attenuation term
+        ap[1] = sqr(1.0f - f) * T;
+
+        // Compute attenuation terms up to $p=_pMax_$
+        for (int p = 2; p < pMax; ++p)
+            ap[p] = ap[p - 1] * T * f;
+
+        // Compute attenuation term accounting for remaining orders of scattering
+        $if (all(1.0f - T * f != 0.0f)) {
+            ap[pMax] = ap[pMax - 1] * f * T / (1.0f - T * f);
+        };
+
+        return ap;
+    }
+
+    Float3 f(Float3 wo, Float3 wi) const {
+        // Compute hair coordinate system terms related to _wo_
+        Float sinTheta_o = wo.x;
+        Float cosTheta_o = sqrt(1 - sqr(sinTheta_o));
+        Float phi_o = atan2(wo.z, wo.y);
+        Float gamma_o = asin(h);
+
+        // Compute hair coordinate system terms related to _wi_
+        Float sinTheta_i = wi.x;
+        Float cosTheta_i = sqrt(1 - sqr(sinTheta_i));
+        Float phi_i = atan2(wi.z, wi.y);
+
+        // Compute $\cos\,\thetat$ for refracted ray
+        Float sinTheta_t = sinTheta_o / eta;
+        Float cosTheta_t = sqrt(1 - sqr(sinTheta_t));
+
+        // Compute $\gammat$ for refracted ray
+        Float etap = sqrt(sqr(eta) - sqr(sinTheta_o)) / cosTheta_o;
+        Float sinGamma_t = h / etap;
+        Float cosGamma_t = sqrt(1 - sqr(sinGamma_t));
+        Float gamma_t = asin(sinGamma_t);
+
+        // Compute the transmittance _T_ of a single path through the cylinder
+        Float3 T = exp(-sigma_a * (2 * cosGamma_t / cosTheta_t));
+
+        // Evaluate hair BSDF
+        Float phi = phi_i - phi_o;
+        std::array<Float3, pMax + 1> ap = Ap(cosTheta_o, eta, h, T);
+        Float3 fsum = make_float3(0.f);
+
+        for (int p = 0; p < pMax; ++p) {
+            // Compute $\sin\,\thetao$ and $\cos\,\thetao$ terms accounting for scales
+            Float sinThetap_o, cosThetap_o;
+            if (p == 0) {
+                sinThetap_o = sinTheta_o * cos2kAlpha[1] - cosTheta_o * sin2kAlpha[1];
+                cosThetap_o = cosTheta_o * cos2kAlpha[1] + sinTheta_o * sin2kAlpha[1];
+            }
+            // Handle remainder of $p$ values for hair scale tilt
+            else if (p == 1) {
+                sinThetap_o = sinTheta_o * cos2kAlpha[0] + cosTheta_o * sin2kAlpha[0];
+                cosThetap_o = cosTheta_o * cos2kAlpha[0] - sinTheta_o * sin2kAlpha[0];
+            } else if (p == 2) {
+                sinThetap_o = sinTheta_o * cos2kAlpha[2] + cosTheta_o * sin2kAlpha[2];
+                cosThetap_o = cosTheta_o * cos2kAlpha[2] - sinTheta_o * sin2kAlpha[2];
+            } else {
+                sinThetap_o = sinTheta_o;
+                cosThetap_o = cosTheta_o;
+            }
+
+            // Handle out-of-range $\cos\,\thetao$ from scale adjustment
+            cosThetap_o = abs(cosThetap_o);
+
+            fsum += Mp(cosTheta_i, cosThetap_o, sinTheta_i, sinThetap_o, v[p]) * ap[p] *
+                    Np(phi, p, s, gamma_o, gamma_t);
+        }
+        // Compute contribution of remaining terms after _pMax_
+        fsum +=
+            Mp(cosTheta_i, cosTheta_o, sinTheta_i, sinTheta_o, v[pMax]) * ap[pMax] / (2 * PI);
+
+        $if (abs_cos_theta(wi) > 0.0f) {
+            fsum /= abs_cos_theta(wi);
+        };
+
+        return fsum;
+    }
+    static inline Float Phi(int p, Float gamma_o, Float gamma_t) noexcept {
+        return 2 * p * gamma_t - 2 * gamma_o + p * PI;
+    }
+
+    static inline Float Np(Float phi, int p, Float s, Float gamma_o,
+                           Float gamma_t) noexcept {
+        Float dphi = phi - Phi(p, gamma_o, gamma_t);
+        // Remap _dphi_ to $[-\pi,\pi]$
+        $while (dphi > PI) {
+            dphi -= 2 * PI;
+        };
+        $while (dphi < -PI) {
+            dphi += 2 * PI;
+        };
+        return TrimmedLogistic(dphi, s, -PI, PI);
+    }
+};
 
 [[nodiscard]] auto parse_pbrt_curve_file(const std::filesystem::path &path) noexcept {
     std::ifstream file{path};
@@ -224,6 +455,8 @@ int main(int argc, char *argv[]) {
             auto ray = generate_ray(pixel, view_angle);
             auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
+            auto light_pos = make_float3(2.f, 2.f, -0.3f);
+            auto light_color = make_float3(1.f) * 3.f;
             $if (hit->is_curve()) {
                 auto u = hit->curve_parameter();
                 auto i0 = hit->prim;
@@ -234,7 +467,46 @@ int main(int argc, char *argv[]) {
                 auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
                 auto ps = make_float3(invM * make_float4(ray->origin() + hit->distance() * ray->direction(), 1.f));
                 auto [p, n] = c->surface_position_and_normal(u, ps);
-                color = normalize(N * n) * .5f + .5f;
+                n = normalize(N * n);
+                p = make_float3x3(M) * p;
+                Float h = 0.2f;// is this correct?
+                Float eta = 1.55f;
+                Float beta_m = 0.3f;
+                Float beta_n = 0.3f;
+                Float alpha = 2.0f;
+                Float3 sigma_a = ([&] {
+                    Float3 c = make_float3(0.2f);
+                    Float3 sigma_a;
+                    for (int i = 0; i < 3; ++i)
+                        sigma_a[i] =
+                            sqr(log(c[i]) / (5.969f - 0.215f * beta_n + 2.532f * sqr(beta_n) -
+                                             10.73f * powi(beta_n, 3) + 5.574f * powi(beta_n, 4) +
+                                             0.245f * powi(beta_n, 5)));
+                    return sigma_a;
+                })();
+
+                Callable make_onb = [](const Float3 &normal) noexcept {
+                    Float3 binormal = normalize(ite(
+                        abs(normal.x) > abs(normal.z),
+                        make_float3(-normal.y, normal.x, 0.0f),
+                        make_float3(0.0f, -normal.z, normal.y)));
+                    Float3 tangent = normalize(cross(binormal, normal));
+                    return def<Onb>(tangent, binormal, normal);
+                };
+                auto bsdf = HairBsdf(h, eta, sigma_a, beta_m, beta_n, alpha);
+                auto onb = make_onb(n);
+                auto wo = -ray->direction();
+                auto wi = normalize(light_pos - p);
+                auto wo_local = onb->to_local(wo);
+                auto wi_local = onb->to_local(wi);
+                auto dist2 = length_squared(light_pos - p);
+                auto direct = light_color * abs(dot(n, wi)) / dist2 * bsdf.f(wo_local, wi_local);
+                // device_log("bsdf.f", bsdf.f(wo, wi));
+                auto shadow_ray = make_ray(p + wi * 1e-3f, wi);
+                $if(accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}})) {
+                    direct = make_float3(0.f);
+                };
+                color = direct;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
