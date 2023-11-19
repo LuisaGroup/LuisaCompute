@@ -1,4 +1,5 @@
 #include <fstream>
+#include <stb/stb_image_write.h>
 #include <luisa/luisa-compute.h>
 
 using namespace luisa;
@@ -469,10 +470,9 @@ int main(int argc, char *argv[]) {
                 auto ps = make_float3(invM * make_float4(ps_local, 1.f));
                 auto [p_local, n_local] = c->surface_position_and_normal(u, ps_local);
                 auto t_local = c->tangent(u);
-                auto p = make_float3(M * make_float4(p_local, 1.f));
                 auto n = normalize(N * n_local);
                 auto t = normalize(N * t_local);
-                Float h = clamp(dot(-ray->direction(), n), -1.f, 1.f);
+                Float h = sin(acos(clamp(dot(-ray->direction(), n), -1.f, 1.f)));
                 Float eta = 1.55f;
                 Float beta_m = 0.3f;
                 Float beta_n = 0.3f;
@@ -494,7 +494,7 @@ int main(int argc, char *argv[]) {
                 // auto wi = normalize(light_pos - p);
                 auto wo_local = onb->to_local(wo);
                 std::array light_dirs{
-                    make_float3(1.f, 1.f, 1.f),
+                    make_float3(-0.376047f, 0.758426f, 0.532333f),
                     // make_float3(-1.f, 1.f, 1.f),
                     // make_float3(1.f, -1.f, 1.f),
                     // make_float3(-1.f, -1.f, 1.f),
@@ -503,17 +503,20 @@ int main(int argc, char *argv[]) {
                     // make_float3(1.f, -1.f, -1.f),
                     // make_float3(-1.f, -1.f, -1.f),
                 };
+                auto p_curve = c->position(u);
                 for (auto light_dir : light_dirs) {
                     auto wi_local = normalize(onb->to_local(light_dir));
                     // auto dist2 = length_squared(light_pos - p);
                     auto f = bsdf.f(wo_local, wi_local);
                     auto direct = light_color * abs(wi_local.z) * f;
                     // device_log("bsdf.f = {}", f);
-                    auto shadow_ray = make_ray(p + n * 1e-4f, light_dir);
+                    auto r = p_curve.w / abs(wi_local.z) + 1e-4f;
+                    auto o = make_float3(M * make_float4(p_curve.xyz() + wi_local * r, 1.f));
+                    auto shadow_ray = make_ray(o, light_dir);
                     auto occluded = accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}});
-                    color += ite(dsl::isnan(reduce_sum(direct)), 0.f, direct);
+                    color += ite(dsl::isnan(reduce_sum(direct)), 0.f, direct) *
+                             ite(occluded, .1f, 1.f);
                 }
-                color = t_local * .5f + .5f;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
@@ -573,9 +576,17 @@ int main(int argc, char *argv[]) {
         } else if (window.is_key_down(KEY_RIGHT)) {
             viewing_angle = static_cast<float>(viewing_angle + speed * delta_time);
             dirty = true;
+        } else if (window.is_key_down(KEY_ESCAPE) ||
+                   window.is_key_down(KEY_Q)) {
+            window.set_should_close(true);
         }
         framerate.record();
         LUISA_INFO("FPS: {}", framerate.report());
     }
-    stream << synchronize();
+
+    luisa::vector<std::byte> pixels(ldr_image.view().size_bytes());
+    stream << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
+           << ldr_image.copy_to(pixels.data())
+           << synchronize();
+    stbi_write_png("test_curve_pbrt.png", resolution.x, resolution.y, 4, pixels.data(), 0);
 }
