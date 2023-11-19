@@ -304,8 +304,8 @@ public:
         LUISA_ASSERT(read_string() == "curve", "Unexpected shape: {}", token);
         static luisa::vector<float3> vertices;
         vertices.clear();
-        auto radius_max = 0.f;
-        auto radius_min = 0.f;
+        auto radius_max = 0.;
+        auto radius_min = 0.;
         skip_whitespaces();
         while (!eof() && peek() == '"') {
             auto prop = read_string();
@@ -516,6 +516,7 @@ int main(int argc, char *argv[]) {
                     auto occluded = accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}});
                     color += ite(isnan(reduce_sum(direct)), 0.f, direct);
                 }
+                color = t_local * .5f + .5f;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
