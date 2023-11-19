@@ -423,7 +423,7 @@ int main(int argc, char *argv[]) {
                (1.0f / static_cast<float>(0x01000000u));
     };
 
-    static constexpr auto resolution = make_uint2(1024u);
+    static constexpr auto resolution = make_uint2(512u);
 
     Callable generate_ray = [](Float2 p, Float angle) noexcept {
         auto origin = make_float3(sin(angle) * 2.f, 0.f, cos(angle) * 2.f);
@@ -452,13 +452,14 @@ int main(int argc, char *argv[]) {
             auto state = seed_image.read(coord).x;
             auto ux = lcg(state);
             auto uy = lcg(state);
-            seed_image.write(coord, make_uint4(state));
             auto pixel = make_float2(coord) + make_float2(ux, uy);
             auto ray = generate_ray(pixel, view_angle);
-            auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
             auto color = def(make_float3());
-            auto light_color = make_float3(100.f);
-            $if (hit->is_curve()) {
+            auto beta = def(make_float3(1.f));
+            $for (depth, 10u) {
+                auto hit = accel.intersect(ray, {.curve_bases = {curve_basis}});
+                $if (!hit->is_curve()) { $break; };
+                auto light_color = make_float3(100.f);
                 auto u = hit->curve_parameter();
                 auto i0 = hit->prim;
                 auto p0 = control_point_buffer->read(i0 + 0u);
@@ -491,33 +492,40 @@ int main(int argc, char *argv[]) {
                 auto bsdf = HairBsdf(h, eta, sigma_a, beta_m, beta_n, alpha);
                 auto onb = make_onb(n, t);
                 auto wo = -ray->direction();
-                // auto wi = normalize(light_pos - p);
                 auto wo_local = onb->to_local(wo);
-                std::array light_dirs{
-                    make_float3(-0.376047f, 0.758426f, 0.532333f),
-                    // make_float3(-1.f, 1.f, 1.f),
-                    // make_float3(1.f, -1.f, 1.f),
-                    // make_float3(-1.f, -1.f, 1.f),
-                    // make_float3(1.f, 1.f, -1.f),
-                    // make_float3(-1.f, 1.f, -1.f),
-                    // make_float3(1.f, -1.f, -1.f),
-                    // make_float3(-1.f, -1.f, -1.f),
-                };
                 auto p_curve = c->position(u);
-                for (auto light_dir : light_dirs) {
+                // Eval light
+                {
+                    auto light_dir = make_float3(-0.376047f, 0.758426f, 0.532333f);
                     auto wi_local = normalize(onb->to_local(light_dir));
-                    // auto dist2 = length_squared(light_pos - p);
                     auto f = bsdf.f(wo_local, wi_local);
                     auto direct = light_color * abs(wi_local.z) * f;
-                    // device_log("bsdf.f = {}", f);
                     auto r = p_curve.w / abs(wi_local.z) + 1e-4f;
                     auto o = make_float3(M * make_float4(p_curve.xyz() + wi_local * r, 1.f));
                     auto shadow_ray = make_ray(o, light_dir);
                     auto occluded = accel->intersect_any(shadow_ray, {.curve_bases = {curve_basis}});
-                    color += ite(dsl::isnan(reduce_sum(direct)), 0.f, direct) *
-                             ite(occluded, .1f, 1.f);
+                    color += beta * ite(dsl::isnan(reduce_sum(direct)), 0.f, direct) *
+                             ite(occluded, 0.f, 1.f);
+                }
+                // Sample BSDF. For simplicity, we uniformly sample the sphere.
+                {
+                    auto wi_local = [&]() noexcept {
+                        auto u = make_float2(lcg(state), lcg(state));
+                        Float z = 1.f - 2.f * u.x;
+                        Float r = sqrt(1.f - sqr(z));
+                        Float phi = 2.f * pi * u.y;
+                        return make_float3(cos(phi), sin(phi), z);
+                    }();
+                    auto f = bsdf.f(wo_local, wi_local);
+                    beta = beta * f * abs(wi_local.z) * 4.f * pi;
+                    $if (all(beta <= 0.f) | dsl::isnan(reduce_sum(beta))) { $break; };
+                    auto wi = onb->to_world(wi_local);
+                    auto r = p_curve.w / abs(wi_local.z) + 1e-4f;
+                    auto o = make_float3(M * make_float4(p_curve.xyz() + wi_local * r, 1.f));
+                    ray = make_ray(o, wi);
                 }
             };
+            seed_image.write(coord, make_uint4(state));
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
         });
