@@ -91,7 +91,7 @@ namespace luisa::compute::dsl_detail {
 #define $outline                                                                    \
     ::luisa::compute::detail::outliner_with_comment(                                \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
-        [&]() noexcept
+        [&]() noexcept -> void
 
 #define $lambda(...)                                                              \
     (::luisa::compute::Lambda{                                                    \

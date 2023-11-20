@@ -162,6 +162,7 @@ int main(int argc, char *argv[]) {
     auto M = scaling(1.f / scaling_factor) * translation(-center);
     auto invM = inverse(M);
     auto N = transpose(inverse(make_float3x3(M)));
+    auto invN = inverse(N);
 
     static constexpr auto curve_basis = CurveBasis::CATMULL_ROM;
     auto control_point_buffer = device.create_buffer<float4>(control_point_count);
@@ -267,9 +268,9 @@ int main(int argc, char *argv[]) {
                 auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
                 auto ps_local = ray->origin() + hit->distance() * ray->direction();
                 auto ps = make_float3(invM * make_float4(ps_local, 1.f));
-                auto [p_local, n_local] = c->surface_position_and_normal(u, ps_local);
-                auto p = make_float3(M * make_float4(p_local, 1.f));
-                auto n = normalize(N * n_local);
+                auto eval = c->evaluate(u, ps_local, invN * -ray->direction());
+                auto p = make_float3(M * make_float4(eval.position, 1.f));
+                auto n = normalize(N * eval.normal);
                 auto onb = make_onb(n);
                 auto wo = -ray->direction();
                 auto wo_local = onb->to_local(wo);

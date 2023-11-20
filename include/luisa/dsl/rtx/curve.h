@@ -5,6 +5,13 @@
 
 namespace luisa::compute {
 
+struct CurveEvaluation {
+    Float3 position;
+    Float3 normal;
+    Float3 tangent;
+    Float v;
+};
+
 class LC_DSL_API CurveEvaluator {
 
 public:
@@ -12,8 +19,8 @@ public:
     [[nodiscard]] virtual Float4 position(Expr<float> u) const noexcept = 0;
     [[nodiscard]] virtual Float4 derivative(Expr<float> u) const noexcept = 0;
     [[nodiscard]] virtual Float4 second_derivative(Expr<float> u) const noexcept = 0;
-    [[nodiscard]] virtual std::pair<Float3, Float3> surface_position_and_normal(Expr<float> u, Expr<float3> ps) const noexcept;
     [[nodiscard]] virtual Float3 tangent(Expr<float> u) const noexcept;
+    [[nodiscard]] virtual CurveEvaluation evaluate(Expr<float> u, Expr<float3> ps, Expr<float3> w) const noexcept;
 
 public:
     template<typename... P>
@@ -32,7 +39,7 @@ public:
     [[nodiscard]] Float4 position(Expr<float> u) const noexcept override;
     [[nodiscard]] Float4 derivative(Expr<float> u) const noexcept override;
     [[nodiscard]] Float4 second_derivative(Expr<float> u) const noexcept override;
-    [[nodiscard]] std::pair<Float3, Float3> surface_position_and_normal(Expr<float> u, Expr<float3> ps) const noexcept override;
+    [[nodiscard]] CurveEvaluation evaluate(Expr<float> u, Expr<float3> ps, Expr<float3> w) const noexcept override;
 };
 
 class LC_DSL_API CubicCurve : public CurveEvaluator {

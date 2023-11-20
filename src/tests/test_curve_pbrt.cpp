@@ -378,7 +378,8 @@ int main(int argc, char *argv[]) {
 
     auto M = scaling(1.f / scaling_factor) * translation(-center);
     auto invM = inverse(M);
-    auto N = transpose(inverse(make_float3x3(M)));
+    auto invN = transpose(make_float3x3(M));
+    auto N = inverse(invN);
 
     static constexpr auto curve_basis = CurveBasis::CATMULL_ROM;
     auto control_point_buffer = device.create_buffer<float4>(control_point_count);
@@ -469,11 +470,11 @@ int main(int argc, char *argv[]) {
                 auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
                 auto ps_local = ray->origin() + hit->distance() * ray->direction();
                 auto ps = make_float3(invM * make_float4(ps_local, 1.f));
-                auto [p_local, n_local] = c->surface_position_and_normal(u, ps_local);
+                auto eval = c->evaluate(u, ps_local, invN * -ray->direction());
                 auto t_local = c->tangent(u);
-                auto n = normalize(N * n_local);
+                auto n = normalize(N * eval.normal);
                 auto t = normalize(N * t_local);
-                Float h = sin(acos(clamp(dot(-ray->direction(), n), -1.f, 1.f)));
+                Float h = eval.v * 2.f - 1.f;
                 Float eta = 1.55f;
                 Float beta_m = 0.3f;
                 Float beta_n = 0.3f;
@@ -489,10 +490,10 @@ int main(int argc, char *argv[]) {
                     auto binormal = normalize(cross(normal, tangent));
                     return def<Onb>(tangent, binormal, normal);
                 };
-                auto bsdf = HairBsdf(h, eta, sigma_a, beta_m, beta_n, alpha);
                 auto onb = make_onb(n, t);
                 auto wo = -ray->direction();
                 auto wo_local = onb->to_local(wo);
+                auto bsdf = HairBsdf(h, eta, sigma_a, beta_m, beta_n, alpha);
                 auto p_curve = c->position(u);
                 // Eval light
                 {
