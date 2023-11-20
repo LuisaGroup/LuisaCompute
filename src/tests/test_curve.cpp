@@ -125,9 +125,8 @@ int main(int argc, char *argv[]) {
                     }
                 }();
                 auto ps = ray->origin() + hit->distance() * ray->direction();
-                auto ws = -ray->direction();
-                auto eval = c->evaluate(u, ps, ws);
-                color = make_float3(hit->curve_parameter(), eval.v, .5f);//eval.normal * .5f + .5f;
+                auto eval = c->evaluate(u, ps);
+                color = make_float3(hit->curve_parameter(), eval.v(-ray->direction()), .5f);//eval.normal * .5f + .5f;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));

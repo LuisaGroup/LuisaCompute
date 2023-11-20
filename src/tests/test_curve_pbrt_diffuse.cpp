@@ -268,7 +268,7 @@ int main(int argc, char *argv[]) {
                 auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
                 auto ps_local = ray->origin() + hit->distance() * ray->direction();
                 auto ps = make_float3(invM * make_float4(ps_local, 1.f));
-                auto eval = c->evaluate(u, ps_local, invN * -ray->direction());
+                auto eval = c->evaluate(u, ps_local);
                 auto p = make_float3(M * make_float4(eval.position, 1.f));
                 auto n = normalize(N * eval.normal);
                 auto onb = make_onb(n);

@@ -5,8 +5,14 @@
 
 namespace luisa::compute {
 
+Float CurveEvaluation::h(Expr<float3> w) const noexcept {
+    auto w_norm = normalize(w);
+    auto w_proj = normalize(w - dot(w_norm, this->tangent));
+    return dot(normalize(cross(this->tangent, this->normal)), w_proj);
+}
+
 CurveEvaluation
-CurveEvaluator::evaluate(Expr<float> u, Expr<float3> ps, Expr<float3> w) const noexcept {
+CurveEvaluator::evaluate(Expr<float> u, Expr<float3> ps) const noexcept {
     CurveEvaluation eval;
     $outline {
         // We do not consider end caps here since by default cubic curves are open.
@@ -23,12 +29,7 @@ CurveEvaluator::evaluate(Expr<float> u, Expr<float3> ps, Expr<float3> w) const n
         dd -= dot(second_derivative(u).xyz(), o1);
         eval = {.position = p + o1,
                 .normal = normalize(dd * o1 - (dr * r) * d),
-                .tangent = normalize(d),
-            .v = 0.f};
-        auto w_norm = normalize(w);
-        auto w_proj = normalize(w - dot(w_norm, eval.tangent));
-        eval.v = dot(normalize(cross(eval.tangent, eval.normal)), w_proj);
-        eval.v = clamp(eval.v * .5f + .5f, 0.f, 1.f);
+                .tangent = normalize(d)};
     };
     return eval;
 }
@@ -53,7 +54,7 @@ Float4 PiecewiseLinearCurve::second_derivative(Expr<float> u) const noexcept {
 }
 
 CurveEvaluation
-PiecewiseLinearCurve::evaluate(Expr<float> u, Expr<float3> ps, Expr<float3> w) const noexcept {
+PiecewiseLinearCurve::evaluate(Expr<float> u, Expr<float3> ps) const noexcept {
     CurveEvaluation eval;
     $outline {
         // consider the spherical caps of the curve
@@ -86,10 +87,6 @@ PiecewiseLinearCurve::evaluate(Expr<float> u, Expr<float3> ps, Expr<float3> w) c
             eval.normal = normalize(dd * o1 - (dr * r) * d);
             eval.tangent = normalize(d);
         };
-        auto w_norm = normalize(w);
-        auto w_proj = normalize(w - dot(w_norm, eval.tangent));
-        eval.v = dot(normalize(cross(eval.tangent, eval.normal)), w_proj);
-        eval.v = clamp(eval.v * .5f + .5f, 0.f, 1.f);
     };
     return eval;
 }

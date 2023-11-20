@@ -470,11 +470,18 @@ int main(int argc, char *argv[]) {
                 auto c = CurveEvaluator::create(curve_basis, p0, p1, p2, p3);
                 auto ps_local = ray->origin() + hit->distance() * ray->direction();
                 auto ps = make_float3(invM * make_float4(ps_local, 1.f));
-                auto eval = c->evaluate(u, ps_local, invN * -ray->direction());
+                auto eval = c->evaluate(u, ps_local);
                 auto t_local = c->tangent(u);
                 auto n = normalize(N * eval.normal);
                 auto t = normalize(N * t_local);
-                Float h = eval.v * 2.f - 1.f;
+                Callable make_onb = [](Float3 normal, Float3 tangent) noexcept {
+                    auto binormal = normalize(cross(normal, tangent));
+                    return def<Onb>(tangent, binormal, normal);
+                };
+                auto onb = make_onb(n, t);
+                auto wo = -ray->direction();
+                auto wo_local = onb->to_local(wo);
+                Float h = eval.h(wo_local);
                 Float eta = 1.55f;
                 Float beta_m = 0.3f;
                 Float beta_n = 0.3f;
@@ -486,13 +493,6 @@ int main(int argc, char *argv[]) {
                     auto cp = 0.2f;
                     return ce * eumelaninSigma_a + cp * pheomelaninSigma_a;
                 })();
-                Callable make_onb = [](Float3 normal, Float3 tangent) noexcept {
-                    auto binormal = normalize(cross(normal, tangent));
-                    return def<Onb>(tangent, binormal, normal);
-                };
-                auto onb = make_onb(n, t);
-                auto wo = -ray->direction();
-                auto wo_local = onb->to_local(wo);
                 auto bsdf = HairBsdf(h, eta, sigma_a, beta_m, beta_n, alpha);
                 auto p_curve = c->position(u);
                 // Eval light
