@@ -17,7 +17,7 @@ class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCa
 {
 public:
     FunctionDeclStmtHandler() = default;
-    bool recursiveVisit(clang::Stmt* stmt);
+    bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur);
     void run(const MatchFinder::MatchResult &Result) final;
     
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;

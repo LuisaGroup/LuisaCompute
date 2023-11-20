@@ -26,7 +26,7 @@ struct Fuck {
     std::array<float, 4> c;
 };
 
-bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt) {
+bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur) {
     if (!stmt)
         return true;
 
@@ -36,8 +36,30 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt) {
             continue;
 
         // currStmt->dump();
+        // std::cout << std::endl;
 
-        recursiveVisit(currStmt);
+        if (auto declStmt = llvm::dyn_cast<clang::DeclStmt>(stmt)) {
+            const DeclGroupRef declGroup = declStmt->getDeclGroup();
+            for (auto decl : declGroup) {
+                if (decl && isa<clang::VarDecl>(decl)) {
+                    auto *varDecl = (VarDecl *)decl;
+                    auto at = varDecl->getType();
+                    auto t = at->getContainedAutoType()->getCanonicalTypeInternal();
+                    {
+                        std::cout << at.getAsString() << std::endl;
+                        std::cout << t.getAsString() << std::endl;
+                        const clang::Expr *expr = varDecl->getInit();
+                    }
+                    auto idx = cur->literal(Type::of<uint>(), uint(0));
+                    auto buffer = cur->buffer(Type::of<Buffer<NVIDIA>>());
+                    cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
+                    auto local = cur->local(Type::of<NVIDIA>());
+                    cur->call(CallOp::BUFFER_WRITE, {buffer, idx, local});
+                }
+            }
+        }
+
+        recursiveVisit(currStmt, cur);
     }
     return true;
 }
@@ -53,9 +75,9 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         }
         if (!ignore) {
             // std::cout << S->getName().data() << std::endl;
+            luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {
-                luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
                 if (S->isMain()) {
                     builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
                     kernel_builder = builder;
@@ -65,26 +87,14 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 luisa::compute::detail::FunctionBuilder::push(builder.get());
                 builder->push_scope(builder->body());
                 {
-                    auto cur = builder;
-                    auto buffer = cur->buffer(Type::of<Buffer<NVIDIA>>());
                     if (S->isMain()) {
-                        cur->set_block_size(uint3(256, 1, 1));
+                        builder->set_block_size(uint3(256, 1, 1));
                     }
-                    cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
-                    auto idx = cur->literal(Type::of<uint>(), uint(0));
-                    // NVIDIA nv;
-                    // nv.n = literal;
-                    auto nv = cur->local(Type::of<NVIDIA>());
-                    auto nv_member = cur->member(Type::of<int>(), nv, 0);
-                    cur->assign(nv_member, cur->literal(Type::of<int>(), int(2)));
-                    cur->call(CallOp::BUFFER_WRITE, {buffer, idx, nv});
-                    cur->comment_("------------");
-                    // cur->reference(Type::of<NVIDIA>());
+                    recursiveVisit(body, builder);
                 }
                 builder->pop_scope(builder->body());
                 luisa::compute::detail::FunctionBuilder::pop(builder.get());
             }
-            recursiveVisit(body);
         }
     }
 }
