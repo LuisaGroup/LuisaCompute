@@ -5,7 +5,7 @@
 
 namespace luisa::compute {
 
-struct CurveEvaluation {
+struct LC_DSL_API CurveEvaluation {
 
     Float3 position;
     Float3 normal;
