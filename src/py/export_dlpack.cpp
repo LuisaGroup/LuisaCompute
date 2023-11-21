@@ -242,7 +242,12 @@ auto from_py_dlpack(const py::capsule &o) {
     int64_t size = t->dl_tensor.shape[0];
     uint64_t addr = reinterpret_cast<uint64_t>(t->dl_tensor.data);
     DLDevice device = t->dl_tensor.device;
-    return py::make_tuple(dtype, size, addr, py::make_tuple(device.device_type, device.device_id));
+    auto deleter = [t](){
+        if (t->deleter) {
+            t->deleter(t);
+        }
+    };
+    return py::make_tuple(dtype, size, addr, py::make_tuple(device.device_type, device.device_id), py::cpp_function(deleter));
 }
 
 
