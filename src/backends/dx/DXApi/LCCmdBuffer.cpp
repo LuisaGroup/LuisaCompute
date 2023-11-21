@@ -307,7 +307,8 @@ public:
                 aabbOptions,
                 bottomAccelDatas->emplace_back()));
     }
-    void visit(const CurveBuildCommand *) noexcept override { /* TODO */ }
+    void visit(const CurveBuildCommand *) noexcept override { /* TODO */
+    }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
         arr->PreProcessStates(
@@ -685,7 +686,8 @@ public:
         accelScratchOffsets++;
         bottomAccelData++;
     }
-    void visit(const CurveBuildCommand *) noexcept override { /* TODO */ }
+    void visit(const CurveBuildCommand *) noexcept override { /* TODO */
+    }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         BottomBuild(cmd->handle());
     }
@@ -933,6 +935,8 @@ void LCCmdBuffer::Execute(
             if (ppVisitor.argBuffer->empty()) {
                 visitor.argBuffer = {};
             } else {
+// Use default buffer as arguments buffer
+#ifdef false
                 auto uploadBuffer = allocator->GetTempDefaultBuffer(ppVisitor.argBuffer->size(), 16);
                 tracker.RecordState(
                     uploadBuffer.buffer,
@@ -946,6 +950,16 @@ void LCCmdBuffer::Execute(
                 tracker.RecordState(
                     uploadBuffer.buffer,
                     tracker.ReadState(ResourceReadUsage::Srv));
+#else
+                // use upload buffer maybe faster?
+                auto uploadBuffer = allocator->GetTempUploadBuffer(ppVisitor.argBuffer->size(), 16);
+                static_cast<UploadBuffer const *>(uploadBuffer.buffer)
+                    ->CopyData(
+                        uploadBuffer.offset,
+                        {reinterpret_cast<uint8_t const *>(
+                             ppVisitor.argBuffer->data()),
+                         ppVisitor.argBuffer->size()});
+#endif
                 visitor.argBuffer = uploadBuffer;
             }
             tracker.UpdateState(
