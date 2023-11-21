@@ -30,8 +30,9 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 auto fType = f->getType();
                 if (auto builtin = fType->getAs<clang::BuiltinType>()) {
                     std::cout << fType.getAsString() << std::endl;
+                    // clang-format off
                     switch (builtin->getKind()) {
-                            /*
+                        /*
                         case (BuiltinType::Kind::SChar): { types.emplace_back(Type::of<signed char>()); } break; 
                         case (BuiltinType::Kind::Char_S): { types.emplace_back(Type::of<signed char>()); } break; 
                         case (BuiltinType::Kind::Char8): { types.emplace_back(Type::of<signed char>()); } break; 
@@ -42,48 +43,27 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                         case (BuiltinType::Kind::Char16): { types.emplace_back(Type::of<char16_t>()); } break; 
                         */
 
-                        case (BuiltinType::Kind::Bool): {
-                            types.emplace_back(Type::of<bool>());
-                        } break;
+                        case (BuiltinType::Kind::Bool): { types.emplace_back(Type::of<bool>()); } break;
 
-                        case (BuiltinType::Kind::UShort): {
-                            types.emplace_back(Type::of<uint16_t>());
-                        } break;
-                        case (BuiltinType::Kind::UInt): {
-                            types.emplace_back(Type::of<uint32_t>());
-                        } break;
-                        case (BuiltinType::Kind::ULong): {
-                            types.emplace_back(Type::of<uint32_t>());
-                        } break;
-                        case (BuiltinType::Kind::ULongLong): {
-                            types.emplace_back(Type::of<uint64_t>());
-                        } break;
+                        case (BuiltinType::Kind::UShort): { types.emplace_back(Type::of<uint16_t>()); } break;
+                        case (BuiltinType::Kind::UInt): { types.emplace_back(Type::of<uint32_t>()); } break;
+                        case (BuiltinType::Kind::ULong): { types.emplace_back(Type::of<uint32_t>()); } break;
+                        case (BuiltinType::Kind::ULongLong): { types.emplace_back(Type::of<uint64_t>()); } break;
 
-                        case (BuiltinType::Kind::Short): {
-                            types.emplace_back(Type::of<int16_t>());
-                        } break;
-                        case (BuiltinType::Kind::Int): {
-                            types.emplace_back(Type::of<int32_t>());
-                        } break;
-                        case (BuiltinType::Kind::Long): {
-                            types.emplace_back(Type::of<int32_t>());
-                        } break;
-                        case (BuiltinType::Kind::LongLong): {
-                            types.emplace_back(Type::of<int64_t>());
-                        } break;
+                        case (BuiltinType::Kind::Short): { types.emplace_back(Type::of<int16_t>()); } break;
+                        case (BuiltinType::Kind::Int): { types.emplace_back(Type::of<int32_t>()); } break;
+                        case (BuiltinType::Kind::Long): { types.emplace_back(Type::of<int32_t>()); } break;
+                        case (BuiltinType::Kind::LongLong): { types.emplace_back(Type::of<int64_t>()); } break;
 
-                        case (BuiltinType::Kind::Float): {
-                            types.emplace_back(Type::of<float>());
-                        } break;
-                        case (BuiltinType::Kind::Double): {
-                            types.emplace_back(Type::of<double>());
-                        } break;
+                        case (BuiltinType::Kind::Float): { types.emplace_back(Type::of<float>()); } break;
+                        case (BuiltinType::Kind::Double): { types.emplace_back(Type::of<double>()); } break;
 
                         default: {
                             luisa::log_error("unsupported type: {}, kind {}", fType.getAsString(), builtin->getKind());
                             break;
                         }
                     }
+                    // clang-format on
                 } else {
                     auto Ty = fType;
                     clang::RecordDecl *recordDecl = fType->getAsRecordDecl();
@@ -111,42 +91,30 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                                     Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *consumer->astContext);
                                     auto N = Result.Val.getInt().getExtValue();
                                     // TST->dump();
+                                    // clang-format off
                                     switch (EType->getKind()) {
 #define CASE_VEC_TYPE(type)                                                                                    \
     switch (N) {                                                                                               \
-        case 2: {                                                                                              \
-            types.emplace_back(Type::of<type##2>());                                                           \
-        } break;                                                                                               \
-        case 3: {                                                                                              \
-            types.emplace_back(Type::of<type##3>());                                                           \
-        } break;                                                                                               \
-        case 4: {                                                                                              \
-            types.emplace_back(Type::of<type##4>());                                                           \
-        } break;                                                                                               \
+        case 2: { types.emplace_back(Type::of<type##2>()); } break;                                            \                                                 
+        case 3: { types.emplace_back(Type::of<type##3>()); } break;                                            \                                                 
+        case 4: { types.emplace_back(Type::of<type##4>()); } break;                                            \                                                 
         default: {                                                                                             \
             luisa::log_error("unsupported type: {}, kind {}, N {}", fType.getAsString(), EType->getKind(), N); \
         } break;                                                                                               \
     }
-                                        case (BuiltinType::Kind::Bool): {
-                                            CASE_VEC_TYPE(bool)
-                                        } break;
-                                        case (BuiltinType::Kind::Float): {
-                                            CASE_VEC_TYPE(float)
-                                        } break;
+                                        case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
+                                        case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float) } break;
                                         case (BuiltinType::Kind::Long):
-                                        case (BuiltinType::Kind::Int): {
-                                            CASE_VEC_TYPE(int)
-                                        } break;
+                                        case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int) } break;
                                         case (BuiltinType::Kind::ULong):
-                                        case (BuiltinType::Kind::UInt): {
-                                            CASE_VEC_TYPE(uint)
-                                        } break;
+                                        case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
                                         case (BuiltinType::Kind::Double):
                                         default: {
                                             luisa::log_error("unsupported type: {}, kind {}", fType.getAsString(), EType->getKind());
                                         } break;
 #undef CASE_VEC_TYPE
                                     }
+                                    // clang-format on
                                 }
                             }
                         }

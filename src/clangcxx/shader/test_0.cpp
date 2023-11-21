@@ -4,6 +4,10 @@ using namespace luisa::shader;
 
 namespace luisa::shader
 {
+    struct F
+    {
+        int f;
+    };
     struct NVIDIA
     {
         int i;
@@ -16,6 +20,7 @@ namespace luisa::shader
         float3 f3;
         int3 i3;
         uint3 u3;
+        F fuck;
     };
 }
 
