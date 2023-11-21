@@ -23,4 +23,34 @@ inline static bool isIgnore(clang::AnnotateAttr* Anno)
     }
     return false;
 }
+
+inline static bool isBuiltinType(clang::AnnotateAttr* Anno)
+{
+    if (!isLuisaAttribute(Anno))
+        return false;
+    if (Anno->args_size() >= 1)
+    {
+        auto arg = Anno->args_begin();
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts()))
+        {
+            return (TypeLiterial->getString() == "type") || (TypeLiterial->getString() == "type_ex");
+        }
+    }
+    return false;
+}
+
+inline static llvm::StringRef getBuiltinTypeName(clang::AnnotateAttr* Anno)
+{
+    if (!isLuisaAttribute(Anno))
+        return {};
+    if (Anno->args_size() >= 1)
+    {
+        auto arg = Anno->args_begin(); arg++;
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts()))
+        {
+            return TypeLiterial->getString();
+        }
+    }
+    return {};
+}
 }

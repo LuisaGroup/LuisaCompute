@@ -16,6 +16,109 @@ using namespace clang;
 using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
+void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
+    auto &kernel_builder = consumer->kernel_builder;
+    if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
+        bool ignore = false;
+        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            ignore = isIgnore(*Anno) || isBuiltinType(*Anno);
+        }
+        if (!ignore) {
+            // S->dump();
+            luisa::vector<const luisa::compute::Type *> types;
+            for (auto f = S->field_begin(); f != S->field_end(); f++) {
+                auto fType = f->getType();
+                if (auto builtin = fType->getAs<clang::BuiltinType>()) {
+                    std::cout << fType.getAsString() << std::endl;
+                    switch (builtin->getKind()) {
+                            /*
+                        case (BuiltinType::Kind::SChar): { types.emplace_back(Type::of<signed char>()); } break; 
+                        case (BuiltinType::Kind::Char_S): { types.emplace_back(Type::of<signed char>()); } break; 
+                        case (BuiltinType::Kind::Char8): { types.emplace_back(Type::of<signed char>()); } break; 
+
+                        case (BuiltinType::Kind::UChar): { types.emplace_back(Type::of<unsigned char>()); } break; 
+                        case (BuiltinType::Kind::Char_U): { types.emplace_back(Type::of<unsigned char>()); } break; 
+                        
+                        case (BuiltinType::Kind::Char16): { types.emplace_back(Type::of<char16_t>()); } break; 
+                        */
+
+                        case (BuiltinType::Kind::Bool): {
+                            types.emplace_back(Type::of<bool>());
+                        } break;
+
+                        case (BuiltinType::Kind::UShort): {
+                            types.emplace_back(Type::of<uint16_t>());
+                        } break;
+                        case (BuiltinType::Kind::UInt): {
+                            types.emplace_back(Type::of<uint32_t>());
+                        } break;
+                        case (BuiltinType::Kind::ULong): {
+                            types.emplace_back(Type::of<uint32_t>());
+                        } break;
+                        case (BuiltinType::Kind::ULongLong): {
+                            types.emplace_back(Type::of<uint64_t>());
+                        } break;
+
+                        case (BuiltinType::Kind::Short): {
+                            types.emplace_back(Type::of<int16_t>());
+                        } break;
+                        case (BuiltinType::Kind::Int): {
+                            types.emplace_back(Type::of<int32_t>());
+                        } break;
+                        case (BuiltinType::Kind::Long): {
+                            types.emplace_back(Type::of<int32_t>());
+                        } break;
+                        case (BuiltinType::Kind::LongLong): {
+                            types.emplace_back(Type::of<int64_t>());
+                        } break;
+
+                        case (BuiltinType::Kind::Float): {
+                            types.emplace_back(Type::of<float>());
+                        } break;
+                        case (BuiltinType::Kind::Double): {
+                            types.emplace_back(Type::of<double>());
+                        } break;
+
+                        default: {
+                            luisa::log_error("unsupported type: {}", fType.getAsString());
+                            break;
+                        }
+                    }
+                } else {
+                    clang::RecordDecl *recordDecl = fType->getAsRecordDecl();
+                    if (!recordDecl) {
+                        if (const clang::TypedefType *TDT = fType->getAs<clang::TypedefType>()) {
+                            auto Td = TDT->getDecl()->getUnderlyingType();
+                            recordDecl = Td->getAsRecordDecl();
+                        }
+                    }
+                    if (!recordDecl)
+                        luisa::log_error("unsupported type: {}", fType.getAsString());
+
+                    bool ext_builtin = false;
+                    llvm::StringRef builtin_type_name = {};
+                    for (auto Anno = recordDecl->specific_attr_begin<clang::AnnotateAttr>();
+                         Anno != recordDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                        if (ext_builtin = isBuiltinType(*Anno)) {
+                            builtin_type_name = getBuiltinTypeName(*Anno);
+                        }
+                    }
+
+                    if (builtin_type_name == "vec") types.emplace_back(Type::of<float3>());
+                }
+            }
+            // align
+            uint64_t alignment = 4;
+            for (auto ft : types) {
+                alignment = std::max(alignment, ft->alignment());
+            }
+            consumer->ttt = Type::structure(alignment, types);
+            std::cout << consumer->ttt->description() << std::endl;
+            // kernel_builder->
+        }
+    }
+}
+
 struct NVIDIA {
     int n;
 };
@@ -51,9 +154,9 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                         const clang::Expr *expr = varDecl->getInit();
                     }
                     auto idx = cur->literal(Type::of<uint>(), uint(0));
-                    auto buffer = cur->buffer(Type::of<Buffer<NVIDIA>>());
+                    auto buffer = cur->buffer(Type::buffer(consumer->ttt));
                     cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
-                    auto local = cur->local(Type::of<NVIDIA>());
+                    auto local = cur->local(consumer->ttt);
                     cur->call(CallOp::BUFFER_WRITE, {buffer, idx, local});
                 }
             }
@@ -70,8 +173,8 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         // S->dump();
         bool ignore = false;
         auto params = S->parameters();
-        if (auto Anno = S->getAttr<clang::AnnotateAttr>()) {
-            ignore = isIgnore(Anno);
+        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            ignore = isIgnore(*Anno);
         }
         if (!ignore) {
             // std::cout << S->getName().data() << std::endl;
@@ -79,8 +182,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             Stmt *body = S->getBody();
             {
                 if (S->isMain()) {
-                    builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
-                    kernel_builder = builder;
+                    builder = consumer->kernel_builder;
                 } else {
                     builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
                 }
@@ -101,6 +203,17 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
 
 ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option)
     : OutputPath(std::move(OutputPath)), device(device), option(option) {
+
+    kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
+
+    HandlerForTypeDecl.consumer = this;
+    Matcher.addMatcher(recordDecl(
+                           isDefinition(),
+                           unless(isExpansionInSystemHeader()))
+                           .bind("RecordDecl"),
+                       &HandlerForTypeDecl);
+
+    HandlerForFuncionDecl.consumer = this;
     Matcher.addMatcher(functionDecl(
                            isDefinition(),
                            unless(isExpansionInSystemHeader()))
@@ -116,7 +229,7 @@ ASTConsumer::~ASTConsumer() {
         luisa::compute::ShaderOption{
             .compile_only = true,
             .name = "test.bin"},
-        luisa::compute::Function{HandlerForFuncionDecl.kernel_builder.get()});
+        luisa::compute::Function{kernel_builder.get()});
 }
 
 void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {

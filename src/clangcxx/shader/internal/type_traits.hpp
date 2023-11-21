@@ -9,23 +9,23 @@ using uint32 = unsigned int;
 using uint64 = unsigned long long;
 
 template<typename T>
-struct remove_cvref {
+struct [[ignore]] remove_cvref {
     using type = T;
 };
 template<typename T>
-struct remove_cvref<T &> {
+struct [[ignore]] remove_cvref<T &> {
     using type = T;
 };
 template<typename T>
-struct remove_cvref<T const> {
+struct [[ignore]] remove_cvref<T const> {
     using type = T;
 };
 template<typename T>
-struct remove_cvref<T volatile> {
+struct [[ignore]] remove_cvref<T volatile> {
     using type = T;
 };
 template<typename T>
-struct remove_cvref<T &&> {
+struct [[ignore]] remove_cvref<T &&> {
     using type = T;
 };
 
@@ -56,9 +56,22 @@ template<uint64 dim, typename T, typename... Ts>
 
 template<typename T, uint64 N>
 struct [[type_ex("vec", N)]] vec {
+    [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
     [[ignore]] explicit vec(Args &&...args) {}
+
+    T v[N];
+};
+
+template<typename T>
+struct [[type_ex("vec", 3)]] vec<T, 3> {
+    [[ignore]] vec() noexcept = default;
+    template<typename... Args>
+        requires(sum_dim<0ull, Args...>() == 3)
+    [[ignore]] explicit vec(Args &&...args) {}
+
+    T v[4];
 };
 
 using float2 = vec<float, 2>;
