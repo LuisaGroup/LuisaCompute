@@ -214,7 +214,7 @@ public:
         if (is_device_buffer(dstBf))
             stateTracker->RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
         else {
-            LUISA_ASSERT(dstBf->GetTag() == Resource::Tag::ReadbackBuffer, "Only write-combined-buffer allowed as copy destination.");
+            LUISA_ASSERT(dstBf->GetTag() == Resource::Tag::ReadbackBuffer, "Only non write-combined-buffer allowed as copy destination.");
         }
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
@@ -271,7 +271,7 @@ public:
                 bf,
                 D3D12_RESOURCE_STATE_COPY_DEST);
         else {
-            LUISA_ASSERT(bf->GetTag() == Resource::Tag::ReadbackBuffer, "Only write-combined-buffer allowed as copy destination.");
+            LUISA_ASSERT(bf->GetTag() == Resource::Tag::ReadbackBuffer, "Only non write-combined-buffer allowed as copy destination.");
         }
     }
     void visit(const ShaderDispatchCommand *cmd) noexcept override {

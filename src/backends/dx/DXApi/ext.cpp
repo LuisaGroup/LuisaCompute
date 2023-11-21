@@ -304,14 +304,14 @@ BufferCreationInfo DxPinnedMemoryExt::_allocate_pinned_memory(
         info.total_size_bytes = info.element_stride * elem_count;
     }
     if (option.write_combined) {
-        auto res = new ReadbackBuffer(
+        auto res = new UploadBuffer(
             &_device->nativeDevice,
             info.total_size_bytes,
             _device->nativeDevice.defaultAllocator.get());
         info.handle = resource_to_handle(res);
         info.native_handle = res->MappedPtr();
     } else {
-        auto res = new UploadBuffer(
+        auto res = new ReadbackBuffer(
             &_device->nativeDevice,
             info.total_size_bytes,
             _device->nativeDevice.defaultAllocator.get());
