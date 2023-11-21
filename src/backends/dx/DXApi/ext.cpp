@@ -8,6 +8,7 @@
 #include <Resource/ExternalTexture.h>
 #include <Resource/ExternalDepth.h>
 #include <Resource/UploadBuffer.h>
+#include <Resource/ReadbackBuffer.h>
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/DStorageCommandQueue.h>
@@ -286,7 +287,7 @@ BufferCreationInfo DxPinnedMemoryExt::_pin_host_memory(
     return BufferCreationInfo::make_invalid();
 }
 
-DeviceInterface *DxPinnedMemoryExt::device() const noexcept{
+DeviceInterface *DxPinnedMemoryExt::device() const noexcept {
     return _device;
 }
 
@@ -302,12 +303,21 @@ BufferCreationInfo DxPinnedMemoryExt::_allocate_pinned_memory(
         info.element_stride = elem_type->size();
         info.total_size_bytes = info.element_stride * elem_count;
     }
-    auto res = new UploadBuffer(
-        &_device->nativeDevice,
-        info.total_size_bytes,
-        _device->nativeDevice.defaultAllocator.get());
-    info.handle = resource_to_handle(res);
-    info.native_handle = res->MappedPtr();
+    if (option.write_combined) {
+        auto res = new ReadbackBuffer(
+            &_device->nativeDevice,
+            info.total_size_bytes,
+            _device->nativeDevice.defaultAllocator.get());
+        info.handle = resource_to_handle(res);
+        info.native_handle = res->MappedPtr();
+    } else {
+        auto res = new UploadBuffer(
+            &_device->nativeDevice,
+            info.total_size_bytes,
+            _device->nativeDevice.defaultAllocator.get());
+        info.handle = resource_to_handle(res);
+        info.native_handle = res->MappedPtr();
+    }
     return info;
 }
 

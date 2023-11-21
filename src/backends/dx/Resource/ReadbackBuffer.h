@@ -13,6 +13,7 @@ public:
     ID3D12Resource *GetResource() const override { return allocHandle.resource.Get(); }
     D3D12_GPU_VIRTUAL_ADDRESS GetAddress() const override { return allocHandle.resource->GetGPUVirtualAddress(); }
     uint64 GetByteSize() const override { return byteSize; }
+    auto MappedPtr() const { return mappedPtr; }
     ReadbackBuffer(
         Device *device,
         uint64 byteSize,

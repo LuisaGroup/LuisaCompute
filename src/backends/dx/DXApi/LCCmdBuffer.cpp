@@ -2,7 +2,6 @@
 #include <DXApi/LCDevice.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/command_list.h>
-#include "../../common/hlsl/hlsl_codegen.h"
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/TopAccel.h>
@@ -21,6 +20,10 @@
 
 namespace lc::dx {
 using Argument = luisa::compute::Argument;
+static bool is_device_buffer(Resource const *res) {
+    auto tag = res->GetTag();
+    return (tag != Resource::Tag::UploadBuffer) && (tag != Resource::Tag::ReadbackBuffer);
+}
 template<typename Visitor>
 void DecodeCmd(vstd::span<const Argument> args, Visitor &&visitor) {
     using Tag = Argument::Tag;
@@ -61,7 +64,7 @@ public:
         accelOffset->emplace_back(buildAccelSize, size);
         buildAccelSize += size;
     }
-    void UniformAlign(size_t align) {
+    void UniformAlign(size_t align) const {
         argBuffer->resize_uninitialized(CalcAlign(argBuffer->size(), align));
     }
     template<typename T>
@@ -86,15 +89,19 @@ public:
         void operator()(Argument::Buffer const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
+                LUISA_ASSERT(is_device_buffer(res), "Unordered access buffer can not be host-buffer.");
                 self->stateTracker->RecordState(
                     res,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                     true);
             } else {
-                if (res->GetTag() != Resource::Tag::UploadBuffer)
+                if (is_device_buffer(res))
                     self->stateTracker->RecordState(
                         res,
                         self->stateTracker->ReadState(ResourceReadUsage::Srv));
+                else {
+                    LUISA_ASSERT(res->GetTag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as shader's resource.");
+                }
             }
             ++arg;
         }
@@ -181,17 +188,34 @@ public:
         }
     }
     void visit(const BufferUploadCommand *cmd) noexcept override {
-        stateTracker->RecordState(reinterpret_cast<Buffer const *>(cmd->handle()), D3D12_RESOURCE_STATE_COPY_DEST);
+        auto res = reinterpret_cast<Buffer const *>(cmd->handle());
+        if (is_device_buffer(res))
+            stateTracker->RecordState(res, D3D12_RESOURCE_STATE_COPY_DEST);
+        else {
+            LUISA_ERROR("Host-buffer should not be used to upload.");
+        }
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
-        stateTracker->RecordState(reinterpret_cast<Buffer const *>(cmd->handle()), stateTracker->ReadState(ResourceReadUsage::CopySource));
+        auto res = reinterpret_cast<Buffer const *>(cmd->handle());
+        if (is_device_buffer(res))
+            stateTracker->RecordState(res, stateTracker->ReadState(ResourceReadUsage::CopySource));
+        else {
+            LUISA_ERROR("Host-buffer should not be used to download.");
+        }
     }
     void visit(const BufferCopyCommand *cmd) noexcept override {
         auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
         auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
-        if (srcBf->GetTag() != Resource::Tag::UploadBuffer)
+        if (is_device_buffer(srcBf))
             stateTracker->RecordState(srcBf, stateTracker->ReadState(ResourceReadUsage::CopySource));
-        stateTracker->RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
+        else {
+            LUISA_ASSERT(srcBf->GetTag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as copy source.");
+        }
+        if (is_device_buffer(dstBf))
+            stateTracker->RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
+        else {
+            LUISA_ASSERT(dstBf->GetTag() == Resource::Tag::ReadbackBuffer, "Only write-combined-buffer allowed as copy destination.");
+        }
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -199,10 +223,13 @@ public:
         stateTracker->RecordState(
             rt,
             D3D12_RESOURCE_STATE_COPY_DEST);
-        if (bf->GetTag() != Resource::Tag::UploadBuffer)
+        if (is_device_buffer(bf))
             stateTracker->RecordState(
                 bf,
                 stateTracker->ReadState(ResourceReadUsage::CopySource));
+        else {
+            LUISA_ASSERT(bf->GetTag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as copy source.");
+        }
     }
 
     void visit(const TextureUploadCommand *cmd) noexcept override {
@@ -239,9 +266,13 @@ public:
         stateTracker->RecordState(
             rt,
             stateTracker->ReadState(ResourceReadUsage::CopySource, rt));
-        stateTracker->RecordState(
-            bf,
-            D3D12_RESOURCE_STATE_COPY_DEST);
+        if (is_device_buffer(bf))
+            stateTracker->RecordState(
+                bf,
+                D3D12_RESOURCE_STATE_COPY_DEST);
+        else {
+            LUISA_ASSERT(bf->GetTag() == Resource::Tag::ReadbackBuffer, "Only write-combined-buffer allowed as copy destination.");
+        }
     }
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
         auto cs = reinterpret_cast<ComputeShader *>(cmd->handle());
