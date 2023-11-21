@@ -30,7 +30,7 @@ struct [[ignore]] remove_cvref<T &&> {
 };
 
 template<typename T, uint64 N>
-struct [[type_ex("vec", N)]] vec;
+struct vec;
 
 template<typename T>
 struct [[ignore]] vec_dim {
@@ -55,7 +55,7 @@ template<uint64 dim, typename T, typename... Ts>
 }
 
 template<typename T, uint64 N>
-struct [[type_ex("vec", N)]] vec {
+struct vec {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
@@ -65,7 +65,17 @@ struct [[type_ex("vec", N)]] vec {
 };
 
 template<typename T>
-struct [[type_ex("vec", 3)]] vec<T, 3> {
+struct alignas(8) [[type("vec")]] vec<T, 2> {
+    [[ignore]] vec() noexcept = default;
+    template<typename... Args>
+        requires(sum_dim<0ull, Args...>() == 2)
+    [[ignore]] explicit vec(Args &&...args) {}
+
+    T v[2];
+};
+
+template<typename T>
+struct alignas(16) [[type("vec")]] vec<T, 3> {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 3)
@@ -74,12 +84,22 @@ struct [[type_ex("vec", 3)]] vec<T, 3> {
     T v[4];
 };
 
+template<typename T>
+struct alignas(16) [[type("vec")]] vec<T, 4> {
+    [[ignore]] vec() noexcept = default;
+    template<typename... Args>
+        requires(sum_dim<0ull, Args...>() == 4)
+    [[ignore]] explicit vec(Args &&...args) {}
+
+    T v[4];
+};
+
 using float2 = vec<float, 2>;
 using float3 = vec<float, 3>;
 using float4 = vec<float, 4>;
-using double2 = vec<double, 2>;
-using double3 = vec<double, 3>;
-using double4 = vec<double, 4>;
+// using double2 = vec<double, 2>;
+// using double3 = vec<double, 3>;
+// using double4 = vec<double, 4>;
 using int2 = vec<int32, 2>;
 using int3 = vec<int32, 3>;
 using int4 = vec<int32, 4>;

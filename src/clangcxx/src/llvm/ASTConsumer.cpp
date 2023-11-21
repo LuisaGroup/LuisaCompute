@@ -80,31 +80,77 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                         } break;
 
                         default: {
-                            luisa::log_error("unsupported type: {}", fType.getAsString());
+                            luisa::log_error("unsupported type: {}, kind {}", fType.getAsString(), builtin->getKind());
                             break;
                         }
                     }
                 } else {
+                    auto Ty = fType;
                     clang::RecordDecl *recordDecl = fType->getAsRecordDecl();
                     if (!recordDecl) {
                         if (const clang::TypedefType *TDT = fType->getAs<clang::TypedefType>()) {
-                            auto Td = TDT->getDecl()->getUnderlyingType();
-                            recordDecl = Td->getAsRecordDecl();
+                            Ty = TDT->getDecl()->getUnderlyingType();
+                            recordDecl = Ty->getAsRecordDecl();
                         }
                     }
-                    if (!recordDecl)
-                        luisa::log_error("unsupported type: {}", fType.getAsString());
+                    if (recordDecl) {
+                        bool ext_builtin = false;
+                        llvm::StringRef builtin_type_name = {};
+                        for (auto Anno = recordDecl->specific_attr_begin<clang::AnnotateAttr>();
+                             Anno != recordDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                            if (ext_builtin = isBuiltinType(*Anno)) {
+                                builtin_type_name = getBuiltinTypeName(*Anno);
+                            }
+                        }
 
-                    bool ext_builtin = false;
-                    llvm::StringRef builtin_type_name = {};
-                    for (auto Anno = recordDecl->specific_attr_begin<clang::AnnotateAttr>();
-                         Anno != recordDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-                        if (ext_builtin = isBuiltinType(*Anno)) {
-                            builtin_type_name = getBuiltinTypeName(*Anno);
+                        if (builtin_type_name == "vec") {
+                            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
+                                auto Arguments = TST->template_arguments();
+                                if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
+                                    clang::Expr::EvalResult Result;
+                                    Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *consumer->astContext);
+                                    auto N = Result.Val.getInt().getExtValue();
+                                    // TST->dump();
+                                    switch (EType->getKind()) {
+#define CASE_VEC_TYPE(type)                                                                                    \
+    switch (N) {                                                                                               \
+        case 2: {                                                                                              \
+            types.emplace_back(Type::of<type##2>());                                                           \
+        } break;                                                                                               \
+        case 3: {                                                                                              \
+            types.emplace_back(Type::of<type##3>());                                                           \
+        } break;                                                                                               \
+        case 4: {                                                                                              \
+            types.emplace_back(Type::of<type##4>());                                                           \
+        } break;                                                                                               \
+        default: {                                                                                             \
+            luisa::log_error("unsupported type: {}, kind {}, N {}", fType.getAsString(), EType->getKind(), N); \
+        } break;                                                                                               \
+    }
+                                        case (BuiltinType::Kind::Bool): {
+                                            CASE_VEC_TYPE(bool)
+                                        } break;
+                                        case (BuiltinType::Kind::Float): {
+                                            CASE_VEC_TYPE(float)
+                                        } break;
+                                        case (BuiltinType::Kind::Long):
+                                        case (BuiltinType::Kind::Int): {
+                                            CASE_VEC_TYPE(int)
+                                        } break;
+                                        case (BuiltinType::Kind::ULong):
+                                        case (BuiltinType::Kind::UInt): {
+                                            CASE_VEC_TYPE(uint)
+                                        } break;
+                                        case (BuiltinType::Kind::Double):
+                                        default: {
+                                            luisa::log_error("unsupported type: {}, kind {}", fType.getAsString(), EType->getKind());
+                                        } break;
+#undef CASE_VEC_TYPE
+                                    }
+                                }
+                            }
                         }
                     }
-
-                    if (builtin_type_name == "vec") types.emplace_back(Type::of<float3>());
                 }
             }
             // align

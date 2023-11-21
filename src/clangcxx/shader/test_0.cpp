@@ -14,6 +14,8 @@ namespace luisa::shader
         short ss;
         double d;
         float3 f3;
+        int3 i3;
+        uint3 u3;
     };
 }
 
