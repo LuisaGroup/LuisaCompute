@@ -16,6 +16,9 @@ inline FirstFit::Node::Node() noexcept = default;
 
 FirstFit::FirstFit(size_t size, size_t alignment) noexcept
     : _alignment{next_pow2(alignment)} {
+    LUISA_ASSERT(size % _alignment == 0u,
+                 "Size (got {}) must be aligned to the given alignment ({}).",
+                 size, _alignment);
     _free_list._next = detail::first_fit_node_pool().create();
     _free_list._size = size;
     _free_list._next->_next = nullptr;

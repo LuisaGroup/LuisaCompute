@@ -24,25 +24,25 @@ using fixed_unordered_set = eastl::fixed_hash_set<
 
 template<typename Key, typename Value,
          size_t node_count, bool allow_overflow = true,
-         typename Compare = less<>>
+         typename Compare = std::less<>>
 using fixed_map = eastl::fixed_map<
     Key, Value, node_count, allow_overflow, Compare>;
 
 template<typename Key,
          size_t node_count, bool allow_overflow = true,
-         typename Compare = less<>>
+         typename Compare = std::less<>>
 using fixed_set = eastl::fixed_set<
     Key, node_count, allow_overflow, Compare>;
 
 template<typename Key, typename Value,
          size_t node_count, bool allow_overflow = true,
-         typename Compare = less<>>
+         typename Compare = std::less<>>
 using fixed_multimap = eastl::fixed_multimap<
     Key, Value, node_count, allow_overflow, Compare>;
 
 template<typename Key,
          size_t node_count, bool allow_overflow = true,
-         typename Compare = less<>>
+         typename Compare = std::less<>>
 using fixed_multiset = eastl::fixed_multiset<
     Key, node_count, allow_overflow, Compare>;
 
