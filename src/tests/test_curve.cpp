@@ -156,7 +156,7 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     });
 
-    Window window{"Display", resolution};
+    Window window{"Display", resolution, true};
     auto swap_chain = device.create_swapchain(
         window.native_handle(), stream, resolution,
         false, false, 3);
