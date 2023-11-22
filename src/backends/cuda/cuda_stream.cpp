@@ -17,8 +17,12 @@ namespace luisa::compute::cuda {
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
     : _device{device},
       _upload_pool{64_M, true}, _download_pool{32_M, false} {
-    LUISA_CHECK_CUDA(cuMemHostAlloc((void **)(&_callback_semaphore),
+    auto callback_semaphore = static_cast<void *>(nullptr);
+    LUISA_CHECK_CUDA(cuMemHostAlloc(&callback_semaphore,
                                     sizeof(uint64_t), CU_MEMHOSTALLOC_DEVICEMAP));
+    _callback_semaphore = static_cast<volatile uint64_t *>(callback_semaphore);
+    LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&_callback_semaphore_device,
+                                               callback_semaphore, 0u));
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
     _callback_thread = std::thread{[this] {
         for (;;) {
@@ -65,7 +69,7 @@ CUDAStream::~CUDAStream() noexcept {
     // wait for the callback thread to stop
     _callback_thread.join();
     // destroy the events and the stream
-    LUISA_CHECK_CUDA(cuMemFreeHost((void *)_callback_semaphore));
+    LUISA_CHECK_CUDA(cuMemFreeHost(const_cast<uint64_t *>(_callback_semaphore)));
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
 }
 
@@ -87,9 +91,8 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         // signal that the stream has been dispatched
         auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
-        LUISA_CHECK_CUDA(cuStreamWriteValue64(
-            _stream, reinterpret_cast<CUdeviceptr>(_callback_semaphore),
-            ticket, CU_STREAM_WRITE_VALUE_DEFAULT));
+        LUISA_CHECK_CUDA(cuStreamWriteValue64(_stream, _callback_semaphore_device,
+                                              ticket, CU_STREAM_WRITE_VALUE_DEFAULT));
         // enqueue callbacks
         {
             CallbackPackage package{

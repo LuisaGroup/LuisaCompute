@@ -44,6 +44,7 @@ private:
     std::mutex _callback_mutex;
     std::condition_variable _callback_cv;
     volatile uint64_t *_callback_semaphore{nullptr};
+    CUdeviceptr _callback_semaphore_device{0u};
     std::atomic_uint64_t _current_ticket{0u};
     std::atomic_uint64_t _finished_ticket{0u};
     luisa::queue<CallbackPackage> _callback_lists;
