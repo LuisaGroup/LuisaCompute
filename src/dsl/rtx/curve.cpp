@@ -5,34 +5,33 @@
 
 namespace luisa::compute {
 
-std::pair<Float3, Float3>
-CurveEvaluator::surface_position_and_normal(Expr<float> u, Expr<float3> ps_in) const noexcept {
-    auto ps = def(ps_in);
-    auto normal = def(make_float3());
+Float CurveEvaluation::h(Expr<float3> w) const noexcept {
+    auto w_norm = normalize(w);
+    auto w_proj = normalize(w - dot(w_norm, this->tangent));
+    return dot(normalize(cross(this->tangent, this->normal)), w_proj);
+}
+
+CurveEvaluation
+CurveEvaluator::evaluate(Expr<float> u, Expr<float3> ps) const noexcept {
+    CurveEvaluation eval;
     $outline {
-        $if (u == 0.f) {
-            normal = -derivative(0.f).xyz();
-        }
-        $elif (u == 1.f) {
-            normal = derivative(1.f).xyz();
-        }
-        $else {
-            auto p4 = position(u);
-            auto p = p4.xyz();
-            auto r = p4.w;
-            auto d4 = derivative(u);
-            auto d = d4.xyz();
-            auto dr = d4.w;
-            auto dd = dot(d, d);
-            auto o1 = ps - p;
-            o1 -= dot(o1, d) / dd * d;
-            o1 *= r / length(o1);
-            ps = p + o1;
-            dd -= dot(second_derivative(u).xyz(), o1);
-            normal = dd * o1 - (dr * r) * d;
-        };
+        // We do not consider end caps here since by default cubic curves are open.
+        auto p4 = position(u);
+        auto p = p4.xyz();
+        auto r = p4.w;
+        auto d4 = derivative(u);
+        auto d = d4.xyz();
+        auto dr = d4.w;
+        auto dd = dot(d, d);
+        auto o1 = ps - p;
+        o1 -= dot(o1, d) / dd * d;
+        o1 *= r / length(o1);
+        dd -= dot(second_derivative(u).xyz(), o1);
+        eval = {.position = p + o1,
+                .normal = normalize(dd * o1 - (dr * r) * d),
+                .tangent = normalize(d)};
     };
-    return std::make_pair(ps, normalize(normal));
+    return eval;
 }
 
 Float3 CurveEvaluator::tangent(Expr<float> u) const noexcept {
@@ -54,17 +53,24 @@ Float4 PiecewiseLinearCurve::second_derivative(Expr<float> u) const noexcept {
     return make_float4(0.f);
 }
 
-std::pair<Float3, Float3>
-PiecewiseLinearCurve::surface_position_and_normal(Expr<float> u, Expr<float3> ps_in) const noexcept {
-    auto ps = def(ps_in);
-    auto normal = def(make_float3());
+CurveEvaluation
+PiecewiseLinearCurve::evaluate(Expr<float> u, Expr<float3> ps) const noexcept {
+    CurveEvaluation eval;
     $outline {
+        // consider the spherical caps of the curve
         $if (u == 0.f) {
-            normal = ps - _p0.xyz();
+            eval.position = ps;
+            eval.normal = ps - _p0.xyz();
+            auto tangent = normalize(_p1.xyz());
+            auto binormal = normalize(cross(tangent, eval.normal));
+            eval.tangent = normalize(cross(eval.normal, binormal));
         }
         $elif (u >= 1.f) {
             auto p1 = _p1.xyz() + _p0.xyz();
-            normal = ps - p1;
+            eval.normal = normalize(ps - p1);
+            auto tangent = normalize(_p1.xyz());
+            auto binormal = normalize(cross(tangent, eval.normal));
+            eval.tangent = normalize(cross(eval.normal, binormal));
         }
         $else {
             auto p4 = position(u);
@@ -77,11 +83,12 @@ PiecewiseLinearCurve::surface_position_and_normal(Expr<float> u, Expr<float3> ps
             auto o1 = ps - p;
             o1 -= dot(o1, d) / dd * d;
             o1 *= r / length(o1);
-            ps = p + o1;
-            normal = dd * o1 - (dr * r) * d;
+            eval.position = p + o1;
+            eval.normal = normalize(dd * o1 - (dr * r) * d);
+            eval.tangent = normalize(d);
         };
     };
-    return std::make_pair(ps, normalize(normal));
+    return eval;
 }
 
 CubicCurve::CubicCurve(Float4 p0, Float4 p1, Float4 p2, Float4 p3) noexcept

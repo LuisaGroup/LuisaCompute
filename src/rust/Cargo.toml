@@ -10,5 +10,4 @@ members = [
 resolver = "2"
 
 [profile.dev]
-panic = 'abort'
 incremental = true

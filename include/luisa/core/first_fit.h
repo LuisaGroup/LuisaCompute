@@ -42,6 +42,7 @@ public:
     FirstFit &operator=(FirstFit &&) noexcept;
     FirstFit &operator=(const FirstFit &) noexcept = delete;
     [[nodiscard]] Node *allocate(size_t size) noexcept;
+    [[nodiscard]] Node *allocate_best_fit(size_t size) noexcept;
     void free(Node *node) noexcept;
     [[nodiscard]] auto size() const noexcept { return _free_list._size; }
     [[nodiscard]] auto alignment() const noexcept { return _alignment; }
