@@ -305,7 +305,7 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
 void StringStateVisitor::visit(const ScopeStmt *state) {
     for (auto &&i : state->statements()) {
         i->accept(*this);
-        switch (state->tag()) {
+        switch (i->tag()) {
             case Statement::Tag::BREAK:
             case Statement::Tag::CONTINUE:
             case Statement::Tag::RETURN:
@@ -451,16 +451,40 @@ void StringStateVisitor::visit(const AssignStmt *state) {
         }
         return false;
     };
+    auto is_rayquery = [&](const Expression *x, Variable &v) noexcept {
+        if (x->tag() == Expression::Tag::REF) {
+            v = static_cast<RefExpr const *>(x)->variable();
+            if (v.type()->is_custom()) {
+                auto desc = v.type()->description();
+                // rayquery need specialization to workaround DXC's bug
+                if (desc == "LC_RayQueryAll"sv || desc == "LC_RayQueryAny"sv) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
     // shared variables are not wrapped in array
     // structs, so some hack is necessary
     auto lhs_is_shared = is_shared(state->lhs());
     auto rhs_is_shared = is_shared(state->rhs());
-    if (!lhs_is_shared && rhs_is_shared) {
-        str << "(";
-        state->lhs()->accept(*this);
-        str << ").v";
+    Variable rqVar;
+    if (is_rayquery(state->lhs(), rqVar)) {
+        auto iter = lazyDeclVars.find(rqVar);
+        if (iter != lazyDeclVars.end()) {
+            util->GetTypeName(*rqVar.type(), str, Usage::READ);
+            str << ' ';
+            util->GetVariableName(rqVar, str);
+            lazyDeclVars.erase(iter);
+        }
     } else {
-        state->lhs()->accept(*this);
+        if (!lhs_is_shared && rhs_is_shared) {
+            str << "(";
+            state->lhs()->accept(*this);
+            str << ").v";
+        } else {
+            state->lhs()->accept(*this);
+        }
     }
     str << '=';
     if (lhs_is_shared && !rhs_is_shared) {
@@ -494,7 +518,7 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     str << ".Proceed()){\n"sv
         << "if("sv;
     stmt->query()->accept(*this);
-    str<< ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){\n"sv;
+    str << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){\n"sv;
     stmt->on_triangle_candidate()->accept(*this);
     str << "}else{\n"sv;
     stmt->on_procedural_candidate()->accept(*this);
@@ -511,10 +535,19 @@ void StringStateVisitor::VisitFunction(
     vstd::unordered_set<Variable> const &grad_vars,
 #endif
     Function func) {
+    lazyDeclVars.clear();
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
         if (usage == Usage::NONE) [[unlikely]] {
             continue;
+        }
+        if (v.type()->tag() == Type::Tag::CUSTOM) {
+            auto desc = v.type()->description();
+            // rayquery need specialization to workaround DXC's bug
+            if (desc == "LC_RayQueryAll"sv || desc == "LC_RayQueryAny"sv) {
+                lazyDeclVars.emplace(v);
+                continue;
+            }
         }
         if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) == 0) {
             str << "const "sv;
