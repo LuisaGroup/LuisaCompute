@@ -107,6 +107,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME lc-ext-imgui
             PUBLIC_HEADER "${LUISA_IMGUI_HEADERS}")
+    target_compile_definitions(luisa-compute-ext-imgui PRIVATE GLFW_INCLUDE_NONE)
     target_link_libraries(luisa-compute-ext-imgui PUBLIC glfw)
     target_include_directories(luisa-compute-ext-imgui PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/imgui>
