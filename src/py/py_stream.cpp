@@ -28,15 +28,11 @@ void PyStream::Data::sync() noexcept {
 }
 
 void PyStream::execute() noexcept {
-    _data->buffer.add_callback([d = _data.get(), delegates = std::move(delegates)] {
-        // LUISA_INFO("before callback {}", reinterpret_cast<size_t>(d));
-        // d->readbackDisposer.clear();
-        // LUISA_INFO("after clear");
-        for (auto &&i : delegates) {
-            i();
-        }
-        // LUISA_INFO("after callback");
-    });
+    if (!delegates.empty()) {
+        _data->buffer.add_callback([delegates = std::move(delegates)] {
+            for (auto &&i : delegates) { i(); }
+        });
+    }
     _data->stream << _data->buffer.commit();
     _data->uploadDisposer.clear();
 }

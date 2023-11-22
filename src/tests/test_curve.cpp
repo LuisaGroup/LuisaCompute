@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(argv[1]);
 
     static constexpr auto control_point_count = 50u;
-    static constexpr auto curve_basis = CurveBasis::CUBIC_BSPLINE;
+    static constexpr auto curve_basis = CurveBasis::CATMULL_ROM;
     static constexpr auto control_points_per_segment = segment_control_point_count(curve_basis);
     static constexpr auto segment_count = control_point_count - control_points_per_segment + 1u;
 
@@ -125,8 +125,8 @@ int main(int argc, char *argv[]) {
                     }
                 }();
                 auto ps = ray->origin() + hit->distance() * ray->direction();
-                auto [p, n] = c->surface_position_and_normal(u, ps);
-                color = n * .5f + .5f;
+                auto eval = c->evaluate(u, ps);
+                color = make_float3(hit->curve_parameter(), eval.v(-ray->direction()), .5f);//eval.normal * .5f + .5f;
             };
             auto old = image.read(coord);
             image.write(coord, old + make_float4(color, 1.f));
@@ -156,7 +156,7 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     });
 
-    Window window{"Display", resolution};
+    Window window{"Display", resolution, true};
     auto swap_chain = device.create_swapchain(
         window.native_handle(), stream, resolution,
         false, false, 3);

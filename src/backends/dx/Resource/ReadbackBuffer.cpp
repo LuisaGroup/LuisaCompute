@@ -31,19 +31,24 @@ ReadbackBuffer::ReadbackBuffer(
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
+    ThrowIfFailed(allocHandle.resource->Map(0, nullptr, reinterpret_cast<void **>(&mappedPtr)));
+}
+ReadbackBuffer::ReadbackBuffer(ReadbackBuffer &&rhs)
+    : Buffer(std::move(rhs)),
+      allocHandle(std::move(rhs.allocHandle)),
+      byteSize(rhs.byteSize),
+      mappedPtr(rhs.mappedPtr) {
+    rhs.mappedPtr = nullptr;
 }
 ReadbackBuffer::~ReadbackBuffer() {
+    if (mappedPtr) {
+        allocHandle.resource->Unmap(0, nullptr);
+    }
 }
 void ReadbackBuffer::CopyData(
     uint64 offset,
     vstd::span<uint8_t> data) const {
-    void *mapPtr;
-    D3D12_RANGE range;
-    range.Begin = offset;
-    range.End = offset + data.size();
-    ThrowIfFailed(allocHandle.resource->Map(0, &range, (void **)(&mapPtr)));
-    auto d = vstd::scope_exit([&] { allocHandle.resource->Unmap(0, nullptr); });
-    memcpy(data.data(), reinterpret_cast<uint8_t const *>(mapPtr) + offset, data.size());
+    memcpy(data.data(), reinterpret_cast<uint8_t const *>(mappedPtr) + offset, data.size());
 }
 
 }// namespace lc::dx
