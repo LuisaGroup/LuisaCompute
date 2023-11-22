@@ -41,13 +41,13 @@ FirstFit &FirstFit::operator=(FirstFit &&rhs) noexcept {
 }
 
 FirstFit::Node *FirstFit::allocate(size_t size) noexcept {
+    auto mask = _alignment - 1u;
+    auto aligned_size = (size + mask) & ~mask;
     // walk the free list
     for (auto p = &_free_list; p->_next != nullptr; p = p->_next) {
         // found available node
-        if (auto node = p->_next; node->_size > size) {
+        if (auto node = p->_next; node->_size >= aligned_size) {
             // compute aligned size
-            auto mask = _alignment - 1u;
-            auto aligned_size = (size + mask) & ~mask;
             // has remaining size, split the node
             if (node->_size > aligned_size) {
                 auto alloc_node = detail::first_fit_node_pool().create();
@@ -64,6 +64,52 @@ FirstFit::Node *FirstFit::allocate(size_t size) noexcept {
     }
     // none available
     return nullptr;
+}
+
+FirstFit::Node *FirstFit::allocate_best_fit(size_t size) noexcept {
+    auto mask = _alignment - 1u;
+    auto aligned_size = (size + mask) & ~mask;
+    struct FitResult {
+        Node *p;
+        Node *node;
+        size_t remained;
+    };
+    FitResult result{
+        nullptr, nullptr, std::numeric_limits<size_t>::max()};
+    // walk the free list
+    for (auto p = &_free_list; p->_next != nullptr; p = p->_next) {
+        // found available node
+        if (auto node = p->_next; node->_size >= aligned_size) {
+            auto remained = node->_size - aligned_size;
+            if (remained > 0) {
+                // This one is better
+                if (remained < result.remained) {
+                    result.remained = remained;
+                    result.p = p;
+                    result.node = node;
+                }
+            } else {
+                result.remained = 0;
+                result.p = p;
+                result.node = node;
+                break;
+            }
+            // no more remaining size, use the whole node
+            // p->_next = node->_next;
+        }
+    }
+    if (result.node == nullptr)
+        return nullptr;
+    if (result.remained == 0) {
+        result.p->_next = result.node->_next;
+        return result.node;
+    }
+    auto alloc_node = detail::first_fit_node_pool().create();
+    alloc_node->_offset = result.node->_offset;
+    alloc_node->_size = aligned_size;
+    result.node->_offset += aligned_size;
+    result.node->_size -= aligned_size;
+    return alloc_node;
 }
 
 void FirstFit::free(FirstFit::Node *node) noexcept {
@@ -150,4 +196,3 @@ luisa::string FirstFit::dump_free_list() const noexcept {
 }
 
 }// namespace luisa
-
