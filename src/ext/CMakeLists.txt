@@ -108,6 +108,11 @@ if (LUISA_COMPUTE_ENABLE_GUI)
             OUTPUT_NAME lc-ext-imgui
             PUBLIC_HEADER "${LUISA_IMGUI_HEADERS}")
     target_compile_definitions(luisa-compute-ext-imgui PRIVATE GLFW_INCLUDE_NONE)
+    if (WIN32)
+        target_compile_definitions(luisa-compute-ext-imgui PRIVATE
+                "IMGUI_API=__declspec(dllexport)"
+                "IMGUI_IMPL_API=__declspec(dllexport)")
+    endif ()
     target_link_libraries(luisa-compute-ext-imgui PUBLIC glfw)
     target_include_directories(luisa-compute-ext-imgui PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/imgui>
