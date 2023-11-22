@@ -451,33 +451,33 @@ void StringStateVisitor::visit(const AssignStmt *state) {
         }
         return false;
     };
-    auto is_rayquery = [&](const Expression *x, Variable &v) noexcept {
+    auto is_custom = [&](const Expression *x, Variable &v) noexcept {
         if (x->tag() == Expression::Tag::REF) {
             v = static_cast<RefExpr const *>(x)->variable();
             if (v.type()->is_custom()) {
-                auto desc = v.type()->description();
-                // rayquery need specialization to workaround DXC's bug
-                if (desc == "LC_RayQueryAll"sv || desc == "LC_RayQueryAny"sv) {
-                    return true;
-                }
+                return true;
             }
         }
         return false;
     };
     // shared variables are not wrapped in array
     // structs, so some hack is necessary
-    auto lhs_is_shared = is_shared(state->lhs());
-    auto rhs_is_shared = is_shared(state->rhs());
+    bool isLazyDecl = false;
     Variable rqVar;
-    if (is_rayquery(state->lhs(), rqVar)) {
+    bool lhs_is_shared{false};
+    if (is_custom(state->lhs(), rqVar)) {
         auto iter = lazyDeclVars.find(rqVar);
         if (iter != lazyDeclVars.end()) {
             util->GetTypeName(*rqVar.type(), str, Usage::READ);
             str << ' ';
             util->GetVariableName(rqVar, str);
             lazyDeclVars.erase(iter);
+            isLazyDecl = true;
         }
-    } else {
+    }
+    auto rhs_is_shared = is_shared(state->rhs());
+    if (!isLazyDecl) {
+        lhs_is_shared = is_shared(state->lhs());
         if (!lhs_is_shared && rhs_is_shared) {
             str << "(";
             state->lhs()->accept(*this);
