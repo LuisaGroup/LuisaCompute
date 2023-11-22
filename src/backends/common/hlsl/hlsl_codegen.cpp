@@ -318,7 +318,7 @@ void StringStateVisitor::visit(const AutoDiffStmt *stmt) {
     visit(stmt->body());
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
-    // str << "/* " << state->comment() << " */\n";
+    str << "/* " << state->comment() << " */\n";
 }
 void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";

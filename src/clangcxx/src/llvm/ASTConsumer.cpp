@@ -103,6 +103,16 @@ bool RecordDeclStmtHandler::TryEmplaceAsBuiltinType(const QualType Ty, const cla
     return false;
 }
 
+bool RecordDeclStmtHandler::TryEmplaceAsStructureType(const clang::RecordDecl *recordDecl, luisa::vector<const luisa::compute::Type *> &types) {
+    auto field_qualified_type_name = luisa::string(recordDecl->getQualifiedNameAsString());
+    auto iter = blackboard->type_map.find(field_qualified_type_name);
+    if (iter != blackboard->type_map.end()) {
+        types.emplace_back(iter->second);
+        return true;
+    }
+    return false;
+}
+
 void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     auto &kernel_builder = blackboard->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
@@ -114,17 +124,15 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             luisa::vector<const luisa::compute::Type *> types;
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
-                // 0. RESOLVE TO RECORD
-                if (const auto *TST = Ty->getAsArrayTypeUnsafe()) {
-                    luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
-                }
+                // 1. PRIMITIVE
                 if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
-                    // 1. PRIMITIVE
                     if (!TryEmplaceAsPrimitiveType(builtin, types)) {
                         luisa::log_error("unsupported field primitive type: [{}], kind [{}] in type [{}]",
                                          Ty.getAsString(), builtin->getKind(), S->getNameAsString());
                     }
+                    continue;
                 } else {
+                    // 2.0 RESOLVE TO RECORD
                     clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
                     if (!recordDecl) {
                         if (const auto *TDT = Ty->getAs<clang::TypedefType>()) {
@@ -138,19 +146,12 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                             Ty.dump();
                         }
                     }
-                    // 2. RECORD
+                    // 2.1 EMPLACE RECORD
                     if (recordDecl) {
-                        // 2.1 BUILTIN
-                        if (TryEmplaceAsBuiltinType(Ty, recordDecl, types)) {
+                        // 2.1.1 AS BUILTIN
+                        if (TryEmplaceAsBuiltinType(Ty, recordDecl, types) ||
+                            TryEmplaceAsStructureType(recordDecl, types)) {
                             continue;
-                        }
-                        // 2.2 RECORD
-                        else {
-                            auto field_qualified_type_name = luisa::string(recordDecl->getQualifiedNameAsString());
-                            auto iter = blackboard->type_map.find(field_qualified_type_name);
-                            if (iter != blackboard->type_map.end()) {
-                                types.emplace_back(iter->second);
-                            }
                         }
                     } else {
                         S->dump();

@@ -9,38 +9,34 @@ using uint32 = unsigned int;
 using uint64 = unsigned long long;
 
 template<typename T>
-struct [[ignore]] remove_cvref {
-    using type = T;
-};
+trait remove_cvref { using type = T; };
 template<typename T>
-struct [[ignore]] remove_cvref<T &> {
-    using type = T;
-};
+trait remove_cvref<T &> { using type = T; };
 template<typename T>
-struct [[ignore]] remove_cvref<T const> {
-    using type = T;
-};
+trait remove_cvref<T const> { using type = T; };
 template<typename T>
-struct [[ignore]] remove_cvref<T volatile> {
-    using type = T;
-};
+trait remove_cvref<T volatile> { using type = T; };
 template<typename T>
-struct [[ignore]] remove_cvref<T &&> {
-    using type = T;
-};
+trait remove_cvref<T &&> { using type = T; };
 
 template<typename T, uint64 N>
 struct vec;
 
 template<typename T>
-struct [[ignore]] vec_dim {
-    static constexpr uint64 value = 1;
-};
+trait is_floatN { static constexpr bool value = false; };
+template<> trait is_floatN<float> { static constexpr bool value = true; };
+template<> trait is_floatN<double> { static constexpr bool value = true; };
+template<uint64 N> trait is_floatN<vec<float, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_floatN<vec<double, N>> { static constexpr bool value = true; };
+
+template<typename T>
+concept floatN = is_floatN<typename remove_cvref<T>::type>::value;
+
+template<typename T>
+trait vec_dim { static constexpr uint64 value = 1; };
 
 template<typename T, uint64 N>
-struct [[ignore]] vec_dim<vec<T, N>> {
-    static constexpr uint64 value = N;
-};
+trait vec_dim<vec<T, N>> { static constexpr uint64 value = N; };
 template<typename T>
 [[ignore]] constexpr uint64 vec_dim_v = vec_dim<typename remove_cvref<T>::type>::value;
 

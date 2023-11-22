@@ -39,6 +39,7 @@ public:
     void run(const MatchFinder::MatchResult &Result) final;
     bool TryEmplaceAsPrimitiveType(const clang::BuiltinType *builtin, luisa::vector<const luisa::compute::Type *> &types);
     bool TryEmplaceAsBuiltinType(const clang::QualType Ty, const clang::RecordDecl* recordDecl, luisa::vector<const luisa::compute::Type *> &types);
+    bool TryEmplaceAsStructureType(const clang::RecordDecl* recordDecl, luisa::vector<const luisa::compute::Type *> &types);
 
     CXXBlackboard* blackboard = nullptr;
 };
