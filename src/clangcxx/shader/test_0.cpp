@@ -29,7 +29,7 @@ Buffer<NVIDIA> buffer;
 [[kernel_2d(16, 16)]]
 int main()
 {
-    auto n = NVIDIA{0};
+    NVIDIA n = {};
     buffer.store(0, n);
     return 0;
 }

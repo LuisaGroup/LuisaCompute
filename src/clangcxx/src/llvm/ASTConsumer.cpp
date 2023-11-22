@@ -17,7 +17,7 @@ using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
 void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
-    auto &kernel_builder = consumer->kernel_builder;
+    auto &kernel_builder = blackboard->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
         bool ignore = false;
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
@@ -28,8 +28,9 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             luisa::vector<const luisa::compute::Type *> types;
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto fType = f->getType();
+                // 1. BUILTIN
                 if (auto builtin = fType->getAs<clang::BuiltinType>()) {
-                    std::cout << fType.getAsString() << std::endl;
+                    // std::cout << fType.getAsString() << std::endl;
                     // clang-format off
                     switch (builtin->getKind()) {
                         /*
@@ -42,7 +43,6 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                         
                         case (BuiltinType::Kind::Char16): { types.emplace_back(Type::of<char16_t>()); } break; 
                         */
-
                         case (BuiltinType::Kind::Bool): { types.emplace_back(Type::of<bool>()); } break;
 
                         case (BuiltinType::Kind::UShort): { types.emplace_back(Type::of<uint16_t>()); } break;
@@ -64,7 +64,9 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                         }
                     }
                     // clang-format on
-                } else {
+                } 
+                // 2. RECORD
+                else {
                     auto Ty = fType;
                     clang::RecordDecl *recordDecl = fType->getAsRecordDecl();
                     if (!recordDecl) {
@@ -83,21 +85,22 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                             }
                         }
 
+                        // 2.1 BUILTIN FIELD
                         if (builtin_type_name == "vec") {
                             if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
                                 auto Arguments = TST->template_arguments();
                                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
                                     clang::Expr::EvalResult Result;
-                                    Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *consumer->astContext);
+                                    Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *blackboard->astContext);
                                     auto N = Result.Val.getInt().getExtValue();
                                     // TST->dump();
                                     // clang-format off
                                     switch (EType->getKind()) {
 #define CASE_VEC_TYPE(type)                                                                                    \
     switch (N) {                                                                                               \
-        case 2: { types.emplace_back(Type::of<type##2>()); } break;                                            \                                                 
-        case 3: { types.emplace_back(Type::of<type##3>()); } break;                                            \                                                 
-        case 4: { types.emplace_back(Type::of<type##4>()); } break;                                            \                                                 
+        case 2: { types.emplace_back(Type::of<type##2>()); } break;                                            \
+        case 3: { types.emplace_back(Type::of<type##3>()); } break;                                            \
+        case 4: { types.emplace_back(Type::of<type##4>()); } break;                                            \
         default: {                                                                                             \
             luisa::log_error("unsupported type: {}, kind {}, N {}", fType.getAsString(), EType->getKind(), N); \
         } break;                                                                                               \
@@ -118,6 +121,15 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                                 }
                             }
                         }
+                        // 2.2 RECORD FIELD
+                        else
+                        {
+                            auto field_qualified_type_name = luisa::string(recordDecl->getQualifiedNameAsString());
+                            auto iter = blackboard->type_map.find(field_qualified_type_name);
+                            if (iter != blackboard->type_map.end()) {
+                                types.emplace_back(iter->second);
+                            }
+                        }
                     }
                 }
             }
@@ -126,22 +138,15 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             for (auto ft : types) {
                 alignment = std::max(alignment, ft->alignment());
             }
-            consumer->ttt = Type::structure(alignment, types);
-            std::cout << consumer->ttt->description() << std::endl;
+            auto lc_type = Type::structure(alignment, types);
+            auto qualified_name = S->getQualifiedNameAsString();
+            blackboard->type_map[luisa::string(qualified_name)] = lc_type;
+            // std::cout << lc_type->description() << std::endl;
+            blackboard->ttt = lc_type;
             // kernel_builder->
         }
     }
 }
-
-struct NVIDIA {
-    int n;
-};
-
-struct Fuck {
-    int a;
-    NVIDIA b;
-    std::array<float, 4> c;
-};
 
 bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur) {
     if (!stmt)
@@ -160,6 +165,7 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
             for (auto decl : declGroup) {
                 if (decl && isa<clang::VarDecl>(decl)) {
                     auto *varDecl = (VarDecl *)decl;
+                    /*
                     auto at = varDecl->getType();
                     auto t = at->getContainedAutoType()->getCanonicalTypeInternal();
                     {
@@ -167,15 +173,15 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                         std::cout << t.getAsString() << std::endl;
                         const clang::Expr *expr = varDecl->getInit();
                     }
+                    */
                     auto idx = cur->literal(Type::of<uint>(), uint(0));
-                    auto buffer = cur->buffer(Type::buffer(consumer->ttt));
+                    auto buffer = cur->buffer(Type::buffer(blackboard->ttt));
                     cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
-                    auto local = cur->local(consumer->ttt);
+                    auto local = cur->local(blackboard->ttt);
                     cur->call(CallOp::BUFFER_WRITE, {buffer, idx, local});
                 }
             }
         }
-
         recursiveVisit(currStmt, cur);
     }
     return true;
@@ -196,7 +202,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             Stmt *body = S->getBody();
             {
                 if (S->isMain()) {
-                    builder = consumer->kernel_builder;
+                    builder = blackboard->kernel_builder;
                 } else {
                     builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
                 }
@@ -218,16 +224,16 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
 ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option)
     : OutputPath(std::move(OutputPath)), device(device), option(option) {
 
-    kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
+    blackboard.kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
 
-    HandlerForTypeDecl.consumer = this;
+    HandlerForTypeDecl.blackboard = &blackboard;
     Matcher.addMatcher(recordDecl(
                            isDefinition(),
                            unless(isExpansionInSystemHeader()))
                            .bind("RecordDecl"),
                        &HandlerForTypeDecl);
 
-    HandlerForFuncionDecl.consumer = this;
+    HandlerForFuncionDecl.blackboard = &blackboard;
     Matcher.addMatcher(functionDecl(
                            isDefinition(),
                            unless(isExpansionInSystemHeader()))
@@ -237,18 +243,21 @@ ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device,
 }
 
 ASTConsumer::~ASTConsumer() {
-    LUISA_INFO("{}", Type::of<Fuck>()->description());
+    for (auto &&[name, type] : blackboard.type_map) {
+        std::cout << name << " - ";
+        std::cout << type->description() << std::endl;
+    }
 
     device->impl()->create_shader(
         luisa::compute::ShaderOption{
             .compile_only = true,
             .name = "test.bin"},
-        luisa::compute::Function{kernel_builder.get()});
+        luisa::compute::Function{blackboard.kernel_builder.get()});
 }
 
 void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
     // 1. collect
-    astContext = &Context;
+    blackboard.astContext = &Context;
     Matcher.matchAST(Context);
 }
 

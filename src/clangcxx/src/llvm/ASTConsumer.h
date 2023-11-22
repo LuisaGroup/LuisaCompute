@@ -16,13 +16,22 @@ namespace luisa::clangcxx {
 class ASTConsumer;
 using MatchFinder = clang::ast_matchers::MatchFinder;
 
+struct CXXBlackboard
+{
+    clang::ASTContext* astContext = nullptr;
+    luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
+    luisa::unordered_map<luisa::string, const luisa::compute::Type*> type_map;
+
+    const luisa::compute::Type* ttt;
+};
+
 class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback 
 {
 public:
     FunctionDeclStmtHandler() = default;
     bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur);
     void run(const MatchFinder::MatchResult &Result) final;
-    ASTConsumer* consumer = nullptr;
+    CXXBlackboard* blackboard;
 };
 
 class RecordDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback 
@@ -30,7 +39,7 @@ class RecordDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCall
 public:
     RecordDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
-    ASTConsumer* consumer = nullptr;
+    CXXBlackboard* blackboard;
 };
 
 class ASTConsumer : public clang::ASTConsumer
@@ -44,12 +53,10 @@ public:
     luisa::compute::Device* device = nullptr;
     compute::ShaderOption option;
 
-    luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
-    const luisa::compute::Type* ttt;
+    CXXBlackboard blackboard;
 
     FunctionDeclStmtHandler HandlerForFuncionDecl;
     RecordDeclStmtHandler HandlerForTypeDecl;
-    clang::ASTContext* astContext = nullptr;
     clang::ast_matchers::MatchFinder Matcher;
 };
 
