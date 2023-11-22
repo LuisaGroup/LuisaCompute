@@ -55,7 +55,7 @@ template<uint64 dim, typename T, typename... Ts>
 }
 
 template<typename T, uint64 N>
-struct vec {
+struct [[builtin("vec")]] vec {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
@@ -65,7 +65,7 @@ struct vec {
 };
 
 template<typename T>
-struct alignas(8) [[type("vec")]] vec<T, 2> {
+struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 2)
@@ -75,7 +75,7 @@ struct alignas(8) [[type("vec")]] vec<T, 2> {
 };
 
 template<typename T>
-struct alignas(16) [[type("vec")]] vec<T, 3> {
+struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 3)
@@ -85,7 +85,7 @@ struct alignas(16) [[type("vec")]] vec<T, 3> {
 };
 
 template<typename T>
-struct alignas(16) [[type("vec")]] vec<T, 4> {
+struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 4)

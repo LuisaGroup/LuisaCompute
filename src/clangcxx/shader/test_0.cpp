@@ -21,6 +21,9 @@ namespace luisa::shader
         int3 i3;
         uint3 u3;
         F fuck;
+        // ! not supportted ! 
+        // int ds[5];
+        // Buffer<int> b;
     };
 }
 

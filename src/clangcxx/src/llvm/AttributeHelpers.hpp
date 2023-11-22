@@ -33,7 +33,7 @@ inline static bool isBuiltinType(clang::AnnotateAttr* Anno)
         auto arg = Anno->args_begin();
         if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts()))
         {
-            return (TypeLiterial->getString() == "type") || (TypeLiterial->getString() == "type_ex");
+            return (TypeLiterial->getString() == "builtin");
         }
     }
     return false;
