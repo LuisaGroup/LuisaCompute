@@ -16,8 +16,9 @@ namespace luisa::compute::cuda {
 
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
     : _device{device},
-      _upload_pool{64_M, true}, _download_pool{32_M, false},
-      _callback_event{device->event_manager()->create()} {
+      _upload_pool{64_M, true}, _download_pool{32_M, false} {
+    LUISA_CHECK_CUDA(cuMemHostAlloc((void **)(&_callback_semaphore),
+                                    sizeof(uint64_t), CU_MEMHOSTALLOC_DEVICEMAP));
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
     _callback_thread = std::thread{[this] {
         for (;;) {
@@ -35,7 +36,15 @@ CUDAStream::CUDAStream(CUDADevice *device) noexcept
             }();
             if (package.ticket == stop_ticket) { break; }
             // wait for the commands to finish
-            _callback_event->synchronize(package.ticket);
+            [ticket = package.ticket, this] {
+                static constexpr auto spins_before_yield = 1024u;
+                for (;;) {
+                    for (auto i = 0u; i < spins_before_yield; i++) {
+                        if (*_callback_semaphore >= ticket) { return; }
+                    }
+                    std::this_thread::yield();
+                }
+            }();
             for (auto &&callback : package.callbacks) { callback->recycle(); }
             // signal the event that the callbacks have finished
             _finished_ticket.store(package.ticket, std::memory_order_release);
@@ -56,7 +65,7 @@ CUDAStream::~CUDAStream() noexcept {
     // wait for the callback thread to stop
     _callback_thread.join();
     // destroy the events and the stream
-    _device->event_manager()->destroy(_callback_event);
+    LUISA_CHECK_CUDA(cuMemFreeHost((void *)_callback_semaphore));
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
 }
 
@@ -78,7 +87,9 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         // signal that the stream has been dispatched
         auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
-        _callback_event->signal(_stream, ticket);
+        LUISA_CHECK_CUDA(cuStreamWriteValue64(
+            _stream, reinterpret_cast<CUdeviceptr>(_callback_semaphore),
+            ticket, CU_STREAM_WRITE_VALUE_DEFAULT));
         // enqueue callbacks
         {
             CallbackPackage package{
