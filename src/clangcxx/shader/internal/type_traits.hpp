@@ -72,14 +72,13 @@ template<typename T>
 concept boolN = is_boolN<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept intN = is_boolN<typename remove_cvref<T>::type>::value;
+concept intN = is_intN<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept uintN = is_boolN<typename remove_cvref<T>::type>::value;
+concept uintN = is_uintN<typename remove_cvref<T>::type>::value;
 
 template<typename T>
 concept arithmetic = is_arithmetic<T>::value;
-
 
 template<typename T>
 trait vec_dim { static constexpr uint64 value = 1; };

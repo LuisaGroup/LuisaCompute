@@ -130,12 +130,12 @@ requires(vec_dim<T>::value > 1)
 [[callop("REDUCE_MAX")]] extern typename element<T>::type reduce_max(T v);
 template <typename T>
 requires(is_matrix<T>::value)
-[[callop("DETERMINANT")]] extern typename T determinant(T v);
+[[callop("DETERMINANT")]] extern T determinant(T v);
 template <typename T>
 requires(is_matrix<T>::value)
-[[callop("TRANSPOSE")]] extern typename T transpose(T v);
+[[callop("TRANSPOSE")]] extern T transpose(T v);
 template <typename T>
 requires(is_matrix<T>::value)
-[[callop("INVERSE")]] extern typename T inverse(T v);
+[[callop("INVERSE")]] extern T inverse(T v);
 [[callop("SYNCHRONIZE_BLOCK")]] void sync_block();
 }// namespace luisa::shader
