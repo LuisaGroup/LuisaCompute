@@ -13,6 +13,11 @@ template<typename T = void>
     __builtin_unreachable();
 }
 
+template<typename T = void>
+[[noreturn]] inline T lc_unreachable(ulong /* message id ignored */) {
+    __builtin_unreachable();
+}
+
 template<typename... T>
 [[nodiscard]] inline auto make_float2x2(T... args) {
     return float2x2(args...);
@@ -632,55 +637,49 @@ struct LCAccel {
     device LCInstance *__restrict__ instances;
 };
 
-[[nodiscard]] inline auto intersector_closest() {
+[[nodiscard]] inline auto lc_intersector_base() {
+#ifdef LUISA_ENABLE_CURVE
+    intersector<triangle_data, curve_data, instancing> i;
+    i.assume_geometry_type(geometry_type::triangle | geometry_type::curve);
+    i.assume_curve_type(curve_type::round);
+#ifdef LUISA_ENABLE_CURVE_MULTIPLE
+    i.assume_curve_basis(curve_basis::all);
+#else
+#ifdef LUISA_ENABLE_CURVE_PIECEWISE_LINEAR
+    i.assume_curve_basis(curve_basis::linear);
+#endif
+#ifdef LUISA_ENABLE_CURVE_CUBIC_BSPLINE
+    i.assume_curve_basis(curve_basis::bspline);
+#endif
+#ifdef LUISA_ENABLE_CURVE_CATMULL_ROM
+    i.assume_curve_basis(curve_basis::catmull_rom);
+#endif
+#ifdef LUISA_ENABLE_CURVE_BEZIER
+    i.assume_curve_basis(curve_basis::bezier);
+#endif
+#endif
+#ifndef LUISA_ENABLE_CURVE_PIECEWISE_LINEAR
+    i.assume_curve_control_point_count(4u);
+#elif !defined(LUISA_ENABLE_CURVE_CUBIC_BSPLINE) && !defined(LUISA_ENABLE_CURVE_CATMULL_ROM) && !defined(LUISA_ENABLE_CURVE_BEZIER)
+    i.assume_curve_control_point_count(2u);
+#endif
+#else
     intersector<triangle_data, instancing> i;
     i.assume_geometry_type(geometry_type::triangle);
+#endif
     i.force_opacity(forced_opacity::opaque);
+    return i;
+}
+
+[[nodiscard]] inline auto intersector_closest() {
+    auto i = lc_intersector_base();
     i.accept_any_intersection(false);
     return i;
 }
 
 [[nodiscard]] inline auto intersector_any() {
-    intersector<triangle_data, instancing> i;
-    i.assume_geometry_type(geometry_type::triangle);
-    i.force_opacity(forced_opacity::opaque);
+    auto i = lc_intersector_base();
     i.accept_any_intersection(true);
-    return i;
-}
-
-[[nodiscard]] inline auto intersector_closest_cull_front() {
-    intersector<triangle_data, instancing> i;
-    i.assume_geometry_type(geometry_type::triangle);
-    i.force_opacity(forced_opacity::opaque);
-    i.accept_any_intersection(false);
-    i.set_triangle_cull_mode(triangle_cull_mode::front);
-    return i;
-}
-
-[[nodiscard]] inline auto intersector_any_cull_front() {
-    intersector<triangle_data, instancing> i;
-    i.assume_geometry_type(geometry_type::triangle);
-    i.force_opacity(forced_opacity::opaque);
-    i.accept_any_intersection(true);
-    i.set_triangle_cull_mode(triangle_cull_mode::front);
-    return i;
-}
-
-[[nodiscard]] inline auto intersector_closest_cull_back() {
-    intersector<triangle_data, instancing> i;
-    i.assume_geometry_type(geometry_type::triangle);
-    i.force_opacity(forced_opacity::opaque);
-    i.accept_any_intersection(false);
-    i.set_triangle_cull_mode(triangle_cull_mode::back);
-    return i;
-}
-
-[[nodiscard]] inline auto intersector_any_cull_back() {
-    intersector<triangle_data, instancing> i;
-    i.assume_geometry_type(geometry_type::triangle);
-    i.force_opacity(forced_opacity::opaque);
-    i.accept_any_intersection(true);
-    i.set_triangle_cull_mode(triangle_cull_mode::back);
     return i;
 }
 
@@ -694,44 +693,23 @@ struct LCAccel {
     auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask);
     return isect.type == intersection_type::none ?
                LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
+#ifdef LUISA_ENABLE_CURVE
+               LCTriangleHit{isect.instance_id,
+                             isect.primitive_id,
+                             isect.type == intersection_type::triangle ?
+                                 isect.triangle_barycentric_coord :
+                                 float2(isect.curve_parameter, -1.f),
+                             isect.distance};
+#else
                LCTriangleHit{isect.instance_id,
                              isect.primitive_id,
                              isect.triangle_barycentric_coord,
                              isect.distance};
+#endif
 }
 
 [[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
-    return isect.type != intersection_type::none;
-}
-
-[[nodiscard]] inline auto accel_trace_closest_cull_frontface(LCAccel accel, LCRay r, uint mask) {
-    auto isect = intersector_closest_cull_front().intersect(make_ray(r), accel.handle, mask);
-    return isect.type == intersection_type::none ?
-               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
-               LCTriangleHit{isect.instance_id,
-                             isect.primitive_id,
-                             isect.triangle_barycentric_coord,
-                             isect.distance};
-}
-
-[[nodiscard]] inline auto accel_trace_any_cull_frontface(LCAccel accel, LCRay r, uint mask) {
-    auto isect = intersector_any_cull_front().intersect(make_ray(r), accel.handle, mask);
-    return isect.type != intersection_type::none;
-}
-
-[[nodiscard]] inline auto accel_trace_closest_cull_backface(LCAccel accel, LCRay r, uint mask) {
-    auto isect = intersector_closest_cull_back().intersect(make_ray(r), accel.handle, mask);
-    return isect.type == intersection_type::none ?
-               LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
-               LCTriangleHit{isect.instance_id,
-                             isect.primitive_id,
-                             isect.triangle_barycentric_coord,
-                             isect.distance};
-}
-
-[[nodiscard]] inline auto accel_trace_any_cull_backface(LCAccel accel, LCRay r, uint mask) {
-    auto isect = intersector_any_cull_back().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
 
@@ -740,7 +718,11 @@ struct LCRayQuery {
     ray ray;
     uint mask;
     bool terminate_on_first_hit;
+#ifdef LUISA_ENABLE_CURVE
+    thread intersection_query<triangle_data, curve_data, instancing> *i;
+#else
     thread intersection_query<triangle_data, instancing> *i;
+#endif
 };
 
 [[nodiscard]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask) {
@@ -751,27 +733,68 @@ struct LCRayQuery {
     return LCRayQuery{accel.handle, make_ray(ray), mask, true, nullptr};
 }
 
-void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_data, instancing> &i, bool has_procedural_branch) {
+void ray_query_init(thread LCRayQuery &q,
+#ifdef LUISA_ENABLE_CURVE
+                    thread intersection_query<triangle_data, curve_data, instancing> &i,
+#else
+                    thread intersection_query<triangle_data, instancing> &i,
+#endif
+                    bool has_procedural_branch) {
     intersection_params params;
     params.accept_any_intersection(q.terminate_on_first_hit);
+#ifdef LUISA_ENABLE_CURVE
+    params.assume_curve_type(curve_type::round);
+#ifdef LUISA_ENABLE_CURVE_MULTIPLE
+    params.assume_curve_basis(curve_basis::all);
+#else
+#ifdef LUISA_ENABLE_CURVE_PIECEWISE_LINEAR
+    params.assume_curve_basis(curve_basis::linear);
+#endif
+#ifdef LUISA_ENABLE_CURVE_CUBIC_BSPLINE
+    params.assume_curve_basis(curve_basis::bspline);
+#endif
+#ifdef LUISA_ENABLE_CURVE_CATMULL_ROM
+    params.assume_curve_basis(curve_basis::catmull_rom);
+#endif
+#ifdef LUISA_ENABLE_CURVE_BEZIER
+    params.assume_curve_basis(curve_basis::bezier);
+#endif
+#endif
+#ifndef LUISA_ENABLE_CURVE_PIECEWISE_LINEAR
+    params.assume_curve_control_point_count(4u);
+#elif !defined(LUISA_ENABLE_CURVE_CUBIC_BSPLINE) && !defined(LUISA_ENABLE_CURVE_CATMULL_ROM) && !defined(LUISA_ENABLE_CURVE_BEZIER)
+    params.assume_curve_control_point_count(2u);
+#endif
+    params.assume_geometry_type(has_procedural_branch ?
+                                    geometry_type::triangle | geometry_type::curve | geometry_type::bounding_box :
+                                    geometry_type::triangle | geometry_type::curve);
+#else
     params.assume_geometry_type(has_procedural_branch ?
                                     geometry_type::triangle | geometry_type::bounding_box :
                                     geometry_type::triangle);
-    // face culling is removed
-    // if (q.cull_front) { params.set_triangle_cull_mode(triangle_cull_mode::front); }
-    // if (q.cull_back) { params.set_triangle_cull_mode(triangle_cull_mode::back); }
+#endif
     i.reset(q.ray, q.accel, q.mask, params);
     q.i = &i;
 }
 
+#ifdef LUISA_ENABLE_CURVE
+#define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
+    intersection_query<triangle_data, curve_data, instancing> q##_i
+#else
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
     intersection_query<triangle_data, instancing> q##_i
+#endif
 
 #define LC_RAY_QUERY_INIT(q) ray_query_init(q, q##_i, true)
 #define LC_RAY_QUERY_INIT_NO_PROCEDURAL(q) ray_query_init(q, q##_i, false)
 
 [[nodiscard]] inline auto ray_query_is_triangle_candidate(LCRayQuery q) {
+#ifdef LUISA_ENABLE_CURVE
+    return q.i->get_candidate_intersection_type() == intersection_type::triangle ||
+           q.i->get_candidate_intersection_type() == intersection_type::curve;
+#else
     return q.i->get_candidate_intersection_type() == intersection_type::triangle;
+#endif
 }
 
 [[nodiscard]] inline auto ray_query_next(LCRayQuery q) {
@@ -798,25 +821,57 @@ void ray_query_init(thread LCRayQuery &q, thread intersection_query<triangle_dat
 [[nodiscard]] inline auto ray_query_triangle_candidate(LCRayQuery q) {
     auto inst = q.i->get_candidate_instance_id();
     auto prim = q.i->get_candidate_primitive_id();
+#ifdef LUISA_ENABLE_CURVE
+    auto type = q.i->get_candidate_intersection_type();
+    auto bary = type == intersection_type::triangle ?
+                    q.i->get_candidate_triangle_barycentric_coord() :
+                    float2(q.i->get_candidate_curve_parameter(), -1.f);
+    auto t = type == intersection_type::triangle ?
+                 q.i->get_candidate_triangle_distance() :
+                 q.i->get_candidate_curve_distance();
+#else
     auto bary = q.i->get_candidate_triangle_barycentric_coord();
     auto t = q.i->get_candidate_triangle_distance();
+#endif
     return LCTriangleHit{inst, prim, bary, t};
 }
 
 [[nodiscard]] inline auto ray_query_committed_hit(LCRayQuery q) {
     auto type = q.i->get_committed_intersection_type();
+#ifdef LUISA_ENABLE_CURVE
+    auto kind = type == intersection_type::none     ? 0u :
+                type == intersection_type::triangle ||
+                type == intersection_type::curve    ? 1u :
+                                                      2u;
+#else
     auto kind = type == intersection_type::none     ? 0u :
                 type == intersection_type::triangle ? 1u :
                                                       2u;
+#endif
     auto inst = kind ? q.i->get_committed_instance_id() : ~0u;
     auto prim = q.i->get_committed_primitive_id();
+#ifdef LUISA_ENABLE_CURVE
+    auto bary = type == intersection_type::triangle ?
+                    q.i->get_committed_triangle_barycentric_coord() :
+                    float2(q.i->get_committed_curve_parameter(), -1.f);
+#else
     auto bary = q.i->get_committed_triangle_barycentric_coord();
+#endif
     auto t = q.i->get_committed_distance();
     return LCCommittedHit{inst, prim, bary, kind, t};
 }
 
 inline void ray_query_commit_triangle(LCRayQuery q) {
+#ifdef LUISA_ENABLE_CURVE
+    if (auto type = q.i->get_candidate_intersection_type();
+        type == intersection_type::triangle) {
+        q.i->commit_triangle_intersection();
+    } else {
+        q.i->commit_curve_intersection();
+    }
+#else
     q.i->commit_triangle_intersection();
+#endif
 }
 
 inline void ray_query_commit_procedural(LCRayQuery q, float t) {

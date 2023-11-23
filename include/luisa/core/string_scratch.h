@@ -23,7 +23,8 @@ public:
     StringScratch &operator<<(int x) noexcept;
     StringScratch &operator<<(uint x) noexcept;
     StringScratch &operator<<(size_t x) noexcept;
-    [[nodiscard]] const luisa::string &string() const noexcept;
+    [[nodiscard]] const luisa::string &string() const & noexcept;
+    [[nodiscard]] luisa::string string() && noexcept;
     [[nodiscard]] luisa::string_view string_view() const noexcept;
     [[nodiscard]] const char *c_str() const noexcept;
     [[nodiscard]] bool empty() const noexcept;

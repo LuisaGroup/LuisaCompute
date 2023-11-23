@@ -190,8 +190,8 @@ int main(int argc, char *argv[]) {
 
     Callable filter_triangle_hit = [&](Var<TriangleHit> h) noexcept {
         Bool valid = def(true);
-        $if(h.inst == tall_inst) { valid = fract(6.f * h.bary.y) < .6f; }
-        $elif(h.inst == short_inst) { valid = fract(10.f * h.bary.x) < .5f; };
+        $if (h.inst == tall_inst) { valid = fract(6.f * h.bary.y) < .6f; }
+        $elif (h.inst == short_inst) { valid = fract(10.f * h.bary.x) < .5f; };
         return valid;
     };
 
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
         Float ry = lcg(state);
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        $for(i, spp_per_dispatch) {
+        $for (i, spp_per_dispatch) {
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             Float3 beta = def(make_float3(1.0f));
             Float pdf_bsdf = def(0.0f);
@@ -216,23 +216,23 @@ int main(int argc, char *argv[]) {
             constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
             Float light_area = length(cross(light_u, light_v));
             Float3 light_normal = normalize(cross(light_u, light_v));
-            $for(depth, 10u) {
+            $for (depth, 10u) {
 
                 // trace
-                Var<CommittedHit> hit = accel.query_all(ray)
-                                            .on_triangle_candidate([&](auto &c) noexcept {
-                                                $if(filter_triangle_hit(c.hit())) {
+                Var<CommittedHit> hit = accel.traverse(ray, {})
+                                            .on_surface_candidate([&](auto &c) noexcept {
+                                                $if (filter_triangle_hit(c.hit())) {
                                                     c.commit();
                                                 };
                                             })
                                             .trace();
-                $if(hit->miss()) { $break; };
+                $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float4x4 m = accel.instance_transform(hit.inst);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
                 Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
+                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 p = (m * make_float4(p, 1.f)).xyz();
                 Float3 ng = normalize(cross(p1 - p0, p2 - p0));
                 ng = (m * make_float4(ng, 0.f)).xyz();
@@ -241,9 +241,9 @@ int main(int argc, char *argv[]) {
                 Var<Material> material = material_buffer->read(hit.inst);
 
                 // hit light
-                $if(hit.inst == light_inst) {
-                    $if(dot(light_normal, ray->direction()) <= 0.f) {// front
-                        $if(depth == 0u) {
+                $if (hit.inst == light_inst) {
+                    $if (dot(light_normal, ray->direction()) <= 0.f) {// front
+                        $if (depth == 0u) {
                             radiance += light_emission;
                         }
                         $else {
@@ -264,9 +264,9 @@ int main(int argc, char *argv[]) {
                 Float d_light = distance(pp, pp_light);
                 Float3 wi_light = normalize(pp_light - pp);
                 Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, ng), wi_light, 0.f, d_light);
-                Bool occluded = !accel.query_any(shadow_ray)
-                                     .on_triangle_candidate([&](auto &c) noexcept {
-                                         $if(filter_triangle_hit(c.hit())) {
+                Bool occluded = !accel.traverse_any(shadow_ray, {})
+                                     .on_surface_candidate([&](auto &c) noexcept {
+                                         $if (filter_triangle_hit(c.hit())) {
                                              c.commit();
                                              c.terminate();
                                          };
@@ -275,7 +275,7 @@ int main(int argc, char *argv[]) {
                                      ->miss();
                 Float cos_wi_light = dot(wi_light, ns);
                 Float cos_light = -dot(light_normal, wi_light);
-                $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                     Float pdf_bsdf = cos_wi_light * inv_pi;
                     Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
@@ -292,20 +292,20 @@ int main(int argc, char *argv[]) {
                 Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
                 pdf_bsdf = cos_wi * inv_pi;
-                beta *= material.albedo; // * cos_wi * inv_pi / pdf_bsdf => * 1.f
+                beta *= material.albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-                $if(l == 0.0f) { $break; };
+                $if (l == 0.0f) { $break; };
                 Float q = max(l, 0.05f);
                 Float r = lcg(state);
-                $if(r >= q) { $break; };
+                $if (r >= q) { $break; };
                 beta *= 1.0f / q;
             };
         };
         radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
-        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
+        $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
@@ -333,7 +333,7 @@ int main(int argc, char *argv[]) {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = hdr.xyz() / hdr.w * scale;
-        $if(!is_hdr) {
+        $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
@@ -391,4 +391,3 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing_cutout.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
-

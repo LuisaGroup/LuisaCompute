@@ -79,10 +79,6 @@ if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
     endif ()
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_CUDA)
-    option(LUISA_COMPUTE_DOWNLOAD_NVCOMP "Download the nvCOMP library for CUDA GPU decompression" OFF)
-endif ()
-
 if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     find_package(Python3 COMPONENTS Interpreter Development.Module QUIET REQUIRED)
 endif ()
@@ -90,6 +86,3 @@ endif ()
 if (LUISA_COMPUTE_ENABLE_GUI)
     # currently nothing to check
 endif ()
-
-# Open Image Denoise
-option(LUISA_COMPUTE_DOWNLOAD_OIDN "Download OpenImageDenoise for denoiser extension" OFF)

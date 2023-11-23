@@ -107,4 +107,3 @@ _MTL_INLINE void MTL::PipelineBufferDescriptorArray::setObject(const MTL::Pipeli
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setObject_atIndexedSubscript_), buffer, bufferIndex);
 }
-

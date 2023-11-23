@@ -139,6 +139,7 @@ test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
 test_proj("test_sparse_texture", true)
+test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")
 

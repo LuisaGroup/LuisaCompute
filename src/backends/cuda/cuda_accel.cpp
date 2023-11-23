@@ -8,6 +8,7 @@
 #include "cuda_stream.h"
 #include "cuda_command_encoder.h"
 #include "cuda_device.h"
+#include "cuda_curve.h"
 #include "cuda_accel.h"
 
 namespace luisa::compute::cuda {
@@ -182,6 +183,10 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                 if (m.flags & Mod::flag_primitive) {
                     _requires_rebuild = true;
                     static constexpr auto mod_flag_procedural = 1u << 8u;
+                    static constexpr auto mod_flag_curve_piecewise_linear = 1u << 9u;
+                    static constexpr auto mod_flag_curve_cubic_bspline = 1u << 10u;
+                    static constexpr auto mod_flag_curve_catmull_rom = 1u << 11u;
+                    static constexpr auto mod_flag_curve_bezier = 1u << 12u;
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
                     _primitives[m.index] = prim;
                     auto handle = prim->handle();
@@ -189,6 +194,24 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     _prim_handles[m.index] = handle;
                     if (prim->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
                         m.flags |= mod_flag_procedural;
+                    } else if (prim->tag() == CUDAPrimitive::Tag::CURVE) {
+                        auto curve = static_cast<const CUDACurve *>(prim);
+                        switch (auto basis = curve->basis()) {
+                            case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
+                                m.flags |= mod_flag_curve_cubic_bspline;
+                                break;
+                            case optix::PRIMITIVE_TYPE_ROUND_LINEAR:
+                                m.flags |= mod_flag_curve_piecewise_linear;
+                                break;
+                            case optix::PRIMITIVE_TYPE_ROUND_CATMULLROM:
+                                m.flags |= mod_flag_curve_catmull_rom;
+                                break;
+                            case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER:
+                                m.flags |= mod_flag_curve_bezier;
+                                break;
+                            default: LUISA_ERROR_WITH_LOCATION(
+                                "Invalid curve type (0x{:x}).", basis);
+                        }
                     }
                 }
                 host_updates[i] = m;

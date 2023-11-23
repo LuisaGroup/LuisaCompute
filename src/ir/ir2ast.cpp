@@ -507,13 +507,43 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         LUISA_ERROR_WITH_LOCATION("Invalid index.");
     };
+    auto to_string_id = [](auto msg) noexcept -> const StringIDExpr * {
+        if (msg.ptr == nullptr || msg.len == 0) { return nullptr; }
+        auto converted_msg = luisa::string_view{
+            reinterpret_cast<const char *>(msg.ptr), msg.len};
+        if (converted_msg.back() == '\0') {
+            converted_msg = converted_msg.substr(0, converted_msg.size() - 1);
+        }
+        if (converted_msg.empty()) { return nullptr; }
+        auto f = detail::FunctionBuilder::current();
+        auto string_id = detail::FunctionBuilder::current()->string_id(
+            luisa::string{converted_msg});
+        return string_id;
+    };
     switch (func.tag) {
         case ir::Func::Tag::Pack: return builtin_func(3, CallOp::PACK);
         case ir::Func::Tag::Unpack: return builtin_func(2, CallOp::UNPACK);
         case ir::Func::Tag::ZeroInitializer: return builtin_func(0, CallOp::ZERO);
         case ir::Func::Tag::Assume: return builtin_func(1, CallOp::ASSUME);
-        case ir::Func::Tag::Unreachable: return builtin_func(0, CallOp::UNREACHABLE);
-        case ir::Func::Tag::Assert: return builtin_func(1, CallOp::ASSERT);
+        case ir::Func::Tag::Unreachable: {
+            LUISA_ASSERT(args.empty(), "`Unreachable` takes no arguments.");
+            auto msg = to_string_id(node->instruction->call._0.unreachable._0);
+            if (msg == nullptr) {// no custom message
+                return builtin_func(0, CallOp::UNREACHABLE);
+            }
+            return detail::FunctionBuilder::current()->call(type, CallOp::UNREACHABLE, {msg});
+        }
+        case ir::Func::Tag::Assert: {
+            LUISA_ASSERT(args.size() == 1u, "`Assert` takes 1 argument, got {}.", args.size());
+            LUISA_ASSERT(type == Type::of<void>(), "`Assert` must return void.");
+            auto msg = to_string_id(node->instruction->call._0.assert._0);
+            if (msg == nullptr) {// no custom message
+                return builtin_func(1, CallOp::ASSERT);
+            }
+            auto v = _convert_node(args[0]);
+            detail::FunctionBuilder::current()->call(CallOp::ASSERT, {v, msg});
+            return nullptr;
+        }
         case ir::Func::Tag::ThreadId: {
             LUISA_ASSERT(args.empty(), "`ThreadId` takes no arguments.");
             return detail::FunctionBuilder::current()->thread_id();
@@ -1052,6 +1082,7 @@ void IR2AST::_convert_instr_ad_detach(const ir::Node *node) noexcept {
     _convert_block(node->instruction->ad_detach._0.get());
     detail::FunctionBuilder::current()->comment_("AD Detach End");
 }
+
 void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
     detail::FunctionBuilder::current()->comment_("Ray Query Begin");
     auto rq = static_cast<const RefExpr *>(_convert_node(node->instruction->ray_query.ray_query));
@@ -1065,6 +1096,7 @@ void IR2AST::_convert_instr_ray_query(const ir::Node *node) noexcept {
 
     detail::FunctionBuilder::current()->comment_("Ray Query End");
 }
+
 void IR2AST::_convert_instr_comment(const ir::Node *node) noexcept {
     auto comment_body = node->instruction->comment._0;
     auto len = comment_body.ptr[comment_body.len - 1] == 0 ?
@@ -1491,6 +1523,26 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
     }
 }
 
+namespace detail {
+
+inline void ir2ast_convert_curve_basis_set(ir::CurveBasisSet s) noexcept {
+    auto fb = FunctionBuilder::current();
+    if (s & ir::CurveBasisSet_PIECEWISE_LINEAR) {
+        fb->mark_required_curve_basis(CurveBasis::PIECEWISE_LINEAR);
+    }
+    if (s & ir::CurveBasisSet_CUBIC_BSPLINE) {
+        fb->mark_required_curve_basis(CurveBasis::CUBIC_BSPLINE);
+    }
+    if (s & ir::CurveBasisSet_CATMULL_ROM) {
+        fb->mark_required_curve_basis(CurveBasis::CATMULL_ROM);
+    }
+    if (s & ir::CurveBasisSet_BEZIER) {
+        fb->mark_required_curve_basis(CurveBasis::BEZIER);
+    }
+}
+
+}// namespace detail
+
 [[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder>
 IR2AST::convert_kernel(const ir::KernelModule *kernel) noexcept {
 
@@ -1504,6 +1556,8 @@ IR2AST::convert_kernel(const ir::KernelModule *kernel) noexcept {
         auto old_ctx = _ctx;
         _ctx = &ctx;
         {
+            detail::ir2ast_convert_curve_basis_set(kernel->module.curve_basis_set);
+
             auto entry = kernel->module.entry.get();
             _collect_phis(entry);
 
@@ -1556,6 +1610,8 @@ IR2AST::convert_callable(const ir::CallableModule *callable) noexcept {
         auto old_ctx = _ctx;
         _ctx = &ctx;
         {
+            detail::ir2ast_convert_curve_basis_set(callable->module.curve_basis_set);
+
             for (auto i = 0; i < callable->captures.len; i++) {
                 auto captured = callable->captures.ptr[i];
                 auto node = ir::luisa_compute_ir_node_get(captured.node);

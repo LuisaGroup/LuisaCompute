@@ -845,6 +845,8 @@ public:
         add_command(command, layer);
     }
 
+    void visit(const CurveBuildCommand *) noexcept override { /* TODO */ }
+
     // Mesh : conclude vertex and triangle buffers
     void visit(const MeshBuildCommand *command) noexcept override {
         add_command(

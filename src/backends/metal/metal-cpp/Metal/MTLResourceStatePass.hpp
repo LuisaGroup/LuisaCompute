@@ -163,4 +163,3 @@ _MTL_INLINE MTL::ResourceStatePassSampleBufferAttachmentDescriptorArray* MTL::Re
 {
     return Object::sendMessage<MTL::ResourceStatePassSampleBufferAttachmentDescriptorArray*>(this, _MTL_PRIVATE_SEL(sampleBufferAttachments));
 }
-

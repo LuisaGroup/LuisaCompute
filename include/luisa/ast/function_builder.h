@@ -13,6 +13,9 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/optional.h>
 
+// Runtime depends on AST but this file is header only.
+#include <luisa/runtime/rhi/curve_basis.h>
+
 namespace lc::validation {
 class Device;
 }// namespace lc::validation
@@ -21,6 +24,7 @@ namespace luisa::compute {
 class Statement;
 class Expression;
 class CallableLibrary;
+class CurveBasisSet;
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -107,6 +111,7 @@ private:
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
+    CurveBasisSet _required_curve_bases;
     Tag _tag;
     bool _hash_computed{false};
     bool _requires_atomic_float{false};
@@ -210,6 +215,8 @@ public:
     [[nodiscard]] auto direct_builtin_callables() const noexcept { return _direct_builtin_callables; }
     /// Return a CallOpSet of builtin callables that are directly called.
     [[nodiscard]] auto propagated_builtin_callables() const noexcept { return _propagated_builtin_callables; }
+    /// Return required curve bases.
+    [[nodiscard]] auto required_curve_bases() const noexcept { return _required_curve_bases; }
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     /// Return pointer to body.
@@ -352,6 +359,11 @@ public:
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */,
                                        luisa::shared_ptr<const ExternalFunction> func,
                                        luisa::span<const Expression *const> args) noexcept;
+
+    /// Mark the required curve basis
+    void mark_required_curve_basis(CurveBasis basis) noexcept;
+    /// Mark a set of required curve basis
+    void mark_required_curve_basis_set(CurveBasisSet basis_set) noexcept;
 
     // statements
     /// Add break statement

@@ -97,4 +97,3 @@ _MTL_INLINE NS::UInteger MTL::Drawable::drawableID() const
 {
     return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(drawableID));
 }
-

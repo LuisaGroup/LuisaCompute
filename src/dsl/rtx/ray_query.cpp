@@ -4,24 +4,24 @@
 
 namespace luisa::compute {
 
-Var<Ray> TriangleCandidate::ray() const noexcept {
+Var<Ray> SurfaceCandidate::ray() const noexcept {
     return def<Ray>(detail::FunctionBuilder::current()->call(
         Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {_query}));
 }
 
-Var<TriangleHit> TriangleCandidate::hit() const noexcept {
+Var<TriangleHit> SurfaceCandidate::hit() const noexcept {
     return def<TriangleHit>(detail::FunctionBuilder::current()->call(
         Type::of<TriangleHit>(),
         CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
         {_query}));
 }
 
-void TriangleCandidate::commit() const noexcept {
+void SurfaceCandidate::commit() const noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::RAY_QUERY_COMMIT_TRIANGLE, {_query});
 }
 
-void TriangleCandidate::terminate() const noexcept {
+void SurfaceCandidate::terminate() const noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::RAY_QUERY_TERMINATE, {_query});
 }
@@ -75,21 +75,29 @@ RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
 
 template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>
-RayQueryBase<terminate_on_first>::on_triangle_candidate(
-    const RayQueryBase::TriangleCandidateHandler &handler) && noexcept {
+RayQueryBase<terminate_on_first>::on_surface_candidate(
+    const RayQueryBase::SurfaceCandidateHandler &handler) && noexcept {
 
-    LUISA_ASSERT(_stmt != nullptr && !_triangle_handler_set &&
-                     !_inside_triangle_handler && !_inside_procedural_handler,
-                 "RayQueryBase::on_triangle_candidate() is in an invalid state.");
-    _triangle_handler_set = true;
-    _inside_triangle_handler = true;
+    LUISA_ASSERT(_stmt != nullptr && !_surface_handler_set &&
+                     !_inside_surface_handler && !_inside_procedural_handler,
+                 "RayQueryBase::on_surface_candidate() is in an invalid state.");
+    _surface_handler_set = true;
+    _inside_surface_handler = true;
     auto builder = detail::FunctionBuilder::current();
     builder->with(_stmt->on_triangle_candidate(), [&] {
-        TriangleCandidate candidate{_stmt->query()};
+        SurfaceCandidate candidate{_stmt->query()};
         handler(candidate);
     });
-    _inside_triangle_handler = false;
+    _inside_surface_handler = false;
     return std::move(*this);
+}
+
+// legacy
+template<bool terminate_on_first>
+RayQueryBase<terminate_on_first>
+RayQueryBase<terminate_on_first>::on_triangle_candidate(
+    const TriangleCandidateHandler &handler) && noexcept {
+    return std::move(*this).on_surface_candidate(handler);
 }
 
 template<bool terminate_on_first>
@@ -98,7 +106,7 @@ RayQueryBase<terminate_on_first>::on_procedural_candidate(
     const RayQueryBase::ProceduralCandidateHandler &handler) && noexcept {
 
     LUISA_ASSERT(_stmt != nullptr && !_procedural_handler_set &&
-                     !_inside_triangle_handler && !_inside_procedural_handler,
+                     !_inside_surface_handler && !_inside_procedural_handler,
                  "RayQueryBase::on_procedural_candidate() is in an invalid state.");
     _procedural_handler_set = true;
     _inside_procedural_handler = true;
@@ -122,9 +130,9 @@ Var<CommittedHit> RayQueryBase<terminate_on_first>::trace() const noexcept {
 template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>::RayQueryBase(RayQueryBase &&another) noexcept
     : _stmt{another._stmt},
-      _triangle_handler_set{another._triangle_handler_set},
+      _surface_handler_set{another._surface_handler_set},
       _procedural_handler_set{another._procedural_handler_set},
-      _inside_triangle_handler{another._inside_triangle_handler},
+      _inside_surface_handler{another._inside_surface_handler},
       _inside_procedural_handler{another._inside_procedural_handler} { another._stmt = nullptr; }
 
 // export the template instantiations

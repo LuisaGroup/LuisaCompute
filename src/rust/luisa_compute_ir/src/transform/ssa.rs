@@ -442,6 +442,7 @@ impl Transform for ToSSA {
         let mut entry = module.entry;
         *entry.get_mut() = *body;
         Module {
+            curve_basis_set: module.curve_basis_set,
             kind: module.kind,
             entry,
             pools: module.pools,

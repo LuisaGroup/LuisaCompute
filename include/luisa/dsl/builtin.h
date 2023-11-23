@@ -58,6 +58,17 @@ inline void unreachable(luisa::string_view msg) noexcept {
     detail::FunctionBuilder::current()->call(CallOp::UNREACHABLE, {message});
 }
 
+/// Call assert in device code
+inline void device_assert(Expr<bool> pred) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::ASSERT, {pred.expression()});
+}
+
+inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
+    auto message = detail::FunctionBuilder::current()->string_id(luisa::string{msg});
+    detail::FunctionBuilder::current()->call(CallOp::ASSERT, {pred.expression(), message});
+}
+
 /// Get thread_id(uint3)
 [[nodiscard]] inline auto thread_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->thread_id());
@@ -182,6 +193,20 @@ inline void set_block_size(uint3 size) noexcept {
 
 inline void set_block_size(uint2 size) noexcept {
     set_block_size(size.x, size.y, 1u);
+}
+
+inline void require_curve_basis(CurveBasis basis) noexcept {
+    detail::FunctionBuilder::current()->mark_required_curve_basis(basis);
+}
+
+inline void require_curve_basis_set(CurveBasisSet bs) noexcept {
+    detail::FunctionBuilder::current()->mark_required_curve_basis_set(bs);
+}
+
+template<typename... T>
+    requires std::conjunction_v<std::is_same<T, CurveBasis>...>
+void require_curve_bases(T... bases) noexcept {
+    require_curve_basis_set(CurveBasisSet::make(bases...));
 }
 
 }// namespace dsl

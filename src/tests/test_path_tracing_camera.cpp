@@ -251,13 +251,13 @@ int main(int argc, char *argv[]) {
         Float3 light_normal = normalize(cross(light_u, light_v));
         $for(depth, 10u) {
             // trace
-            Var<TriangleHit> hit = accel.trace_closest(ray);
+            Var<TriangleHit> hit = accel.intersect(ray, {});
             $if(hit->miss()) { $break; };
             Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
             Float3 p0 = vertex_buffer->read(triangle.i0);
             Float3 p1 = vertex_buffer->read(triangle.i1);
             Float3 p2 = vertex_buffer->read(triangle.i2);
-            Float3 p = hit->interpolate(p0, p1, p2);
+            Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
             Float3 n = normalize(cross(p1 - p0, p2 - p0));
             Float cos_wo = dot(-ray->direction(), n);
             $if(cos_wo < 1e-4f) { $break; };
@@ -284,7 +284,7 @@ int main(int argc, char *argv[]) {
             Float d_light = distance(pp, pp_light);
             Float3 wi_light = normalize(pp_light - pp);
             Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-            Bool occluded = accel.trace_any(shadow_ray);
+            Bool occluded = accel.intersect_any(shadow_ray, {});
             Float cos_wi_light = dot(wi_light, n);
             Float cos_light = -dot(light_normal, wi_light);
             Float3 albedo = materials.read(hit.inst);

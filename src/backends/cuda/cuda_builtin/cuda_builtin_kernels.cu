@@ -62,6 +62,10 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         constexpr auto update_flag_visibility = 1u << 4u;
         constexpr auto update_flag_user_id = 1u << 5u;
         constexpr auto update_flag_procedural = 1u << 8u;
+        constexpr auto update_flag_curve_piecewise_linear = 1u << 9u;
+        constexpr auto update_flag_curve_cubic_bspline = 1u << 10u;
+        constexpr auto update_flag_curve_catmull_rom = 1u << 11u;
+        constexpr auto update_flag_curve_bezier = 1u << 12u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
 
         auto m = mods[tid];
@@ -69,9 +73,19 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         p.sbt_offset = 0u;
         if (m.flags & update_flag_primitive) {
             p.traversable = m.primitive;
-            p.flags = (m.flags & update_flag_procedural) ?
-                          INSTANCE_FLAG_ENFORCE_ANYHIT :
-                          INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+            if (m.flags & update_flag_procedural) {
+                p.flags |= INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+            } else if (m.flags & update_flag_curve_piecewise_linear) {
+                p.sbt_offset = 1u;
+            } else if (m.flags & update_flag_curve_cubic_bspline) {
+                p.sbt_offset = 2u;
+            } else if (m.flags & update_flag_curve_catmull_rom) {
+                p.sbt_offset = 3u;
+            } else if (m.flags & update_flag_curve_bezier) {
+                p.sbt_offset = 4u;
+            } else {// triangle
+                p.flags |= INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+            }
         }
         if (m.flags & update_flag_visibility) { p.mask = m.vis_mask; }
         if (m.flags & update_flag_opaque) {

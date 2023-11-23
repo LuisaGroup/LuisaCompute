@@ -1,6 +1,7 @@
 #include <charconv>
 
 #include <luisa/core/stl/format.h>
+#include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
 #include "metal_shader_metadata.h"
 
@@ -25,6 +26,13 @@ luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadat
     for (auto &&[fmt, type] : metadata.format_types) {
         for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
         result.append(" ").append(type).append(" ");
+    }
+    result.append(luisa::format("CURVE_BASES {} ", metadata.curve_bases.count()));
+    for (auto i = 0u; i < curve_basis_count; i++) {
+        if (auto basis = static_cast<CurveBasis>(i);
+            metadata.curve_bases.test(basis)) {
+            result.append(luisa::to_string(basis)).append(" ");
+        }
     }
     return result;
 }
@@ -64,6 +72,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
     };
 
     luisa::optional<uint64_t> checksum;
+    luisa::optional<CurveBasisSet> curve_bases;
     luisa::optional<uint3> block_size;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
@@ -84,6 +93,48 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
                 return luisa::nullopt;
             }
             checksum = x.value();
+        } else if (token == "CURVE_BASES") {
+            if (curve_bases.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate curve bases in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid curve bases in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto count = x.value();
+            CurveBasisSet bases;
+            for (auto i = 0u; i < count; i++) {
+                auto name = read_token();
+                if (name.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Empty curve basis name.");
+                    return luisa::nullopt;
+                }
+                using namespace std::string_view_literals;
+                if (name == "PIECEWISE_LINEAR"sv) {
+                    bases.mark(CurveBasis::PIECEWISE_LINEAR);
+                } else if (name == "CUBIC_BSPLINE"sv) {
+                    bases.mark(CurveBasis::CUBIC_BSPLINE);
+                } else if (name == "CATMULL_ROM"sv) {
+                    bases.mark(CurveBasis::CATMULL_ROM);
+                } else if (name == "BEZIER"sv) {
+                    bases.mark(CurveBasis::BEZIER);
+                } else {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid curve basis name '{}'.", name);
+                    return luisa::nullopt;
+                }
+            }
+            if (bases.count() != count) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid curve basis set size.");
+                return luisa::nullopt;
+            }
+            curve_bases.emplace(bases);
         } else if (token == "BLOCK_SIZE") {
             if (block_size.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -210,7 +261,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
                     auto hex_to_dec = [](auto x) noexcept {
                         return x >= '0' && x <= '9' ?
                                    x - '0' :
-                                   x >= 'a' && x <= 'f' ?
+                               x >= 'a' && x <= 'f' ?
                                    x - 'a' + 10 :
                                    x - 'A' + 10;
                     };
@@ -242,6 +293,11 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
             "Missing block size in shader metadata.");
         return luisa::nullopt;
     }
+    if (!curve_bases.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing curve basis set in shader metadata.");
+        return luisa::nullopt;
+    }
     if (!argument_types.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing argument types in shader metadata.");
@@ -269,6 +325,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
     }
     return MetalShaderMetadata{
         .checksum = checksum.value(),
+        .curve_bases = curve_bases.value(),
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
         .argument_usages = std::move(argument_usages.value()),

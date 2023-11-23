@@ -493,7 +493,7 @@ protected:
 
 public:
     explicit StringIDExpr(luisa::string data) noexcept
-        : Expression{Tag::TYPE_ID, Type::of<ulong>()}, _data{std::move(data)} {}
+        : Expression{Tag::STRING_ID, Type::of<ulong>()}, _data{std::move(data)} {}
     [[nodiscard]] auto data() const noexcept { return luisa::string_view{_data}; }
     LUISA_EXPRESSION_COMMON()
 };

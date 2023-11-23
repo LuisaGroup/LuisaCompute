@@ -23,17 +23,20 @@ class PyStream : public vstd::IOperatorNewBase {
             vengine_delete(ptr);
         }
     };
-
-    struct Data : public vstd::IOperatorNewBase {
+public:
+    struct Data {
         Stream stream;
         CommandList buffer;
         vstd::vector<Disposer> uploadDisposer;
         // vstd::vector<Disposer> readbackDisposer;
         Data(Device &device, bool support_window) noexcept;
+        void sync() noexcept;
     };
-    vstd::unique_ptr<Data> _data;
+private:
+    luisa::shared_ptr<Data> _data;
 
 public:
+    [[nodiscard]] auto &data() const { return _data; }
     Stream &stream() const { return _data->stream; }
     PyStream(PyStream &&) noexcept;
     PyStream(PyStream const &) = delete;
@@ -57,4 +60,3 @@ public:
 };
 
 }// namespace luisa::compute
-

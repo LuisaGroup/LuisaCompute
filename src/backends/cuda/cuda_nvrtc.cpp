@@ -3,9 +3,12 @@
 //
 
 #include <cstdlib>
+#include <cstring>
 #include <cstdio>
 
 #include <nvrtc.h>
+
+#include "cuda_nvrtc.h"
 
 #ifdef _MSC_VER
 #define LUISA_CUDA_NVRTC_EXPORT extern "C" __declspec(dllexport)
@@ -24,7 +27,7 @@
     } while (0)
 
 LUISA_CUDA_NVRTC_EXPORT
-char *luisa_nvrtc_compile_to_ptx(
+LUISA_NVRTC_StringBuffer luisa_nvrtc_compile(
     const char *filename, const char *src,
     const char *const *options, size_t num_options) {
 
@@ -40,17 +43,32 @@ char *luisa_nvrtc_compile_to_ptx(
         free(log);
     }
     LUISA_CHECK_NVRTC(err);
-    size_t ptx_size = 0;
-    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
-    char *ptx = (char *)malloc(ptx_size);
-    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx));
+    auto is_optix_ir = false;
+    for (size_t i = 0u; i < num_options; i++) {
+        if (strcmp(options[i], "--optix-ir") == 0 ||
+            strcmp(options[i], "-optix-ir") == 0) {
+            is_optix_ir = true;
+            break;
+        }
+    }
+    LUISA_NVRTC_StringBuffer buffer{};
+    // if (is_optix_ir) {
+    //     LUISA_CHECK_NVRTC(nvrtcGetOptiXIRSize(prog, &buffer.size));
+    //     buffer.data = (char *)malloc(buffer.size);
+    //     LUISA_CHECK_NVRTC(nvrtcGetOptiXIR(prog, buffer.data));
+    //     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
+    //     return buffer;
+    // }
+    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &buffer.size));
+    buffer.data = (char *)malloc(buffer.size);
+    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, buffer.data));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
-    return ptx;
+    return buffer;
 }
 
 LUISA_CUDA_NVRTC_EXPORT
-void luisa_nvrtc_free_ptx(char *ptx) {
-    free(ptx);
+void luisa_nvrtc_free(LUISA_NVRTC_StringBuffer buffer) {
+    free(buffer.data);
 }
 
 LUISA_CUDA_NVRTC_EXPORT

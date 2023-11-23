@@ -19,6 +19,7 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
     result.append(metadata.requires_printing ? "PRINTING TRUE " : "PRINTING FALSE ");
+    result.append(luisa::format("MAX_REGISTER_COUNT {} ", metadata.max_register_count));
     result.append(luisa::format("BLOCK_SIZE {} {} {} ", metadata.block_size.x, metadata.block_size.y, metadata.block_size.z));
     result.append(luisa::format("ARGUMENT_TYPES {} ", metadata.argument_types.size()));
     for (auto &&type : metadata.argument_types) { result.append(type).append(" "); }
@@ -35,6 +36,13 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     for (auto &&[fmt, type] : metadata.format_types) {
         for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
         result.append(" ").append(type).append(" ");
+    }
+    result.append(luisa::format("CURVE_BASES {} ", metadata.curve_bases.count()));
+    for (auto i = 0u; i < curve_basis_count; i++) {
+        if (auto basis = static_cast<CurveBasis>(i);
+            metadata.curve_bases.test(basis)) {
+            result.append(luisa::to_string(basis)).append(" ");
+        }
     }
     return result;
 }
@@ -77,6 +85,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     };
 
     luisa::optional<uint64_t> checksum;
+    luisa::optional<CurveBasisSet> curve_bases;
     luisa::optional<uint3> block_size;
     auto kind = CUDAShaderMetadata::Kind::UNKNOWN;
     luisa::optional<bool> enable_debug;
@@ -84,6 +93,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<bool> requires_trace_any;
     luisa::optional<bool> requires_ray_query;
     luisa::optional<bool> requires_printing;
+    luisa::optional<uint> max_register_count;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
     luisa::optional<luisa::vector<std::pair<luisa::string, luisa::string>>> format_types;
@@ -117,6 +127,48 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 return luisa::nullopt;
             }
             checksum = x.value();
+        } else if (token == "CURVE_BASES") {
+            if (curve_bases.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate curve bases in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid curve bases in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto count = x.value();
+            CurveBasisSet bases;
+            for (auto i = 0u; i < count; i++) {
+                auto name = read_token();
+                if (name.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Empty curve basis name.");
+                    return luisa::nullopt;
+                }
+                using namespace std::string_view_literals;
+                if (name == "PIECEWISE_LINEAR"sv) {
+                    bases.mark(CurveBasis::PIECEWISE_LINEAR);
+                } else if (name == "CUBIC_BSPLINE"sv) {
+                    bases.mark(CurveBasis::CUBIC_BSPLINE);
+                } else if (name == "CATMULL_ROM"sv) {
+                    bases.mark(CurveBasis::CATMULL_ROM);
+                } else if (name == "BEZIER"sv) {
+                    bases.mark(CurveBasis::BEZIER);
+                } else {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid curve basis name '{}'.", name);
+                    return luisa::nullopt;
+                }
+            }
+            if (bases.count() != count) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid curve basis set size.");
+                return luisa::nullopt;
+            }
+            curve_bases.emplace(bases);
         } else if (token == "DEBUG") {
             if (enable_debug.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -197,6 +249,20 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid requires_printing flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
+        } else if (token == "MAX_REGISTER_COUNT") {
+            if (max_register_count.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate max register count in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid max register count in shader metadata.");
+                return luisa::nullopt;
+            }
+            max_register_count.emplace(
+                std::clamp(static_cast<uint>(x.value()), 0u, 255u));
         } else if (token == "BLOCK_SIZE") {
             if (block_size.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -350,6 +416,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Missing kind in shader metadata.");
         return luisa::nullopt;
     }
+    if (!curve_bases.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing curve basis set in shader metadata.");
+        return luisa::nullopt;
+    }
     if (!enable_debug.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing debug flag in shader metadata.");
@@ -378,6 +449,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     if (!checksum.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing checksum in shader metadata.");
+        return luisa::nullopt;
+    }
+    if (!max_register_count.has_value()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Missing max register count in shader metadata.");
         return luisa::nullopt;
     }
     if (!block_size.has_value()) {
@@ -417,12 +493,14 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     }
     return CUDAShaderMetadata{
         .checksum = checksum.value(),
+        .curve_bases = curve_bases.value(),
         .kind = kind,
         .enable_debug = enable_debug.value(),
         .requires_trace_closest = requires_trace_closest.value(),
         .requires_trace_any = requires_trace_any.value(),
         .requires_ray_query = requires_ray_query.value(),
         .requires_printing = requires_printing.value(),
+        .max_register_count = max_register_count.value(),
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
         .argument_usages = std::move(argument_usages.value()),

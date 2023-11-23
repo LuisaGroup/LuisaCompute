@@ -65,6 +65,8 @@ pub struct ShaderOption {
     pub enable_fast_math: bool,
     pub enable_debug_info: bool,
     pub compile_only: bool,
+    pub time_trace: bool,
+    pub max_registers: u32,
     pub name: *const std::ffi::c_char,
 }
 unsafe impl Send for ShaderOption {}
@@ -76,6 +78,8 @@ impl Default for ShaderOption {
             enable_fast_math: true,
             enable_debug_info: false,
             compile_only: false,
+            time_trace: false,
+            max_registers: 0,
             name: std::ptr::null(),
         }
     }
@@ -115,6 +119,11 @@ pub struct BindlessArray(pub u64);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Mesh(pub u64);
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
+pub struct Curve(pub u64);
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct ProceduralPrimitive(pub u64);
@@ -146,6 +155,15 @@ pub enum AccelUsageHint {
 pub enum AccelBuildRequest {
     PreferUpdate,
     ForceBuild,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
+pub enum CurveBasis {
+    PiecewiseLinear = 0,
+    CubicBSpline = 1,
+    CatmullRom = 2,
+    Bezier = 3,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
@@ -555,6 +573,20 @@ pub struct MeshBuildCommand {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct CurveBuildCommand {
+    pub curve: Curve,
+    pub request: AccelBuildRequest,
+    pub basis: CurveBasis,
+    pub cp_count: usize,
+    pub seg_count: usize,
+    pub cp_buffer: Buffer,
+    pub cp_buffer_offset: usize,
+    pub cp_buffer_stride: usize,
+    pub seg_buffer: Buffer,
+    pub seg_buffer_offset: usize,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ProceduralPrimitiveBuildCommand {
     pub handle: ProceduralPrimitive,
     pub request: AccelBuildRequest,
@@ -639,6 +671,7 @@ pub enum Command {
     TextureCopy(TextureCopyCommand),
     ShaderDispatch(ShaderDispatchCommand),
     MeshBuild(MeshBuildCommand),
+    CurveBuild(CurveBuildCommand),
     ProceduralPrimitiveBuild(ProceduralPrimitiveBuildCommand),
     AccelBuild(AccelBuildCommand),
     BindlessArrayUpdate(BindlessArrayUpdateCommand),
@@ -730,6 +763,8 @@ pub struct DeviceInterface {
     pub is_event_completed: unsafe extern "C" fn(Device, Event, u64) -> bool,
     pub create_mesh: unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_mesh: unsafe extern "C" fn(Device, Mesh),
+    pub create_curve: unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
+    pub destroy_curve: unsafe extern "C" fn(Device, Curve),
     pub create_procedural_primitive:
         unsafe extern "C" fn(Device, &AccelOption) -> CreatedResourceInfo,
     pub destroy_procedural_primitive: unsafe extern "C" fn(Device, ProceduralPrimitive),

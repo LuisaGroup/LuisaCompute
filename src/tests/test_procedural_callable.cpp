@@ -20,7 +20,7 @@ struct MyHit {
     float3 sphere_normal;
 };
 
-LUISA_STRUCT(MyHit, hit_type, triangle_bary, sphere_normal){};
+LUISA_STRUCT(MyHit, hit_type, triangle_bary, sphere_normal) {};
 
 int main(int argc, char *argv[]) {
     constexpr uint32_t width = 1280;
@@ -82,13 +82,13 @@ int main(int argc, char *argv[]) {
 
     Callable intersect = [&](Var<Ray> ray, Bool &valid) noexcept {
         auto sphere_normal = def(make_float3());
-        auto hit = accel->query_all(ray)
-                       .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
+        auto hit = accel->traverse(ray, {})
+                       .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
                            auto h = candidate.hit();
                            auto uvw = make_float3(1.f - h.bary.x - h.bary.y, h.bary);
-                           $if(length(uvw.xy()) < .8f &
-                               length(uvw.yz()) < .8f &
-                               length(uvw.zx()) < .8f) {
+                           $if (length(uvw.xy()) < .8f &
+                                length(uvw.yz()) < .8f &
+                                length(uvw.zx()) < .8f) {
                                candidate.commit();
                            };
                        })
@@ -102,15 +102,15 @@ int main(int argc, char *argv[]) {
                            auto L = origin - ray_origin;
                            auto dir = ray->direction();
                            auto cos_theta = dot(dir, normalize(L));
-                           $if(cos_theta > 0.f) {
+                           $if (cos_theta > 0.f) {
                                auto d_oc = length(L);
                                auto tc = d_oc * cos_theta;
                                auto d = sqrt(d_oc * d_oc - tc * tc);
-                               $if(d <= radius) {
+                               $if (d <= radius) {
                                    auto t1c = sqrt(radius * radius - d * d);
                                    auto dist = tc - t1c;
                                    // save normal as color
-                                   $if(dist <= ray->t_max()) {
+                                   $if (dist <= ray->t_max()) {
                                        valid = true;
                                        sphere_normal = normalize(ray_origin + dir * dist - origin);
                                    };
@@ -141,11 +141,11 @@ int main(int argc, char *argv[]) {
         auto hit = intersect(ray, valid);
         auto old = device_image1->read(coord).xyz();
         auto color = def(make_float3());
-        $if(hit.hit_type == to_underlying(HitType::Triangle)) {
+        $if (hit.hit_type == to_underlying(HitType::Triangle)) {
             color = make_float3(1.f - hit.triangle_bary.x - hit.triangle_bary.y,
                                 hit.triangle_bary);
         }
-        $elif(hit.hit_type == to_underlying(HitType::Procedural)) {
+        $elif (hit.hit_type == to_underlying(HitType::Procedural)) {
             color = hit.sphere_normal * .5f + .5f;
         };
         auto n = cast<float>(frame_id + 1u);
@@ -182,4 +182,3 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("test_procedural_callable.png", width, height, 4, pixels.data(), 0);
 }
-

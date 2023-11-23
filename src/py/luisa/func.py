@@ -352,7 +352,7 @@ class func:
         return self.compiled_results[arg_features]
 
     # dispatch shader to stream
-    def __call__(self, *args, dispatch_size, stream=None, dispatch_buffer_offset:int=0, max_dispatch_size:int=(2**32-1)):
+    def __call__(self, *args, dispatch_size=None, stream=None, dispatch_buffer_offset:int=0, max_dispatch_size:int=(2**32-1)):
         get_global_device()  # check device is initialized
         if stream is None:
             stream = globalvars.vars.stream

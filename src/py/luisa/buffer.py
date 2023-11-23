@@ -12,7 +12,7 @@ from .atomic import int_atomic_functions, float_atomic_functions
 
 
 class Buffer:
-    def __init__(self, size, dtype, external_memory=None):
+    def __init__(self, size, dtype, external_memory=None, borrowed_deleter=None):
         if dtype not in basic_dtypes and type(dtype).__name__ not in {'StructType', 'ArrayType'}:
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
@@ -31,8 +31,11 @@ class Buffer:
             info = get_global_device().impl().import_external_buffer(lc_type, external_memory, size)
         self.handle = info.handle()
         self.native_handle = info.native_handle()
+        self.borrowed_deleter = borrowed_deleter
 
     def __del__(self):
+        if self.borrowed_deleter is not None:
+            self.borrowed_deleter()
         if self.handle is not None:
             device = get_global_device()
             if device is not None:
@@ -160,11 +163,11 @@ class Buffer:
         device = lcapi.to_dlpack_device(backend_name, device_id)
         # get dlpack
         pack = arr.__dlpack__() if hasattr(arr, '__dlpack__') else arr
-        lctype, size, addr, ext_device = lcapi.from_dlpack(pack)
+        lctype, size, addr, ext_device, deleter = lcapi.from_dlpack(pack)
         if device != ext_device:
             raise RuntimeError('dlpack device mismatch')
         dtype = from_lctype(lctype)
-        return Buffer(size=size, dtype=dtype, external_memory=addr)
+        return Buffer(size=size, dtype=dtype, external_memory=addr, borrowed_deleter=deleter)
 
 
 buffer = Buffer.buffer

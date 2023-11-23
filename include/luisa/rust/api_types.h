@@ -25,6 +25,13 @@ typedef enum LCBindlessArrayUpdateOperation {
     LC_BINDLESS_ARRAY_UPDATE_OPERATION_REMOVE,
 } LCBindlessArrayUpdateOperation;
 
+typedef enum LCCurveBasis {
+    LC_CURVE_BASIS_PIECEWISE_LINEAR = 0,
+    LC_CURVE_BASIS_CUBIC_B_SPLINE = 1,
+    LC_CURVE_BASIS_CATMULL_ROM = 2,
+    LC_CURVE_BASIS_BEZIER = 3,
+} LCCurveBasis;
+
 typedef enum LCFilterQuality {
     LC_FILTER_QUALITY_DEFAULT,
     LC_FILTER_QUALITY_FAST,
@@ -343,6 +350,23 @@ typedef struct LCMeshBuildCommand {
     size_t index_stride;
 } LCMeshBuildCommand;
 
+typedef struct LCCurve {
+    uint64_t _0;
+} LCCurve;
+
+typedef struct LCCurveBuildCommand {
+    struct LCCurve curve;
+    enum LCAccelBuildRequest request;
+    enum LCCurveBasis basis;
+    size_t cp_count;
+    size_t seg_count;
+    struct LCBuffer cp_buffer;
+    size_t cp_buffer_offset;
+    size_t cp_buffer_stride;
+    struct LCBuffer seg_buffer;
+    size_t seg_buffer_offset;
+} LCCurveBuildCommand;
+
 typedef struct LCProceduralPrimitive {
     uint64_t _0;
 } LCProceduralPrimitive;
@@ -400,6 +424,7 @@ typedef enum LCCommand_Tag {
     LC_COMMAND_TEXTURE_COPY,
     LC_COMMAND_SHADER_DISPATCH,
     LC_COMMAND_MESH_BUILD,
+    LC_COMMAND_CURVE_BUILD,
     LC_COMMAND_PROCEDURAL_PRIMITIVE_BUILD,
     LC_COMMAND_ACCEL_BUILD,
     LC_COMMAND_BINDLESS_ARRAY_UPDATE,
@@ -437,6 +462,9 @@ typedef struct LCCommand {
         };
         struct {
             struct LCMeshBuildCommand mesh_build;
+        };
+        struct {
+            struct LCCurveBuildCommand curve_build;
         };
         struct {
             struct LCProceduralPrimitiveBuildCommand procedural_primitive_build;
@@ -491,6 +519,8 @@ typedef struct LCShaderOption {
     bool enable_fast_math;
     bool enable_debug_info;
     bool compile_only;
+    bool time_trace;
+    uint32_t max_registers;
     const char *name;
 } LCShaderOption;
 
@@ -604,6 +634,8 @@ typedef struct LCDeviceInterface {
     bool (*is_event_completed)(struct LCDevice, struct LCEvent, uint64_t);
     struct LCCreatedResourceInfo (*create_mesh)(struct LCDevice, const struct LCAccelOption*);
     void (*destroy_mesh)(struct LCDevice, struct LCMesh);
+    struct LCCreatedResourceInfo (*create_curve)(struct LCDevice, const struct LCAccelOption*);
+    void (*destroy_curve)(struct LCDevice, struct LCCurve);
     struct LCCreatedResourceInfo (*create_procedural_primitive)(struct LCDevice,
                                                                 const struct LCAccelOption*);
     void (*destroy_procedural_primitive)(struct LCDevice, struct LCProceduralPrimitive);

@@ -21,9 +21,10 @@ if (WIN32)
 
     find_package(CUDAToolkit 11.7 QUIET)
     if (CUDAToolkit_FOUND)
-        target_link_libraries(luisa-compute-backend-dx PRIVATE CUDA::cudart)
+        target_link_libraries(luisa-compute-backend-dx PRIVATE CUDA::cuda_driver)
         target_compile_definitions(luisa-compute-backend-dx PRIVATE LCDX_ENABLE_CUDA)
     endif ()
+
     if (TARGET luisa-compute-oidn-ext)
         target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-oidn-ext)
     endif()

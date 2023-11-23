@@ -203,13 +203,16 @@ public:
                         auto print_primitive = [&](auto v, auto &&p) noexcept {
                             using TT = std::decay_t<decltype(v)>;
                             std::memcpy(&v, data, sizeof(v));
-                            if constexpr (luisa::is_integral_v<TT> && sizeof(TT) <= sizeof(short)) {
+                            if constexpr (std::is_same_v<TT, bool>) {
+                                scratch.append(v ? "true" : "false");
+                            } else if constexpr (luisa::is_integral_v<TT> && sizeof(TT) <= sizeof(short)) {
                                 luisa::format_to(std::back_inserter(scratch), "{}", static_cast<int>(v));
                             } else {
                                 luisa::format_to(std::back_inserter(scratch), "{}", v);
                             }
                         };
                         switch (p) {
+                            case Type::Tag::BOOL: print_primitive(bool{}, data); break;
                             case Type::Tag::INT8: print_primitive(int8_t{}, data); break;
                             case Type::Tag::UINT8: print_primitive(uint8_t{}, data); break;
                             case Type::Tag::INT16: print_primitive(int16_t{}, data); break;

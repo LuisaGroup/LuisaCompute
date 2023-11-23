@@ -21,7 +21,15 @@ private:
     size_t _argument_buffer_size{};
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
+    optix::ProgramGroup _program_group_curve_piecewise_linear{};
+    optix::ProgramGroup _program_group_curve_cubic_bspline{};
+    optix::ProgramGroup _program_group_curve_catmull_rom{};
+    optix::ProgramGroup _program_group_curve_bezier{};
     optix::ProgramGroup _program_group_ray_query{};
+    optix::ProgramGroup _program_group_ray_query_curve_piecewise_linear{};
+    optix::ProgramGroup _program_group_ray_query_curve_cubic_bspline{};
+    optix::ProgramGroup _program_group_ray_query_curve_catmull_rom{};
+    optix::ProgramGroup _program_group_ray_query_curve_bezier{};
     optix::Pipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     CUdeviceptr _sbt_buffer{};

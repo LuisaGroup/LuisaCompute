@@ -249,8 +249,16 @@ impl Backend for ProxyBackend {
         catch_abort!({ (self.device.create_procedural_primitive)(self.device.device, &option,) })
     }
     #[inline]
+    fn create_curve(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
+        catch_abort!({ (self.device.create_curve)(self.device.device, &option,) })
+    }
+    #[inline]
     fn destroy_mesh(&self, mesh: api::Mesh) {
         catch_abort!((self.device.destroy_mesh)(self.device.device, mesh))
+    }
+    #[inline]
+    fn destroy_curve(&self, curve: api::Curve) {
+        catch_abort!((self.device.destroy_curve)(self.device.device, curve))
     }
     #[inline]
     fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive) {

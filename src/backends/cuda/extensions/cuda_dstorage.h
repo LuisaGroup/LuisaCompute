@@ -1,7 +1,7 @@
 #pragma once
 
 #include <luisa/backends/ext/dstorage_ext_interface.h>
-#include "cuda_device.h"
+#include "../cuda_device.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
 
@@ -188,7 +188,8 @@ private:
     CUDADevice *_device;
 
 public:
-    CUDADStorageExt(CUDADevice *device) noexcept : _device{device} {}
+    explicit CUDADStorageExt(CUDADevice *device) noexcept
+        : _device{device} {}
 
 public:
     void compress(const void *data,

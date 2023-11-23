@@ -72,27 +72,27 @@ public:
     void GenerateCBuffer(
         std::initializer_list<vstd::IRange<Variable> *> f,
         vstd::StringBuilder &result,
-        uint& bind_count);
+        uint &bind_count);
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
         luisa::BinaryIO const *internalDataPath,
         bool isSpirV,
-        uint& bind_count);
+        uint &bind_count);
     void PreprocessCodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         RegisterIndexer &registerCount,
         luisa::BinaryIO const *internalDataPath,
         bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count);
-    void PostprocessCodegenProperties(vstd::StringBuilder &finalResult);
+    void PostprocessCodegenProperties(vstd::StringBuilder &finalResult, bool use_autodiff);
     void CodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         Function kernel,
         uint offset,
         RegisterIndexer &registerCount,
-        uint& bind_count);
+        uint &bind_count);
     CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, uint custom_mask, bool isSpirV);
     CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
@@ -114,8 +114,14 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
         ~Scope();
     };
     size_t accessCount = 0;
-    size_t rayQuery = 0;
+    // size_t rayQuery = 0;
     bool literalBrace = false;
+    struct VarHash {
+        size_t operator()(Variable const &v) const {
+            return v.hash();
+        }
+    };
+    luisa::unordered_set<Variable, VarHash> lazyDeclVars;
 
 public:
     luisa::unordered_map<uint64, Variable> *sharedVariables = nullptr;
@@ -129,7 +135,7 @@ public:
     void visit(const CastExpr *expr) override;
     void visit(const ConstantExpr *expr) override;
     void visit(const TypeIDExpr *expr) override { LUISA_NOT_IMPLEMENTED(); }
-    void visit(const StringIDExpr *expr) override { LUISA_NOT_IMPLEMENTED(); }
+    void visit(const StringIDExpr *expr) override;
     void visit(const CpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
     void visit(const GpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
 

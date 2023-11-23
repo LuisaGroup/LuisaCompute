@@ -10,7 +10,8 @@ use std::{
 
 use crate::context::is_type_equal;
 use crate::ir::{
-    new_node, Const, Instruction, ModuleFlags, ModulePools, PhiIncoming, Primitive, SwitchCase,
+    new_node, Const, CurveBasisSet, Instruction, ModuleFlags, ModulePools, PhiIncoming, Primitive,
+    SwitchCase,
 };
 use crate::transform::inliner;
 use crate::transform::ssa::ToSSA;
@@ -1858,6 +1859,7 @@ fn ad_transform_block(module: crate::ir::Module) -> (crate::ir::Module, HashMap<
 
     (
         Module {
+            curve_basis_set: module.curve_basis_set,
             kind: ModuleKind::Block,
             entry: fwd,
             pools: module.pools,
@@ -1878,6 +1880,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                     continue;
                 }
                 let ad_block = Module {
+                    curve_basis_set: CurveBasisSet::NONE,
                     kind: ModuleKind::Block,
                     entry: body.clone(),
                     pools: pools.clone(),
@@ -1946,6 +1949,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
                 let (ad_block, grads) = ad_transform_block(ad_block);
                 {
                     let epilogue = Module {
+                        curve_basis_set: CurveBasisSet::NONE,
                         kind: ModuleKind::Block,
                         entry: epilogue,
                         pools: pools.clone(),
@@ -2033,7 +2037,7 @@ fn ad_transform_recursive(block: Pooled<BasicBlock>, pools: &CArc<ModulePools>) 
 }
 impl Transform for Autodiff {
     fn transform(&self, mut module: crate::ir::Module) -> crate::ir::Module {
-        log::debug!("Autodiff transform");
+        // log::debug!("Autodiff transform");
         // {
         //     println!("Before AD:");
         //     let debug = crate::ir::debug::luisa_compute_ir_dump_human_readable(&module);

@@ -5,6 +5,7 @@
 #include "metal_texture.h"
 #include "metal_accel.h"
 #include "metal_mesh.h"
+#include "metal_curve.h"
 #include "metal_shader.h"
 #include "metal_procedural_primitive.h"
 #include "metal_bindless_array.h"
@@ -247,6 +248,12 @@ void MetalCommandEncoder::visit(MeshBuildCommand *command) noexcept {
     _prepare_command_buffer();
     auto mesh = reinterpret_cast<MetalMesh *>(command->handle());
     mesh->build(*this, command);
+}
+
+void MetalCommandEncoder::visit(CurveBuildCommand *command) noexcept {
+    _prepare_command_buffer();
+    auto curve = reinterpret_cast<MetalCurve *>(command->handle());
+    curve->build(*this, command);
 }
 
 void MetalCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {

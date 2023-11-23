@@ -205,13 +205,13 @@ int main(int argc, char *argv[]) {
             $for(depth, 10u) {
 
                 // trace
-                auto hit = accel.trace_closest(ray);
+                auto hit = accel.intersect(ray, {});
                 $if(hit->miss()) { $break; };
                 auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 auto p0 = vertex_buffer->read(triangle.i0);
                 auto p1 = vertex_buffer->read(triangle.i1);
                 auto p2 = vertex_buffer->read(triangle.i2);
-                auto p = hit->interpolate(p0, p1, p2);
+                auto p = triangle_interpolate(hit.bary, p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wo = dot(-ray->direction(), n);
                 $if(cos_wo < 1e-4f) { $break; };
@@ -239,7 +239,7 @@ int main(int argc, char *argv[]) {
                 auto d_light = distance(pp, pp_light);
                 auto wi_light = normalize(pp_light - pp);
                 auto shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-                auto occluded = accel.trace_any(shadow_ray);
+                auto occluded = accel.intersect_any(shadow_ray, {});
                 auto cos_wi_light = dot(wi_light, n);
                 auto cos_light = -dot(light_normal, wi_light);
                 $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {

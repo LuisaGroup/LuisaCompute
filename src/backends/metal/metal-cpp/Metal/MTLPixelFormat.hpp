@@ -171,4 +171,3 @@ _MTL_ENUM(NS::UInteger, PixelFormat) {
 };
 
 }
-

@@ -19,6 +19,7 @@
 #include "metal_bindless_array.h"
 #include "metal_accel.h"
 #include "metal_mesh.h"
+#include "metal_curve.h"
 #include "metal_procedural_primitive.h"
 #include "metal_shader.h"
 #include "metal_device.h"
@@ -28,13 +29,39 @@
 #include "metal_pinned_memory.h"
 #include "metal_debug_capture.h"
 
+#include <cstdlib>
+
 namespace luisa::compute::metal {
 
 MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
-    : DeviceInterface{std::move(ctx)},
-      _io{nullptr},
+    : DeviceInterface{std::move(ctx)}, _io{nullptr},
       _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
-    auto device_index = config == nullptr || config->device_index == std::numeric_limits<size_t>::max() ?
+
+    {
+        auto o = MTL::CompileOptions::alloc()->init();
+        auto version = [o] {
+            using namespace std::string_view_literals;
+            switch (auto v [[maybe_unused]] = o->languageVersion()) {
+                case MTL::LanguageVersion1_0: return "1.0"sv;
+                case MTL::LanguageVersion1_1: return "1.1"sv;
+                case MTL::LanguageVersion1_2: return "1.2"sv;
+                case MTL::LanguageVersion2_0: return "2.0"sv;
+                case MTL::LanguageVersion2_1: return "2.1"sv;
+                case MTL::LanguageVersion2_2: return "2.2"sv;
+                case MTL::LanguageVersion2_3: return "2.3"sv;
+                case MTL::LanguageVersion2_4: return "2.4"sv;
+                default: break;
+            }
+            return "adequate"sv;
+        }();
+        o->release();
+        LUISA_ASSERT(version == "adequate",
+                     "Metal 3.0 and higher is required for LuisaCompute (detected: {}).",
+                     version);
+    }
+
+    auto device_index = config == nullptr ||
+                                config->device_index == std::numeric_limits<size_t>::max() ?
                             0u :
                             config->device_index;
     auto all_devices = MTL::CopyAllDevices();
@@ -588,6 +615,23 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     });
 }
 
+ResourceCreationInfo MetalDevice::create_curve(const AccelOption &option) noexcept {
+    return with_autorelease_pool([=, this] {
+        auto curve = new_with_allocator<MetalCurve>(_handle, option);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(curve);
+        info.native_handle = curve->pointer_to_handle();
+        return info;
+    });
+}
+
+void MetalDevice::destroy_curve(uint64_t handle) noexcept {
+    with_autorelease_pool([=] {
+        auto curve = reinterpret_cast<MetalCurve *>(handle);
+        delete_with_allocator(curve);
+    });
+}
+
 ResourceCreationInfo MetalDevice::create_procedural_primitive(const AccelOption &option) noexcept {
     return with_autorelease_pool([=, this] {
         auto primitive = new_with_allocator<MetalProceduralPrimitive>(_handle, option);
@@ -674,6 +718,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 mesh->set_name(name);
                 break;
             }
+            case Resource::Tag::CURVE: {
+                auto curve = reinterpret_cast<MetalCurve *>(resource_handle);
+                curve->set_name(name);
+                break;
+            }
             case Resource::Tag::PROCEDURAL_PRIMITIVE: {
                 auto prim = reinterpret_cast<MetalProceduralPrimitive *>(resource_handle);
                 prim->set_name(name);
@@ -724,6 +773,8 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
             }
             case Resource::Tag::SPARSE_BUFFER: break;
             case Resource::Tag::SPARSE_TEXTURE: break;
+            case Resource::Tag::SPARSE_BUFFER_HEAP: break;
+            case Resource::Tag::SPARSE_TEXTURE_HEAP: break;
         }
     });
 }

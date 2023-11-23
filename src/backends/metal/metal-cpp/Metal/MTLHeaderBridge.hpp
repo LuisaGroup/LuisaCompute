@@ -25,14 +25,17 @@ namespace MTL::Private::Class
 {
 
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureBoundingBoxGeometryDescriptor);
+_MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureCurveGeometryDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureGeometryDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureMotionBoundingBoxGeometryDescriptor);
+_MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureMotionCurveGeometryDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureMotionTriangleGeometryDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructurePassDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructurePassSampleBufferAttachmentDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructurePassSampleBufferAttachmentDescriptorArray);
 _MTL_PRIVATE_DEF_CLS(MTLAccelerationStructureTriangleGeometryDescriptor);
+_MTL_PRIVATE_DEF_CLS(MTLArchitecture);
 _MTL_PRIVATE_DEF_CLS(MTLArgument);
 _MTL_PRIVATE_DEF_CLS(MTLArgumentDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLArrayType);
@@ -66,6 +69,7 @@ _MTL_PRIVATE_DEF_CLS(MTLFunctionStitchingInputNode);
 _MTL_PRIVATE_DEF_CLS(MTLHeapDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLIOCommandQueueDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLIndirectCommandBufferDescriptor);
+_MTL_PRIVATE_DEF_CLS(MTLIndirectInstanceAccelerationStructureDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLInstanceAccelerationStructureDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLIntersectionFunctionDescriptor);
 _MTL_PRIVATE_DEF_CLS(MTLIntersectionFunctionTableDescriptor);
@@ -230,6 +234,8 @@ _MTL_PRIVATE_DEF_SEL(allowReferencingUndefinedSymbols,
     "allowReferencingUndefinedSymbols");
 _MTL_PRIVATE_DEF_SEL(alphaBlendOperation,
     "alphaBlendOperation");
+_MTL_PRIVATE_DEF_SEL(architecture,
+    "architecture");
 _MTL_PRIVATE_DEF_SEL(areBarycentricCoordsSupported,
     "areBarycentricCoordsSupported");
 _MTL_PRIVATE_DEF_SEL(areProgrammableSamplePositionsSupported,
@@ -360,6 +366,18 @@ _MTL_PRIVATE_DEF_SEL(contents,
     "contents");
 _MTL_PRIVATE_DEF_SEL(controlDependencies,
     "controlDependencies");
+_MTL_PRIVATE_DEF_SEL(controlPointBuffer,
+    "controlPointBuffer");
+_MTL_PRIVATE_DEF_SEL(controlPointBufferOffset,
+    "controlPointBufferOffset");
+_MTL_PRIVATE_DEF_SEL(controlPointBuffers,
+    "controlPointBuffers");
+_MTL_PRIVATE_DEF_SEL(controlPointCount,
+    "controlPointCount");
+_MTL_PRIVATE_DEF_SEL(controlPointFormat,
+    "controlPointFormat");
+_MTL_PRIVATE_DEF_SEL(controlPointStride,
+    "controlPointStride");
 _MTL_PRIVATE_DEF_SEL(convertSparsePixelRegions_toTileRegions_withTileSize_alignmentMode_numRegions_,
     "convertSparsePixelRegions:toTileRegions:withTileSize:alignmentMode:numRegions:");
 _MTL_PRIVATE_DEF_SEL(convertSparseTileRegions_toPixelRegions_withTileSize_numRegions_,
@@ -400,6 +418,10 @@ _MTL_PRIVATE_DEF_SEL(cpuCacheMode,
     "cpuCacheMode");
 _MTL_PRIVATE_DEF_SEL(currentAllocatedSize,
     "currentAllocatedSize");
+_MTL_PRIVATE_DEF_SEL(curveBasis,
+    "curveBasis");
+_MTL_PRIVATE_DEF_SEL(curveType,
+    "curveType");
 _MTL_PRIVATE_DEF_SEL(data,
     "data");
 _MTL_PRIVATE_DEF_SEL(dataSize,
@@ -512,6 +534,8 @@ _MTL_PRIVATE_DEF_SEL(encodedLength,
     "encodedLength");
 _MTL_PRIVATE_DEF_SEL(encoderLabel,
     "encoderLabel");
+_MTL_PRIVATE_DEF_SEL(curveEndCaps,
+    "curveEndCaps");
 _MTL_PRIVATE_DEF_SEL(endEncoding,
     "endEncoding");
 _MTL_PRIVATE_DEF_SEL(endOfEncoderSampleIndex,
@@ -670,6 +694,10 @@ _MTL_PRIVATE_DEF_SEL(installName,
     "installName");
 _MTL_PRIVATE_DEF_SEL(instanceCount,
     "instanceCount");
+_MTL_PRIVATE_DEF_SEL(instanceCountBuffer,
+    "instanceCountBuffer");
+_MTL_PRIVATE_DEF_SEL(instanceCountBufferOffset,
+    "instanceCountBufferOffset");
 _MTL_PRIVATE_DEF_SEL(instanceDescriptorBuffer,
     "instanceDescriptorBuffer");
 _MTL_PRIVATE_DEF_SEL(instanceDescriptorBufferOffset,
@@ -804,8 +832,14 @@ _MTL_PRIVATE_DEF_SEL(maxFragmentBufferBindCount,
     "maxFragmentBufferBindCount");
 _MTL_PRIVATE_DEF_SEL(maxFragmentCallStackDepth,
     "maxFragmentCallStackDepth");
+_MTL_PRIVATE_DEF_SEL(maxInstanceCount,
+    "maxInstanceCount");
 _MTL_PRIVATE_DEF_SEL(maxKernelBufferBindCount,
     "maxKernelBufferBindCount");
+_MTL_PRIVATE_DEF_SEL(maxKernelThreadgroupMemoryBindCount,
+    "maxKernelThreadgroupMemoryBindCount");
+_MTL_PRIVATE_DEF_SEL(maxMotionTransformCount,
+    "maxMotionTransformCount");
 _MTL_PRIVATE_DEF_SEL(maxSampleCount,
     "maxSampleCount");
 _MTL_PRIVATE_DEF_SEL(maxTessellationFactor,
@@ -850,6 +884,8 @@ _MTL_PRIVATE_DEF_SEL(meshBuffers,
     "meshBuffers");
 _MTL_PRIVATE_DEF_SEL(meshFunction,
     "meshFunction");
+_MTL_PRIVATE_DEF_SEL(meshLinkedFunctions,
+    "meshLinkedFunctions");
 _MTL_PRIVATE_DEF_SEL(meshThreadExecutionWidth,
     "meshThreadExecutionWidth");
 _MTL_PRIVATE_DEF_SEL(meshThreadgroupSizeIsMultipleOfThreadExecutionWidth,
@@ -880,6 +916,10 @@ _MTL_PRIVATE_DEF_SEL(motionTransformBufferOffset,
     "motionTransformBufferOffset");
 _MTL_PRIVATE_DEF_SEL(motionTransformCount,
     "motionTransformCount");
+_MTL_PRIVATE_DEF_SEL(motionTransformCountBuffer,
+    "motionTransformCountBuffer");
+_MTL_PRIVATE_DEF_SEL(motionTransformCountBufferOffset,
+    "motionTransformCountBufferOffset");
 _MTL_PRIVATE_DEF_SEL(moveTextureMappingsFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin_,
     "moveTextureMappingsFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:");
 _MTL_PRIVATE_DEF_SEL(mutability,
@@ -966,6 +1006,10 @@ _MTL_PRIVATE_DEF_SEL(newHeapWithDescriptor_,
     "newHeapWithDescriptor:");
 _MTL_PRIVATE_DEF_SEL(newIOCommandQueueWithDescriptor_error_,
     "newIOCommandQueueWithDescriptor:error:");
+_MTL_PRIVATE_DEF_SEL(newIOFileHandleWithURL_compressionMethod_error_,
+    "newIOFileHandleWithURL:compressionMethod:error:");
+_MTL_PRIVATE_DEF_SEL(newIOFileHandleWithURL_error_,
+    "newIOFileHandleWithURL:error:");
 _MTL_PRIVATE_DEF_SEL(newIOHandleWithURL_compressionMethod_error_,
     "newIOHandleWithURL:compressionMethod:error:");
 _MTL_PRIVATE_DEF_SEL(newIOHandleWithURL_error_,
@@ -1066,6 +1110,8 @@ _MTL_PRIVATE_DEF_SEL(objectBuffers,
     "objectBuffers");
 _MTL_PRIVATE_DEF_SEL(objectFunction,
     "objectFunction");
+_MTL_PRIVATE_DEF_SEL(objectLinkedFunctions,
+    "objectLinkedFunctions");
 _MTL_PRIVATE_DEF_SEL(objectPayloadAlignment,
     "objectPayloadAlignment");
 _MTL_PRIVATE_DEF_SEL(objectPayloadDataSize,
@@ -1164,6 +1210,16 @@ _MTL_PRIVATE_DEF_SEL(pushDebugGroup_,
     "pushDebugGroup:");
 _MTL_PRIVATE_DEF_SEL(rAddressMode,
     "rAddressMode");
+_MTL_PRIVATE_DEF_SEL(radiusBuffer,
+    "radiusBuffer");
+_MTL_PRIVATE_DEF_SEL(radiusBufferOffset,
+    "radiusBufferOffset");
+_MTL_PRIVATE_DEF_SEL(radiusBuffers,
+    "radiusBuffers");
+_MTL_PRIVATE_DEF_SEL(radiusFormat,
+    "radiusFormat");
+_MTL_PRIVATE_DEF_SEL(radiusStride,
+    "radiusStride");
 _MTL_PRIVATE_DEF_SEL(rasterSampleCount,
     "rasterSampleCount");
 _MTL_PRIVATE_DEF_SEL(rasterizationRateMap,
@@ -1260,6 +1316,10 @@ _MTL_PRIVATE_DEF_SEL(scratchBufferAllocator,
     "scratchBufferAllocator");
 _MTL_PRIVATE_DEF_SEL(screenSize,
     "screenSize");
+_MTL_PRIVATE_DEF_SEL(segmentControlPointCount,
+    "segmentControlPointCount");
+_MTL_PRIVATE_DEF_SEL(segmentCount,
+    "segmentCount");
 _MTL_PRIVATE_DEF_SEL(serializeToURL_error_,
     "serializeToURL:error:");
 _MTL_PRIVATE_DEF_SEL(setAccelerationStructure_atBufferIndex_,
@@ -1320,14 +1380,22 @@ _MTL_PRIVATE_DEF_SEL(setBuffer_,
     "setBuffer:");
 _MTL_PRIVATE_DEF_SEL(setBuffer_offset_atIndex_,
     "setBuffer:offset:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setBuffer_offset_attributeStride_atIndex_,
+    "setBuffer:offset:attributeStride:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setBufferIndex_,
     "setBufferIndex:");
 _MTL_PRIVATE_DEF_SEL(setBufferOffset_atIndex_,
     "setBufferOffset:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setBufferOffset_attributeStride_atIndex_,
+    "setBufferOffset:attributeStride:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setBuffers_offsets_attributeStrides_withRange_,
+    "setBuffers:offsets:attributeStrides:withRange:");
 _MTL_PRIVATE_DEF_SEL(setBuffers_offsets_withRange_,
     "setBuffers:offsets:withRange:");
 _MTL_PRIVATE_DEF_SEL(setBytes_length_atIndex_,
     "setBytes:length:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setBytes_length_attributeStride_atIndex_,
+    "setBytes:length:attributeStride:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setCaptureObject_,
     "setCaptureObject:");
 _MTL_PRIVATE_DEF_SEL(setClearColor_,
@@ -1368,12 +1436,28 @@ _MTL_PRIVATE_DEF_SEL(setConstantValues_type_withRange_,
     "setConstantValues:type:withRange:");
 _MTL_PRIVATE_DEF_SEL(setControlDependencies_,
     "setControlDependencies:");
+_MTL_PRIVATE_DEF_SEL(setControlPointBuffer_,
+    "setControlPointBuffer:");
+_MTL_PRIVATE_DEF_SEL(setControlPointBufferOffset_,
+    "setControlPointBufferOffset:");
+_MTL_PRIVATE_DEF_SEL(setControlPointBuffers_,
+    "setControlPointBuffers:");
+_MTL_PRIVATE_DEF_SEL(setControlPointCount_,
+    "setControlPointCount:");
+_MTL_PRIVATE_DEF_SEL(setControlPointFormat_,
+    "setControlPointFormat:");
+_MTL_PRIVATE_DEF_SEL(setControlPointStride_,
+    "setControlPointStride:");
 _MTL_PRIVATE_DEF_SEL(setCounterSet_,
     "setCounterSet:");
 _MTL_PRIVATE_DEF_SEL(setCpuCacheMode_,
     "setCpuCacheMode:");
 _MTL_PRIVATE_DEF_SEL(setCullMode_,
     "setCullMode:");
+_MTL_PRIVATE_DEF_SEL(setCurveBasis_,
+    "setCurveBasis:");
+_MTL_PRIVATE_DEF_SEL(setCurveType_,
+    "setCurveType:");
 _MTL_PRIVATE_DEF_SEL(setDataType_,
     "setDataType:");
 _MTL_PRIVATE_DEF_SEL(setDefaultCaptureScope_,
@@ -1416,6 +1500,8 @@ _MTL_PRIVATE_DEF_SEL(setDestinationRGBBlendFactor_,
     "setDestinationRGBBlendFactor:");
 _MTL_PRIVATE_DEF_SEL(setDispatchType_,
     "setDispatchType:");
+_MTL_PRIVATE_DEF_SEL(setCurveEndCaps_,
+    "setCurveEndCaps:");
 _MTL_PRIVATE_DEF_SEL(setEndOfEncoderSampleIndex_,
     "setEndOfEncoderSampleIndex:");
 _MTL_PRIVATE_DEF_SEL(setEndOfFragmentSampleIndex_,
@@ -1520,6 +1606,10 @@ _MTL_PRIVATE_DEF_SEL(setInstallName_,
     "setInstallName:");
 _MTL_PRIVATE_DEF_SEL(setInstanceCount_,
     "setInstanceCount:");
+_MTL_PRIVATE_DEF_SEL(setInstanceCountBuffer_,
+    "setInstanceCountBuffer:");
+_MTL_PRIVATE_DEF_SEL(setInstanceCountBufferOffset_,
+    "setInstanceCountBufferOffset:");
 _MTL_PRIVATE_DEF_SEL(setInstanceDescriptorBuffer_,
     "setInstanceDescriptorBuffer:");
 _MTL_PRIVATE_DEF_SEL(setInstanceDescriptorBufferOffset_,
@@ -1542,6 +1632,8 @@ _MTL_PRIVATE_DEF_SEL(setIntersectionFunctionTables_withRange_,
     "setIntersectionFunctionTables:withRange:");
 _MTL_PRIVATE_DEF_SEL(setKernelBuffer_offset_atIndex_,
     "setKernelBuffer:offset:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setKernelBuffer_offset_attributeStride_atIndex_,
+    "setKernelBuffer:offset:attributeStride:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setLabel_,
     "setLabel:");
 _MTL_PRIVATE_DEF_SEL(setLanguageVersion_,
@@ -1578,8 +1670,14 @@ _MTL_PRIVATE_DEF_SEL(setMaxFragmentBufferBindCount_,
     "setMaxFragmentBufferBindCount:");
 _MTL_PRIVATE_DEF_SEL(setMaxFragmentCallStackDepth_,
     "setMaxFragmentCallStackDepth:");
+_MTL_PRIVATE_DEF_SEL(setMaxInstanceCount_,
+    "setMaxInstanceCount:");
 _MTL_PRIVATE_DEF_SEL(setMaxKernelBufferBindCount_,
     "setMaxKernelBufferBindCount:");
+_MTL_PRIVATE_DEF_SEL(setMaxKernelThreadgroupMemoryBindCount_,
+    "setMaxKernelThreadgroupMemoryBindCount:");
+_MTL_PRIVATE_DEF_SEL(setMaxMotionTransformCount_,
+    "setMaxMotionTransformCount:");
 _MTL_PRIVATE_DEF_SEL(setMaxTessellationFactor_,
     "setMaxTessellationFactor:");
 _MTL_PRIVATE_DEF_SEL(setMaxTotalThreadgroupsPerMeshGrid_,
@@ -1606,6 +1704,8 @@ _MTL_PRIVATE_DEF_SEL(setMeshBytes_length_atIndex_,
     "setMeshBytes:length:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setMeshFunction_,
     "setMeshFunction:");
+_MTL_PRIVATE_DEF_SEL(setMeshLinkedFunctions_,
+    "setMeshLinkedFunctions:");
 _MTL_PRIVATE_DEF_SEL(setMeshSamplerState_atIndex_,
     "setMeshSamplerState:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setMeshSamplerState_lodMinClamp_lodMaxClamp_atIndex_,
@@ -1642,6 +1742,10 @@ _MTL_PRIVATE_DEF_SEL(setMotionTransformBufferOffset_,
     "setMotionTransformBufferOffset:");
 _MTL_PRIVATE_DEF_SEL(setMotionTransformCount_,
     "setMotionTransformCount:");
+_MTL_PRIVATE_DEF_SEL(setMotionTransformCountBuffer_,
+    "setMotionTransformCountBuffer:");
+_MTL_PRIVATE_DEF_SEL(setMotionTransformCountBufferOffset_,
+    "setMotionTransformCountBufferOffset:");
 _MTL_PRIVATE_DEF_SEL(setMutability_,
     "setMutability:");
 _MTL_PRIVATE_DEF_SEL(setName_,
@@ -1662,6 +1766,8 @@ _MTL_PRIVATE_DEF_SEL(setObjectBytes_length_atIndex_,
     "setObjectBytes:length:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setObjectFunction_,
     "setObjectFunction:");
+_MTL_PRIVATE_DEF_SEL(setObjectLinkedFunctions_,
+    "setObjectLinkedFunctions:");
 _MTL_PRIVATE_DEF_SEL(setObjectSamplerState_atIndex_,
     "setObjectSamplerState:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setObjectSamplerState_lodMinClamp_lodMaxClamp_atIndex_,
@@ -1682,6 +1788,10 @@ _MTL_PRIVATE_DEF_SEL(setOffset_,
     "setOffset:");
 _MTL_PRIVATE_DEF_SEL(setOpaque_,
     "setOpaque:");
+_MTL_PRIVATE_DEF_SEL(setOpaqueCurveIntersectionFunctionWithSignature_atIndex_,
+    "setOpaqueCurveIntersectionFunctionWithSignature:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setOpaqueCurveIntersectionFunctionWithSignature_withRange_,
+    "setOpaqueCurveIntersectionFunctionWithSignature:withRange:");
 _MTL_PRIVATE_DEF_SEL(setOpaqueTriangleIntersectionFunctionWithSignature_atIndex_,
     "setOpaqueTriangleIntersectionFunctionWithSignature:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setOpaqueTriangleIntersectionFunctionWithSignature_withRange_,
@@ -1720,6 +1830,16 @@ _MTL_PRIVATE_DEF_SEL(setPurgeableState_,
     "setPurgeableState:");
 _MTL_PRIVATE_DEF_SEL(setRAddressMode_,
     "setRAddressMode:");
+_MTL_PRIVATE_DEF_SEL(setRadiusBuffer_,
+    "setRadiusBuffer:");
+_MTL_PRIVATE_DEF_SEL(setRadiusBufferOffset_,
+    "setRadiusBufferOffset:");
+_MTL_PRIVATE_DEF_SEL(setRadiusBuffers_,
+    "setRadiusBuffers:");
+_MTL_PRIVATE_DEF_SEL(setRadiusFormat_,
+    "setRadiusFormat:");
+_MTL_PRIVATE_DEF_SEL(setRadiusStride_,
+    "setRadiusStride:");
 _MTL_PRIVATE_DEF_SEL(setRasterSampleCount_,
     "setRasterSampleCount:");
 _MTL_PRIVATE_DEF_SEL(setRasterizationEnabled_,
@@ -1778,6 +1898,10 @@ _MTL_PRIVATE_DEF_SEL(setScratchBufferAllocator_,
     "setScratchBufferAllocator:");
 _MTL_PRIVATE_DEF_SEL(setScreenSize_,
     "setScreenSize:");
+_MTL_PRIVATE_DEF_SEL(setSegmentControlPointCount_,
+    "setSegmentControlPointCount:");
+_MTL_PRIVATE_DEF_SEL(setSegmentCount_,
+    "setSegmentCount:");
 _MTL_PRIVATE_DEF_SEL(setShouldMaximizeConcurrentCompilation_,
     "setShouldMaximizeConcurrentCompilation:");
 _MTL_PRIVATE_DEF_SEL(setSignaledValue_,
@@ -1844,6 +1968,8 @@ _MTL_PRIVATE_DEF_SEL(setSupportAddingVertexBinaryFunctions_,
     "setSupportAddingVertexBinaryFunctions:");
 _MTL_PRIVATE_DEF_SEL(setSupportArgumentBuffers_,
     "setSupportArgumentBuffers:");
+_MTL_PRIVATE_DEF_SEL(setSupportDynamicAttributeStride_,
+    "setSupportDynamicAttributeStride:");
 _MTL_PRIVATE_DEF_SEL(setSupportIndirectCommandBuffers_,
     "setSupportIndirectCommandBuffers:");
 _MTL_PRIVATE_DEF_SEL(setSupportRayTracing_,
@@ -1948,16 +2074,24 @@ _MTL_PRIVATE_DEF_SEL(setVertexBuffer_,
     "setVertexBuffer:");
 _MTL_PRIVATE_DEF_SEL(setVertexBuffer_offset_atIndex_,
     "setVertexBuffer:offset:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setVertexBuffer_offset_attributeStride_atIndex_,
+    "setVertexBuffer:offset:attributeStride:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setVertexBufferOffset_,
     "setVertexBufferOffset:");
 _MTL_PRIVATE_DEF_SEL(setVertexBufferOffset_atIndex_,
     "setVertexBufferOffset:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setVertexBufferOffset_attributeStride_atIndex_,
+    "setVertexBufferOffset:attributeStride:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setVertexBuffers_,
     "setVertexBuffers:");
+_MTL_PRIVATE_DEF_SEL(setVertexBuffers_offsets_attributeStrides_withRange_,
+    "setVertexBuffers:offsets:attributeStrides:withRange:");
 _MTL_PRIVATE_DEF_SEL(setVertexBuffers_offsets_withRange_,
     "setVertexBuffers:offsets:withRange:");
 _MTL_PRIVATE_DEF_SEL(setVertexBytes_length_atIndex_,
     "setVertexBytes:length:atIndex:");
+_MTL_PRIVATE_DEF_SEL(setVertexBytes_length_attributeStride_atIndex_,
+    "setVertexBytes:length:attributeStride:atIndex:");
 _MTL_PRIVATE_DEF_SEL(setVertexDescriptor_,
     "setVertexDescriptor:");
 _MTL_PRIVATE_DEF_SEL(setVertexFormat_,
@@ -2096,6 +2230,8 @@ _MTL_PRIVATE_DEF_SEL(supportAddingVertexBinaryFunctions,
     "supportAddingVertexBinaryFunctions");
 _MTL_PRIVATE_DEF_SEL(supportArgumentBuffers,
     "supportArgumentBuffers");
+_MTL_PRIVATE_DEF_SEL(supportDynamicAttributeStride,
+    "supportDynamicAttributeStride");
 _MTL_PRIVATE_DEF_SEL(supportIndirectCommandBuffers,
     "supportIndirectCommandBuffers");
 _MTL_PRIVATE_DEF_SEL(supportRayTracing,
@@ -2298,4 +2434,3 @@ _MTL_PRIVATE_DEF_SEL(writeMask,
     "writeMask");
 
 }
-

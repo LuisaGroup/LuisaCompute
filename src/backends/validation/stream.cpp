@@ -366,6 +366,7 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 }
                 custom(dev, cmd);
             } break;
+            case Command::Tag::ECurveBuildCommand: LUISA_NOT_IMPLEMENTED();
         }
         // TODO: resources record
     }

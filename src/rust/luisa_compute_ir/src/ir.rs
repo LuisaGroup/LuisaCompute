@@ -1644,12 +1644,25 @@ bitflags! {
         const REQUIRES_FWD_AD_TRANSFORM = 2;
     }
 }
+bitflags! {
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct CurveBasisSet : u32 {
+        const NONE = 0;
+        const PIECEWISE_LINEAR = 1;
+        const CUBIC_BSPLINE = 2;
+        const CATMULL_ROM = 4;
+        const BEZIER = 8;
+    }
+}
 #[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct Module {
     pub kind: ModuleKind,
     pub entry: Pooled<BasicBlock>,
     pub flags: ModuleFlags,
+    pub curve_basis_set: CurveBasisSet,
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
 }
@@ -2188,6 +2201,7 @@ impl ModuleDuplicator {
             entry: dup_entry,
             pools: module.pools.clone(),
             flags: module.flags,
+            curve_basis_set: module.curve_basis_set,
         }
     }
 }

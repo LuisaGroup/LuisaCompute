@@ -28,6 +28,13 @@ enum class BindlessArrayUpdateOperation {
     REMOVE,
 };
 
+enum class CurveBasis {
+    PIECEWISE_LINEAR = 0,
+    CUBIC_B_SPLINE = 1,
+    CATMULL_ROM = 2,
+    BEZIER = 3,
+};
+
 enum class FilterQuality {
     DEFAULT,
     FAST,
@@ -384,6 +391,23 @@ struct MeshBuildCommand {
     size_t index_stride;
 };
 
+struct Curve {
+    uint64_t _0;
+};
+
+struct CurveBuildCommand {
+    Curve curve;
+    AccelBuildRequest request;
+    CurveBasis basis;
+    size_t cp_count;
+    size_t seg_count;
+    Buffer cp_buffer;
+    size_t cp_buffer_offset;
+    size_t cp_buffer_stride;
+    Buffer seg_buffer;
+    size_t seg_buffer_offset;
+};
+
 struct ProceduralPrimitive {
     uint64_t _0;
 };
@@ -442,6 +466,7 @@ struct Command {
         TEXTURE_COPY,
         SHADER_DISPATCH,
         MESH_BUILD,
+        CURVE_BUILD,
         PROCEDURAL_PRIMITIVE_BUILD,
         ACCEL_BUILD,
         BINDLESS_ARRAY_UPDATE,
@@ -487,6 +512,10 @@ struct Command {
         MeshBuildCommand _0;
     };
 
+    struct CurveBuild_Body {
+        CurveBuildCommand _0;
+    };
+
     struct ProceduralPrimitiveBuild_Body {
         ProceduralPrimitiveBuildCommand _0;
     };
@@ -511,6 +540,7 @@ struct Command {
         TextureCopy_Body TEXTURE_COPY;
         ShaderDispatch_Body SHADER_DISPATCH;
         MeshBuild_Body MESH_BUILD;
+        CurveBuild_Body CURVE_BUILD;
         ProceduralPrimitiveBuild_Body PROCEDURAL_PRIMITIVE_BUILD;
         AccelBuild_Body ACCEL_BUILD;
         BindlessArrayUpdate_Body BINDLESS_ARRAY_UPDATE;
@@ -558,6 +588,8 @@ struct ShaderOption {
     bool enable_fast_math;
     bool enable_debug_info;
     bool compile_only;
+    bool time_trace;
+    uint32_t max_registers;
     const char *name;
 };
 
@@ -658,6 +690,8 @@ struct DeviceInterface {
     bool (*is_event_completed)(Device, Event, uint64_t);
     CreatedResourceInfo (*create_mesh)(Device, const AccelOption*);
     void (*destroy_mesh)(Device, Mesh);
+    CreatedResourceInfo (*create_curve)(Device, const AccelOption*);
+    void (*destroy_curve)(Device, Curve);
     CreatedResourceInfo (*create_procedural_primitive)(Device, const AccelOption*);
     void (*destroy_procedural_primitive)(Device, ProceduralPrimitive);
     CreatedResourceInfo (*create_accel)(Device, const AccelOption*);
