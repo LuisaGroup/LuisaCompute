@@ -12,7 +12,7 @@ target("lc-clangcxx")
     elseif is_plat("macosx") then
         add_frameworks("CoreFoundation")
     end
-    -- set_pcxxheader("pch.h")
+    set_pcxxheader("src/pch.h")
     add_headerfiles("../../include/luisa/clangcxx/**.h")
     add_files("src/**.cpp")
     add_linkdirs("llvm/lib")

@@ -78,11 +78,11 @@ const luisa::compute::Type *RecordDeclStmtHandler::RecordAsBuiltinType(const Qua
                 auto Arguments = TST->template_arguments();
                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
                     clang::Expr::EvalResult Result;
-                    Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *blackboard->astContext);
-                    auto N = Result.Val.getInt().getExtValue();
-                    // TST->dump();
-                    // clang-format off
-                switch (EType->getKind()) {
+                    if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *blackboard->astContext)) {
+                        auto N = Result.Val.getInt().getExtValue();
+                        // TST->dump();
+                        // clang-format off
+                        switch (EType->getKind()) {
 #define CASE_VEC_TYPE(type)                                                                                    \
     switch (N) {                                                                                               \
         case 2: { _type = Type::of<type##2>(); } break;                                            \
@@ -92,19 +92,20 @@ const luisa::compute::Type *RecordDeclStmtHandler::RecordAsBuiltinType(const Qua
             luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
         } break;                                                                                               \
     }
-                    case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
-                    case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float) } break;
-                    case (BuiltinType::Kind::Long):
-                    case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int) } break;
-                    case (BuiltinType::Kind::ULong):
-                    case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
-                    case (BuiltinType::Kind::Double):
-                    default: {
-                        luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
-                    } break;
+                            case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
+                            case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float) } break;
+                            case (BuiltinType::Kind::Long):
+                            case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int) } break;
+                            case (BuiltinType::Kind::ULong):
+                            case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
+                            case (BuiltinType::Kind::Double):
+                            default: {
+                                luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                            } break;
 #undef CASE_VEC_TYPE
-                }
-                    // clang-format on
+                        }
+                        // clang-format on
+                    }
                 }
             }
         } else if (builtin_type_name == "array") {
