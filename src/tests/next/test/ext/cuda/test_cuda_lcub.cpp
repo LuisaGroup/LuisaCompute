@@ -1,3 +1,4 @@
+#ifdef LUISA_TEST_CUDA_BACKEND
 /**
  * @file src/tests/next/tset/ext/dx/test_dml.cpp
  * @author sailing-innocent, on MuGdxy's previous work on 7/26/2023.
@@ -31,3 +32,4 @@ TEST_SUITE("ext_cuda") {
         REQUIRE(luisa::test::test_lcub_scan(device) == 0);
     }
 }
+#endif

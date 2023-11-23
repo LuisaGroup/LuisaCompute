@@ -13,7 +13,7 @@ target_end()
 
 -- TEST MAIN with doctest
 ------------------------------------
-local function lc_add_app(appname, folder, name, options) 
+local function lc_add_app(appname, folder, name) 
 	target(appname)
 	_config_project({
 		project_kind = "binary"
@@ -23,10 +23,11 @@ local function lc_add_app(appname, folder, name, options)
 	add_includedirs("./", {
 		public = true
 	})
-
-	local match_str = path.join(name, "**.cpp")
+	local match_str
 	if name == "all" then
 		match_str = "**.cpp"
+	else
+		match_str = path.join(name, "**.cpp")
 	end
 	set_pcxxheader("pch.h")
 	add_files(path.join("next", folder, match_str))
@@ -37,6 +38,15 @@ local function lc_add_app(appname, folder, name, options)
 	end
 	if get_config("enable_gui") then
 		add_deps("lc-gui")
+	end
+	if get_config("dx_backend") then
+		add_defines("LUISA_TEST_DX_BACKEND")
+	end
+	if get_config("cuda_backend") then
+		add_defines("LUISA_TEST_CUDA_BACKEND")
+	end
+	if get_config("metal_backend") then
+		add_defines("LUISA_TEST_METAL_BACKEND")
 	end
 	target_end()
 end 
