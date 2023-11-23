@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
     float clear_color[4] = {0.45f, 0.55f, 0.60f, 1.00f};
 
     Clock clk;
-    ImGuiWindow window{device, stream};
+    ImGuiWindow window{device, stream, "Display"};
     while (!window.should_close()) {
 
         window.prepare_frame();
@@ -70,6 +70,8 @@ int main(int argc, char *argv[]) {
                 counter++;
             ImGui::SameLine();
             ImGui::Text("counter = %d", counter);
+            auto &io = ImGui::GetIO();
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();
         }
 

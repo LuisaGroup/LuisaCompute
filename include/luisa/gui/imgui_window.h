@@ -20,12 +20,13 @@ class LC_GUI_API ImGuiWindow {
 
 public:
     struct Config {
-        luisa::string name{"Display"};
         uint2 size{800, 600};
         bool resizable{true};
         bool vsync{true};
         bool hdr{false};
         uint back_buffers{2};
+
+        [[nodiscard]] static Config make_default() noexcept { return {}; }
     };
 
 public:
@@ -35,7 +36,9 @@ private:
     luisa::unique_ptr<Impl> _impl;
 
 public:
-    ImGuiWindow(Device &device, Stream &stream, const Config &config = {}) noexcept;
+    ImGuiWindow(Device &device, Stream &stream,
+                luisa::string name,
+                const Config &config = Config::make_default()) noexcept;
     ~ImGuiWindow() noexcept;
     ImGuiWindow(ImGuiWindow &&) noexcept = default;
     ImGuiWindow(const ImGuiWindow &) noexcept = delete;

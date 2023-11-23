@@ -24,15 +24,16 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/runtime/rtx/accel.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/imgui_window.h>
 
-namespace luisa::compute {
+namespace luisa::compute::detail {
 
-namespace detail {
 [[nodiscard]] inline auto glfw_window_native_handle(GLFWwindow *window) noexcept {
 #if defined(LUISA_PLATFORM_WINDOWS)
     return reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
@@ -42,10 +43,28 @@ namespace detail {
     return reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
 }
-}// namespace detail
+
+struct GUIVertex {
+    float3 position;
+    float2 uv;
+    uint packed_color;
+};
+
+}// namespace luisa::compute::detail
+
+LUISA_STRUCT(luisa::compute::detail::GUIVertex, position, uv, packed_color) {
+    [[nodiscard]] auto color() const noexcept {
+        auto r = (packed_color & 0xffu) / 255.f;
+        auto g = ((packed_color >> 8u) & 0xffu) / 255.f;
+        auto b = ((packed_color >> 16u) & 0xffu) / 255.f;
+        auto a = ((packed_color >> 24u) & 0xffu) / 255.f;
+        return make_float4(r, g, b, a);
+    }
+};
+
+namespace luisa::compute {
 
 class ImGuiWindow::Impl {
-
 private:
     class CtxGuard {
 
@@ -74,6 +93,8 @@ private:
         CtxGuard &operator=(const CtxGuard &) noexcept = delete;
     };
 
+    using Vertex = detail::GUIVertex;
+
 private:
     Device &_device;
     Stream &_stream;
@@ -87,8 +108,14 @@ private:
     uint _texture_array_offset{0u};
     luisa::unordered_map<ImGuiID, Swapchain> _platform_swapchains;
     luisa::unordered_map<ImGuiID, Image<float>> _platform_framebuffers;
+
+    // for rendering
     Shader2D<Image<float>, float3> _clear_shader;
-    Shader2D<Image<float>, float4, uint2> _simple_shader;
+    Shader2D<Image<float>, uint2, Accel, Buffer<Triangle>, Buffer<Vertex>, BindlessArray, uint> _render_shader;
+    Accel _accel;
+    uint64_t _mesh_handle{~0ull};
+    Buffer<Vertex> _vertex_buffer;
+    Buffer<Triangle> _triangle_buffer;
 
 private:
     template<typename F>
@@ -144,7 +171,7 @@ private:
     }
 
 public:
-    Impl(Device &device, Stream &stream, const Config &config) noexcept
+    Impl(Device &device, Stream &stream, luisa::string name, const Config &config) noexcept
         : _device{device},
           _stream{stream},
           _config{config},
@@ -172,7 +199,7 @@ public:
         glfwWindowHint(GLFW_RESIZABLE, config.resizable);
         _main_window = glfwCreateWindow(static_cast<int>(config.size.x),
                                         static_cast<int>(config.size.y),
-                                        config.name.c_str(),
+                                        name.c_str(),
                                         nullptr, nullptr);
         LUISA_ASSERT(_main_window != nullptr, "Failed to create GLFW window.");
         glfwSetWindowUserPointer(_main_window, this);
@@ -252,12 +279,40 @@ public:
             auto tid = dispatch_id().xy();
             fb.write(tid, make_float4(color, 1.f));
         });
-        _simple_shader = _device.compile<2>([](ImageFloat fb, Float4 color, UInt2 offset) noexcept {
+        _render_shader = _device.compile<2>([](ImageFloat fb, UInt2 offset, AccelVar accel,
+                                               BufferVar<Triangle> triangles, BufferVar<Vertex> vertices,
+                                               BindlessVar texture_array, UInt texture_id) noexcept {
             auto tid = offset + dispatch_id().xy();
             $if (all(tid < dispatch_size().xy())) {
+                std::array offsets{
+                    make_float2(1.f / 3.f, 1.f / 3.f),
+                    make_float2(2.f / 3.f, 1.f / 3.f),
+                    make_float2(1.f / 3.f, 2.f / 3.f),
+                    make_float2(2.f / 3.f, 2.f / 3.f),
+                };
+                auto sum = def(make_float4(0.f));
+                for (auto offset : offsets) {
+                    auto o = make_float3(make_float2(tid) + offset, 1.f);
+                    auto d = make_float3(0.f, 0.f, -1.f);
+                    auto ray = make_ray(o, d);
+                    auto hit = accel.intersect(ray, {});
+                    $if (hit->is_triangle()) {
+                        // auto color = make_float4(1.f);
+                        auto triangle = triangles->read(hit.prim);
+                        auto v0 = vertices->read(triangle.i0);
+                        auto v1 = vertices->read(triangle.i1);
+                        auto v2 = vertices->read(triangle.i2);
+                        auto uv = hit->triangle_interpolate(v0.uv, v1.uv, v2.uv);
+                        auto color = hit->triangle_interpolate(v0->color(), v1->color(), v2->color());
+                        color = make_float4(color.xyz(), 1.f);
+                        $if (texture_id != 0u) {
+                            color *= texture_array->tex2d(texture_id).sample(uv);
+                        };
+                        sum += color * .25f;
+                    };
+                }
                 auto old = fb.read(tid).xyz();
-                auto alpha = color.w;
-                fb.write(tid, make_float4(lerp(old, color.xyz(), alpha), 1.f));
+                fb.write(tid, make_float4(lerp(old, sum.xyz(), sum.w), 1.f));
             };
         });
     }
@@ -272,6 +327,10 @@ public:
                      "Some ImGui windows are not destroyed.");
         _main_swapchain = {};
         glfwDestroyWindow(_main_window);
+        if (_accel) {
+            _accel = {};
+            _device.impl()->destroy_mesh(_mesh_handle);
+        }
     }
 
 public:
@@ -286,14 +345,10 @@ public:
         glfwSetWindowShouldClose(_main_window, b);
     }
     [[nodiscard]] auto register_texture(const Image<float> &image, Sampler sampler) noexcept {
-        return _with_context([&] {
-            auto &io = ImGui::GetIO();
-            auto tex_id = static_cast<uint64_t>(_texture_array_offset++);
-            _texture_array.emplace_on_update(tex_id, _font_texture, Sampler::linear_point_mirror());
-            _stream << _texture_array.update();
-            io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(tex_id));
-            return tex_id;
-        });
+        auto tex_id = static_cast<uint64_t>(++_texture_array_offset);
+        _texture_array.emplace_on_update(tex_id, image, sampler);
+        _stream << _texture_array.update();
+        return tex_id;
     }
 
 private:
@@ -301,19 +356,91 @@ private:
         auto &io = ImGui::GetIO();
         auto pixels = static_cast<unsigned char *>(nullptr);
         auto width = 0, height = 0;
-        io.Fonts->GetTexDataAsAlpha8(&pixels, &width, &height);
+        io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
         // TODO: mipmaps?
-        _font_texture = _device.create_image<float>(PixelStorage::BYTE1, width, height, 1);
+        _font_texture = _device.create_image<float>(PixelStorage::BYTE4, width, height, 1);
         _stream << _font_texture.copy_from(pixels);
+        auto tex_id = register_texture(_font_texture, Sampler::linear_point_edge());
+        io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(tex_id));
+    }
+
+private:
+    luisa::vector<Vertex> _vertices;
+    luisa::vector<Triangle> _triangles;
+
+    void _upload_vertices(const ImDrawList *list, float2 offset, float2 scale) noexcept {
+        LUISA_ASSERT(list->IdxBuffer.size() % 3u == 0u,
+                     "Invalid ImDrawList: index count is not a multiple of 3.");
+        auto vertex_count = static_cast<size_t>(list->VtxBuffer.size());
+        auto triangle_count = static_cast<size_t>(list->IdxBuffer.size() / 3u);
+        if (vertex_count == 0u || triangle_count == 0u) { return; }
+        if (!_vertex_buffer || _vertex_buffer.size() < vertex_count ||
+            !_triangle_buffer || _triangle_buffer.size() < triangle_count) {
+            _stream.synchronize();
+            if (!_vertex_buffer || _vertex_buffer.size() < vertex_count) {
+                auto rounded_vertex_count = std::max(next_pow2(vertex_count), 64_k);
+                _vertex_buffer = _device.create_buffer<Vertex>(rounded_vertex_count);
+            }
+            if (!_triangle_buffer || _triangle_buffer.size() < triangle_count) {
+                auto rounded_triangle_count = std::max(next_pow2(triangle_count), 64_k);
+                _triangle_buffer = _device.create_buffer<Triangle>(rounded_triangle_count);
+            }
+        }
+        _vertices.resize(next_pow2(vertex_count));
+        _triangles.resize(next_pow2(triangle_count));
+        for (auto i = 0u; i < vertex_count; i++) {
+            auto v = list->VtxBuffer[i];
+            _vertices[i] = Vertex{
+                .position = make_float3((make_float2(v.pos.x, v.pos.y) - offset) * scale, 0.f),
+                .uv = make_float2(v.uv.x, v.uv.y),
+                .packed_color = v.col};
+        }
+        for (auto i = 0u; i < triangle_count; i++) {
+            _triangles[i] = Triangle{
+                .i0 = list->IdxBuffer[i * 3u + 0u],
+                .i1 = list->IdxBuffer[i * 3u + 1u],
+                .i2 = list->IdxBuffer[i * 3u + 2u]};
+        }
+        _stream << _vertex_buffer.view(0u, vertex_count).copy_from(_vertices.data())
+                << _triangle_buffer.view(0u, triangle_count).copy_from(_triangles.data());
+    }
+
+    auto _build_accel(const ImDrawCmd *cmd, size_t total_vertex_count) noexcept {
+        AccelOption o{
+            .hint = AccelOption::UsageHint::FAST_BUILD,
+            .allow_compaction = false,
+            .allow_update = false};
+        if (!_accel) {
+            _accel = _device.create_accel(o);
+            _mesh_handle = _device.impl()->create_mesh(o).handle;
+            _accel.emplace_back(_mesh_handle);
+        }
+        auto vertex_buffer = _vertex_buffer.view(cmd->VtxOffset, total_vertex_count - cmd->VtxOffset);
+        LUISA_ASSERT(cmd->IdxOffset % 3u == 0u,
+                     "Invalid ImDrawCmd: index offset is not a multiple of 3.");
+        LUISA_ASSERT(cmd->ElemCount % 3u == 0u,
+                     "Invalid ImDrawCmd: element count is not a multiple of 3.");
+        auto triangle_buffer = _triangle_buffer.view(cmd->IdxOffset / 3u, cmd->ElemCount / 3u);
+        _stream << luisa::make_unique<MeshBuildCommand>(
+                       _mesh_handle, AccelBuildRequest::FORCE_BUILD,
+                       vertex_buffer.handle(),
+                       vertex_buffer.offset_bytes(),
+                       vertex_buffer.size_bytes(),
+                       sizeof(Vertex),
+                       triangle_buffer.handle(),
+                       triangle_buffer.offset_bytes(),
+                       triangle_buffer.size_bytes())
+                << _accel.build(AccelBuildRequest::FORCE_BUILD);
+        return std::make_pair(triangle_buffer, vertex_buffer);
     }
 
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
         auto total = 0u;
         auto vp = draw_data->OwnerViewport;
         // clear framebuffer if needed
-        if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
-            _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
-        }
+        // if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
+        //     _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
+        // }
         // render imgui draw data to framebuffer
         auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
         auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
@@ -321,6 +448,7 @@ private:
         if (all(clip_size > 0.f)) {
             for (auto i = 0u; i < draw_data->CmdListsCount; i++) {
                 auto cmd_list = draw_data->CmdLists[i];
+                _upload_vertices(cmd_list, clip_offset, clip_scale);
                 for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
                     auto cmd = &cmd_list->CmdBuffer[j];
                     // user callback
@@ -337,13 +465,14 @@ private:
                     auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
                     auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
                     if (any(clip_max <= clip_min) || cmd->ElemCount == 0) { continue; }
+                    auto [triangle_buffer, vertex_buffer] = _build_accel(cmd, cmd_list->VtxBuffer.size());
                     LUISA_INFO("clip_min = {}, clip_max = {}", clip_min, clip_max);
-                    static std::mt19937 random{std::random_device{}()};
-                    std::uniform_real_distribution<float> dist{0.f, 1.f};
-                    auto color = make_float4(dist(random), dist(random), dist(random), .2f);
                     auto clip_min_floor = make_uint2(max(floor(clip_min), 0.f));
                     auto clip_max_ceil = make_uint2(ceil(clip_max));
-                    _stream << _simple_shader(fb, color, clip_min_floor)
+                    auto tex_id = static_cast<uint>(reinterpret_cast<uint64_t>(cmd->TextureId));
+                    _stream << _render_shader(fb, clip_min_floor, _accel,
+                                              triangle_buffer, vertex_buffer,
+                                              _texture_array, tex_id)
                                    .dispatch(clip_max_ceil - clip_min_floor);
                 }
             }
@@ -355,7 +484,9 @@ private:
 
     void _render() noexcept {
         auto &io = ImGui::GetIO();
-        _draw(_main_swapchain, _main_framebuffer, ImGui::GetDrawData());
+        if (auto draw_data = ImGui::GetDrawData()) {
+            _draw(_main_swapchain, _main_framebuffer, draw_data);
+        }
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
             ImGui::UpdatePlatformWindows();
             ImGui::RenderPlatformWindowsDefault();
@@ -395,8 +526,8 @@ public:
     }
 };
 
-ImGuiWindow::ImGuiWindow(Device &device, Stream &stream, const Config &config) noexcept
-    : _impl{luisa::make_unique<Impl>(device, stream, config)} {}
+ImGuiWindow::ImGuiWindow(Device &device, Stream &stream, luisa::string name, const Config &config) noexcept
+    : _impl{luisa::make_unique<Impl>(device, stream, std::move(name), config)} {}
 
 ImGuiWindow::~ImGuiWindow() noexcept = default;
 
