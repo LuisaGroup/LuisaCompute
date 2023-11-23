@@ -16,6 +16,41 @@ using namespace clang;
 using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
+inline static void Remove(luisa::string &str, const luisa::string &remove_str) {
+    for (size_t i; (i = str.find(remove_str)) != luisa::string::npos;)
+        str.replace(i, remove_str.length(), "");
+}
+
+inline static luisa::string GetTypeName(clang::QualType type, clang::ASTContext *ctx) {
+    type = type.getCanonicalType();
+    auto baseName = luisa::string(type.getAsString(ctx->getLangOpts()));
+    Remove(baseName, "struct ");
+    Remove(baseName, "class ");
+    return baseName;
+}
+
+inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, luisa::string parent = {}) {
+    clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
+    if (!recordDecl) {
+        if (const auto *TDT = Ty->getAs<clang::TypedefType>()) {
+            Ty = TDT->getDecl()->getUnderlyingType();
+            recordDecl = Ty->getAsRecordDecl();
+        } else if (const auto *TST = Ty->getAs<clang::TemplateSpecializationType>()) {
+            recordDecl = TST->getAsRecordDecl();
+        } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
+            recordDecl = AT->getAsRecordDecl();
+            if (!parent.empty()) {
+                luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), parent);
+            } else {
+                luisa::log_error("array type is not supported: [{}]", Ty.getAsString());
+            }
+        } else {
+            Ty.dump();
+        }
+    }
+    return recordDecl;
+}
+
 const luisa::compute::Type *RecordDeclStmtHandler::RecordAsPrimitiveType(const clang::QualType Ty, const clang::RecordDecl *decl) {
     const luisa::compute::Type *_type = nullptr;
     if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
@@ -56,7 +91,7 @@ const luisa::compute::Type *RecordDeclStmtHandler::RecordAsPrimitiveType(const c
         // clang-format on
     }
     if (_type) {
-        blackboard->type_map[luisa::string(decl->getQualifiedNameAsString())] = _type;
+        blackboard->type_map[GetTypeName(Ty, blackboard->astContext)] = _type;
     }
     return _type;
 }
@@ -109,26 +144,39 @@ const luisa::compute::Type *RecordDeclStmtHandler::RecordAsBuiltinType(const Qua
                 }
             }
         } else if (builtin_type_name == "array") {
-
+            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
+                auto Arguments = TST->template_arguments();
+                clang::Expr::EvalResult Result;
+                if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *blackboard->astContext)) {
+                    auto N = Result.Val.getInt().getExtValue();
+                    auto Qualified = GetTypeName(Arguments[0].getAsType(), blackboard->astContext);
+                    auto lc_type = blackboard->type_map.find(luisa::string(Qualified));
+                    if (lc_type != blackboard->type_map.end()) {
+                        _type = Type::array(lc_type->second, N);
+                    } else {
+                        luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
+                    }
+                }
+            }
         } else {
             luisa::log_error("unsupported builtin type: {} as a field", luisa::string(builtin_type_name));
         }
     }
     if (_type) {
-        blackboard->type_map[luisa::string(decl->getQualifiedNameAsString())] = _type;
+        blackboard->type_map[GetTypeName(Ty, blackboard->astContext)] = _type;
     }
     return _type;
 }
 
 const luisa::compute::Type *RecordDeclStmtHandler::RecordAsStuctureType(const clang::QualType Ty, const clang::RecordDecl *decl) {
     const luisa::compute::Type *_type = nullptr;
-    auto field_qualified_type_name = luisa::string(decl->getQualifiedNameAsString());
+    auto field_qualified_type_name = GetTypeName(Ty, blackboard->astContext);
     auto iter = blackboard->type_map.find(field_qualified_type_name);
     if (iter != blackboard->type_map.end()) {
         _type = iter->second;
     }
     if (_type) {
-        blackboard->type_map[luisa::string(decl->getQualifiedNameAsString())] = _type;
+        blackboard->type_map[GetTypeName(Ty, blackboard->astContext)] = _type;
     }
     return _type;
 }
@@ -144,27 +192,13 @@ bool RecordDeclStmtHandler::TryEmplaceFieldType(const clang::QualType Qt, const 
                              Ty.getAsString(), builtin->getKind(), decl->getNameAsString());
         }
     } else {
-        // 2.0 RESOLVE TO RECORD
-        clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
-        if (!recordDecl) {
-            if (const auto *TDT = Ty->getAs<clang::TypedefType>()) {
-                Ty = TDT->getDecl()->getUnderlyingType();
-                recordDecl = Ty->getAsRecordDecl();
-            } else if (const auto *TST = Ty->getAs<clang::TemplateSpecializationType>()) {
-                recordDecl = TST->getAsRecordDecl();
-            } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
-                luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), decl->getNameAsString());
-            } else {
-                Ty.dump();
-            }
-        }
-        // 2.1 EMPLACE RECORD
-        if (recordDecl) {
-            // 2.1.1 AS BUILTIN
+        // 2. EMPLACE RECORD
+        if (clang::RecordDecl *recordDecl = GetRecordDeclFromQualType(Ty, luisa::string(decl->getNameAsString()))) {
+            // 2.1 AS BUILTIN
             if (!_type) {
                 _type = RecordAsBuiltinType(Ty, recordDecl);
             }
-            // 2.1.2 AS STRUCTURE
+            // 2.2 AS STRUCTURE
             if (!_type) {
                 _type = RecordAsStuctureType(Ty, recordDecl);
             }
@@ -184,14 +218,14 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
         bool ignore = false;
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            ignore = isIgnore(*Anno) || isBuiltinType(*Anno);
+            ignore |= isIgnore(*Anno) || isBuiltinType(*Anno);
         }
         if (!ignore) {
             luisa::vector<const luisa::compute::Type *> types;
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
                 if (!TryEmplaceFieldType(Ty, S, types)) {
-                    S->dump();
+                    // S->dump();
                     luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
                 }
             }
@@ -201,9 +235,8 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 alignment = std::max(alignment, ft->alignment());
             }
             auto lc_type = Type::structure(alignment, types);
-            auto qualified_name = S->getQualifiedNameAsString();
-            blackboard->type_map[luisa::string(qualified_name)] = lc_type;
-            // std::cout << lc_type->description() << std::endl;
+            QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
+            blackboard->type_map[GetTypeName(Ty, blackboard->astContext)] = lc_type;
         }
     }
 }
@@ -253,10 +286,20 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         bool ignore = false;
         auto params = S->parameters();
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            ignore = isIgnore(*Anno);
+            ignore |= isIgnore(*Anno);
+        }
+        if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
+            if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
+                for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                    ignore |= isBuiltinType(*Anno);
+                }
+            } else {
+                Method->getThisType()->dump();
+                luisa::log_error("unfound this type [{}] in method [{}]",
+                                 Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
+            }
         }
         if (!ignore) {
-            // std::cout << S->getName().data() << std::endl;
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {
@@ -318,19 +361,6 @@ void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
     // 1. collect
     blackboard.astContext = &Context;
     Matcher.matchAST(Context);
-}
-
-void Remove(std::string &str, const std::string &remove_str) {
-    for (size_t i; (i = str.find(remove_str)) != std::string::npos;)
-        str.replace(i, remove_str.length(), "");
-}
-
-std::string GetTypeName(clang::QualType type, clang::ASTContext *ctx) {
-    type = type.getCanonicalType();
-    auto baseName = type.getAsString(ctx->getLangOpts());
-    Remove(baseName, "struct ");
-    Remove(baseName, "class ");
-    return baseName;
 }
 
 }// namespace luisa::clangcxx

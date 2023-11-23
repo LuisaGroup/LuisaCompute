@@ -9,14 +9,15 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
+
+#include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
+
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
-#include <luisa/core/stl/unordered_map.h>
-#include <luisa/runtime/device.h>
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"

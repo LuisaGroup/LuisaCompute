@@ -2,7 +2,6 @@
 #include <utility>
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/unordered_map.h>
-#include "luisa/core/dll_export.h"
 #include "luisa/runtime/device.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"

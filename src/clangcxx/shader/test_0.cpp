@@ -21,6 +21,7 @@ namespace luisa::shader
         int3 i3;
         uint3 u3;
         F fuck;
+        Array<int, 3> a3;
         // ! not supportted ! 
         // int ds[5];
         // Buffer<int> b;
@@ -34,5 +35,12 @@ int main()
 {
     NVIDIA n = {};
     buffer.store(0, n);
+    int a = 13;
+    int b {13};
+    int c (13);
+    int d = int{13};
+    int e = int(13);
+    int f = {13};
+    int g = (13);
     return 0;
 }
