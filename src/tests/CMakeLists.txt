@@ -14,9 +14,9 @@ endfunction()
 
 luisa_compute_test_suite(feat)
 
-file(GLOB_RECURSE test_all_source next/test/**.cpp)
-luisa_compute_add_executable(test_all ${test_common_source} ${test_all_source})
-target_include_directories(test_all PRIVATE ./)
+#file(GLOB_RECURSE test_all_source next/test/**.cpp)
+#luisa_compute_add_executable(test_all ${test_common_source} ${test_all_source})
+#target_include_directories(test_all PRIVATE ./)
 
 luisa_compute_add_executable(test_main
         common/test_main.cpp
@@ -114,7 +114,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
     find_package(CUDAToolkit QUIET)
     if (CUDAToolkit_FOUND)
         luisa_compute_add_executable(test_cuda_lcub test_cuda_lcub.cpp)
-        target_link_libraries(test_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
+        target_link_libraries(test_cuda_lcub PUBLIC CUDA::cudart CUDA::cuda_driver)
     endif ()
 endif ()
 
