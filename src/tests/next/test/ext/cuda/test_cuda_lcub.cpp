@@ -98,10 +98,10 @@ TEST_SUITE("ext_cuda") {
 
         SUBCASE("radix_sort") {
             for (auto i = 0; i < num_item; i++) {
-                input[i] = num_item - i - 1;
-                key_u64_in[i] = static_cast<uint64_t>(num_item - i - 1);
-                gt[i] = i;
-                key_u64_gt[i] = static_cast<uint64_t>(i);
+                key_u64_in[i] = static_cast<uint64_t>(num_item - i - 1) / 32u << 32;
+                key_u64_in[i] |= static_cast<uint64_t>(num_item - i - 1);
+                key_u64_gt[i] = static_cast<uint64_t>(i) / 32u << 32;
+                key_u64_gt[i] |= static_cast<uint64_t>(i);
             }
             // REQUIRE(luisa::test::test_lcub_radix_sort<int, int>(device, num_item, input, gt) == 0);
             REQUIRE(luisa::test::test_lcub_radix_sort<uint64_t, uint32_t>(device, num_item, key_u64_in, key_u64_gt) == 0);
