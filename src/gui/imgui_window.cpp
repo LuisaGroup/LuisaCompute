@@ -84,6 +84,7 @@ private:
     Image<float> _main_framebuffer;
     Image<float> _font_texture;
     BindlessArray _texture_array;
+    uint _texture_array_offset{0u};
     luisa::unordered_map<ImGuiID, Swapchain> _platform_swapchains;
     luisa::unordered_map<ImGuiID, Image<float>> _platform_framebuffers;
     Shader2D<Image<float>, float3> _clear_shader;
@@ -243,6 +244,9 @@ public:
             }
         });
 
+        // create texture array
+        _texture_array = _device.create_bindless_array();
+
         // create shaders
         _clear_shader = _device.compile<2>([](ImageFloat fb, Float3 color) noexcept {
             auto tid = dispatch_id().xy();
@@ -281,6 +285,16 @@ public:
     [[nodiscard]] auto set_should_close(bool b) noexcept {
         glfwSetWindowShouldClose(_main_window, b);
     }
+    [[nodiscard]] auto register_texture(const Image<float> &image, Sampler sampler) noexcept {
+        return _with_context([&] {
+            auto &io = ImGui::GetIO();
+            auto tex_id = static_cast<uint64_t>(_texture_array_offset++);
+            _texture_array.emplace_on_update(tex_id, _font_texture, Sampler::linear_point_mirror());
+            _stream << _texture_array.update();
+            io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(tex_id));
+            return tex_id;
+        });
+    }
 
 private:
     void _create_font_texture() noexcept {
@@ -290,11 +304,7 @@ private:
         io.Fonts->GetTexDataAsAlpha8(&pixels, &width, &height);
         // TODO: mipmaps?
         _font_texture = _device.create_image<float>(PixelStorage::BYTE1, width, height, 1);
-        _texture_array = _device.create_bindless_array();
-        _texture_array.emplace_on_update(0u, _font_texture, Sampler::linear_point_mirror());
-        _stream << _font_texture.copy_from(pixels)
-                << _texture_array.update();
-        io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(0ull));
+        _stream << _font_texture.copy_from(pixels);
     }
 
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
@@ -331,8 +341,10 @@ private:
                     static std::mt19937 random{std::random_device{}()};
                     std::uniform_real_distribution<float> dist{0.f, 1.f};
                     auto color = make_float4(dist(random), dist(random), dist(random), .2f);
-                    _stream << _simple_shader(fb, color, make_uint2(clip_min))
-                                   .dispatch(make_uint2(clip_max - clip_min));
+                    auto clip_min_floor = make_uint2(max(floor(clip_min), 0.f));
+                    auto clip_max_ceil = make_uint2(ceil(clip_max));
+                    _stream << _simple_shader(fb, color, clip_min_floor)
+                                   .dispatch(clip_max_ceil - clip_min_floor);
                 }
             }
         }
@@ -396,5 +408,9 @@ bool ImGuiWindow::should_close() const noexcept { return _impl->should_close(); 
 void ImGuiWindow::set_should_close(bool b) noexcept { _impl->set_should_close(b); }
 void ImGuiWindow::prepare_frame() noexcept { _impl->prepare_frame(); }
 void ImGuiWindow::render_frame() noexcept { _impl->render_frame(); }
+
+uint64_t ImGuiWindow::register_texture(const Image<float> &image, const Sampler &sampler) noexcept {
+    return _impl->register_texture(image, sampler);
+}
 
 }// namespace luisa::compute

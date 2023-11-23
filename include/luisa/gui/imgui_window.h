@@ -14,6 +14,8 @@ class Swapchain;
 template<typename T>
 class Image;
 
+class Sampler;
+
 class LC_GUI_API ImGuiWindow {
 
 public:
@@ -49,6 +51,7 @@ public:
     void set_should_close(bool b = true) noexcept;
     void prepare_frame() noexcept;// calls glfwPollEvents, ImGui::NewFrame, and other stuff; also makes the context current
     void render_frame() noexcept; // calls ImGui::Render, glfwSwapBuffers, and other stuff; also restores the current context as before prepare_frame
+    [[nodiscard]] uint64_t register_texture(const Image<float> &image, const Sampler &sampler) noexcept;
 
     template<typename F>
     void wtih_frame(F &&f) noexcept {
