@@ -1,6 +1,5 @@
 #include "raster_ext_impl.h"
 #include "rw_resource.h"
-#include "device.h"
 #include "depth_buffer.h"
 #include <luisa/core/logging.h>
 namespace lc::validation {

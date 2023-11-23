@@ -453,6 +453,7 @@ void FunctionBuilder::_compute_hash() noexcept {
     for (auto &&arg : _arguments) { hashes.emplace_back(hash_value(arg)); }
     for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
     hashes.emplace_back(hash_value(_block_size));
+    hashes.emplace_back(_required_curve_bases.hash());
     _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
     _hash_computed = true;
 }
@@ -561,6 +562,14 @@ const CallExpr *FunctionBuilder::call(const Type *type,
     return expr;
 }
 
+void FunctionBuilder::mark_required_curve_basis(CurveBasis basis) noexcept {
+    _required_curve_bases.mark(basis);
+}
+
+void FunctionBuilder::mark_required_curve_basis_set(CurveBasisSet basis_set) noexcept {
+    _required_curve_bases.propagate(basis_set);
+}
+
 void FunctionBuilder::call(luisa::shared_ptr<const ExternalFunction> func,
                            luisa::span<const Expression *const> args) noexcept {
     _void_expr(call(nullptr, std::move(func), args));
@@ -638,6 +647,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         _used_custom_callables.emplace_back(custom.shared_builder());
         // propagate used builtin/custom callables and constants
         _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
+        _required_curve_bases.propagate(f->_required_curve_bases);
         _requires_atomic_float |= f->_requires_atomic_float;
         _requires_printing |= f->_requires_printing;
     }

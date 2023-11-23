@@ -2,8 +2,11 @@ use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 
+
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
+use log::warn;
+
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;
@@ -500,11 +503,19 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         let rhs = self._convert_expression(&j["rhs"], false);
         let op = j["op"].as_str().unwrap();
         let (t_lhs, t_rhs, t_ret) = Self::_promote_binary_op_types(op, lhs.type_(), rhs.type_());
-        assert_eq!(
-            t_ret.as_ref(),
-            t.as_ref(),
-            "Mismatched result types in binary operator."
-        );
+        if t_ret.as_ref() != t.as_ref() {
+            warn!(
+                "Mismatched result types in binary operator '{}': {} vs {}. Trying to cast.",
+                op,
+                t_ret.as_ref(),
+                t.as_ref()
+            );
+        }
+        // assert_eq!(
+        //     t_ret.as_ref(),
+        //     t.as_ref(),
+        //     "Mismatched result types in binary operator."
+        // );
         let (builder, ..) = self.unwrap_ctx();
         let lhs = Self::_cast(builder, &t_lhs, lhs);
         let rhs = Self::_cast(builder, &t_rhs, rhs);
@@ -560,7 +571,12 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "NOT_EQUAL" => Func::Ne,
             _ => panic!("Invalid binary operator: {}.", op),
         };
-        builder.call(op, &[lhs, rhs], t_ret.clone())
+        let ret = builder.call(op, &[lhs, rhs], t_ret.clone());
+        if t_ret.as_ref() != t.as_ref() {
+            Self::_cast(builder, &t, ret)
+        } else {
+            ret
+        }
     }
 
     fn _convert_member_expr(&mut self, t: &CArc<Type>, j: &JSON, is_lval: bool) -> NodeRef {
@@ -933,16 +949,16 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let msg = if args.len() > 1 {
                     decode_string_id_expr(&args[1])
                 } else {
-                    CBoxedSlice::from("Assertion failed!".as_bytes())
+                    CBoxedSlice::new(Vec::new())
                 };
                 Func::Assert(msg)
             }
             "ASSUME" => Func::Assume,
             "UNREACHABLE" => {
                 let msg = if args.len() > 0 {
-                    decode_string_id_expr(&args[1])
+                    decode_string_id_expr(&args[0])
                 } else {
-                    CBoxedSlice::from("Unreachable code!".as_bytes())
+                    CBoxedSlice::new(Vec::new())
                 };
                 Func::Unreachable(msg)
             }
@@ -1430,13 +1446,36 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                     let mut scalars = Vec::new();
                     for arg in args {
                         if arg.type_().is_primitive() {
-                            assert_eq!(arg.type_().as_ref(), elem.as_ref());
-                            scalars.push(arg);
+                            if arg.type_().as_ref() != elem.as_ref() {
+                                warn!(
+                                    "Implicit cast from {:?} to {:?} in {}.",
+                                    arg.type_().as_ref(),
+                                    elem.as_ref(),
+                                    f
+                                );
+                                let arg = Self::_cast(builder, &elem, arg);
+                                scalars.push(arg);
+                            } else {
+                                scalars.push(arg);
+                            }
                         } else {
-                            assert_eq!(arg.type_().element().as_ref(), elem.as_ref());
                             assert!(arg.type_().is_vector());
+                            let arg = if arg.type_().element().as_ref() != elem.as_ref() {
+                                let elem_vec =
+                                    Type::vector_of(elem.clone(), arg.type_().dimension() as u32);
+                                warn!(
+                                    "Implicit cast from {:?} to {:?} in {}.",
+                                    arg.type_().as_ref(),
+                                    elem_vec.as_ref(),
+                                    f
+                                );
+                                Self::_cast(builder, &elem_vec, arg)
+                            } else {
+                                arg
+                            };
                             for i in 0..arg.type_().dimension() {
-                                scalars.push(builder.extract(arg, i, elem.clone()));
+                                let x = builder.extract(arg, i, elem.clone());
+                                scalars.push(x);
                             }
                         };
                     }
@@ -1448,13 +1487,75 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 let n = f.chars().last().unwrap().to_digit(10).unwrap();
                 let ret = Type::matrix(Primitive::Float32, n);
                 check_same_types!(t, ret);
-                let is_lval: Vec<_> = (0..n).map(|_| false).collect();
-                let args = convert_args(is_lval.as_slice());
-                let col = Type::vector(Primitive::Float32, n);
-                args.iter().for_each(|arg| {
-                    assert_eq!(arg.type_().as_ref(), col.as_ref());
-                });
-                args
+                if args.len() as u32 == n * n {
+                    let is_lval: Vec<_> = (0..n * n).map(|_| false).collect();
+                    let elem_type = ret.element();
+                    let args = convert_args(is_lval.as_slice());
+                    assert!(args
+                        .iter()
+                        .all(|arg| arg.type_().as_ref() == elem_type.as_ref()));
+                    // convert to columns
+                    let (builder, ..) = self.unwrap_ctx();
+                    let col_type = match t.as_ref() {
+                        Type::Matrix(m) => m.column(),
+                        _ => unreachable!(),
+                    };
+                    match n {
+                        2 => {
+                            let col0 =
+                                builder.call(Func::Vec2, &[args[0], args[1]], col_type.clone());
+                            let col1 = builder.call(Func::Vec2, &[args[2], args[3]], col_type);
+                            vec![col0, col1]
+                        }
+                        3 => {
+                            let col0 = builder.call(
+                                Func::Vec3,
+                                &[args[0], args[1], args[2]],
+                                col_type.clone(),
+                            );
+                            let col1 = builder.call(
+                                Func::Vec3,
+                                &[args[3], args[4], args[5]],
+                                col_type.clone(),
+                            );
+                            let col2 =
+                                builder.call(Func::Vec3, &[args[6], args[7], args[8]], col_type);
+                            vec![col0, col1, col2]
+                        }
+                        4 => {
+                            let col0 = builder.call(
+                                Func::Vec4,
+                                &[args[0], args[1], args[2], args[3]],
+                                col_type.clone(),
+                            );
+                            let col1 = builder.call(
+                                Func::Vec4,
+                                &[args[4], args[5], args[6], args[7]],
+                                col_type.clone(),
+                            );
+                            let col2 = builder.call(
+                                Func::Vec4,
+                                &[args[8], args[9], args[10], args[11]],
+                                col_type.clone(),
+                            );
+                            let col3 = builder.call(
+                                Func::Vec4,
+                                &[args[12], args[13], args[14], args[15]],
+                                col_type,
+                            );
+                            vec![col0, col1, col2, col3]
+                        }
+                        _ => panic!("Invalid matrix dimension {}.", n),
+                    }
+                } else {
+                    let is_lval: Vec<_> = (0..n).map(|_| false).collect();
+                    let args = convert_args(is_lval.as_slice());
+                    let col = Type::vector(Primitive::Float32, n);
+                    args.iter().for_each(|arg| {
+                        assert_eq!(arg.type_().as_ref(), col.as_ref());
+                    });
+                    args
+                }
             }
             "ASSERT" => {
                 assert!(args.len() == 1 || args.len() == 2);
@@ -2037,7 +2138,30 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
         self._curr_ctx_mut().builder = old_builder;
         // finalize
         let entry = builder.finish();
+        let curve_bases = {
+            let mut bases = CurveBasisSet::empty();
+            self._curr_ctx().j["curve_bases"].members().for_each(|b| {
+                let b = b.as_str().unwrap();
+                match b {
+                    "PIECEWISE_LINEAR" => {
+                        bases.insert(CurveBasisSet::PIECEWISE_LINEAR);
+                    }
+                    "CUBIC_BSPLINE" => {
+                        bases.insert(CurveBasisSet::CUBIC_BSPLINE);
+                    }
+                    "CATMULL_ROM" => {
+                        bases.insert(CurveBasisSet::CATMULL_ROM);
+                    }
+                    "BEZIER" => {
+                        bases.insert(CurveBasisSet::BEZIER);
+                    }
+                    _ => panic!("Invalid curve basis: {}", b),
+                }
+            });
+            bases
+        };
         Module {
+            curve_basis_set: curve_bases,
             kind,
             entry,
             pools: self.pools.clone(),

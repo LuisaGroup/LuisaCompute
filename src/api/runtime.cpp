@@ -93,7 +93,7 @@ private:
                         convert_sampler(api_tex3d.sampler),
                         convert_op(api_tex3d.op));
                     modifications.emplace_back(slot, buffer, tex2d, tex3d);
-                }// Manually conversion is painful...
+                }// Manually conversion is wonderfull!
                 return luisa::make_unique<BindlessArrayUpdateCommand>(
                     c.handle._0, std::move(modifications));
             }
@@ -196,6 +196,13 @@ private:
                     convert_accel_request(request),
                     vertex_buffer._0, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
                     index_buffer._0, index_buffer_offset, index_buffer_size);
+            }
+            case LC_COMMAND_CURVE_BUILD: {
+                auto [curve, request, basis, cp_count, seg_count, cp_buffer, cp_buffer_offset, cp_buffer_stride, seg_buffer, seg_buffer_offset] = cmd.curve_build;
+                return luisa::make_unique<CurveBuildCommand>(
+                    curve._0,
+                    convert_accel_request(request),
+                    static_cast<CurveBasis>(basis), cp_count, seg_count, cp_buffer._0, cp_buffer_offset, cp_buffer_stride, seg_buffer._0, seg_buffer_offset);
             }
             case LC_COMMAND_PROCEDURAL_PRIMITIVE_BUILD: {
                 auto [primitive, request, aabb_buffer, aabb_offset, aabb_count] = cmd.procedural_primitive_build;
@@ -414,6 +421,8 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
         .enable_fast_math = option.enable_fast_math,
         .enable_debug_info = option.enable_debug_info,
         .compile_only = option.compile_only,
+        .max_registers = option.max_registers,
+        .time_trace = option.time_trace,
         .name = luisa::string{option.name}};
 
     auto info = d->create_shader(shader_option, ir);
@@ -493,6 +502,27 @@ LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) L
     auto handle = mesh._0;
     auto d = reinterpret_cast<DeviceInterface *>(device._0);
     d->destroy_mesh(handle);
+}
+LUISA_EXPORT_API LCCreatedResourceInfo
+luisa_compute_curve_create(LCDevice device, const LCAccelOption *option_) LUISA_NOEXCEPT {
+    const auto &option = *option_;
+    auto d = reinterpret_cast<DeviceInterface *>(device._0);
+    auto accel_option = AccelOption{
+        .hint = AccelOption::UsageHint{(uint32_t)to_underlying(option.hint)},
+        .allow_compaction = option.allow_compaction,
+        .allow_update = option.allow_update,
+    };
+    auto info = d->create_curve(accel_option);
+    return LCCreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
+}
+
+LUISA_EXPORT_API void luisa_compute_curve_destroy(LCDevice device, LCCurve curve) LUISA_NOEXCEPT {
+    auto handle = curve._0;
+    auto d = reinterpret_cast<DeviceInterface *>(device._0);
+    d->destroy_curve(handle);
 }
 
 LUISA_EXPORT_API LCCreatedResourceInfo
@@ -645,10 +675,8 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
             },
 
             .init = [](const LCDenoiserExt *ext, LCDenoiser *denoiser, const LCDenoiserInput *c_input) {
-                DenoiserExt::DenoiserInput input{};
+                DenoiserExt::DenoiserInput input{c_input->width, c_input->height};
                 input.noisy_features = c_input->noisy_features;
-                input.width = c_input->width;
-                input.height = c_input->height;
                 switch(c_input->prefilter_mode) {
                     case LC_PREFILTER_MODE_NONE:
                         input.prefilter_mode = DenoiserExt::PrefilterMode::NONE;
@@ -694,7 +722,7 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                         case LC_IMAGE_FORMAT_HALF4:
                             return DenoiserExt::ImageFormat::HALF4;
                         default:
-                            LUISA_ERROR_WITH_LOCATION("Invalid image format {}.", fmt);
+                            LUISA_ERROR_WITH_LOCATION("Invalid image format {}.", (int)fmt);
                     }
                 };
                 auto convert_color_space = [](LCImageColorSpace cs) {
@@ -706,7 +734,7 @@ LCDenoiserExt luisa_compute_denoiser_ext(LCDevice device) {
                         case LC_IMAGE_COLOR_SPACE_LDR_SRGB:
                             return DenoiserExt::ImageColorSpace::LDR_SRGB;
                         default:
-                            LUISA_ERROR_WITH_LOCATION("Invalid image color space {}.", cs);
+                            LUISA_ERROR_WITH_LOCATION("Invalid image color space {}.", (int)cs);
                     }
                 };
                 auto convert_img = [&](LCImage img)->DenoiserExt::Image {
@@ -770,6 +798,8 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     interface.dispatch = luisa_compute_stream_dispatch;
     interface.create_mesh = luisa_compute_mesh_create;
     interface.destroy_mesh = luisa_compute_mesh_destroy;
+    interface.create_curve = luisa_compute_curve_create;
+    interface.destroy_curve = luisa_compute_curve_destroy;
     interface.create_accel = luisa_compute_accel_create;
     interface.destroy_accel = luisa_compute_accel_destroy;
     interface.create_swapchain = luisa_compute_swapchain_create;

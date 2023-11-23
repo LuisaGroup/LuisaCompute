@@ -80,4 +80,3 @@ _MTL_INLINE bool MTL::DynamicLibrary::serializeToURL(const NS::URL* url, NS::Err
 {
     return Object::sendMessage<bool>(this, _MTL_PRIVATE_SEL(serializeToURL_error_), url, error);
 }
-

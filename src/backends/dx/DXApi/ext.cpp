@@ -7,7 +7,8 @@
 #include <Resource/ExternalBuffer.h>
 #include <Resource/ExternalTexture.h>
 #include <Resource/ExternalDepth.h>
-#include <Resource/Buffer.h>
+#include <Resource/UploadBuffer.h>
+#include <Resource/ReadbackBuffer.h>
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/DStorageCommandQueue.h>
@@ -279,6 +280,46 @@ void DStorageExtImpl::set_config(bool hdd) noexcept {
     }
     init_factory_nolock();
 }
+BufferCreationInfo DxPinnedMemoryExt::_pin_host_memory(
+    const Type *elem_type, size_t elem_count,
+    void *host_ptr, const PinnedMemoryOption &option) noexcept {
+    LUISA_ERROR("DX backend can not pin host memory.");
+    return BufferCreationInfo::make_invalid();
+}
+
+DeviceInterface *DxPinnedMemoryExt::device() const noexcept {
+    return _device;
+}
+
+BufferCreationInfo DxPinnedMemoryExt::_allocate_pinned_memory(
+    const Type *elem_type, size_t elem_count,
+    const PinnedMemoryOption &option) noexcept {
+    BufferCreationInfo info{};
+    if (elem_type == Type::of<void>()) {
+        info.total_size_bytes = elem_count;
+        info.element_stride = 1u;
+    } else {
+        LUISA_ASSERT(!elem_type->is_custom(), "Custom type not allowed.");
+        info.element_stride = elem_type->size();
+        info.total_size_bytes = info.element_stride * elem_count;
+    }
+    if (option.write_combined) {
+        auto res = new UploadBuffer(
+            &_device->nativeDevice,
+            info.total_size_bytes,
+            _device->nativeDevice.defaultAllocator.get());
+        info.handle = resource_to_handle(res);
+        info.native_handle = res->MappedPtr();
+    } else {
+        auto res = new ReadbackBuffer(
+            &_device->nativeDevice,
+            info.total_size_bytes,
+            _device->nativeDevice.defaultAllocator.get());
+        info.handle = resource_to_handle(res);
+        info.native_handle = res->MappedPtr();
+    }
+    return info;
+}
 
 }// namespace lc::dx
 #ifdef LUISA_BACKEND_ENABLE_OIDN
@@ -356,12 +397,15 @@ DXOidnDenoiser::DXOidnDenoiser(LCDevice *_device, oidn::DeviceRef &&oidn_device,
 }
 DXOidnDenoiserExt::DXOidnDenoiserExt(LCDevice *device) noexcept
     : _device{device} {}
-luisa::shared_ptr<Denoiser> DXOidnDenoiserExt::create(uint64_t stream) noexcept override {
+luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(uint64_t stream) noexcept {
     DXGI_ADAPTER_DESC1 desc;
     _device->nativeDevice.adapter->GetDesc1(&desc);
     auto device_id = desc.DeviceId;
     LUISA_ASSERT(device_id != -1, "device_id should not be -1.");
     return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newCUDADevice(device_id, 0), stream);
+}
+luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &stream) noexcept {
+    return create(stream.handle());
 }
 }// namespace lc::dx
 #endif

@@ -30,18 +30,22 @@ UploadBuffer::UploadBuffer(
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
+    ThrowIfFailed(allocHandle.resource->Map(0, nullptr, reinterpret_cast<void **>(&mappedPtr)));
 }
+UploadBuffer::UploadBuffer(UploadBuffer &&rhs)
+    : Buffer(std::move(rhs)),
+      allocHandle(std::move(rhs.allocHandle)),
+      byteSize(rhs.byteSize),
+      mappedPtr(rhs.mappedPtr) {
+    rhs.mappedPtr = nullptr;
+}
+
 UploadBuffer::~UploadBuffer() {
+    if (mappedPtr) {
+        allocHandle.resource->Unmap(0, nullptr);
+    }
 }
 void UploadBuffer::CopyData(uint64 offset, vstd::span<uint8_t const> data) const {
-    void *mappedPtr;
-    D3D12_RANGE range;
-    range.Begin = offset;
-    range.End = offset + data.size();
-    ThrowIfFailed(allocHandle.resource->Map(0, &range, reinterpret_cast<void **>(&mappedPtr)));
-    auto disp = vstd::scope_exit([&] {
-        allocHandle.resource->Unmap(0, &range);
-    });
     memcpy(reinterpret_cast<uint8_t *>(mappedPtr) + offset, data.data(), data.size());
 }
 

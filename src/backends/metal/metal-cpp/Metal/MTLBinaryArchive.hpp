@@ -137,4 +137,3 @@ _MTL_INLINE bool MTL::BinaryArchive::addFunction(const MTL::FunctionDescriptor* 
 {
     return Object::sendMessage<bool>(this, _MTL_PRIVATE_SEL(addFunctionWithDescriptor_library_error_), descriptor, library, error);
 }
-

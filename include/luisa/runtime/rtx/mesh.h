@@ -7,6 +7,7 @@
 namespace luisa::compute {
 
 class Accel;
+
 // Mesh is buttom-level acceleration structure(BLAS) for ray-tracing, it present triangle-mesh only, custom intersection see ProceduralPrimitive
 class LC_RUNTIME_API Mesh final : public Resource {
 
@@ -32,7 +33,8 @@ private:
                  std::same_as<buffer_element_t<TBuffer>, Triangle>
     [[nodiscard]] static ResourceCreationInfo _create_resource(
         DeviceInterface *device, const AccelOption &option,
-        const VBuffer &vertex_buffer, const TBuffer &triangle_buffer) noexcept {
+        const VBuffer &vertex_buffer [[maybe_unused]],
+        const TBuffer &triangle_buffer [[maybe_unused]]) noexcept {
         return device->create_mesh(option);
     }
 
@@ -52,7 +54,9 @@ private:
           _t_buffer_size{BufferView{triangle_buffer}.size_bytes()} {}
 
     template<typename VBuffer, typename TBuffer>
-    Mesh(DeviceInterface *device, const VBuffer &vertex_buffer, size_t vertex_stride, const TBuffer &triangle_buffer,
+    Mesh(DeviceInterface *device,
+         const VBuffer &vertex_buffer, size_t vertex_stride,
+         const TBuffer &triangle_buffer,
          const AccelOption &option) noexcept
         : Resource{device, Resource::Tag::MESH,
                    _create_resource(device, option, vertex_buffer, triangle_buffer)},

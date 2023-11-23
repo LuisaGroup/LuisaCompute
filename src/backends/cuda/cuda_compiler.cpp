@@ -8,10 +8,10 @@
 
 #ifndef LUISA_COMPUTE_STANDALONE_NVRTC_DLL
 extern "C" {
-char *luisa_nvrtc_compile_to_ptx(
+LUISA_NVRTC_StringBuffer luisa_nvrtc_compile(
     const char *filename, const char *src,
     const char *const *options, size_t num_options);
-void luisa_nvrtc_free_ptx(char *ptx);
+void luisa_nvrtc_free(LUISA_NVRTC_StringBuffer buffer);
 int luisa_nvrtc_version();
 }
 #endif
@@ -36,9 +36,10 @@ luisa::string CUDACompiler::compile(const luisa::string &src, const luisa::strin
     if (auto ptx = _cache->fetch(hash)) { return *ptx; }
 
     auto filename = src_filename.empty() ? "my_kernel.cu" : src_filename.c_str();
-    auto ptx_c_str = _compile_func(filename, src.c_str(), options.data(), options.size());
-    auto ptx = luisa::string{ptx_c_str};
-    _free_func(ptx_c_str);
+    auto is_ray_tracing = std::find(options.begin(), options.end(), "--optix-ir") != options.end();
+    auto output = _compile_func(filename, src.c_str(), options.data(), options.size());
+    auto ptx = luisa::string{output.data, output.size};
+    _free_func(output);
     LUISA_VERBOSE("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;
 }
@@ -80,15 +81,15 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
       _cache{Cache::create(max_cache_item_count)} {
 
 #ifdef LUISA_COMPUTE_STANDALONE_NVRTC_DLL
-    _nvrtc_module = DynamicModule::load("lc-backend-cuda-nvrtc");
+    _nvrtc_module = DynamicModule::load("lc-cuda-nvrtc");
     LUISA_ASSERT(_nvrtc_module, "Failed to load CUDA NVRTC module.");
     _version_func = _nvrtc_module.function<nvrtc_version_func>("luisa_nvrtc_version");
-    _compile_func = _nvrtc_module.function<nvrtc_compile_func>("luisa_nvrtc_compile_to_ptx");
-    _free_func = _nvrtc_module.function<nvrtc_free_func>("luisa_nvrtc_free_ptx");
+    _compile_func = _nvrtc_module.function<nvrtc_compile_func>("luisa_nvrtc_compile");
+    _free_func = _nvrtc_module.function<nvrtc_free_func>("luisa_nvrtc_free");
 #else
     _version_func = &luisa_nvrtc_version;
-    _compile_func = &luisa_nvrtc_compile_to_ptx;
-    _free_func = &luisa_nvrtc_free_ptx;
+    _compile_func = &luisa_nvrtc_compile;
+    _free_func = &luisa_nvrtc_free;
 #endif
 
     _nvrtc_version = _version_func();

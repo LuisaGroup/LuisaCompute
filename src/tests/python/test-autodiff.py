@@ -16,13 +16,17 @@ x_buffer.copy_from(x_values)
 y_buffer.copy_from(y_values)
 
 @func
+def f(x: float, y: float2):
+    return x * x + y.x * y.x + y.y * y.y
+
+@func
 def shader():
     i = dispatch_id().x
     x = x_buffer.read(i)
     y = y_buffer.read(i)
     with autodiff():
         requires_grad(x, y)
-        z = x * x + y.x * y.x + y.y * y.y
+        z = f(x, y)
         backward(z)
         dx = grad(x)
         dy = grad(y)

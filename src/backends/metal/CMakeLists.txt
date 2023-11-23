@@ -33,6 +33,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_callback_context.cpp metal_callback_context.h
             metal_primitive.cpp metal_primitive.h
             metal_procedural_primitive.cpp metal_procedural_primitive.h
+            metal_curve.cpp metal_curve.h
             metal_mesh.cpp metal_mesh.h
             metal_accel.cpp metal_accel.h
             metal_buffer.cpp metal_buffer.h

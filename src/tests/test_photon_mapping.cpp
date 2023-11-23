@@ -255,7 +255,7 @@ int main(int argc, char *argv[]) {
 
         $for(depth, max_depth) {
             // trace
-            Var<TriangleHit> hit = accel.trace_closest(light_ray);
+            Var<TriangleHit> hit = accel.intersect(light_ray, {});
             $if(hit->miss()) { $break; };
             // $if(hit.inst == 0 & hit.prim == 0) { $break; };
             // TODO
@@ -267,7 +267,7 @@ int main(int argc, char *argv[]) {
             Float3 p0 = vertex_buffer->read(triangle.i0);
             Float3 p1 = vertex_buffer->read(triangle.i1);
             Float3 p2 = vertex_buffer->read(triangle.i2);
-            Float3 p = hit->interpolate(p0, p1, p2);
+            Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
             Float3 n = normalize(cross(p1 - p0, p2 - p0));
             Float cos_wi = dot(-light_ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
@@ -396,7 +396,7 @@ int main(int argc, char *argv[]) {
         Float3 radiance = def(make_float3(0.0f));
         Float radius = def(photon_radius);
 
-        Var<TriangleHit> hit = accel.trace_closest(ray);
+        Var<TriangleHit> hit = accel.intersect(ray, {});
         // $if(!hit->miss() & (hit.inst != 0 | hit.prim != 0)) {
         $if(!hit->miss()) {
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -407,7 +407,7 @@ int main(int argc, char *argv[]) {
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
                 Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
+                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
                 Var<Material> material = material_buffer->read(hit.inst);
                 Float cos_wi = dot(-ray->direction(), n);
@@ -438,7 +438,7 @@ int main(int argc, char *argv[]) {
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
         Float radius = def(photon_radius);
-        Var<TriangleHit> hit = accel.trace_closest(ray);
+        Var<TriangleHit> hit = accel.intersect(ray, {});
         Float3 radiance = def(make_float3(0.0f));
 
         $if(!hit->miss()) {
@@ -450,7 +450,7 @@ int main(int argc, char *argv[]) {
                 Float3 p0 = vertex_buffer->read(triangle.i0);
                 Float3 p1 = vertex_buffer->read(triangle.i1);
                 Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
+                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
                 Float cos_wi = dot(-ray->direction(), n);
                 $if(cos_wi > 1e-4f) {
@@ -464,7 +464,7 @@ int main(int argc, char *argv[]) {
                     Float d_light = distance(pp, pp_light);
                     Float3 wi_light = normalize(pp_light - pp);
                     Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-                    Bool occluded = accel.trace_any(shadow_ray);
+                    Bool occluded = accel.intersect_any(shadow_ray, {});
                     Float cos_wi_light = dot(wi_light, n);
                     Float cos_light = -dot(light_normal, wi_light);
                     Float3 albedo = material.albedo;

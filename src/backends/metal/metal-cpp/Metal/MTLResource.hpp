@@ -176,4 +176,3 @@ _MTL_INLINE bool MTL::Resource::isAliasable()
 {
     return Object::sendMessage<bool>(this, _MTL_PRIVATE_SEL(isAliasable));
 }
-

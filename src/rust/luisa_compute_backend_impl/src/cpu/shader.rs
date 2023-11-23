@@ -1,10 +1,13 @@
 use crate::cpu::llvm::LLVM_PATH;
 use crate::panic_abort;
+use luisa_compute_api_types::ShaderOption;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
+use serde::{Deserialize, Serialize};
 use std::{
     env::{self, current_exe},
-    fs::{canonicalize},
+    ffi::{CStr, CString},
+    fs::canonicalize,
     io::Write,
     path::PathBuf,
     process::{Command, Stdio},
@@ -27,33 +30,28 @@ fn canonicalize_and_fix_windows_path(path: PathBuf) -> std::io::Result<PathBuf> 
 //     file.unlock().unwrap();
 //     ret
 // }
-pub(super) fn clang_args() -> Vec<&'static str> {
+
+pub(super) fn clang_args(options: &ShaderOption) -> Vec<&'static str> {
     let mut args = vec![];
-    match env::var("LUISA_DEBUG") {
-        Ok(s) => {
-            if s == "full" {
-                args.push("-DLUISA_DEBUG");
-                args.push("-DLUISA_DEBUG_FULL");
-                args.push("-g");
-            } else {
-                if s == "1" {
-                    args.push("-DLUISA_DEBUG");
-                    args.push("-g");
-                }
-                args.push("-O3");
-            }
-        }
-        Err(_) => {
-            if cfg!(debug_assertions) {
-                args.push("-DLUISA_DEBUG");
-                args.push("-g");
-            }
-            args.push("-O3");
-        }
+    if options.time_trace {
+        args.push("-ftime-trace");
+        args.push("-ftime-report");
     }
+    if options.enable_fast_math {
+        // clang is so smart that it bypass isinf/isnan
+        // DO NOT ENABLE fast-math
+        args.push("-fno-math-errno");
+        args.push("-fno-trapping-math");
+        args.push("-freciprocal-math");
+    }
+    if options.enable_debug_info {
+        args.push("-DLUISA_DEBUG");
+        args.push("-g");
+    }
+    args.push("-O3");
     args.push("-march=native");
     args.push("-std=c++20");
-   
+
     if cfg!(target_arch = "x86_64") {
         args.push("-mavx2");
         args.push("-DLUISA_ARCH_X86_64");
@@ -62,20 +60,16 @@ pub(super) fn clang_args() -> Vec<&'static str> {
     } else {
         panic_abort!("unsupported target architecture");
     }
-    // clang is so smart that it bypass isinf/isnan
-    // DO NOT ENABLE fast-math
-    // args.push("-ffast-math");
-    args.push("-fno-math-errno");
-    args.push("-fno-trapping-math");
-    args.push("-freciprocal-math");
+
     args.push("-fno-rtti");
     args.push("-fno-exceptions");
     args.push("-fno-stack-protector");
     args
 }
 pub(super) fn compile(
-    target: &String,
+    hash: &String,
     source: &String,
+    options: &ShaderOption,
     force_recompile: bool,
 ) -> std::io::Result<PathBuf> {
     let self_path = current_exe().map_err(|e| {
@@ -95,6 +89,21 @@ pub(super) fn compile(
             e
         })?;
     }
+    let target = unsafe {
+        if let Some(name) = options.name.as_ref() {
+            let name = CStr::from_ptr(name).to_str().unwrap().to_string();
+            if name == "" {
+                hash.clone()
+            } else {
+                // a valid name must be a valid C++ identifier
+                let name = name.replace("::", "__");
+                name
+            }
+        } else {
+            hash.clone()
+        }
+    };
+    let target = format!("kernel_{}", target);
 
     let target_lib = format!("{}.bc", target);
 
@@ -102,8 +111,31 @@ pub(super) fn compile(
         Ok(s) => s == "1",
         Err(_) => false,
     };
+    let target_prefix = format!("{}/{}", build_dir.display(), target);
+    let target_prefix = target_prefix.replace("\\", "/");
+    let lib_path = PathBuf::from(format!("{}.bc", target_prefix));
+    if lib_path.exists() {
+        let mut requires_recompile = force_recompile;
+        let cache_hash = std::fs::read_to_string(format!("{}.hash", target_prefix)).ok();
+        if cache_hash.is_none() {
+            requires_recompile = true;
+        } else {
+            let cache_hash = cache_hash.unwrap();
+            if cache_hash != *hash {
+                log::warn!(
+                    "Hash mismatch on cached kernel, recompiling {}",
+                    &target_lib
+                );
+                requires_recompile = true;
+            }
+        }
+        if !requires_recompile {
+            log::debug!("Loading cached LLVM IR {}", &target_lib);
+            return Ok(lib_path);
+        }
+    }
     let source_file = if dump_src {
-        let source_file = format!("{}/{}.cc", build_dir.display(), target);
+        let source_file = format!("{}.cc", target_prefix);
         std::fs::write(&source_file, &source).map_err(|e| {
             eprintln!("fs::write({}) failed", source_file);
             e
@@ -112,14 +144,14 @@ pub(super) fn compile(
     } else {
         "-".to_string()
     };
-    let lib_path = PathBuf::from(format!("{}/{}", build_dir.display(), target_lib));
-    if lib_path.exists() && !force_recompile {
-        log::debug!("Loading cached LLVM IR {}", &target_lib);
-        return Ok(lib_path);
-    }
+    std::fs::write(format!("{}.hash", target_prefix), hash).map_err(|e| {
+        eprintln!("fs::write({}) failed", build_dir.display());
+        e
+    })?;
+
     // log::info!("compiling kernel {}", source_file);
     {
-        let mut args: Vec<&str> = clang_args();
+        let mut args: Vec<&str> = clang_args(options);
         args.push("-c");
         args.push("-emit-llvm");
         args.push("-x");
@@ -154,6 +186,12 @@ pub(super) fn compile(
                         "LLVM IR generated in {:.3}ms",
                         (std::time::Instant::now() - tic).as_secs_f64() * 1e3
                     );
+                    if options.time_trace {
+                        log::info!(
+                            "Trace file written to {}",
+                            format!("{}.json", target_prefix)
+                        );
+                    }
                 }
                 false => {
                     eprintln!("clang++ failed to compile {}", source_file);

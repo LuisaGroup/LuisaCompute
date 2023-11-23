@@ -31,7 +31,7 @@ void BindlessArray::_emplace_buffer_on_update(size_t index, uint64_t handle, siz
             "Invalid buffer slot {} for bindless array of size {}.",
             index, _size);
     }
-    auto [iter, _] = _updates.emplace(Modification{index});
+    auto [iter, _] = _updates.emplace(index);
     iter->buffer = Modification::Buffer::emplace(handle, offset_bytes);
 }
 
@@ -42,7 +42,7 @@ void BindlessArray::_emplace_tex2d_on_update(size_t index, uint64_t handle, Samp
             "Invalid texture2d slot {} for bindless array of size {}.",
             index, _size);
     }
-    auto [iter, _] = _updates.emplace(Modification{index});
+    auto [iter, _] = _updates.emplace(index);
     iter->tex2d = Modification::Texture::emplace(handle, sampler);
 }
 
@@ -53,7 +53,7 @@ void BindlessArray::_emplace_tex3d_on_update(size_t index, uint64_t handle, Samp
             "Invalid texture3d slot {} for bindless array of size {}.",
             index, _size);
     }
-    auto [iter, _] = _updates.emplace(Modification{index});
+    auto [iter, _] = _updates.emplace(index);
     iter->tex3d = Modification::Texture::emplace(handle, sampler);
 }
 
@@ -64,7 +64,7 @@ BindlessArray &BindlessArray::remove_buffer_on_update(size_t index) noexcept {
             "Invalid buffer slot {} for bindless array of size {}.",
             index, _size);
     }
-    auto [iter, _] = _updates.emplace(Modification{index});
+    auto [iter, _] = _updates.emplace(index);
     iter->buffer = Modification::Buffer::remove();
     return *this;
 }
@@ -76,7 +76,7 @@ BindlessArray &BindlessArray::remove_tex2d_on_update(size_t index) noexcept {
             "Invalid texture2d slot {} for bindless array of size {}.",
             index, _size);
     }
-    auto [iter, _] = _updates.emplace(Modification{index});
+    auto [iter, _] = _updates.emplace(index);
     iter->tex2d = Modification::Texture::remove();
     return *this;
 }
@@ -88,7 +88,7 @@ BindlessArray &BindlessArray::remove_tex3d_on_update(size_t index) noexcept {
             "Invalid texture3d slot {} for bindless array of size {}.",
             index, _size);
     }
-    auto [iter, _] = _updates.emplace(Modification{index});
+    auto [iter, _] = _updates.emplace(index);
     iter->tex3d = Modification::Texture::remove();
     return *this;
 }
@@ -120,4 +120,3 @@ BindlessArray::~BindlessArray() noexcept {
 }
 
 }// namespace luisa::compute
-

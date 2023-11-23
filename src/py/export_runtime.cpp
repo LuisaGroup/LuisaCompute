@@ -25,6 +25,7 @@ using namespace luisa::compute;
 constexpr auto pyref = py::return_value_policy::reference;
 using luisa::compute::detail::FunctionBuilder;
 static vstd::vector<luisa::optional<ASTEvaluator>> analyzer;
+static luisa::weak_ptr<PyStream::Data> default_stream_data;
 struct IntEval {
     int32_t value;
     bool exist;
@@ -280,7 +281,13 @@ void export_runtime(py::module &m) {
         .def("set_user_id", [](ManagedAccel &a, size_t index, uint user_id) { a.GetAccel().set_instance_user_id_on_update(index, user_id); });
     py::class_<ManagedDevice>(m, "Device")
         .def(
-            "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
+            "create_stream", [](ManagedDevice &self, bool support_window) {
+                PyStream stream(self.device, support_window);
+                if (auto gs = default_stream_data.lock(); gs == nullptr) {
+                    default_stream_data = stream.data();
+                }
+                return stream;
+            })
         .def(
             "impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
         .def("create_accel", [](ManagedDevice &device, AccelOption::UsageHint hint, bool allow_compact, bool allow_update) {
@@ -304,8 +311,8 @@ void export_runtime(py::module &m) {
 
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
         .def("backend_name", [](DeviceInterface &self) {
-                return self.backend_name();
-            })
+            return self.backend_name();
+        })
         .def(
             "create_shader", [](DeviceInterface &self, Function kernel) {
                 auto handle = self.create_shader({}, kernel).handle;
@@ -432,18 +439,40 @@ void export_runtime(py::module &m) {
         .def(
             "create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
                 auto info = d.create_buffer(type, size, nullptr);
-                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+                RefCounter::current->AddObject(
+                    info.handle,
+                    {[](DeviceInterface *d, uint64 handle) {
+                         if (auto gs = default_stream_data.lock()) {
+                             gs->sync();
+                         } else {
+                             default_stream_data.reset();
+                         }
+                         d->destroy_buffer(handle);
+                     },
+                     &d});
                 return info;
             },
             pyref)
         .def("import_external_buffer", [](DeviceInterface &d, const Type *type, uint64_t native_address, size_t elem_count) noexcept {
             auto info = d.create_buffer(type, elem_count, reinterpret_cast<void *>(native_address));
-            RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+            RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) {
+                if (auto gs = default_stream_data.lock()) {
+                    gs->sync();
+                } else {
+                    default_stream_data.reset();
+                }
+                 d->destroy_buffer(handle); }, &d});
             return info;
         })
         .def("create_dispatch_buffer", [](DeviceInterface &d, size_t size) {
             auto ptr = d.create_buffer(Type::of<IndirectKernelDispatch>(), size, nullptr);
-            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) {
+                if (auto gs = default_stream_data.lock()) {
+                    gs->sync();
+                } else {
+                    default_stream_data.reset();
+                }
+                 d->destroy_buffer(handle); }, &d});
             return ptr;
         })
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
@@ -452,7 +481,13 @@ void export_runtime(py::module &m) {
         .def(
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
                 auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false);
-                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
+                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { 
+                    if (auto gs = default_stream_data.lock()) {
+                        gs->sync();
+                    } else {
+                        default_stream_data.reset();
+                    }
+                    d->destroy_texture(handle); }, &d});
                 return info;
             },
             pyref)
@@ -465,6 +500,11 @@ void export_runtime(py::module &m) {
             },
             pyref)// size
         .def("destroy_bindless_array", [](DeviceInterface &d, uint64 handle) {
+            if (auto gs = default_stream_data.lock()) {
+                gs->sync();
+            } else {
+                default_stream_data.reset();
+            }
             delete_with_allocator(reinterpret_cast<ManagedBindless *>(handle));
         })
         .def("emplace_buffer_in_bindless_array", [](DeviceInterface &d, uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) {
@@ -730,7 +770,8 @@ void export_runtime(py::module &m) {
             },
             pyref)
         .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
-        .def("print_", [](FunctionBuilder &self, luisa::string_view format, const luisa::vector<const Expression *> &args){
+        .def(
+            "print_", [](FunctionBuilder &self, luisa::string_view format, const luisa::vector<const Expression *> &args) {
                 self.print_(format, args);
             },
             pyref)

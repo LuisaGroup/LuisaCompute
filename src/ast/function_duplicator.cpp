@@ -77,6 +77,7 @@ private:
 private:
     void _dup_function(const FunctionBuilder &f) noexcept {
         auto fb = FunctionBuilder::current();
+        fb->mark_required_curve_basis_set(f.required_curve_bases());
         if (f.tag() == Function::Tag::KERNEL) {
             fb->set_block_size(f.block_size());
             luisa::unordered_set<const Expression *> collected;

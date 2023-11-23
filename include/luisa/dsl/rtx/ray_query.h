@@ -10,11 +10,11 @@ namespace luisa::compute {
 namespace detail {
 template<bool terminate_on_first>
 class RayQueryBase;
-}
+}// namespace detail
 
 // RayQuery DSL module, see test_procedural.cpp as example
 
-class LC_DSL_API TriangleCandidate {
+class LC_DSL_API SurfaceCandidate {
 
 private:
     const Expression *_query;
@@ -22,14 +22,14 @@ private:
 private:
     template<bool terminate_on_first>
     friend class detail::RayQueryBase;
-    explicit TriangleCandidate(const Expression *query) noexcept
+    explicit SurfaceCandidate(const Expression *query) noexcept
         : _query{query} {}
 
 public:
-    TriangleCandidate(TriangleCandidate const &) noexcept = delete;
-    TriangleCandidate(TriangleCandidate &&) noexcept = delete;
-    TriangleCandidate &operator=(TriangleCandidate const &) noexcept = delete;
-    TriangleCandidate &operator=(TriangleCandidate &&) noexcept = delete;
+    SurfaceCandidate(SurfaceCandidate const &) noexcept = delete;
+    SurfaceCandidate(SurfaceCandidate &&) noexcept = delete;
+    SurfaceCandidate &operator=(SurfaceCandidate const &) noexcept = delete;
+    SurfaceCandidate &operator=(SurfaceCandidate &&) noexcept = delete;
 
 public:
     [[nodiscard]] Var<Ray> ray() const noexcept;
@@ -37,6 +37,9 @@ public:
     void commit() const noexcept;
     void terminate() const noexcept;
 };
+
+// legacy names, provided for compatibility
+using TriangleCandidate = SurfaceCandidate;
 
 class LC_DSL_API ProceduralCandidate {
 
@@ -69,18 +72,21 @@ class LC_DSL_API RayQueryBase {
 
 private:
     RayQueryStmt *_stmt;
-    bool _triangle_handler_set{false};
+    bool _surface_handler_set{false};
     bool _procedural_handler_set{false};
-    bool _inside_triangle_handler{false};
+    bool _inside_surface_handler{false};
     bool _inside_procedural_handler{false};
 
 public:
-    using TriangleCandidateHandler = luisa::function<void(TriangleCandidate &)>;
+    using SurfaceCandidateHandler = luisa::function<void(SurfaceCandidate &)>;
     using ProceduralCandidateHandler = luisa::function<void(ProceduralCandidate &)>;
+
+    // legacy names, provided for compatibility
+    using TriangleCandidateHandler = SurfaceCandidateHandler;
 
 private:
     friend struct Expr<Accel>;
-    friend class compute::TriangleCandidate;
+    friend class compute::SurfaceCandidate;
     friend class compute::ProceduralCandidate;
     RayQueryBase(const Expression *accel,
                  const Expression *ray,
@@ -94,10 +100,13 @@ public:
     RayQueryBase &operator=(RayQueryBase const &) noexcept = delete;
 
 public:
-    [[nodiscard]] RayQueryBase on_triangle_candidate(
-        const TriangleCandidateHandler &handler) && noexcept;
-    [[nodiscard]] RayQueryBase on_procedural_candidate(
-        const ProceduralCandidateHandler &handler) && noexcept;
+    [[nodiscard, deprecated("Please use on_surface_candidate(), which unifies the code paths for triangles and curves.")]]// deprecated
+    RayQueryBase
+    on_triangle_candidate(const TriangleCandidateHandler &handler) && noexcept;
+
+public:
+    [[nodiscard]] RayQueryBase on_surface_candidate(const SurfaceCandidateHandler &handler) && noexcept;
+    [[nodiscard]] RayQueryBase on_procedural_candidate(const ProceduralCandidateHandler &handler) && noexcept;
     [[nodiscard]] Var<CommittedHit> trace() const noexcept;
 };
 
@@ -110,4 +119,3 @@ using RayQueryAll = detail::RayQueryBase<false>;
 
 LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::RayQueryAll, "LC_RayQueryAll")
 LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::RayQueryAny, "LC_RayQueryAny")
-

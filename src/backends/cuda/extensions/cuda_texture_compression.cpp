@@ -4,11 +4,11 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/buffer.h>
 
-#include "cuda_device.h"
-#include "cuda_stream.h"
-#include "cuda_buffer.h"
-#include "cuda_texture.h"
-#include "cuda_event.h"
+#include "../cuda_device.h"
+#include "../cuda_stream.h"
+#include "../cuda_buffer.h"
+#include "../cuda_texture.h"
+#include "../cuda_event.h"
 #include "cuda_texture_compression.h"
 
 namespace luisa::compute::cuda {

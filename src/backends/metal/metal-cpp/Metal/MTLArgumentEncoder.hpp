@@ -28,6 +28,9 @@
 
 namespace MTL
 {
+
+static const NS::UInteger AttributeStrideStatic = NS::UIntegerMax;
+
 class ArgumentEncoder : public NS::Referencing<ArgumentEncoder>
 {
 public:
@@ -239,4 +242,3 @@ _MTL_INLINE void MTL::ArgumentEncoder::setIntersectionFunctionTables(const MTL::
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setIntersectionFunctionTables_withRange_), intersectionFunctionTables, range);
 }
-

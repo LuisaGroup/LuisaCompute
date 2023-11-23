@@ -317,4 +317,3 @@ _MTL_INLINE MTL::ResourceID MTL::SamplerState::gpuResourceID() const
 {
     return Object::sendMessage<MTL::ResourceID>(this, _MTL_PRIVATE_SEL(gpuResourceID));
 }
-

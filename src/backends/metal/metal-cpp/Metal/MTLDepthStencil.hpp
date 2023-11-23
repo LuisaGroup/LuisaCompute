@@ -267,4 +267,3 @@ _MTL_INLINE MTL::Device* MTL::DepthStencilState::device() const
 {
     return Object::sendMessage<MTL::Device*>(this, _MTL_PRIVATE_SEL(device));
 }
-

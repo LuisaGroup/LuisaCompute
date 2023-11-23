@@ -468,6 +468,15 @@ public:
     MTL::PixelFormat                                    stencilAttachmentPixelFormat() const;
     void                                                setStencilAttachmentPixelFormat(MTL::PixelFormat stencilAttachmentPixelFormat);
 
+    class LinkedFunctions*                              objectLinkedFunctions() const;
+    void                                                setObjectLinkedFunctions(const class LinkedFunctions* objectLinkedFunctions);
+
+    class LinkedFunctions*                              meshLinkedFunctions() const;
+    void                                                setMeshLinkedFunctions(const class LinkedFunctions* meshLinkedFunctions);
+
+    class LinkedFunctions*                              fragmentLinkedFunctions() const;
+    void                                                setFragmentLinkedFunctions(const class LinkedFunctions* fragmentLinkedFunctions);
+
     void                                                reset();
 };
 
@@ -1591,9 +1600,41 @@ _MTL_INLINE void MTL::MeshRenderPipelineDescriptor::setStencilAttachmentPixelFor
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setStencilAttachmentPixelFormat_), stencilAttachmentPixelFormat);
 }
 
+// property: objectLinkedFunctions
+_MTL_INLINE MTL::LinkedFunctions* MTL::MeshRenderPipelineDescriptor::objectLinkedFunctions() const
+{
+    return Object::sendMessage<MTL::LinkedFunctions*>(this, _MTL_PRIVATE_SEL(objectLinkedFunctions));
+}
+
+_MTL_INLINE void MTL::MeshRenderPipelineDescriptor::setObjectLinkedFunctions(const MTL::LinkedFunctions* objectLinkedFunctions)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setObjectLinkedFunctions_), objectLinkedFunctions);
+}
+
+// property: meshLinkedFunctions
+_MTL_INLINE MTL::LinkedFunctions* MTL::MeshRenderPipelineDescriptor::meshLinkedFunctions() const
+{
+    return Object::sendMessage<MTL::LinkedFunctions*>(this, _MTL_PRIVATE_SEL(meshLinkedFunctions));
+}
+
+_MTL_INLINE void MTL::MeshRenderPipelineDescriptor::setMeshLinkedFunctions(const MTL::LinkedFunctions* meshLinkedFunctions)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMeshLinkedFunctions_), meshLinkedFunctions);
+}
+
+// property: fragmentLinkedFunctions
+_MTL_INLINE MTL::LinkedFunctions* MTL::MeshRenderPipelineDescriptor::fragmentLinkedFunctions() const
+{
+    return Object::sendMessage<MTL::LinkedFunctions*>(this, _MTL_PRIVATE_SEL(fragmentLinkedFunctions));
+}
+
+_MTL_INLINE void MTL::MeshRenderPipelineDescriptor::setFragmentLinkedFunctions(const MTL::LinkedFunctions* fragmentLinkedFunctions)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setFragmentLinkedFunctions_), fragmentLinkedFunctions);
+}
+
 // method: reset
 _MTL_INLINE void MTL::MeshRenderPipelineDescriptor::reset()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(reset));
 }
-

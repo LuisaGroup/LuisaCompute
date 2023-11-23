@@ -2,6 +2,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
 
     set(LUISA_COMPUTE_DSL_RTX_SOURCES
             rtx/accel.cpp
+            rtx/curve.cpp
             rtx/hit.cpp
             rtx/ray.cpp
             rtx/ray_query.cpp)

@@ -1,24 +1,28 @@
 [submodule "src/ext/xxHash"]
 	path = src/ext/xxHash
-	url = git@github.com:Cyan4973/xxHash.git
+	url = https://github.com/Cyan4973/xxHash.git
 [submodule "src/ext/spdlog"]
 	path = src/ext/spdlog
-	url = git@github.com:LuisaGroup/spdlog.git
+	url = https://github.com/LuisaGroup/spdlog.git
 [submodule "src/ext/stb/stb"]
 	path = src/ext/stb/stb
-	url = git@github.com:nothings/stb.git
+	url = https://github.com/nothings/stb.git
 [submodule "src/ext/glfw"]
 	path = src/ext/glfw
-	url = git@github.com:glfw/glfw.git
+	url = https://github.com/glfw/glfw.git
 [submodule "src/ext/EASTL"]
 	path = src/ext/EASTL
-	url = git@github.com:LuisaGroup/EASTL.git
+	url = https://github.com/LuisaGroup/EASTL.git
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
-	url = git@github.com:LuisaGroup/pybind11.git
+	url = https://github.com/LuisaGroup/pybind11.git
 [submodule "src/ext/corrosion"]
 	path = src/ext/corrosion
-	url = git@github.com:corrosion-rs/corrosion.git
+	url = https://github.com/corrosion-rs/corrosion.git
 [submodule "src/ext/magic_enum"]
 	path = src/ext/magic_enum
-	url = git@github.com:Neargye/magic_enum
+	url = https://github.com/Neargye/magic_enum
+[submodule "src/ext/imgui"]
+	path = src/ext/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking

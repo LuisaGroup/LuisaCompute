@@ -6,19 +6,35 @@ namespace luisa::compute {
 namespace detail {
 
 Var<TriangleHit> AccelExprProxy::trace_closest(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.trace_closest(ray, vis_mask);
+    return intersect(ray, {.visibility_mask = vis_mask});
 }
 
 Var<bool> AccelExprProxy::trace_any(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.trace_any(ray, vis_mask);
+    return intersect_any(ray, {.visibility_mask = vis_mask});
 }
 
 RayQueryAll AccelExprProxy::query_all(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.query_all(ray, vis_mask);
+    return traverse(ray, {.visibility_mask = vis_mask});
 }
 
 RayQueryAny AccelExprProxy::query_any(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.query_any(ray, vis_mask);
+    return traverse_any(ray, {.visibility_mask = vis_mask});
+}
+
+Var<TriangleHit> AccelExprProxy::intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.intersect(ray, options);
+}
+
+Var<bool> AccelExprProxy::intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.intersect_any(ray, options);
+}
+
+RayQueryAll AccelExprProxy::traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.traverse(ray, options);
+}
+
+RayQueryAny AccelExprProxy::traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.traverse_any(ray, options);
 }
 
 Var<float4x4> AccelExprProxy::instance_transform(Expr<int> instance_id) const noexcept {
@@ -86,25 +102,45 @@ Expr<Accel>::Expr(const Accel &accel) noexcept
           accel.handle())} {}
 
 Var<TriangleHit> Expr<Accel>::trace_closest(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return def<TriangleHit>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<TriangleHit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
-            {_expression, ray.expression(), mask.expression()}));
+    return intersect(ray, {.visibility_mask = mask});
 }
 
 Var<bool> Expr<Accel>::trace_any(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return def<bool>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<bool>(), CallOp::RAY_TRACING_TRACE_ANY,
-            {_expression, ray.expression(), mask.expression()}));
+    return intersect_any(ray, {.visibility_mask = mask});
 }
 
 RayQueryAll Expr<Accel>::query_all(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return {_expression, ray.expression(), mask.expression()};
+    return traverse(ray, {.visibility_mask = mask});
 }
 
 RayQueryAny Expr<Accel>::query_any(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return {_expression, ray.expression(), mask.expression()};
+    return traverse_any(ray, {.visibility_mask = mask});
+}
+
+Var<TriangleHit> Expr<Accel>::intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return def<TriangleHit>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<TriangleHit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
+            {_expression, ray.expression(), options.visibility_mask.expression()}));
+}
+
+Var<bool> Expr<Accel>::intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return def<bool>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bool>(), CallOp::RAY_TRACING_TRACE_ANY,
+            {_expression, ray.expression(), options.visibility_mask.expression()}));
+}
+
+RayQueryAll Expr<Accel>::traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return {_expression, ray.expression(), options.visibility_mask.expression()};
+}
+
+RayQueryAny Expr<Accel>::traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return {_expression, ray.expression(), options.visibility_mask.expression()};
 }
 
 Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noexcept {

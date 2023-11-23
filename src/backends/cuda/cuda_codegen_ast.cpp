@@ -935,12 +935,25 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
-        case CallOp::ASSERT: _scratch << "lc_assert"; break;
+        case CallOp::ASSERT: {
+            if (expr->arguments().size() == 1u) {
+                _scratch << "lc_assert";
+            } else {
+                _scratch << "lc_assert_with_message";
+            }
+            break;
+        }
         case CallOp::ASSUME: _scratch << "lc_assume"; break;
         case CallOp::UNREACHABLE:
-            _scratch << "lc_unreachable<";
-            _emit_type_name(expr->type());
-            _scratch << ">";
+            if (expr->arguments().empty()) {
+                _scratch << "lc_unreachable<";
+                _emit_type_name(expr->type());
+                _scratch << ">";
+            } else {
+                _scratch << "lc_unreachable_with_message<";
+                _emit_type_name(expr->type());
+                _scratch << ">";
+            }
             break;
         case CallOp::ZERO: {
             _scratch << "lc_zero<";
@@ -1031,23 +1044,36 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             extra->accept(*this);
         }
     } else {
-        auto trailing_comma = false;
         if (op == CallOp::UNREACHABLE) {
-            _scratch << "__FILE__, __LINE__, ";
-            trailing_comma = true;
-        }
-        for (auto arg : expr->arguments()) {
-            trailing_comma = true;
-            arg->accept(*this);
-            _scratch << ", ";
-        }
-        if (op == CallOp::CUSTOM && _requires_printing && !_requires_optix) {
-            _scratch << "print_buffer, ";
-            trailing_comma = true;
-        }
-        if (trailing_comma) {
-            _scratch.pop_back();
-            _scratch.pop_back();
+            _scratch << "__FILE__, __LINE__";
+            if (!expr->arguments().empty()) {
+                _scratch << ", LC_DECODE_STRING_FROM_ID(";
+                expr->arguments().front()->accept(*this);
+                _scratch << ")";
+            }
+        } else if (op == CallOp::ASSERT) {
+            auto args = expr->arguments();
+            args[0]->accept(*this);
+            if (args.size() > 1u) {
+                _scratch << ", LC_DECODE_STRING_FROM_ID(";
+                args[1]->accept(*this);
+                _scratch << ")";
+            }
+        } else {
+            auto trailing_comma = false;
+            for (auto arg : expr->arguments()) {
+                trailing_comma = true;
+                arg->accept(*this);
+                _scratch << ", ";
+            }
+            if (op == CallOp::CUSTOM && _requires_printing && !_requires_optix) {
+                _scratch << "print_buffer, ";
+                trailing_comma = true;
+            }
+            if (trailing_comma) {
+                _scratch.pop_back();
+                _scratch.pop_back();
+            }
         }
     }
     _scratch << ")";
@@ -1130,7 +1156,9 @@ void CUDACodegenAST::visit(const TypeIDExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const StringIDExpr *expr) {
-    LUISA_NOT_IMPLEMENTED();
+    _scratch << "static_cast<";
+    _emit_type_name(expr->type());
+    _scratch << luisa::format(">({})", _string_ids.at(expr->data()));
 }
 
 void CUDACodegenAST::visit(const BreakStmt *) {
@@ -1235,6 +1263,9 @@ void CUDACodegenAST::emit(Function f,
 
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
+        if (f.required_curve_bases().any()) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_CURVE\n";
+        }
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
             _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_CLOSEST\n";
         }
@@ -1263,6 +1294,7 @@ void CUDACodegenAST::emit(Function f,
                  << "\n/* native include end */\n\n";
     }
 
+    _emit_string_ids(f);
     _emit_function(f);
 }
 
@@ -1330,7 +1362,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
                          "__raygen__main" :
                          "kernel_main");
     } else if (f.tag() == Function::Tag::CALLABLE) {
-        _scratch << "inline __device__ ";
+        _scratch << "__forceinline__ __device__ ";
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {
@@ -1887,6 +1919,64 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
     CUDAConstantPrinter printer{this};
     c.decode(printer);
     _scratch << ";\n";
+}
+
+void CUDACodegenAST::_emit_string_ids(Function f) noexcept {
+
+    auto collect_string_ids = [this, visited = luisa::unordered_set<Function>{}](
+                                  auto &&self, Function f) mutable noexcept {
+        if (!visited.emplace(f).second) { return; }
+        traverse_expressions<true>(
+            f.body(),
+            [this, &self](const Expression *expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call = static_cast<const CallExpr *>(expr);
+                    if (call->is_custom()) {
+                        auto custom = call->custom();
+                        self(self, custom);
+                    }
+                } else if (expr->tag() == Expression::Tag::STRING_ID) {
+                    auto s = static_cast<const StringIDExpr *>(expr);
+                    auto n = static_cast<uint>(this->_string_ids.size());
+                    this->_string_ids.try_emplace(s->data(), n);
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+    };
+
+    collect_string_ids(collect_string_ids, f);
+
+    if (!_string_ids.empty()) {
+        luisa::vector<luisa::string_view> strings;
+        strings.resize(_string_ids.size());
+        auto total_size = static_cast<size_t>(0u);
+        for (auto &&[s, i] : _string_ids) {
+            LUISA_ASSERT(i < strings.size(), "String ID out of range.");
+            strings[i] = s;
+            total_size += s.size() + 1u /* trailing zero */;
+        }
+
+        // generate string offsets
+        _scratch << "__constant__ LC_CONSTANT const lc_uint lc_string_offsets[] {\n  ";
+        luisa::vector<char> string_data;
+        string_data.resize(total_size);
+        auto offset = static_cast<size_t>(0u);
+        for (auto s : strings) {
+            _scratch << offset << "u, ";
+            std::memcpy(string_data.data() + offset, s.data(), s.size() + 1u);
+            offset += s.size() + 1u;
+        }
+        _scratch << "\n};\n\n";
+
+        // generate string data
+        _scratch << "static const char lc_string_data[] {";
+        for (auto i = 0u; i < string_data.size(); i++) {
+            if (i % 32u == 0u) { _scratch << "\n  "; }
+            _scratch << luisa::format("0x{:02x}, ", static_cast<int>(string_data[i]));
+        }
+        _scratch << "\n};\n\n";
+    }
 }
 
 void CUDACodegenAST::visit(const ConstantExpr *expr) {

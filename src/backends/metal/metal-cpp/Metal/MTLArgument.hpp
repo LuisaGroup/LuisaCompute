@@ -123,6 +123,10 @@ _MTL_ENUM(NS::UInteger, DataType) {
     DataTypeIntersectionFunctionTable = 116,
     DataTypePrimitiveAccelerationStructure = 117,
     DataTypeInstanceAccelerationStructure = 118,
+    DataTypeBFloat = 121,
+    DataTypeBFloat2 = 122,
+    DataTypeBFloat3 = 123,
+    DataTypeBFloat4 = 124,
 };
 
 _MTL_ENUM(NS::Integer, BindingType) {
@@ -152,9 +156,12 @@ _MTL_ENUM(NS::UInteger, ArgumentType) {
     ArgumentTypeIntersectionFunctionTable = 27,
 };
 
-_MTL_ENUM(NS::UInteger, ArgumentAccess) {
+_MTL_ENUM(NS::UInteger, BindingAccess) {
     ArgumentAccessReadOnly = 0,
+    BindingAccessReadOnly = 0,
     ArgumentAccessReadWrite = 1,
+    BindingAccessReadWrite = 1,
+    BindingAccessWriteOnly = 2,
     ArgumentAccessWriteOnly = 2,
 };
 
@@ -237,7 +244,7 @@ public:
 
     MTL::DataType             elementType() const;
 
-    MTL::ArgumentAccess       access() const;
+    MTL::BindingAccess        access() const;
 
     NS::UInteger              alignment() const;
 
@@ -261,7 +268,7 @@ public:
 
     MTL::TextureType                   textureType() const;
 
-    MTL::ArgumentAccess                access() const;
+    MTL::BindingAccess                 access() const;
 
     bool                               isDepthTexture() const;
 };
@@ -277,7 +284,7 @@ public:
 
     MTL::ArgumentType      type() const;
 
-    MTL::ArgumentAccess    access() const;
+    MTL::BindingAccess     access() const;
 
     NS::UInteger           index() const;
 
@@ -309,17 +316,17 @@ public:
 class Binding : public NS::Referencing<Binding>
 {
 public:
-    NS::String*         name() const;
+    NS::String*        name() const;
 
-    MTL::BindingType    type() const;
+    MTL::BindingType   type() const;
 
-    MTL::ArgumentAccess access() const;
+    MTL::BindingAccess access() const;
 
-    NS::UInteger        index() const;
+    NS::UInteger       index() const;
 
-    bool                used() const;
+    bool               used() const;
 
-    bool                argument() const;
+    bool               argument() const;
 };
 
 class BufferBinding : public NS::Referencing<BufferBinding, Binding>
@@ -547,9 +554,9 @@ _MTL_INLINE MTL::DataType MTL::PointerType::elementType() const
 }
 
 // property: access
-_MTL_INLINE MTL::ArgumentAccess MTL::PointerType::access() const
+_MTL_INLINE MTL::BindingAccess MTL::PointerType::access() const
 {
-    return Object::sendMessage<MTL::ArgumentAccess>(this, _MTL_PRIVATE_SEL(access));
+    return Object::sendMessage<MTL::BindingAccess>(this, _MTL_PRIVATE_SEL(access));
 }
 
 // property: alignment
@@ -607,9 +614,9 @@ _MTL_INLINE MTL::TextureType MTL::TextureReferenceType::textureType() const
 }
 
 // property: access
-_MTL_INLINE MTL::ArgumentAccess MTL::TextureReferenceType::access() const
+_MTL_INLINE MTL::BindingAccess MTL::TextureReferenceType::access() const
 {
-    return Object::sendMessage<MTL::ArgumentAccess>(this, _MTL_PRIVATE_SEL(access));
+    return Object::sendMessage<MTL::BindingAccess>(this, _MTL_PRIVATE_SEL(access));
 }
 
 // property: isDepthTexture
@@ -643,9 +650,9 @@ _MTL_INLINE MTL::ArgumentType MTL::Argument::type() const
 }
 
 // property: access
-_MTL_INLINE MTL::ArgumentAccess MTL::Argument::access() const
+_MTL_INLINE MTL::BindingAccess MTL::Argument::access() const
 {
-    return Object::sendMessage<MTL::ArgumentAccess>(this, _MTL_PRIVATE_SEL(access));
+    return Object::sendMessage<MTL::BindingAccess>(this, _MTL_PRIVATE_SEL(access));
 }
 
 // property: index
@@ -739,9 +746,9 @@ _MTL_INLINE MTL::BindingType MTL::Binding::type() const
 }
 
 // property: access
-_MTL_INLINE MTL::ArgumentAccess MTL::Binding::access() const
+_MTL_INLINE MTL::BindingAccess MTL::Binding::access() const
 {
-    return Object::sendMessage<MTL::ArgumentAccess>(this, _MTL_PRIVATE_SEL(access));
+    return Object::sendMessage<MTL::BindingAccess>(this, _MTL_PRIVATE_SEL(access));
 }
 
 // property: index
@@ -839,4 +846,3 @@ _MTL_INLINE NS::UInteger MTL::ObjectPayloadBinding::objectPayloadDataSize() cons
 {
     return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(objectPayloadDataSize));
 }
-

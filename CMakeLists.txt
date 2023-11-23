@@ -37,7 +37,6 @@ else ()
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
     option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
     option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
-   
 endif ()
 
 option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build (which might accelerate the compilation but could break VS Code's clangd indexing)" OFF)
@@ -45,6 +44,14 @@ option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends 
 
 # validate the options
 include(scripts/validate_options.cmake)
+
+# Open Image Denoise
+option(LUISA_COMPUTE_DOWNLOAD_OIDN "Download OpenImageDenoise for denoiser extension" OFF)
+
+# nvCOMP
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    option(LUISA_COMPUTE_DOWNLOAD_NVCOMP "Download the nvCOMP library for CUDA GPU decompression" OFF)
+endif ()
 
 # basic set-up for compilers
 include(scripts/setup_compilation.cmake)
@@ -69,7 +76,11 @@ endif ()
 if (SKBUILD)
     set(CMAKE_INSTALL_INCLUDEDIR ${SKBUILD_NULL_DIR})
     set(CMAKE_INSTALL_DOCDIR ${SKBUILD_NULL_DIR})
-    set(CMAKE_INSTALL_LIBDIR ${SKBUILD_PLATLIB_DIR}/luisa/dylibs)
+    if (WIN32)
+        set(CMAKE_INSTALL_LIBDIR ${SKBUILD_NULL_DIR})
+    else ()
+        set(CMAKE_INSTALL_LIBDIR ${SKBUILD_PLATLIB_DIR}/luisa/dylibs)
+    endif ()
     set(CMAKE_INSTALL_BINDIR ${SKBUILD_PLATLIB_DIR}/luisa/dylibs)
 else ()
     include(GNUInstallDirs)

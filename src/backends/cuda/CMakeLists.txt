@@ -9,7 +9,6 @@ if (CUDAToolkit_FOUND)
             cuda_buffer.cpp cuda_buffer.h
             cuda_stream.cpp cuda_stream.h
             cuda_device.cpp cuda_device.h
-            cuda_dstorage.cpp cuda_dstorage.h
             cuda_event.cpp cuda_event.h
             cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h
             cuda_command_encoder.cpp cuda_command_encoder.h
@@ -19,13 +18,13 @@ if (CUDAToolkit_FOUND)
             cuda_accel.cpp cuda_accel.h
             cuda_primitive.cpp cuda_primitive.h
             cuda_procedural_primitive.cpp cuda_procedural_primitive.h
+            cuda_curve.cpp cuda_curve.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_shader.cpp cuda_shader.h
             cuda_shader_metadata.cpp cuda_shader_metadata.h
             cuda_shader_native.cpp cuda_shader_native.h
             cuda_shader_optix.cpp cuda_shader_optix.h
             cuda_shader_printer.cpp cuda_shader_printer.h
-            cuda_ext.cpp cuda_ext.h
             cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
@@ -33,6 +32,11 @@ if (CUDAToolkit_FOUND)
             default_binary_io.cpp)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+
+    # extensions
+    target_sources(luisa-compute-backend-cuda PRIVATE
+            extensions/cuda_dstorage.cpp extensions/cuda_dstorage.h
+            extensions/cuda_denoiser.cpp extensions/cuda_denoiser.h)
 
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
@@ -52,11 +56,12 @@ if (CUDAToolkit_FOUND)
         add_library(luisa-compute-backend-cuda-nvrtc MODULE cuda_nvrtc.cpp)
         target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
         set_target_properties(luisa-compute-backend-cuda-nvrtc PROPERTIES
-                OUTPUT_NAME "lc-backend-cuda-nvrtc"
+                OUTPUT_NAME "lc-cuda-nvrtc"
                 WINDOWS_EXPORT_ALL_SYMBOLS OFF
                 INTERPROCEDURAL_OPTIMIZATION OFF
                 LANGUAGE C)
-        install(TARGETS luisa-compute-backend-cuda-nvrtc DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(TARGETS luisa-compute-backend-cuda-nvrtc
+                DESTINATION ${CMAKE_INSTALL_BINDIR})
         add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-nvrtc)
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_STANDALONE_NVRTC_DLL=1)
     else ()
@@ -209,7 +214,9 @@ if (CUDAToolkit_FOUND)
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVTT=1)
             target_include_directories(luisa-compute-backend-cuda PRIVATE ${NVTT_INCLUDE_DIR})
             target_link_libraries(luisa-compute-backend-cuda PRIVATE "${NVTT_LINKER_LIB}")
-            target_sources(luisa-compute-backend-cuda PRIVATE cuda_texture_compression.cpp cuda_texture_compression.h)
+            target_sources(luisa-compute-backend-cuda PRIVATE
+                    extensions/cuda_texture_compression.cpp
+                    extensions/cuda_texture_compression.h)
             # The misplaced [[deprecated]] attributes in NVTT result in an error with Clang so we disable them.
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE "NVTT_DEPRECATED_API=")
             # TODO: fix rpath on Linux?

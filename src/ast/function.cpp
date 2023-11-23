@@ -1,4 +1,3 @@
-//
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
 
@@ -120,6 +119,10 @@ bool Function::requires_autodiff() const noexcept {
 
 bool Function::requires_printing() const noexcept {
     return _builder->requires_printing();
+}
+
+CurveBasisSet Function::required_curve_bases() const noexcept {
+    return _builder->required_curve_bases();
 }
 
 }// namespace luisa::compute

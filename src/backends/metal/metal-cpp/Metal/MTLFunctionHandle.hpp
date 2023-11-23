@@ -59,4 +59,3 @@ _MTL_INLINE MTL::Device* MTL::FunctionHandle::device() const
 {
     return Object::sendMessage<MTL::Device*>(this, _MTL_PRIVATE_SEL(device));
 }
-

@@ -82,6 +82,7 @@ _MTL_OPTIONS(NS::UInteger, TextureUsage) {
     TextureUsageShaderWrite = 2,
     TextureUsageRenderTarget = 4,
     TextureUsagePixelFormatView = 16,
+    TextureUsageShaderAtomic = 32,
 };
 
 _MTL_ENUM(NS::Integer, TextureCompressionType) {
@@ -682,4 +683,3 @@ _MTL_INLINE MTL::Texture* MTL::Texture::newTextureView(MTL::PixelFormat pixelFor
 {
     return Object::sendMessage<MTL::Texture*>(this, _MTL_PRIVATE_SEL(newTextureViewWithPixelFormat_textureType_levels_slices_swizzle_), pixelFormat, textureType, levelRange, sliceRange, swizzle);
 }
-

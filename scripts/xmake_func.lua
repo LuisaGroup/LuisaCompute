@@ -241,6 +241,20 @@ on_load(function(target)
 			tools = {"clang_cl", "cl"},
 			public = config_is_public
 		})
+	elseif is_mode("releasedbg") then
+		target:set("runtimes", "MD", {
+			public = config_is_public
+		})
+		target:set("optimize", "none", {
+			public = config_is_public
+		})
+		target:set("warnings", "none", {
+			public = config_is_public
+		})
+		target:add("cxflags", "/GS-", "/Gd", {
+			tools = {"clang_cl", "cl"},
+			public = config_is_public
+		})
 	else
 		target:set("runtimes", "MD", {
 			public = config_is_public

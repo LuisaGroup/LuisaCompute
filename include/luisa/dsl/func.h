@@ -575,15 +575,15 @@ namespace detail {
 struct CallableOutliner {
     template<typename F>
     void operator%(F &&body) && noexcept {
-        Callable{std::forward<F>(body)}();
+        return Callable{std::forward<F>(body)}();
     }
 };
 
 }// namespace detail
 
 template<typename F>
-inline void outline(F &&f) noexcept {
-    Callable{std::forward<F>(f)}();
+void outline(F &&f) noexcept {
+    return Callable{std::forward<F>(f)}();
 }
 
 namespace detail {

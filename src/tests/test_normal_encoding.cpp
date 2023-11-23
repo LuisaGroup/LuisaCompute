@@ -54,8 +54,8 @@ int main(int argc, char *argv[]) {
         constexpr auto oct_decode = [](luisa::compute::Expr<uint> u) noexcept {
             using namespace luisa::compute;
             Float2 p = make_float2(
-                cast<float>((u & 0xffffu) * (1.0f / 65535.0f)),
-                cast<float>((u >> 16u) * (1.0f / 65535.0f)));
+                cast<float>((u & 0xffffu)) * (1.0f / 65535.0f),
+                cast<float>((u >> 16u)) * (1.0f / 65535.0f));
             p = p * 2.0f - 1.0f;// map to [-1, 1]
             Float3 n = make_float3(p, 1.0f - abs(p.x) - abs(p.y));
             Float t = saturate(-n.z);

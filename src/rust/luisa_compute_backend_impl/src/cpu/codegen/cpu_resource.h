@@ -363,7 +363,7 @@ inline void lc_ray_query(RayQuery &rq, T on_triangle_hit, P on_procedural_hit) {
     auto accel = rq.accel;
     return accel->ray_query(accel->handle, &rq, on_triangle_hit_wrapper<T, P>, on_procedural_hit_wrapper<T, P>);
 }
-inline CommitedHit lc_ray_query_committed_hit(RayQuery &rq) {
+inline auto lc_ray_query_committed_hit(RayQuery &rq) {
     return rq.hit;
 }
 template<typename T>

@@ -15,6 +15,7 @@
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/argument.h>
+#include <luisa/runtime/rhi/curve_basis.h>
 
 // for validation
 namespace lc::validation {
@@ -41,6 +42,7 @@ struct IndirectDispatchArg {
         TextureToBufferCopyCommand,      \
         AccelBuildCommand,               \
         MeshBuildCommand,                \
+        CurveBuildCommand,               \
         ProceduralPrimitiveBuildCommand, \
         BindlessArrayUpdateCommand,      \
         CustomCommand
@@ -444,6 +446,49 @@ public:
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 
+class CurveBuildCommand final : public Command {
+
+private:
+    uint64_t _handle{};
+    AccelBuildRequest _request{};
+    CurveBasis _basis{};
+    size_t _cp_count{};
+    size_t _seg_count{};
+    uint64_t _cp_buffer{};
+    size_t _cp_buffer_offset{};
+    size_t _cp_stride{};
+    uint64_t _seg_buffer{};
+    size_t _seg_buffer_offset{};
+
+private:
+    CurveBuildCommand() noexcept
+        : Command{Command::Tag::ECurveBuildCommand} {}
+
+public:
+    CurveBuildCommand(uint64_t handle, AccelBuildRequest request, CurveBasis basis,
+                      size_t cp_count, size_t seg_count,
+                      uint64_t cp_buffer, size_t cp_buffer_offset, size_t cp_stride,
+                      uint64_t seg_buffer, size_t seg_buffer_offset) noexcept
+        : Command{Command::Tag::ECurveBuildCommand},
+          _handle{handle}, _request{request}, _basis{basis},
+          _cp_count{cp_count}, _seg_count{seg_count},
+          _cp_buffer{cp_buffer}, _cp_buffer_offset{cp_buffer_offset}, _cp_stride{cp_stride},
+          _seg_buffer{seg_buffer}, _seg_buffer_offset{seg_buffer_offset} {}
+
+public:
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto request() const { return _request; }
+    [[nodiscard]] auto basis() const { return _basis; }
+    [[nodiscard]] auto cp_count() const { return _cp_count; }
+    [[nodiscard]] auto seg_count() const { return _seg_count; }
+    [[nodiscard]] auto cp_buffer() const { return _cp_buffer; }
+    [[nodiscard]] auto cp_buffer_offset() const { return _cp_buffer_offset; }
+    [[nodiscard]] auto cp_stride() const { return _cp_stride; }
+    [[nodiscard]] auto seg_buffer() const { return _seg_buffer; }
+    [[nodiscard]] auto seg_buffer_offset() const { return _seg_buffer_offset; }
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
+};
+
 class ProceduralPrimitiveBuildCommand final : public Command {
 
 private:
@@ -617,11 +662,12 @@ private:
 
 public:
     BindlessArrayUpdateCommand(uint64_t handle,
-                               luisa::vector<Modification> mods) noexcept
+                               luisa::vector<Modification> &&mods) noexcept
         : Command{Command::Tag::EBindlessArrayUpdateCommand},
           _handle{handle}, _modifications{std::move(mods)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto steal_modifications() noexcept { return std::move(_modifications); }
+    [[nodiscard]] auto set_modifications(luisa::vector<Modification> &&mods) noexcept { return _modifications = std::move(mods); }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };

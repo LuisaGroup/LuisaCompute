@@ -27,7 +27,7 @@ class SmallTreeMap {
 public:
     using Element = typename decltype(TreeElementType<K, V>())::Type;
     using ConstElement = typename decltype(ConstTreeElementType<K, V>())::Type;
-    static decltype(auto) GetFirst(auto &&ele) {
+    static auto &&GetFirst(auto &&ele) {
         if constexpr (std::is_same_v<V, void>) {
             return ele;
         } else {
@@ -623,7 +623,8 @@ public:
 
     template<typename Key>
         requires(!std::is_same_v<std::remove_cvref_t<Key>, Index> &&
-                 !std::is_same_v<std::remove_cvref_t<Key>, NodePair>)
+                 !std::is_same_v<std::remove_cvref_t<Key>, Iterator> &&
+                 !std::is_same_v<std::remove_cvref_t<Key>, MoveIterator>)
     void remove(Key &&key) noexcept {
         size_t hashOriginValue = hsFunc(key);
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
@@ -637,8 +638,13 @@ public:
     void remove(const Index &ite) noexcept {
         remove(ite.node);
     }
-    void remove(NodePair const &ite) noexcept {
-        remove(const_cast<LinkNode *>(static_cast<LinkNode const *>(&ite)));
+
+    void remove(Iterator const &iter) noexcept {
+        remove(*iter.ii);
+    }
+
+    void remove(MoveIterator const &iter) noexcept {
+        remove(*iter.ii);
     }
 
     void clear() noexcept {

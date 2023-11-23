@@ -17,6 +17,7 @@ class Event;
 class TimelineEvent;
 class Stream;
 class Mesh;
+class Curve;
 class MeshFormat;
 class ProceduralPrimitive;
 class Accel;
@@ -153,6 +154,13 @@ public:
                                    size_t vertex_stride,
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;
+    // see definition in rtx/curve.h
+    template<typename CPBuffer, typename SegmentBuffer>
+    [[nodiscard]] Curve create_curve(CurveBasis basis,
+                                     CPBuffer &&control_points,
+                                     SegmentBuffer &&segments,
+                                     const AccelOption &option = {}) noexcept;
+
     // see definition in rtx/procedural_primitive.h
     template<typename AABBBuffer>
     [[nodiscard]] ProceduralPrimitive create_procedural_primitive(AABBBuffer &&aabb_buffer,

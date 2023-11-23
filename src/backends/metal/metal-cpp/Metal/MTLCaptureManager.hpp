@@ -218,4 +218,3 @@ _MTL_INLINE bool MTL::CaptureManager::isCapturing() const
 {
     return Object::sendMessage<bool>(this, _MTL_PRIVATE_SEL(isCapturing));
 }
-
