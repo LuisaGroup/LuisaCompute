@@ -27,7 +27,7 @@ class SmallTreeMap {
 public:
     using Element = typename decltype(TreeElementType<K, V>())::Type;
     using ConstElement = typename decltype(ConstTreeElementType<K, V>())::Type;
-    static auto const &GetFirst(auto &&ele) {
+    static auto &&GetFirst(auto &&ele) {
         if constexpr (std::is_same_v<V, void>) {
             return ele;
         } else {
