@@ -80,6 +80,7 @@ concept uintN = is_boolN<typename remove_cvref<T>::type>::value;
 template<typename T>
 concept arithmetic = is_arithmetic<T>::value;
 
+
 template<typename T>
 trait vec_dim { static constexpr uint64 value = 1; };
 
@@ -210,6 +211,17 @@ template <>
 trait is_basic_type<int16>{ static constexpr bool value = true; };
 template <>
 trait is_basic_type<uint16>{ static constexpr bool value = true; };
+template <typename T>
+trait is_matrix{ static constexpr bool value = false;};
+template <uint64 N>
+trait is_matrix<matrix<N>>{ static constexpr bool value = true;};
 template<typename T>
 concept basic_type = is_basic_type<typename remove_cvref<T>::type>::value;
+template<typename T>
+trait element{ using type = T;};
+template<typename T, uint64 N>
+trait element<vec<T, N>>{ using type = T;};
+template<uint64 N>
+trait element<matrix<N>>{ using type = float;};
+
 }
